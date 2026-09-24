@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from lemoncrow.pro.capabilities.tool_supervision.bash_output_profiles import compact_profiled_output
+from lemoncrow_client.kit.bash_output_profiles import compact_profiled_output
 
 
 def _compact(command: str, text: str, budget: int = 1000, exit_code: int = 0):

@@ -8,7 +8,6 @@ import {
   Chip,
   FieldLabel,
   Input,
-  PageHero,
 } from "../components/WorkbenchUI";
 
 const VIEW_OPTIONS = ["compact", "exact", "summary"] as const;
@@ -128,13 +127,7 @@ export default function ProjectionInspector() {
   };
 
   return (
-    <div className="space-y-6 p-6">
-      <PageHero
-        eyebrow="Projection Inspector"
-        title="Inspect compact, exact, and summary views"
-        description="Use the structured file projection surface to inspect transformed notices, token savings, and mapping segments before deciding whether to reread exact text."
-      />
-
+    <div className="space-y-4">
       <Card className="space-y-4">
         <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto]">
           <div className="space-y-2">

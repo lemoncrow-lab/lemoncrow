@@ -18,13 +18,17 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import hashlib
 import json
 import os
 import queue
+import subprocess
+import sys
 import time
 import urllib.request
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -276,6 +280,20 @@ def _load_prior_results(out_dir: Path) -> dict[tuple[str, str, int], ArmResult]:
     return prior
 
 
+def _effective_parallelism(*, jobs: int, jobs_per_token: int, token_count: int) -> int:
+    """Return the actual container concurrency, always honoring ``--jobs``.
+
+    OAuth rotation adds credential capacity; it must not silently override the
+    caller's global concurrency request.  In particular, ``--jobs 2`` with one
+    token and the default ``--jobs-per-token 4`` means two containers, not four.
+    """
+    requested = max(1, jobs)
+    if token_count <= 0:
+        return requested
+    token_capacity = max(1, jobs_per_token) * token_count
+    return min(requested, token_capacity)
+
+
 def _resolve_oauth_tokens(agent_env: dict[str, str]) -> list[str]:
     """OAuth tokens to rotate container runs across, in priority order.
 
@@ -296,6 +314,101 @@ def _resolve_oauth_tokens(agent_env: dict[str, str]) -> list[str]:
     return tokens
 
 
+_RUNTIME_FINGERPRINT_PATHS = (
+    "src/lemoncrow",
+    "client/src/lemoncrow_client",
+    "server/src/lemoncrow_server_core",
+    "integrations/claude/plugin",
+    "benchmarks/codebench/incontainer.py",
+    "benchmarks/codebench/incontainer_entry.sh",
+)
+
+
+def _runtime_source_fingerprint() -> str:
+    """Hash every host file that can change the live Claude/LemonCrow runtime.
+
+    SWE containers bind-mount these paths, so changing them while a run is in
+    progress can otherwise create a mixed-version result without changing the
+    command line. The publication manifest records the hash at both ends.
+    """
+    digest = hashlib.sha256()
+    root = incontainer.REPO_ROOT
+    for relative in _RUNTIME_FINGERPRINT_PATHS:
+        target = root / relative
+        files = [target] if target.is_file() else sorted(path for path in target.rglob("*") if path.is_file())
+        for path in files:
+            if "__pycache__" in path.parts or path.suffix in {".pyc", ".pyo"}:
+                continue
+            name = path.relative_to(root).as_posix().encode("utf-8")
+            digest.update(name)
+            digest.update(b"\0")
+            digest.update(path.read_bytes())
+            digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _git_head() -> str:
+    proc = subprocess.run(
+        ["git", "-C", str(incontainer.REPO_ROOT), "rev-parse", "HEAD"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return proc.stdout.strip() if proc.returncode == 0 else "unknown"
+
+
+def _write_benchmark_manifest(
+    out_dir: Path,
+    *,
+    args: argparse.Namespace,
+    instances: list[Any],
+    grade_label: str,
+    start_fingerprint: str,
+    end_fingerprint: str | None = None,
+) -> dict[str, Any]:
+    path = out_dir / "benchmark-manifest.json"
+    previous: dict[str, Any] = {}
+    if path.exists():
+        try:
+            previous = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            previous = {}
+    manifest: dict[str, Any] = {
+        **previous,
+        "schema_version": 1,
+        "suite": args.suite,
+        "dataset": args.dataset,
+        "instances": [inst.instance_id for inst in instances],
+        "arms": list(args.arms),
+        "reps": args.reps,
+        "driver": args.driver,
+        "model": args.model,
+        "max_turns": args.max_turns,
+        "timeout_s": args.timeout,
+        "jobs": args.jobs,
+        "jobs_per_token": args.jobs_per_token,
+        "grader": grade_label,
+        "command_argv": list(sys.argv),
+        "claude_code_version": incontainer.CLAUDE_CODE_VERSION if args.driver == "claude" else None,
+        "lemoncrow_overlay_revision": incontainer.LEMONCROW_OVERLAY_REVISION,
+        "runtime_fingerprint_paths": list(_RUNTIME_FINGERPRINT_PATHS),
+        "lemoncrow_git_commit_start": previous.get("lemoncrow_git_commit_start", _git_head()),
+        "runtime_source_fingerprint_start": previous.get("runtime_source_fingerprint_start", start_fingerprint),
+        "started_at_utc": previous.get("started_at_utc", datetime.now(UTC).isoformat()),
+    }
+    if end_fingerprint is not None:
+        manifest.update(
+            {
+                "lemoncrow_git_commit_end": _git_head(),
+                "runtime_source_fingerprint_end": end_fingerprint,
+                "runtime_source_changed_during_run": end_fingerprint != manifest["runtime_source_fingerprint_start"],
+                "finished_at_utc": datetime.now(UTC).isoformat(),
+            }
+        )
+    path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return manifest
+
+
 def run(args: argparse.Namespace) -> int:
     instances, grade_fn, grade_label = _select_backend(args)
     if not instances:
@@ -311,6 +424,21 @@ def run(args: argparse.Namespace) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"[run] {len(instances)} instance(s) x {len(args.arms)} arm(s) x {args.reps} rep(s)", flush=True)
     print(f"[run] results -> {out_dir}", flush=True)
+    source_fingerprint = _runtime_source_fingerprint()
+    manifest = _write_benchmark_manifest(
+        out_dir,
+        args=args,
+        instances=instances,
+        grade_label=grade_label,
+        start_fingerprint=source_fingerprint,
+    )
+    if args.driver == "claude":
+        print(
+            f"[runtime] claude-code={incontainer.CLAUDE_CODE_VERSION} "
+            f"lemoncrow={manifest['lemoncrow_git_commit_start'][:12]} "
+            f"source={source_fingerprint[:12]}",
+            flush=True,
+        )
 
     _prebuild_overlays(instances, args.arms, args.driver)
 
@@ -325,18 +453,23 @@ def run(args: argparse.Namespace) -> int:
     tokens = [] if args.driver in ("cursor", "lemoncode") else _resolve_oauth_tokens(agent_env)
     per_token = max(1, args.jobs_per_token)
     token_slots: queue.Queue[str] | None = None
+    effective_jobs = _effective_parallelism(
+        jobs=args.jobs,
+        jobs_per_token=per_token,
+        token_count=len(tokens),
+    )
     if tokens:
         token_slots = queue.Queue()
         for tok in tokens:
             for _ in range(per_token):
                 token_slots.put(tok)
-        effective_jobs = per_token * len(tokens)
+        token_capacity = per_token * len(tokens)
         print(
-            f"[auth] {len(tokens)} OAuth token(s) x {per_token} job(s)/token -> up to {effective_jobs} parallel",
+            f"[auth] {len(tokens)} OAuth token(s) x {per_token} job(s)/token = {token_capacity} token slot(s); "
+            f"--jobs {args.jobs} -> up to {effective_jobs} parallel",
             flush=True,
         )
     else:
-        effective_jobs = args.jobs
         print(f"[auth] no CLAUDE_CODE_OAUTH_TOKEN_1/_2 set; ambient creds, jobs={effective_jobs}", flush=True)
     jobs = [(inst, arm, rep) for inst in instances for arm in args.arms for rep in range(1, args.reps + 1)]
     # --resume: reuse a prior (task, arm, rep) result when its patch artifact is
@@ -474,7 +607,29 @@ def run(args: argparse.Namespace) -> int:
     pairwise = build_pairwise_quality_rows(results)
     _write_results_jsonl(out_dir, results)
     write_csv_artifacts(out_dir, results, pairwise)
+    end_fingerprint = _runtime_source_fingerprint()
+    manifest = _write_benchmark_manifest(
+        out_dir,
+        args=args,
+        instances=instances,
+        grade_label=grade_label,
+        start_fingerprint=source_fingerprint,
+        end_fingerprint=end_fingerprint,
+    )
     rendered = report(results)
+    rendered += (
+        "\n\n=== Runtime provenance ===\n"
+        f"claude_code_version: {manifest.get('claude_code_version') or 'n/a'}\n"
+        f"lemoncrow_git_commit: {manifest['lemoncrow_git_commit_start']}\n"
+        f"runtime_source_fingerprint: {manifest['runtime_source_fingerprint_start']}\n"
+        f"runtime_source_changed_during_run: {manifest['runtime_source_changed_during_run']}\n"
+        "manifest: benchmark-manifest.json"
+    )
+    if manifest["runtime_source_changed_during_run"]:
+        rendered += (
+            "\nWARNING: live benchmark runtime source changed during this run; "
+            "do not publish this result as a controlled release comparison."
+        )
     (out_dir / "report.txt").write_text(rendered, encoding="utf-8")
     print(rendered, flush=True)
     return 0
@@ -521,7 +676,10 @@ def main() -> int:
     )
     p.add_argument("--timeout", type=int, default=1800, help="Per-run agent timeout (s)")
     p.add_argument(
-        "--jobs", type=int, default=1, help="Parallel container runs (used only when no OAuth tokens drive parallelism)"
+        "--jobs",
+        type=int,
+        default=1,
+        help="Global maximum parallel container runs (also caps OAuth-token rotation)",
     )
     p.add_argument(
         "--jobs-per-token",

@@ -1,3 +1,5 @@
+import { authenticatedFetch } from "../review/reviewApi";
+
 const BASE = "/api";
 const TELEMETRY_ACK_STORAGE_KEY = "lemoncrow.telemetry.acknowledged";
 
@@ -62,7 +64,7 @@ export interface TelemetryQuery {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${BASE}${path}`, init);
+  const response = await authenticatedFetch(`${BASE}${path}`, init);
   if (!response.ok) {
     throw new Error(`${response.status} ${response.statusText}`);
   }

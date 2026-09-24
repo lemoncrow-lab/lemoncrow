@@ -195,6 +195,13 @@ else
 fi
 PIPE="${C_PIPE}|${C_RESET}"
 
-printf '%s%s%s %s %s ctx %s%s%s\n' \
+# Update available (opt-in): <root>/update_badge holds the pending version, if any.
+UPDATE_AVAIL_SEG=""
+if [ -s "${LEMONCROW_STATUS_ROOT}/update_badge" ]; then
+  _UPDATE_AVAIL=$(head -c 32 "${LEMONCROW_STATUS_ROOT}/update_badge" 2>/dev/null | tr -cd '0-9A-Za-z.+-')
+  [ -n "${_UPDATE_AVAIL}" ] && UPDATE_AVAIL_SEG=" ${PIPE} ${C_BRAND}⬆ v${_UPDATE_AVAIL} · lc update${C_RESET}"
+fi
+
+printf '%s%s%s %s %s ctx %s%s%s%s\n' \
   "$C_BRAND" "$PLUGIN_LABEL" "$C_RESET" \
-  "$PIPE" "$MODEL_DISPLAY" "$ACTUAL_CTX_F" "$PCT_PART" "$DYNAMIC_SEG"
+  "$PIPE" "$MODEL_DISPLAY" "$ACTUAL_CTX_F" "$PCT_PART" "$DYNAMIC_SEG" "$UPDATE_AVAIL_SEG"

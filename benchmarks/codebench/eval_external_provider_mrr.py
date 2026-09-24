@@ -30,6 +30,8 @@ from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any, cast
 
+from retrieval_wire import code_search_markdown_paths
+
 # ---------------------------------------------------------------------------
 # Minimal JSON-RPC line client (used by JCodeMunchProvider)
 # ---------------------------------------------------------------------------
@@ -168,6 +170,7 @@ class _JsonRpcLineClient:
 
 
 sys.path.insert(0, "src")
+sys.path.insert(0, "client/src")
 sys.path.insert(0, ".")
 
 from benchmarks.codebench.graft_eval import parse_find_all_paths, parse_find_code_paths  # noqa: E402
@@ -181,6 +184,7 @@ _parser.add_argument(
     required=True,
     choices=[
         "lemoncrow",
+        "lemoncrow-shared",
         "ctags",
         "ast-grep",
         "serena",
@@ -230,8 +234,10 @@ _gold_paths = [Path(p.strip()) for p in FITNESS_PAIRS.split(",") if p.strip()]
 
 _golds: list[tuple[str, list, dict]] = []  # [(kind, pairs, true_map)]
 _all_repos: dict[str, dict] = {}  # prefix -> {ws, db, ...}
+_gold_sha256: dict[str, str] = {}
 
 for _gp in _gold_paths:
+    _gold_sha256[str(_gp)] = hashlib.sha256(_gp.read_bytes()).hexdigest()
     _raw = json.loads(_gp.read_text())
     _kind = _raw.get("gold_kind", "definition")
     _golds.append((_kind, _raw["pairs"], _raw["true_map"]))
@@ -318,16 +324,26 @@ def _lat_summary(lats: list[float]) -> dict:
 
 
 def _rel(path_str: str, ws: Path) -> str:
-    """Normalize a path to be relative to ws (or strip leading ./ for already-relative paths)."""
+    """Normalize a ranked source pointer to the gold corpus canonical path.
+
+    The LemonCrow gold corpus was regenerated after the Atelier-to-LemonCrow
+    package rename while its frozen benchmark checkout stayed pinned to v0.3.9.
+    Treat those historical package roots as the same file identity, otherwise a
+    correct hit is scored as a miss solely because the package was renamed.
+    """
     p = path_str.replace("\\", "/")
+    p = re.sub(r":L\d+(?:-L?\d+)?$", "", p)
     ws_str = str(ws).replace("\\", "/").rstrip("/") + "/"
     if p.startswith(ws_str):
-        return p[len(ws_str) :]
-    try:
-        return str(Path(path_str).relative_to(ws)).replace("\\", "/")
-    except ValueError:
-        # Already relative: normalize away leading ./ (.\)
-        return str(Path(p)).replace("\\", "/")
+        p = p[len(ws_str) :]
+    else:
+        try:
+            p = str(Path(path_str).relative_to(ws)).replace("\\", "/")
+        except ValueError:
+            p = str(Path(p)).replace("\\", "/")
+    if (ws / "src/atelier").is_dir() and p.startswith("src/atelier/"):
+        p = "src/lemoncrow/" + p[len("src/atelier/") :]
+    return p
 
 
 _PY_KEYWORDS = frozenset(
@@ -1900,18 +1916,16 @@ class LemonCrowProvider(Provider):
         the SAME wrong file, with no error, indefinitely. Symlink creation is
         microseconds; there is no real cost to always refreshing it.
         """
-        from lemoncrow.core.foundation.paths import workspace_key  # src/ is on sys.path
+        from lemoncrow.core.foundation.paths import resolve_workspace_store_dir  # src/ is on sys.path
 
-        # Always ensure the engine-default workspace dir exists, even when
-        # there's no prebuilt snapshot to symlink: without it, a fresh
-        # sqlite3.connect() for an on-demand build hard-errors with "unable
-        # to open database file" (sqlite can't create the file if its parent
-        # dir is missing) before the engine ever gets a chance to build one --
-        # confirmed via a real run where a since-deleted prebuilt DB left this
-        # dir never created, silently zeroing every query against that
-        # workspace instead of falling through to the documented on-demand
-        # build below.
-        ws_dir = self._STORE_ROOT / "workspaces" / workspace_key(ws.resolve())
+        # The code index moved from the old global
+        # ``$LEMONCROW_ROOT/workspaces/<hash>/`` layout to the project-local
+        # ``<workspace>/.lemoncrow/workspace/`` store in July 2026. Route the
+        # frozen benchmark snapshot to the SAME path CodeContextEngine resolves
+        # today; otherwise the benchmark silently ignores the snapshot and
+        # builds/uses a fresh workspace-local index, making historical MRR
+        # comparisons meaningless.
+        ws_dir = resolve_workspace_store_dir(workspace_root=ws)
         ws_dir.mkdir(parents=True, exist_ok=True)
 
         meta = next((m for m in _all_repos.values() if Path(m.get("ws", "")) == ws), {})
@@ -1929,6 +1943,7 @@ class LemonCrowProvider(Provider):
                 flush=True,
             )
             return
+        self._require_snapshot_populated(ws.name, db)
         links = {"code_context.sqlite": db}
         # Sibling DBs live at db.parent/<sibling> -- the same convention the
         # engine itself uses (CodeContextEngine.{intel,fts,vectors}_db_path are
@@ -1949,16 +1964,53 @@ class LemonCrowProvider(Provider):
             src = db.parent / sibling
             if src.exists():
                 links[sibling] = src
-        for link_name, target in links.items():
+        # Remove every engine DB first. A missing sibling in the frozen fixture
+        # must mean "channel unavailable", not "keep whatever fresh DB a prior
+        # broken benchmark silently built in .lemoncrow/workspace".
+        for link_name in ("code_context.sqlite", "intel.sqlite", "fts.sqlite", "vectors.sqlite"):
             link = ws_dir / link_name
-            if link.exists() or link.is_symlink():
-                if link.is_symlink() and link.resolve() == target.resolve():
-                    continue  # already correct, skip the churn
-                link.unlink()
-            link.symlink_to(target)
+            for candidate in (link, Path(f"{link}-wal"), Path(f"{link}-shm")):
+                if not (candidate.exists() or candidate.is_symlink()):
+                    continue
+                if candidate.is_dir():
+                    raise RuntimeError(f"benchmark index path is unexpectedly a directory: {candidate}")
+                candidate.unlink()
+        for link_name, target in links.items():
+            (ws_dir / link_name).symlink_to(target.resolve())
+
         routed_db = ws_dir / "code_context.sqlite"
+        if not routed_db.is_symlink() or routed_db.resolve() != db.resolve():
+            raise RuntimeError(
+                f"benchmark snapshot routing failed for {ws.name}: " f"engine path {routed_db} does not resolve to {db}"
+            )
         self._clear_retrieval_cache(routed_db)
         self._warn_if_stale(ws.name, routed_db)
+
+    def _require_snapshot_populated(self, repo_name: str, db_path: Path) -> None:
+        """Fail closed when a claimed frozen snapshot has no lexical index.
+
+        A zero-row snapshot previously caused the evaluator to fall through to
+        an unrelated workspace-local rebuild. That produced plausible MRR while
+        no longer measuring the frozen fixture at all.
+        """
+        import sqlite3 as _sqlite3
+
+        try:
+            conn = _sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=5.0)
+            try:
+                tables = {str(row[0]) for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                files = int(conn.execute("SELECT COUNT(*) FROM files").fetchone()[0]) if "files" in tables else 0
+                symbols = int(conn.execute("SELECT COUNT(*) FROM symbols").fetchone()[0]) if "symbols" in tables else 0
+            finally:
+                conn.close()
+        except _sqlite3.Error as exc:
+            raise RuntimeError(f"cannot inspect frozen snapshot for {repo_name}: {db_path}: {exc}") from exc
+        if files <= 0 or symbols <= 0:
+            raise RuntimeError(
+                f"frozen snapshot for {repo_name} is empty/stale: {db_path} "
+                f"(files={files}, symbols={symbols}); rebuild it with "
+                "scripts/rebuild_isolated_bench_secondary_dbs.py before evaluating"
+            )
 
     def _warn_if_stale(self, repo_name: str, db_path: Path) -> None:
         """Loudly flag a routed DB whose embeddings look incomplete.
@@ -2191,6 +2243,9 @@ class LemonCrowProvider(Provider):
         # inherit them and silently search the WRONG repo.
         for host_var in ("CLAUDE_WORKSPACE_ROOT", "CURSOR_WORKSPACE_ROOT", "VSCODE_CWD", "CLAUDE_PROJECT_DIR"):
             env.pop(host_var, None)
+        # This provider benchmarks the in-process public tool engine. Never inherit
+        # an operator's optional legacy service route into the benchmark.
+        env.pop("LEMONCROW_SERVICE_URL", None)
         # Host SESSION ids make the bench server adopt the launching agent
         # session's identity: every credited tool call then re-parses that
         # session's (huge) transcript and the 5s-rate-limited statusline
@@ -2280,7 +2335,7 @@ class LemonCrowProvider(Provider):
             return []
         response = self._client.call(
             "tools/call",
-            {"name": "code_search", "arguments": {"query": query, "max_files": 10}},
+            {"name": "code_search", "arguments": {"query": query, "max_files": 10, "force": True}},
             timeout=timeout,
         )
         result = response.get("result", {})
@@ -2301,19 +2356,14 @@ class LemonCrowProvider(Provider):
             # source, outline pointers, and related_symbols lines carry paths
             # that are NOT part of the ranked surface; regex-scraping them (the
             # old fallback) polluted ranks 2+ and misread the ranking.
-            md_files: list[str] = []
-            md_cands: list[str] = []
-            for chunk in result.get("content", []) or []:
-                if not (isinstance(chunk, dict) and chunk.get("type") == "text"):
-                    continue
-                for line in str(chunk.get("text", "")).splitlines():
-                    if line.startswith("## "):
-                        md_files.append(line[3:].strip())
-                    elif line.startswith("candidate_files: "):
-                        for seg in _split_candidate_files_line(line[len("candidate_files: ") :]):
-                            md_cands.extend(_expand_candidate_segment(seg))
-            if md_files or md_cands:
-                payload = {"files": [{"path": p} for p in md_files], "candidate_files": md_cands}
+            ranked = [
+                path
+                for chunk in result.get("content", []) or []
+                if isinstance(chunk, dict) and chunk.get("type") == "text"
+                for path in code_search_markdown_paths(str(chunk.get("text", "")))
+            ]
+            if ranked:
+                payload = {"files": [{"path": path} for path in ranked]}
         files = self._paths_from_payload(payload, ws) if payload else []
         if not files:  # last resort: scrape paths from raw text
             files = _extract_paths_text(json.dumps(result), ws)
@@ -2357,12 +2407,124 @@ class LemonCrowProvider(Provider):
             return []
 
 
+class LemonCrowSharedProvider(LemonCrowProvider):
+    """Current thin client against the already-running central LemonCrow server.
+
+    Unlike :class:`LemonCrowProvider`, this never starts an MCP runtime, routes a
+    legacy per-worktree database, or constructs ``CodeContextEngine``.  Each
+    frozen benchmark workspace is synced as a normal revision-bound View and
+    ``code_search`` executes in the one server configured by
+    ``LEMONCROW_BENCH_SHARED_URL`` (loopback :7420 by default).
+    """
+
+    name = "lemoncrow-shared"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._shared_server: Any = None
+        self._request_id = 1
+
+    def start(self, ws: Path) -> None:
+        from lemoncrow_client.config import load_config
+        from lemoncrow_client.mcpserver import McpServer
+
+        self._memo = {}
+        env = {
+            **os.environ,
+            "LEMONCROW_URL": os.environ.get("LEMONCROW_BENCH_SHARED_URL", "http://127.0.0.1:7420"),
+            "LEMONCROW_INSTALL_MODE": "local",
+            "LEMONCROW_LOCAL_FS": os.environ.get("LEMONCROW_BENCH_SHARED_LOCAL_FS", "1"),
+            # Benchmark startup is untimed; give a large frozen workspace enough
+            # room to negotiate its first View rather than silently falling back.
+            "LEMONCROW_STARTUP_BUDGET_S": os.environ.get("LEMONCROW_BENCH_SHARED_STARTUP_BUDGET_S", "120"),
+            "LEMONCROW_REQUEST_TIMEOUT_S": os.environ.get("LEMONCROW_BENCH_SHARED_REQUEST_TIMEOUT_S", "120"),
+        }
+        config = load_config(env, cwd=ws)
+        server = McpServer(config)
+        initialized = server.handle(
+            {
+                "jsonrpc": "2.0",
+                "id": self._request_id,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "lemoncrow-shared-bench", "version": "1"},
+                },
+            }
+        )
+        self._request_id += 1
+        if not isinstance(initialized, dict) or initialized.get("error"):
+            server.close()
+            raise RuntimeError(f"shared LemonCrow initialize failed: {initialized}")
+        if not server.dispatcher.session.bootstrapped:
+            reason = server.dispatcher.session.state.reason or "server-side session did not bootstrap"
+            server.close()
+            raise RuntimeError(f"shared LemonCrow server-side tools unavailable: {reason}")
+        self._shared_server = server
+        with contextlib.suppress(Exception):
+            self._search(f"warmup {ws.name}", ws, timeout=_WARMUP_TIMEOUT_S)
+        self._memo = {}
+
+    def stop(self) -> None:
+        server, self._shared_server = self._shared_server, None
+        if server is not None:
+            with contextlib.suppress(Exception):
+                server.close()
+        self._memo = {}
+
+    def _search(self, query: str, ws: Path, *, timeout: float = 120) -> list[str]:
+        del timeout  # the thin client's configured server timeout is authoritative
+        if query in self._memo:
+            return self._memo[query]
+        server = self._shared_server
+        if server is None:
+            return []
+        response = server.handle(
+            {
+                "jsonrpc": "2.0",
+                "id": self._request_id,
+                "method": "tools/call",
+                "params": {"name": "code_search", "arguments": {"query": query, "limit": 10, "force": True}},
+            }
+        )
+        self._request_id += 1
+        if not isinstance(response, dict) or response.get("error"):
+            self._memo[query] = []
+            return []
+        result = response.get("result", {})
+        if not isinstance(result, dict) or result.get("isError"):
+            self._memo[query] = []
+            return []
+        payload: dict[str, Any] = result.get("structuredContent") or {}
+        if not payload:
+            ranked = [
+                path
+                for chunk in result.get("content", []) or []
+                if isinstance(chunk, dict) and chunk.get("type") == "text"
+                for path in code_search_markdown_paths(str(chunk.get("text", "")))
+            ]
+            if ranked:
+                payload = {"files": [{"path": path} for path in ranked]}
+        files = self._paths_from_payload(payload, ws) if payload else []
+        if not files:
+            files = _extract_paths_text(json.dumps(result), ws)
+        self._memo[query] = files
+        return files
+
+    def _recover_client(self, ws: Path) -> None:
+        self.stop()
+        with contextlib.suppress(Exception):
+            self.start(ws)
+
+
 # ---------------------------------------------------------------------------
 # Provider factory
 # ---------------------------------------------------------------------------
 
 _PROVIDERS: dict[str, type[Provider]] = {
     "lemoncrow": LemonCrowProvider,
+    "lemoncrow-shared": LemonCrowSharedProvider,
     "ctags": CtagsProvider,
     "ast-grep": AstGrepProvider,
     "serena": SerenaProvider,
@@ -2454,15 +2616,13 @@ def _process_repo(prefix: str, queries: list[str]) -> dict | None:
     repo_meta = _all_repos.get(prefix, {})
     ws = Path(repo_meta.get("ws", ""))
     if not ws.exists():
-        print(f"{_TAG} skip {prefix}: ws not found ({ws})", file=sys.stderr)
-        return None
+        raise RuntimeError(f"{_TAG} required workspace missing for {prefix}: {ws}")
 
     prov = provider_cls()
     try:
         prov.start(ws)
     except Exception as exc:
-        print(f"{_TAG} {prefix} start failed: {exc}", file=sys.stderr)
-        return None
+        raise RuntimeError(f"{_TAG} {prefix} start failed: {exc}") from exc
 
     t_repo = time.perf_counter()
     print(f"{_TAG} start {prefix} ({len(queries)} queries)", file=sys.stderr, flush=True)
@@ -2494,7 +2654,15 @@ def _process_repo(prefix: str, queries: list[str]) -> dict | None:
         _dd.mkdir(parents=True, exist_ok=True)
         (_dd / f"{prefix}.json").write_text(
             json.dumps(
-                [{"q": q, "ms": round(ms, 1)} for q, ms in zip(queries, lats, strict=True)],
+                [
+                    {
+                        "q": q,
+                        "ms": round(ms, 1),
+                        "symbol_files": sym_res.get((q, prefix), []),
+                        "text_files": txt_res.get((q, prefix), []),
+                    }
+                    for q, ms in zip(queries, lats, strict=True)
+                ],
                 indent=0,
             )
         )
@@ -2613,6 +2781,7 @@ out = {
     "golds": _gold_scores,
     "provider": PROVIDER,
     "mode": _mode,
+    "gold_sha256": _gold_sha256,
 }
 
 print(json.dumps(out, ensure_ascii=False))
@@ -2650,6 +2819,7 @@ _record = {
     "latency_ms": out["latency_ms"],
     "by_repo": out.get("by_repo", {}),
     "golds": out["golds"],
+    "gold_sha256": _gold_sha256,
 }
 with _HISTORY.open("a") as _fh:
     _fh.write(json.dumps(_record) + "\n")
@@ -2665,6 +2835,8 @@ _prev = next((r for r in reversed(_runs[:-1]) if r.get("mode") == _mode), None)
 # Summary — match fitness_explore_mrr.py format with per-repo breakdown
 print("\n" + "─" * 60, file=sys.stderr)
 print(f"  {_record['ts'][:16]}  {_sha_label}  [{_mode}]  provider={PROVIDER}", file=sys.stderr)
+for _gold_path, _gold_digest in sorted(_gold_sha256.items()):
+    print(f"  corpus {Path(_gold_path).name}: sha256={_gold_digest}", file=sys.stderr)
 for gk, gd in _gold_scores.items():
     print(
         f"  gold={gk:<18} MRR {gd['mrr']:.4f}  hit@1 {gd['hit1']:.4f}  hit@3 {gd['hit3']:.4f}  n={gd['n']}",

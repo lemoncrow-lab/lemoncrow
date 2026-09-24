@@ -6,25 +6,22 @@ import time
 from pathlib import Path
 
 import pytest
+from lemoncrow_client.kit.bash_output import extract_anomaly_windows, strip_ansi
 
 import lemoncrow.pro.capabilities.tool_supervision.bash_exec as bx
-from lemoncrow.pro.capabilities.tool_supervision.bash_exec import (
-    _compact_result,
-    _extract_anomaly_windows,
-    _strip_ansi,
-)
+from lemoncrow.pro.capabilities.tool_supervision.bash_exec import _compact_result
 
 
 def test_extract_anomaly_windows_returns_none_when_nothing_matches() -> None:
     text = "\n".join(f"line {i}: all good" for i in range(50))
-    assert _extract_anomaly_windows(text, max_chars=6000) is None
+    assert extract_anomaly_windows(text, max_chars=6000) is None
 
 
 def test_extract_anomaly_windows_keeps_a_marker_buried_in_the_middle() -> None:
     lines = [f"line {i}: doing routine work" for i in range(300)]
     lines[150] = "FATAL: connection to db refused at line 150"
     text = "\n".join(lines)
-    result = _extract_anomaly_windows(text, max_chars=6000)
+    result = extract_anomaly_windows(text, max_chars=6000)
     assert result is not None
     assert "FATAL: connection to db refused" in result
     # Only a window around the hit is kept, not the whole 300-line log.
@@ -127,7 +124,7 @@ def test_compact_result_no_spill_hint_when_disabled(monkeypatch: pytest.MonkeyPa
 
 def test_strip_ansi_removes_csi_osc_and_bare_escapes() -> None:
     raw = "\x1b]0;window title\x07\x1b[31mred\x1b[0m plain\x1b[2K\x1bM"
-    assert _strip_ansi(raw) == "red plain"
+    assert strip_ansi(raw) == "red plain"
 
 
 def _poll_until_done(session_id: str, timeout_s: float = 10.0) -> dict[str, object]:
@@ -241,3 +238,23 @@ def test_compact_result_no_spill_hint_when_nothing_omitted(monkeypatch: pytest.M
     )
     assert result.lines_omitted == 0
     assert result.spill_hint == ""
+
+
+def test_compact_result_surfaces_buried_stderr_fatal_instead_of_blind_head_tail() -> None:
+    lines = [f"stderr line {i}: routine detail" for i in range(500)]
+    lines[250] = "FATAL: certificate verification failed for api.example.test"
+    result = _compact_result(
+        command="custom-deployer --apply",
+        raw_stdout="",
+        raw_stderr="\n".join(lines),
+        exit_code=1,
+        duration_ms=10,
+        max_lines=200,
+        max_chars=5000,
+    )
+
+    assert "certificate verification failed" in result.stderr
+    assert "stderr line 250" not in result.stderr
+    assert "lines omitted" in result.stderr
+    assert len(result.stderr) < 5000
+    assert result.truncated is True

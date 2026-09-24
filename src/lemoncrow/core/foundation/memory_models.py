@@ -5,10 +5,10 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
+from lemoncrow_client.kit.redaction import is_prompt_injection
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
 from lemoncrow.core.foundation.models import _utcnow
-from lemoncrow.core.foundation.redaction import is_prompt_injection
 from lemoncrow.infra.storage.ids import make_uuid7
 
 ArchivalSource = Literal["trace", "block_evict", "user", "tool_output", "file_chunk"]

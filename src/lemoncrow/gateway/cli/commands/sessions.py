@@ -1806,7 +1806,7 @@ def session_backfill_cmd(
     Reconstructs the counterfactual saving for each qualifying past session
     (the same estimate ``lc session replay`` shows) and persists it into the
     savings ledger, so historical usage in ~/.claude, ~/.codex, ~/.opencode
-    (and other supported hosts) counts toward `lc savings` / `lc account
+    (and other supported hosts) counts toward `lc savings` / local
     cap`. Only sessions that never ran with LemonCrow get a row; sessions
     already tracked (live or previously backfilled) are always skipped, so
     re-running is safe and never double-counts.

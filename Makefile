@@ -12,8 +12,8 @@ TEST_PRINT_TIME ?= 0
 # ~2 points below the first nightly run's reported total.
 COV_FAIL_UNDER ?= 66
 FORCE_ARG := $(if $(f),--force,)
-.PHONY: help uninstall dev build release/build prod build-lemoncode-host status start restart build-host-skills sync-agent-context mirror release \
-	docs-check worktree-env runtime-evidence \
+.PHONY: help uninstall dev build release/build prod hosted build-lemoncode-host status start stop restart build-host-skills sync-agent-context mirror release \
+	docs-check \
 	test test-fast test-cov test-full lint format-check format typecheck verify pre-commit \
 	proof-cost-quality import clean \
 	_ensure_hooks
@@ -24,11 +24,13 @@ FORCE_ARG := $(if $(f),--force,)
 
 #    * To do a clean development install (editable mode):
 #         make dev
-#    * To build and install a local production binary:
+#    * To build and install with the local loopback server:
 #         make prod
+#    * To build and install against a hosted server:
+#         make hosted  # defaults to https://api.lemoncrow.com
 
-dev: ## Install LemonCrow in dev mode (stable source COPY, no auto-update); re-run to pick up edits, then /mcp reconnect
-	bash scripts/local.sh
+dev: ## Install LemonCrow in dev mode (stable source COPY, Headroom residual compression enabled); re-run to pick up edits, then /mcp reconnect
+	LEMONCROW_DEV_HEADROOM_APPLY=1 bash scripts/local.sh
 	@$(MAKE) build-lemoncode-host
 
 build: ## Build and package for production distribution
@@ -75,12 +77,15 @@ release: ## Bump version, commit, push, tag, mirror + tag public repo (build/rel
  git push --no-verify $$PUSH_FLAG https://github.com/lemoncrow-lab/lemoncrow.git "$$PUB_SHA:refs/tags/$$TAG"; \
  echo "✓ Released $$TAG (dev + public)"
 
-prod: ## Build and install from local production build (includes mypyc compilation; expects ~2-3 min build time)
+prod: ## Build/install production LemonCrow with the local loopback server (default install mode)
 	LEMONCROW_ENABLE_MYPYC=1 bash scripts/build.sh
-	# Run the local installer: copies bundle/ → ~/.local/ and sets up host integrations,
-	# exactly mirroring the remote path (download → extract → bundle.sh).
-	bash scripts/install.sh --local
+	# install.sh defaults to local mode: install client + server, start 127.0.0.1:7420.
+	LEMONCROW_INSTALL_MODE=local bash scripts/install.sh --local
 	@$(MAKE) build-lemoncode-host
+
+hosted: ## Build/install the auditable hosted thin client against api.lemoncrow.com (HOSTED_URL overrides)
+	bash scripts/build_hosted.sh
+	LEMONCROW_HOSTED_URL="$(HOSTED_URL)" bash scripts/hosted.sh --from-build dist/lemoncrow-hosted-client.tar.gz
 
 build-lemoncode-host: ## Provision the LemonCode host binary: builds from the vendored lemoncode/ submodule if bun is available, else downloads a release. Skips if already installed; force rebuild with 'make build-lemoncode-host f=1'
 	@if [ -z "$(f)" ] && [ -x "$(LEMONCROW_STORE)/bin/lemoncode-host" ]; then \
@@ -99,18 +104,14 @@ uninstall: ## Remove all LemonCrow agent-host integrations, hooks, and bin wrapp
 status: ## Show LemonCrow installation status
 	@bash scripts/status.sh
 
-start: ## Start the service and frontend natively
-	@if [ -f .env.worktree ]; then set -a; . ./.env.worktree; set +a; fi; \
-	$(LEMONCROW_CMD) --root "$${LEMONCROW_STACK_ROOT:-$(LEMONCROW_STORE)}" stack start
-	@if [ -f .env.worktree ]; then set -a; . ./.env.worktree; set +a; fi; \
-	$(LEMONCROW_CMD) --root "$${LEMONCROW_STACK_ROOT:-$(LEMONCROW_STORE)}" stack logs -f
-restart: ## Restart the service and frontend natively
-	@if [ -f .env.worktree ]; then set -a; . ./.env.worktree; set +a; fi; \
-	$(LEMONCROW_CMD) --root "$${LEMONCROW_STACK_ROOT:-$(LEMONCROW_STORE)}" stack stop --force || true
-	@if [ -f .env.worktree ]; then set -a; . ./.env.worktree; set +a; fi; \
-	$(LEMONCROW_CMD) --root "$${LEMONCROW_STACK_ROOT:-$(LEMONCROW_STORE)}" stack start
-	@if [ -f .env.worktree ]; then set -a; . ./.env.worktree; set +a; fi; \
-	$(LEMONCROW_CMD) --root "$${LEMONCROW_STACK_ROOT:-$(LEMONCROW_STORE)}" stack logs -f
+start: ## Start the local loopback server
+	bash scripts/local_server.sh start
+
+stop: ## Stop the local loopback server
+	bash scripts/local_server.sh stop
+
+restart: ## Restart the local loopback server
+	bash scripts/local_server.sh restart
 
 # --------------------------------------------------------------------------- #
 # Development                                                                 #
@@ -124,12 +125,6 @@ sync-agent-context: ## Regenerate host instruction surfaces from integrations/ag
 
 docs-check: ## Run docs and repo-governance checks
 	uv run pytest tests/gateway/test_docs.py tests/gateway/test_generated_agent_contexts.py -q
-
-worktree-env: ## Write a per-worktree .env file for local stack bootstraps
-	uv run python scripts/worktree_env.py --env-file .env.worktree --json
-
-runtime-evidence: ## Capture runtime evidence from a local LemonCrow stack
-	uv run python scripts/runtime_evidence.py
 
 # Auto-configure git hooks path so .githooks/pre-commit runs on every commit.
 # Developers never need to run `git config core.hooksPath .githooks` by hand.

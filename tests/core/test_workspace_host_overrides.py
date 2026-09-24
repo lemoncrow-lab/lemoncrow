@@ -182,13 +182,12 @@ def test_write_workspace_opencode_agents_role_ids_override_installs_requested_ro
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / "global-root"))
 
     written = write_workspace_opencode_agents(workspace, role_ids=("code", "review"))
-
     assert workspace / ".opencode" / "agents" / "lemoncrow.code.md" in written
     assert workspace / ".opencode" / "agents" / "lemoncrow.review.md" in written
     assert len(written) == 2
 
 
-def test_write_workspace_opencode_agents_omit_runtime_default_model(tmp_path: Path, monkeypatch) -> None:
+def test_write_workspace_opencode_agents_uses_native_free_model_by_default(tmp_path: Path, monkeypatch) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     settings = workspace / ".lemoncrow" / "settings.json"
@@ -202,6 +201,23 @@ def test_write_workspace_opencode_agents_omit_runtime_default_model(tmp_path: Pa
     write_workspace_opencode_agents(workspace)
     content = (workspace / ".opencode" / "agents" / "lemoncrow.code.md").read_text(encoding="utf-8")
 
+    assert "model: opencode/big-pickle" in content.split("---", 2)[1]
+
+
+def test_write_workspace_opencode_agents_explicit_auto_inherits_session_model(tmp_path: Path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    settings = workspace / ".lemoncrow" / "settings.json"
+    settings.parent.mkdir(parents=True, exist_ok=True)
+    settings.write_text(
+        json.dumps({"models": {"hosts": {"opencode": {"roles": {"code": "auto"}}}}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / "global-root"))
+
+    write_workspace_opencode_agents(workspace)
+    content = (workspace / ".opencode" / "agents" / "lemoncrow.code.md").read_text(encoding="utf-8")
+    assert "model:" not in content.split("---", 2)[1]
     assert "model:" not in content.split("---", 2)[1]
 
 

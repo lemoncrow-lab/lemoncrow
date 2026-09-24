@@ -25,12 +25,6 @@ def _isolate_workspace_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> I
         "LEMONCROW_LESSONS_ROOT",
         "LEMONCROW_STORE_ROOT",
         "LEMONCROW_MEM_ROOT",
-        # Live credentials/device identity must never leak into a test: the
-        # suite has to behave identically on a logged-in pro machine, in CI,
-        # and inside a benchmark container. Signed-path tests build their own
-        # keypair-signed fixtures; live checks are explicit opt-in tests.
-        "LEMONCROW_AUTH_TOKEN",
-        "LEMONCROW_DEVICE_ID",
     ):
         monkeypatch.delenv(env_var, raising=False)
     isolated_root = tmp_path / ".lemoncrow"
@@ -56,37 +50,9 @@ def _isolate_workspace_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> I
 
 
 @pytest.fixture(autouse=True)
-def _development_cap_authority(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Use the compiled gate's documented no-key development mode in unit tests.
-
-    Production wheels keep their pinned key. Tests that exercise signatures
-    explicitly replace this mock with their own generated keypair; ordinary
-    tool-handler tests remain hermetic and never need a network-issued token.
-    """
-
-    from lemoncrow.pro.capabilities import licensing_gate
-
-    monkeypatch.setattr(licensing_gate, "_public_key_hex", lambda: "")
-
-
-@pytest.fixture(autouse=True)
 def _no_network_sync() -> Iterator[None]:
-    """Block all outbound sync_usage calls so no test ever hits lemoncrow.beseam.com."""
+    """Block optional outbound sync so ordinary tests stay hermetic."""
     with patch("lemoncrow.core.service.sync.sync_usage", return_value=True):
-        yield
-
-
-@pytest.fixture(autouse=True)
-def _no_usage_report_network() -> Iterator[None]:
-    """Block the usage-report POST fallback so no test hits the live cap
-    endpoints (``/api/usage/report[-anon]``). CLI flows like ``init
-    --no-login`` and login/logout force a verdict mint through this path;
-    unpatched, every such test would attempt a real 5s-timeout POST.
-    Tests that exercise reporting pass their own ``http_post``."""
-    with patch(
-        "lemoncrow.core.capabilities.licensing.usage_report._default_post",
-        return_value=None,
-    ):
         yield
 
 

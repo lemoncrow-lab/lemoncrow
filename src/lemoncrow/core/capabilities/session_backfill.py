@@ -8,7 +8,7 @@ counterfactual per session (:func:`estimate_savings`, the same engine behind
 ``lc session replay``); this module is the missing write path -- it persists
 one synthetic row per qualifying historical session into the SAME ledger
 format the live path writes, dated to when the session actually happened, so
-``lc savings`` / ``lc account cap`` / the statusline immediately reflect it
+``lc savings`` and the statusline immediately reflect it
 after :func:`reconcile_savings_aggregate` runs.
 
 Idempotent and additive only: a session already carrying a ``savings.jsonl``

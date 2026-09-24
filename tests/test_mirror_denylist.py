@@ -26,7 +26,7 @@ def test_deny_beats_allow_regardless_of_order() -> None:
 def test_subtree_deny() -> None:
     prefixes = ["src", "!src/lemoncrow/core/capabilities/source_projection"]
     assert mirror.is_public("src/lemoncrow/core/capabilities/source_projection/minify.py", prefixes) is False
-    assert mirror.is_public("src/lemoncrow/core/capabilities/licensing/models.py", prefixes) is True
+    assert mirror.is_public("src/lemoncrow/core/capabilities/pricing.py", prefixes) is True
 
 
 def test_no_allow_no_public() -> None:
@@ -41,14 +41,13 @@ def test_plain_allowlist_unchanged() -> None:
 
 
 # --- What the real allowlist would publish -----------------------------------
-# `src/` is allowed wholesale, so nothing under it is protected by a deny any
-# more (the `!src/lemoncrow/pro` deny is gone: the engine is published,
-# Apache-2.0). These two tests are the replacement guard -- they run
-# the REAL scripts/public-paths.txt over the REAL tracked tree, so a new private
-# directory or a committed credential fails here instead of on GitHub.
+# Public engine/frontend packages are explicit. These guards run the REAL
+# scripts/public-paths.txt over the REAL tracked tree, so a new private sibling
+# or committed credential fails here instead of on GitHub.
 
 _PRIVATE_TREES = (
-    "services",  # license-issuer + hosted control plane
+    "enterprise",  # proprietary paid product code and deployment assets
+    "services",  # private hosted infrastructure outside the enterprise product tree
     "tools",
     "deploy",
     "experiments",
@@ -92,6 +91,16 @@ def _tracked_files() -> list[str]:
     return [p for p in out.split("\0") if p]
 
 
+def test_real_allowlist_has_no_whole_src_or_frontend_escape_hatch() -> None:
+    prefixes = mirror.load_public_prefixes()
+    assert "src" not in prefixes
+    assert "frontend" not in prefixes
+    assert "src/lemoncrow/pro" in prefixes
+    assert "frontend/src/review" in prefixes
+    assert mirror.is_public("src/new-private-package/secret.py", prefixes) is False
+    assert mirror.is_public("frontend/src/hosted/SecretPanel.tsx", prefixes) is False
+
+
 def test_private_trees_never_reach_the_public_mirror() -> None:
     prefixes = mirror.load_public_prefixes()
     leaked = [
@@ -100,6 +109,15 @@ def test_private_trees_never_reach_the_public_mirror() -> None:
         if path.split("/", 1)[0] in _PRIVATE_TREES and mirror.is_public(path, prefixes)
     ]
     assert not leaked, f"scripts/public-paths.txt would publish private files: {leaked[:10]}"
+
+
+def test_enterprise_developer_plane_docs_do_not_leak_back_into_public_docs() -> None:
+    """The public client is self-contained; deployment architecture stays private."""
+    assert not (_REPO / "docs/planning/2026-09-12-hosted-mcp-thin-client.md").exists()
+    client_readme = (_REPO / "client/README.md").read_text(encoding="utf-8")
+    assert "docs-internal/" not in client_readme
+    assert "enterprise/deploy/" not in client_readme
+    assert "enterprise/server" not in client_readme
 
 
 def test_no_credentials_in_the_files_the_mirror_would_publish() -> None:

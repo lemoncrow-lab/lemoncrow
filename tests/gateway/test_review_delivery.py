@@ -9,7 +9,13 @@ import pytest
 
 from lemoncrow.gateway.adapters import mcp_server
 from lemoncrow.pro.capabilities.review import delivery as review_delivery
-from lemoncrow.pro.capabilities.review.delivery import deliver_to_claude_session, mark_feedback_addressed
+from lemoncrow.pro.capabilities.review.delivery import (
+    deliver_prompt_to_agent_session,
+    deliver_to_agent_session,
+    deliver_to_claude_session,
+    mark_feedback_addressed,
+)
+from lemoncrow.pro.capabilities.review.session_inbox import claim_session_messages
 
 SESSION = "11111111-2222-4333-8444-555555555555"
 
@@ -18,7 +24,11 @@ def _completed(*, stdout: str = "", stderr: str = "", returncode: int = 0) -> su
     return subprocess.CompletedProcess(["claude"], returncode, stdout=stdout, stderr=stderr)
 
 
-def test_delivery_refuses_an_active_exact_session(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_delivery_queues_an_active_exact_session_without_forking(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    store_root = tmp_path / "store"
+    monkeypatch.setenv("LEMONCROW_ROOT", str(store_root))
     monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/claude" if name == "claude" else None)
 
     def run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -27,9 +37,14 @@ def test_delivery_refuses_an_active_exact_session(monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr(subprocess, "run", run)
     result = deliver_to_claude_session(SESSION, tmp_path, "review feedback")
-    assert result.state == "blocked"
+    assert result.state == "queued"
+    assert result.accepted is True
     assert result.target_ref == f"claude:{SESSION}"
-    assert "already running" in result.message
+    assert result.remote_ref.startswith("inbox:msg-")
+    (queued,) = claim_session_messages(store_root, host="claude", session_id=SESSION)
+    assert "Human review feedback from LemonCrow" in queued.message
+    assert "review feedback" in queued.message
+    assert claim_session_messages(store_root, host="claude", session_id=SESSION) == ()
 
 
 def test_delivery_resumes_and_verifies_the_exact_session(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -110,20 +125,128 @@ def test_delivery_fails_when_claude_is_missing(monkeypatch: pytest.MonkeyPatch, 
     assert "not installed" in result.message
 
 
+@pytest.mark.parametrize(
+    ("host", "expected"),
+    (
+        ("opencode", ["/usr/bin/opencode", "run", "--session"]),
+        ("copilot", ["/usr/bin/copilot", f"--resume={SESSION}"]),
+    ),
+)
+def test_generic_delivery_uses_exact_session_resume_flags(
+    host: str, expected: list[str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("shutil.which", lambda name: f"/usr/bin/{name}" if name == host else None)
+    seen: list[str] = []
+
+    class FakeProcess:
+        pid = 4242
+
+        def wait(self, timeout: float) -> int:
+            raise subprocess.TimeoutExpired(seen, timeout)
+
+    def popen(args: list[str], **_kwargs: object):
+        seen.extend(args)
+        return FakeProcess()
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    result = deliver_to_agent_session(host, SESSION, tmp_path, "review feedback")
+    assert result.state == "sent"
+    assert result.target_ref == f"{host}:{SESSION}"
+    assert seen[: len(expected)] == expected
+    assert any(SESSION in token for token in seen)
+
+
+def test_codex_delivery_resumes_the_exact_thread_instead_of_queueing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`codex queue` strands feedback on an idle thread; delivery must run it."""
+
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/codex" if name == "codex" else None)
+    seen: list[str] = []
+
+    class FakeProcess:
+        pid = 4242
+
+        def wait(self, timeout: float) -> int:
+            raise subprocess.TimeoutExpired(seen, timeout)
+
+    def run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise AssertionError(f"delivery must not shell out synchronously: {args}")
+
+    def popen(args: list[str], **_kwargs: object):
+        seen.extend(args)
+        return FakeProcess()
+
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    result = deliver_to_agent_session("codex", SESSION, tmp_path, "review feedback")
+
+    assert result.state == "sent"
+    assert seen[:3] == ["/usr/bin/codex", "exec", "resume"]
+    assert "queue" not in seen
+    assert SESSION in seen
+    assert any("Human review feedback from LemonCrow" in token for token in seen)
+
+
+def test_generic_prompt_delivery_does_not_inject_review_feedback_instructions(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr("shutil.which", lambda name: f"/usr/bin/{name}" if name == "codex" else None)
+    seen: list[str] = []
+
+    class FakeProcess:
+        pid = 4242
+
+        def wait(self, timeout: float) -> int:
+            raise subprocess.TimeoutExpired(seen, timeout)
+
+    def popen(args: list[str], **_kwargs: object):
+        seen.extend(args)
+        return FakeProcess()
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    result = deliver_prompt_to_agent_session("codex", SESSION, tmp_path, "Inspect src/a.py:L3")
+
+    assert result.state == "sent"
+    assert "feedback" not in result.message.lower()
+    assert "prompt" in result.message.lower()
+    assert "Inspect src/a.py:L3" in seen
+    assert not any("Human review feedback from LemonCrow" in token for token in seen)
+
+
+def test_author_claim_rejects_a_comment_edited_after_delivery(tmp_path: Path) -> None:
+    store = FakeReviewStore(tmp_path)
+    store.list_annotation_versions = lambda _annotation_id: (SimpleNamespace(version_number=2),)
+    with pytest.raises(ValueError, match="changed after delivery"):
+        mark_feedback_addressed(store, tmp_path, ["ann-1"], host="claude", session_id=SESSION)
+    assert store.updated == {}
+
+
 class FakeReviewStore:
-    def __init__(self, repo_root: Path, *, delivered_to: str = SESSION, state: str = "open") -> None:
+    def __init__(
+        self,
+        repo_root: Path,
+        *,
+        delivered_to: str = SESSION,
+        state: str = "open",
+        delivery_state: str = "sent",
+    ) -> None:
         self.annotation = SimpleNamespace(
             id="ann-1",
             review_id="rev-1",
+            revision_id="rrv-1",
             source="human",
             parent_id="",
             state=state,
+            author_response="none",
+            author_response_source_id="",
         )
         self.review = SimpleNamespace(repo_root=str(repo_root))
         self.delivery = SimpleNamespace(
             target_type="agent_session",
             target_ref=f"claude:{delivered_to}",
-            state="sent",
+            state=delivery_state,
+            annotation_version=1,
         )
         self.updated: dict[str, object] = {}
 
@@ -136,21 +259,30 @@ class FakeReviewStore:
     def list_deliveries(self, annotation_id: str):
         return (self.delivery,) if annotation_id == self.annotation.id else ()
 
-    def update_annotation(self, annotation_id: str, **fields: object):
+    def list_annotation_versions(self, annotation_id: str):
+        return (SimpleNamespace(version_number=1),) if annotation_id == self.annotation.id else ()
+
+    def latest_revision(self, review_id: str):
+        return SimpleNamespace(id="rrv-1") if review_id == self.annotation.review_id else None
+
+    def update_annotation(self, annotation_id: str, history=None, /, **fields: object):
         assert annotation_id == self.annotation.id
         self.updated = fields
-        return SimpleNamespace(**vars(self.annotation), **fields)
+        values = vars(self.annotation).copy()
+        values.update(fields)
+        return SimpleNamespace(**values)
 
 
 def test_author_addressed_claim_requires_the_same_session_that_received_feedback(tmp_path: Path) -> None:
     store = FakeReviewStore(tmp_path, delivered_to="99999999-2222-4333-8444-555555555555")
-    with pytest.raises(ValueError, match="not delivered to this exact Claude session"):
+    with pytest.raises(ValueError, match="not delivered to this exact agent session"):
         mark_feedback_addressed(store, tmp_path, ["ann-1"], host="claude", session_id=SESSION)
     assert store.updated == {}
 
 
-def test_author_addressed_claim_never_resolves_the_human_comment(tmp_path: Path) -> None:
-    store = FakeReviewStore(tmp_path)
+@pytest.mark.parametrize("delivery_state", ["sent", "queued"])
+def test_author_addressed_claim_never_resolves_the_human_comment(tmp_path: Path, delivery_state: str) -> None:
+    store = FakeReviewStore(tmp_path, delivery_state=delivery_state)
     (updated,) = mark_feedback_addressed(store, tmp_path, ["ann-1"], host="claude", session_id=SESSION)
     assert updated.state == "open"
     assert updated.author_response == "addressed"

@@ -251,6 +251,141 @@ def test_micro_local_bindings_fold_into_the_enclosing_function_target() -> None:
     assert _covered(targets) == {("new", 0, line) for line in range(1, 6)}
 
 
+def test_metadata_less_leaf_symbols_fold_into_their_semantic_parent() -> None:
+    file_unit = _unit("file", "fil")
+    hunk_unit = _unit("hunk", "hun", ordinal=0, start=1, end=8, fingerprint_method="hunk_patch_sha256")
+    parent = _unit(
+        "symbol",
+        "parent",
+        symbol="deriveReviewPrimaryAction",
+        start=1,
+        end=8,
+        fingerprint_method="symbol_body_sha256",
+    )
+    parameter = _unit(
+        "symbol",
+        "parameter",
+        symbol="deriveReviewPrimaryAction.historical",
+        start=2,
+        end=2,
+        fingerprint_method="symbol_body_sha256",
+    )
+    local = _unit(
+        "symbol",
+        "local",
+        symbol="deriveReviewPrimaryAction.destination",
+        start=4,
+        end=4,
+        fingerprint_method="symbol_body_sha256",
+    )
+    helper = _unit(
+        "symbol",
+        "helper",
+        symbol="deriveReviewPrimaryAction.helper",
+        start=5,
+        end=7,
+        fingerprint_method="symbol_body_sha256",
+    )
+    units = (file_unit, hunk_unit, parent, parameter, local, helper)
+    patch = (
+        "+function deriveReviewPrimaryAction({\n"
+        "+  historical,\n"
+        "+}: Options) {\n"
+        "+  const destination = label();\n"
+        "+  function helper() {\n"
+        "+    return destination;\n"
+        "+  }\n"
+        "+  return helper();\n"
+    )
+    packet = _packet(
+        _hunk(1, 1, patch, old_lines=0, new_lines=8),
+        symbol_rows=(
+            {
+                "file_path": "src/mod.py",
+                "symbol_name": "deriveReviewPrimaryAction",
+                "qualified_name": "deriveReviewPrimaryAction",
+                "start_line": 1,
+                "kind": "function_declaration",
+                "caller_count": 0,
+            },
+        ),
+    )
+
+    targets = derive_review_targets(units, tuple(_entry(unit) for unit in units), packet)
+
+    assert {(target.kind, target.symbol) for target in targets} == {
+        ("symbol", "deriveReviewPrimaryAction"),
+        ("symbol", "deriveReviewPrimaryAction.helper"),
+    }
+    parent_target = next(target for target in targets if target.symbol == "deriveReviewPrimaryAction")
+    helper_target = next(target for target in targets if target.symbol.endswith(".helper"))
+    assert {
+        line for span in parent_target.spans if span.side == "new" for line in range(span.start_line, span.end_line + 1)
+    } == {
+        1,
+        2,
+        3,
+        4,
+        8,
+    }
+    assert {
+        line for span in helper_target.spans if span.side == "new" for line in range(span.start_line, span.end_line + 1)
+    } == {
+        5,
+        6,
+        7,
+    }
+
+
+def test_metadata_less_interface_fields_fold_into_the_interface_target() -> None:
+    file_unit = _unit("file", "fil")
+    hunk_unit = _unit("hunk", "hun", ordinal=0, start=1, end=4, fingerprint_method="hunk_patch_sha256")
+    parent = _unit(
+        "symbol",
+        "parent",
+        symbol="ReviewPrimaryAction",
+        start=1,
+        end=4,
+        fingerprint_method="symbol_body_sha256",
+    )
+    kind = _unit(
+        "symbol",
+        "kind",
+        symbol="ReviewPrimaryAction.kind",
+        start=2,
+        end=2,
+        fingerprint_method="symbol_body_sha256",
+    )
+    label = _unit(
+        "symbol",
+        "label",
+        symbol="ReviewPrimaryAction.label",
+        start=3,
+        end=3,
+        fingerprint_method="symbol_body_sha256",
+    )
+    units = (file_unit, hunk_unit, parent, kind, label)
+    patch = "+interface ReviewPrimaryAction {\n+  kind: string;\n+  label: string;\n+}\n"
+    packet = _packet(
+        _hunk(1, 1, patch, old_lines=0, new_lines=4),
+        symbol_rows=(
+            {
+                "file_path": "src/mod.py",
+                "symbol_name": "ReviewPrimaryAction",
+                "qualified_name": "ReviewPrimaryAction",
+                "start_line": 1,
+                "kind": "interface_declaration",
+                "caller_count": 0,
+            },
+        ),
+    )
+
+    targets = derive_review_targets(units, tuple(_entry(unit) for unit in units), packet)
+
+    assert [(target.kind, target.symbol) for target in targets] == [("symbol", "ReviewPrimaryAction")]
+    assert _covered(targets) == {("new", 0, line) for line in range(1, 5)}
+
+
 def test_folded_micro_symbol_comment_counts_against_its_human_target() -> None:
     file_unit = _unit("file", "fil")
     hunk_unit = _unit("hunk", "hun", ordinal=0, start=1, end=5, fingerprint_method="hunk_patch_sha256")
@@ -535,6 +670,39 @@ def test_a_rewritten_symbol_keeps_only_the_deletions_its_fingerprint_covers() ->
     assert by_kind["symbol"].deletions == 1
     assert {(span.side, span.start_line, span.end_line) for span in by_kind["hunk"].spans} == {("old", 4, 6)}
     assert _covered(targets) == {("new", 0, 3), ("old", 0, 3), ("old", 0, 4), ("old", 0, 5), ("old", 0, 6)}
+
+
+def test_renamed_callback_declaration_stays_with_modified_symbol() -> None:
+    file_unit = _unit("file", "fil")
+    hunk_unit = _unit("hunk", "hun", ordinal=0, start=1, end=3, fingerprint_method="hunk_patch_sha256")
+    callback = _unit(
+        "symbol",
+        "sym-callback",
+        symbol="sendFeedbackToAgent",
+        start=1,
+        end=3,
+        fingerprint_method="symbol_body_sha256",
+    )
+    units = (file_unit, hunk_unit, callback)
+    patch = (
+        "-const sendFeedbackToAuthor = useCallback(async () => {\n"
+        "+const sendFeedbackToAgent = useCallback(async () => {\n"
+        "   send();\n"
+        " }, []);\n"
+    )
+
+    targets = derive_review_targets(
+        units,
+        tuple(_entry(unit) for unit in units),
+        _packet(_hunk(1, 1, patch, old_lines=3, new_lines=3)),
+    )
+
+    assert [(target.kind, target.unit_key) for target in targets] == [("symbol", "sym-callback")]
+    assert {(span.side, span.start_line, span.end_line) for span in targets[0].spans} == {
+        ("old", 1, 1),
+        ("new", 1, 1),
+    }
+    assert (targets[0].additions, targets[0].deletions) == (1, 1)
 
 
 def test_a_body_rewritten_in_place_stays_one_review_target() -> None:

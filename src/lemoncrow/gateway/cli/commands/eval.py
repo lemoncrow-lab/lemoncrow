@@ -124,7 +124,7 @@ _EXTERNAL_CHANNELS = [
     "graphify",
     "graft",
 ]
-_RETRIEVAL_CHANNELS = _LEMONCROW_CHANNELS + _EXTERNAL_CHANNELS
+_RETRIEVAL_CHANNELS = [*_LEMONCROW_CHANNELS, "lemoncrow-shared", *_EXTERNAL_CHANNELS]
 _ALL_CHANNEL = "all"
 
 
@@ -231,14 +231,25 @@ def _channel_cmd_env(
     provider = "lemoncrow" if channel in _LEMONCROW_CHANNELS else channel
     env["EVAL_CHANNEL_LABEL"] = channel
     if channel == "zoekt":
-        # Pure Zoekt trigram/regex index: disable both lexical FTS5 and semantic.
+        # Pure Zoekt trigram/regex index: explicitly enable the installed
+        # backend and disable both lexical FTS5 and semantic. Zoekt defaults to
+        # OFF in production, so inheriting the caller's shell here makes this
+        # named benchmark channel silently become "no retrieval".
+        env["LEMONCROW_ZOEKT_MODE"] = "installed"
         env["LEMONCROW_EXPLORE_LEXICAL"] = "0"
         env["LEMONCROW_EXPLORE_SEMANTIC"] = "0"
+        env.pop("LEMONCROW_CODE_EMBEDDER", None)
     elif channel == "semantic":
-        # Pure semantic (embedding) search: disable both lexical FTS5 and Zoekt.
+        # Pure semantic (embedding) search: explicitly enable semantic + BGE
+        # (unless the benchmark caller deliberately pins another embedder), and
+        # disable both lexical FTS5 and Zoekt.
         env["LEMONCROW_EXPLORE_LEXICAL"] = "0"
+        env["LEMONCROW_EXPLORE_SEMANTIC"] = "1"
         env["LEMONCROW_ZOEKT_MODE"] = "off"
+        env.setdefault("LEMONCROW_CODE_EMBEDDER", os.environ.get("LEMONCROW_CODE_EMBEDDER", "bge"))
+        env.setdefault("LEMONCROW_SEMANTIC_SYMBOL_DEADLINE_S", "60")
     elif channel == "lexical":
+        env["LEMONCROW_EXPLORE_LEXICAL"] = "1"
         env["LEMONCROW_ZOEKT_MODE"] = "off"
         env["LEMONCROW_EXPLORE_SEMANTIC"] = "0"
         # Unset regardless of the caller's shell env: if LEMONCROW_CODE_EMBEDDER is
@@ -252,9 +263,14 @@ def _channel_cmd_env(
         # direct engine call for the same query).
         env.pop("LEMONCROW_CODE_EMBEDDER", None)
     elif channel == "lexical+zoekt":
+        env["LEMONCROW_EXPLORE_LEXICAL"] = "1"
+        env["LEMONCROW_ZOEKT_MODE"] = "installed"
         env["LEMONCROW_EXPLORE_SEMANTIC"] = "0"
         env.pop("LEMONCROW_CODE_EMBEDDER", None)
     elif channel == "lexical+zoekt+semantic":
+        env["LEMONCROW_EXPLORE_LEXICAL"] = "1"
+        env["LEMONCROW_ZOEKT_MODE"] = "installed"
+        env["LEMONCROW_EXPLORE_SEMANTIC"] = "1"
         # Use the embedder pinned by LEMONCROW_CODE_EMBEDDER in the caller's
         # env, or fall back to the configured best (BGE-Code-v1 by default --
         # see BENCHMARKS.md's embedder sweep).
@@ -540,7 +556,8 @@ def _render_comparison(channel_results: dict[str, dict[str, Any]], csv_path: Pat
     help="Channel(s) to benchmark. Repeatable for side-by-side comparison: "
     "--channel lexical --channel lexical+zoekt. "
     "Use 'all' to run every channel. "
-    "LemonCrow (env-toggled variants of the shipped MCP surface): zoekt, "
+    "Current client and configured server: lemoncrow-shared. "
+    "Legacy MCP (env-toggled): zoekt, "
     "semantic, lexical, lexical+zoekt, lexical+zoekt+semantic. "
     "External: cg, ctags, ast-grep, serena, code-index-mcp, jcodemunch, rg, cmm, fff, graphify, graft.",
 )
@@ -653,6 +670,11 @@ def eval_retrieval(
 
     _ensure_ws(golds_for_provision)
 
+    import os
+
+    from lemoncrow.gateway.cli.retrieval_cache import cache_identity, cached_result, source_fingerprint
+
+    source = source_fingerprint(repo_root, os.environ)
     channel_results: dict[str, dict[str, Any]] = {}
     any_failed = False
 
@@ -664,16 +686,7 @@ def eval_retrieval(
 
     def _run_channel(ch: str) -> tuple[str, dict[str, Any] | None]:
         cache = _cache_path(ch)
-        if resume and cache is not None and cache.exists():
-            try:
-                cached = json.loads(cache.read_text())
-                if not json_output:
-                    click.echo(f"[eval] resume channel={ch} (cached {cache})", err=True)
-                return ch, cached
-            except Exception:  # Corrupt cache: fall through and re-run.
-                if not json_output:
-                    click.echo(f"[eval] cache for channel={ch} unreadable — re-running", err=True)
-        cmd, env, _ = _channel_cmd_env(
+        cmd, env, golds = _channel_cmd_env(
             ch,
             full=full,
             sample=sample,
@@ -681,6 +694,21 @@ def eval_retrieval(
             pairs=pairs,
             workers=workers,
         )
+        identity = cache_identity(repo_root, cmd, env, golds, source=source)
+        # A running server or external executable cannot be attested by this
+        # checkout's fingerprint. Those channels always execute again.
+        can_resume = ch in _LEMONCROW_CHANNELS and not env.get("LEMONCROW_BENCH_PYTHON")
+        if resume and cache is not None and cache.exists():
+            try:
+                cached = cached_result(json.loads(cache.read_text()), identity) if can_resume else None
+                if cached is not None:
+                    if not json_output:
+                        click.echo(f"[eval] resume channel={ch} (verified {cache})", err=True)
+                    return ch, cached
+            except (OSError, ValueError):
+                pass
+            if not json_output:
+                click.echo(f"[eval] cache for channel={ch} stale or unverifiable — re-running", err=True)
         if not json_output:
             click.echo(f"[eval] start channel={ch} :: {' '.join(cmd)}", err=True)
         proc = subprocess.run(
@@ -705,7 +733,7 @@ def eval_retrieval(
                     continue
                 if cache is not None:
                     try:
-                        cache.write_text(json.dumps(result))
+                        cache.write_text(json.dumps({"cache_schema": 1, "identity": identity, "result": result}))
                     except Exception:  # Caching is best-effort.
                         pass
                 if not json_output:

@@ -68,62 +68,6 @@ LEMONCROW_STATUS_ROOT="${LEMONCROW_ROOT:-${LEMONCROW_STORE_ROOT:-${HOME}/.lemonc
 export LEMONCROW_STATUS_ROOT
 export LEMONCROW_ROOT="${LEMONCROW_STATUS_ROOT}"
 
-# --- Pro icon: rotate the leading glyph when the cached plan is pro/enterprise ---
-# Reads the cached `/api/auth/me` response (written by `lc account login`;
-# ~/.lemoncrow/auth_user.json, see licensing/store.py). Any staleness within its
-# normal cache TTL is fine here -- purely cosmetic, never a feature gate.
-_LEMONCROW_AUTH_USER="${LEMONCROW_STATUS_ROOT}/auth_user.json"
-if [ -f "${_LEMONCROW_AUTH_USER}" ]; then
-  if command -v jq >/dev/null 2>&1; then
-    _LEMONCROW_PLAN=$(jq -r '.plan // ""' "${_LEMONCROW_AUTH_USER}" 2>/dev/null)
-  else
-    _LEMONCROW_PLAN=$(python3 -c "
-import json, sys
-try:
-    print(json.load(open(sys.argv[1])).get('plan', ''))
-except Exception:
-    print('')
-" "${_LEMONCROW_AUTH_USER}" 2>/dev/null)
-  fi
-  case "${_LEMONCROW_PLAN:-}" in
-    pro|enterprise|lite)
-      # Wall-clock rotation (5s per icon), same cadence as the dynamic segment
-      # below -- deterministic within a render, no flicker. Shared rotation for
-      # every paid tier; the `lc`/`lc(lite)` suffix still tells tiers apart.
-      _LEMONCROW_TIER_ICONS=("⚡" "✨" "❯")
-      _LEMONCROW_ICON_IDX=$(( ($(date +%s) / 5) % ${#_LEMONCROW_TIER_ICONS[@]} ))
-      _LEMONCROW_ICON="${_LEMONCROW_TIER_ICONS[$_LEMONCROW_ICON_IDX]}"
-      if [ "${_LEMONCROW_PLAN}" = "lite" ]; then
-        PLUGIN_LABEL="${_LEMONCROW_ICON} lc"
-      else
-        PLUGIN_LABEL="${_LEMONCROW_ICON} lc"
-      fi
-      ;;
-  esac
-fi
-
-# --- Capped-out (dormant) indicator ---
-# When the plan's savings cap is exhausted the engine goes dormant (the MCP
-# server stops exposing lc tools on its next process start). Mirror the same
-# cheap, cosmetic read used for the plan icon above: subscription.json's
-# `savingsOverCap` is the local-meter view of cap_exhausted() (plugin_runtime).
-# Cosmetic only -- the real gate is server-verified and frozen at MCP
-# `initialize`, never decided here.
-_LEMONCROW_CAPPED=""
-_LEMONCROW_SUBSCRIPTION="${LEMONCROW_STATUS_ROOT}/subscription.json"
-if [ -f "${_LEMONCROW_SUBSCRIPTION}" ]; then
-  if command -v jq >/dev/null 2>&1; then
-    _LEMONCROW_CAPPED=$(jq -r 'if .savingsOverCap == true then "1" else "" end' "${_LEMONCROW_SUBSCRIPTION}" 2>/dev/null)
-  else
-    _LEMONCROW_CAPPED=$(python3 -c "
-import json, sys
-try:
-    print('1' if json.load(open(sys.argv[1])).get('savingsOverCap') is True else '')
-except Exception:
-    print('')
-" "${_LEMONCROW_SUBSCRIPTION}" 2>/dev/null)
-  fi
-fi
 export LEMONCROW_STATUS_SESSION_ID="${SESSION_ID:-}"
 export LEMONCROW_STATUS_MODEL="${MODEL_ID:-${MODEL:-}}"
 export LEMONCROW_STATUS_MODEL_DISPLAY="${MODEL:-}"
@@ -181,22 +125,7 @@ else
   C_RESET=$'\033[0m'
 fi
 
-# Brand color by tier -- grey is reserved for the capped/dormant state, so every
-# active tier is colored: free blue, lite teal, pro/enterprise purple (default).
-case "${_LEMONCROW_PLAN:-}" in
-  pro|enterprise) ;;
-  lite) C_BRAND="${C_LITE}" ;;
-  *) C_BRAND="${C_FREE}" ;;
-esac
-# Capped/dormant replaces the label outright with an explicit `● lc(cap)` --
-# greying out the existing tier suffix (`● lc(free)`) reads as "still free,
-# just dim" rather than "capped"; spelling out (cap) removes the ambiguity.
-# Only free/lite can be over cap (pro/enterprise are uncapped, so
-# savingsOverCap stays false), so there's no tier suffix to preserve.
-if [ -n "${_LEMONCROW_CAPPED:-}" ]; then
-  PLUGIN_LABEL="● lc(cap)"
-  C_BRAND="${C_DIM}"
-fi
+# The local product has one visual identity; there are no plan/cap tiers.
 PIPE="${C_PIPE}|${C_RESET}"
 SEP="${C_DIM}/${C_RESET}"
 
@@ -446,6 +375,15 @@ except Exception:
   fi
 fi
 
+# --- Update available (opt-in; lc settings cli.update_check). update_notice.py keeps
+# <root>/update_badge = the pending version, absent when up to date, so this is a
+# single file read -- no Python spawn on the render path.
+UPDATE_AVAIL_SEG=""
+if [ -s "${LEMONCROW_STATUS_ROOT}/update_badge" ]; then
+  _UPDATE_AVAIL=$(head -c 32 "${LEMONCROW_STATUS_ROOT}/update_badge" 2>/dev/null | tr -cd '0-9A-Za-z.+-')
+  [ -n "${_UPDATE_AVAIL}" ] && UPDATE_AVAIL_SEG=" ${SEP} ${C_BRAND}⬆ v${_UPDATE_AVAIL} · lc update${C_RESET}"
+fi
+
 # --- Login reminder: folded into the rotating dynamic segment.
 # The free/unauthenticated sign-in nudge is one of the rotating frames
 # emitted by the backend (lc savings --segment / MCP sidecar; see
@@ -526,8 +464,8 @@ if [ "${LEMONCROW_STATUSLINE_LOGO:-}" = "1" ] && [ -z "${LEMONCROW_NO_COLOR:-}" 
   fi
 fi
 
-printf '%s%s%s%s %s %s ctx %s %s%%%s%s%s%s%s\n' \
+printf '%s%s%s%s %s %s ctx %s %s%%%s%s%s%s%s%s\n' \
   "${LOGO_PREFIX}" \
   "$C_BRAND" "$PLUGIN_LABEL" "$C_RESET" \
   "$PIPE" "$MODEL" "$ACTUAL_CTX_F" "$PCT_INT" \
-  "${DYNAMIC_SEG}" "$TASKS_SEG" "${UPDATE_SEG}" "${STALE_SEG}" "${TIP_SEG}"
+  "${DYNAMIC_SEG}" "$TASKS_SEG" "${UPDATE_SEG}" "${UPDATE_AVAIL_SEG}" "${STALE_SEG}" "${TIP_SEG}"

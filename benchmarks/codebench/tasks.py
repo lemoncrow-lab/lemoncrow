@@ -28,33 +28,10 @@ def codebench_tasks_dir() -> Path:
     return repo_root / "benchmarks" / "codebench" / "cg_tasks"
 
 
-# Portable (checkout-name-independent) path to this repo's own lemoncrow binary,
-# used by every cg_* task's pre-index setup_cmds below. A prior hardcoded
-# absolute path baked in a stale checkout name and silently no-op'd (`|| true`)
-# on any machine where that name doesn't match -- no crash, just a permanently
-# cold-started index for the lemoncrow arm, which quietly biases the whole
-# cg_* cost/time comparison against it.
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_LEMONCROW_BIN = _REPO_ROOT / ".venv" / "bin" / "lemoncrow"
-# Pre-index for EVERY lc-family arm (lemoncrow/auto/solve/execute), not just the
-# arm literally named "lemoncrow". Running e.g. `-a baseline auto` names the
-# workspace ``..._auto_rep0``; a gate that only matched ``*_lemoncrow_rep*`` left
-# the auto arm with a COLD index, so its first code_search built the whole index
-# inside the timed window -- biasing the cost/time comparison against it.
-_LC_INDEX_ARMS: tuple[str, ...] = ("lemoncrow", "auto", "solve", "execute")
-_INDEX_ON_LEMONCROW_REP: tuple[str, ...] = (
-    'case "$(pwd)" in '
-    + "|".join(f"*_{_arm}_rep*" for _arm in _LC_INDEX_ARMS)
-    + f') {_LEMONCROW_BIN} code index --repo-root "$(pwd)" || true ;; esac',
-)
-# Same trick for the codegraph competitor arm: build CodeGraph's local
-# knowledge-graph index (`.codegraph/`) only in that arm's workspace, before
-# the timed run starts, so indexing time is not charged to the benchmark
-# timer -- mirrors _INDEX_ON_LEMONCROW_REP above. Requires `codegraph` on
-# PATH (installed by the codegraph competitor manifest's `install` step; see
-# benchmarks/codebench/competitors/codegraph.json).
-_INIT_CODEGRAPH_ON_REP: tuple[str, ...] = ('case "$(pwd)" in *_codegraph_rep*) codegraph init || true ;; esac',)
-_CG_TASK_SETUP_CMDS: tuple[str, ...] = _INDEX_ON_LEMONCROW_REP + _INIT_CODEGRAPH_ON_REP
+# External comparator indexing belongs to the comparator manifest, not the task
+# corpus. Keeping these tasks tool-neutral prevents a globally installed
+# comparator binary from contaminating baseline/LemonCrow workspaces.
+_CG_TASK_SETUP_CMDS: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

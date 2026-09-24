@@ -16,9 +16,9 @@ import pytest
 from lemoncrow.core.capabilities.pricing import _intro_pricing_active, get_model_pricing
 from lemoncrow.core.capabilities.savings_summary import resolve_model_id
 
-# Sonnet 5 bills launch-promo rates ($2/$10 + standard cache multipliers)
-# through 2026-08-31, sticker ($3/$15) after.
-_SONNET_5_RATES = (2.0, 10.0, 0.2, 2.5) if _intro_pricing_active("2026-08-31") else (3.0, 15.0, 0.3, 3.75)
+# Sonnet 5's launch rates ($2/$10 + standard cache multipliers) became the
+# standard price; the planned Sep 1, 2026 increase to $3/$15 was cancelled.
+_SONNET_5_RATES = (2.0, 10.0, 0.2, 2.5)
 
 # model -> (input, output, cache_read, cache_write) USD per 1M tokens
 _FULL_WINDOW_STANDARD: dict[str, tuple[float, float, float, float]] = {
@@ -26,8 +26,8 @@ _FULL_WINDOW_STANDARD: dict[str, tuple[float, float, float, float]] = {
     "claude-mythos-5": (10.0, 50.0, 1.0, 12.5),
     "claude-mythos-preview": (10.0, 50.0, 1.0, 12.5),
     "claude-opus-4-8": (5.0, 25.0, 0.5, 6.25),
-    "claude-opus-4-7": (5.0, 25.0, 0.5, 6.25),
     "claude-opus-4-6": (5.0, 25.0, 0.5, 6.25),
+    "claude-opus-5-5": (4.0, 20.0, 0.2, 5.0),
     "claude-sonnet-5": _SONNET_5_RATES,
     "claude-sonnet-4-6": (3.0, 15.0, 0.3, 3.75),
 }
@@ -63,13 +63,9 @@ def test_intro_pricing_window_gate() -> None:
     assert _intro_pricing_active("not-a-date") is False
 
 
-def test_sonnet_5_rates_track_the_intro_window() -> None:
+def test_sonnet_5_keeps_launch_rates_as_standard() -> None:
     pricing = get_model_pricing("claude-sonnet-5")
     assert pricing is not None and pricing.known
-    if _intro_pricing_active("2026-08-31"):
-        expected = (2.0, 10.0, 0.2, 2.5, 4.0, 10.0)
-    else:
-        expected = (3.0, 15.0, 0.3, 3.75, 6.0, 15.0)
     assert (
         pricing.input,
         pricing.output,
@@ -77,7 +73,7 @@ def test_sonnet_5_rates_track_the_intro_window() -> None:
         pricing.cache_write,
         pricing.cache_write_1h,
         pricing.thinking,
-    ) == expected
+    ) == (2.0, 10.0, 0.2, 2.5, 4.0, 10.0)
 
 
 def test_context_variant_tag_still_prices() -> None:

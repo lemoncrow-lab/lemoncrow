@@ -22,6 +22,7 @@ from urllib.parse import urljoin, urlparse
 import aiohttp
 import urllib3
 from aiohttp.abc import AbstractResolver, ResolveResult
+from lemoncrow_client.kit.notices import spill_notice
 from urllib3.connection import HTTPConnection, HTTPSConnection
 from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
 from urllib3.poolmanager import SSL_KEYWORDS
@@ -435,7 +436,7 @@ def _summarize_rendered_content(content: str, *, char_limit: int) -> str:
         body = heuristic_summary(content, target_chars=target_chars)
         verb = "summarized:heuristic"
 
-    footer = tool_output_spill.spill_notice(
+    footer = spill_notice(
         verb=verb,
         original_chars=original_chars,
         kept_chars=len(body),
@@ -462,7 +463,7 @@ def _truncate_with_spill(content: str, char_limit: int) -> str:
     record = None
     if tool_output_spill_enabled():
         record = tool_output_spill.spill(content, tool_name="web_fetch", kind="original")
-    footer = tool_output_spill.spill_notice(
+    footer = spill_notice(
         verb="truncated",
         original_chars=len(content),
         kept_chars=len(head),
@@ -790,6 +791,67 @@ async def _async_fetch_with_cache(url: str, *, accept: str, timeout_s: float) ->
         while len(_FETCH_CACHE) > FETCH_CACHE_MAX_ITEMS:
             _FETCH_CACHE.popitem(last=False)
     return result
+
+
+async def async_fetch_image(
+    url: str,
+    *,
+    max_bytes: int = 5_000_000,
+    timeout_s: float = 15.0,
+) -> tuple[bytes, str]:
+    """Fetch one public HTTP(S) image with the same SSRF guard as web_fetch.
+
+    Intended for browser-preview proxies: redirects are revalidated, private and
+    loopback addresses are refused at connect time, only ``image/*`` responses
+    are accepted, and the buffered body is bounded. The caller decides how to
+    cache or expose the returned bytes.
+    """
+
+    current_url = _validate_public_url(url.strip())
+    limit = max(1, min(int(max_bytes), 20_000_000))
+    timeout_value = float(min(max(float(timeout_s), 1.0), 60.0))
+    headers = _request_headers("image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+    timeout = aiohttp.ClientTimeout(connect=timeout_value, sock_connect=timeout_value, sock_read=timeout_value)
+    connector = aiohttp.TCPConnector(
+        resolver=_ValidatingResolver(),
+        use_dns_cache=False,
+        family=socket.AF_UNSPEC,
+        limit=4,
+    )
+    async with aiohttp.ClientSession(connector=connector) as session:
+        for _redirect_index in range(MAX_REDIRECTS + 1):
+            literal_host = urlparse(current_url).hostname or ""
+            if _is_ip_address(literal_host):
+                _assert_fetchable_ip(literal_host)
+            try:
+                async with session.get(
+                    current_url,
+                    headers=headers,
+                    timeout=timeout,
+                    allow_redirects=False,
+                ) as response:
+                    status_code = int(response.status)
+                    location = response.headers.get("location")
+                    if status_code in _REDIRECT_STATUSES and location:
+                        current_url = _validate_public_url(urljoin(current_url, location))
+                        continue
+                    if status_code in _REDIRECT_STATUSES:
+                        raise ValueError(f"web_fetch failed: HTTP {status_code} redirect without Location")
+                    if status_code < 200 or status_code >= 300:
+                        raise ValueError(f"image fetch failed: HTTP {status_code}")
+                    media_type = _media_type(response.headers.get("content-type", "") or "")
+                    if not media_type.startswith("image/"):
+                        raise ValueError(f"image fetch returned unsupported content type: {media_type or 'unknown'}")
+                    body, truncated = await _async_read_limited_body(response, max_bytes=limit)
+                    if truncated:
+                        raise ValueError(f"image fetch exceeded {limit} bytes")
+                    return body, media_type
+            except aiohttp.ClientError as exc:
+                cause = exc.__cause__ or exc.__context__
+                if isinstance(cause, ValueError):
+                    raise cause from None
+                raise RuntimeError(f"image fetch failed: {exc}") from exc
+    raise ValueError("image fetch failed: too many redirects")
 
 
 async def async_fetch_url(

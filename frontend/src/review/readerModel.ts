@@ -1,4 +1,4 @@
-import type { RevisionTargetDelta, ReviewOutlineItem, ReviewProgress, ReviewTarget } from "./types";
+import type { RevisionTargetDelta, ReviewOutlineItem, ReviewOverview, ReviewProgress, ReviewTarget } from "./types";
 
 export type ReaderOrder = "recommended" | "file";
 export type OutlineSectionKey = "attention" | "changed" | "remaining" | "tests" | "mechanical" | "done";
@@ -15,6 +15,31 @@ export interface OutlineSection {
   key: OutlineSectionKey;
   label: string;
   rows: ReviewOutlineItem[];
+}
+
+export interface ReviewStoryStep {
+  label: string;
+  path: string;
+}
+
+export interface ReviewGuideTarget {
+  targetId: string;
+  path: string;
+  label: string;
+  reason: string;
+}
+
+export type ReviewScopeTone = "added" | "deleted" | "modified";
+
+export function reviewScopeTone(target: ReviewTarget): ReviewScopeTone {
+  if (target.additions > 0 && target.deletions > 0) return "modified";
+  if (target.additions > 0 && target.deletions === 0) return "added";
+  if (target.deletions > 0 && target.additions === 0) return "deleted";
+  const hasNew = target.spans.some((span) => span.side === "new");
+  const hasOld = target.spans.some((span) => span.side === "old");
+  if (hasNew && !hasOld) return "added";
+  if (hasOld && !hasNew) return "deleted";
+  return "modified";
 }
 
 export function targetDisplayLabel(target: ReviewTarget): string {
@@ -168,6 +193,128 @@ export function stepFile(
 
 export function firstActionable(targets: readonly ReviewTarget[]): ReviewTarget | null {
   return targets.find(isActionable) ?? targets[0] ?? null;
+}
+
+function concreteTargetReason(target: ReviewTarget): string {
+  if (target.annotation_counts.addressed_needs_rereview > 0) {
+    const count = target.annotation_counts.addressed_needs_rereview;
+    return `${count} addressed comment${count === 1 ? " needs" : "s need"} re-review`;
+  }
+  if (target.state === "changed_since_review") return "Changed since your last review";
+  if (target.verification.fail > 0) {
+    const count = target.verification.fail;
+    return `${count} verification failure${count === 1 ? "" : "s"}`;
+  }
+  if (target.state === "needs_changes") return "Requested changes remain open";
+  if (target.annotation_counts.orphaned > 0) {
+    const count = target.annotation_counts.orphaned;
+    return `${count} comment${count === 1 ? "" : "s"} lost ${count === 1 ? "its" : "their"} anchor`;
+  }
+  if (target.annotation_counts.open > 0) {
+    const count = target.annotation_counts.open;
+    return `${count} open review comment${count === 1 ? "" : "s"}`;
+  }
+  if (target.verification.unknown > 0) {
+    const count = target.verification.unknown;
+    return `${count} verification result${count === 1 ? "" : "s"} unknown`;
+  }
+  const reason = target.reasons.find((item) => !/^\+\d+\s+-\d+$/.test(item.trim()));
+  return reason || "Needs human judgment";
+}
+
+function explicitAttentionSignal(target: ReviewTarget): boolean {
+  return (
+    target.annotation_counts.addressed_needs_rereview > 0
+    || target.annotation_counts.orphaned > 0
+    || target.annotation_counts.open > 0
+    || target.verification.fail > 0
+    || target.verification.unknown > 0
+    || target.state === "changed_since_review"
+    || target.state === "needs_changes"
+    || target.state === "unknown"
+  );
+}
+
+function attentionTier(target: ReviewTarget): number {
+  if (target.annotation_counts.addressed_needs_rereview > 0) return 0;
+  if (target.state === "changed_since_review") return 1;
+  if (target.verification.fail > 0) return 2;
+  if (target.annotation_counts.orphaned > 0) return 3;
+  if (target.state === "unknown" || target.verification.unknown > 0) return 4;
+  if (target.state === "needs_changes") return 5;
+  if (target.attention_level === "high") return 6;
+  if (target.annotation_counts.open > 0) return 7;
+  if (target.state === "unreviewed") return 8;
+  return 9;
+}
+
+export function orderedAttentionTargets(targets: readonly ReviewTarget[]): ReviewTarget[] {
+  return targets
+    .map((target, index) => ({ target, index }))
+    .filter(({ target }) =>
+      isActionable(target)
+      && (target.attention_level !== "mechanical" || explicitAttentionSignal(target)),
+    )
+    .sort((left, right) => {
+      const tier = attentionTier(left.target) - attentionTier(right.target);
+      if (tier !== 0) return tier;
+      const leftRank = left.target.attention_rank > 0 ? left.target.attention_rank : Number.MAX_SAFE_INTEGER;
+      const rightRank = right.target.attention_rank > 0 ? right.target.attention_rank : Number.MAX_SAFE_INTEGER;
+      if (leftRank !== rightRank) return leftRank - rightRank;
+      return left.index - right.index;
+    })
+    .map(({ target }) => target);
+}
+
+export function reviewAttentionPath(targets: readonly ReviewTarget[]): ReviewGuideTarget[] {
+  return orderedAttentionTargets(targets).map((target) => ({
+    targetId: target.target_id,
+    path: target.path,
+    label: targetDisplayLabel(target),
+    reason: concreteTargetReason(target),
+  }));
+}
+
+export function nextReviewGuideTarget(targets: readonly ReviewTarget[]): ReviewGuideTarget | null {
+  const attention = reviewAttentionPath(targets)[0];
+  if (attention) return attention;
+  const target = targets.find(isActionable);
+  if (!target) return null;
+  return {
+    targetId: target.target_id,
+    path: target.path,
+    label: targetDisplayLabel(target),
+    reason: concreteTargetReason(target),
+  };
+}
+
+export function stepAttentionTarget(
+  targets: readonly ReviewTarget[],
+  currentId: string,
+  delta: number,
+): ReviewTarget | null {
+  const rows = orderedAttentionTargets(targets);
+  if (rows.length === 0) return null;
+  const current = rows.findIndex((target) => target.target_id === currentId);
+  if (current < 0) return delta >= 0 ? rows[0] : rows[rows.length - 1];
+  const direction = delta >= 0 ? 1 : -1;
+  const index = ((current + direction) % rows.length + rows.length) % rows.length;
+  return rows[index];
+}
+
+export function reviewStorySteps(overview: ReviewOverview): ReviewStoryStep[] {
+  const labels = overview.change_story ?? [];
+  const chapters = overview.chapters?.intent ?? [];
+  const used = new Set<string>();
+  const out: ReviewStoryStep[] = [];
+  for (const label of labels) {
+    const chapter = chapters.find((item) => item.label === label);
+    const path = chapter?.rows.find((row) => Boolean(row.path))?.path ?? "";
+    if (!path || used.has(path)) continue;
+    used.add(path);
+    out.push({ label, path });
+  }
+  return out;
 }
 
 export function bestTargetAfterRevision(

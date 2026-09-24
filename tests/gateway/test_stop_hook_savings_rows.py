@@ -159,9 +159,12 @@ def test_credit_rtk_gain_with_fake_binary(tmp_path: Path, monkeypatch: pytest.Mo
     assert len(rows_after) == 2  # fresh workspace counter starts at 0 → credits its own 5000
 
 
-def test_output_style_default_ratio_is_bench_measured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Default ratio = 2.09: prose-only telegraphic Q&A ratio, no turn-cut overlap."""
+def test_output_style_default_ratio_is_bench_measured_for_ultra(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ultra keeps the measured 2.09 ratio; readable lite never guesses one."""
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+    monkeypatch.setenv("LEMONCROW_TELEGRAPHIC", "ultra")
     monkeypatch.delenv("LEMONCROW_OUTPUT_STYLE_RATIO", raising=False)
     stop = _load_stop()
     sid = "sid-out-default"
@@ -169,12 +172,16 @@ def test_output_style_default_ratio_is_bench_measured(tmp_path: Path, monkeypatc
     transcript = _write_transcript(tmp_path, prose_chars=4000, code_chars=0)
 
     stop._write_output_style_row(sid, {"last_model": MODEL}, transcript)
-
     rows = [r for r in _rows(sidecar) if r.get("kind") == "output_style"]
     assert len(rows) == 1
     assert rows[0]["ratio"] == pytest.approx(2.09)
-    # ~1000 prose tokens x (2.09 - 1) ≈ 1090 avoided output tokens.
     assert 1050 <= rows[0]["tokens"] <= 1130
+
+    monkeypatch.setenv("LEMONCROW_TELEGRAPHIC", "lite")
+    sid_lite = "sid-out-lite"
+    sidecar_lite = _seed_sidecar(tmp_path, sid_lite)
+    stop._write_output_style_row(sid_lite, {"last_model": MODEL}, transcript)
+    assert [r for r in _rows(sidecar_lite) if r.get("kind") == "output_style"] == []
 
 
 def test_output_style_basis_excludes_thinking_and_codeish_lines(

@@ -17,6 +17,7 @@ Run via CLI::
 from __future__ import annotations
 
 import contextlib
+import importlib.resources
 import json
 import logging
 import mimetypes
@@ -42,8 +43,10 @@ from lemoncrow.core.capabilities.workflow_runtime_state import (
 )
 from lemoncrow.core.foundation.models import Trace, coerce_trace_json, to_jsonable
 from lemoncrow.core.foundation.paths import (
+    WorkspaceNotRegisteredError,
     confine_to_root,
     flat_session_dir,
+    is_recognized_workspace,
     resolve_session_state_path,
     resolve_workspace_root,
     safe_segment,
@@ -120,6 +123,16 @@ _HOST_ORDER: tuple[str, ...] = (
     "cursor",
     "hermes",
 )
+
+
+def _integration_resource_path(*parts: str) -> Path:
+    """Resolve an integrations asset from a source checkout or installed wheel."""
+    source_root = Path(__file__).resolve().parents[4]
+    source_candidate = source_root.joinpath("integrations", *parts)
+    if source_candidate.exists():
+        return source_candidate
+    packaged = importlib.resources.files("lemoncrow").joinpath("integrations", *parts)
+    return Path(str(packaged))
 
 
 def _host_import_stats(store: StoreBundle) -> dict[str, dict[str, Any]]:
@@ -350,6 +363,33 @@ class SwarmLaunchRequest(BaseModel):
     provider_env: dict[str, str] = Field(default_factory=dict)
 
 
+class CodeMapReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_root: str | None = Field(default=None, max_length=4096)
+
+
+class CodeMapEditorOpenRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_root: str | None = Field(default=None, max_length=4096)
+    path: str = Field(min_length=1, max_length=4096)
+    line: int = Field(default=1, ge=1)
+    column: int = Field(default=1, ge=1)
+
+
+class CodeMapAgentHandoffRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_root: str | None = Field(default=None, max_length=4096)
+    expected_session_id: str | None = Field(default=None, max_length=240)
+    path: str = Field(min_length=1, max_length=4096)
+    line: int | None = Field(default=None, ge=1)
+    end_line: int | None = Field(default=None, ge=1)
+    symbol: str | None = Field(default=None, max_length=500)
+    message: str = Field(min_length=1, max_length=4000)
+
+
 class WorkflowSnapshotActionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -405,12 +445,50 @@ def _build_swarm_provider_env(payload: SwarmLaunchRequest) -> dict[str, str]:
     return env
 
 
-def _workflow_session_state_path() -> Path:
-    return resolve_session_state_path(resolve_workspace_root())
+def _registered_dashboard_workspace_root() -> Path | None:
+    from lemoncrow.core.service.project_registry import registered_projects
+
+    for project in registered_projects():
+        root = project.root.expanduser().resolve()
+        if not is_recognized_workspace(root):
+            continue
+        with contextlib.suppress(RuntimeError):
+            discovered = discover_repo_root(root).resolve()
+            if discovered == root:
+                return root
+    return None
 
 
-def _read_workflow_session_state() -> dict[str, Any]:
-    path = _workflow_session_state_path()
+def _resolve_dashboard_workspace_root(
+    root: Path | str | None = None,
+    project_root: Path | str | None = None,
+) -> Path:
+    if project_root is not None and str(project_root).strip():
+        candidate = Path(project_root).expanduser().resolve()
+        if not candidate.is_dir():
+            raise ValueError(f"project root does not exist: {candidate}")
+        try:
+            discovered = discover_repo_root(candidate).resolve()
+        except RuntimeError as exc:
+            raise ValueError(f"project root is not a repository: {candidate}") from exc
+        if discovered != candidate:
+            raise ValueError(f"project root must point at a repository root: {candidate}")
+        return candidate
+    try:
+        return resolve_workspace_root(root)
+    except WorkspaceNotRegisteredError:
+        registered = _registered_dashboard_workspace_root()
+        if registered is not None:
+            return registered
+        raise
+
+
+def _workflow_session_state_path(workspace_root: Path) -> Path:
+    return resolve_session_state_path(workspace_root)
+
+
+def _read_workflow_session_state(workspace_root: Path) -> dict[str, Any]:
+    path = _workflow_session_state_path(workspace_root)
     if not path.exists():
         return {}
     try:
@@ -420,8 +498,8 @@ def _read_workflow_session_state() -> dict[str, Any]:
         return {}
 
 
-def _write_workflow_session_state(state: dict[str, Any]) -> None:
-    path = _workflow_session_state_path()
+def _write_workflow_session_state(state: dict[str, Any], workspace_root: Path) -> None:
+    path = _workflow_session_state_path(workspace_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_suffix(".tmp")
     tmp_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
@@ -448,6 +526,14 @@ def _swarm_candidate_project_roots(root: Path) -> list[Path]:
 
     with contextlib.suppress(RuntimeError):
         add_candidate(discover_repo_root(Path.cwd()))
+    from lemoncrow.core.service.project_registry import registered_projects
+
+    for project in registered_projects():
+        candidate = project.root.expanduser().resolve()
+        with contextlib.suppress(RuntimeError):
+            discovered = discover_repo_root(candidate).resolve()
+            if discovered == candidate:
+                add_candidate(candidate)
     for state in list_swarm_runs(root):
         with contextlib.suppress(OSError, RuntimeError):
             add_candidate(Path(state.repo_root))
@@ -3204,7 +3290,13 @@ def _candidate_potential_breakdown(advisor: OptimizationResult, candidate: Candi
     return potential_savings_breakdown(candidate, advisor.baseline_weekly_cost_usd, total_saved_usd)
 
 
-def _optimizations_summary_payload(root: Path, store: StoreBundle, *, window_days: int) -> dict[str, Any]:
+def _optimizations_summary_payload(
+    root: Path,
+    store: StoreBundle,
+    *,
+    window_days: int,
+    project_root: Path | str | None = None,
+) -> dict[str, Any]:
     from lemoncrow.pro.capabilities.optimization import (
         load_current_policy,
         load_history,
@@ -3226,9 +3318,7 @@ def _optimizations_summary_payload(root: Path, store: StoreBundle, *, window_day
     for candidate_payload, candidate in zip(advisor_dict["candidates"], advisor.candidates, strict=True):
         candidate_payload.update(_candidate_potential_breakdown(advisor, candidate))
     advisor_history = load_history(root, limit=6)
-    from lemoncrow.core.foundation.paths import resolve_workspace_root
-
-    project_root_candidate = resolve_workspace_root(root)
+    project_root_candidate = _resolve_dashboard_workspace_root(root, project_root)
     if not ((project_root_candidate / "src").exists() or (project_root_candidate / "AGENTS.md").exists()):
         project_root_candidate = Path.cwd()
     from lemoncrow.pro.capabilities.optimization import (
@@ -3279,6 +3369,7 @@ def _optimizations_summary_payload(root: Path, store: StoreBundle, *, window_day
         "advisor": advisor_dict,
         "advisor_history": advisor_history,
         "recommendations": recommendations,
+        "context_project_root": str(project_root_candidate),
         "context_audit": context_audit,
         "quality_score": quality_score,
         "auto_optimizations": auto_optimizations,
@@ -3594,7 +3685,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         return to_jsonable(run_rubric(rubric, checks))
 
     def _redact_trace_json(value: Any) -> Any:
-        from lemoncrow.core.foundation.redaction import redact
+        from lemoncrow_client.kit.redaction import redact
 
         if isinstance(value, str):
             return redact(value)
@@ -3616,7 +3707,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         return False
 
     def _normalize_trace_tool_calls(items: list[Any]) -> list[dict[str, Any]]:
-        from lemoncrow.core.foundation.redaction import redact
+        from lemoncrow_client.kit.redaction import redact
 
         normalized: list[dict[str, Any]] = []
         for item in items:
@@ -3644,7 +3735,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         return normalized
 
     def _normalize_trace_validation_results(items: list[Any]) -> list[dict[str, Any]]:
-        from lemoncrow.core.foundation.redaction import redact
+        from lemoncrow_client.kit.redaction import redact
 
         normalized: list[dict[str, Any]] = []
         for item in items:
@@ -3674,7 +3765,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         return normalized
 
     def _normalize_trace_payload(payload: dict[str, Any]) -> tuple[dict[str, Any], bool]:
-        from lemoncrow.core.foundation.redaction import redact, redact_list
+        from lemoncrow_client.kit.redaction import redact, redact_list
 
         def _normalize_trace_learnings(value: Any) -> list[dict[str, Any]]:
             if value is None:
@@ -3792,41 +3883,20 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             _mem_store = make_memory_store(store_path)
         return _mem_store
 
-    def _team_manager_or_none() -> Any | None:
-        from lemoncrow.pro.capabilities.team import TeamWorkspaceManager
-
-        manager = TeamWorkspaceManager(store_path)
-        return manager if manager.exists() else None
-
     @app.get("/v1/memory/blocks", tags=["knowledge"], dependencies=[Depends(verify_api_key)])
     def memory_list_or_get(
         agent_id: str | None = None,
         label: str | None = None,
         include_tombstoned: bool = False,
         limit: int = 200,
-        user_id: str | None = None,
-        shared_only: bool = False,
     ) -> Any:
         mem = _get_mem_store()
-        manager = _team_manager_or_none()
         if label is not None:
             block = mem.get_block(agent_id, label, include_tombstoned=include_tombstoned)
             if block is None:
                 raise HTTPException(status_code=404, detail=f"Block not found: {label!r}")
-            if manager is not None:
-                from lemoncrow.pro.capabilities.team import visible_memory_blocks
-
-                visible = visible_memory_blocks([block], manager=manager, user_id=user_id, shared_only=shared_only)
-                if not visible:
-                    raise HTTPException(status_code=403, detail="block is not visible to this workspace user")
-                block = visible[0]
             return block
-        blocks = mem.list_blocks(agent_id, include_tombstoned=include_tombstoned, limit=limit)
-        if manager is not None:
-            from lemoncrow.pro.capabilities.team import visible_memory_blocks
-
-            blocks = visible_memory_blocks(blocks, manager=manager, user_id=user_id, shared_only=shared_only)
-        return blocks
+        return mem.list_blocks(agent_id, include_tombstoned=include_tombstoned, limit=limit)
 
     @app.post("/v1/memory/blocks", tags=["knowledge"], dependencies=[Depends(verify_api_key)])
     def memory_upsert_block(payload: dict[str, Any]) -> Any:
@@ -3839,17 +3909,6 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         if not label:
             raise HTTPException(status_code=400, detail="label is required")
         metadata = dict(payload.get("metadata") or {})
-        manager = _team_manager_or_none()
-        if manager is not None:
-            workspace = manager.load_workspace()
-            member = manager.require_member(str(payload.get("user_id") or ""), workspace=workspace)
-            metadata.setdefault("scope", "private")
-            metadata.setdefault("workspace_id", workspace.id)
-            metadata.setdefault("owner_user_id", member.user_id)
-            if metadata.get("scope") == "shared":
-                from lemoncrow.pro.capabilities.team import ensure_shared_memory_write
-
-                ensure_shared_memory_write(member)
         existing = mem.get_block(agent_id, label)
         if existing is None:
             value = str(payload.get("value", ""))
@@ -3937,175 +3996,6 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             since=since_dt,
         )
         return {"passages": [p.model_dump(mode="json") for p in passages]}
-
-    @app.get("/v1/team/workspace", tags=["team"], dependencies=[Depends(verify_api_key)])
-    def team_workspace_get() -> Any:
-        manager = _team_manager_or_none()
-        if manager is None:
-            raise HTTPException(status_code=404, detail="team workspace not initialized")
-        return manager.load_workspace()
-
-    @app.post("/v1/team/workspace", tags=["team"], dependencies=[Depends(verify_api_key)])
-    def team_workspace_init(payload: dict[str, Any]) -> Any:
-        from lemoncrow.pro.capabilities.team import TeamWorkspaceError, TeamWorkspaceManager
-
-        name = str(payload.get("name") or "").strip()
-        if not name:
-            raise HTTPException(status_code=400, detail="name is required")
-        try:
-            return TeamWorkspaceManager(store_path).init_workspace(
-                name=name,
-                admin_email=str(payload.get("admin_email") or "admin@local"),
-            )
-        except TeamWorkspaceError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-    @app.post("/v1/team/invite", tags=["team"], dependencies=[Depends(verify_api_key)])
-    def team_invite(payload: dict[str, Any]) -> Any:
-        from lemoncrow.pro.capabilities.team import TeamPermissionError, TeamWorkspaceManager
-
-        emails = [str(item).strip().lower() for item in payload.get("emails") or [] if str(item).strip()]
-        if not emails:
-            raise HTTPException(status_code=400, detail="emails are required")
-        manager = TeamWorkspaceManager(store_path)
-        try:
-            invites = manager.invite_members(
-                emails,
-                role=str(payload.get("role") or "member"),  # type: ignore[arg-type]
-                actor_user_id=str(payload.get("user_id") or "") or None,
-            )
-        except TeamPermissionError as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-        return [invite.model_dump(mode="json") for invite in invites]
-
-    @app.post("/v1/team/join", tags=["team"], dependencies=[Depends(verify_api_key)])
-    def team_join(payload: dict[str, Any]) -> Any:
-        from lemoncrow.pro.capabilities.team import TeamWorkspaceError, TeamWorkspaceManager
-
-        code = str(payload.get("invite_code") or "").strip()
-        if not code:
-            raise HTTPException(status_code=400, detail="invite_code is required")
-        try:
-            member = TeamWorkspaceManager(store_path).join_workspace(
-                code,
-                user_id=str(payload.get("user_id") or "") or None,
-            )
-        except TeamWorkspaceError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return member
-
-    @app.post("/v1/team/role", tags=["team"], dependencies=[Depends(verify_api_key)])
-    def team_role(payload: dict[str, Any]) -> Any:
-        from lemoncrow.pro.capabilities.team import (
-            TeamPermissionError,
-            TeamWorkspaceError,
-            TeamWorkspaceManager,
-        )
-
-        user_id = str(payload.get("target_user_id") or "").strip().lower()
-        role = str(payload.get("role") or "").strip()
-        if not user_id or not role:
-            raise HTTPException(status_code=400, detail="target_user_id and role are required")
-        manager = TeamWorkspaceManager(store_path)
-        try:
-            return manager.set_role(
-                user_id,
-                role,  # type: ignore[arg-type]
-                actor_user_id=str(payload.get("user_id") or "") or None,
-            )
-        except TeamPermissionError as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-        except TeamWorkspaceError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    @app.get("/v1/team/usage", tags=["team"], dependencies=[Depends(verify_api_key)])
-    def team_usage(user_id: str | None = None, since: str | None = None) -> Any:
-        from lemoncrow.pro.capabilities.team import (
-            TeamPermissionError,
-            TeamWorkspaceManager,
-            summarize_workspace_usage,
-        )
-
-        manager = TeamWorkspaceManager(store_path)
-        try:
-            manager.require_admin(user_id or None)
-        except TeamPermissionError as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-        since_dt = _req_dt(since, "since").replace(tzinfo=UTC) if since else None
-        return summarize_workspace_usage(store_path, manager=manager, since=since_dt)
-
-    @app.get("/v1/governance/policy", tags=["governance"], dependencies=[Depends(verify_api_key)])
-    def governance_get() -> Any:
-        from lemoncrow.core.capabilities.governance import load_policy
-
-        return load_policy(store_path)
-
-    @app.post("/v1/governance/policy", tags=["governance"], dependencies=[Depends(verify_api_key)])
-    def governance_set(payload: dict[str, Any]) -> Any:
-        from lemoncrow.core.capabilities.governance import GovernancePolicy, save_policy
-        from lemoncrow.pro.capabilities.team import (
-            TeamAuditEvent,
-            TeamPermissionError,
-            TeamWorkspaceManager,
-        )
-
-        manager = TeamWorkspaceManager(store_path)
-        try:
-            actor = manager.require_admin(str(payload.get("user_id") or "") or None)
-        except TeamPermissionError as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-        policy = GovernancePolicy.model_validate(payload.get("policy") or {})
-        saved = save_policy(store_path, policy)
-        manager.append_audit_event(
-            TeamAuditEvent(action="governance.apply", actor_user_id=actor.user_id, details={"source": "api"})
-        )
-        return saved
-
-    @app.post("/v1/audit/export", tags=["audit"], dependencies=[Depends(verify_api_key)])
-    def audit_export(payload: dict[str, Any]) -> Any:
-        from lemoncrow.core.capabilities.audit_export import export_audit_bundle
-        from lemoncrow.pro.capabilities.team import (
-            TeamAuditEvent,
-            TeamPermissionError,
-            TeamWorkspaceManager,
-        )
-
-        out_dir = payload.get("out_dir")
-        if not out_dir:
-            raise HTTPException(status_code=400, detail="out_dir is required")
-        manager = TeamWorkspaceManager(store_path)
-        try:
-            actor = manager.require_admin(str(payload.get("user_id") or "") or None)
-        except TeamPermissionError as exc:
-            raise HTTPException(status_code=403, detail=str(exc)) from exc
-        since_raw = str(payload.get("since") or "").strip()
-        since_dt = _req_dt(since_raw, "since").replace(tzinfo=UTC) if since_raw else None
-        try:
-            target_dir = confine_to_root(str(out_dir), store_path)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=f"out_dir must stay under {store_path}") from exc
-        result = export_audit_bundle(store_path, out_dir=target_dir, since=since_dt)
-        manager.append_audit_event(
-            TeamAuditEvent(
-                action="audit.export",
-                actor_user_id=actor.user_id,
-                details={"bundle_dir": result["bundle_dir"]},
-            )
-        )
-        return result
-
-    @app.post("/v1/audit/verify", tags=["audit"], dependencies=[Depends(verify_api_key)])
-    def audit_verify(payload: dict[str, Any]) -> Any:
-        from lemoncrow.core.capabilities.audit_export import verify_audit_bundle
-
-        bundle_dir = payload.get("bundle_dir")
-        if not bundle_dir:
-            raise HTTPException(status_code=400, detail="bundle_dir is required")
-        try:
-            target_dir = confine_to_root(str(bundle_dir), store_path)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=f"bundle_dir must stay under {store_path}") from exc
-        return verify_audit_bundle(store_path, bundle_dir=target_dir)
 
     # ------------------------------------------------------------------ #
     # Telemetry                                                           #
@@ -5155,9 +5045,10 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
     def _file_read_roots() -> list[Path]:
         """Directories the file endpoints are allowed to serve from.
 
-        The store itself, the daemon's own workspace, every workspace LemonCrow
-        has actually recorded a session for, plus anything the operator opts in
-        through ``LEMONCROW_FILE_READ_ROOTS``. Without a list like this the
+        The store itself, the daemon's own workspace, indexed Code projects,
+        every workspace LemonCrow has actually recorded a session for, plus
+        anything the operator opts in through ``LEMONCROW_FILE_READ_ROOTS``.
+        Without a list like this the
         endpoints below served *any* path on the box -- and ``verify_api_key``
         is a no-op unless ``LEMONCROW_REQUIRE_AUTH=true``, so "local caller"
         means any process or any page served from any localhost port.
@@ -5174,7 +5065,17 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
 
         add(store_path)
         with contextlib.suppress(Exception):
-            add(resolve_workspace_root())
+            add(_resolve_dashboard_workspace_root(store_path))
+        from lemoncrow.core.service.project_registry import registered_projects
+
+        for project in registered_projects():
+            add(project.root)
+        with contextlib.suppress(Exception):
+            from lemoncrow.core.service import code_map
+
+            for mapped_project in code_map.list_projects():
+                if mapped_project.get("indexed") and mapped_project.get("root"):
+                    add(str(mapped_project["root"]))
         for raw in os.environ.get("LEMONCROW_FILE_READ_ROOTS", "").split(os.pathsep):
             if raw.strip():
                 add(raw.strip())
@@ -5218,7 +5119,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         max_lines: int = 200,
     ) -> dict[str, Any]:
         """Return structured projection metadata for a file read."""
-        from lemoncrow.gateway.adapters.mcp_server import tool_smart_read
+        from lemoncrow.gateway.tools.registry import call_registered_tool
 
         payload: dict[str, Any] = {"path": str(_confined_read_path(path)), "include_meta": True}
         if view == "compact":
@@ -5233,7 +5134,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             payload["range"] = range
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported projection view: {view}")
-        return cast(dict[str, Any], tool_smart_read(payload))
+        return cast(dict[str, Any], call_registered_tool("read", payload))
 
     @app.get("/ledgers/{session_id}", tags=["compat"], dependencies=[Depends(verify_api_key)])
     def compat_ledger(session_id: str) -> dict[str, Any]:
@@ -5441,24 +5342,20 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
     @app.get("/mcp/status", tags=["ops"], dependencies=[Depends(verify_api_key)])
     def mcp_status() -> list[dict[str, Any]]:
         try:
-            from lemoncrow.gateway.adapters.mcp_server import (
-                TOOLS,
-                _tool_description,
-                _tool_mode,
-                _tool_visible_to_llm,
-            )
+            from lemoncrow.gateway.tools.registry import registered_tools
+            from lemoncrow.gateway.tools.surface import tool_description, tool_mode, tool_visible_to_llm
 
             return [
                 {
                     "tool_name": name,
                     "available": True,
-                    "description": _tool_description(spec),
+                    "description": tool_description(spec),
                     "is_dev": bool(spec.get("is_dev")),
-                    "mode": _tool_mode(spec),
+                    "mode": tool_mode(spec),
                     "enum_params": _extract_enum_params(cast(dict[str, Any], spec.get("inputSchema") or {})),
                 }
-                for name, spec in TOOLS.items()
-                if _tool_visible_to_llm(name, spec)
+                for name, spec in registered_tools().items()
+                if tool_visible_to_llm(name)
             ]
         except Exception as exc:
             logging.exception("Recovered from broad exception handler")
@@ -5518,9 +5415,8 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
     def list_skills() -> list[dict[str, Any]]:
         from lemoncrow.core.environment import skill_visible
 
-        root = Path(__file__).parent.parent.parent.parent.parent
         skills: list[dict[str, Any]] = []
-        skills_dir = root / "integrations" / "skills"
+        skills_dir = _integration_resource_path("skills")
         if skills_dir.exists():
             for skill_dir in sorted(skills_dir.iterdir()):
                 if skill_dir.is_dir():
@@ -5552,8 +5448,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             raise HTTPException(status_code=404, detail="Skill not found") from exc
         if not skill_visible(name):
             raise HTTPException(status_code=404, detail=f"Skill is hidden from the public host surface: {name}")
-        root = Path(__file__).parent.parent.parent.parent.parent
-        skills_dir = (root / "integrations" / "skills").resolve()
+        skills_dir = _integration_resource_path("skills").resolve()
         try:
             md = confine_to_root(skills_dir / name / "SKILL.md", skills_dir)
         except ValueError as exc:
@@ -5573,8 +5468,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
 
         import yaml
 
-        root = Path(__file__).parent.parent.parent.parent.parent
-        agents_dir = root / "integrations" / "claude" / "plugin" / "agents"
+        agents_dir = _integration_resource_path("claude", "plugin", "agents")
         result: list[dict[str, Any]] = []
         if not agents_dir.exists():
             return result
@@ -5607,7 +5501,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
                     "tools": tools_raw,
                     "color": fm.get("color", "neutral"),
                     "model": fm.get("model"),
-                    "file": str(path.relative_to(root)),
+                    "file": str(path.relative_to(_integration_resource_path())),
                     "content": body,
                 }
             )
@@ -5658,8 +5552,19 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         return _savings_summary_payload(store_path, window_days=window_days, store=get_store())
 
     @app.get("/v1/optimizations/summary", tags=["metrics"], dependencies=[Depends(verify_api_key)])
-    def optimizations_summary(window_days: int = Query(14)) -> dict[str, Any]:
-        return _optimizations_summary_payload(Path(cfg.lemoncrow_root), get_store(), window_days=window_days)
+    def optimizations_summary(
+        window_days: int = Query(14),
+        project_root: str | None = Query(default=None),
+    ) -> dict[str, Any]:
+        try:
+            return _optimizations_summary_payload(
+                Path(cfg.lemoncrow_root),
+                get_store(),
+                window_days=window_days,
+                project_root=project_root,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/calls", tags=["compat"], dependencies=[Depends(verify_api_key)])
     def compat_calls(limit: int = Query(200)) -> list[dict[str, Any]]:
@@ -6353,6 +6258,17 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             reverse=True,
         )[:5]
 
+        from lemoncrow.pro.capabilities.usage.collect import derive_cost
+
+        cost_attribution = derive_cost(
+            started_model or trace.model or "",
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
+        )
+        cost_status = "estimated" if total_cost_usd > 0 or cost_attribution.cost_usd is not None else "unavailable"
+
         result: dict[str, Any] = {
             "session_id": session_id,
             "started_at": started_at.isoformat(),
@@ -6372,17 +6288,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             "label": None,
             "models_used": models_used,
             "started_model": started_model,
-            "cost_status": (
-                "estimated"
-                if (
-                    total_turns > 0
-                    or input_tokens > 0
-                    or output_tokens > 0
-                    or cache_read_tokens > 0
-                    or cache_write_tokens > 0
-                )
-                else "unavailable"
-            ),
+            "cost_status": cost_status,
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
             "cached_input_tokens": cache_read_tokens,
@@ -6432,9 +6338,20 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         cache_write_cost_usd = float(report.cache_write_cost_usd)
         top_tools_by_cost = [{"tool": t, "calls": c, "cost_usd": v} for t, c, v in report.top_tools_by_cost]
 
-        cost_status = (
-            "recorded" if (total_cost_usd > 0 or report.total_turns > 0 or bool(report.models_used)) else "unavailable"
+        from lemoncrow.pro.capabilities.usage.collect import derive_cost
+
+        ledger_attribution = derive_cost(
+            started_model or "",
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_tokens=cache_write_tokens,
+            recorded_total_usd=total_cost_usd if total_cost_usd > 0 else None,
         )
+        cost_status = "recorded" if total_cost_usd > 0 else "unavailable"
+        if total_cost_usd <= 0 and ledger_attribution.cost_usd is not None:
+            total_cost_usd = float(ledger_attribution.cost_usd)
+            cost_status = "estimated"
         if report.cost_estimated and total_cost_usd > 0:
             # build_report backfilled the total from pricing-derived buckets
             # because the ledger recorded no cost -- that is an estimate.
@@ -6587,7 +6504,13 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
                 logging.exception("Recovered from broad exception handler")
                 continue
         store_inst = get_store()
-        imported_traces = store_inst.history.list_traces(since=cutoff, limit=max(limit * 5, limit))
+        # The list endpoint is polled frequently by the browser. Pull enough
+        # imported candidates to merge fairly with run-ledger rows, but do not
+        # fully reconstruct hundreds of raw transcripts on every cold start.
+        imported_traces = store_inst.history.list_traces(
+            since=cutoff,
+            limit=max(min(limit * 2, 400), min(limit, 50)),
+        )
         # Batch every imported session's raw-artifact staleness fingerprints
         # in one query up front instead of one store.get_raw_artifact() call
         # (and hence one fresh sqlite3 connection) per artifact per session.
@@ -6595,14 +6518,28 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             store_inst,
             {art_id for trace in imported_traces for art_id in trace.raw_artifact_ids},
         )
+        detailed_imported_sessions = 0
         for trace in imported_traces:
             sid = trace.session_id or trace.id
             if sid in seen_session_ids:
                 continue
             try:
+                # Exact raw-artifact resumming is valuable for the newest
+                # imported sessions shown in the sidebar, but parsing every
+                # transcript makes the list endpoint unusably slow. Older
+                # candidates use the already-normalized trace usage; selecting
+                # one still hits the detail endpoint and performs the exact
+                # reconstruction there.
+                detailed = detailed_imported_sessions < 6
+                trace_for_list = trace if detailed else trace.model_copy(update={"raw_artifact_ids": []})
                 payload = _build_imported_session_payload(
-                    sid, trace, store_inst, root=root, artifact_fp_lookup=artifact_fp_lookup
+                    sid,
+                    trace_for_list,
+                    store_inst,
+                    root=root,
+                    artifact_fp_lookup=artifact_fp_lookup,
                 )
+                detailed_imported_sessions += 1
                 # trace.created_at is when this trace record was ingested
                 # (import time), not the session's real last activity — use
                 # the payload's own ended_at (the real last turn timestamp,
@@ -6615,8 +6552,6 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             except Exception:
                 logging.exception("Recovered from broad exception handler")
                 continue
-            if len(results) >= limit:
-                break
 
         def _session_sort_key(item: dict[str, Any]) -> float:
             def _ts(value: Any) -> float:
@@ -6873,70 +6808,169 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             entries.append({"kind": "compact", **entry})
         return entries
 
-    @app.get("/v1/reports", tags=["reports"], dependencies=[Depends(verify_api_key)])
-    def list_reports() -> list[dict[str, Any]]:
-        """List all published benchmark reports from reports/index.json."""
-        index_path = Path("reports") / "index.json"
-        if not index_path.exists():
-            return []
+    def _benchmark_projects() -> list[dict[str, str]]:
+        """Return dashboard-visible project identities that can own benchmark reports."""
+        from lemoncrow.core.service.code_map import list_projects
+
+        projects: list[dict[str, str]] = []
+        seen: set[Path] = set()
+        for item in list_projects():
+            raw_root = str(item.get("root") or "").strip()
+            project_id = str(item.get("project_id") or "").strip()
+            if not raw_root or not project_id:
+                continue
+            root = Path(raw_root).expanduser().resolve()
+            if root in seen or not root.is_dir():
+                continue
+            seen.add(root)
+            projects.append(
+                {
+                    "project_id": project_id,
+                    "project_root": str(root),
+                    "project_label": str(item.get("label") or root.name),
+                }
+            )
+        return projects
+
+    def _benchmark_project(project_id: str) -> dict[str, str]:
         try:
-            index: list[dict[str, Any]] = json.loads(index_path.read_text())
-            return index
-        except (OSError, json.JSONDecodeError):
-            return []
+            project_id = safe_segment(project_id, field="project id")
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="Benchmark project not found") from exc
+        project = next((item for item in _benchmark_projects() if item["project_id"] == project_id), None)
+        if project is None:
+            raise HTTPException(status_code=404, detail="Benchmark project not found")
+        return project
+
+    @app.get("/v1/reports", tags=["reports"], dependencies=[Depends(verify_api_key)])
+    def list_reports(limit: int = Query(100, ge=1, le=500)) -> list[dict[str, Any]]:
+        """List real benchmark run artifacts from dashboard-visible projects."""
+        rows: list[dict[str, Any]] = []
+        for project in _benchmark_projects():
+            benchmark_root = Path(project["project_root"]) / "reports" / "benchmark"
+            if not benchmark_root.is_dir():
+                continue
+            for suite_dir in sorted(benchmark_root.iterdir()):
+                if not suite_dir.is_dir():
+                    continue
+                for run_dir in sorted(suite_dir.iterdir()):
+                    if not run_dir.is_dir():
+                        continue
+                    report_path = run_dir / "report.txt"
+                    summary_path = run_dir / "summary.csv"
+                    if not report_path.is_file() and not summary_path.is_file():
+                        continue
+                    try:
+                        stat = (report_path if report_path.is_file() else summary_path).stat()
+                    except OSError:
+                        continue
+                    files = sorted(
+                        child.name for child in run_dir.iterdir() if child.is_file() and not child.name.startswith(".")
+                    )
+                    rows.append(
+                        {
+                            "id": f'{project["project_id"]}:{suite_dir.name}:{run_dir.name}',
+                            **project,
+                            "suite": suite_dir.name,
+                            "run_id": run_dir.name,
+                            "generated_at": datetime.fromtimestamp(stat.st_mtime, UTC).isoformat(),
+                            "has_report": report_path.is_file(),
+                            "files": files,
+                        }
+                    )
+        rows.sort(key=lambda item: str(item["generated_at"]), reverse=True)
+        return rows[:limit]
 
     @app.get(
-        "/v1/reports/{week}",
+        "/v1/reports/{project_id}/{suite}/{run_id}",
         tags=["reports"],
         dependencies=[Depends(verify_api_key)],
     )
-    def get_report(week: str) -> dict[str, Any]:
-        """Get a published benchmark report (markdown + json) for a specific ISO week."""
-        # Validate week format to prevent path traversal
-        import re
-
-        if not re.fullmatch(r"\d{4}-W\d{2}", week):
-            raise HTTPException(status_code=400, detail="Invalid week format — expected YYYY-Www")
-
-        reports_root = Path("reports").resolve(strict=False)
-        report_dir = (reports_root / week).resolve(strict=False)
-        md_path = report_dir / "benchmark.md"
-        json_path = report_dir / "benchmark.json"
-
-        if not report_dir.is_relative_to(reports_root):
-            raise HTTPException(status_code=400, detail="Invalid week format — expected YYYY-Www")
-
-        if not md_path.exists():
-            raise HTTPException(status_code=404, detail=f"Report for week '{week}' not found")
-
+    def get_report(project_id: str, suite: str, run_id: str) -> dict[str, Any]:
+        """Read the human benchmark report for one known project/suite/run."""
+        project = _benchmark_project(project_id)
         try:
-            markdown_content = md_path.read_text(encoding="utf-8")
-            json_data: dict[str, Any] = json.loads(json_path.read_text(encoding="utf-8")) if json_path.exists() else {}
-        except (OSError, json.JSONDecodeError) as exc:
-            raise HTTPException(status_code=500, detail="Failed to read report files") from exc
+            suite = safe_segment(suite, field="benchmark suite")
+            run_id = safe_segment(run_id, field="benchmark run")
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="Benchmark report not found") from exc
 
-        return {"week": week, "markdown": markdown_content, "json": json_data}
+        benchmark_root = (Path(project["project_root"]) / "reports" / "benchmark").resolve()
+        report_dir = (benchmark_root / suite / run_id).resolve()
+        if not report_dir.is_relative_to(benchmark_root) or not report_dir.is_dir():
+            raise HTTPException(status_code=404, detail="Benchmark report not found")
+
+        report_path = report_dir / "report.txt"
+        summary_path = report_dir / "summary.csv"
+        if report_path.is_file():
+            try:
+                content = report_path.read_text(encoding="utf-8")
+            except OSError as exc:
+                raise HTTPException(status_code=500, detail="Failed to read benchmark report") from exc
+        elif summary_path.is_file():
+            try:
+                summary = summary_path.read_text(encoding="utf-8")
+            except OSError as exc:
+                raise HTTPException(status_code=500, detail="Failed to read benchmark summary") from exc
+            content = f"# {suite} · {run_id}\n\n```csv\n{summary}\n```"
+        else:
+            raise HTTPException(status_code=404, detail="Benchmark report not found")
+
+        files = sorted(
+            child.name for child in report_dir.iterdir() if child.is_file() and not child.name.startswith(".")
+        )
+        generated_at = datetime.fromtimestamp(
+            (report_path if report_path.is_file() else summary_path).stat().st_mtime,
+            UTC,
+        ).isoformat()
+        return {
+            "id": f"{project_id}:{suite}:{run_id}",
+            **project,
+            "suite": suite,
+            "run_id": run_id,
+            "generated_at": generated_at,
+            "markdown": content,
+            "files": files,
+        }
 
     @app.get("/v1/workflow/current", tags=["workflow"], dependencies=[Depends(verify_api_key)])
-    def get_workflow_current() -> dict[str, Any]:
-        detail = workflow_runtime_detail(_read_workflow_session_state())
-        detail["workspace_root"] = str(resolve_workspace_root())
+    def get_workflow_current(project_root: str | None = Query(default=None)) -> dict[str, Any]:
+        try:
+            workspace_root = _resolve_dashboard_workspace_root(project_root=project_root)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        detail = workflow_runtime_detail(_read_workflow_session_state(workspace_root))
+        detail["workspace_root"] = str(workspace_root)
         return detail
 
     @app.post("/v1/workflow/current/pause", tags=["workflow"], dependencies=[Depends(verify_api_key)])
-    def post_workflow_pause(payload: WorkflowSnapshotActionRequest) -> dict[str, Any]:
-        state = _read_workflow_session_state()
+    def post_workflow_pause(
+        payload: WorkflowSnapshotActionRequest,
+        project_root: str | None = Query(default=None),
+    ) -> dict[str, Any]:
+        try:
+            workspace_root = _resolve_dashboard_workspace_root(project_root=project_root)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        state = _read_workflow_session_state(workspace_root)
         detail = pause_workflow_runtime(state, pause_reason=str(payload.reason or ""))
-        _write_workflow_session_state(state)
-        detail["workspace_root"] = str(resolve_workspace_root())
+        _write_workflow_session_state(state, workspace_root)
+        detail["workspace_root"] = str(workspace_root)
         return detail
 
     @app.post("/v1/workflow/current/stop", tags=["workflow"], dependencies=[Depends(verify_api_key)])
-    def post_workflow_stop(payload: WorkflowSnapshotActionRequest) -> dict[str, Any]:
-        state = _read_workflow_session_state()
+    def post_workflow_stop(
+        payload: WorkflowSnapshotActionRequest,
+        project_root: str | None = Query(default=None),
+    ) -> dict[str, Any]:
+        try:
+            workspace_root = _resolve_dashboard_workspace_root(project_root=project_root)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        state = _read_workflow_session_state(workspace_root)
         detail = stop_workflow_runtime(state, stop_reason=str(payload.reason or ""))
-        _write_workflow_session_state(state)
-        detail["workspace_root"] = str(resolve_workspace_root())
+        _write_workflow_session_state(state, workspace_root)
+        detail["workspace_root"] = str(workspace_root)
         return detail
 
     @app.get("/v1/swarm/launch/options", tags=["swarm"], dependencies=[Depends(verify_api_key)])
@@ -7267,6 +7301,24 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         engine, resolved = _code_map_context(project_root)
         return code_map.build_full_graph(engine, resolved)
 
+    @app.get("/v1/code-map/files", tags=["code-map"], dependencies=[Depends(verify_api_key)])
+    def get_code_map_files(project_root: str | None = Query(default=None)) -> dict[str, Any]:
+        from lemoncrow.core.service import code_map
+
+        engine, resolved = _code_map_context(project_root)
+        return code_map.list_file_nodes(engine, resolved)
+
+    @app.get("/v1/code-map/file-symbols", tags=["code-map"], dependencies=[Depends(verify_api_key)])
+    def get_code_map_file_symbols(
+        path: str = Query(min_length=1, max_length=4096),
+        project_root: str | None = Query(default=None),
+        limit: int = Query(default=2000, ge=1),
+    ) -> dict[str, Any]:
+        from lemoncrow.core.service import code_map
+
+        engine, _ = _code_map_context(project_root)
+        return code_map.list_file_symbols(engine, path, limit=min(limit, 2000))
+
     @app.get("/v1/code-map/search", tags=["code-map"], dependencies=[Depends(verify_api_key)])
     def get_code_map_search(
         q: str = Query(min_length=1, max_length=240),
@@ -7276,7 +7328,26 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         from lemoncrow.core.service import code_map
 
         engine, _ = _code_map_context(project_root)
-        return {"query": q, "results": code_map.search_symbols(engine, q, limit=min(limit, 40))}
+        bounded_limit = min(limit, 40)
+        return {
+            "query": q,
+            "results": code_map.search_symbols(engine, q, limit=bounded_limit),
+            "text_results": code_map.search_text(engine, q, limit=min(bounded_limit, 12)),
+        }
+
+    @app.get("/v1/code-map/references", tags=["code-map"], dependencies=[Depends(verify_api_key)])
+    def get_code_map_references(
+        symbol_id: str = Query(min_length=1, max_length=240),
+        project_root: str | None = Query(default=None),
+        limit: int = Query(default=60, ge=1),
+    ) -> dict[str, Any]:
+        from lemoncrow.core.service import code_map
+
+        engine, _ = _code_map_context(project_root)
+        try:
+            return code_map.find_references(engine, symbol_id, limit=min(limit, 120))
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.get("/v1/code-map/neighborhood", tags=["code-map"], dependencies=[Depends(verify_api_key)])
     def get_code_map_neighborhood(
@@ -7311,6 +7382,167 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    @app.get("/v1/code-map/editor", tags=["code-map"], dependencies=[Depends(verify_api_key)])
+    def get_code_map_editor() -> dict[str, object]:
+        from lemoncrow.core.service.code_editor import editor_capability
+
+        return editor_capability()
+
+    @app.post("/v1/code-map/editor", tags=["code-map"], dependencies=[Depends(verify_api_key)])
+    def post_code_map_editor(payload: CodeMapEditorOpenRequest) -> dict[str, object]:
+        from lemoncrow.core.service import code_map
+        from lemoncrow.core.service.code_editor import open_in_editor
+
+        try:
+            resolved = code_map.resolve_project_root(payload.project_root)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        candidate_path = Path(payload.path.strip()).expanduser()
+        if not candidate_path.is_absolute():
+            candidate_path = resolved / candidate_path
+        try:
+            confined_path = confine_to_root(candidate_path, resolved)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="Editor path must stay inside the selected project.",
+            ) from exc
+        if not confined_path.is_file():
+            raise HTTPException(status_code=404, detail="Editor target is not a readable file.")
+        try:
+            return open_in_editor(
+                confined_path,
+                line=payload.line,
+                column=payload.column,
+                repo_root=resolved,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/v1/code-map/review", tags=["code-map"], dependencies=[Depends(verify_api_key)])
+    def post_code_map_review(payload: CodeMapReviewRequest) -> dict[str, Any]:
+        from lemoncrow.core.service import code_map
+        from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range
+        from lemoncrow.pro.capabilities.review.hosted import capture_server_review
+
+        try:
+            from lemoncrow_client.config import load_config as load_client_config
+            from lemoncrow_client.errors import ClientError
+        except ImportError as exc:  # pragma: no cover - packaged installs include the client
+            raise HTTPException(status_code=503, detail="LemonCrow client support is unavailable.") from exc
+
+        try:
+            resolved = code_map.resolve_project_root(payload.project_root)
+            review_range = resolve_rev_range(resolved)
+            client_config = load_client_config(cwd=resolved)
+            captured = capture_server_review(
+                client_config,
+                resolved,
+                review_range,
+                store_root=store_path,
+                session_id=None,
+                limit=40,
+                with_impact=True,
+                with_provenance=True,
+            )
+        except ClientError as exc:
+            raise HTTPException(status_code=502, detail=str(exc.message)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        review_value = captured.response.get("review")
+        review = review_value if isinstance(review_value, dict) else {}
+        revision_value = captured.response.get("revision")
+        revision = revision_value if isinstance(revision_value, dict) else {}
+        short_id = str(review.get("short_id") or captured.review_id)
+        review_path = str(review.get("review_path") or "")
+        if not (review_path.startswith("/r/") or review_path.startswith("/reviews/")):
+            review_path = f"/r/{short_id.removeprefix('r-').removeprefix('r/')}"
+        return {
+            "review_id": captured.review_id,
+            "short_id": short_id,
+            "review_path": review_path,
+            "review_url": captured.review_url,
+            "revision_id": str(revision.get("id") or ""),
+            "revision_number": int(revision.get("revision_number") or 0),
+            "revision_created": bool(captured.response.get("revision_created")),
+        }
+
+    @app.post("/v1/code-map/agent-handoff", tags=["code-map"], dependencies=[Depends(verify_api_key)])
+    def post_code_map_agent_handoff(payload: CodeMapAgentHandoffRequest) -> dict[str, Any]:
+        from lemoncrow.core.service import code_map
+        from lemoncrow.pro.capabilities.review.delivery import (
+            deliver_prompt_to_agent_session,
+            direct_delivery_supported,
+        )
+
+        engine, resolved = _code_map_context(payload.project_root)
+        activity = code_map.recent_activity(
+            Path(cfg.lemoncrow_root),
+            resolved,
+            limit=1,
+            engine=engine,
+        )
+        session_id = str(activity.get("session_id") or "").strip()
+        host = str(activity.get("host") or "").strip().lower()
+        if not session_id or not host:
+            raise HTTPException(status_code=409, detail="No exact coding-agent session is available for this project.")
+        if payload.expected_session_id and payload.expected_session_id != session_id:
+            raise HTTPException(
+                status_code=409,
+                detail="The active coding-agent session changed. Refresh Code and retry the handoff.",
+            )
+        if not direct_delivery_supported(host):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Direct exact-session handoff is not configured for {host}.",
+            )
+
+        requested_path = payload.path.strip()
+        candidate_path = Path(requested_path).expanduser()
+        if not candidate_path.is_absolute():
+            candidate_path = resolved / candidate_path
+        try:
+            confined_path = confine_to_root(candidate_path, resolved)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail="Code handoff path must stay inside the selected project."
+            ) from exc
+        if confined_path == resolved:
+            raise HTTPException(
+                status_code=400, detail="Code handoff requires a file path inside the selected project."
+            )
+        location = confined_path.relative_to(resolved).as_posix()
+        start = payload.line
+        end = payload.end_line if payload.end_line and payload.end_line >= (start or 1) else start
+        if start is not None:
+            location += f":L{start}" if end == start else f":L{start}-L{end}"
+        prompt_lines = [
+            "Context from LemonCrow /code.",
+            f"Location: {location}",
+        ]
+        if payload.symbol:
+            prompt_lines.append(f"Symbol: {payload.symbol}")
+        prompt_lines.extend(
+            [
+                "",
+                "Request:",
+                payload.message.strip(),
+                "",
+                "Inspect this location in the current workspace. Keep the response and any changes scoped to this request, and run relevant verification if you edit code.",
+            ]
+        )
+        result = deliver_prompt_to_agent_session(host, session_id, resolved, "\n".join(prompt_lines))
+        return {
+            "state": result.state,
+            "host": host,
+            "session_id": session_id,
+            "target_ref": result.target_ref,
+            "remote_ref": result.remote_ref,
+            "message": result.message,
+        }
+
     @app.get("/v1/code-map/activity", tags=["code-map"], dependencies=[Depends(verify_api_key)])
     def get_code_map_activity(
         project_root: str | None = Query(default=None),
@@ -7320,13 +7552,18 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         from lemoncrow.core.service import code_map
 
         engine, resolved = _code_map_context(project_root)
-        return code_map.recent_activity(
+        payload = code_map.recent_activity(
             Path(cfg.lemoncrow_root),
             resolved,
             after=after,
             limit=min(limit, 200),
             engine=engine,
         )
+        from lemoncrow.pro.capabilities.review.delivery import direct_delivery_supported
+
+        host = str(payload.get("host") or "").strip().lower()
+        payload["handoff_supported"] = bool(payload.get("session_id") and host and direct_delivery_supported(host))
+        return payload
 
     return app
 

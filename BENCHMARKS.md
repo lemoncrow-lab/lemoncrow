@@ -125,6 +125,43 @@ Same 10 pinned instances, fresh single-rep LemonCrow run on the current build (b
 
 Fresh input ticks up slightly (n=1/task noise, not a real regression at this size). Raw data: `benchmarks/codebench/results/swe-lite_lemoncrow_2026-07-30/` (local only; not yet mirrored to the public [lemoncrow-lab/benchmarks](https://github.com/lemoncrow-lab/benchmarks) repo).
 
+### September 2026 release validation (1 rep, LemonCrow-only)
+
+A 2026-09-21 hardening run used the same 10 pinned SWE-bench Lite tasks, `claude-opus-4-8`, and official SWE-bench grading. It resolved **10 / 10 tasks**. This is release-validation evidence, not a replacement for the 5-rep A/B headline above: the July spot-check did not record its Claude Code CLI version, and this September debugging run used live bind-mounted LemonCrow source while fixes were still landing. Those provenance gaps make historical cost/turn deltas diagnostic rather than a controlled release-over-release claim. Raw validation artifacts: [`swe-lite-release-validation_2026-09-21/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/swe-lite-release-validation_2026-09-21).
+
+| Metric | 2026-09-21 validation |
+| --- | ---: |
+| Resolved | **10 / 10 (100%)** |
+| Cost | $3.2270 |
+| Fresh input tok | 39,681 |
+| Cache write | 116,941 |
+| Cache read | 1,864,867 |
+| Output tok | 37,069 |
+| Turns | 112 |
+| Wall time | 602.5s |
+
+During the audit this run exposed and led to fixes for model-facing `structuredContent` duplication, incomplete symbol hydration, ranged-edit anchor handling, and multi-symbol code-search ranking. A post-ranking-fix two-task smoke (`django__django-14007` + `pallets__flask-5014`) resolved **2 / 2** at $0.6597 total; Django dropped from $0.7390 / 25 turns in the earlier validation trajectory to $0.5180 / 20 turns after the ranking fix. Raw smoke artifacts: [`swe-lite-ranking-proof_2026-09-21/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/swe-lite-ranking-proof_2026-09-21).
+
+Starting with the next publishable run, CodeBench pins **Claude Code 2.1.197** in the overlay and writes `benchmark-manifest.json` with the Claude Code version, LemonCrow commit, task list, model, and start/end runtime-source fingerprints. A run whose runtime fingerprint changes while it is executing is explicitly marked non-publishable in `report.txt`.
+
+#### Cheap release gates
+
+**2026-09-21 release status:** the full 10-task SWE-bench Lite validation is already complete (10/10), and the post-ranking-fix Django/Flask smoke is already complete (2/2). **Do not rerun either for this release.** Use the remaining cheap gates below only to add coverage on dimensions the SWE run did not exercise.
+
+```bash
+# $0 model spend: retrieval quality/latency against the frozen retrieval corpus.
+# Best next gate after search/index/ranking changes.
+uv run lemoncrow eval retrieval --channel lexical --full --resume --csv /tmp/retrieval_mrr.csv
+
+# ~ $0.20 historically: cross-language exploration smoke (Go + Python + Rust).
+# Adds breadth beyond the Python-heavy SWE-Lite slice.
+uv run --project benchmarks python -m benchmarks.codebench.run \
+  cg_gin cg_django cg_tokio \
+  -a lemoncrow --reps 1 --model claude-opus-4-8 --jobs 2
+```
+
+For cache/RTK/Headroom changes, use the existing Harbor `fix-code-vulnerability` warm-cache comparison rather than rerunning SWE-Lite. The dollar figures above are observations, not budgets or guarantees. A new full SWE-Lite run belongs to the **next release or a materially different runtime**, not this one.
+
 ## SWE-bench Pro
 
 A structurally different, harder benchmark than SWE-bench (Verified/Lite above): [SWE-bench Pro](https://huggingface.co/datasets/ScaleAI/SWE-bench_Pro) (ScaleAI) covers non-Python-heavy, often larger production codebases -- Go, TypeScript/JS, Python across vuls, flipt, element-web, qutebrowser (x2), tutanota, navidrome, NodeBB, teleport, and openlibrary -- graded by ScaleAI's own harness (`scaleapi/SWE-bench_Pro-os`), not the `swebench` package. The pinned default 10-instance slice, 5 reps per arm (50 runs a side), `claude-opus-4-8`, same disabled-tools list and `lemoncrow:auto` persona as the runs above. The suite's one dead instance (protonmail/webclients -- base image can't build) was dropped from the default slice entirely, pulling in a previously-unrun 10th task in its place.
@@ -299,41 +336,111 @@ Same 20 prompts, fresh single-rep LemonCrow run on the current build (baseline u
 Cache write is the one metric that regressed (+38.0%) -- worth another look if it persists on a repeat run. No golden patch here, so no resolved/correctness row. Raw data: local only (scratch-repo run, not yet copied into the repo or mirrored to the public [lemoncrow-lab/benchmarks](https://github.com/lemoncrow-lab/benchmarks) repo).
 
 
-## Retrieval - Heigher the better in context retrieval
-Pure retrieval quality was measured against common CLI and MCP code-search tools on the same 14 repos and roughly 7.2k query/gold pairs. LemonCrow reports three internal channels: lexical default, optional `+zoekt`, and optional `+semantic`. Every provider is scored across all 5 gold kinds (definition, content, semantic, swebench, sessions) -- a provider with no content/text-search capability (codegraph, universal-ctags) scores 0 on the kinds it cannot answer rather than being excluded from them, so `n` is uniform (7213) across every row in the table and MRR is directly comparable throughout.
+### Readable-ultra compression experiment (2026-09-14, Claude Opus 5)
 
+Goal: keep the **same practical compression as legacy `ultra`** while removing the decoding cost caused by fragment-heavy prose and `→`/slash/semicolon chains. The experiment used the same 20 telegraphic Q&A prompts, the same `lemoncrow:solve` persona, plugin, MCP runtime, and tools. Only the reply-register text changed. Each candidate was run at 1 rep on `claude-opus-5`; previously completed arms were reused rather than rerun.
 
-| Provider                    |       MRR |     rec@1 |     rec@2 |     rec@3 |     p95 |     p100 |    n |
-| ----------------------------- | ----------: | ----------: | ----------: | ----------: | --------: | ---------: | -----: |
-| ⭐ LemonCrow lexical, default |     0.676 |     0.582 |     0.700 |     0.743 |   134ms |    319ms | 7213 |
-| LemonCrow +zoekt              |     0.676 |     0.582 |     0.700 |     0.743 |   125ms |    359ms | 7213 |
-| **LemonCrow +semantic (BGE)** | **0.727** | **0.650** | **0.757** | **0.783** |   390ms |   1057ms | 7213 |
-| cocoindex-code              |     0.557 |     0.457 |     0.567 |     0.625 |   595ms |   2061ms | 7213 |
-| Graft 0.8.2                 |     0.514 |     0.433 |     0.521 |     0.566 |  1770ms |   2759ms | 7213 |
-| codebase-memory-mcp         |     0.502 |     0.437 |     0.511 |     0.553 |   541ms |   1817ms | 7213 |
-| fff-mcp                     |     0.430 |     0.388 |     0.434 |     0.456 |    46ms |    207ms | 7213 |
-| serena                      |     0.401 |     0.359 |     0.405 |     0.424 |  3834ms | 269001ms | 7213 |
-| ripgrep                     |     0.376 |     0.320 |     0.376 |     0.405 |    66ms |    522ms | 7213 |
-| code-index-mcp              |     0.343 |     0.296 |     0.345 |     0.371 |   377ms |   3830ms | 7213 |
-| ast-grep                    |     0.312 |     0.271 |     0.317 |     0.341 |  1255ms |   8806ms | 7213 |
-| jcodemunch-mcp              |     0.299 |     0.226 |     0.289 |     0.341 |   214ms |   4189ms | 7213 |
-| codegraph                   |     0.296 |     0.267 |     0.299 |     0.316 |    17ms |    532ms | 7213 |
-| universal-ctags             |     0.237 |     0.226 |     0.242 |     0.245 | **1ms** | **12ms** | 7213 |
+For this experiment, **visible reply tokens** means Claude's reported output tokens minus hidden thinking tokens from `model_usage`. The benchmark's top-level `thinking_tokens` field was zero for these runs, so using raw output alone overstates what the user actually reads. Single-rep numbers are directional rather than a statistical claim.
 
-Both `LemonCrow lexical` and `+semantic` rows are 2026-07-06 re-runs after a latency fix (an unbounded ANN-matrix cache-miss path) and a harness measurement bug (the bench server was paying its own statusline pipeline inside timed queries); other rows' latencies predate that fix and may be pessimistic. The Graft row is a 2026-08-03 run of pinned `@nanonets/graft@0.8.2` through its shipped persistent MCP server, using `graft_find_code` plus `graft_find_all` for every timed query and the same 7,213-pair gold snapshot as the table.
+| Variant | Reply contract tested | Median visible | Avg visible | Median output | Avg output | Avg cost / prompt | Outcome |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
+| **v1 — legacy ultra** | `≤3 lines / ≤50 words`; forced `done|blocked: … → risk → verified: …`; fragments over prose; one fix only | **152.5** | 437.6† | 211.0 | 527.1† | $0.0606 | Compression target, but hard to read |
+| **v2 — readable prose** | Complete sentences; no punctuation-coded reasoning; normally `≤80` prose words / 2–4 sentences; smallest code; one tradeoff | 194.5 | **279.2** | 286.5 | 393.8 | **$0.0516** | Very readable; typical answer ~28% larger than v1 |
+| **v3 — controlled shorthand** | Natural status fragments; labels/`+` allowed; one causal relation per sentence; normally `≤60` words | 227.0 | 294.2 | 303.5 | 413.3 | $0.0525 | Readable, but shorthand did not improve compression |
+| **v4 — information slots** | Max three slots: answer/cause, fix/decision, verification/risk; normally `≤45` words; minimal code; bounded bullets | 209.0 | 300.4 | 239.0 | 374.6 | $0.0559 | Closer, but model often treated the word budget as soft |
+| **v5 — legacy scope + readable syntax** | Restored v1's hard `≤3 lines / ≤50 words`, one-fix scope, and answer-then-stop behavior; replaced fragment/arrow encoding with short readable English and `Tests:` / `Risk:` labels | **140.0** | **270.4** | **166.0** | **351.5** | $0.0542 | **Winner; promoted to production `ultra`** |
 
-Raw data and per-repo details: [`retrieval_2026_07_05/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/retrieval_2026_07_05)
+† Legacy ultra had two code-heavy runaway answers (`Dockerfile`: 2,506 output tokens; `error-boundary`: 3,806), so its averages are much worse than its typical median. That is why the promotion criterion was primarily **median visible size + readability**, with average/cost as secondary checks.
 
-Run it:
+What changed across the iterations:
 
-```bash
-uv run lemoncrow eval retrieval --channel all --full --resume --csv /tmp/retrieval_mrr.csv
+- **v1 / legacy ultra:** compression partly came from removing grammar. It achieved a 152.5-token median visible reply, but instructions such as “fragments over prose” and the mandatory arrow-form task report made normal status answers unnecessarily difficult to parse.
+- **v2:** tested the hypothesis “compress information, not English.” Readability improved immediately and average output improved because scope was tighter, but the typical answer grew to 194.5 visible tokens.
+- **v3:** reintroduced controlled shorthand to recover the gap. It allowed natural fragments and compact labels while banning causal arrow chains. The model used the saved grammar budget to add more information, so median visible output worsened to 227 tokens.
+- **v4:** constrained *information count* instead: at most three semantic slots and a nominal 45-word budget. It reached 209 visible tokens, but multi-factor/comparison prompts frequently exceeded the nominal budget.
+- **v5:** stopped redesigning ultra and changed only the readability mechanism. It reused legacy ultra's proven hard cap and strict scope, but required readable syntax. Median visible output reached **140 tokens — 8.2% smaller than legacy ultra** — without the fragment/arrow decoding burden. This exact contract replaced the production `ultra` register.
 
-# quick smoke test
-lc eval retrieval
+Representative production contract after promotion:
+
+```text
+Hard cap ≤3 lines / ≤50 words.
+Open on the result; answer only what was asked; one applicable fix.
+Keep result/cause + fix/implication + material verification/risk.
+Use short readable English. Fragments only for clear labels such as Tests: or Risk:.
+Never encode reasoning with →, slash chains, semicolon piles, or dense noun stacks.
 ```
 
-## Indexing Time
+Runs and tuning notes:
+
+| Variant | Run | Notes |
+| --- | --- | --- |
+| v1 + v2 + lite reference | `/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260914T080433Z` | Full 20-prompt comparison. v2 was tuned first on a 5-prompt smoke before this full run. |
+| v3 | `/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260914T084447Z` | v3-only run; two empty CLI payloads were retried, not counted as model failures. |
+| v4 | `/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260914T090818Z` | v4-only run. Keyword-overlap validator marked the concise debounce answer invalid even though manual inspection found it on-topic. |
+| v5 | `/tmp/lemoncrow-telegraphic-scratch-repo/reports/benchmark/telegraphic/20260914T091116Z` | v5-only run; one empty CLI payload was retried. Same keyword-overlap heuristic false-negative occurred on the debounce answer. |
+
+The v2–v5 registers and CLI arms were deliberately removed after the experiment. They were temporary research variants, not user-facing settings. The permanent public levels remain `ultra`, `lite`, and `off`; `lemoncrow-readable` remains as the benchmark arm that selects public `lite` for an apples-to-apples style comparison.
+
+
+## Retrieval — local code-search quality
+
+LemonCrow local uses the **lexical** retrieval path. Zoekt and semantic retrieval are hosted capabilities and are intentionally excluded from the local benchmark headline.
+
+### Current local release result — 2026-09-21
+
+The current lexical-only release sweep covers 14 repositories and 6,292 scored gold cases across definition, content, semantic-intent, SWE-bench, and session-derived queries. The benchmark uses populated frozen repository indexes, forces each MRR query to be independent (`code_search(force=true)`), and fails closed if a routed snapshot is missing or empty.
+
+| Metric | LemonCrow local lexical |
+| --- | ---: |
+| Overall MRR | **0.6425** |
+| hit@1 | **0.5701** |
+| hit@3 | **0.7009** |
+| p95 latency | **141 ms** |
+| Queries | **6,292** |
+| Definition MRR | **0.8658** |
+| Content MRR | **0.8732** |
+| SWE-bench MRR | **0.4981** |
+| Session MRR | **0.5581** |
+
+Representative definition MRR by repository: Django **0.8424**, Astropy **0.9550**, Requests **0.9390**, Xarray **0.9350**, Pytest **0.9850**, SymPy **0.7475**, Linux **0.9222**, and LemonCrow **0.7840**.
+
+Raw release data and per-repo details: [`retrieval_local_lexical_2026-09-21/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/retrieval_local_lexical_2026-09-21).
+
+The current gold corpus is not identical to the older 7,213-pair competitor corpus below, so **0.6425 must not be compared directly with the historical provider scores**. The current result is the release/regression number for local LemonCrow; the table below remains the matched historical cross-tool comparison.
+
+### Historical matched competitor comparison
+
+This July comparison scored the local lexical path and named third-party tools on the same 14 repositories and the same 7,213 query/gold pairs. Hosted-only LemonCrow retrieval modes are omitted here so the product surface matches the local benchmark claim.
+
+| Provider | MRR | rec@1 | rec@2 | rec@3 | p95 | p100 | n |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| ⭐ LemonCrow local lexical | **0.676** | **0.582** | **0.700** | **0.743** | 134ms | 319ms | 7213 |
+| cocoindex-code | 0.557 | 0.457 | 0.567 | 0.625 | 595ms | 2061ms | 7213 |
+| Graft 0.8.2 | 0.514 | 0.433 | 0.521 | 0.566 | 1770ms | 2759ms | 7213 |
+| codebase-memory-mcp | 0.502 | 0.437 | 0.511 | 0.553 | 541ms | 1817ms | 7213 |
+| fff-mcp | 0.430 | 0.388 | 0.434 | 0.456 | 46ms | 207ms | 7213 |
+| serena | 0.401 | 0.359 | 0.405 | 0.424 | 3834ms | 269001ms | 7213 |
+| ripgrep | 0.376 | 0.320 | 0.376 | 0.405 | 66ms | 522ms | 7213 |
+| code-index-mcp | 0.343 | 0.296 | 0.345 | 0.371 | 377ms | 3830ms | 7213 |
+| ast-grep | 0.312 | 0.271 | 0.317 | 0.341 | 1255ms | 8806ms | 7213 |
+| jcodemunch-mcp | 0.299 | 0.226 | 0.289 | 0.341 | 214ms | 4189ms | 7213 |
+| codegraph | 0.296 | 0.267 | 0.299 | 0.316 | 17ms | 532ms | 7213 |
+| universal-ctags | 0.237 | 0.226 | 0.242 | 0.245 | **1ms** | **12ms** | 7213 |
+
+The July LemonCrow lexical row is a re-run after a latency fix (an unbounded ANN-matrix cache-miss path) and a harness measurement bug (the bench server was paying its own statusline pipeline inside timed queries); other providers' latency numbers predate that fix and may be pessimistic. The Graft row is a 2026-08-03 run of pinned `@nanonets/graft@0.8.2` through its shipped persistent MCP server.
+
+Historical matched raw data: [`retrieval_2026_07_05/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/retrieval_2026_07_05).
+
+Run the current local benchmark:
+
+```bash
+uv run lemoncrow eval retrieval --channel lexical --full --resume --csv /tmp/retrieval_mrr.csv
+```
+
+## Hosted retrieval indexing time
+
+Zoekt and semantic indexing are hosted capabilities; this section is separate from the local lexical benchmark above.
+
 
 Cold full rebuild time per phase.
 

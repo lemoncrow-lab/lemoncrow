@@ -1,0 +1,531 @@
+/* Review is a product surface of its own. Keep dashboard/terminal-era globals out. */
+.review-app {
+  --review-ui-font: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --review-code-font: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --review-border: rgb(var(--n-800) / 0.85);
+  --review-surface: rgb(var(--surface-raised));
+  --review-muted: rgb(var(--n-400));
+  font-family: var(--review-ui-font);
+  font-feature-settings: "kern" 1, "liga" 1;
+  font-size: 13px;
+  line-height: 1.5;
+  accent-color: rgb(var(--brand-400));
+  caret-color: rgb(var(--brand-400));
+}
+
+.review-app input,
+.review-app select,
+.review-app textarea,
+.review-app button {
+  font-family: inherit;
+}
+
+.review-app code,
+.review-app pre,
+.review-app kbd,
+.review-app .font-mono {
+  font-family: var(--review-code-font);
+}
+
+.review-app code,
+.review-app pre {
+  border: 0;
+  background: transparent;
+}
+
+.review-app :where(button, a, summary, [role="button"], [role="menuitem"], [role="tab"], [role="combobox"], [role="listbox"]):focus-visible {
+  outline: 2px solid rgb(var(--brand-400));
+  outline-offset: 2px;
+}
+
+.review-app :where(input, select, textarea):focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.review-shell {
+  @apply bg-neutral-950 text-neutral-200;
+}
+
+.review-panel {
+  @apply rounded-lg border border-neutral-800/70 bg-neutral-950/95 shadow-[0_16px_48px_rgba(0,0,0,0.22)];
+}
+
+.review-panel-raised {
+  @apply rounded-lg border border-neutral-800/70 bg-neutral-900/65 shadow-[0_18px_54px_rgba(0,0,0,0.28)];
+}
+
+.review-divider {
+  @apply border-neutral-800/70;
+}
+
+.review-kicker {
+  @apply text-[11px] font-semibold text-neutral-400;
+}
+
+.review-muted {
+  @apply text-[12px] leading-5 text-neutral-400;
+}
+
+.review-toolbar-button {
+  @apply inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-neutral-800/80 bg-neutral-900/55 px-3 text-[12px] font-medium text-neutral-300 transition-colors hover:border-neutral-700 hover:bg-neutral-800/80 hover:text-neutral-50 disabled:cursor-not-allowed disabled:opacity-40;
+}
+
+.review-toolbar-button-primary {
+  @apply inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-neutral-200 bg-neutral-100 px-3.5 text-[12px] font-semibold text-neutral-950 transition-colors hover:border-neutral-200 hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-40;
+}
+
+.review-icon-button {
+  @apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent text-neutral-400 transition-colors hover:border-neutral-800/80 hover:bg-neutral-900/80 hover:text-neutral-50 disabled:cursor-not-allowed disabled:opacity-40;
+}
+
+.review-compact-action {
+  @apply inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md border border-transparent px-2 text-[12px] font-medium text-neutral-400 transition-colors hover:border-neutral-800/80 hover:bg-neutral-900/75 hover:text-neutral-50 disabled:cursor-not-allowed disabled:opacity-40;
+}
+
+.review-segment {
+  @apply inline-flex overflow-hidden rounded-md border border-neutral-800/80 bg-neutral-950;
+}
+
+.review-segment-button {
+  @apply px-2.5 py-1.5 text-[12px] font-medium text-neutral-400 transition-colors hover:bg-neutral-900 hover:text-neutral-50 focus-visible:z-10;
+}
+
+.review-segment-button-active {
+  @apply bg-neutral-800 text-neutral-100;
+}
+
+.review-pill {
+  @apply inline-flex items-center gap-1 rounded-md border border-neutral-800/70 bg-neutral-900/60 px-2 py-0.5 text-[11px] font-medium text-neutral-400;
+}
+
+.review-menu {
+  @apply rounded-lg border border-neutral-800/80 bg-neutral-950/95 p-1 shadow-2xl shadow-black/35;
+}
+
+.review-menu-item {
+  @apply flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-left text-[12px] text-neutral-300 transition-colors hover:bg-neutral-900/85 hover:text-neutral-50 disabled:cursor-not-allowed disabled:opacity-40;
+}
+
+.review-field {
+  @apply rounded-md border border-neutral-700/80 bg-neutral-900/55 px-3 py-2 text-[13px] text-neutral-200 placeholder:text-neutral-400 transition-colors hover:border-neutral-600 focus:border-neutral-400;
+  outline: none;
+  box-shadow: none;
+}
+
+.review-field:focus,
+.review-field:focus-within,
+.review-field:focus-visible {
+  border-color: rgb(var(--n-400) / 0.9);
+  outline: none;
+  box-shadow: none;
+}
+
+/* Keep the outline search glyph and clear action out of the text/placeholder.
+   This is declared after .review-field because that shared field rule owns the
+   default horizontal padding and otherwise wins over utility classes. */
+.review-outline-search-field {
+  padding-left: 2rem;
+  padding-right: 2rem;
+}
+
+.review-sheet-backdrop {
+  @apply fixed inset-0 z-[90] flex bg-black/50 backdrop-blur-[2px];
+}
+
+.review-sheet {
+  @apply border border-neutral-800/80 bg-neutral-950 shadow-2xl shadow-black/35;
+}
+
+.review-state-reviewed {
+  @apply border-emerald-900/60 bg-emerald-950/15 text-emerald-300;
+}
+
+.review-state-attention {
+  @apply border-amber-900/60 bg-amber-950/15 text-amber-300;
+}
+
+.review-attention-action {
+  @apply inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md border border-current bg-black/10 px-2 text-[10px] font-medium text-current opacity-80 transition-colors hover:bg-black/20 hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40;
+}
+
+.review-attention-action-primary {
+  @apply bg-black/20 font-semibold opacity-100;
+}
+
+/* Review chrome stays quiet; the change title and the next action lead. */
+/* Review chrome stays quiet; the change title and the next action lead. */
+.review-reader-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 7px 20px;
+}
+
+.review-reader-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.review-reader-title {
+  order: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: rgb(var(--n-100));
+}
+
+.review-reader-id {
+  order: 2;
+  display: inline-flex;
+  flex-shrink: 1;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: min(34vw, 360px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--review-code-font);
+  font-size: 10px;
+  color: var(--review-muted);
+}
+.review-reader-id > span:first-child { overflow: hidden; text-overflow: ellipsis; }
+
+.review-reader-authorship {
+  order: 3;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--review-muted);
+}
+
+.review-reader-revision { order: 4; flex-shrink: 0; }
+.review-reader-progress { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.review-reader-progress > span { color: var(--review-muted); }
+.review-reader-progress { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.review-reader-progress > span { color: var(--review-muted); }
+
+.review-outline {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 256px;
+  border-right: 1px solid var(--review-border);
+  background: rgb(var(--surface-tint));
+}
+
+.review-outline-file[aria-current="location"] {
+  border-color: rgb(var(--brand-400) / 0.3);
+  background: rgb(var(--brand-400) / 0.08);
+  box-shadow: none;
+}
+
+.review-target-header { min-height: 42px; padding: 6px 10px; font-size: 12px; }
+.review-target-header .review-icon-button { width: 30px; height: 30px; }
+.review-target-coverage { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--review-muted); }
+
+/* Annotations are reading surfaces, with one boundary per thread. */
+.review-annotations {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px clamp(12px, 3vw, 32px);
+  min-width: 0;
+  white-space: normal;
+  font-family: var(--review-ui-font);
+  background: rgb(var(--surface-sunken));
+}
+
+.review-thread,
+.review-composer {
+  width: 100%;
+  max-width: 880px;
+  min-width: 0;
+  border: 1px solid var(--review-border);
+  border-radius: 12px;
+  background: var(--review-surface);
+}
+
+.review-thread-blocking { border-color: rgb(var(--amber-700) / 0.65); }
+.review-thread-resolved { background: rgb(var(--surface-tint)); }
+
+.review-thread-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--review-border);
+  font-size: 11px;
+}
+
+.review-thread-source { font-size: 10px; font-weight: 600; letter-spacing: 0.035em; }
+.review-thread-author { font-size: 12px; font-weight: 600; color: rgb(var(--n-200)); overflow-wrap: anywhere; }
+.review-thread-symbol { overflow-wrap: anywhere; color: var(--review-muted); }
+.review-thread-date { color: var(--review-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.review-thread-content { display: flex; flex-direction: column; gap: 12px; padding: 16px; min-width: 0; }
+.review-thread-title { font-size: 14px; font-weight: 600; line-height: 1.5; color: rgb(var(--n-100)); overflow-wrap: anywhere; }
+.review-thread-body { max-width: 75ch; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.65; color: rgb(var(--n-200)); }
+.review-thread-anchor { width: fit-content; max-width: 100%; border-width: 1px; border-radius: 5px; padding: 2px 7px; font-size: 11px; overflow-wrap: anywhere; }
+.review-thread-anchor.text-neutral-500 { color: var(--review-muted); }
+.review-thread-evidence { font-size: 12px; color: var(--review-muted); overflow-wrap: anywhere; }
+.review-thread-evidence summary { width: fit-content; padding-block: 4px; }
+.review-thread-replies { display: flex; flex-direction: column; gap: 16px; border-top: 1px solid var(--review-border); padding-top: 16px; }
+.review-thread-reply { padding-left: 12px; border-left: 1px solid var(--review-border); }
+.review-thread-actions { display: flex; gap: 6px; border-top: 1px solid var(--review-border); padding-top: 10px; margin-bottom: -4px; }
+
+.review-composer { display: flex; flex-direction: column; gap: 12px; padding: 16px; }
+.review-composer-heading { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: rgb(var(--n-200)); overflow-wrap: anywhere; }
+.review-composer-input { display: block; width: 100%; min-height: 112px; resize: vertical; font-size: 14px; line-height: 1.65; background: rgb(var(--surface)); }
+.review-composer-options { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.review-composer-kind { min-height: 32px; padding: 5px 10px; border-width: 1px; border-radius: 6px; font-size: 12px; font-weight: 500; transition: background-color 150ms, border-color 150ms, color 150ms; }
+.review-composer-source-actions { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-left: 4px; padding-left: 8px; border-left: 1px solid var(--review-border); }
+.review-composer-kind-source { background: rgb(var(--surface-tint)); }
+.review-composer-kind-source:hover { background: rgb(var(--surface-raised)); }
+.review-composer-mark { display: flex; align-items: center; gap: 8px; font-size: 12px; color: rgb(var(--rose-300)); }
+
+.review-source-composer {
+  gap: 10px;
+  max-width: 960px;
+  border-radius: 10px;
+  background: rgb(var(--surface-raised));
+}
+.review-source-composer-proposal { border-color: rgb(var(--violet-900) / 0.65); }
+.review-source-composer-edit { border-color: rgb(var(--sky-900) / 0.65); }
+.review-source-composer-heading { min-width: 0; gap: 7px; }
+.review-source-location {
+  max-width: min(56ch, 55%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-left: 1px solid var(--review-border);
+  padding-left: 8px;
+  font-family: var(--review-code-font);
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--review-muted);
+}
+.review-source-state {
+  display: inline-flex;
+  min-height: 22px;
+  align-items: center;
+  border-width: 1px;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.review-source-safety {
+  display: inline-flex;
+  min-height: 22px;
+  align-items: center;
+  border: 1px solid rgb(var(--violet-900) / 0.5);
+  border-radius: 999px;
+  background: rgb(var(--violet-950) / 0.18);
+  padding: 1px 7px;
+  font-size: 9px;
+  font-weight: 600;
+  color: rgb(var(--violet-300) / 0.85);
+  white-space: nowrap;
+}
+.review-source-explainer {
+  margin: -2px 0 2px;
+  max-width: 78ch;
+  font-size: 11px;
+  line-height: 1.55;
+  color: rgb(var(--n-400));
+}
+.review-source-edit-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.review-source-pane { min-width: 0; }
+.review-source-pane-label {
+  margin-bottom: 4px;
+  font-family: var(--review-code-font);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: rgb(var(--n-500));
+}
+.review-source-original,
+.review-source-replacement {
+  display: block;
+  width: 100%;
+  min-height: 118px;
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid rgb(var(--n-800) / 0.9);
+  border-radius: 6px;
+  background: rgb(var(--surface-sunken));
+  padding: 9px 10px;
+  font-family: var(--review-code-font);
+  font-size: 11px;
+  line-height: 1.65;
+}
+.review-app .review-source-original { border: 1px solid rgb(var(--n-800) / 0.9); background: rgb(var(--surface-sunken)); white-space: pre; color: rgb(var(--n-500)); }
+.review-source-replacement { resize: vertical; color: rgb(var(--n-200)); }
+.review-source-intent { display: block; width: 100%; min-height: 58px; resize: vertical; font-size: 11px; }
+.review-source-preview-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--review-code-font);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: rgb(var(--n-500));
+}
+.review-source-preview-heading > :last-child { font-weight: 400; letter-spacing: 0; text-transform: none; color: rgb(var(--n-600)); }
+.review-proposal-patch {
+  display: block;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid rgb(var(--n-800) / 0.9) !important;
+  border-radius: 6px;
+  background: rgb(var(--surface-sunken)) !important;
+  padding: 6px 0 !important;
+  font-family: var(--review-code-font);
+  font-size: 10px;
+  line-height: 1.55;
+  color: rgb(var(--n-300));
+}
+.review-proposal-patch > span { display: block; min-width: max-content; padding: 0 10px; white-space: pre; }
+.review-proposal-patch-add { background: rgb(var(--emerald-950) / 0.28); color: rgb(var(--emerald-200)); }
+.review-proposal-patch-delete { background: rgb(var(--rose-950) / 0.26); color: rgb(var(--rose-200)); }
+.review-proposal-patch-hunk { color: rgb(var(--sky-300) / 0.8); }
+.review-proposal-patch-context { color: rgb(var(--n-500)); }
+.review-source-conflict {
+  display: flex;
+  gap: 8px;
+  border: 1px solid rgb(var(--amber-900) / 0.55);
+  border-radius: 6px;
+  background: rgb(var(--amber-950) / 0.12);
+  padding: 8px 10px;
+  font-size: 10px;
+  color: rgb(var(--amber-300));
+}
+
+.review-composer-mark input { width: 16px; height: 16px; flex-shrink: 0; }
+.review-composer-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--review-border); padding-top: 12px; }
+.review-composer-shortcut { margin-right: auto; font-size: 11px; color: var(--review-muted); }
+.review-composer-shortcut kbd { font-family: inherit; }
+
+.review-comments-filters { padding: 12px 20px; border-bottom: 1px solid var(--review-border); overflow-x: auto; flex-shrink: 0; }
+.review-comments-filters .review-segment { display: flex; width: max-content; border: 0; gap: 4px; overflow: visible; background: transparent; }
+.review-comments-filters .review-segment-button { border-radius: 6px; }
+.review-comments-filters .review-segment-button > span { color: var(--review-muted); font-variant-numeric: tabular-nums; }
+.review-comments-empty { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 64px 20px; color: var(--review-muted); font-size: 14px; }
+.review-feedback-toolbar { display: flex; align-items: center; gap: 12px; padding: 16px 20px; }
+
+
+.review-directory-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(140px, 0.65fr) 100px 140px;
+}
+.review-hosted-inbox-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(170px, 0.95fr) 84px 64px 112px;
+}
+
+@media (max-width: 1023px) {
+  .review-reader-progress { display: none; }
+  .review-outline { width: 224px; }
+}
+
+@media (max-width: 767px) {
+  .review-directory-grid,
+  .review-hosted-inbox-grid { grid-template-columns: minmax(0, 1fr) minmax(96px, 0.38fr); }
+  .review-grid-secondary { display: none !important; }
+}
+
+@media (max-width: 639px) {
+  .review-reader-toolbar { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 6px; padding: 10px 12px; }
+  .review-reader-identity { grid-column: 2 / 4; }
+  .review-reader-toolbar > nav { grid-column: 1; grid-row: 2; }
+  .review-reader-toolbar > details { grid-column: 3; grid-row: 2; }
+  .review-reader-title { font-size: 14px; }
+  .review-reader-authorship { display: inline-flex; min-width: 0; }
+  .review-reader-author,
+  .review-reader-source-context,
+  .review-reader-repo-context { display: none; }
+  .review-reader-mode-context { margin-left: 0; border-left: 0; padding-left: 0; }
+  .review-reader-primary { grid-column: 2; grid-row: 2; justify-self: end; max-width: 100%; height: auto; min-height: 36px; padding-block: 6px; white-space: normal; }
+  .review-outline { position: absolute; inset: 0 auto 0 0; z-index: 45; width: min(280px, calc(100% - 48px)); box-shadow: 12px 0 28px rgb(0 0 0 / 0.2); }
+  .review-target-label { flex-wrap: wrap; }
+  .review-target-coverage { flex-basis: 100%; padding-left: 12px; }
+  .review-target-header { flex-wrap: wrap; }
+  .review-target-header > div:first-child { flex-basis: 100%; }
+  .review-target-header > div:last-child { margin-left: auto; }
+  .review-annotations { padding: 12px 8px; }
+  .review-thread-heading, .review-thread-content, .review-composer { padding: 12px; }
+  .review-composer-shortcut { display: none; }
+  .review-composer-input { font-size: 16px; }
+  .review-composer-source-actions { width: 100%; margin-left: 0; margin-top: 4px; padding-left: 0; padding-top: 8px; border-left: 0; border-top: 1px solid var(--review-border); }
+  .review-source-edit-grid { grid-template-columns: minmax(0, 1fr); }
+  .review-source-location { max-width: 45%; }
+  .review-source-replacement, .review-source-intent { font-size: 16px; }
+  .review-feedback-toolbar { flex-wrap: wrap; padding: 12px; }
+  .review-feedback-toolbar > div:first-child { flex-basis: 100%; }
+  .review-attention-bar { flex-wrap: wrap; }
+}
+
+@media (pointer: coarse) {
+  .review-app .review-icon-button,
+  .review-app .review-compact-action,
+  .review-app .review-toolbar-button,
+  .review-app .review-toolbar-button-primary,
+  .review-app .review-segment-button,
+  .review-composer-kind { min-height: 44px; }
+  .review-app .review-icon-button { min-width: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-app *, .review-app *::before, .review-app *::after { scroll-behavior: auto !important; transition-duration: 0s !important; animation-duration: 0s !important; }
+}
+
+/* Mirror Pierre's per-file horizontal code scroller at the bottom of the
+   visible Review viewport. The native scrollbar at the end of a long diff
+   remains intact; this dock only makes the same scroll position reachable
+   while the reviewer is in the middle of the file. */
+.review-horizontal-scrollbar {
+  height: 14px;
+  overscroll-behavior-x: contain;
+  scrollbar-color: rgb(82 82 91) rgb(10 10 10 / 0.96);
+  scrollbar-width: auto;
+  box-shadow: 0 -1px 0 rgb(255 255 255 / 0.025);
+}
+
+.review-horizontal-scrollbar::-webkit-scrollbar {
+  height: 12px;
+}
+
+.review-horizontal-scrollbar::-webkit-scrollbar-track {
+  background: rgb(10 10 10 / 0.96);
+}
+
+.review-horizontal-scrollbar::-webkit-scrollbar-thumb {
+  border: 3px solid rgb(10 10 10 / 0.96);
+  border-radius: 999px;
+  background: rgb(82 82 91);
+}
+
+.review-horizontal-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgb(113 113 122);
+}

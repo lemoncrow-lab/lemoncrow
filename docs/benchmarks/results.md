@@ -15,29 +15,32 @@ against what, and where the receipts live.
 | Exploration tasks | 7 large repos x 5 reps, one open-ended question each | $19.11 | **$6.29 (67% cheaper)** | [`exploration_2026_06_29/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/exploration_2026_06_29) |
 | Telegraphic output anatomy | Output-token decomposition (prose vs. fixed payload vs. thinking) | 67 prose tok/turn | **30 prose tok/turn (2.7x less)** | [`swe_lite_telegraphic_2026_07_06/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/swe_lite_telegraphic_2026_07_06) |
 | Telegraphic Q&A | 20 engineering Q&A prompts x 5 reps, no repo, no golden patch | $8.40 | **$4.48 (46.7% cheaper)** | [`telegraphic_2026_07_17/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/telegraphic_2026_07_17) |
-| Retrieval evaluation | Code-search quality (MRR/recall/latency) vs. 10 named tools, 14 repos, ~7,213 query/gold pairs | best rival 0.557 MRR (cocoindex-code) | **0.727 MRR (+semantic)** | [`retrieval_2026_07_05/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/retrieval_2026_07_05) |
-| Indexing time | Cold full-rebuild time, 14 repos, lexical/zoekt/semantic phases | -- | see table below | same as above |
-| Embedder sweep | 9 embedding models scored on definition/content/semantic MRR | best alternative 0.783 avg | **0.847 avg (BGE-Code-v1, LemonCrow's default)** | `benchmarks/codebench/run_embedder_sweep.py` |
+| Retrieval — current local | Lexical code-search quality, 14 repos, 6,292 scored gold cases | -- | **0.6425 MRR, 0.5701 hit@1, 141ms p95** | [`retrieval_local_lexical_2026-09-21/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/retrieval_local_lexical_2026-09-21) |
+| Historical retrieval comparison | Local lexical vs. 10 named tools on matched 7,213-pair corpus | best rival 0.557 MRR | **0.676 MRR** | [`retrieval_2026_07_05/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/retrieval_2026_07_05) |
+| Hosted embedder sweep | 9 embedding models scored on definition/content/semantic MRR | best alternative 0.783 avg | **0.847 avg (BGE-Code-v1)** | `benchmarks/codebench/run_embedder_sweep.py` |
 | Terminal-Bench 2.1 | 89 agentic terminal tasks x 5 reps (445 trials), matched vs. Claude Code 2.1.205 leaderboard run | 78.9% (351/445) | **80.0% (356/445), +1.1pp** | [`harbor/results/lemoncrow/2026-07-14__13-44-30/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/harbor/results/lemoncrow/2026-07-14__13-44-30) |
 
 <sub>Both arms 89 tasks x 5 reps = 445 trials, so correctness is directly comparable. LemonCrow also sends 91.8% fewer fresh input tokens (1.05M vs 12.87M); cost is not a matched comparison — see [BENCHMARKS.md](https://github.com/lemoncrow-lab/lemoncrow/blob/main/BENCHMARKS.md#terminal-bench).</sub>
+
+### Current release-validation evidence
+
+The 2026-09-21 SWE-bench Lite hardening pass resolved **10/10** pinned tasks in a LemonCrow-only single-rep run at **$3.2270**, followed by a **2/2** post-ranking-fix smoke on the two targeted ranking cases. These are regression-validation results, not new headline A/B rows: the historical July spot-check did not record its Claude Code CLI version, and the September debugging run used live bind-mounted source while fixes were landing. Raw evidence: [`swe-lite-release-validation_2026-09-21/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/swe-lite-release-validation_2026-09-21) and [`swe-lite-ranking-proof_2026-09-21/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/swe-lite-ranking-proof_2026-09-21). See the [SWE-bench Lite section in BENCHMARKS.md](https://github.com/lemoncrow-lab/lemoncrow/blob/main/BENCHMARKS.md#swe-bench-lite) for the full metrics and caveat.
+
+CodeBench now pins **Claude Code 2.1.197** and emits `benchmark-manifest.json` with runtime provenance plus start/end source fingerprints. Future public raw-run uploads should include that manifest; any run marked `runtime_source_changed_during_run: true` is validation/debug evidence only, not a controlled release comparison.
 
 Full per-suite tables, setup notes, and reproduction commands are in
 [BENCHMARKS.md](https://github.com/lemoncrow-lab/lemoncrow/blob/main/BENCHMARKS.md) --
 this page is the index, that file is the source of truth.
 
-## Retrieval evaluation: the "vs named competitors" story
+## Retrieval evaluation
 
-This is the one suite that isn't LemonCrow-vs-itself -- it's LemonCrow vs. 10
-named, real code-search tools other people ship and use: ripgrep, ast-grep,
-universal-ctags, Serena, CodeGraph, cocoindex-code, codebase-memory-mcp,
-fff-mcp, code-index-mcp, and jCodeMunch. Every tool ran the identical 14-repo,
-~7,213 query/gold-pair corpus with the identical scoring.
+**Current local result:** LemonCrow local uses lexical retrieval. The 2026-09-21 release sweep scores **0.6425 MRR / 0.5701 hit@1 / 141ms p95** across 6,292 current gold cases. Raw data: [`retrieval_local_lexical_2026-09-21/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/retrieval_local_lexical_2026-09-21).
+
+The table below is the **historical matched competitor comparison**: LemonCrow local lexical vs. 10 named code-search tools on the identical 14-repo, 7,213-pair corpus. Do not compare the current 0.6425 release number directly to this older corpus. Zoekt and semantic are hosted capabilities and are not part of the local headline.
 
 | Provider | MRR | rec@1 | p95 | p100 |
 | --- | ---: | ---: | ---: | ---: |
-| LemonCrow +semantic (BGE) | **0.727** | **0.650** | 390ms | 1057ms |
-| LemonCrow lexical (default) | 0.676 | 0.582 | 134ms | 319ms |
+| **LemonCrow local lexical** | **0.676** | **0.582** | 134ms | 319ms |
 | cocoindex-code | 0.557 | 0.457 | 595ms | 2061ms |
 | codebase-memory-mcp | 0.502 | 0.437 | 541ms | 1817ms |
 | fff-mcp | 0.430 | 0.388 | 46ms | 207ms |
@@ -136,7 +139,7 @@ CODEBENCH_LEMONCROW_AGENT=lemoncrow:auto uv run --project benchmarks python -m b
   --min-changed-files 1 -a baseline lc --reps 5 --model claude-opus-4-8 --jobs 8
 
 # Retrieval evaluation
-uv run lemoncrow eval retrieval --channel all --full --resume --csv /tmp/retrieval_mrr.csv
+uv run lemoncrow eval retrieval --channel lexical --full --resume --csv /tmp/retrieval_mrr.csv
 
 # Telegraphic Q&A
 uv run lemoncrow benchmark telegraphic --arm baseline --arm lemoncrow --arm caveman --model claude-opus-4-8 --reps 5 --max-turns 50 --jobs 4 -y

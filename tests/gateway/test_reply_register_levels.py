@@ -1,9 +1,8 @@
 """Reply-register level resolution + application across generated host surfaces.
 
-Guards the `lc set telegraphic <ultra|lite|off>` pipeline: the ultra
-(default) register must be baked verbatim into every generated persona
-surface (so the level swap is a deterministic text replacement), and the
-swap itself must be clean for every level on every surface.
+Generated surfaces bake ultra as the deterministic transform source, and
+fresh installs default to the readable ``ultra`` register. Every selected level
+must project cleanly across every host surface.
 """
 
 from __future__ import annotations
@@ -55,12 +54,12 @@ def test_level_resolution_env_settings_default(monkeypatch: pytest.MonkeyPatch, 
 
     settings_file = tmp_path / ".lemoncrow" / "plugin_settings.json"
     settings_file.parent.mkdir(parents=True)
-    settings_file.write_text(json.dumps({"cli.telegraphic": "lite"}), encoding="utf-8")
-    assert reply_register_level() == "lite"
+    settings_file.write_text(json.dumps({"cli.telegraphic": "ultra"}), encoding="utf-8")
+    assert reply_register_level() == "ultra"
 
     monkeypatch.setenv("LEMONCROW_TELEGRAPHIC", "off")  # env beats settings
     assert reply_register_level() == "off"
-    monkeypatch.setenv("LEMONCROW_TELEGRAPHIC", "bogus")  # unknown -> ultra
+    monkeypatch.setenv("LEMONCROW_TELEGRAPHIC", "bogus")  # unknown -> safe public default
     assert reply_register_level() == "ultra"
 
 
@@ -140,7 +139,7 @@ def test_core_discipline_body_carries_bullet() -> None:
     assert _INVARIANTS in body, "core_discipline_body must carry always-on reply invariants"
     assert (
         body.index("Act, don't announce")
-        < body.index("Telegraphic by default")
+        < body.index("Compact by default")
         < body.index("Byte-exact technical content")
     )
 
@@ -154,7 +153,7 @@ def test_codex_render_honors_level(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "Reply register" not in off and "{{" not in off and "\n\n\n" not in off
 
     off_core = _render_codex_mode_body("intro\n\n{{CORE_DISCIPLINE}}\n\ntail", _REPO)
-    assert "Telegraphic by default" not in off_core, "bullet must be stripped from {{CORE_DISCIPLINE}} at off"
+    assert "Compact by default" not in off_core, "compact-default bullet must be stripped at off"
 
     monkeypatch.setenv("LEMONCROW_TELEGRAPHIC", "lite")
     lite = _render_codex_mode_body(body, _REPO)

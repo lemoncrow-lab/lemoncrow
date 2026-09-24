@@ -215,7 +215,7 @@ correct answer.**
 | Token economics | **tiktoken** · **OR-Tools** · **XGBoost** | Exact token accounting for the savings ledger; a constraint solver allocates budget across steps; learned ranking signals for retrieval and risk. |
 | Reliability | **tenacity** · **pybreaker** | Repeated tool failure trips a circuit breaker instead of looping — a looping agent is a running meter. |
 | Runtime | **Python 3.12/3.13**, hot paths **mypyc**-compiled to C · **Pydantic v2** | Native-speed parsing, ranking, indexing; every tool payload is a validated model, so schema errors fail fast and cheap. |
-| Service | **FastAPI + Uvicorn** (`lcd` daemon) + token-authenticated loopback gateway | The local API, the savings endpoints, and the owned agent loop. |
+| Service | **FastAPI + Uvicorn** optional HTTP API + token-authenticated loopback server | The local API, the savings endpoints, and the owned agent loop. |
 | Wire protocol | **MCP SDK** | How every host attaches. We modify no agent and fork no editor — except the one we maintain ourselves. |
 | Observability | **OpenTelemetry → PostHog/GCP** · **Prometheus** · optional **Langfuse** | Local-first, strict allowlist, one-command opt-out. |
 | Distribution | **uv** · **hatchling** · **PyInstaller** | One checksummed binary install. No login, no account, no network dependency at runtime. |
@@ -330,7 +330,6 @@ Where the correctness comes from:
 | **Pro** | Larger repos and heavier use: Zoekt + semantic index, cross-vendor memory, savings dashboard, optimizer, budget optimization. |
 | **Enterprise** | Shared team context across repositories, role-based permissions, governance policy, audit export, retention controls, SSO, no index or symbol caps, priority support. Custom pricing. |
 
-Full enterprise benefit list: `docs/marketing/enterprise-benefits.md`.
 
 ## 12. Who to sell to
 

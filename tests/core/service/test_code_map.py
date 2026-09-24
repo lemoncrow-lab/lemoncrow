@@ -4,12 +4,19 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from lemoncrow.core.service.code_map import (
     build_full_graph,
     build_neighborhood,
     classify_activity_event,
+    find_references,
+    list_file_nodes,
+    list_file_symbols,
     recent_activity,
+    resolve_project_root,
     search_symbols,
+    search_text,
 )
 from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 
@@ -30,6 +37,17 @@ class _FakeEngine:
                 start_line=12,
                 end_line=24,
                 score=42.5,
+            )
+        ]
+
+    def search_text(self, query: str, **_: object) -> list[SimpleNamespace]:
+        assert query == "retry"
+        return [
+            SimpleNamespace(
+                file_path="src/payment.py",
+                line=18,
+                column=9,
+                text="return retry(payment)",
             )
         ]
 
@@ -99,6 +117,63 @@ class _FakeEngine:
             "truncated": True,
         }
 
+    def find_references(self, **kwargs: object) -> dict[str, object]:
+        assert kwargs["symbol_id"] == "charge"
+        assert kwargs["group_by"] == "none"
+        return {
+            "reference_count": 1,
+            "references": [
+                {
+                    "file_path": "src/checkout.py",
+                    "line": 8,
+                    "column": 12,
+                    "end_line": 8,
+                    "snippet": "return gateway.chargeCard(total)",
+                    "caller": "checkout",
+                    "edge_kind": "call",
+                    "provenance": "ast",
+                    "confidence": 1.0,
+                }
+            ],
+            "truncated": False,
+        }
+
+
+def test_resolve_project_root_accepts_registered_project_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lemoncrow.core.service import project_registry
+
+    project_root = tmp_path / "repo"
+    project_root.mkdir()
+    (project_root / ".lemoncrow").mkdir()
+    project_id = project_registry.project_id_for_root(project_root)
+    project = project_registry.RegisteredProject(
+        project_id=project_id,
+        root=project_root.resolve(),
+    )
+    monkeypatch.setattr(
+        project_registry,
+        "resolve_registered_project",
+        lambda reference: project if reference == project_id else None,
+    )
+
+    assert resolve_project_root(project_id) == project_root.resolve()
+
+
+def test_search_text_returns_exact_source_locations() -> None:
+    matches = search_text(_FakeEngine(), "retry", limit=12)
+
+    assert matches == [
+        {
+            "id": "text::src/payment.py:18:9",
+            "path": "src/payment.py",
+            "line": 18,
+            "column": 9,
+            "text": "return retry(payment)",
+            "language": "Python",
+            "file_type": "source",
+        }
+    ]
+
 
 def test_search_symbols_returns_compact_ranked_records() -> None:
     payload = search_symbols(_FakeEngine(), "chargeCard", limit=10)
@@ -113,6 +188,29 @@ def test_search_symbols_returns_compact_ranked_records() -> None:
         "line": 12,
         "end_line": 24,
         "score": 42.5,
+    }
+
+
+def test_find_references_returns_compact_usage_locations() -> None:
+    payload = find_references(_FakeEngine(), "charge", limit=20)
+
+    assert payload == {
+        "symbol_id": "charge",
+        "reference_count": 1,
+        "references": [
+            {
+                "path": "src/checkout.py",
+                "line": 8,
+                "column": 12,
+                "end_line": 8,
+                "snippet": "return gateway.chargeCard(total)",
+                "caller": "checkout",
+                "edge_kind": "call",
+                "provenance": "ast",
+                "confidence": 1.0,
+            }
+        ],
+        "truncated": False,
     }
 
 
@@ -207,6 +305,7 @@ def test_recent_activity_filters_to_project_and_after_cursor(tmp_path: Path) -> 
     )
 
     assert payload["session_id"] == "session-1"
+    assert payload["host"] == "codex"
     assert payload["status"] == "running"
     assert [event["kind"] for event in payload["events"]] == ["verify"]
 
@@ -276,3 +375,34 @@ def test_build_full_graph_includes_every_symbol_file_and_resolved_call(tmp_path:
     readme = next(node for node in payload["graph"]["nodes"] if node["label"] == "README.md")
     assert readme["file_type"] == "docs"
     assert readme["language"] == "Markdown"
+
+    file_symbols = list_file_symbols(engine, "src/payments.py")
+    assert file_symbols["total_symbols"] == 2
+    assert [symbol["label"] for symbol in file_symbols["symbols"]] == [
+        "send",
+        "charge_card",
+    ]
+    assert file_symbols["truncated"] is False
+
+
+def test_source_file_listing_is_not_limited_by_graph_file_cap(tmp_path: Path) -> None:
+    for name in ("alpha.py", "beta.py", "gamma.py"):
+        (tmp_path / name).write_text(
+            f"def {name.removesuffix('.py')}() -> None:\n    pass\n",
+            encoding="utf-8",
+        )
+    engine = CodeContextEngine(
+        tmp_path,
+        db_path=tmp_path / "index" / "code_context.sqlite",
+        autosync_enabled=False,
+    )
+    engine.index_repo(force=True)
+
+    graph = build_full_graph(engine, tmp_path, max_files=1)
+    listing = list_file_nodes(engine, tmp_path)
+
+    graph_files = [node for node in graph["graph"]["nodes"] if node.get("node_type") == "file"]
+    assert len(graph_files) == 1
+    assert listing["total_files"] >= 3
+    assert len(listing["files"]) == listing["total_files"]
+    assert {"alpha.py", "beta.py", "gamma.py"} <= {file["path"] for file in listing["files"]}

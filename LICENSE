@@ -1,18 +1,22 @@
 # LemonCrow License
 
-LemonCrow is free and open-source software, licensed in its entirety under the
-Apache License, Version 2.0.
+The LemonCrow local/open-source product is licensed under the Apache License,
+Version 2.0.
 
 Copyright 2026 Pankaj Kumar (d/b/a LemonCrow)
 
 The full license text is in `LICENSE-APACHE`. A short `NOTICE` file accompanies
 this grant (section 4(d) of the License).
 
-All source in this repository — including the `lemoncrow.pro` engine (code
-intelligence, retrieval, prompt compilation, memory, and the rest of the
-runtime) — is Apache-2.0. There is no separate proprietary component required to
-build or run LemonCrow. The engine may optionally be compiled with `mypyc` for
-performance, but the source is always present and always open.
+The public/local source mirrored to the LemonCrow open-source repository —
+including the `lemoncrow.pro` engine, `server/`, `client/`, `frontend/`, public
+integrations, and public tooling — is Apache-2.0. The complete single-developer
+local runtime remains open source and does not require the enterprise product.
+
+The private `enterprise/` tree in the commercial development repository is a
+separate proprietary product and is not granted under this Apache-2.0 license.
+Files outside the public mirror are not covered by this grant merely because
+they share the same development repository.
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.

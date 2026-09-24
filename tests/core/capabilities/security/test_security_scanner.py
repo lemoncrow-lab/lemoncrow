@@ -9,13 +9,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from lemoncrow_client.kit.security_rules import BUNDLED_RULES
+from lemoncrow_client.kit.security_scan import SecurityScanner, scan_repository
+from lemoncrow_client.kit.security_taint import analyze_python_source
 
-from lemoncrow.core.capabilities.security import (
-    BUNDLED_RULES,
-    SecurityScanner,
-    analyze_python_source,
-    scan_repository,
-)
+from lemoncrow.infra.code_intel.astgrep import astgrep_adapter
 from lemoncrow.infra.code_intel.astgrep.binaries import discover_astgrep_binary
 
 _HAS_ASTGREP = discover_astgrep_binary(Path.cwd(), allow_bootstrap=True).available
@@ -113,7 +111,7 @@ def test_taint_fail_open_on_syntax_error() -> None:
 @pytest.mark.skipif(not _HAS_ASTGREP, reason=_SKIP_REASON)
 def test_scanner_flags_vulnerable_file(tmp_path: Path) -> None:
     _write_pair(tmp_path)
-    findings = scan_repository(tmp_path, paths=["vuln.py"])
+    findings = scan_repository(tmp_path, paths=["vuln.py"], adapter_factory=astgrep_adapter)
     rule_ids = {f["rule_id"] for f in findings}
     # rule-pack hits
     assert "py-subprocess-shell-true" in rule_ids
@@ -131,14 +129,14 @@ def test_scanner_flags_vulnerable_file(tmp_path: Path) -> None:
 @pytest.mark.skipif(not _HAS_ASTGREP, reason=_SKIP_REASON)
 def test_scanner_does_not_flag_safe_file(tmp_path: Path) -> None:
     _write_pair(tmp_path)
-    findings = scan_repository(tmp_path, paths=["safe.py"])
+    findings = scan_repository(tmp_path, paths=["safe.py"], adapter_factory=astgrep_adapter)
     assert findings == [], findings
 
 
 @pytest.mark.skipif(not _HAS_ASTGREP, reason=_SKIP_REASON)
 def test_scanner_rule_only_pass_excludes_taint(tmp_path: Path) -> None:
     _write_pair(tmp_path)
-    scanner = SecurityScanner(tmp_path)
+    scanner = SecurityScanner(tmp_path, adapter_factory=astgrep_adapter)
     findings = scanner.scan(paths=["vuln.py"], include_taint=False)
     assert all(f.source == "rule" for f in findings)
     assert any(f.rule_id == "py-eval-exec" for f in findings)

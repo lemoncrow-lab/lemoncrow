@@ -87,6 +87,17 @@ export interface Draft {
   fileLevel?: boolean;
   /** Current ReviewTarget when the draft was opened from target-level review. */
   targetUnitKey?: string;
+  /** Unsaved human work lives here so refresh/unmount cannot destroy it. */
+  body?: string;
+  kind?: AnnotationKind;
+  markTarget?: boolean;
+  mode?: "annotation" | "proposal";
+  sourceAction?: "suggest" | "edit";
+  replacementText?: string;
+  proposalIntent?: string;
+  proposalId?: string;
+  /** Anchor changed underneath this draft; the human must choose a new one. */
+  recovered?: boolean;
 }
 
 /**
@@ -128,11 +139,28 @@ export function repliesFor(annotations: Annotation[], parentId: string): Annotat
 }
 
 /**
+ * The line a comment card is drawn under: the last line of its range, so a
+ * multi-line comment never splits the lines it talks about (GitHub convention).
+ */
+export function anchorLine(startLine: number, endLine: number): number {
+  return Math.max(startLine, endLine);
+}
+
+/** Marker key for an in-diff comment row. */
+export function draftMarkerKey(draft: Pick<Draft, "side" | "startLine" | "endLine">): string {
+  return `${draft.side}:${anchorLine(draft.startLine, draft.endLine)}`;
+}
+
+function annotationMarkerKey(annotation: Annotation): string {
+  return `${markerSide(annotation.side)}:${anchorLine(annotation.start_line, annotation.end_line)}`;
+}
+
+/**
  * One `DiffLineAnnotation` per anchored comment, plus the draft if there is one.
  *
- * Comments on the same line collapse to a single marker: `renderAnnotation` is
- * called once per entry, and two entries on one line would draw two overlapping
- * cards. The card itself renders every comment on that line.
+ * Comments ending on the same line collapse to a single marker: `renderAnnotation`
+ * is called once per entry, and two entries on one line would draw two
+ * overlapping cards. The card itself renders every comment on that line.
  */
 export function markerLines(
   annotations: Annotation[],
@@ -144,14 +172,14 @@ export function markerLines(
   for (const annotation of partition(annotations, path).anchored) {
     if (annotation.file_level || annotation.start_line < 1) continue;
     const side = markerSide(annotation.side);
-    const key = `${side}:${annotation.start_line}`;
+    const key = annotationMarkerKey(annotation);
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ side, lineNumber: annotation.start_line, metadata: { key } });
+    out.push({ side, lineNumber: anchorLine(annotation.start_line, annotation.end_line), metadata: { key } });
   }
   if (draft && draft.path === path && !draft.fileLevel && draft.startLine > 0) {
-    const key = `${draft.side}:${draft.startLine}`;
-    if (!seen.has(key)) out.push({ side: draft.side, lineNumber: draft.startLine, metadata: { key } });
+    const key = draftMarkerKey(draft);
+    if (!seen.has(key)) out.push({ side: draft.side, lineNumber: anchorLine(draft.startLine, draft.endLine), metadata: { key } });
   }
   return out.sort((a, b) => a.lineNumber - b.lineNumber || a.side.localeCompare(b.side));
 }
@@ -163,7 +191,7 @@ export function fileComments(annotations: Annotation[], path: string): Annotatio
 /** The comments that belong to one marker key, in creation order. */
 export function commentsAt(annotations: Annotation[], path: string, key: string): Annotation[] {
   return partition(annotations, path).anchored.filter(
-    (item) => `${markerSide(item.side)}:${item.start_line}` === key,
+    (item) => !item.file_level && item.start_line > 0 && annotationMarkerKey(item) === key,
   );
 }
 
@@ -177,7 +205,7 @@ export function commentsAt(annotations: Annotation[], path: string, key: string)
  */
 export function markerSignature(annotations: Annotation[], path: string, draft: Draft | null): string {
   const parts = partition(annotations, path)
-    .anchored.map((item) => `${item.id}@${markerSide(item.side)}:${item.start_line}:${item.state}:${item.kind}`)
+    .anchored.map((item) => `${item.id}@${markerSide(item.side)}:${item.start_line}-${item.end_line}:${item.state}:${item.kind}`)
     .sort();
   const replies = annotations.filter((item) => item.parent_id && item.path === path).length;
   const drafted = draft && draft.path === path ? `${draft.side}:${draft.startLine}-${draft.endLine}` : "";

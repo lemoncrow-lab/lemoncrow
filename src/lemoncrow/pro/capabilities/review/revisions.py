@@ -87,6 +87,135 @@ class Reconciliation:
 
 
 @dataclass(frozen=True)
+class FileRevisionDelta:
+    """File-level transition between two frozen ReviewRevisions.
+
+    This is deliberately smaller than a Git diff. It answers the Reader's
+    cache question: which already-loaded file details still describe the exact
+    bytes on the new revision? A file with unknown identity is never preserved,
+    even when its placeholder fingerprint happens to compare equal.
+    """
+
+    preserved: tuple[str, ...] = ()
+    changed: tuple[str, ...] = ()
+    added: tuple[str, ...] = ()
+    removed: tuple[str, ...] = ()
+    renamed: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class RevisionUnitDelta:
+    """One semantic review unit that differs between two frozen revisions."""
+
+    unit_key: str
+    path: str
+    kind: str
+    symbol: str
+    status: str
+    from_state: str = "unreviewed"
+    to_state: str = "unreviewed"
+    from_start_line: int = 0
+    to_start_line: int = 0
+
+
+@dataclass(frozen=True)
+class RevisionFileComparison:
+    """Roll-up of semantic unit and reviewer-state changes for one file."""
+
+    path: str
+    status: str
+    added: int = 0
+    changed: int = 0
+    removed: int = 0
+    reviewed_before: int = 0
+    reviewed_after: int = 0
+    changed_since_review_after: int = 0
+    needs_changes_after: int = 0
+
+
+@dataclass(frozen=True)
+class RevisionComparison:
+    """Provable semantic delta between two immutable ReviewRevisions.
+
+    This intentionally does not fabricate an A/B source patch. Some hosted and
+    dirty-worktree revisions cannot prove both full file bodies after a file
+    leaves the reviewed change. Review-unit fingerprints *are* durable for every
+    revision, so this comparison works identically for local and hosted review.
+    """
+
+    added: int = 0
+    changed: int = 0
+    removed: int = 0
+    unchanged: int = 0
+    units: tuple[RevisionUnitDelta, ...] = ()
+    files: tuple[RevisionFileComparison, ...] = ()
+
+
+def file_revision_delta(
+    previous_units: Sequence[ReviewUnit],
+    next_units: Sequence[ReviewUnit],
+    *,
+    renames: Sequence[tuple[str, str]] = (),
+    same_diff_base: bool = True,
+) -> FileRevisionDelta:
+    """Classify file cache validity across review revisions.
+
+    File-unit fingerprints are the authoritative frozen-content identity used
+    by review itself, so the browser does not have to infer invalidation from
+    target shape or line ranges. ``same_diff_base`` is a separate precondition:
+    identical new-side bytes can still produce a different patch when ``HEAD``
+    (or another base) moves underneath a mutable review. Renames are always
+    invalidated on both names: even byte-identical content moved to a new path
+    changes the file-level unit identity and path-sensitive context around it.
+    """
+
+    before = {unit.path: unit for unit in previous_units if unit.kind == "file"}
+    after = {unit.path: unit for unit in next_units if unit.kind == "file"}
+
+    moved: list[tuple[str, str]] = []
+    renamed_from: set[str] = set()
+    renamed_to: set[str] = set()
+    for old_path, new_path in renames:
+        if not old_path or not new_path or old_path == new_path:
+            continue
+        if old_path not in before or new_path not in after:
+            continue
+        pair = (old_path, new_path)
+        if pair in moved:
+            continue
+        moved.append(pair)
+        renamed_from.add(old_path)
+        renamed_to.add(new_path)
+
+    preserved: list[str] = []
+    changed: list[str] = []
+    for path in sorted(set(before) & set(after)):
+        if path in renamed_from or path in renamed_to:
+            continue
+        left = before[path]
+        right = after[path]
+        if (
+            same_diff_base
+            and left.fingerprint_method != "unknown"
+            and right.fingerprint_method != "unknown"
+            and left.content_fingerprint == right.content_fingerprint
+        ):
+            preserved.append(path)
+        else:
+            changed.append(path)
+
+    added = sorted(path for path in set(after) - set(before) if path not in renamed_to)
+    removed = sorted(path for path in set(before) - set(after) if path not in renamed_from)
+    return FileRevisionDelta(
+        preserved=tuple(preserved),
+        changed=tuple(changed),
+        added=tuple(added),
+        removed=tuple(removed),
+        renamed=tuple(sorted(moved)),
+    )
+
+
+@dataclass(frozen=True)
 class FrontierGroups:
     """The frontier in the four buckets a reviewer actually asks for.
 
@@ -285,6 +414,117 @@ def reconcile(
     )
 
 
+def compare_revision_units(
+    previous_units: Sequence[ReviewUnit],
+    next_units: Sequence[ReviewUnit],
+    *,
+    previous_marks: Sequence[ReviewMark] = (),
+    next_marks: Sequence[ReviewMark] = (),
+) -> RevisionComparison:
+    """Compare exactly what Review knew at two immutable snapshots.
+
+    Stable ``unit_key`` identifies the same semantic target. Content equality is
+    accepted only when both fingerprint methods are knowable; two ``unknown``
+    placeholders never prove that code stayed the same. Returned ``units`` omit
+    unchanged targets so large reviews stay navigable, while ``unchanged`` keeps
+    the complete denominator visible.
+    """
+
+    before = {unit.unit_key: unit for unit in previous_units}
+    after = {unit.unit_key: unit for unit in next_units}
+    before_marks = {mark.unit_key: mark for mark in previous_marks}
+    after_marks = {mark.unit_key: mark for mark in next_marks}
+    changed_units: list[RevisionUnitDelta] = []
+    counts = {"added": 0, "changed": 0, "removed": 0, "unchanged": 0}
+    per_path: dict[str, dict[str, int]] = {}
+
+    for key in sorted(set(before) | set(after)):
+        old = before.get(key)
+        new = after.get(key)
+        if old is None:
+            status = "added"
+            unit = new
+        elif new is None:
+            status = "removed"
+            unit = old
+        else:
+            known_identity = old.fingerprint_method != "unknown" and new.fingerprint_method != "unknown"
+            status = "unchanged" if known_identity and old.content_fingerprint == new.content_fingerprint else "changed"
+            unit = new
+        assert unit is not None  # union key guarantees one side exists
+        counts[status] += 1
+        if status == "unchanged":
+            continue
+        path_counts = per_path.setdefault(
+            unit.path,
+            {
+                "added": 0,
+                "changed": 0,
+                "removed": 0,
+                "reviewed_before": 0,
+                "reviewed_after": 0,
+                "changed_since_review_after": 0,
+                "needs_changes_after": 0,
+            },
+        )
+        path_counts[status] += 1
+        before_mark = before_marks.get(key)
+        after_mark = after_marks.get(key)
+        from_state = before_mark.state if before_mark is not None else "unreviewed"
+        to_state = after_mark.state if after_mark is not None else "unreviewed"
+        if from_state == "reviewed":
+            path_counts["reviewed_before"] += 1
+        if to_state == "reviewed":
+            path_counts["reviewed_after"] += 1
+        if to_state == "changed_since_review":
+            path_counts["changed_since_review_after"] += 1
+        if to_state == "needs_changes":
+            path_counts["needs_changes_after"] += 1
+        changed_units.append(
+            RevisionUnitDelta(
+                unit_key=key,
+                path=unit.path,
+                kind=unit.kind,
+                symbol=unit.symbol,
+                status=status,
+                from_state=from_state,
+                to_state=to_state,
+                from_start_line=0 if old is None else old.start_line,
+                to_start_line=0 if new is None else new.start_line,
+            )
+        )
+
+    files: list[RevisionFileComparison] = []
+    for path, row in sorted(per_path.items()):
+        if row["changed"] or (row["added"] and row["removed"]):
+            status = "changed"
+        elif row["added"]:
+            status = "added"
+        else:
+            status = "removed"
+        files.append(
+            RevisionFileComparison(
+                path=path,
+                status=status,
+                added=row["added"],
+                changed=row["changed"],
+                removed=row["removed"],
+                reviewed_before=row["reviewed_before"],
+                reviewed_after=row["reviewed_after"],
+                changed_since_review_after=row["changed_since_review_after"],
+                needs_changes_after=row["needs_changes_after"],
+            )
+        )
+    return RevisionComparison(
+        added=counts["added"],
+        changed=counts["changed"],
+        removed=counts["removed"],
+        unchanged=counts["unchanged"],
+        units=tuple(changed_units),
+        files=tuple(files),
+    )
+
+
 def compute_frontier(
     review_id: str,
     reviewer_id: str,
@@ -400,9 +640,15 @@ def group_frontier(frontier: ReviewFrontier, added: Sequence[str] = ()) -> Front
 
 
 __all__ = [
+    "FileRevisionDelta",
     "FrontierGroups",
     "Reconciliation",
+    "RevisionComparison",
+    "RevisionFileComparison",
+    "RevisionUnitDelta",
+    "compare_revision_units",
     "compute_frontier",
+    "file_revision_delta",
     "group_frontier",
     "reconcile",
 ]

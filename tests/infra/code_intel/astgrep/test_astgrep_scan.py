@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.infra.code_intel.astgrep.adapter import AstGrepAdapter
+from lemoncrow.infra.code_intel.astgrep import astgrep_adapter
 from lemoncrow.infra.code_intel.astgrep.binaries import discover_astgrep_binary
 
 _RESOLUTION = discover_astgrep_binary(Path.cwd(), allow_bootstrap=True)
@@ -34,7 +34,7 @@ def test_scan_rule_mode_finds_relational_inside_match(tmp_path: Path) -> None:
         "app.py",
         "def outer():\n    eval(user_input)\n\n\neval(top_level)\n",
     )
-    adapter = AstGrepAdapter(tmp_path)
+    adapter = astgrep_adapter(tmp_path)
     rules = [
         {
             "id": "eval-inside-func",
@@ -64,15 +64,8 @@ def test_scan_rule_mode_finds_relational_inside_match(tmp_path: Path) -> None:
 @pytest.mark.skipif(not _HAS_ASTGREP, reason=_SKIP_REASON)
 def test_scan_accepts_prerendered_yaml_string(tmp_path: Path) -> None:
     _write(tmp_path, "m.py", "def f():\n    exec(blob)\n")
-    adapter = AstGrepAdapter(tmp_path)
-    yaml_rule = (
-        "id: exec-call\n"
-        "language: python\n"
-        "severity: warning\n"
-        "message: exec call\n"
-        "rule:\n"
-        "  pattern: exec($X)\n"
-    )
+    adapter = astgrep_adapter(tmp_path)
+    yaml_rule = "id: exec-call\nlanguage: python\nseverity: warning\nmessage: exec call\nrule:\n  pattern: exec($X)\n"
 
     result = adapter.scan(rules=yaml_rule)
 
@@ -84,7 +77,7 @@ def test_scan_accepts_prerendered_yaml_string(tmp_path: Path) -> None:
 def test_legacy_pattern_search_still_works(tmp_path: Path) -> None:
     # The additive scan() path must not disturb the existing --pattern search.
     _write(tmp_path, "req.py", "import requests\n\nrequests.get(url)\n")
-    adapter = AstGrepAdapter(tmp_path)
+    adapter = astgrep_adapter(tmp_path)
 
     result = adapter.search(pattern="requests.get($URL)", language="python")
 

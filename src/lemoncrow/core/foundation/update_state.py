@@ -2,8 +2,8 @@
 
 Writes and reads a small JSON file at ``~/.lemoncrow/update_state.json`` so
 that SessionStart hooks can detect when LemonCrow was updated and notify the
-user.  The daemon (servicectl) and MCP server are the primary writers; the
-hooks are the primary readers.
+user. Installer/runtime processes are the primary writers; SessionStart hooks
+are the primary readers.
 """
 
 from __future__ import annotations
@@ -18,8 +18,8 @@ from typing import Any
 
 _VERSION_RE = re.compile(r"\bversion\s+([0-9][^\s]*)")
 # Bin dirs to append to PATH when resolving the `lc` executable, for
-# callers spawned by launchd/systemd with a minimal PATH (e.g. the servicectl
-# daemon) that would otherwise never find a user-installed `lc`.
+# callers spawned by launchd/systemd with a minimal PATH (for example the
+# persistent MCP tunnel supervisor) that would otherwise miss user binaries.
 _COMMON_LEMONCROW_BIN_DIRS = (
     str(Path.home() / ".local" / "share" / "uv" / "tools" / "lemoncrow" / "bin"),
     str(Path.home() / ".lemoncrow" / "uv-tools" / "lemoncrow" / "bin"),
@@ -35,8 +35,8 @@ def installed_cli_version() -> str | None:
     metadata) so callers see the version actually on disk after a
     reinstall/update, even when the calling process is stale. The PATH used
     to resolve ``lemoncrow`` is augmented with common install locations so
-    this also works for callers (e.g. the servicectl daemon under launchd)
-    whose inherited PATH is minimal. Uses the guaranteed ``lemoncrow`` binary
+    this also works for callers running under launchd/systemd whose inherited
+    PATH is minimal. Uses the guaranteed ``lemoncrow`` binary
     rather than the ``lc`` convenience alias, which a caller may not have on
     PATH. Returns ``None`` if the binary can't be resolved or fails to report
     a version.

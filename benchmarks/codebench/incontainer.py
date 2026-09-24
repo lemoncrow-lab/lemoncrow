@@ -10,6 +10,10 @@ The two arms differ only in the overlay contents + the claude flags:
   baseline -> vanilla Claude Code (default persona, empty MCP)
   lemoncrow -> Claude Code + the LemonCrow plugin (--plugin-dir, --agent lemoncrow:auto)
 That is the vanilla-vs-LemonCrow isolation, same model, same task.
+
+For the Claude LemonCrow arm, residual Headroom compression defaults to apply;
+set ``CODEBENCH_HEADROOM_MODE=off`` for a control or ``shadow`` for observation.
+Each task/rep persists ``*.headroom.jsonl`` next to its flow/patch artifacts.
 """
 
 from __future__ import annotations
@@ -28,8 +32,10 @@ from benchmarks.codebench.run import (
     CA_CERT,
     REPO_ROOT,
     ArmResult,
+    _codebench_headroom_mode,
     _cursor_model,
     _free_port,
+    _headroom_stats_summary,
     _lean_plugin_root,
     _parse_claude_result,
     _parse_cursor_result,
@@ -53,6 +59,15 @@ ENTRY_SCRIPT = Path(__file__).parent / "incontainer_entry.sh"
 # LemonCrow tools reach the agent. Warmed by _ensure_tiktoken_cache().
 TIKTOKEN_CACHE_HOST = Path(__file__).parent / ".tiktoken-cache"
 OVERLAY_NAMESPACE = "codebench-overlay"
+# Claude Code is part of the benchmark harness, not an ambient dependency. Pin it
+# so release-over-release comparisons do not silently change the agent runtime
+# while claiming to measure LemonCrow. Every published run records this value in
+# benchmark-manifest.json as well.
+CLAUDE_CODE_VERSION = "2.1.197"
+# Bump only the LemonCrow overlay tag when its installed runtime contract changes.
+# The thin-client benchmark now carries the public local server in the image, so
+# reusing a pre-server overlay would silently reproduce the degraded benchmark.
+LEMONCROW_OVERLAY_REVISION = "headroom-v1"
 _DIFF_BEGIN = "<<<CODEBENCH_DIFF_BEGIN>>>"
 _DIFF_END = "<<<CODEBENCH_DIFF_END>>>"
 
@@ -92,14 +107,15 @@ LEMONCODE_DEFAULT_MODEL = "big-pickle"
 
 
 # Installed into every overlay: Node + the claude CLI on top of the instance image.
-_BASELINE_INSTALL = r"""
+_BASELINE_INSTALL = f"""
 set -e
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends curl ca-certificates gnupg git
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt-get install -y --no-install-recommends nodejs
-npm install -g @anthropic-ai/claude-code
+npm install -g @anthropic-ai/claude-code@{CLAUDE_CODE_VERSION}
+claude --version
 npm cache clean --force
 rm -rf /var/lib/apt/lists/*
 """
@@ -144,7 +160,15 @@ curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin s
 # litellm is required whenever LemonCrow itself drives the model turn (the
 # lemoncode driver's gateway); the claude/cursor drivers call the provider from
 # their own CLI and never load it.
-LEMONCROW_ENABLE_MYPYC=0 UV_TOOL_BIN_DIR=/usr/local/bin /usr/local/bin/uv tool install --force "/opt/lemoncrow[mcp,smart,parsers,rename,litellm]"
+LEMONCROW_ENABLE_MYPYC=0 UV_TOOL_BIN_DIR=/usr/local/bin /usr/local/bin/uv tool install --force \
+  --with "/opt/lemoncrow/server" \
+  --with-executables-from lemoncrow-server \
+  --with "headroom-ai==0.37.0" \
+  "/opt/lemoncrow[mcp,smart,parsers,rename,litellm]"
+# Since LemonCrow MCP is now a thin client, an isolated benchmark container also
+# carries the public loopback server in the same uv tool environment. Using
+# tool-install --with keeps compatibility with the older uv builds present in
+# some SWE images (which do not yet provide `uv tool inject`).
 
 # Pre-install the ast-grep binary so the codemod MCP tool works at runtime.
 # Download NOW (overlay build time) -- the mitmproxy that runs during the actual
@@ -159,11 +183,11 @@ ARCH = {'amd64': 'x86_64', 'x64': 'x86_64', 'arm64': 'aarch64'}.get(
     platform.machine().lower(), platform.machine().lower())
 ASSETS = {
     'x86_64': (
-        'https://github.com/ast-grep/ast-grep/releases/download/0.42.2/app-x86_64-unknown-linux-gnu.zip',
-        '52aef3ed330a5fb1d9f399b83285bfcf47d92401249803f62711573e83cb47ae'),
+        'https://github.com/ast-grep/ast-grep/releases/download/0.45.3/app-x86_64-unknown-linux-gnu.zip',
+        'f8ac830881339d1edee6b2652f54798c0f4da5a827f2db38a08ee31117783ce8'),
     'aarch64': (
-        'https://github.com/ast-grep/ast-grep/releases/download/0.42.2/app-aarch64-unknown-linux-gnu.zip',
-        'a68d7645d49dbd97b423cc8a64f7839fe5541eedf0b4bb4ab79f4ba5d53f0376'),
+        'https://github.com/ast-grep/ast-grep/releases/download/0.45.3/app-aarch64-unknown-linux-gnu.zip',
+        'b39cfbc58da4b869a88b8a4bc57bd5deb0d24541e704cf7c257da7b53ec81c8f'),
 }
 if ARCH not in ASSETS:
     sys.exit(f'no pinned ast-grep asset for arch {ARCH!r}')
@@ -224,9 +248,14 @@ def _safe(base_image: str) -> str:
 
 
 def overlay_tag(base_image: str, *, lc: bool, driver: str = "claude") -> str:
-    arm = "lemoncrow" if lc else "baseline"
-    # claude tags stay bare (:baseline/:lemoncrow) so existing cached overlays
-    # remain valid; other drivers get a prefix (:cursor-baseline, ...).
+    if driver == "claude":
+        runtime = f"claude-{CLAUDE_CODE_VERSION}"
+        arm = f"lemoncrow-{LEMONCROW_OVERLAY_REVISION}-{runtime}" if lc else f"baseline-{runtime}"
+    else:
+        arm = f"lemoncrow-{LEMONCROW_OVERLAY_REVISION}" if lc else "baseline"
+    # Claude tags include the pinned CLI runtime so changing the harness version
+    # necessarily rebuilds both baseline and LemonCrow overlays. Non-Claude
+    # drivers retain their driver prefix and independent runtime lifecycle.
     prefix = "" if driver == "claude" else f"{driver}-"
     return f"{OVERLAY_NAMESPACE}/{_safe(base_image)}:{prefix}{arm}"
 
@@ -437,6 +466,7 @@ def _docker_run_cmd(
     proxy_port: int,
     prompt_path: Path,
     agent_env: dict[str, str],
+    headroom_stats_path: Path | None = None,
 ) -> list[str]:
     cmd = [
         "docker",
@@ -482,6 +512,8 @@ def _docker_run_cmd(
         else:
             cmd += ["-v", f"{_lean_plugin_root(_ARM_AGENT.get('lemoncrow') or 'lemoncrow:solve')}:/mnt/plugin:ro"]
         cmd += ["-v", f"{TIKTOKEN_CACHE_HOST}:/opt/tiktoken-cache:ro"]
+        if driver == "claude" and headroom_stats_path is not None:
+            cmd += ["-v", f"{headroom_stats_path.resolve()}:/mnt/headroom-stats.jsonl"]
         # Account-free: no host auth files are mounted and no device id is
         # forwarded (device minting removed). The runtime is fully unlocked
         # without an account, so containers run with every tool available.
@@ -491,6 +523,13 @@ def _docker_run_cmd(
         cmd += [
             "-v",
             f"{REPO_ROOT}/src/lemoncrow:/root/.local/share/uv/tools/lemoncrow/lib/python3.13/site-packages/lemoncrow:ro",
+            # Keep both public thin-client and server source in lockstep when a
+            # previously built overlay is reused during development. Otherwise
+            # a cached client wheel can silently advertise an obsolete tool set.
+            "-v",
+            f"{REPO_ROOT}/client/src/lemoncrow_client:/root/.local/share/uv/tools/lemoncrow/lib/python3.13/site-packages/lemoncrow_client:ro",
+            "-v",
+            f"{REPO_ROOT}/server/src/lemoncrow_server_core:/root/.local/share/uv/tools/lemoncrow/lib/python3.13/site-packages/lemoncrow_server_core:ro",
         ]
         # Semantic bash-output compaction: bind-mount an rtk binary so
         # external_compactors routes pytest/git/linter output through it inside
@@ -566,13 +605,14 @@ def _docker_run_cmd(
         # Point tiktoken at the bind-mounted pre-warmed cache so the MCP server
         # never reaches the network at import (see TIKTOKEN_CACHE_HOST).
         env["TIKTOKEN_CACHE_DIR"] = "/opt/tiktoken-cache"
-        # Lean tool surface: hide aux tools the autonomous SWE agent never
-        # reaches for (verified ~0 uses), shrinking the per-turn schema the model
-        # reasons over. callers/callees/usages are already hidden by default
-        # (folded into `explore`), so they need not be repeated here. Visible
-        # surface after this: read, edit, code_search, bash (verified via
-        # `lemoncrow tools list` under this env) -- ~1k tokens of schema total.
-        env["LEMONCROW_HIDE_TOOLS"] = "sql,memory,web_fetch"
+        if driver == "claude":
+            headroom_mode = _codebench_headroom_mode()
+            if headroom_mode != "off" and headroom_stats_path is not None:
+                env["LEMONCROW_HEADROOM_MCP_TAIL_MODE"] = headroom_mode
+                env["LEMONCROW_HEADROOM_TAIL_STATS"] = "/mnt/headroom-stats.jsonl"
+        # MCP visibility is the production allowlist from core/environment.py.
+        # CodeBench must not mutate it; release benchmarks exercise the actual
+        # model-facing product surface.
         # Point at the pre-installed binary so discover_astgrep_binary() finds it
         # immediately via the env-var path (no runtime download attempt through proxy).
         env["LEMONCROW_AST_GREP_BIN"] = "/opt/lemoncrow-astgrep/ast-grep"
@@ -684,6 +724,12 @@ def run_in_container(
     patch_path = out_dir / f"{stem}.patch"
     prompt_path = out_dir / f"{stem}.prompt.txt"
     prompt_path.write_text(instance.problem_statement, encoding="utf-8")
+    headroom_stats_path: Path | None = None
+    if arm == "lemoncrow" and driver == "claude":
+        headroom_mode = _codebench_headroom_mode()
+        if headroom_mode != "off":
+            headroom_stats_path = out_dir / f"{stem}.headroom.jsonl"
+            headroom_stats_path.touch(exist_ok=True)
 
     egress_allow = {"cursor": CURSOR_EGRESS_ALLOW, "lemoncode": LEMONCODE_EGRESS_ALLOW}.get(driver)
     # jobs>1: _free_port() has a bind-then-close TOCTOU race; retry a few ports.
@@ -713,6 +759,7 @@ def run_in_container(
             proxy_port=port,
             prompt_path=prompt_path,
             agent_env=agent_env,
+            headroom_stats_path=headroom_stats_path,
         )
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
@@ -734,6 +781,12 @@ def run_in_container(
         result = _parse_cursor_result(head, flow_path, instance.instance_id, arm, rep)
     else:
         result = _parse_claude_result(head, flow_path, instance.instance_id, arm, rep)
+    if headroom_stats_path is not None:
+        events, applied, saved = _headroom_stats_summary(headroom_stats_path)
+        result.headroom_events = events
+        result.headroom_applied = applied
+        result.headroom_tokens_saved = saved
+        result.headroom_stats_path = str(headroom_stats_path)
     if result.duration_ms == 0:
         result.duration_ms = wall_ms
     if result.duration_api_ms == 0:

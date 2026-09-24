@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from lemoncrow.pro.capabilities.tool_supervision.native_search import (
-    _collapse_docstrings,
-    search_workspace,
-)
+from lemoncrow_client.kit.search import _collapse_docstrings
+
+from lemoncrow.pro.capabilities.tool_supervision.native_search import search_workspace
 
 
 def test_collapse_keeps_signature_summary_and_code() -> None:

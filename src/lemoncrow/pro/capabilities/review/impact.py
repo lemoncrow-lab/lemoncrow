@@ -2175,6 +2175,47 @@ def _cap_sites(sites: Sequence[ImpactSite], limit: int) -> tuple[list[ImpactSite
 # ---------------------------------------------------------------------------
 
 
+def collect_changed_symbols(
+    repo_root: Path,
+    files: Sequence[ChangedFile],
+    *,
+    old_blobs: Mapping[str, str],
+    new_blobs: Mapping[str, str],
+) -> ImpactResult:
+    """Return the stable changed-symbol projection without expensive fan-out work.
+
+    Review startup needs symbol identity to establish its target denominator, but
+    it does not need detector sites, caller expansion, centrality, or impact
+    ranking before the human can read source. This uses the same index-backed
+    symbol extraction as :func:`collect_impact`; the later enrichment therefore
+    adds evidence to those symbols rather than inventing a second identity set.
+    """
+
+    text_files = [item for item in files if not item.is_binary]
+    if not text_files:
+        return ImpactResult()
+    engine = _open_engine(repo_root)
+    ready = _index_ready(engine)
+    symbols, drifted, degraded = _changed_symbols(
+        engine,
+        text_files,
+        ready=ready,
+        old_blobs=old_blobs,
+        new_blobs=new_blobs,
+    )
+    index_status: IndexStatus = "absent"
+    if ready:
+        index_status = "stale" if drifted else "fresh"
+        if drifted:
+            degraded.add(_SIGNAL_LINE_RANGES)
+    return ImpactResult(
+        symbols=tuple(symbols),
+        sites=(),
+        index_status=index_status,
+        degraded=tuple(sorted(degraded)),
+    )
+
+
 def collect_impact(
     repo_root: Path,
     files: Sequence[ChangedFile],
@@ -2298,4 +2339,11 @@ def collect_impact(
     )
 
 
-__all__ = ["ImpactResult", "ImpactReuse", "SymbolWindow", "collect_impact", "symbol_windows"]
+__all__ = [
+    "ImpactResult",
+    "ImpactReuse",
+    "SymbolWindow",
+    "collect_changed_symbols",
+    "collect_impact",
+    "symbol_windows",
+]

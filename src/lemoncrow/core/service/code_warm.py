@@ -181,7 +181,7 @@ class _CodeWarmer:
         self._stop.set()
 
     def _warm_once(self) -> None:
-        from lemoncrow.core.capabilities import licensing
+        from lemoncrow.core.capabilities import feature_access as licensing
 
         workspaces = discover_workspaces()
         if not licensing.has_feature("unlimited_repos"):

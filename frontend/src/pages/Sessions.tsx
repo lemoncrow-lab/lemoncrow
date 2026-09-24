@@ -15,7 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { api, type Trace, type SessionSummary } from "../api";
-import { MetricCard, SectionHeader, cx } from "../components/WorkbenchUI";
+import { MetricCard, cx } from "../components/WorkbenchUI";
 import { fmtUsd, fmtDate, fmtDuration, fmtRelativeTime } from "../lib/format";
 import { extractHost, HOST_COLORS } from "./sessions/helpers";
 import { StatusDot } from "./sessions/StatusBadge";
@@ -65,6 +65,30 @@ function resolveSessionModel(
     firstModelLabel(summary?.models_used) ||
     trace?.model ||
     null
+  );
+}
+
+function hasUsageEvidence(summary?: SessionSummary | null, trace?: Trace | null): boolean {
+  if (summary) {
+    if (summary.total_turns > 0) return true;
+    if (summary.total_cost_usd > 0 || summary.total_lemoncrow_savings_usd > 0) return true;
+    if (Object.keys(summary.models_used || {}).length > 0) return true;
+    if (
+      (summary.input_tokens || 0) > 0 ||
+      (summary.output_tokens || 0) > 0 ||
+      (summary.cached_input_tokens || 0) > 0 ||
+      (summary.cache_write_tokens || 0) > 0
+    ) {
+      return true;
+    }
+  }
+  if (!trace) return false;
+  if ((trace.model || "").trim()) return true;
+  return (
+    (trace.input_tokens || 0) > 0 ||
+    (trace.output_tokens || 0) > 0 ||
+    (trace.cached_input_tokens || 0) > 0 ||
+    (trace.cache_creation_input_tokens || 0) > 0
   );
 }
 
@@ -133,8 +157,11 @@ export default function Sessions() {
       const existing = seen.get(sid);
       if (!existing || (!existing.task && t.task)) seen.set(sid, t);
     }
-    return Array.from(seen.values());
-  }, [traces]);
+    return Array.from(seen.values()).filter((trace) => {
+      const sid = trace.session_id || trace.id;
+      return hasUsageEvidence(sessionsMap?.get(sid), trace);
+    });
+  }, [traces, sessionsMap]);
 
   const fetchTracesPage = useCallback(
     (offset: number) => {
@@ -172,10 +199,10 @@ export default function Sessions() {
 
   const fetchSummaries = useCallback(() => {
     api
-      .sessions(SESSIONS_SINCE_ALL)
+      .sessions(SESSIONS_SINCE_ALL, (page + 1) * 50)
       .then(setSummaries)
       .catch(() => null);
-  }, []);
+  }, [page]);
 
   // Debounce search input → query
   useEffect(() => {
@@ -373,6 +400,8 @@ export default function Sessions() {
                   // _live sessions are still running in the RunLedger and
                   // haven't committed a final status to SQLite yet.
                   const displayStatus = t._live ? "running" : t.status;
+                  const costAvailable =
+                    Boolean(summary) && summary?.cost_status !== "unavailable";
                   const costPrefix =
                     summary?.cost_status === "estimated" ? "~" : "";
 
@@ -381,13 +410,13 @@ export default function Sessions() {
                       key={t.id}
                       onClick={() =>
                         navigate(
-                          `/sessions/${sid}${query ? `?q=${encodeURIComponent(query)}` : ""}`
+                          `/runs/${sid}${query ? `?q=${encodeURIComponent(query)}` : ""}`
                         )
                       }
                       className={cx(
                         "w-full border-b border-neutral-800 p-3.5 text-left transition-all hover:bg-neutral-800/40 group/card",
                         isActive
-                          ? "bg-brand-900/10 border-r-2 border-r-brand-500 shadow-[inset_0_0_28px_rgba(168,85,247,0.08)]"
+                          ? "bg-neutral-900/45 border-r-2 border-r-neutral-500"
                           : ""
                       )}
                     >
@@ -459,7 +488,7 @@ export default function Sessions() {
                           [
                             [
                               "Cost",
-                              summary
+                              summary && costAvailable
                                 ? `${costPrefix}${fmtUsd(summary.total_cost_usd)}`
                                 : "—",
                               "text-red-300",
@@ -505,7 +534,7 @@ export default function Sessions() {
               )}
 
               {!loadingTraces && traces?.length === 0 && (
-                <div className="p-12 text-center text-xs text-neutral-400 italic font-mono">
+                <div className="p-8 text-center text-xs text-neutral-400 italic font-mono">
                   No sessions found
                 </div>
               )}
@@ -531,37 +560,50 @@ export default function Sessions() {
 // ---------------------------------------------------------------------------
 
 function EmptyState({ summaries }: { summaries: SessionSummary[] | null }) {
-  const totalCost = summaries?.reduce((s, i) => s + i.total_cost_usd, 0) ?? 0;
+  const usageSummaries =
+    summaries?.filter((summary) => hasUsageEvidence(summary, null)) ?? null;
+  const pricedSummaries =
+    usageSummaries?.filter((summary) => summary.cost_status !== "unavailable") ??
+    null;
+  const totalCost =
+    pricedSummaries?.reduce((sum, item) => sum + item.total_cost_usd, 0) ?? 0;
   const totalSaved =
-    summaries?.reduce((s, i) => s + i.total_lemoncrow_savings_usd, 0) ?? 0;
+    usageSummaries?.reduce(
+      (sum, item) => sum + item.total_lemoncrow_savings_usd,
+      0
+    ) ?? 0;
+  const hasUnpriced = Boolean(
+    usageSummaries?.some((summary) => summary.cost_status === "unavailable")
+  );
 
   return (
-    <div className="h-full overflow-y-auto custom-scrollbar p-12 space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <SectionHeader
-        title="Session Explorer"
-        description="Deep dive into agent execution, reasoning, and costs."
-      />
-
-      <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
+    <div className="h-full overflow-y-auto custom-scrollbar p-6 space-y-6 animate-in fade-in duration-300">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <MetricCard
           label="Sessions"
-          value={summaries ? String(summaries.length) : "—"}
+          value={usageSummaries ? String(usageSummaries.length) : "—"}
           tone="violet"
         />
         <MetricCard
           label="Total Cost"
-          value={summaries ? fmtUsd(totalCost) : "—"}
+          value={
+            usageSummaries
+              ? pricedSummaries && pricedSummaries.length > 0
+                ? `${hasUnpriced ? "≥" : ""}${fmtUsd(totalCost)}`
+                : "—"
+              : "—"
+          }
           tone="amber"
         />
         <MetricCard
           label="Savings"
-          value={summaries ? fmtUsd(totalSaved) : "—"}
+          value={usageSummaries ? fmtUsd(totalSaved) : "—"}
           tone="emerald"
         />
         <MetricCard
           label="Efficiency"
           value={
-            summaries
+            usageSummaries && pricedSummaries && pricedSummaries.length > 0
               ? `${Math.round((totalSaved / (totalCost || 1)) * 100)}%`
               : "—"
           }
@@ -569,14 +611,13 @@ function EmptyState({ summaries }: { summaries: SessionSummary[] | null }) {
         />
       </div>
 
-      <div className="border border-neutral-800 bg-surface-raised p-16 text-center rounded-sm">
-        <Terminal size={48} className="mx-auto mb-6 text-neutral-400" />
-        <h3 className="text-xs font-bold text-neutral-400 mb-2 uppercase tracking-[0.4em]">
-          Select History
+      <div className="border border-neutral-800 bg-surface-raised p-6 text-center rounded-sm">
+        <Terminal size={28} className="mx-auto mb-3 text-neutral-500" />
+        <h3 className="mb-1 text-xs font-semibold text-neutral-300">
+          Select a session
         </h3>
-        <p className="text-xs text-neutral-400 max-w-sm mx-auto leading-relaxed">
-          Explore the internal reasoning logs, tool executions, and file diffs
-          for any past agent run.
+        <p className="mx-auto max-w-sm text-[11px] leading-relaxed text-neutral-500">
+          Inspect reasoning logs, tool executions, costs, and file changes from any past run.
         </p>
       </div>
     </div>

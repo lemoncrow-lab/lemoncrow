@@ -1,27 +1,19 @@
-"""``lc mcp serve --persistent`` boot-persistent service registration.
-
-The registration path installs a *real* systemd/launchd user unit, so
-``supervisor_kind()`` refuses to do it inside a test process unless
-``LEMONCROW_MCP_ALLOW_SERVICE=1`` is set. Every test here sets it and points
-the unit directory at ``tmp_path`` with ``_run`` stubbed out, so nothing ever
-reaches the developer's own systemd.
-"""
+"""Persistent remote MCP uses one thin-client gateway plus one shared tunnel."""
 
 from __future__ import annotations
 
 import shlex
 import subprocess
-import threading
 from pathlib import Path
 from typing import Any
 
 import pytest
-import uvicorn
 from click.testing import CliRunner
 
 from lemoncrow.gateway.cli.commands import _mcp_service as svc
 from lemoncrow.gateway.cli.commands import _persistent_tunnel as pt
 from lemoncrow.gateway.cli.commands.mcp_serve import mcp_serve_cmd, mcp_service_group
+from lemoncrow.gateway.mcp_connectors import ConnectorBinding, load_all_connectors, save_connector
 
 
 def _completed(returncode: int = 0, stdout: str = "") -> subprocess.CompletedProcess[str]:
@@ -30,12 +22,13 @@ def _completed(returncode: int = 0, stdout: str = "") -> subprocess.CompletedPro
 
 @pytest.fixture
 def systemd_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Redirect unit installation to tmp_path and stub every systemctl call."""
     unit_dir = tmp_path / "systemd"
     monkeypatch.setenv("LEMONCROW_MCP_ALLOW_SERVICE", "1")
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
+    monkeypatch.setenv("LEMONCROW_HOME", str(tmp_path / ".lemoncrow"))
     monkeypatch.setattr(svc, "SYSTEMD_USER_DIR", unit_dir)
     monkeypatch.setattr(svc, "supervisor_kind", lambda: "systemd")
-    monkeypatch.setattr(svc, "lemoncrow_binary", lambda: "/usr/bin/lemoncrow")
+    monkeypatch.setattr(pt, "route_dns", lambda binary, ref, hostname: None)
     return unit_dir
 
 
@@ -45,8 +38,11 @@ def run_calls(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
 
     def _fake_run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
         calls.append(cmd)
-        # `loginctl show-user` short-circuits _enable_linger when already on.
-        return _completed(0, stdout="Linger=yes" if "show-user" in cmd else "ActiveState=active\nUnitFileState=enabled")
+        if "show-user" in cmd:
+            return _completed(0, "Linger=yes")
+        if "show" in cmd:
+            return _completed(0, "ActiveState=active\nUnitFileState=enabled\nMainPID=123\n")
+        return _completed(0)
 
     monkeypatch.setattr(svc, "_run", _fake_run)
     return calls
@@ -54,240 +50,221 @@ def run_calls(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
 
 def _persistent_serve(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *args: str) -> Any:
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
+    monkeypatch.setenv("LEMONCROW_HOME", str(tmp_path / ".lemoncrow"))
     monkeypatch.setattr("lemoncrow.gateway.cli.commands.mcp_serve._resolve_cloudflared", lambda: "/usr/bin/cloudflared")
     monkeypatch.setattr(pt, "is_logged_in", lambda: True)
-    monkeypatch.setattr(pt, "find_existing_tunnel", lambda binary, name: ("tid", "/creds.json"))
-    monkeypatch.setattr(pt, "route_dns", lambda binary, ref, hostname: None)
+    monkeypatch.setattr(pt, "find_existing_tunnel", lambda binary, name: ("shared-tid", "/creds/shared.json"))
     return CliRunner().invoke(mcp_serve_cmd, ["--persistent", *args])
 
 
-# ── registration ─────────────────────────────────────────────────────────────
-def test_persistent_installs_unit_and_does_not_serve_in_this_process(
+def test_persistent_installs_one_direct_cloudflared_unit(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, systemd_dir: Path, run_calls: list[list[str]]
 ) -> None:
-    served: list[str] = []
-    monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: served.append("ran"))
-    monkeypatch.setattr(pt, "start_named_tunnel_process", lambda *a, **kw: pytest.fail("tunnel started in CLI"))
-
-    result = _persistent_serve(monkeypatch, tmp_path, "--hostname", "mcp.example.com")
-
+    result = _persistent_serve(monkeypatch, tmp_path, "--hostname", "a.example.com")
     assert result.exit_code == 0, result.output
-    assert served == []  # the service serves, not this process
-    unit = systemd_dir / "lemoncrow-mcp-mcp-example-com.service"
+
+    unit = systemd_dir / svc.SHARED_SYSTEMD_UNIT
     assert unit.exists()
-    assert ["systemctl", "--user", "enable", unit.name] in run_calls
-    assert ["systemctl", "--user", "restart", unit.name] in run_calls
-    assert "running as a background service" in result.output
-    assert "https://mcp.example.com/mcp" in result.output
-
-
-def test_installed_unit_runs_serve_foreground_in_the_starting_directory(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, systemd_dir: Path, run_calls: list[list[str]]
-) -> None:
-    workspace = tmp_path / "project"
-    workspace.mkdir()
-    monkeypatch.chdir(workspace)
-
-    result = _persistent_serve(monkeypatch, tmp_path, "--hostname", "mcp.example.com", "--port", "9123")
-    assert result.exit_code == 0, result.output
-
-    content = (systemd_dir / "lemoncrow-mcp-mcp-example-com.service").read_text(encoding="utf-8")
-    exec_start = next(line for line in content.splitlines() if line.startswith("ExecStart="))
-    command = shlex.split(exec_start.split("=", 1)[1])
+    content = unit.read_text(encoding="utf-8")
+    command = shlex.split(next(line for line in content.splitlines() if line.startswith("ExecStart=")).split("=", 1)[1])
     assert command == [
-        "/usr/bin/lemoncrow",
-        "mcp",
-        "serve",
-        "--persistent",
-        "--hostname",
-        "mcp.example.com",
-        "--foreground",
-        "--port",
-        "9123",
+        "/usr/bin/cloudflared",
+        "tunnel",
+        "--no-autoupdate",
+        "--grace-period",
+        "2s",
+        "run",
+        "--credentials-file",
+        "/creds/shared.json",
+        "--url",
+        "http://127.0.0.1:7421",
+        "shared-tid",
     ]
-    assert f"WorkingDirectory={workspace}" in content
-    assert "Restart=always" in content
-    assert f"Environment={svc.SUPERVISED_ENV}=1" in content
-    assert "WantedBy=default.target" in content  # starts again after a reboot
+    assert "lemoncrow mcp serve" not in content
+    assert f"After=network-online.target {svc.SHARED_GATEWAY_SYSTEMD_UNIT}" in content
+    assert "lemoncrow-local-server.service" not in content
+    assert "Requires=" not in content and "BindsTo=" not in content
+    assert "TimeoutStopSec=5" in content
+
+    gateway = systemd_dir / svc.SHARED_GATEWAY_SYSTEMD_UNIT
+    assert gateway.exists()
+    gateway_content = gateway.read_text(encoding="utf-8")
+    assert "lemoncrow_server_core mcp-gateway --port 7421 --backend-port 7420" in gateway_content
+    assert "lemoncrow-local-server.service" not in gateway_content
+    assert ["systemctl", "--user", "enable", svc.SHARED_GATEWAY_SYSTEMD_UNIT] in run_calls
+    assert ["systemctl", "--user", "enable", svc.SHARED_SYSTEMD_UNIT] in run_calls
+    assert ["systemctl", "--user", "restart", svc.SHARED_GATEWAY_SYSTEMD_UNIT] in run_calls
+    assert ["systemctl", "--user", "restart", svc.SHARED_SYSTEMD_UNIT] in run_calls
 
 
-def test_pairing_code_is_stable_across_reregistration(
+def test_second_hostname_reuses_same_unit_and_shared_tunnel(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, systemd_dir: Path, run_calls: list[list[str]]
 ) -> None:
-    first = _persistent_serve(monkeypatch, tmp_path, "--hostname", "mcp.example.com")
-    second = _persistent_serve(monkeypatch, tmp_path, "--hostname", "mcp.example.com")
+    routed: list[str] = []
+    monkeypatch.setattr(pt, "route_dns", lambda binary, ref, hostname: routed.append(hostname))
+    first = _persistent_serve(monkeypatch, tmp_path, "--hostname", "a.example.com")
+    second = _persistent_serve(monkeypatch, tmp_path, "--hostname", "b.example.com")
+    assert first.exit_code == second.exit_code == 0
+    assert routed == ["a.example.com", "b.example.com"]
+    assert [binding.hostname for binding in load_all_connectors()] == ["a.example.com", "b.example.com"]
+    assert sorted(path.name for path in systemd_dir.glob("lemoncrow-mcp-*.service")) == sorted(
+        [svc.SHARED_GATEWAY_SYSTEMD_UNIT, svc.SHARED_SYSTEMD_UNIT]
+    )
+    assert run_calls.count(["systemctl", "--user", "restart", svc.SHARED_SYSTEMD_UNIT]) == 1
 
-    def _code(output: str) -> str:
+
+def test_pairing_code_stays_per_hostname_and_stable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, systemd_dir: Path, run_calls: list[list[str]]
+) -> None:
+    first = _persistent_serve(monkeypatch, tmp_path, "--hostname", "a.example.com")
+    second = _persistent_serve(monkeypatch, tmp_path, "--hostname", "a.example.com")
+    assert first.exit_code == second.exit_code == 0
+
+    def code(output: str) -> str:
         return next(line for line in output.splitlines() if "Pairing code:" in line).split(":", 1)[1].strip()
 
-    assert _code(first.output) == _code(second.output)
+    assert code(first.output) == code(second.output)
 
 
-def test_foreground_flag_serves_here_and_installs_nothing(
+class _ImmediateProc:
+    returncode = 0
+
+    def wait(self, timeout: float | None = None) -> int:
+        return 0
+
+    def terminate(self) -> None:
+        self.returncode = 0
+
+    def poll(self) -> int | None:
+        return self.returncode
+
+
+def test_foreground_runs_only_cloudflared_and_installs_nothing(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, systemd_dir: Path, run_calls: list[list[str]]
 ) -> None:
-    served: list[str] = []
-    monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: served.append("ran"))
-    monkeypatch.setattr(pt, "start_named_tunnel_process", lambda *a, **kw: _FakeProc())
+    started: list[tuple[str, str, int, str]] = []
 
-    result = _persistent_serve(monkeypatch, tmp_path, "--hostname", "mcp.example.com", "--foreground")
+    def start(binary: str, ref: str, port: int, creds: str) -> _ImmediateProc:
+        started.append((binary, ref, port, creds))
+        return _ImmediateProc()
+
+    gateway = _ImmediateProc()
+    monkeypatch.setattr(svc, "start_gateway_process", lambda **_kwargs: gateway)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.mcp_serve._wait_gateway_ready", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(pt, "start_named_tunnel_process", start)
+    result = _persistent_serve(monkeypatch, tmp_path, "--hostname", "a.example.com", "--foreground")
     assert result.exit_code == 0, result.output
-    assert served == ["ran"]
+    assert started == [("/usr/bin/cloudflared", "shared-tid", 7421, "/creds/shared.json")]
+    assert gateway.returncode == 0
     assert not systemd_dir.exists()
 
 
-def test_supervised_process_never_reregisters_itself(
+def test_service_list_shows_connectors_behind_one_shared_tunnel(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, systemd_dir: Path, run_calls: list[list[str]]
 ) -> None:
-    monkeypatch.setenv(svc.SUPERVISED_ENV, "1")
-    monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: None)
-    monkeypatch.setattr(pt, "start_named_tunnel_process", lambda *a, **kw: _FakeProc())
-
-    result = _persistent_serve(monkeypatch, tmp_path, "--hostname", "mcp.example.com")
+    assert _persistent_serve(monkeypatch, tmp_path, "--hostname", "a.example.com").exit_code == 0
+    assert _persistent_serve(monkeypatch, tmp_path, "--hostname", "b.example.com").exit_code == 0
+    result = CliRunner().invoke(mcp_service_group, ["list"])
     assert result.exit_code == 0, result.output
+    assert "Persistent MCP connectors · 2" in result.output
+    assert "shared tunnel  active" in result.output
+    assert "https://a.example.com/mcp" in result.output
+    assert "https://b.example.com/mcp" in result.output
+
+
+def test_service_repair_recreates_unit_from_durable_state(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, systemd_dir: Path, run_calls: list[list[str]]
+) -> None:
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
+    monkeypatch.setenv("LEMONCROW_HOME", str(tmp_path / ".lemoncrow"))
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    save_connector(ConnectorBinding("a.example.com", str(workspace)))
+    credentials = tmp_path / "credentials.json"
+    credentials.write_text("{}", encoding="utf-8")
+    pt.save_tunnel_state(
+        pt.shared_tunnel_state_path(),
+        pt.TunnelState("lemoncrow-mcp", "shared-id", "*", str(credentials)),
+    )
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.mcp_serve._resolve_cloudflared", lambda: "/usr/bin/cloudflared")
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.mcp_serve._persistent_origin_port", lambda: 7421)
+    monkeypatch.setattr("lemoncrow.gateway.cli.commands.mcp_serve._persistent_backend_port", lambda: 7420)
+
+    result = CliRunner().invoke(mcp_service_group, ["repair"])
+
+    assert result.exit_code == 0, result.output
+    assert "Repaired shared MCP tunnel" in result.output
+    content = (systemd_dir / svc.SHARED_SYSTEMD_UNIT).read_text(encoding="utf-8")
+    assert "--credentials-file " + str(credentials) in content
+    assert "--url http://127.0.0.1:7421 shared-id" in content
+    gateway_content = (systemd_dir / svc.SHARED_GATEWAY_SYSTEMD_UNIT).read_text(encoding="utf-8")
+    assert "mcp-gateway --port 7421 --backend-port 7420" in gateway_content
+    assert ["systemctl", "--user", "restart", svc.SHARED_SYSTEMD_UNIT] in run_calls
+
+
+def test_service_repair_is_noop_without_connectors(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, systemd_dir: Path, run_calls: list[list[str]]
+) -> None:
+    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
+    monkeypatch.setenv("LEMONCROW_HOME", str(tmp_path / ".lemoncrow"))
+
+    result = CliRunner().invoke(mcp_service_group, ["repair"])
+
+    assert result.exit_code == 0, result.output
+    assert "nothing to repair" in result.output
     assert not systemd_dir.exists()
     assert run_calls == []
 
 
-def test_one_off_pairing_code_cannot_configure_a_service(
+def test_start_stop_restart_target_gateway_and_tunnel(systemd_dir: Path, run_calls: list[list[str]]) -> None:
+    systemd_dir.mkdir(parents=True)
+    (systemd_dir / svc.SHARED_SYSTEMD_UNIT).write_text("[Unit]\n", encoding="utf-8")
+    (systemd_dir / svc.SHARED_GATEWAY_SYSTEMD_UNIT).write_text("[Unit]\n", encoding="utf-8")
+    for action in ("start", "stop", "restart"):
+        result = CliRunner().invoke(mcp_service_group, [action])
+        assert result.exit_code == 0, result.output
+        assert ["systemctl", "--user", action, svc.SHARED_SYSTEMD_UNIT] in run_calls
+        assert ["systemctl", "--user", action, svc.SHARED_GATEWAY_SYSTEMD_UNIT] in run_calls
+
+
+def test_restart_can_rotate_one_connector_pairing_code(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, systemd_dir: Path, run_calls: list[list[str]]
 ) -> None:
-    result = _persistent_serve(monkeypatch, tmp_path, "--hostname", "mcp.example.com", "--pairing-code", "x")
-    assert result.exit_code != 0
-    assert "--foreground" in result.output
-    assert not systemd_dir.exists()
+    assert _persistent_serve(monkeypatch, tmp_path, "--hostname", "a.example.com").exit_code == 0
+    before = CliRunner().invoke(mcp_service_group, ["code", "a.example.com"])
+    rotated = CliRunner().invoke(mcp_service_group, ["restart", "a.example.com", "--new-pairing-code"])
+    after = CliRunner().invoke(mcp_service_group, ["code", "a.example.com"])
+    assert before.exit_code == rotated.exit_code == after.exit_code == 0
+    assert before.output.strip() != after.output.strip()
+    assert after.output.strip() in rotated.output
+    assert ["systemctl", "--user", "restart", svc.SHARED_SYSTEMD_UNIT] in run_calls
 
 
-def test_without_a_supervisor_it_falls_back_to_serving_here(
+def test_remove_one_connector_keeps_shared_service_when_another_exists(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, systemd_dir: Path, run_calls: list[list[str]]
 ) -> None:
-    monkeypatch.setattr(svc, "supervisor_kind", lambda: None)
-    served: list[str] = []
-    monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: served.append("ran"))
-    monkeypatch.setattr(pt, "start_named_tunnel_process", lambda *a, **kw: _FakeProc())
-
-    result = _persistent_serve(monkeypatch, tmp_path, "--hostname", "mcp.example.com")
+    assert _persistent_serve(monkeypatch, tmp_path, "--hostname", "a.example.com").exit_code == 0
+    assert _persistent_serve(monkeypatch, tmp_path, "--hostname", "b.example.com").exit_code == 0
+    result = CliRunner().invoke(mcp_service_group, ["remove", "a.example.com"])
     assert result.exit_code == 0, result.output
-    assert served == ["ran"]
-    assert "serving in the foreground" in result.output
+    assert [binding.hostname for binding in load_all_connectors()] == ["b.example.com"]
+    assert (systemd_dir / svc.SHARED_SYSTEMD_UNIT).exists()
 
 
-def test_registration_is_skipped_in_tests_without_the_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_remove_last_connector_removes_shared_service(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, systemd_dir: Path, run_calls: list[list[str]]
+) -> None:
+    assert _persistent_serve(monkeypatch, tmp_path, "--hostname", "a.example.com").exit_code == 0
+    result = CliRunner().invoke(mcp_service_group, ["remove", "a.example.com"])
+    assert result.exit_code == 0, result.output
+    assert load_all_connectors() == []
+    assert not (systemd_dir / svc.SHARED_SYSTEMD_UNIT).exists()
+    assert not (systemd_dir / svc.SHARED_GATEWAY_SYSTEMD_UNIT).exists()
+    assert ["systemctl", "--user", "disable", "--now", svc.SHARED_SYSTEMD_UNIT] in run_calls
+    assert ["systemctl", "--user", "disable", "--now", svc.SHARED_GATEWAY_SYSTEMD_UNIT] in run_calls
+
+
+def test_registration_is_skipped_in_tests_without_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("LEMONCROW_MCP_ALLOW_SERVICE", raising=False)
     monkeypatch.setenv("PYTEST_CURRENT_TEST", "guard")
     assert svc.supervisor_kind() is None
-
-
-class _FakeProc:
-    """Mirrors real ``subprocess.Popen`` lifecycle: ``wait()`` blocks until
-    ``terminate()``/``kill()`` actually ends it, matching the tunnel-watchdog
-    thread's expectations in mcp_serve.py (see _FakeTunnelProc for the same
-    fix elsewhere with the reasoning spelled out).
-    """
-
-    def __init__(self) -> None:
-        self.returncode: int | None = None
-        self._exited = threading.Event()
-
-    def terminate(self) -> None:
-        if self.returncode is None:
-            self.returncode = 0
-        self._exited.set()
-
-    def wait(self, timeout: float | None = None) -> int:
-        if not self._exited.wait(timeout):
-            assert timeout is not None  # Event.wait(None) never times out
-            raise subprocess.TimeoutExpired(cmd="cloudflared", timeout=timeout)
-        assert self.returncode is not None
-        return self.returncode
-
-    def kill(self) -> None:
-        if self.returncode is None:
-            self.returncode = -9
-        self._exited.set()
-
-
-# ── lc mcp service ───────────────────────────────────────────────────────────
-def _install_unit(unit_dir: Path, slug: str, hostname: str, workspace: str = "/w") -> None:
-    unit_dir.mkdir(parents=True, exist_ok=True)
-    (unit_dir / f"lemoncrow-mcp-{slug}.service").write_text(
-        "[Unit]\n"
-        f"Description=LemonCrow MCP server ({hostname})\n"
-        "[Service]\n"
-        f"WorkingDirectory={workspace}\n"
-        f"ExecStart=/usr/bin/lemoncrow mcp serve --persistent --hostname {hostname} --foreground\n",
-        encoding="utf-8",
-    )
-
-
-def test_service_list_shows_each_installed_server(systemd_dir: Path, run_calls: list[list[str]]) -> None:
-    _install_unit(systemd_dir, "a-example-com", "a.example.com", workspace="/projects/a")
-    _install_unit(systemd_dir, "b-example-com", "b.example.com", workspace="/projects/b")
-
-    result = CliRunner().invoke(mcp_service_group, ["list"])
-    assert result.exit_code == 0, result.output
-    assert "https://a.example.com/mcp" in result.output
-    assert "https://b.example.com/mcp" in result.output
-    assert "/projects/b" in result.output
-    assert "active" in result.output
-
-
-def test_service_start_stop_restart_target_the_named_host(systemd_dir: Path, run_calls: list[list[str]]) -> None:
-    _install_unit(systemd_dir, "a-example-com", "a.example.com")
-    _install_unit(systemd_dir, "b-example-com", "b.example.com")
-
-    for action in ("start", "stop", "restart"):
-        result = CliRunner().invoke(mcp_service_group, [action, "b.example.com"])
-        assert result.exit_code == 0, result.output
-        assert ["systemctl", "--user", action, "lemoncrow-mcp-b-example-com.service"] in run_calls
-
-
-def test_service_action_without_a_host_is_ambiguous_when_several_exist(
-    systemd_dir: Path, run_calls: list[list[str]]
-) -> None:
-    _install_unit(systemd_dir, "a-example-com", "a.example.com")
-    _install_unit(systemd_dir, "b-example-com", "b.example.com")
-
-    result = CliRunner().invoke(mcp_service_group, ["restart"])
-    assert result.exit_code != 0
-    assert "several MCP services" in result.output
-    assert not [call for call in run_calls if "restart" in call]
-
-
-def test_single_service_needs_no_hostname(systemd_dir: Path, run_calls: list[list[str]]) -> None:
-    _install_unit(systemd_dir, "only-example-com", "only.example.com")
-    result = CliRunner().invoke(mcp_service_group, ["restart"])
-    assert result.exit_code == 0, result.output
-    assert ["systemctl", "--user", "restart", "lemoncrow-mcp-only-example-com.service"] in run_calls
-
-
-def test_restart_can_rotate_the_pairing_code(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, systemd_dir: Path, run_calls: list[list[str]]
-) -> None:
-    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
-    _install_unit(systemd_dir, "only-example-com", "only.example.com")
-
-    before = CliRunner().invoke(mcp_service_group, ["code", "only.example.com"])
-    assert before.exit_code == 0, before.output
-    rotated = CliRunner().invoke(mcp_service_group, ["restart", "--new-pairing-code"])
-    assert rotated.exit_code == 0, rotated.output
-    after = CliRunner().invoke(mcp_service_group, ["code", "only.example.com"])
-
-    assert before.output.strip() != after.output.strip()
-    assert after.output.strip() in rotated.output
-
-
-def test_service_remove_deletes_the_unit_but_keeps_state(systemd_dir: Path, run_calls: list[list[str]]) -> None:
-    _install_unit(systemd_dir, "only-example-com", "only.example.com")
-    result = CliRunner().invoke(mcp_service_group, ["remove", "only.example.com"])
-    assert result.exit_code == 0, result.output
-    assert not (systemd_dir / "lemoncrow-mcp-only-example-com.service").exists()
-    assert ["systemctl", "--user", "disable", "--now", "lemoncrow-mcp-only-example-com.service"] in run_calls
-
-
-def test_service_command_without_any_installed_service_explains_how_to_get_one(
-    systemd_dir: Path, run_calls: list[list[str]]
-) -> None:
-    result = CliRunner().invoke(mcp_service_group, ["restart"])
-    assert result.exit_code != 0
-    assert "lc mcp serve --persistent" in result.output

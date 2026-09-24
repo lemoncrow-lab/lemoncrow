@@ -8,11 +8,9 @@ import os
 import socket
 import subprocess
 import sys
-import threading
 import time
 import urllib.error
 import urllib.request
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
@@ -93,7 +91,7 @@ def test_managed_context_updates_only_existing_block() -> None:
 
 def test_opencode_agent_has_host_specific_tool_policy() -> None:
     content = (ROOT / "integrations/opencode/agents/code.md").read_text(encoding="utf-8")
-    # `context` is in HIDDEN_LLM_TOOLS -- never advertised to any host's model,
+    # `context` is not in LLM_VISIBLE_TOOLS -- never advertised to any host's model,
     # OpenCode included -- so it must never be named as something to call.
     assert "lemoncrow_context" not in content
     # OpenCode keeps the same core workflow bullets as Codex/Copilot/Cursor
@@ -160,31 +158,6 @@ def test_codex_skill_directive_is_unconditional_and_lc_prefixed() -> None:
     assert "Always use LemonCrow for every file read and search" in explore_skill
     assert "— use lc: `lc.bash`, `lc.read`, `lc.code_search`." in explore_skill
     assert "`lc.edit`" not in explore_skill
-
-
-def test_copilot_tasks_include_worktree_and_runtime_evidence() -> None:
-    data = json.loads((ROOT / "integrations/copilot/tasks.json").read_text(encoding="utf-8"))
-    labels = {item.get("label") for item in data.get("tasks", [])}
-    assert "LemonCrow: Worktree Bootstrap" in labels
-    assert "LemonCrow: Runtime Evidence" in labels
-
-
-def test_makefile_prefers_worktree_env_for_stack_commands() -> None:
-    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-    assert "if [ -f .env.worktree ]; then set -a; . ./.env.worktree; set +a; fi" in makefile
-    assert "stack start" in makefile
-    assert "stack stop" in makefile
-
-
-def test_worktree_env_is_stable_for_the_same_path(tmp_path: Path) -> None:
-    module = load_script(ROOT / "scripts/worktree_env.py", "worktree_env")
-    env1 = module.build_env(tmp_path / "feature-a")
-    env2 = module.build_env(tmp_path / "feature-a")
-    env3 = module.build_env(tmp_path / "feature-b")
-
-    assert env1 == env2
-    assert env1["LEMONCROW_SERVICE_PORT"] != env3["LEMONCROW_SERVICE_PORT"]
-    assert env1["LEMONCROW_FRONTEND_PORT"] != env3["LEMONCROW_FRONTEND_PORT"]
 
 
 def _free_port() -> int:
@@ -320,52 +293,3 @@ def test_live_services_can_run_in_parallel_with_isolated_roots(tmp_path: Path) -
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=5)
-
-
-class _EvidenceHandler(BaseHTTPRequestHandler):
-    def do_GET(self) -> None:
-        if self.path == "/health":
-            body = {"status": "ok"}
-        elif self.path.startswith("/analytics/summary"):
-            body = {"sessions": 1}
-        elif self.path == "/v1/traces":
-            body = {"items": []}
-        else:
-            body = {"error": "not-found"}
-        payload = json.dumps(body).encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(payload)))
-        self.end_headers()
-        self.wfile.write(payload)
-
-    def log_message(self, _format: str, *_args: object) -> None:
-        return
-
-
-def test_runtime_evidence_writes_expected_payload(tmp_path: Path) -> None:
-    server = HTTPServer(("127.0.0.1", 0), _EvidenceHandler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        output = tmp_path / "evidence.json"
-        subprocess.run(
-            [
-                sys.executable,
-                "scripts/runtime_evidence.py",
-                "--base-url",
-                f"http://127.0.0.1:{server.server_port}",
-                "--output",
-                str(output),
-            ],
-            cwd=ROOT,
-            check=True,
-        )
-        payload = json.loads(output.read_text(encoding="utf-8"))
-    finally:
-        server.shutdown()
-        thread.join(timeout=5)
-
-    assert payload["health"]["ok"] is True
-    assert payload["analytics_summary"]["body"] == {"sessions": 1}
-    assert payload["traces"]["body"] == {"items": []}

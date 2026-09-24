@@ -191,26 +191,16 @@ install_wheel_to_venv() {
     info "Preparing temporary LemonCrow runtime"
     uv venv "$venv" >/dev/null
     local cargs=()
+    local find_links_args=()
     if [[ -n "$constraints" && -f "$constraints" ]]; then
-        # uv constraints reject unnamed requirements such as bare file://
-        # paths emitted by uv export for local-path dependencies (e.g. the
-        # babel stub). Rewrite them to named, absolute file:// constraints.
-        if grep -qE '^\./?vendor/' "$constraints"; then
-            local constraints_dir resolved
-            constraints_dir="$(dirname "$constraints")"
-            resolved="${constraints_dir}/constraints.resolved.txt"
-            # Match lines like `./vendor/babel-99.0.0-py3-none-any.whl`
-            # and rewrite to `babel @ file:///abs/path/to/vendor/babel-99.0.0-py3-none-any.whl`.
-            # Capture the package name (everything before the first `-`) and the
-            # version+tags stem after it.
-            sed -E 's#^\.?/?vendor/([a-zA-Z0-9_.]+)-([0-9].*\.whl)$#\1 @ file://'"${constraints_dir}"'/vendor/\1-\2#' \
-                "$constraints" > "$resolved"
-            cargs=(-c "$resolved")
-        else
-            cargs=(-c "$constraints")
+        cargs=(-c "$constraints")
+        local vendor_dir
+        vendor_dir="$(dirname "$constraints")/vendor"
+        if compgen -G "${vendor_dir}/*.whl" >/dev/null; then
+            find_links_args=(--find-links "$vendor_dir")
         fi
     fi
-    uv pip install --python "$venv" "${cargs[@]+"${cargs[@]}"}" "$wheel" >/dev/null
+    uv pip install --python "$venv" "${cargs[@]}" "${find_links_args[@]}" "$wheel" >/dev/null
 }
 
 # ── parse --local out before forwarding remaining args ───────────────────────

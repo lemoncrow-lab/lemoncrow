@@ -84,6 +84,64 @@ describe("AnnotationCard", () => {
     expect(screen.queryByRole("button", { name: "Looks good" })).toBeNull();
   });
 
+  it("turns free-text Suggestion into concrete Suggest edit and Edit source actions when authoring is available", async () => {
+    const onSuggestEdit = vi.fn();
+    const onEditSource = vi.fn();
+    render(
+      <AnnotationCard
+        comments={[]}
+        all={[]}
+        label="New comment"
+        composing
+        busy={false}
+        onSuggestEdit={onSuggestEdit}
+        onEditSource={onEditSource}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+        onResolve={vi.fn()}
+        onReopen={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Comment" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Request change" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Suggestion" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Suggest edit" }));
+    expect(onSuggestEdit).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole("button", { name: "Edit source" }));
+    expect(onEditSource).toHaveBeenCalledTimes(1);
+  });
+
+  it("mirrors an unsaved root draft so a refresh cannot destroy its text or kind", async () => {
+    const onDraftChange = vi.fn();
+    render(
+      <AnnotationCard
+        comments={[]}
+        all={[]}
+        label="New comment"
+        composing
+        busy={false}
+        targetMarkAvailable
+        draftBody="Keep"
+        draftKind="comment"
+        draftMarkTarget
+        onDraftChange={onDraftChange}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+        onResolve={vi.fn()}
+        onReopen={vi.fn()}
+      />,
+    );
+    const textarea = screen.getByPlaceholderText("Leave feedback…") as HTMLTextAreaElement;
+    expect(textarea.value).toBe("Keep");
+    await userEvent.type(textarea, " this request");
+    expect(onDraftChange).toHaveBeenLastCalledWith({ body: "Keep this request" });
+    await userEvent.click(screen.getByRole("button", { name: "Request change" }));
+    expect(onDraftChange).toHaveBeenLastCalledWith({ kind: "request_change" });
+    await userEvent.click(screen.getByRole("checkbox", { name: "Also mark target needs changes" }));
+    expect(onDraftChange).toHaveBeenLastCalledWith({ markTarget: false });
+  });
+
   it("defaults Request change to marking the current target needs changes", async () => {
     const onSubmit = vi.fn();
     render(
@@ -100,11 +158,11 @@ describe("AnnotationCard", () => {
         onReopen={vi.fn()}
       />,
     );
-    await userEvent.type(screen.getByPlaceholderText("What does the reviewer need to know?"), "Guard the retry path.");
+    await userEvent.type(screen.getByPlaceholderText("Leave feedback…"), "Guard the retry path.");
     await userEvent.click(screen.getByRole("button", { name: "Request change" }));
-    const checkbox = screen.getByRole("checkbox", { name: "Mark target needs changes" }) as HTMLInputElement;
+    const checkbox = screen.getByRole("checkbox", { name: "Also mark target needs changes" }) as HTMLInputElement;
     expect(checkbox.checked).toBe(true);
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await userEvent.click(screen.getByRole("button", { name: "Request changes" }));
     expect(onSubmit).toHaveBeenCalledWith("Guard the retry path.", "request_change", "", true);
   });
 
@@ -124,10 +182,10 @@ describe("AnnotationCard", () => {
         onReopen={vi.fn()}
       />,
     );
-    await userEvent.type(screen.getByPlaceholderText("What does the reviewer need to know?"), "Question this behavior.");
+    await userEvent.type(screen.getByPlaceholderText("Leave feedback…"), "Question this behavior.");
     await userEvent.click(screen.getByRole("button", { name: "Request change" }));
-    await userEvent.click(screen.getByRole("checkbox", { name: "Mark target needs changes" }));
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    await userEvent.click(screen.getByRole("checkbox", { name: "Also mark target needs changes" }));
+    await userEvent.click(screen.getByRole("button", { name: "Request changes" }));
     expect(onSubmit).toHaveBeenCalledWith("Question this behavior.", "request_change", "", false);
   });
 
@@ -149,11 +207,11 @@ describe("AnnotationCard", () => {
         onReopen={vi.fn()}
       />,
     );
-    await userEvent.type(screen.getByPlaceholderText("What does the reviewer need to know?"), "TOP LEVEL DRAFT");
+    await userEvent.type(screen.getByPlaceholderText("Leave feedback…"), "TOP LEVEL DRAFT");
     await userEvent.click(screen.getByRole("button", { name: "Request change" }));
     await userEvent.click(screen.getByRole("button", { name: "Reply" }));
 
-    const reply = screen.getByPlaceholderText("What does the reviewer need to know?") as HTMLTextAreaElement;
+    const reply = screen.getByPlaceholderText("Write a reply…") as HTMLTextAreaElement;
     expect(reply.value).toBe("");
     expect(screen.getByRole("button", { name: "Comment" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByRole("button", { name: "Request change" }).getAttribute("aria-pressed")).toBe("false");
@@ -241,8 +299,8 @@ describe("AnnotationCard", () => {
         author_response_at: "2026-09-09T12:00:00+00:00",
       }),
     ]);
-    expect(screen.getByText(/author says addressed · re-review/)).toBeTruthy();
-    expect(screen.getByText(/claimed by claude\/session-7/)).toBeTruthy();
+    expect(screen.getByText(/marked addressed · re-review/)).toBeTruthy();
+    expect(screen.getByText(/addressed by claude\/session-7/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Resolve" })).toBeTruthy();
     expect(screen.queryByText(/^resolved$/)).toBeNull();
   });

@@ -8,507 +8,323 @@
 
 ### Understand what your coding agents changed
 
-**Review-first developer workspace.**
+Review agent-written code with impact, provenance, verification evidence, and
+review state that survives revisions.
 
-Agents produce changes faster than you can read them, so review becomes the work. `lc review` answers what changed, what it affects outside the diff, which agent session wrote it, and what was actually tested — deterministically, with no model call and no generated prose. What it cannot establish it names as unknown instead of guessing, and the verdict stays yours.
+**~30% lower cost · ~25% faster · without sacrificing task quality**
 
-LemonCrow runs underneath Claude Code, Codex, and other supported hosts with a local code graph, exact-range reads, bounded output, durable memory, and verified runtime controls — fully local, no account required. That code intelligence is what the review answers are built on.
+LemonCrow is a local review workspace backed by code intelligence, exact-range
+reads, bounded tool output, memory, routing, and verification across supported
+coding-agent hosts.
 
-**Supporting proof — state-of-the-art context engineering.** Read less, output less, without compromising correctness — out-measuring grep-class code-index and output-compression tooling on the [numbers below](#results) (~1.9x retrieval MRR vs ripgrep, 27.9% fewer output tokens on SWE-bench Verified).
+<img src="docs/assets/screenshots/review-reader.png" width="960" alt="LemonCrow Review Reader showing changed-since-review work, preserved reviewed targets, new work, and a split code diff.">
+
+<sub>Real Review Reader · revision 2 · reviewed work preserved while changed and new work returns to the queue.</sub>
 
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue?style=flat-square)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/lemoncrow-lab/lemoncrow?style=flat-square)](https://github.com/lemoncrow-lab/lemoncrow/releases)
 [![Stars](https://img.shields.io/github/stars/lemoncrow-lab/lemoncrow?style=flat-square)](https://github.com/lemoncrow-lab/lemoncrow)
 
-[![Claude Code](https://img.shields.io/badge/Claude_Code-supported-blue?style=flat-square)](integrations/claude)
-[![Codex](https://img.shields.io/badge/Codex-supported-blue?style=flat-square)](integrations/codex)
-[![opencode](https://img.shields.io/badge/opencode-supported-blue?style=flat-square)](integrations/opencode)
-[![LemonCode](https://img.shields.io/badge/LemonCode-supported-blue?style=flat-square)](integrations/lemoncode)
-[![Copilot](https://img.shields.io/badge/Copilot-supported-blue?style=flat-square)](integrations/copilot)
-[![Copilot CLI](https://img.shields.io/badge/Copilot_CLI-supported-blue?style=flat-square)](integrations/copilot-cli)
-[![Pi](https://img.shields.io/badge/Pi-supported-blue?style=flat-square)](integrations/pi)
-
-[Review](#understand-what-the-agent-did) · [Results](#results) · [Philosophy](#philosophy--optimize-the-journey-not-the-hop) · [What it does](#what-lemoncrow-does) · [Quick start](#quick-start) · [Limitations](#what-lemoncrow-does-not-do) · [Privacy](#privacy-and-network-behavior) · [Removal](#removal)
+[Install](#install) · [Review](#review-agent-changes) · [Results](#results) · [How it works](#how-it-works) · [Other capabilities](#other-capabilities) · [Privacy](#privacy) · [Reference](#reference)
 
 </div>
 
+---
+
+<a id="install" name="install"></a>
+<a id="quick-start" name="quick-start"></a>
+
+## Install
+
+Hosted install (thin client + host integrations, no local LemonCrow server):
+
 ```bash
-curl -fsSL https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download/install.sh | bash
-cd your-project && lc init
+curl -fsSL https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download/hosted.sh \
+  | LEMONCROW_HOSTED_URL=https://your-lemoncrow-server bash
 ```
 
-<div align="center"><sub>Checksummed GitHub release · no login, no network — details in <a href="#quick-start">Quick start</a>.</sub></div>
+For a local-server production install from this repository, use `make prod`. It
+builds the loopback server into the bundle, starts it on `127.0.0.1:7420` with a
+machine credential, and points the same thin client at that local endpoint.
+`make hosted HOSTED_URL=...` exercises the hosted production path from a
+checkout. Hosted authentication is owned by Authward; `lc auth login` performs
+the device flow directly against the Authward issuer advertised by the server.
+
+The loopback server is a device-local surface, not a remote deployment target.
+Do not place a reverse proxy, Cloudflare Tunnel, SSH port-forward, ngrok, or a
+similar tunnel in front of port `7420` to expose Review remotely. Detectable
+proxy/forwarding context is refused for local browser trust, but a raw TCP
+forward can be indistinguishable from genuine loopback traffic. For remote
+Review, use the hosted server path and Authward authentication.
+
+Install once, then open your coding agent in a repository. The LemonCrow
+SessionStart hook opens the workspace view and syncs only the content the server
+needs; there is no per-repository local index bootstrap.
+
+Anonymous aggregate telemetry is enabled by default and can be disabled; see
+[Privacy](#privacy).
 
 ---
 
-## Contents
+<a id="review-agent-changes" name="review-agent-changes"></a>
 
-**Get it running:** [Quick start](#quick-start) · [More ways to run](#more-ways-to-run)
+## Review agent changes
 
-**See it work:** [Results](#results) · [Philosophy](#philosophy--optimize-the-journey-not-the-hop) · [What LemonCrow does](#what-lemoncrow-does) · [Understand what the agent did](#understand-what-the-agent-did) · [Agents and skills](#agents-and-skills) · [Code hygiene](#code-hygiene)
+Coding agents can produce changes faster than a human can confidently review
+them. LemonCrow treats human review state as the durable object instead of
+asking a model to write another review summary.
 
-**Know the edges:** [What it does not do](#what-lemoncrow-does-not-do) · [Privacy and network behavior](#privacy-and-network-behavior) · [Supported environments](#supported-environments)
+Start with the local review reader:
 
-**Everything else:** [Roadmap](#roadmap--savings-optimization) · [Learn more](#learn-more) · [Removal](#removal) · [Why I built this](#why-i-built-this) · [Building from source](#development--building-from-source) · [License](#license)
+```bash
+lc review --open    # local browser review reader
+lc review           # terminal review summary
+lc review --staged  # exactly what you are about to commit
+```
 
----
+<p align="center">
+  <img src="docs/assets/demo/lc-review-demo.gif" width="880" alt="LemonCrow Review demo showing the real diff, UI preview and compare surfaces, and review evidence in the local browser reader.">
+</p>
+<p align="center"><sub>Real <code>lc review --open</code> demo · diff → rendered UI preview → compare → review context.</sub></p>
+
+The review workflow is designed to answer:
+
+- what changed and where should I start?
+- which changed definitions affect code outside the diff?
+- which session or authoring evidence is associated with the change?
+- which tests or checks actually ran?
+- what have I already reviewed?
+- after the author changes the code, which of my prior judgments are still valid?
+- which comments still need action?
+
+LemonCrow does not turn those signals into `AI APPROVED` or `SAFE TO MERGE`.
+Human judgment remains final.
+
+### Review only what changed again
+
+Review marks are attached to content rather than line numbers. If an agent adds
+lines above something you already reviewed, that work stays reviewed. If the
+reviewed content changes, LemonCrow puts it back in front of you.
+
+```bash
+lc review --mark src/auth.py
+lc review --comment "ttl is hardcoded" --on src/auth.py:L81
+# author or agent revises the change
+lc review --since-my-review
+lc review --feedback
+```
+
+Comments are re-anchored only when the new location is unambiguous. Otherwise
+they are reported as orphaned instead of being silently moved.
+
+`lc review` also exposes impact outside the patch, review ordering, provenance,
+and recorded verification evidence. Missing evidence is reported as unknown;
+LemonCrow does not synthesize a passing test status.
+
+See the [10-minute review walkthrough](docs/reference/review-walkthrough.md) or
+the [CLI reference](docs/reference/cli.md#reviewing-agent-written-changes).
+<a id="results" name="results"></a>
 
 ## Results
 
-These are fixed results from pinned benchmark runs — not a live counter. Every
-headline number links back to committed raw runs and methodology in
-[BENCHMARKS.md](BENCHMARKS.md). The model, tasks, containers, turn limits, and
-verification harness were held constant. Results are mixed by design and include
-a regression (SWE-bench Lite below).
+The review workflow runs on the same code-intelligence runtime used by coding
+agents. The numbers below measure the runtime on complete tasks. They are fixed
+results from pinned benchmark runs, not live counters. Full methodology and
+raw-run references are in [BENCHMARKS.md](BENCHMARKS.md).
 
-| Benchmark                                         | Baseline correct | LemonCrow correct | Correct delta |        Baseline cost |    LemonCrow cost | Cost delta |
-| --------------------------------------------------- | -----------------: | ------------------: | --------------: | ---------------------: | ------------------: | -----------: |
-| SWE-bench Verified, 50 tasks x 5 reps             |            80.8% |         **92.8%** |  **+12.0 pp** | $234.84 |**$165.45** | **29.5% cheaper** |            |
-| SWE-bench Lite, 10 tasks x 5 reps                 |            98.0% |             96.0% |       -2.0 pp |   $19.83 |**$17.51** | **11.7% cheaper** |            |
-| SWE-bench Pro, 10 tasks x 5 reps                  |            88.0% |         **90.0%** |   **+2.0 pp** |   $39.01 |**$30.61** | **21.5% cheaper** |            |
-| Exploration tasks across 7 large repos x 5 reps   |                - |                 - |             - |    $19.11 |**$6.29** |   **67% cheaper** |            |
-| Telegraphic Q&A, 20 prompts x 5 reps              |                - |                 - |             - |     $8.40 |**$4.48** | **46.7% cheaper** |            |
-| [Terminal-Bench 2.1, 89 tasks x 5 reps, Opus 4.8 (matched)\*](https://hub.harborframework.com/jobs/47e1713b-cad9-4715-a9e7-ca71ff202ba7) |            78.9% |             78.9% |  0.0 pp (tied) |               $73.75 |          **$61.98** | **16.0% cheaper** |
-| [Terminal-Bench 2.1, 89 tasks x 5 reps, Opus 5 (standalone)†](https://hub.harborframework.com/jobs/18239ddc-556a-4631-a20d-bcf5da8d16a2) |                - |             80.7% |             - |                    - |             $38.68 |                 **47% cheaper** than opus 4.8 |
+**~30% lower cost · ~25% faster · without sacrificing task quality**
 
-<sub>Both arms: 445 trials on the same dataset, tied 351/445; LemonCrow sends 98.6% fewer fresh input tokens. Cost normalized to the 1-hour cache-write rate both sides, over the 86/89 priceable tasks. † Opus 5 row is LemonCrow-only — no official Claude Code + Opus 5 baseline exists, so it's not a controlled comparison with the row above (different model, different task set, different exclusion set); don't subtract the two. Full methodology in [BENCHMARKS.md](BENCHMARKS.md#terminal-bench).</sub>
+<sub>SWE-bench Verified, same model and harness: 29.5% lower cost, 23.7% less wall-clock time, and 92.8% resolved vs 80.8% baseline.</sub>
+
+| Benchmark | Baseline correct | LemonCrow correct | Baseline cost | LemonCrow cost | Cost delta |
+<sub>SWE-bench Verified, same model and harness: 29.5% lower cost, 23.7% less wall-clock time, and 92.8% resolved vs 80.8% baseline.</sub>
+| Benchmark | Baseline correct | LemonCrow correct | Baseline cost | LemonCrow cost | Cost delta |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| SWE-bench Verified, 50 tasks × 5 reps | 80.8% | **92.8%** | $234.84 | **$165.45** | **29.5% cheaper** |
+| SWE-bench Lite, 10 tasks × 5 reps | **98.0%** | 96.0% | $19.83 | **$17.51** | **11.7% cheaper** |
+| SWE-bench Pro, 10 tasks × 5 reps | 88.0% | **90.0%** | $39.01 | **$30.61** | **21.5% cheaper** |
+| Terminal-Bench 2.1, 89 tasks × 5 reps, Opus 4.8 | 78.9% | 78.9% | $73.75 | **$61.98** | **16.0% cheaper** |
+
+The table includes the SWE-bench Lite regression: LemonCrow was cheaper on that
+run but scored 2 percentage points lower. The benchmark set is not filtered to
+keep only favorable results.
+
+On SWE-bench Verified, the same pinned run used **37.7% fewer turns**, **23.7%
+less wall-clock time**, **37.8% fewer tool calls**, and **27.9% fewer output
+tokens**.
 
 <p align="center">
   <img src="benchmarks/cost_vs_savings_scatter.svg" alt="LemonCrow vs baseline: dollars saved per run against baseline task cost" width="720">
 </p>
 
-SWE-bench Verified detail (250 runs a side) — one-shot search collapses the
-grep-and-read loop, so turns, wall-clock, and tool calls drop together:
+For retrieval and scale, the benchmark suite also includes ~7,200 query/answer
+pairs across 14 repositories. LemonCrow measured 0.727 semantic retrieval MRR
+versus 0.376 for ripgrep, with a 390 ms semantic-search p95. A cold lexical
+index of Linux kernel core (1.24M symbols, 4.5M lines) measured 179 seconds.
+See [indexing and retrieval results](BENCHMARKS.md#indexing-time) for the full
+comparison and caveats.
 
-| Metric           | Baseline | LemonCrow |            Delta |
-| ------------------ | ---------: | ----------: | -----------------: |
-| Turns            |    6,962 |     4,336 |  **37.7% fewer** |
-| Wall-clock       |    14.3h |     10.9h | **23.7% faster** |
-| Total tool calls |    6,700 |     4,167 |       **-37.8%** |
-| Output tokens    |    3.04M |     2.19M |  **27.9% fewer** |
+---
 
-### Scale
+<a id="how-it-works" name="how-it-works"></a>
+<a id="what-lemoncrow-does" name="what-lemoncrow-does"></a>
 
-Indexing throughput and search quality hold up at repository sizes agents
-actually hit. A cold full rebuild of the Linux kernel core (1.24M symbols,
-4.5M lines) and retrieval quality vs grep-class tools on ~7,200 query/answer
-pairs across 14 repos:
+## How it works
 
-| Metric                                    |                          LemonCrow | Grep-class baseline |
-| ------------------------------------------- | -----------------------------------: | --------------------: |
-| Linux cold index, lexical (1.24M symbols) |                  **179s** (~3 min) |                  — |
-| Linux cold index, zoekt trigram           |                          **13.7s** |                  — |
-| Retrieval MRR (higher = better)           | **0.727** semantic / 0.676 lexical |     0.376 (ripgrep) |
-| Query latency, p95                        |     134ms lexical / 390ms semantic |  **66ms** (ripgrep) |
+LemonCrow keeps your existing coding agent and changes the working set around
+it. The runtime is local and operates across four stages:
 
-Ranked search is ~1.9x more accurate than ripgrep at a still-interactive p95;
-ripgrep wins raw latency but not what it finds. Per-repo indexing table and the
-full 13-tool retrieval comparison: [BENCHMARKS.md](BENCHMARKS.md#indexing-time).
-
-Reproduce any of this from committed raw data: [docs/benchmarks/results.md](docs/benchmarks/results.md).
-
-## Philosophy — optimize the journey, not the hop
-
-The tooling around coding agents is fragmented by construction: a better index
-here, a context compressor there, a model router, a memory store, a reranker.
-Each one optimizes a single hop of the agent's loop — and, tellingly, each one
-benchmarks itself on that same hop.
-
-But a task is not a hop. It is a loop — find, read, act, carry, verify — run
-until the work is done or the budget is gone. Optimize one hop in isolation and
-the cost usually just relocates to the next one:
-
-- a retriever that returns more context makes the read cheap and the prompt expensive;
-- a compressor that shrinks the prompt makes the model re-ask, buying the tokens back as turns;
-- a router that picks the cheaper model saves per token and gives it back in retries;
-- a memory layer that remembers everything charges you for it on every later call.
-
-Every one of those wins its own benchmark. The bill doesn't move.
-
-LemonCrow takes the opposite bet: own every hop in one runtime, tune them
-against each other, and report the one number that can't be gamed by scope —
-absolute dollars per completed task, over whole runs, on task mixes we didn't
-hand-pick. That is why retrieval, exact-range reads, output bounding, memory,
-routing, and verification ship as one thing instead of five installables: the
-interactions between them are where the savings actually live, and a single-hop
-tool cannot see them.
-
-## What LemonCrow does
-
-LemonCrow keeps your existing coding agent and changes the working set around it:
+| Stage | What LemonCrow does |
+| --- | --- |
+| **Find** | Rank symbols, definitions, callers, callees, usages, and exact source ranges before broad file exploration. |
+| **Read** | Return an outline or requested ranges; cap noisy command and web output with recoverable spill files. |
+| **Carry** | Preserve useful task state through memory, deduplication, compaction manifests, and handover packets. |
+| **Verify** | Record verification evidence and notice code changes that have no corresponding checks. |
 
 <p align="center">
-  <img src="docs/assets/screenshots/source-map.jpg" alt="LemonGraph, LemonCrow's local code graph, showing a full repository code universe: 28,462 indexed symbols, 10,349 tracked files, 38,811 map nodes, and 23,894 resolved calls, with one function focused to show its callers and callees." width="720">
+  <img src="docs/assets/screenshots/source-map.jpg" alt="LemonGraph local code graph showing indexed symbols, files, nodes, and resolved calls" width="720">
 </p>
-<p align="center"><sub>LemonGraph — your codebase's code universe — 28,462 symbols · 38,811 nodes · 23,894 calls. Live, local, on this repo.</sub></p>
+<p align="center"><sub>LemonGraph — the local code graph used for search, impact, and review context.</sub></p>
 
-| Stage      | Runtime behavior                                                                                              |
-| ------------ | --------------------------------------------------------------------------------------------------------------- |
-| **Find**   | Rank symbols, definitions, callers, callees, usages, and exact source ranges before broad file exploration.   |
-| **Read**   | Return an outline or only the requested lines; cap noisy command and web output with recoverable spill files. |
-| **Carry**  | Preserve useful task state through memory, deduplication, compaction manifests, and handover packets.         |
-| **Verify** | Notice code changes without tests or checks, then nudge the agent before it declares completion.              |
+On Claude Code, `lc init` can replace equivalent built-in exploration tools with
+LemonCrow's grounded tools. Other hosts use the strongest controls they expose;
+capability depth varies by host.
 
-**One shot to answer, one shot to action.** Every stage above is built around a
-single round trip: one search returns the symbol, its callers, and the exact
-source ranges — not a grep loop; one edit applies every hunk across every file —
-not a patch-per-file series. Re-asking the same ground is the cost, not the
-model.
+| LemonCrow tool | Purpose |
+| --- | --- |
+| `code_search` | Ranked code search with definitions, callers/callees, usages, and source ranges. |
+| `read` | Outlines or exact ranges instead of full-file reads by default. |
+| `edit` | Verified multi-file edits. |
+| `bash` | Bounded structured command output with recoverable spill files. |
+| `web_fetch` | Clean page extraction instead of raw HTML. |
 
-### What actually gets replaced
+The point is not to optimize one isolated retrieval call. A coding task is a
+loop: find → read → act → carry → verify. LemonCrow measures the completed task
+because saving tokens in one step is not useful if the agent buys them back in
+extra turns later.
 
-On Claude Code, `lc init` gives the agent five grounded tools and hides the
-equivalent built-ins — one way to do each job, not two. Other hosts use the
-strongest equivalent controls they expose.
+Architecture details: [docs/reference/architecture.md](docs/reference/architecture.md).
 
-| LemonCrow tool | Replaces (hidden from the model) | Why                                                                                                                                                                       |
-| ---------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `code_search`  | Grep, Glob                       | One call returns the symbol, its callers/callees, and ranked source — no grep-loop-then-read-whole-file. Ranked by LemonGraph centrality over a tree-sitter symbol table |
-| `read`         | Read                             | Returns an outline or the exact`:L10-L40` range, budgeted, instead of the full file                                                                                       |
-| `edit`         | Edit, Write                      | Verified, cross-file edits in one call instead of per-file patch-or-create guessing                                                                                       |
-| `bash`         | Bash                             | Output is capped and structured so a noisy build log can't blow the context window                                                                                        |
-| `web_fetch`    | WebFetch                         | Strips a page to clean Markdown instead of a raw HTML dump                                                                                                                |
+---
 
-What's unchanged: the host, the model, your workflow — internals: [Architecture](docs/reference/architecture.md).
+## Supported hosts
 
-**Caveat — Cursor (CLI vs IDE).** Built-ins can't be hidden there, so
-LemonCrow is additive — Claude Code and Codex can displace most of their
-built-in toolset, Cursor can't.
+Supported integrations include Claude Code, Codex CLI, Cursor, opencode,
+LemonCode, Pi, Copilot, Copilot CLI, Hermes Agent, and Antigravity. They do not
+all expose the same hooks or enforcement controls.
 
-- Measured on SWE-bench Lite (10 tasks, `cursor-grok-4.5-high`, matched
-  prompts): **Cursor CLI + LemonCrow was ~40% cheaper** than the Cursor CLI
-  baseline (tokens −39.8%, cost −41.2%).
-- The same tasks in **Cursor IDE did not show that saving** — CLI is the
-  cheaper Cursor path today. Reproduce from
-  `reports/benchmark/swe/20260802T121526Z/`.
-- One flagged inference in that number: Cursor's server-side cache-write
-  choice is implied from hit rates (1 − billed/integral), not confirmed in
-  their docs or exposed via local counters — treat the caching mechanism as
-  unproven. The cost delta itself is measured from Usage/token totals on the
-  pinned run.
+See [all host integrations](docs/hosts/all-agent-clis.md) and the
+[host capability matrix](docs/hosts/host-capability-matrix.md) before depending
+on a host-specific lifecycle or verification feature.
 
-### Understand what the agent did
+---
 
-When agents write a lot more code, the bottleneck moves to reading it. Three
-commands answer *what did they actually do* — deterministically. No model is
-called, no prose is generated, and every gap is named rather than guessed:
+<a id="other-capabilities" name="other-capabilities"></a>
 
-```bash
-lc review           # what changed, what it affects, which session made it, what was tested
-lc review --staged  # ... for exactly what you are about to commit
-lc review --open    # ... in the three-pane local review workspace
-lc usage            # where your AI usage went, by host / model / project / day
-lc model add http://localhost:11434/v1 --name ollama  # your own endpoint, probed not assumed
-```
+## Other capabilities
 
-The first screen is a diff with an order and a reason. The second one is the
-reason to use it — review is a loop, because the agent comes back:
+These are useful, but they are not the core review workflow:
 
-```bash
-lc review --mark src/auth.py                       # I read this one
-lc review --comment "ttl is hardcoded" --on src/auth.py:L81
-#   ... the agent revises ...
-lc review --since-my-review                        # what does my approval no longer cover?
-lc review --feedback                               # hand the objections back
-```
+- **Remote MCP:** `lc mcp serve` exposes the current workspace through an OAuth-protected remote MCP endpoint for compatible clients.
+- **Session replay:** `lc session stats` and `lc session replay` inspect recorded agent sessions locally without rerunning the model.
+- **Usage accounting:** `lc usage` reports recorded usage by host, model, project, and day without treating unknown pricing as zero.
+- **Bring your own model:** `lc model` registers and probes OpenAI-compatible endpoints such as vLLM, Ollama, LM Studio, or an internal gateway.
+- **Agents and skills:** packaged agent modes and optional skills live under [`integrations/`](integrations/).
 
-```
-CHANGED SINCE MY REVIEW  (1)   src/auth.py         <- you approved it; it was rewritten
-UNCHANGED REVIEWED       (9)   nothing to re-read  <- work you do not redo
-COMMENT ANCHORS  relocated  src/auth.py L81→L87    <- your comment followed the code
-```
+Full commands and flags live in the [CLI reference](docs/reference/cli.md).
 
-Marks are bound to content, not line numbers, so ten lines added above a
-function do not reopen it and a rewrite of its body does. A comment is
-re-anchored only when the new location is unambiguous — otherwise it is
-**orphaned rather than moved**, and a discarded verdict is announced, never
-quietly dropped. Ten-minute hands-on tour:
-[`lc review` walkthrough](docs/reference/review-walkthrough.md).
+---
 
-`lc review` orders files by review risk instead of by path, names the call sites
-a change reaches but did **not** touch, and prints the agent session behind it
-alongside whatever test evidence exists.
+<a id="privacy" name="privacy"></a>
+<a id="privacy-and-network-behavior" name="privacy-and-network-behavior"></a>
 
-It is just as explicit about what it can't establish:
+## Privacy
 
-- session-to-commit correlation is a heuristic (`--session-id` overrides it);
-- files-read capture exists only on Claude Code;
-- test status comes only from recorded exit codes — nothing is ever
-  synthesized as `PASS`.
+LemonCrow's core runtime is local. Indexing, search, edits, memory, review state,
+and reports stay on your machine. No LemonCrow account is required.
 
-The packet always ends with `Human review REQUIRED`.
+Anonymous aggregate telemetry is **on by default**. It contains aggregate counts,
+bucketed durations, dollar estimates, hashed install/session identifiers, version,
+host source, retrieval domain, and a timestamp. It does **not** contain source
+code, prompts, repository paths, file paths, or symbol names.
 
-`lc usage` reports what was spent rather than a guess dressed as a number: an
-unpriced local model reads `local`, subscription usage reads `seat`, unpriced
-rows are counted out loud instead of folded in at zero, and every total states
-the basis it was computed on. `lc model` registers any OpenAI-compatible
-endpoint — vLLM, Ollama, LM Studio, an internal gateway — and probes its real
-capabilities so routing does not have to assume them.
-
-Adjacent: `lc run explain` (one run, every line citing the record it came from),
-`lc resume-context` (a bounded continuation brief for the next session), and
-`lc context doctor` (what your context declares vs. what your sessions use).
-Full flags and real output: [CLI reference](docs/reference/cli.md).
-
-## Quick start
-
-The [two lines at the top](#lemoncrow-runtime) are the whole setup: the installer
-pulls a checksummed GitHub release, and `lc init` indexes the repo it is run in —
-locally, no login, no network, nothing sent anywhere.
-
-Install once, then `lc init` in every project where you use your coding agent:
+Turn remote telemetry off with:
 
 ```bash
-cd another-project
-lc init
+lc telemetry remote off
 ```
 
-## More ways to run
+or set `DO_NOT_TRACK=1` / `LEMONCROW_TELEMETRY=off`.
 
-### Code from your chat app — free
+Commands you explicitly run may still use the network: for example `lc update`
+checks GitHub Releases, configured model providers receive model requests, and
+optional dependency bootstrap may fetch upstream artifacts. See the complete
+[privacy and network behavior](docs/setup/privacy.md) document.
 
-`lc mcp serve` publishes this workspace as a **remote MCP server**: a public
-`https://…/mcp` URL behind OAuth 2.1. Nothing about it is vendor-specific — any
-client that accepts a remote MCP server URL (ChatGPT connectors, Claude
-connectors, Cursor, VS Code, …) gets the same LemonCrow tools (search, read,
-edit, bash) your local agent uses, so you can code from a chat window or a
-phone. Chat usage is typically billed differently from coding-agent usage, so
-this is often the cheaper seat.
+---
 
-```bash
-lc mcp serve
-```
+<a id="limitations" name="limitations"></a>
 
-Prints a pairing code and, by default, an auto-launched cloudflared tunnel URL
-(installs cloudflared on first use if missing). Paste the printed MCP server URL
-into your client, set Authentication to **OAuth**, and approve the browser
-prompt with the pairing code:
+## Limitations
 
-| Client                          | Where to paste it                                                  |
-| ------------------------------- | ------------------------------------------------------------------ |
-| ChatGPT                         | Settings → Plugins → Browse Plugins → (next to search) + → Create |
-| Claude (web, desktop, mobile)   | Settings → Connectors → Add custom connector                       |
-| Cursor / VS Code / Zed / others | Add a remote (streamable-HTTP) MCP server                          |
+- Benchmark results are measured on the published task sets; they are not a guarantee for your repository or model.
+- Host capabilities differ. Features that depend on lifecycle hooks or live session capture may degrade to imported or manual evidence on some hosts.
+- Linux and macOS are the primary supported operating systems. Windows support is partial and not currently validated.
+- LemonCrow does not run or pay for your model provider; you configure the provider or local endpoint you want to use.
+- This repository is the local open-source runtime. Hosted/enterprise deployments use a remote LemonCrow server plus Authward and commercial entitlement; none of that is required for local use.
 
-> ⚠ The pairing code is a password — don't share the tunnel URL. This
-> exposes shell-grade tool access (`bash`, `edit`) to this machine while the
-> server runs. Stop it (Ctrl-C) when you're done.
+---
 
-<details>
-<summary><strong>Persistent URLs, background service, flags, and known quirks</strong></summary>
+<a id="why" name="why"></a>
 
-The pairing code is stored per server, so restarting `lc mcp serve` keeps the
-same code — nothing to re-type. Use `--new-pairing-code` to rotate it, or
-`--reset` to wipe the pairing and every issued token.
+## Why LemonCrow exists
 
-Use `--persistent` so the URL survives restarts too — a rotating quick-tunnel
-URL has to be re-pasted every run, and some clients drop the connector when it
-changes. `--persistent` also **registers the server as a background service**
-(systemd on Linux, launchd on macOS) bound to the directory you started it in:
-it keeps running after you close the terminal and comes back on reboot, with
-the same URL and the same pairing code. Add `--foreground` to run it in the
-terminal instead.
+I built LemonCrow after using coding agents heavily and seeing two bottlenecks
+move into focus. First, agents repeatedly spent context and tool calls
+rediscovering the same code. Once that became cheaper, the harder bottleneck was
+human attention: the agent could change code faster than I could confidently
+review it.
 
-```bash
-lc mcp serve --persistent --hostname mcp.example.com   # install + start, prints the code
-lc mcp service list                                     # every installed server, URL, workspace, state
-lc mcp service restart mcp.example.com --new-pairing-code
-lc mcp service logs mcp.example.com
-lc mcp service stop|start|remove mcp.example.com
-```
+My background at Google included performance optimization and cost work, so the
+runtime is measured at the whole-task level rather than by claiming a win on one
+isolated hop. But the product direction is review-first: reduce how much a human
+has to reread without outsourcing the engineering judgment.
 
-Most clients register themselves with the server automatically. For the ones
-that ask you to supply an OAuth client ID instead, `lc mcp client` mints a
-stable one; pass `--redirect-uri` if your client shows a per-app callback URL
-(ChatGPT does, for newly created apps).
+---
 
-`lc chatgpt serve` still works as a hidden alias of `lc mcp serve`.
+<a id="reference" name="reference"></a>
 
-| Flag                        | Effect                                                                                                                   |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `--no-tunnel`               | Bring your own tunnel (named cloudflared tunnel, ngrok).                                                                 |
-| `--persistent --hostname X` | Stable URL via a Cloudflare named tunnel (needs a domain in your Cloudflare DNS); survives restarts instead of rotating, and installs it as an always-on user service for that directory. Each hostname gets its own tunnel, state, OAuth store and service, so several projects can serve at once. |
-| `--foreground`              | With `--persistent`: serve in this terminal instead of registering the background service.                                |
-| `--no-auth`                 | Serve`/mcp` with no authentication — the tunnel URL alone grants access. Prefer OAuth (default).                        |
-| `--new-pairing-code`        | Rotate the stored pairing code. Already-authorized clients keep working; only re-pairing needs the new one.               |
-
-Full request/response traffic is logged locally per run (path printed at
-startup; credentials and tokens are redacted) so you can audit exactly what the
-client sent and got back.
-
-**Known ChatGPT-side quirk:** persistent connections are far more reliable — ChatGPT can lose tool access mid-conversation on a fresh message and won't regain it without reattaching; workaround: branch off the chat, reattach the tool, continue.
-**Permissions:** connection or reconnect complaints usually mean Settings → Plugins needs `Allow All` for the tool.
-
-</details>
-
-### Inspect your past sessions (Offline Replay, dry mode)
-
-LemonCrow records all sessions locally so you can inspect, audit, and debug exactly what your agent did.
-
-```bash
-lc session stats     # read-only report of wasted tool calls and round-trips
-lc session replay    # replay a recorded session through the real LemonCrow tools
-```
-
-Both are local and read-only — no model re-run, nothing transmitted.
-
-<p align="center">
-  <img src="docs/assets/screenshots/session-replay.gif" alt="LemonCrow session replay demonstration" width="720">
-</p>
-<p align="center"><sub>Replay recorded agent sessions locally with full tool visibility and resource usage breakdown.</sub></p>
-
-## Agents and skills
-
-### Agents
-
-Packaged in [integrations/agents/](integrations/agents/) — each a distinct
-capability grant (subagent name `lemoncrow:<mode>`):
-
-| Agent      | Writes? | Use                                               |
-| ------------ | :-------: | --------------------------------------------------- |
-| `code`     |   Yes   | default interactive — edits, refactors, features |
-| `auto`     |   Yes   | fully autonomous — CI/headless runs              |
-| `solve`    |   Yes   | end-to-end solving of a well-defined task         |
-| `execute`  |   Yes   | one verified pass of an accepted plan             |
-| `general`  |   Yes   | catch-all for mixed work                          |
-| `bare`     |   Yes   | minimal toolset, same discipline                  |
-| `explore`  |   No   | read-only exploration — locate and cite          |
-| `plan`     |   No   | read-only planning, stops for human checkpoint    |
-| `review`   |   No   | adversarial read-only review                      |
-| `research` |   No   | external web research — cited memo               |
-
-### Skills
-
-Optional Packaged in [integrations/skills/](integrations/skills/): `/lemoncrow`, `/benchmark`,
-`/orchestrate`, `/swarm`, `/perf-review`, `/ux-review`, `/recall`.
-
-## Code hygiene
-
-The best code is the code you never wrote. Every LemonCrow persona climbs a fixed
-ladder before writing anything, stopping at the first rung that holds:
-
-| # | Rung | Do |
-| --- | --- | --- |
-| 1 | **Need it at all?** | Skip what the task doesn't require (YAGNI). |
-| 2 | **Already here?** | Reuse the helper, util, or pattern already in the repo. |
-| 3 | **Stdlib?** | Use the standard library before rolling your own. |
-| 4 | **Native feature?** | Reach for the platform capability that already exists. |
-| 5 | **Installed dep?** | Solve it with a dependency already in the tree. |
-| 6 | **One line?** | If it collapses to one line, make it one line. |
-| 7 | **Otherwise** | Write the minimum new code that works. |
-
-The ladder runs _after_ the agent understands the problem, not instead of it, and
-it never trades away validation, error handling, security, or accessibility. Lazy
-about the solution, never about reading the code first.
-
-When a change deliberately cuts a corner with a known ceiling (a global lock, an
-O(n²) scan, a naive heuristic), the agent leaves an `lc-debt: <ceiling>; <upgrade
-path>` marker. Harvest them any time into a ledger — `lc debt` flags any marker
-that names no upgrade path (`no-trigger`), the ones that silently rot:
-
-```bash
-lc debt          # ceiling + upgrade per deferred simplification, no-trigger flagged
-lc debt --json   # same, machine-readable
-```
-
-The packaged `code-audit` workflow (Claude Code) adds an over-engineering lens
-that returns a concrete delete-list — code to remove, not rewrite.
-
-## What LemonCrow does not do
-
-- It is **not** a hosted service. There is no cloud backend, dashboard account,
-  or team collaboration server.
-- It does **not** run your model for you — you bring and configure your own
-  provider/API key (Anthropic, OpenAI, Ollama, …).
-- It does **not** guarantee the benchmark deltas above on your repository;
-  results vary by task, codebase, and model.
-- Some integrations are early or in progress; behavior varies by host (e.g.
-  session-close verification is enforced on Claude Code, advisory elsewhere).
-
-## Privacy and network behavior
-
-- **Runs locally.** Indexing, search, edits, and memory all stay on your
-  machine; core functionality works offline.
-- **Anonymous telemetry is ON by default.** Turn it off with `lc telemetry remote off`,
-  or set `DO_NOT_TRACK=1` / `LEMONCROW_TELEMETRY=off`.
-- **No** source code, prompt, repository path, or symbol name is ever sent —
-  only aggregate counts, durations, and dollar estimates plus a hashed install
-  key. There is no crash reporting.
-- Apart from that rollup, the only network calls the runtime makes are ones you
-  initiate (`lc update`, which checks GitHub Releases).
-- Full detail: [docs/setup/privacy.md](docs/setup/privacy.md).
-
-## Supported environments
-
-- **Operating systems:** Linux and macOS (primary); Windows is partially, never tested.
-- **Runtime:** Python 3.12–3.13, managed with [`uv`](https://docs.astral.sh/uv/).
-- **Agent hosts:** Claude Code, Codex, opencode and LemonCode today — LemonCode is
-  LemonCrow's own fork of opencode, so the frontend itself can be optimized;
-  Copilot, Cursor, Hermes, and Antigravity are in progress. Any MCP-compatible agent can
-  connect to the same tools.
-- **Build requirements:** `uv`, a C toolchain (only if you opt into the `mypyc`
-  performance build; a pure-Python build works without it), and `git`.
-- **Known limitations:** see [What LemonCrow does not do](#what-lemoncrow-does-not-do)
-  and [Troubleshooting](docs/setup/troubleshooting.md).
-
-## Roadmap — Savings Optimization
-
-The LemonCode host/control plane and all six savings-runtime implementations
-are shipped locally: closed-loop routing (**LemonRoute**), Output Governor V2,
-provider-aware cache economics, the bounded local retrieval firewall
-(**LemonScout**), hybrid MCP exposure, and verified cross-session reuse. The
-five learned/policy levers remain measurement-pending; MCP exposure is
-adapted-complete without a mandatory search-first call.
-
-See the
-[detailed savings optimization status and roadmap](docs/planning/savings-optimization-roadmap.md)
-for shipped behavior, missing work, original estimates, acceptance gates, and
-the proposed implementation order. Planning estimates there are non-additive
-and are not presented as measured savings.
-
-## Learn more
+## Reference
 
 - [Installation](docs/setup/installation.md)
-- [Troubleshooting](docs/setup/troubleshooting.md)
-- [Benchmarks](BENCHMARKS.md) · [full results with methodology](docs/benchmarks/results.md)
+- [Review walkthrough](docs/reference/review-walkthrough.md)
 - [CLI reference](docs/reference/cli.md)
 - [Architecture](docs/reference/architecture.md)
+- [Benchmarks](BENCHMARKS.md)
+- [Full benchmark results](docs/benchmarks/results.md)
+- [Host integrations](docs/hosts/all-agent-clis.md)
+- [Host capability matrix](docs/hosts/host-capability-matrix.md)
 - [Privacy & network behavior](docs/setup/privacy.md)
-- [Maintenance-mode transition (audit & rationale)](docs/operations/maintenance-mode-transition.md)
+- [Troubleshooting](docs/setup/troubleshooting.md)
 
-## Removal
+### Removal
 
-Uninstall LemonCrow and its host integrations, preserving your data by default:
+Uninstall LemonCrow and its host integrations while preserving local data by
+default:
 
 ```bash
 bash scripts/uninstall.sh
 ```
 
-To also remove all LemonCrow-managed local state (databases, caches, logs, the
-local installation identifier, and configuration):
+Remove LemonCrow-managed local state too:
 
 ```bash
 bash scripts/uninstall.sh --purge
 ```
 
-The uninstaller stops background services, removes user-level systemd/launchd
-units, removes LemonCrow-owned host-integration entries (without touching
-unrelated agent-host configuration), reverts LemonCrow's PATH changes, and prints
-exactly what was removed and preserved. Preview with `--dry-run`.
+Preview with `--dry-run`.
 
-## Why I built this
-
-I'm a solo builder, previously at Google doing performance optimization and cost savings. I kept burning my weekly credits before the week was out.
-
-Every "token-saving" tool I tried showed a curated slice of tasks where it won — never the full spread. Claimed 50-70% savings that didn't hold across task variety; in practice they either saved too little to justify the complexity, or the fat system prompts they add offset whatever they saved.
-
-So I built LemonCrow and measured in absolute dollars, not curated wins
-([BENCHMARKS.md](BENCHMARKS.md)) — across SWE-bench, Terminal-Bench, and even
-some of those other tools' own benchmark tasks. **LemonCrow beat them all.**
-
-## Development & Building from Source
-
-If you want to build LemonCrow from source or run a local development setup, clone the repository and run the local installation script (see [Installation](docs/setup/installation.md) for full details):
+### Building from source
 
 ```bash
 git clone https://github.com/lemoncrow-lab/lemoncrow
@@ -516,22 +332,14 @@ cd lemoncrow
 bash scripts/local.sh
 ```
 
----
+See [Installation](docs/setup/installation.md) for development setup details.
 
-## License
+### License
 
-[Apache-2.0](LICENSE), all of it. The `lemoncrow.pro` engine — retrieval,
-ranking, memory, routing, verification — was the last closed piece; it has been
-open source since **7 September 2026**.
+[Apache-2.0](LICENSE). The complete local runtime is open source.
 
-Team use is included on the same terms: `lc team` creates a workspace in your
-own store — invite codes, roles, per-user cost attribution, and an audit trail.
-It runs locally: files on your machine, no server, no seats.
-
-**Hosted LemonCrow is a separate, paid product** and is not in this repository:
-team workspaces shared across machines, shared context and memory, SSO, org-wide
-usage dashboards, retention and audit export, and support. The runtime stays
-open source — the service is what's sold. Interested, or want it run for you?
-Contact <contact@lemoncrow.com>.
+Hosted LemonCrow is a separate enterprise product under development. It is not
+part of this repository and is not required for local use. If you want to discuss
+an enterprise pilot or design-partner deployment, contact <contact@lemoncrow.com>.
 
 See [LICENSE](LICENSE) and [NOTICE](NOTICE).

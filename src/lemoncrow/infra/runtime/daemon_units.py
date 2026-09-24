@@ -1,11 +1,8 @@
 """Daemon unit/label constants + platform-detection helpers (Phase 25-03).
 
-Moved verbatim from ``gateway/cli/app.py``. The systemd unit names, launchd
-labels, user-unit directories, and default stack host/port values are
-OS-registered identifiers; renaming them would orphan already-installed units,
-so they are relocated byte-for-byte (no rename). ``_is_macos``/``_is_linux``/
-``_subprocess_output``/``_systemd_user_bus_unavailable`` are part of the
-in-flight systemd-bus WIP and are copied without behaviour changes.
+Shared systemd/launchd helpers for the supported persistent MCP tunnel.
+Retired controller/stack identifiers intentionally live only in the temporary
+migration cleanup script, never in the active runtime.
 """
 
 from __future__ import annotations
@@ -21,24 +18,9 @@ DEFAULT_SERVICECTL_EXTERNAL_ANALYTICS_PERIODS = (
     "month",
 )
 
-CONTROLLER_UNIT = "lemoncrow-controller.service"
-STACK_UNIT = "lemoncrow-stack.service"
-LETTA_UNIT = "lemoncrow-letta.service"
-OPENMEMORY_UNIT = "lemoncrow-openmemory.service"
-ZOEKT_UNIT = "lemoncrow-zoekt.service"
-MCP_UNIT = "lemoncrow-mcp.service"
 SYSTEMD_USER_DIR = Path.home() / ".config" / "systemd" / "user"
 LAUNCHD_USER_DIR = Path.home() / "Library" / "LaunchAgents"
-CONTROLLER_LABEL = "com.lemoncrow.controller"
-STACK_LABEL = "com.lemoncrow.stack"
-LETTA_LABEL = "com.lemoncrow.letta"
-OPENMEMORY_LABEL = "com.lemoncrow.openmemory"
-ZOEKT_LABEL = "com.lemoncrow.zoekt"
 MCP_LABEL = "com.lemoncrow.mcp"
-DEFAULT_STACK_SERVICE_HOST = "127.0.0.1"
-DEFAULT_STACK_SERVICE_PORT = 8787
-DEFAULT_STACK_FRONTEND_HOST = "127.0.0.1"
-DEFAULT_STACK_FRONTEND_PORT = 3125
 
 
 def _is_macos() -> bool:

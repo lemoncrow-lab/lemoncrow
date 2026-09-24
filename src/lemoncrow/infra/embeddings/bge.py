@@ -39,7 +39,17 @@ class BgeEmbedder:
         if not texts:
             return []
         model = self._load()
-        vecs = model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
+        raw_batch_size = os.environ.get("LEMONCROW_BGE_ENCODE_BATCH_SIZE", "32").strip()
+        try:
+            batch_size = max(1, int(raw_batch_size))
+        except ValueError:
+            batch_size = 32
+        vecs = model.encode(
+            texts,
+            batch_size=batch_size,
+            normalize_embeddings=True,
+            show_progress_bar=False,
+        )
         return vecs.tolist() if hasattr(vecs, "tolist") else list(vecs)
 
     def embed_queries(self, texts: list[str]) -> list[list[float]]:

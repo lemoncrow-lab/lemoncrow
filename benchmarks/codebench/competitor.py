@@ -43,7 +43,18 @@ from pathlib import Path
 from typing import Any
 
 # Arm names reserved by the built-in runner; a competitor manifest may not reuse them.
-RESERVED_ARM_NAMES = frozenset({"baseline", "lemoncrow", "execute", "solve", "auto"})
+RESERVED_ARM_NAMES = frozenset(
+    {
+        "baseline",
+        "lemoncrow",
+        "lemoncrow-control",
+        "lemoncrow-shadow",
+        "lemoncrow-candidate",
+        "execute",
+        "solve",
+        "auto",
+    }
+)
 _NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _INSTALL_MARKER = ".codebench_competitor_ready"
 
@@ -70,6 +81,7 @@ class CompetitorSpec:
     repo: str
     ref: str | None = None
     install: tuple[str, ...] = ()
+    workspace_setup: tuple[str, ...] = ()
     mcp: Mapping[str, Any] | None = None
     plugin_dir: str | None = None
     skill_file: str | None = None
@@ -88,6 +100,7 @@ class PreparedCompetitor:
     system_prompt: str | None = None
     agent: str | None = None
     env: dict[str, str] = field(default_factory=dict)
+    workspace_setup: tuple[str, ...] = ()
 
 
 def _require_name(name: str) -> str:
@@ -130,6 +143,13 @@ def load_competitor_spec(path: str | Path) -> CompetitorSpec:
         install = tuple(str(cmd) for cmd in install_raw)
     else:
         raise ValueError("competitor 'install' must be a string or list of strings")
+    workspace_setup_raw = raw.get("workspace_setup", ())
+    if isinstance(workspace_setup_raw, str):
+        workspace_setup: tuple[str, ...] = (workspace_setup_raw,)
+    elif isinstance(workspace_setup_raw, Sequence):
+        workspace_setup = tuple(str(cmd) for cmd in workspace_setup_raw)
+    else:
+        raise ValueError("competitor 'workspace_setup' must be a string or list of strings")
     mcp = raw.get("mcp")
     if mcp is not None and not isinstance(mcp, dict):
         raise ValueError("competitor 'mcp' must be a JSON object")
@@ -141,6 +161,7 @@ def load_competitor_spec(path: str | Path) -> CompetitorSpec:
         repo=repo,
         ref=(str(raw["ref"]).strip() or None) if raw.get("ref") else None,
         install=install,
+        workspace_setup=workspace_setup,
         mcp=mcp,
         plugin_dir=(str(raw["plugin_dir"]) or None) if raw.get("plugin_dir") else None,
         skill_file=(str(raw["skill_file"]) or None) if raw.get("skill_file") else None,
@@ -242,6 +263,7 @@ def prepare_competitor(
         system_prompt=system_prompt,
         agent=spec.agent,
         env={k: _subst(v, clone_dir) for k, v in spec.env.items()},
+        workspace_setup=tuple(str(_subst(command, clone_dir)) for command in spec.workspace_setup),
     )
 
 

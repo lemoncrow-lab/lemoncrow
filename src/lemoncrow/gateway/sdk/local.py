@@ -7,6 +7,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from lemoncrow_client.kit.redaction import redact
+
 from lemoncrow.core.capabilities.retrieval import Retriever
 from lemoncrow.core.foundation.memory_models import MemoryBlock
 from lemoncrow.core.foundation.models import (
@@ -19,7 +21,6 @@ from lemoncrow.core.foundation.models import (
     TraceStatus,
     ValidationResult,
 )
-from lemoncrow.core.foundation.redaction import redact
 from lemoncrow.core.foundation.rubric_gate import run_rubric
 from lemoncrow.gateway.sdk.client import (
     ContextResult,

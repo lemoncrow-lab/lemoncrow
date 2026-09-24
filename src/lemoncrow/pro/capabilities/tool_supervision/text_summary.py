@@ -27,11 +27,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.pro.capabilities.tool_supervision.bash_exec import (
-    _ANOMALY_LINE_RE,
-    _dedupe_repeated_lines,
-    _extract_anomaly_windows,
-)
+from lemoncrow_client.kit.bash_output import ANOMALY_LINE_RE, dedupe_repeated_lines, extract_anomaly_windows
+
 from lemoncrow.pro.capabilities.tool_supervision.compact_output import compress_tool_output
 
 _MARKDOWN_EXT = frozenset({".md", ".markdown", ".mdx", ".rst"})
@@ -379,9 +376,9 @@ _TRACEBACK_START_RE = re.compile(r"^Traceback \(most recent call last\)", re.IGN
 
 def _summarize_log(text: str, target_chars: int) -> str:
     total_lines = text.count("\n") + 1
-    deduped, _saved = _dedupe_repeated_lines(text)
+    deduped, _saved = dedupe_repeated_lines(text)
     tracebacks = _TRACEBACK_START_RE.findall(deduped)
-    anomaly_lines = [ln for ln in deduped.splitlines() if _ANOMALY_LINE_RE.search(ln)]
+    anomaly_lines = [ln for ln in deduped.splitlines() if ANOMALY_LINE_RE.search(ln)]
     shape = f"{total_lines:,} lines"
     if tracebacks:
         shape += f", {len(tracebacks)} traceback(s)"
@@ -389,7 +386,7 @@ def _summarize_log(text: str, target_chars: int) -> str:
         shape += f", {len(anomaly_lines)} anomaly line(s)"
     if anomaly_lines:
         shape += f"; last: {anomaly_lines[-1].strip()[:200]}"
-    windowed = _extract_anomaly_windows(deduped, target_chars, context=2)
+    windowed = extract_anomaly_windows(deduped, target_chars, context=2)
     if windowed is None:
         head = int(target_chars * 0.6)
         windowed = compress_tool_output(

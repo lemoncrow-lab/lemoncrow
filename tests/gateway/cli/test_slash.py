@@ -39,7 +39,7 @@ def test_memory_with_args() -> None:
 
 
 def test_background_with_arg() -> None:
-    parsed = parse_input("/background status")
+    parsed = parse_input("/worker list")
     assert parsed.kind == "slash"
     assert parsed.name == "background"
     assert parsed.args == ["status"]

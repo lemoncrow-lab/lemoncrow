@@ -62,8 +62,7 @@ def test_render_relations_omit_redundant_target_echo() -> None:
 
     assert rendered is not None
     assert "- target:" not in rendered
-    assert "- src/api.py" in rendered
-    assert "  - 42 — api.create_app" in rendered
+    assert rendered == "callers\n→ src/api.py:L42 · api.create_app"
 
 
 def test_render_symbol_compact_summary_excludes_source_body() -> None:
@@ -151,13 +150,48 @@ def test_render_context_includes_deterministic_sections_and_caps() -> None:
     )
 
     assert rendered is not None
-    assert "#### entry_points" in rendered
-    assert "#### related_symbols" in rendered
-    assert "#### code_blocks" in rendered
+    assert rendered.startswith("## src/auth.py:L10-L14 · Auth.issue_access_token")
+    assert "\nentry\n" in rendered
+    assert "\nrelated\n" in rendered
     assert "Auth.import_helper" not in rendered
-    assert rendered.count("src/auth.py:") == 4
+    # The inlined source symbol is not repeated in the entry navigation tail.
+    assert rendered.count("Auth.issue_access_token") == 1
+    assert "→ src/auth.py:L20 · Auth.issue_access_log" in rendered
+    assert "→ src/auth.py:L30 · Auth.issue_refresh_token" in rendered
     assert "Session.revoke_access_token" in rendered
+    assert "[function]" not in rendered
     assert "```python" in rendered
+
+
+def test_render_context_deduplicates_inline_symbol_from_navigation() -> None:
+    payload = {
+        "entry_points": [
+            {"qualified_name": "svc.run", "file_path": "svc.py", "start_line": 10, "kind": "function"},
+            {"qualified_name": "svc.stop", "file_path": "svc.py", "start_line": 30, "kind": "function"},
+        ],
+        "related_symbols": [{"qualified_name": "api.call", "file_path": "api.py", "start_line": 8, "kind": "function"}],
+        "code_blocks": [
+            {
+                "qualified_name": "svc.run",
+                "file_path": "svc.py",
+                "start_line": 10,
+                "end_line": 18,
+                "language": "python",
+                "source": "def run():\n    return 1",
+            }
+        ],
+    }
+    rendered = render_code_payload("context", payload)
+    assert rendered is not None
+    assert rendered.count("svc.run") == 1
+    assert "→ svc.py:L30 · svc.stop" in rendered
+    assert "→ api.py:L8 · api.call" in rendered
+    legacy = (
+        "#### entry_points\n- svc.py:L10 — svc.run [function]\n- svc.py:L30 — svc.stop [function]\n"
+        "#### related_symbols\n- api.py:L8 — api.call [function]\n"
+        "#### code_blocks\n- svc.run (svc.py:L10-L18)\n```python\ndef run():\n    return 1\n```"
+    )
+    assert len(rendered) < len(legacy) * 0.75
 
 
 def test_render_index_and_cache_status_compact_summaries() -> None:
@@ -271,3 +305,38 @@ def test_render_outline_groups_symbols_and_drops_signature() -> None:
     assert "  - 2-5: OrderService.calculate_total [method]" in rendered
     # signatures are dropped from the outline projection
     assert "def calculate_total" not in rendered
+
+
+def test_render_relations_use_compact_pointer_grammar() -> None:
+    rendered = render_code_payload(
+        "callers",
+        {
+            "related": [
+                {"qualified_name": "api.create", "file_path": "src/api.py", "start_line": 42},
+                {"qualified_name": "api.update", "file_path": "src/api.py", "start_line": 81},
+                {"qualified_name": "jobs.sync", "file_path": "jobs/sync.py", "start_line": 12},
+            ],
+            "truncated": True,
+        },
+    )
+    assert rendered == (
+        "callers\n" "→ jobs/sync.py:L12 · jobs.sync\n" "→ src/api.py:L42 · api.create; L81 · api.update\n" "+more"
+    )
+    legacy_equivalent = (
+        "- jobs/sync.py\n  - 12 — jobs.sync\n" "- src/api.py\n  - 42 — api.create\n  - 81 — api.update\n- truncated"
+    )
+    assert len(rendered) < len(legacy_equivalent)
+
+
+def test_render_usages_single_reference_is_one_pointer() -> None:
+    rendered = render_code_payload(
+        "usages",
+        {
+            "references": {
+                "src/checkout.py": [
+                    {"file_path": "src/checkout.py", "line": 4, "enclosing_qualified_name": "checkout.run"}
+                ]
+            }
+        },
+    )
+    assert rendered == "usages\n→ src/checkout.py:L4 · checkout.run"

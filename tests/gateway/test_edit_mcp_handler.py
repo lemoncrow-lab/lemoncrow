@@ -570,14 +570,15 @@ def test_diff_recorded_per_file_multi_edit(workspace: Path) -> None:
 
 
 def test_schema_top_level_params_have_descriptions() -> None:
-    """atomic, hooks must each have a description."""
+    """Advertised routing/edit parameters are documented; policy knobs stay hidden."""
     from lemoncrow.gateway.adapters.mcp_server import EDIT_TOOL_INPUT_SCHEMA, TOOLS
 
     props = EDIT_TOOL_INPUT_SCHEMA["properties"]
-    # atomic/hooks are hidden policy knobs: absent from the advertised schema,
-    # still accepted by the handler by name.
-    assert set(props) == {"edits"}
+    # project_id is first-class routing metadata for hosted/project isolation.
+    # atomic/hooks remain hidden policy knobs accepted by the handler by name.
+    assert set(props) == {"edits", "project_id"}
     assert props["edits"]["description"].strip()
+    assert props["project_id"]["description"].strip()
     for hidden in ("atomic", "hooks"):
         assert hidden in TOOLS["edit"]["handler"].__wrapped__.__code__.co_varnames
 

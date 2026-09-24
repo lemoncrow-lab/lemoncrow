@@ -213,6 +213,53 @@ print(
 PYEOF
 }
 
+configure_dev_headroom_env() {
+    local settings_path="$1"
+    local enabled="${LEMONCROW_DEV_HEADROOM_APPLY:-0}"
+    local stats_path="${HOME}/.lemoncrow/logs/headroom-tail-dev.jsonl"
+
+    if $DRY_RUN; then
+        if [[ "$enabled" == "1" ]]; then
+            echo "  [dry-run] enable Headroom apply env in ${settings_path} → ${stats_path}"
+        else
+            echo "  [dry-run] remove managed Headroom dev env from ${settings_path}"
+        fi
+        return
+    fi
+
+    mkdir -p "$(dirname "${settings_path}")"
+    [[ -f "${settings_path}" ]] || echo "{}" > "${settings_path}"
+    LEMONCROW_CLAUDE_SETTINGS_PATH="${settings_path}" \
+    LEMONCROW_DEV_HEADROOM_APPLY_ENABLED="${enabled}" \
+    LEMONCROW_HEADROOM_SHADOW_STATS_PATH="${stats_path}" \
+    python3 - <<'PYEOF'
+import json
+import os
+from pathlib import Path
+
+path = Path(os.environ["LEMONCROW_CLAUDE_SETTINGS_PATH"])
+data = json.loads(path.read_text(encoding="utf-8") or "{}")
+env = data.setdefault("env", {})
+managed = (
+    "LEMONCROW_HEADROOM_MCP_TAIL_MODE",
+    "LEMONCROW_HEADROOM_TAIL_STATS",
+)
+if os.environ["LEMONCROW_DEV_HEADROOM_APPLY_ENABLED"] == "1":
+    env["LEMONCROW_HEADROOM_MCP_TAIL_MODE"] = "apply"
+    env["LEMONCROW_HEADROOM_TAIL_STATS"] = os.environ["LEMONCROW_HEADROOM_SHADOW_STATS_PATH"]
+    action = "enabled"
+else:
+    for key in managed:
+        env.pop(key, None)
+    if not env:
+        data.pop("env", None)
+    action = "disabled"
+path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+print(f"[lemoncrow:claude] Headroom dev apply {action} → {path}")
+PYEOF
+}
+
+
 configure_project_enforcement() {
     # Backwards-compatible alias for callers that pass a project DIR; resolves
     # to <DIR>/.claude/settings.json and forwards to the generic merger.
@@ -529,6 +576,7 @@ fi
 # By default this preserves Claude's normal permission prompt for native tools.
 # Set LEMONCROW_ENFORCE_NATIVE_DENY=1 for locked-down installs.
 apply_enforcement_to_settings "${CLAUDE_SETTINGS}"
+configure_dev_headroom_env "${CLAUDE_SETTINGS}"
 
 # ---- statusLine setting in ~/.claude/settings.json -------------------------
 # LEMONCROW_STATUSLINE_COMPACT=1 installs the compact layout (model · ctx % ·

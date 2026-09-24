@@ -67,3 +67,30 @@ def test_staged_source_state_ignores_unstaged_edits_until_the_index_moves(tmp_pa
     repo.index.add("app.py")
     repo.index.write()
     assert source_state(root, rng).fingerprint != staged.fingerprint
+
+
+def test_working_tree_source_state_moves_when_head_moves_under_same_file_bytes(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    repo = _repo(root)
+    _write(root, "value = 1\n")
+    _commit(repo, "base")
+
+    _write(root, "value = 2\n")
+    first_range = resolve_rev_range(root, working_tree=True)
+    first = source_state(root, first_range)
+
+    # Commit an unrelated file while leaving app.py's working-tree bytes alone.
+    # The visible app.py patch is now relative to a different HEAD and therefore
+    # must not retain the old source-state identity.
+    (root / "meta.txt").write_text("meta\n", encoding="utf-8")
+    repo.index.add("meta.txt")
+    repo.index.write()
+    tree = repo.index.write_tree()
+    sig = pygit2.Signature("Fixture Tester", "fixture@example.invalid", 1700000001, 0)
+    repo.create_commit("HEAD", sig, sig, "move base", tree, [repo.head.target])
+
+    second_range = resolve_rev_range(root, working_tree=True)
+    second = source_state(root, second_range)
+    assert second_range.base_sha != first_range.base_sha
+    assert second.paths == first.paths == ("app.py",)
+    assert second.fingerprint != first.fingerprint

@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from lemoncrow.core.foundation.redaction import redact_tool_output
+from lemoncrow_client.kit.redaction import redact_tool_output
 
 # Decorators whose removal silently strips attributes/methods callers may use, with
 # no call-graph edge to surface the breakage. ``functools.lru_cache``/``cache`` add
@@ -693,11 +693,13 @@ def _astgrep_detect(
     if not languages:
         return None
     try:
-        from lemoncrow.infra.code_intel.astgrep import AstGrepAdapter, AstGrepToolUnavailable
+        from lemoncrow_client.kit.astgrep import AstGrepToolUnavailable
+
+        from lemoncrow.infra.code_intel.astgrep import astgrep_adapter
     except Exception:
         return None
 
-    adapter = AstGrepAdapter(repo_root)
+    adapter = astgrep_adapter(repo_root)
     line_cache: dict[str, list[str]] = {}
     out: dict[str, list[tuple[str, int, str]]] = {literal: [] for literal in literals}
     seen_by_literal: dict[str, set[tuple[str, int]]] = {literal: set() for literal in literals}
@@ -782,10 +784,12 @@ def _astgrep_detect_unbatched(
     """Compatibility fallback for ast-grep builds/patterns that cannot batch."""
 
     try:
-        from lemoncrow.infra.code_intel.astgrep import AstGrepAdapter, AstGrepToolUnavailable
+        from lemoncrow_client.kit.astgrep import AstGrepToolUnavailable
+
+        from lemoncrow.infra.code_intel.astgrep import astgrep_adapter
     except Exception:
         return None
-    adapter = AstGrepAdapter(repo_root)
+    adapter = astgrep_adapter(repo_root)
     line_cache: dict[str, list[str]] = {}
     out: dict[str, list[tuple[str, int, str]]] = {literal: [] for literal in literals}
     ran = False

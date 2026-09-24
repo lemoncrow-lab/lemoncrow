@@ -547,13 +547,15 @@ def test_the_export_reads_like_the_plan_and_names_its_orphans(review: Review) ->
 
 def test_replies_render_under_their_parent_not_as_their_own_sections(review: Review) -> None:
     parent = review.comment(_COMMENT_LINE, body="why?")
-    review.comment(_COMMENT_LINE, body="because the store lost it", parent_id=parent.id)
+    reply = review.comment(_COMMENT_LINE, body="because the store lost it", parent_id=parent.id)
+    review.comment(_COMMENT_LINE, body="and the fallback still fails", parent_id=reply.id)
 
     text = render_markdown(
         build_bundle(review.session, review.revision, review.store.list_annotations(review.session.id))
     )
     assert text.count("### src/session.py:L10") == 1
     assert "> because the store lost it" in text
+    assert "> and the fallback still fails" in text
 
 
 # --------------------------------------------------------------------------- #

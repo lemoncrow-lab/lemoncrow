@@ -7,7 +7,6 @@ across the Claude plugin, MCP gateway, and validation fixtures.
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import logging
@@ -63,30 +62,7 @@ SPINNER_VERBS = [
 ATTRIBUTION_NAME = "lemoncrow"
 ATTRIBUTION_EMAIL = "302591943+lemoncrow-agent[bot]@users.noreply.github.com"
 ATTRIBUTION_TRAILER = f"Co-Authored-By: {ATTRIBUTION_NAME} <{ATTRIBUTION_EMAIL}>"
-AUTH_REFRESH_GRACE_SECONDS = 300
 UPDATE_CHECK_THROTTLE_SECONDS = 30 * 60
-# Billing meter: trailing window (days) used to sum realized spend/savings, and
-# the fraction of the monthly limit at which the soft warning turns on. The
-# meter is non-blocking — nothing enforces the cap; it only surfaces spend and a
-# warning on the statusline (see refresh_subscription_meter / _resolve_status_text).
-BILLING_WINDOW_DAYS = 30
-SUBSCRIPTION_WARN_FRACTION = 0.8
-
-# Savings cap ($ saved per BILLING_WINDOW_DAYS) by access state.
-# Anonymous evaluation is capped; creating a free account removes the savings
-# cap from the core runtime. Pro and Enterprise are differentiated by feature
-# grants, not by how much value the local runtime has already produced. The
-# hosted auth server may override this via
-# subscriptionStatus.monthlySavingsCapInUsd.
-ANONYMOUS_SAVINGS_CAP_USD = 100.0
-SAVINGS_CAP_BY_PLAN: dict[str, float | None] = {
-    "anonymous": ANONYMOUS_SAVINGS_CAP_USD,
-    "local": ANONYMOUS_SAVINGS_CAP_USD,
-    "free": None,
-    "lite": None,  # legacy paid accounts remain uncapped
-    "pro": None,
-    "enterprise": None,
-}
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -113,98 +89,8 @@ def plugin_settings_path(root: str | Path) -> Path:
     return Path(root) / "plugin_settings.json"
 
 
-def auth_state_path(root: str | Path) -> Path:
-    return Path(root) / "auth.json"
-
-
 def update_flag_path(root: str | Path) -> Path:
     return Path(root) / "update.json"
-
-
-def subscription_state_path(root: str | Path) -> Path:
-    return Path(root) / "subscription.json"
-
-
-def _merge_subscription_display_field(root: str | Path, key: str, value: str) -> None:
-    """Best-effort merge of one field into the local subscription cache.
-
-    Shared write path for :func:`persist_cap_verdict_token`,
-    :func:`persist_registered_at`, and :func:`persist_cycle_resets_at`: prefer
-    ``auth.json``'s ``subscriptionStatus`` (what the compiled gate and
-    ``resolve_subscription`` read), falling back to the display-only
-    ``subscription.json`` when there is no local auth state at all.
-
-    Idempotent: an unchanged value is a no-op (no write, no mtime bump).
-    """
-    root_path = Path(root)
-    auth = _read_json(auth_state_path(root_path), None)
-    if isinstance(auth, dict):
-        sub = auth.get("subscriptionStatus")
-        if not isinstance(sub, dict):
-            sub = {}
-        if sub.get(key) == value:
-            return  # unchanged -> skip the write
-        sub[key] = value
-        auth["subscriptionStatus"] = sub
-        with suppress(OSError, ValueError):
-            _write_json(auth_state_path(root_path), auth, mode=0o600)
-        return
-    sub = _read_json(subscription_state_path(root_path), {})
-    if not isinstance(sub, dict):
-        sub = {}
-    if sub.get(key) == value:
-        return
-    sub[key] = value
-    with suppress(OSError, ValueError):
-        _write_json(subscription_state_path(root_path), sub)
-
-
-def persist_cap_verdict_token(root: str | Path, token: str | None) -> None:
-    """Persist the server's signed cap-verdict token where the gate reads it.
-
-    The compiled gate reads the token from the canonical auth subscription,
-    falling back to the display-only subscription cache.
-
-    Idempotent and best-effort: an empty or unchanged token is a no-op, and
-    network callers never receive a persistence exception.
-    """
-    if not isinstance(token, str) or not token:
-        return
-    _merge_subscription_display_field(root, "capVerdictToken", token)
-
-
-def persist_registered_at(root: str | Path, iso_ts: str | None) -> None:
-    """Persist the account/device "since" anchor for `lc account cap`'s display.
-
-    Display-only and unsigned (never gates entitlement or the cap). Mirrors
-    :func:`persist_cap_verdict_token`'s write pattern: the server's value (once
-    available, e.g. from the report-anon endpoint's ``deviceRegisteredAt``)
-    overwrites any earlier local guess, since it is the more authoritative,
-    reinstall-resistant figure.
-
-    Idempotent and best-effort: an empty/unchanged timestamp is a no-op, and
-    callers never receive a persistence exception.
-    """
-    if not isinstance(iso_ts, str) or not iso_ts:
-        return
-    _merge_subscription_display_field(root, "registeredAt", iso_ts)
-
-
-def persist_cycle_resets_at(root: str | Path, iso_ts: str | None) -> None:
-    """Persist the anonymous cap's fixed calendar-cycle reset boundary.
-
-    Display-only and unsigned. Populated from the report-anon endpoint's
-    ``cycleResetsAt`` (see ``cycleSavings`` in landing/functions/api/usage.ts)
-    -- the instant the anon identity's $ cap hard-resets to 0, distinct from
-    every other plan's cap (all uncapped) and from the anon cap's OWN local
-    unverified fallback (still a rolling window, no fixed reset).
-
-    Idempotent and best-effort: an empty/unchanged timestamp is a no-op, and
-    callers never receive a persistence exception.
-    """
-    if not isinstance(iso_ts, str) or not iso_ts:
-        return
-    _merge_subscription_display_field(root, "cycleResetsAt", iso_ts)
 
 
 # _price_savings_row drops cost_saved_usd entirely when tokens<=0, so the
@@ -220,94 +106,6 @@ _RECONCILE_PLACEHOLDER_TOKENS = 1
 _RECONCILE_HOST = "_reconcile"
 _RECONCILE_SESSION_ID = "ledger-gap"
 _RECONCILE_MIN_GAP_USD = 0.01
-
-
-def reconcile_local_savings_gap(root: str | Path, server_saved_usd: float) -> bool:
-    """Close a gap between the server's verified savings total and the local
-    ledger, without re-scanning any host transcript.
-
-    The server accumulates savings per ACCOUNT (server-side, never a
-    client-writable file -- see services/license-issuer/src/usage.ts). If
-    ``sessions/**/savings.jsonl`` is lost (deleted, disk issue, a stale
-    machine restored from an old snapshot) while real LemonCrow usage already
-    happened, the local ledger under-reports relative to what the server
-    already knows. This writes ONE correction row for exactly that shortfall,
-    dated now, into a fixed reconciliation slot.
-
-    max(local, server) semantics, never a blind overwrite: only fires when
-    the server is AHEAD of the local total (a genuine gap to fill). When
-    local is ahead -- fresh real usage the throttled ~30 min report hasn't
-    pushed up yet -- the server figure is simply stale, not the local ledger
-    being wrong, so this is a no-op and the higher local total stands.
-    Idempotent: re-fires cheaply as a no-op once the gap is closed, and
-    overwrites its own prior guess (a fixed path, not an accumulating row),
-    so repeated calls or a naturally-closing gap never double count.
-    """
-    try:
-        from datetime import UTC, datetime
-
-        from lemoncrow.core.capabilities.savings_summary import reconcile_savings_aggregate
-
-        root_path = Path(root)
-        # reconcile_savings_aggregate (not aggregate_window_savings): the
-        # latter reads through an in-process TTL cache that a write earlier
-        # in THIS same call wouldn't yet be visible through -- this one
-        # always folds fresh from disk, so both the read here and the fold
-        # after the write below see the true current state.
-        local_total = _aggregate_lifetime_saved_usd(reconcile_savings_aggregate(root_path))
-        gap = round(float(server_saved_usd) - local_total, 4)
-        if gap <= _RECONCILE_MIN_GAP_USD:
-            return False
-        now = datetime.now(UTC)
-        sidecar = (
-            root_path
-            / "sessions"
-            / now.strftime("%Y")
-            / now.strftime("%m")
-            / now.strftime("%d")
-            / _RECONCILE_HOST
-            / _RECONCILE_SESSION_ID
-            / "savings.jsonl"
-        )
-        row = {
-            "tool": "reconcile",
-            "kind": "backfill",
-            "tokens": _RECONCILE_PLACEHOLDER_TOKENS,
-            "calls": 0,
-            "model": "",
-            "ts": now.replace(tzinfo=None).isoformat(),
-            "cost_saved_usd": gap,
-        }
-        sidecar.parent.mkdir(parents=True, exist_ok=True)
-        sidecar.write_text(json.dumps(row) + "\n", encoding="utf-8")
-        reconcile_savings_aggregate(root_path)  # fold + persist immediately, not on the next TTL
-        return True
-    except Exception:
-        return False
-
-
-def _aggregate_lifetime_saved_usd(agg: dict[str, Any]) -> float:
-    """Sum ``saved_usd`` across every day-bucket of every session in a
-    reconciled aggregate (the ``reconcile_savings_aggregate`` return shape).
-
-    Mirrors ``aggregate_window_savings.saved_usd`` = col 0 (context savings)
-    PLUS col 6 (model-routing credit): routing rides its own day-bucket column
-    yet is folded into the headline saved_usd on every other surface AND into
-    the figure reported to the server. Summing col 0 alone understated the
-    local total by the account's routing credit, so the reconcile comparison
-    saw a permanent phantom gap and re-corrected it every day.
-    """
-    total = 0.0
-    for entry in agg.get("sessions", {}).values():
-        days = entry.get("days") if isinstance(entry, dict) else None
-        if not isinstance(days, dict):
-            continue
-        for bucket in days.values():
-            if isinstance(bucket, list) and bucket:
-                total += float(bucket[0])
-                if len(bucket) > 6:
-                    total += float(bucket[6])
-    return total
 
 
 def _summarize_ab_calibration(root: str | Path) -> dict[str, Any]:
@@ -436,422 +234,6 @@ def _iso_now() -> str:
     # Naive-UTC + "Z" kept byte-compatible with the old utcnow() output:
     # savings_summary._row_epoch parses these stamps as naive UTC.
     return datetime.now(UTC).replace(microsecond=0, tzinfo=None).isoformat() + "Z"
-
-
-def _fingerprint(seed: str | None = None) -> str:
-    from lemoncrow.core.foundation.identity import get_anon_id
-
-    raw = seed or os.environ.get("LEMONCROW_MACHINE_ID") or get_anon_id()
-    return hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest()[:16]
-
-
-def normalize_auth_credentials(raw: dict[str, Any], *, anonymous: bool = False) -> dict[str, Any]:
-    user_id = str(raw.get("userId") or raw.get("user_id") or raw.get("sub") or "")
-    email = str(raw.get("email") or raw.get("user_email") or "")
-    refresh_token = str(raw.get("refreshToken") or raw.get("refresh_token") or raw.get("token") or "")
-    access_token = str(raw.get("accessToken") or raw.get("access_token") or "")
-    if not user_id:
-        user_id = f"user-{_fingerprint(refresh_token or access_token or email or 'local')}"
-    if anonymous and not email:
-        email = "anonymous@local"
-    auth = {
-        "authenticated": True,
-        "isAnonymous": bool(raw.get("isAnonymous") or raw.get("is_anonymous") or anonymous),
-        "is_anonymous": bool(raw.get("isAnonymous") or raw.get("is_anonymous") or anonymous),
-        "accessToken": access_token,
-        "refreshToken": refresh_token,
-        "expiresAt": str(raw.get("expiresAt") or raw.get("expires_at") or ""),
-        "userId": user_id,
-        "email": email,
-        "organizationId": raw.get("organizationId") or raw.get("organization_id"),
-        "referralCode": raw.get("referralCode") or raw.get("referral_code"),
-        "subscriptionStatus": raw.get("subscriptionStatus") or raw.get("subscription_status") or {},
-    }
-    if not auth["expiresAt"]:
-        auth["expiresAt"] = "local"
-    if not auth["referralCode"]:
-        auth["referralCode"] = f"LEMONCROW-{_fingerprint(user_id)[:6].upper()}"
-    return auth
-
-
-def parse_login_token(token: str) -> dict[str, Any]:
-    text = token.strip()
-    candidates = [text]
-    try:
-        padded = text + "=" * (-len(text) % 4)
-        decoded = base64.urlsafe_b64decode(padded.encode("utf-8")).decode("utf-8")
-        candidates.append(decoded)
-    except (ValueError, UnicodeDecodeError):
-        logger.warning("Failed to base64-decode login token", exc_info=True)
-    for candidate in candidates:
-        try:
-            payload = json.loads(candidate)
-        except ValueError:
-            # A plain refresh token is not JSON — normal control flow, not an error.
-            logger.debug("login token candidate is not JSON")
-            continue
-        if isinstance(payload, dict):
-            if isinstance(payload.get("credentials"), dict):
-                payload = payload["credentials"]
-            return normalize_auth_credentials(payload)
-    return normalize_auth_credentials({"refreshToken": text})
-
-
-def write_auth_state(root: str | Path, auth: dict[str, Any]) -> dict[str, Any]:
-    normalized = normalize_auth_credentials(auth, anonymous=bool(auth.get("isAnonymous") or auth.get("is_anonymous")))
-    _write_json(auth_state_path(root), normalized, mode=0o600)
-    return normalized
-
-
-def claim_anonymous_trial(root: str | Path, *, monthly_limit_usd: float = 0.0) -> dict[str, Any]:
-    """Seed local free-mode auth state (auth.json) when none exists.
-
-    Default is no local limit (``monthly_limit_usd=0.0``): the open-source
-    free core never stamps a spending cap. A positive limit is only set by
-    hosted/licensed flows, and the meter (:func:`compute_usage_meter`) treats
-    ``<= 0`` as report-only — it surfaces spend/savings but never warns.
-    """
-    existing = _read_json(auth_state_path(root), None)
-    if isinstance(existing, dict) and existing.get("authenticated"):
-        return normalize_auth_credentials(existing, anonymous=bool(existing.get("isAnonymous")))
-    fp = _fingerprint()
-    subscription = {
-        "isValid": True,
-        "status": "FREE",
-        "plan": "LOCAL",
-        "monthlySavingsInUsd": 0.0,
-        "monthlyLimitInUsd": monthly_limit_usd,
-        "message": "Local free mode active.",
-        # Display-only "since" anchor for `lc account cap` -- the moment this
-        # device first claimed a local trial. A later signed-in server-verified
-        # anon identity (see usage_report.py's report-anon path) overwrites this
-        # with the server's authoritative deviceRegisteredAt once available.
-        "registeredAt": _iso_now(),
-    }
-    auth = normalize_auth_credentials(
-        {
-            "accessToken": f"local-anonymous-{fp}",
-            "refreshToken": "",
-            "userId": f"anon-{fp}",
-            "email": "anonymous@local",
-            "isAnonymous": True,
-            "subscriptionStatus": subscription,
-            "referralCode": f"LEMONCROW-{fp[:6].upper()}",
-        },
-        anonymous=True,
-    )
-    _write_json(auth_state_path(root), auth, mode=0o600)
-    return auth
-
-
-def logout_local(root: str | Path, *, claim_trial: bool = True) -> dict[str, Any]:
-    path = auth_state_path(root)
-    if path.exists():
-        path.unlink()
-    if claim_trial:
-        return {"logged_out": True, "anonymous": claim_anonymous_trial(root)}
-    return {"logged_out": True, "anonymous": None}
-
-
-def resolve_subscription(root: str | Path) -> dict[str, Any]:
-    """Resolve subscription state with OAuth as the canonical source."""
-    from lemoncrow.core.capabilities.licensing import entitlements
-
-    account = entitlements.auth_user()
-    if isinstance(account, dict):
-        nested = account.get("subscriptionStatus") or account.get("subscription_status")
-        subscription = dict(nested) if isinstance(nested, dict) else {}
-        if account.get("plan"):
-            subscription["plan"] = account["plan"]
-        if subscription:
-            return subscription
-
-    auth = _read_json(auth_state_path(root), None)
-    if isinstance(auth, dict):
-        nested = auth.get("subscriptionStatus")
-        if isinstance(nested, dict) and nested:
-            return dict(nested)
-    subscription = _read_json(subscription_state_path(root), {})
-    return dict(subscription) if isinstance(subscription, dict) else {}
-
-
-def auth_status(root: str | Path) -> dict[str, Any]:
-    auth = _read_json(auth_state_path(root), None)
-    if not isinstance(auth, dict):
-        return {"authenticated": False, "isAnonymous": False, "root": str(Path(root))}
-    normalized = normalize_auth_credentials(auth, anonymous=bool(auth.get("isAnonymous") or auth.get("is_anonymous")))
-    subscription = resolve_subscription(root)
-    subscription = compute_usage_meter(root, subscription=subscription)
-    return {
-        "authenticated": bool(normalized.get("authenticated")),
-        "isAnonymous": bool(normalized.get("isAnonymous")),
-        "email": normalized.get("email"),
-        "userId": normalized.get("userId"),
-        "expiresAt": normalized.get("expiresAt"),
-        "subscription": subscription,
-        "referralCode": normalized.get("referralCode"),
-        "root": str(Path(root)),
-    }
-
-
-def _plan_key(subscription: dict[str, Any]) -> str:
-    """Normalize a subscription blob's plan/status to a lowercase tier key.
-
-    Hosted blobs use ``FREE``/``LOCAL``/``PRO``/``LITE``/``ENTERPRISE`` in
-    ``status`` or ``plan``; the anonymous trial stamps ``plan=LOCAL``.
-    Anonymous/local identities stay distinct from signed-in Free accounts.
-    """
-    raw = str(subscription.get("plan") or subscription.get("status") or "anonymous").strip().lower()
-    if raw in ("", "local", "anonymous"):
-        return "anonymous"
-    return raw
-
-
-def _savings_cap_usd(subscription: dict[str, Any]) -> float | None:
-    """Open-source runtime: there is no savings cap. Always uncapped (``None``).
-
-    See docs/maintenance-mode-transition.md.
-    """
-    return None
-
-
-def compute_usage_meter(root: str | Path, *, subscription: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Price trailing-window usage against the plan's monthly limit.
-
-    Realized spend and savings come from :func:`aggregate_window_savings` (the
-    same per-session ledger that drives the statusline and ``lc savings``),
-    so the meter always reconciles with those surfaces. Returns the subscription
-    dict enriched with live billing fields (``monthlySpendInUsd``,
-    ``monthlySavingsInUsd``, ``remainingUsd``, ``usageFraction``, ``warning``,
-    ``overLimit``). Purely additive and non-blocking — callers decide what, if
-    anything, to do with ``warning``/``overLimit``; nothing here enforces a cap.
-
-    ``monthlyLimitInUsd <= 0`` (or absent) means "no local limit": spend and
-    savings are still reported, but ``warning``/``overLimit`` stay False.
-    """
-    root_path = Path(root)
-    if subscription is None:
-        subscription = resolve_subscription(root_path)
-    subscription = dict(subscription) if isinstance(subscription, dict) else {}
-    # Server-authoritative meter: when the auth server (/api/auth/me) computes
-    # the savings meter it stamps ``savingsMeterSource="server"`` and a real
-    # ``savingsOverCap``. The client then TRUSTS those verbatim — the local
-    # estimate below becomes a fallback only and can never lower a server flag.
-    # This is what makes the cap tamper-resistant: editing local files cannot
-    # clear a cap the server owns.
-    server_meter = subscription.get("savingsMeterSource") == "server"
-    # Legacy builds stamped the LOCAL trial with a $5 monthlyLimitInUsd; the
-    # free core is uncapped, and positive limits come only from licensed/hosted
-    # plans, so force the local plan onto the report-only (no-limit) path.
-    if subscription.get("plan") == "LOCAL":
-        subscription["monthlyLimitInUsd"] = 0.0
-
-    spend_usd = 0.0
-    savings_usd = 0.0
-    try:
-        from lemoncrow.core.capabilities.savings_summary import aggregate_window_savings
-
-        window = aggregate_window_savings(root_path, days=BILLING_WINDOW_DAYS)
-        spend_usd = round(max(0.0, float(window.spend_usd)), 4)
-        savings_usd = round(max(0.0, float(window.saved_usd)), 4)
-    except Exception:
-        logging.exception("Recovered from broad exception handler")
-
-    limit_usd = float(subscription.get("monthlyLimitInUsd") or 0.0)
-    has_limit = limit_usd > 0.0
-    fraction = round(spend_usd / limit_usd, 4) if has_limit else 0.0
-    warning = bool(has_limit and spend_usd >= SUBSCRIPTION_WARN_FRACTION * limit_usd)
-    over_limit = bool(has_limit and spend_usd >= limit_usd)
-
-    subscription["monthlySpendInUsd"] = spend_usd
-    if server_meter:
-        subscription.setdefault("monthlySavingsInUsd", savings_usd)  # keep the server's figure
-    else:
-        subscription["monthlySavingsInUsd"] = savings_usd
-    subscription["remainingUsd"] = round(max(0.0, limit_usd - spend_usd), 4) if has_limit else None
-    subscription["usageFraction"] = fraction
-    subscription["windowDays"] = BILLING_WINDOW_DAYS
-    subscription["warning"] = warning
-    subscription["overLimit"] = over_limit
-
-    # Savings cap — independent of the spend limit above. Anonymous evaluation
-    # caps cumulative $-saved; every server-verified account is uncapped.
-    # Additive and non-blocking: cap_exhausted() drives dormancy.
-    savings_cap = _savings_cap_usd(subscription)
-    subscription["monthlySavingsCapInUsd"] = savings_cap
-    if server_meter and isinstance(subscription.get("savingsOverCap"), bool):
-        # Trust the server's cap decision verbatim; fill display-only blanks.
-        subscription.setdefault("savingsRemainingUsd", None)
-        subscription.setdefault("savingsCapFraction", 0.0)
-    elif savings_cap is not None:
-        subscription["savingsRemainingUsd"] = round(max(0.0, savings_cap - savings_usd), 4)
-        subscription["savingsCapFraction"] = round(savings_usd / savings_cap, 4) if savings_cap > 0.0 else 0.0
-        subscription["savingsOverCap"] = bool(savings_usd >= savings_cap)
-    else:
-        subscription["savingsRemainingUsd"] = None
-        subscription["savingsCapFraction"] = 0.0
-        subscription["savingsOverCap"] = False
-
-    # Single source of truth: when a signed-verdict authority is configured
-    # (every real build), its resolved dormancy decision overrides whatever
-    # the local estimate above computed — this is the SAME decision the MCP
-    # server enforces (licensing_gate.resolve_cap_verdict), so `lc account
-    # cap` / `lc savings` / the statusline can never disagree with which
-    # tools are actually visible. Only skipped when unconfigured (dev build,
-    # no pinned key): resolve_cap_verdict's own fallback there already calls
-    # back into this function, so calling it here too would recurse.
-    try:
-        from lemoncrow.pro.capabilities.licensing_gate import is_configured, resolve_cap_verdict
-
-        if is_configured():
-            verdict = resolve_cap_verdict(root_path)
-            subscription["savingsOverCap"] = verdict.dormant
-            subscription["capVerdictVerified"] = verdict.verified
-            subscription["capVerdictReason"] = verdict.reason
-            # The signed verdict's dollar figure is the server's own
-            # accumulated total (account_id-keyed server-side, never a
-            # client-writable file -- see resolve_cap_verdict/CapVerdict).
-            # It outranks BOTH the raw local-ledger recompute above and the
-            # unsigned server_meter figure: whenever a fresh verdict is
-            # verified, this self-heals the display even if every local
-            # sessions/**/savings.jsonl was deleted -- the next verified
-            # verdict (session start, MCP self-heal, periodic reconciler)
-            # restores the true number here regardless of local state.
-            if verdict.verified and verdict.server_saved_usd is not None:
-                subscription["monthlySavingsInUsd"] = round(verdict.server_saved_usd, 4)
-                if verdict.server_cap_usd is not None:
-                    subscription["monthlySavingsCapInUsd"] = verdict.server_cap_usd
-                    subscription["savingsRemainingUsd"] = round(
-                        max(0.0, verdict.server_cap_usd - verdict.server_saved_usd), 4
-                    )
-                    subscription["savingsCapFraction"] = (
-                        round(verdict.server_saved_usd / verdict.server_cap_usd, 4)
-                        if verdict.server_cap_usd > 0.0
-                        else 0.0
-                    )
-                else:
-                    subscription["savingsRemainingUsd"] = None
-                    subscription["savingsCapFraction"] = 0.0
-    except Exception:
-        logging.exception("Recovered from broad exception handler")
-
-    if over_limit:
-        subscription["message"] = f"Monthly limit reached — ${spend_usd:.2f} of ${limit_usd:.2f} used"
-    elif warning:
-        subscription["message"] = f"Approaching monthly limit — ${spend_usd:.2f} of ${limit_usd:.2f} used"
-    return subscription
-
-
-def refresh_subscription_meter(root: str | Path) -> dict[str, Any]:
-    """Recompute the usage meter and persist it to ``subscription.json``.
-
-    ``subscription.json`` is the file the statusline (:func:`_resolve_status_text`
-    in ``savings_summary``) reads to surface the plan warning, so persisting the
-    metered blob here is what lights up that surface. Called from session
-    lifecycle seams (SessionStart bootstrap, Stop). Best-effort — never raises
-    into a hook.
-    """
-    root_path = Path(root)
-    metered = compute_usage_meter(root_path)
-    with suppress(OSError, ValueError):
-        _write_json(subscription_state_path(root_path), metered)
-    return metered
-
-
-def cap_exhausted(root: str | Path) -> bool:
-    """Whether the plan's savings cap is exhausted (savings engine goes dormant).
-
-    Thin delegator to the COMPILED authority,
-    :func:`lemoncrow.pro.capabilities.licensing_gate.cap_exhausted`. The real
-    trust-order decision (signed Ed25519 server verdict, fail-CLOSED when
-    untrusted; local-meter fallback, fail-OPEN) and the pinned public key live in
-    the ``.so`` so they cannot be edited out of an install. This open wrapper
-    exists only for the non-enforcement callers here (the user nudge, host
-    settings, the codex notification) and for tests; the server-side tool-hiding
-    enforcement in the MCP server calls the compiled gate directly. Editing this
-    wrapper therefore cannot grant free engine access — the server still hides the
-    tools when the compiled gate reports dormant.
-    """
-    from lemoncrow.pro.capabilities.licensing_gate import cap_exhausted as _gate_cap_exhausted
-
-    return _gate_cap_exhausted(root)
-
-
-def cap_nudge_text(root: str | Path) -> str:
-    """Tell anonymous users how to unlock uncapped Free access."""
-    sub = _read_json(subscription_state_path(root), {})
-    sub = sub if isinstance(sub, dict) else {}
-    cap = sub.get("monthlySavingsCapInUsd")
-    saved = sub.get("monthlySavingsInUsd")
-    if isinstance(cap, (int, float)) and isinstance(saved, (int, float)):
-        return (
-            f"LemonCrow anonymous savings cap reached (~${saved:.0f} of ${cap:.0f} this month). "
-            "Running on host defaults — run `lc account login` to unlock uncapped Free."
-        )
-    return (
-        "LemonCrow anonymous savings cap reached — running on host defaults. "
-        "Run `lc account login` to unlock uncapped Free."
-    )
-
-
-def build_cap_nudge(root: str | Path, *, session_id: str, host: str = "claude") -> str | None:
-    """One-shot user-facing cap notice — fires once per session while dormant.
-
-    Returns the nudge string the first time it is called for a dormant session,
-    then ``None`` (rate-limited via session stats, keyed ``cap_nudged``). The
-    caller routes it to a USER-only channel (Claude ``systemMessage`` /
-    OpenCode ``uiMessage`` / statusline) — never into model context, so it costs
-    no tokens and cannot derail the agent. Fail-open: any error -> ``None``.
-    """
-    try:
-        if not cap_exhausted(root):
-            return None
-        path = session_stats_path(root, session_id)
-        stats = _read_json(path, {})
-        if not isinstance(stats, dict):
-            stats = {}
-        if stats.get("cap_nudged"):
-            return None
-        stats["cap_nudged"] = True
-        with suppress(OSError, ValueError):
-            path.parent.mkdir(parents=True, exist_ok=True)
-            _write_json(path, stats)
-        return cap_nudge_text(root)
-    except Exception:
-        return None
-
-
-def begin_browser_login(
-    root: str | Path,
-    *,
-    app_url: str | None = None,
-    state: str | None = None,
-    callback_port: int | None = None,
-) -> dict[str, Any]:
-    fp = _fingerprint()
-    chosen_state = state or _fingerprint(f"state:{fp}:{_iso_now()}")
-    port = callback_port or 49152 + (int(fp[:4], 16) % (65535 - 49152))
-    base = (app_url or os.environ.get("LEMONCROW_APP_URL") or "https://127.0.0.1:8787").rstrip("/")
-    url = f"{base}/auth?callback_port={port}&state={chosen_state}&fp={fp}"
-    pending = {
-        "url": url,
-        "state": chosen_state,
-        "callbackPort": port,
-        "fingerprint": fp,
-        "createdAt": _iso_now(),
-    }
-    _write_json(Path(root) / "login_pending.json", pending, mode=0o600)
-    return pending
-
-
-def share_referral(root: str | Path, *, app_url: str | None = None) -> dict[str, Any]:
-    status = auth_status(root)
-    if not status.get("authenticated"):
-        return {"is_error": True, "message": "Log in or start a local trial before sharing."}
-    code = str(status.get("referralCode") or f"LEMONCROW-{_fingerprint(str(status.get('userId')))[:6].upper()}")
-    base = (app_url or os.environ.get("LEMONCROW_APP_URL") or "https://127.0.0.1:8787").rstrip("/")
-    text = f"Use code {code} for LemonCrow: {base}?ref={code}"
-    return {"code": code, "url": f"{base}?ref={code}", "text": text}
 
 
 def compare_versions(left: str, right: str) -> int:
@@ -991,73 +373,6 @@ def find_notebook_match(
     return {"cell_index": matches[0], "matched": True}
 
 
-_AUTO_LIMIT_WRITE_VERBS = frozenset({"insert", "update", "delete", "replace"})
-
-
-def _cte_trailing_verb_is_write(sql: str) -> bool:
-    """True if a leading `WITH ...` resolves to a top-level write verb.
-
-    Mirrors the trailing-verb scan used by the SQL tool's path-confinement
-    layer: skip the parenthesized CTE bodies and string literals, then read the
-    first depth-0 verb after the CTE list. INSERT/UPDATE/DELETE/REPLACE there
-    mean the statement modifies data and must not be wrapped/auto-limited.
-    """
-    depth = 0
-    in_single = in_double = False
-    for match in re.finditer(r"[()'\"]|[A-Za-z_][A-Za-z_]*", sql):
-        token = match.group(0)
-        if in_single:
-            if token == "'":
-                in_single = False
-            continue
-        if in_double:
-            if token == '"':
-                in_double = False
-            continue
-        if token == "'":
-            in_single = True
-        elif token == '"':
-            in_double = True
-        elif token == "(":
-            depth += 1
-        elif token == ")":
-            depth -= 1
-        elif depth == 0:
-            lowered_token = token.lower()
-            if lowered_token in _AUTO_LIMIT_WRITE_VERBS:
-                return True
-            if lowered_token == "select":
-                return False
-    return False
-
-
-def sql_auto_limit(sql: str, max_rows: int, auto_limit: bool = True) -> dict[str, Any]:
-    if not auto_limit:
-        return {"sql": sql, "changed": False}
-    stripped = sql.strip().rstrip(";")
-    lowered = stripped.lower()
-    is_select = lowered.startswith("select")
-    is_cte = lowered.startswith("with")
-    if not (is_select or is_cte):
-        return {"sql": sql, "changed": False, "reason": "only select statements are auto-limited"}
-    # A `WITH ...` prefix is not necessarily a read: a write-CTE
-    # (`WITH x AS (...) DELETE FROM t ...`) starts with WITH but its effective
-    # top-level verb is a write. Wrapping such a statement as
-    # `SELECT * FROM (... DELETE ...)` produces invalid SQL, so detect the
-    # trailing top-level verb and skip auto-limit when it modifies data.
-    if is_cte and _cte_trailing_verb_is_write(stripped):
-        return {"sql": sql, "changed": False, "reason": "write CTEs are not auto-limited"}
-    if re.search(r"\blimit\b", lowered):
-        return {"sql": sql, "changed": False}
-    has_set_op = bool(re.search(r"\b(union|intersect|except)\b", lowered))
-    # Plain selects can take a trailing LIMIT directly. Set-operations and
-    # WITH-CTE selects must be wrapped so the bound applies to the whole result
-    # rather than only the final SELECT branch (or being a syntax error).
-    if is_cte or has_set_op:
-        return {"sql": f"SELECT * FROM ({stripped}) LIMIT {max_rows}", "changed": True}
-    return {"sql": f"{stripped} LIMIT {max_rows}", "changed": True}
-
-
 def discover_connection(
     env: dict[str, str] | None = None,
     dotenv_files: dict[str, dict[str, str]] | None = None,
@@ -1084,14 +399,6 @@ def column_typo_repair_policy(column_score: float, second_best_score: float) -> 
     return {"repair": True, "reason": "single confident column match"}
 
 
-def postgres_try_auto_fix(sql: str, error_signature: str) -> dict[str, Any]:
-    if "column" in error_signature.lower() and "date_trunc" in sql.lower():
-        fixed = re.sub(r'date_trunc\("([a-zA-Z_]+)",', r"date_trunc('\1',", sql)
-        if fixed != sql:
-            return {"fixed_sql": fixed, "retry": True}
-    return {"fixed_sql": sql, "retry": False}
-
-
 def recall_constants() -> dict[str, Any]:
     return {
         "dim": RECALL_DIM,
@@ -1105,20 +412,14 @@ def recall_constants() -> dict[str, Any]:
 
 def status_line_choose_message(
     *,
-    auth_present: bool = True,
     update_flag: dict[str, Any] | None = None,
     session_id: str | None = None,
     total_tool_calls: int = 0,
     turn_count: int = 0,
     enabled_families: list[str] | None = None,
-    subscription_warning: bool = False,
 ) -> dict[str, Any]:
-    if not auth_present:
-        return {"message_family": "login", "rotation_skipped": True}
     if update_flag and update_flag.get("toVersion") != update_flag.get("fromVersion"):
         return {"message_family": "update", "rotation_skipped": True}
-    if subscription_warning:
-        return {"message_family": "subscription", "rotation_skipped": True}
     if not session_id:
         return {"message_family": "default", "rotation_skipped": True}
     families = enabled_families or ["savings", "tip", "lifetime"]
@@ -1287,48 +588,22 @@ def session_start_bootstrap(
     updated_host = apply_attribution_setting(updated_host, settings["attribution"])
     actions.append("attribution_installed" if settings["attribution"] else "attribution_removed")
 
-    # Refresh the meter first so the dormant decision reads fresh cap state.
-    # Dormant = the plan's savings cap is exhausted: the plugin goes quiet
-    # (degrade to the host default agent, never block) until the cap resets or
-    # the user signs in or the rolling window drops below cap. Auto-recovers on
-    # a later session start once active again.
-    auth = claim_anonymous_trial(root)
-    refresh_subscription_meter(root)
-    dormant = cap_exhausted(root)
-    actions.append("dormant" if dormant else "active")
-
-    # When dormant, stop force-loading the lc tools so the fallback agent runs on
-    # host-native tools (Layer 2). When active, honor the configured flag.
-    always_load = False if dormant else settings["alwaysLoadTools"]
+    # The OSS runtime is always active locally. Hosted identity/policy is a
+    # separate client/server composition and never changes local tool access.
+    actions.append("active")
+    always_load = settings["alwaysLoadTools"]
     mcp_result = rewrite_mcp_always_load(mcp_json, always_load)
     if mcp_result["changed"]:
         actions.append("always_load_updated")
 
-    # Layer 2 is enforced server-side (the MCP server hides all lc tools when
-    # dormant), so no special fallback agent is needed: with no lc tools
-    # visible, the model runs on the host built-ins on its own.
-    #
-    # This block fully OWNS the `agent` key across both directions --
-    # integrations/claude/plugin/settings.json (the plugin-bundled defaults
-    # Claude Code merges in on every session, independent of this write)
-    # deliberately declares no static `agent`, because that default would
-    # re-assert lemoncrow:code no matter what gets popped here while dormant
-    # (see scripts/install_claude.sh's staging comment). So when dormant, pop
-    # it so the host default persona applies; when active, (re)set it to
-    # lemoncrow:code -- covers both a fresh install (key never existed) and
-    # recovering from a prior dormant pop (the key is simply absent and
-    # nothing else would ever restore it now that the static default is
-    # gone). Never clobber a user's own custom agent: only touch a slot that
-    # is empty or already ours (current lemoncrow:code, or the legacy
-    # lemoncrow:free placeholder from an earlier build).
+    # Keep the LemonCrow persona selected when the slot is empty or already
+    # LemonCrow-owned. Never clobber a user's custom agent. This also restores
+    # installations whose agent key was removed by the retired cap/dormancy path.
     current_agent = updated_host.get("agent")
     owns_agent_slot = current_agent is None or (
         isinstance(current_agent, str) and (current_agent == "" or current_agent.startswith("lemoncrow:"))
     )
-    if dormant:
-        if owns_agent_slot:
-            updated_host.pop("agent", None)
-    elif owns_agent_slot:
+    if owns_agent_slot:
         updated_host["agent"] = "lemoncrow:code"
 
     update = update_notification(current_version, _read_json(update_flag_path(root), None))
@@ -1339,9 +614,8 @@ def session_start_bootstrap(
         "settings": settings,
         "host_settings": updated_host,
         "mcp_json": mcp_result["mcp_json"],
-        "auth": auth,
+        "runtime": {"mode": "local", "all_features": True},
         "actions": actions,
-        "dormant": dormant,
         "stdout": stdout,
         "update": update,
     }
@@ -1686,17 +960,14 @@ def codex_update_notification(root: str | Path, *, current_version: str) -> dict
     # Session-optimizer guidance is intentionally NOT injected here: its rules
     # duplicate the agent persona (core-discipline / change-discipline). The
     # offline analysis (build_trace_optimization_report) and rule data are kept.
-    # Refresh the meter first so the dormant decision reads fresh cap state.
-    refresh_subscription_meter(root)
-    dormant = cap_exhausted(root)
     result = update_notification(current_version, _read_json(update_flag_path(root), None))
     if result.get("delete_flag"):
         update_flag_path(root).unlink(missing_ok=True)
     stdout = _merge_session_start_stdout(
         result.get("stdout"),
-        _codex_session_start_tool_policy(dormant=dormant),
+        _codex_session_start_tool_policy(dormant=False),
     )
-    return {**result, "stdout": stdout, "optimizer": {"host": "codex"}, "dormant": dormant}
+    return {**result, "stdout": stdout, "optimizer": {"host": "codex"}}
 
 
 _LEMONCROW_TOOL_NAMES: frozenset[str] = frozenset(
@@ -1955,13 +1226,11 @@ def build_opencode_user_prompt_output(root: str | Path, payload: dict[str, Any])
     normalized["hook_event_name"] = "UserPromptSubmit"
     session_id = str(normalized.get("session_id") or "default")
     _write_opencode_session_state(root, payload)
-    # Layer 2 (opencode): stash/restore our agent files by cap state so a dormant
-    # session degrades to the builtin agent (parity with Claude/Codex). Idempotent.
+    # Restore any agent files stashed by pre-open-source cap/dormancy builds.
     with suppress(Exception):
         _ws = str(normalized.get("cwd") or normalized.get("workspace") or os.getcwd())
-        _oc_dormant = cap_exhausted(root)
-        reset_host_agents_for_dormancy("opencode", _ws, dormant=_oc_dormant)
-        reset_lemoncrow_global_dormancy("opencode", dormant=_oc_dormant)
+        reset_host_agents_for_dormancy("opencode", _ws, dormant=False)
+        reset_lemoncrow_global_dormancy("opencode", dormant=False)
     _opencode_record_prompt(root, payload)
     update_session_stats(root, normalized)
     path = session_stats_path(root, session_id)
@@ -1992,11 +1261,6 @@ def build_opencode_post_tool_use_output(root: str | Path, payload: dict[str, Any
     # lc-tool nudge short-circuit) -- the MCP server only persists its own
     # ledger at session close, too late for the idle hook.
     _record_tool_for_verify(root, normalized)
-    # One-shot cap nudge (user-only uiMessage) fires before the lc-tool
-    # short-circuit so it shows even on an lc tool call while dormant.
-    cap_msg = build_cap_nudge(root, session_id=str(normalized.get("session_id") or "default"), host="opencode")
-    if cap_msg:
-        return {"uiMessage": cap_msg}
     # Required-argument nudge (Codex/Claude parity -- see
     # _required_arg_nudge_message's docstring): applies regardless of lc-tool
     # vs. native tool, so it is checked ahead of that split. OpenCode's raw
@@ -2074,7 +1338,17 @@ def _opencode_record_prompt(root: str | Path, payload: dict[str, Any]) -> None:
 
 _TURN_CUT_RATIO_DEFAULT = 0.642
 _INPUT_STYLE_RATIO_DEFAULT = 1.16
-_OUTPUT_STYLE_RATIO_DEFAULT = 2.09
+_OUTPUT_STYLE_RATIO_ULTRA = 2.09
+
+
+def _default_output_style_ratio() -> float:
+    """Return only a calibrated output-style ratio for the active register."""
+    try:
+        from lemoncrow.core.reply_register import reply_register_level
+
+        return _OUTPUT_STYLE_RATIO_ULTRA if reply_register_level() == "ultra" else 1.0
+    except Exception:
+        return 1.0
 
 
 def _savings_sidecar_path(root: str | Path, session_id: str, agent: str) -> Path | None:
@@ -2360,19 +1634,18 @@ def _opencode_prose_output_tokens(session_id: str) -> int:
 def write_stop_hook_output_style_row(
     root: str | Path, session_id: str, stats: dict[str, Any], prose_tokens: int, *, agent: str = "claude"
 ) -> None:
-    """Credit the telegraphic output style: prose the model did NOT emit.
+    """Credit reply-style savings only when the active register is calibrated.
 
-    Plugin-level savings logic shared across hosts; pricing resolves per model
-    from ``stats``. The prose-token BASIS is host-specific -- each host measures
-    its own reply prose (Claude parses its transcript via ``_prose_output_tokens``
-    in stop.py) and passes it as ``prose_tokens``; a host with no prose source
-    passes 0 and no row is written. See integrations/claude/plugin/hooks/stop.py
-    for the ratio (2.09) derivation.
+    The prose-token basis is host-specific. Ultra's 2.09 ratio is measured on
+    the matched telegraphic Q&A benchmark. Lite deliberately trades some
+    compression for readability and receives no guessed savings credit until
+    separately calibrated; off likewise receives none. An explicit
+    ``LEMONCROW_OUTPUT_STYLE_RATIO`` still overrides the default.
     """
     if not session_id:
         return
     try:
-        ratio = float(os.environ.get("LEMONCROW_OUTPUT_STYLE_RATIO", str(_OUTPUT_STYLE_RATIO_DEFAULT)))
+        ratio = float(os.environ.get("LEMONCROW_OUTPUT_STYLE_RATIO", str(_default_output_style_ratio())))
     except ValueError:
         return
     if ratio <= 1.0:
@@ -2859,11 +2132,9 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
     ):
         return {"no_output": True}
 
-    # Public rollup: NOT pushed from here. This hook used to post the codex
-    # session live, but the servicectl daemon's daily flush already folds
-    # every locally-tracked host -- codex included -- into one per-day
-    # aggregate, so posting here double counted every codex session in the
-    # public counters (once live, once inside the day's digest).
+    # Public rollup is intentionally not pushed from this hook. Session hooks
+    # remain local-only; any explicit rollup publisher must aggregate the local
+    # ledger separately rather than sending one network request per session.
     # See lemoncrow.core.service.telemetry.public_rollup.
 
     model = str(session.get("last_model") or session.get("model") or _codex_payload_model(payload) or "")
@@ -4826,9 +4097,6 @@ def update_session_stats(root: str | Path, payload: dict[str, Any]) -> dict[str,
         state["completed"] = True
     elif event == "Stop":
         state["completed"] = True
-        # Session ended: refresh the month-to-date usage meter so the plan
-        # spend/savings and the statusline warning reflect this session's cost.
-        refresh_subscription_meter(root)
     usage_event = _optional_usage_event(event, payload)
     if usage_event is not None:
         record_optional_use(root, usage_event[0], usage_event[1], int(state["last_event_at_ms"]))
@@ -5185,8 +4453,6 @@ def build_savings_report(
     lifetime.setdefault("calls_saved", calls_avoided)
     lifetime.setdefault("tokens_saved", tokens_saved)
     lifetime.setdefault("saved_usd", saved_usd)
-    subscription = resolve_subscription(root_path)
-    subscription = compute_usage_meter(root_path, subscription=subscription)
     ab_calibration = _summarize_ab_calibration(root_path)
 
     # --- Summary breakdown (1D, 7D, 30D) ---
@@ -5230,7 +4496,7 @@ def build_savings_report(
             "estimate": baseline,
             **baseline_gate,
         },
-        "subscription": subscription,
+        "access": {"mode": "local", "all_features": True},
         "ab_calibration": ab_calibration,
         "cost": cost,
         "local_note": "Savings reflect tokens LemonCrow actually kept out of LLM input, priced per-turn at the model in use.",

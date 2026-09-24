@@ -23,14 +23,17 @@ source "${SCRIPT_DIR}/lib/common.sh"
 LEMONCROW_LOCAL=0
 LEMONCROW_DRY_RUN="${LEMONCROW_DRY_RUN:-0}"
 LEMONCROW_PYTHON_VERSION="${LEMONCROW_PYTHON_VERSION:-3.13}"
+LEMONCROW_INSTALL_MODE="${LEMONCROW_INSTALL_MODE:-local}"
+case "$LEMONCROW_INSTALL_MODE" in
+    local|hosted) ;;
+    *) fail "LEMONCROW_INSTALL_MODE must be 'local' or 'hosted', got: $LEMONCROW_INSTALL_MODE" ;;
+esac
 
 # ---- arg parsing ------------------------------------------------------------
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry-run) LEMONCROW_DRY_RUN=1 ;;
         --no-hosts) LEMONCROW_NO_HOSTS=1 ;;
-        --no-servicectl) LEMONCROW_NO_SERVICECTL=1 ;;
-        --no-stack) LEMONCROW_NO_STACK=1 ;;
         --verbose|-v) LEMONCROW_VERBOSE=1 ;;
         --non-interactive) LEMONCROW_NON_INTERACTIVE=1 ;;
         --advanced) LEMONCROW_ADVANCED=1 ;;
@@ -127,37 +130,42 @@ install_lemoncrow_from_wheel() {
     if [[ "$LEMONCROW_DRY_RUN" != "1" ]]; then
         uv python install "$LEMONCROW_PYTHON_VERSION" >/dev/null 2>&1 || true
     fi
-
-    # Pin every transitive dependency to its locked version via the constraints
-    # file build.sh ships next to this script (<bundle>/constraints.txt). Without
-    # it, `uv tool install` ignores uv.lock and resolves the wheel's unbounded
-    # `>=` deps from scratch against PyPI (~293 packages) — the "stuck resolving
-    # packages" hang on a cold machine. With `-c`, resolution is deterministic
-    # and does no version search. This is the single install step shared by both
-    # `make prod` and the distribution installer: install.sh only downloads and
-    # extracts the bundle, then runs this exact script the same way.
+    # Pin every registry dependency to its locked version via the constraints
+    # file build.sh ships next to this script (<bundle>/constraints.txt). Local
+    # workspace/path dependencies are intentionally excluded from that file;
+    # build.sh ships them as wheels in <bundle>/vendor instead, and --find-links
+    # makes those artifacts available to the resolver without turning a local
+    # path into an invalid constraint entry.
     local constraints_arg=()
     if [[ -f "${SCRIPT_DIR}/../constraints.txt" ]]; then
         verbose "Using bundled dependency constraints"
-        local constraints_file="${SCRIPT_DIR}/../constraints.txt"
-        # uv export emits local-path deps (the babel stub) as a bare, unnamed,
-        # build-machine-relative path -- `uv tool install -c` rejects unnamed
-        # entries outright, and the relative path wouldn't resolve on this
-        # machine anyway. Rewrite it to a named, absolute file:// URL pointing
-        # at the wheel build.sh ships alongside constraints.txt.
-        if grep -q "vendor/babel-" "${constraints_file}"; then
-            constraints_file="${SCRIPT_DIR}/../constraints.resolved.txt"
-            sed -E "s#^\\./?vendor/(babel-[^[:space:]]+\\.whl)\$#babel @ file://${SCRIPT_DIR}/../vendor/\\1#" \
-                "${SCRIPT_DIR}/../constraints.txt" > "${constraints_file}"
-        fi
-        constraints_arg=(-c "${constraints_file}")
+        constraints_arg=(-c "${SCRIPT_DIR}/../constraints.txt")
+    fi
+    local find_links_arg=()
+    local vendor_dir="${SCRIPT_DIR}/../vendor"
+    if compgen -G "${vendor_dir}/*.whl" >/dev/null; then
+        verbose "Using bundled local dependency wheels from ${vendor_dir}"
+        find_links_arg=(--find-links "${vendor_dir}")
     fi
 
     # litellm is NOT optional in practice: the owned runtime's completion path
     # (gateway/cli/runtime.py) imports it for every model turn, so `lc code`
     # dies with "No module named 'litellm'" without it.
     local extras="mcp,memory,smart,cloud,postgres,vector,parsers,rename,litellm"
+    local server_with_args=()
+    if [[ "$LEMONCROW_INSTALL_MODE" == "local" ]]; then
+        local server_wheel=""
+        server_wheel="$(find "${LEMONCROW_INSTALL_DIR}/server" -maxdepth 1 -name 'lemoncrow_server-*.whl' 2>/dev/null | sort -V | tail -1 || true)"
+        [[ -n "$server_wheel" ]] || fail "Local install requires the bundled public LemonCrow server wheel. Rebuild the distribution with make prod, or use hosted.sh for a remote server."
+        server_with_args=(--with "$server_wheel")
+    fi
     stop_existing_lemoncrow_processes
+    # A local server runs from the LemonCrow uv-tool environment. Stop it before
+    # replacing that environment; otherwise a reinstall can leave a live process
+    # executing files that uv has just removed underneath it.
+    if [[ -x "${SCRIPT_DIR}/local_server.sh" && "$LEMONCROW_DRY_RUN" != "1" ]]; then
+        LEMONCROW_TOOL_DIR="$LEMONCROW_TOOL_DIR" bash "${SCRIPT_DIR}/local_server.sh" stop || true
+    fi
     UV_TOOL_BIN_DIR="$LEMONCROW_BIN_DIR" UV_TOOL_DIR="$LEMONCROW_TOOL_DIR" \
         uv tool uninstall lemoncrow >/dev/null 2>&1 || true
 
@@ -173,7 +181,8 @@ install_lemoncrow_from_wheel() {
     # force-reinstall the interpreter once before giving up.
     local uv_install_cmd=(
         env UV_TOOL_BIN_DIR="$LEMONCROW_BIN_DIR" UV_TOOL_DIR="$LEMONCROW_TOOL_DIR"
-        uv tool install --force --python "$LEMONCROW_PYTHON_VERSION" "${wheel}[${extras}]" ${constraints_arg[@]+"${constraints_arg[@]}"} --reinstall-package lemoncrow
+        uv tool install --force --python "$LEMONCROW_PYTHON_VERSION" "${wheel}[${extras}]"
+        "${constraints_arg[@]}" "${find_links_arg[@]}" "${server_with_args[@]}" --reinstall-package lemoncrow
     )
     if ! spin_tail "Installing LemonCrow" "${uv_install_cmd[@]}"; then
         warn "LemonCrow install failed — Python ${LEMONCROW_PYTHON_VERSION} looks missing or broken; reinstalling it and retrying..."
@@ -205,17 +214,73 @@ install_lemoncrow_from_wheel() {
         ! -name "$(basename "${wheel}")" -delete 2>/dev/null || true
 }
 
+cleanup_legacy_runtime() {
+    local cleanup_script="${SCRIPT_DIR}/cleanup_legacy_runtime.sh"
+    [[ -x "$cleanup_script" ]] || return 0
+    LEMONCROW_HOME="${LEMONCROW_HOME:-${HOME}/.lemoncrow}" \
+        LEMONCROW_DRY_RUN="$LEMONCROW_DRY_RUN" \
+        bash "$cleanup_script"
+}
+
+configure_runtime_mode() {
+    local state_dir="${HOME}/.lemoncrow"
+    mkdir -p "$state_dir"
+    if [[ "$LEMONCROW_INSTALL_MODE" == "local" ]]; then
+        local server_script="${SCRIPT_DIR}/local_server.sh"
+        [[ -x "$server_script" ]] || fail "local_server.sh is missing from the distribution"
+        if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
+            echo "[dry-run] bash $server_script restart"
+        else
+            # Installation may have replaced either the server wheel or the
+            # frontend bundle. Restart the one local process so both change
+            # atomically instead of leaving Review on an old generation.
+            LEMONCROW_TOOL_DIR="$LEMONCROW_TOOL_DIR" bash "$server_script" restart
+        fi
+        return 0
+    fi
+
+    local hosted_url="${LEMONCROW_HOSTED_URL:-${LEMONCROW_URL:-}}"
+    [[ -n "$hosted_url" ]] || fail "Hosted install requires LEMONCROW_HOSTED_URL (or LEMONCROW_URL)."
+    case "$hosted_url" in
+        http://*|https://*) ;;
+        *) fail "Hosted server URL must be absolute http(s): $hosted_url" ;;
+    esac
+    if [[ -x "${SCRIPT_DIR}/local_server.sh" && "$LEMONCROW_DRY_RUN" != "1" ]]; then
+        LEMONCROW_TOOL_DIR="$LEMONCROW_TOOL_DIR" bash "${SCRIPT_DIR}/local_server.sh" stop || true
+    fi
+    local env_file="${state_dir}/env" tmp="${state_dir}/env.tmp.$$"
+    if [[ -f "$env_file" ]]; then
+        grep -Ev '^(LEMONCROW_URL|LEMONCROW_INSTALL_MODE|LEMONCROW_LOCAL_FS|LEMONCROW_TOKEN_FILE)=' "$env_file" >"$tmp" || true
+    else
+        : >"$tmp"
+    fi
+    printf 'LEMONCROW_URL=%s\n' "$hosted_url" >>"$tmp"
+    printf 'LEMONCROW_INSTALL_MODE=hosted\n' >>"$tmp"
+    chmod 600 "$tmp"
+    mv "$tmp" "$env_file"
+    if [[ -n "${LEMONCROW_TOKEN:-}" ]]; then
+        printf '%s\n' "$LEMONCROW_TOKEN" >"${state_dir}/token"
+        chmod 600 "${state_dir}/token"
+    fi
+    info "Hosted target configured: $hosted_url"
+}
+
 # ---- main -------------------------------------------------------------------
 main() {
     need_cmd bash
     assert_install_tree_consistent
 
+    # Retire the pre-thin-client controller/stack before any interactive setup
+    # can keep the installer open. Exact-name cleanup preserves all supported
+    # per-hostname persistent MCP services.
+    cleanup_legacy_runtime
+
     print_installer_header
     host_wizard
     prompt_memory_selection
-    prompt_auto_optimize_selection
     prompt_local_zoekt_selection
     prompt_rtk_selection
+    prompt_update_selection
     if supports_interactive_selector; then
         print_installer_footer
     fi
@@ -227,10 +292,10 @@ main() {
     [[ -n "$LEMONCROW_MEMORY_BACKEND" ]] && LEMONCROW_ADVANCED=1
 
     install_uv_if_needed
-    install_node_if_needed
     _capture_install_previous_version
     assert_install_tree_unchanged "before-wheel-install"
     install_lemoncrow_from_wheel
+    configure_runtime_mode
 
     # Prevent set -e from aborting on partial failures (degrade() sets
     # FINAL_EXIT_CODE). Match local.sh pattern so the report always prints.

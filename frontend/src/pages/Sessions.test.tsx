@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { TimeRangeProvider } from "../lib/TimeRangeContext";
 import Sessions from "./Sessions";
@@ -123,13 +123,13 @@ function mockFetch(
     });
 }
 
-function renderSessions(initialEntry = "/sessions") {
+function renderSessions(initialEntry = "/runs") {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
       <TimeRangeProvider>
         <Routes>
-          <Route path="/sessions" element={<Sessions />} />
-          <Route path="/sessions/:id" element={<Sessions />} />
+          <Route path="/runs" element={<Sessions />} />
+          <Route path="/runs/:id" element={<Sessions />} />
         </Routes>
       </TimeRangeProvider>
     </MemoryRouter>
@@ -199,6 +199,85 @@ describe("Sessions page", () => {
     expect(screen.getAllByText("$0.100").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByLabelText("Filter by host")).toBeInTheDocument();
     expect(screen.getByLabelText("Filter by workspace")).toBeInTheDocument();
+  });
+
+  it("hides internal zero-usage traces and does not render unavailable cost as $0", async () => {
+    const internalTrace = {
+      ...sampleTraces.items[0],
+      id: "internal-trace",
+      session_id: "internal-session",
+      agent: "lemoncrow:code",
+      host: "lemoncrow",
+      model: "",
+      task: "Internal LemonCrow task",
+      input_tokens: 0,
+      output_tokens: 0,
+      cached_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+    };
+    const unpricedTrace = {
+      ...sampleTraces.items[0],
+      id: "opencode-session",
+      session_id: "opencode-session",
+      agent: "lemoncrow:code",
+      host: "opencode",
+      model: "opencode/big-pickle",
+      task: "Real OpenCode session",
+      input_tokens: 100,
+      output_tokens: 20,
+      cached_input_tokens: 0,
+      cache_creation_input_tokens: 0,
+    };
+    const summaries: SessionSummary[] = [
+      {
+        session_id: "internal-session",
+        started_at: "2024-01-01T10:00:00Z",
+        ended_at: "2024-01-01T10:01:00Z",
+        duration_seconds: 60,
+        active_duration_seconds: 60,
+        vendor: "unknown",
+        cost_status: "unavailable",
+        total_turns: 0,
+        total_cost_usd: 0,
+        total_lemoncrow_savings_usd: 0,
+        label: null,
+        models_used: {},
+      },
+      {
+        session_id: "opencode-session",
+        started_at: "2024-01-01T11:00:00Z",
+        ended_at: "2024-01-01T11:01:00Z",
+        duration_seconds: 60,
+        active_duration_seconds: 60,
+        vendor: "opencode",
+        started_model: "opencode/big-pickle",
+        cost_status: "unavailable",
+        total_turns: 1,
+        total_cost_usd: 0,
+        total_lemoncrow_savings_usd: 0,
+        label: null,
+        models_used: { "opencode/big-pickle": 1 },
+        input_tokens: 100,
+        output_tokens: 20,
+      },
+    ];
+
+    mockFetch({
+      "/api/traces": jsonResponse({
+        ...sampleTraces,
+        items: [internalTrace, unpricedTrace],
+      }),
+      "/api/v1/sessions": jsonResponse(summaries),
+    });
+
+    renderSessions();
+
+    const task = await screen.findByText("Real OpenCode session");
+    expect(screen.queryByText("Internal LemonCrow task")).not.toBeInTheDocument();
+    const row = task.closest("button");
+    expect(row).not.toBeNull();
+    expect(within(row as HTMLElement).getByText("—")).toBeInTheDocument();
+    expect(within(row as HTMLElement).queryByText("$0.000")).toBeInTheDocument();
   });
 
   it("shows empty state when no sessions", async () => {
@@ -285,7 +364,7 @@ describe("Sessions page", () => {
       }),
     });
 
-    renderSessions("/sessions/abc123def456ghi");
+    renderSessions("/runs/abc123def456ghi");
 
     expect(await screen.findByText("Execution Flow")).toBeInTheDocument();
     expect(await screen.findByText("Done.")).toBeInTheDocument();

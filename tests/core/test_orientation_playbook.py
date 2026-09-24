@@ -48,12 +48,12 @@ def test_playbook_is_deterministic() -> None:
 
 
 def test_orient_mcp_tool_registered_hidden_and_returns_playbook() -> None:
-    from lemoncrow.core.environment import HIDDEN_LLM_TOOLS, mcp_tool_visible_to_llm
+    from lemoncrow.core.environment import LLM_VISIBLE_TOOLS, mcp_tool_visible_to_llm
     from lemoncrow.gateway.adapters import mcp_server
 
     assert "orient" in mcp_server.TOOLS
     # Registered but kept off the advertised surface.
-    assert "orient" in HIDDEN_LLM_TOOLS
+    assert "orient" not in LLM_VISIBLE_TOOLS
     assert mcp_tool_visible_to_llm("orient") is False
 
     handler = mcp_server.TOOLS["orient"]["handler"]

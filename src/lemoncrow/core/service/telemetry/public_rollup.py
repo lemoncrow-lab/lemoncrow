@@ -59,7 +59,16 @@ _LOCK_RELPATH = ("telemetry", "public_rollup.lock")
 FLUSH_INTERVAL_SECONDS = TELEMETRY_PUSH_INTERVAL_SECONDS
 _RETRY_BASE_SECONDS = 900  # 15 min after the first failure ...
 _RETRY_MAX_SECONDS = 21_600  # ... doubling up to 6 h
-_LOCK_STALE_SECONDS = 900
+# Each unflushed day costs up to FLUSH_ATTEMPTS * FLUSH_TIMEOUT_SECONDS plus
+# retry sleeps (~18s worst case) and flush_daily_public_rollup posts one day
+# at a time sequentially, so a install that was dormant for months can
+# legitimately hold this lock for tens of minutes catching up. 900s was sized
+# for a single day's worst case and gets stolen mid-catch-up by a concurrent
+# caller (same failure mode found and fixed for maintenance_tick's identical
+# lock pattern -- see its _LOCK_STALE_SECONDS). An hour comfortably covers a
+# multi-week backlog; a backlog large enough to still exceed it is an
+# accepted edge case, not a routine one.
+_LOCK_STALE_SECONDS = 60 * 60
 _FAILURE_REASONS = frozenset({"post_failed", "error"})
 
 

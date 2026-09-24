@@ -9,8 +9,9 @@ schema migration), and the retrieval-result surfaces that carry it.
 
 from __future__ import annotations
 
+from lemoncrow_client.kit.redaction import is_prompt_injection
+
 from lemoncrow.core.foundation.memory_models import ArchivalPassage
-from lemoncrow.core.foundation.redaction import is_prompt_injection
 from lemoncrow.pro.foundation.retriever import (
     render_memory_for_agent,
     summarize_recalled_passages,

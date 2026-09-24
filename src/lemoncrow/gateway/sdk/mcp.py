@@ -7,7 +7,6 @@ operations like listing Playbooks it falls back to a local store at
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any, ClassVar, cast
 
@@ -18,7 +17,6 @@ from lemoncrow.core.foundation.models import (
     TraceStatus,
     ValidationResult,
 )
-from lemoncrow.gateway.adapters import mcp_server
 from lemoncrow.gateway.sdk.client import (
     ContextResult,
     MCPToolTransport,
@@ -26,6 +24,7 @@ from lemoncrow.gateway.sdk.client import (
     TraceRecordResult,
 )
 from lemoncrow.gateway.sdk.local import LocalClient
+from lemoncrow.gateway.tools.registry import call_registered_tool
 from lemoncrow.gateway.trace_payloads import serialize_trace_learnings, serialize_validation_results
 
 
@@ -41,11 +40,11 @@ class _LoopbackTransport(MCPToolTransport):
         # graph, scan, ...). Each entry is the same dict-accepting handler the
         # MCP dispatcher invokes, so behavior is identical across transports.
         canonical = self._ALIASES.get(name, name)
-        spec = mcp_server.TOOLS.get(canonical)
-        if spec is None:
-            raise KeyError(name)
-        handler = cast(Callable[[dict[str, Any]], Any], spec["handler"])
-        return cast(dict[str, Any], handler(arguments))
+        try:
+            result = call_registered_tool(canonical, arguments)
+        except KeyError:
+            raise KeyError(name) from None
+        return cast(dict[str, Any], result)
 
 
 class MCPClient(LocalClient):

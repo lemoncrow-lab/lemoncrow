@@ -1,5 +1,5 @@
 [tool.uv]
-workspace = { members = ["benchmarks", "integrations"] }
+workspace = { members = ["benchmarks", "integrations", "client"] }
 # langfuse>=3 needs opentelemetry-api>=1.33 while letta (memory-server) pins
 # ==1.30.  langfuse is the primary observability integration (used in dev CI);
 # memory-server is rarely used.  They can't coexist, so declare the conflict.
@@ -8,6 +8,7 @@ conflicts = [
 ]
 
 [tool.uv.sources]
+lemoncrow-client = { workspace = true }
 # courlan imports babel only for Locale.parse(...).language (BCP47 prefix check).
 # Override with a minimal functional stub to save ~30 MB from the production install.
 # Pre-built wheel so uv generates a named constraint (babel @ file://...) instead of
@@ -28,6 +29,7 @@ classifiers = [
 ]
 
 dependencies = [
+    "lemoncrow-client==0.1.0",
     "pydantic>=2.6",
     "click>=8.1",
     "cryptography>=42",
@@ -122,8 +124,6 @@ dev = [
 lemoncrow = "lemoncrow.gateway.cli:main"
 lc = "lemoncrow.gateway.cli:main"
 lemoncode = "lemoncrow.gateway.cli:main"
-lemoncrowd = "lemoncrow.core.service.daemon:main"
-lcd = "lemoncrow.core.service.daemon:main"
 
 [build-system]
 requires = ["hatchling", "setuptools", "mypy>=1.10"]

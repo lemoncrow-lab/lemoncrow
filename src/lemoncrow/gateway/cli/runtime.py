@@ -42,6 +42,13 @@ from lemoncrow.gateway.cli.events import (
     ToolStarted,
     VerificationResult,
 )
+from lemoncrow.gateway.tools.dedup import CLI_DEDUP_TOOLS, dedup_output, read_dedup_resource
+from lemoncrow.gateway.tools.registry import call_registered_tool
+from lemoncrow.gateway.tools.rendering import render_tool_result_text
+from lemoncrow.pro.capabilities.context_compression.request_boundary import (
+    RequestCompressionState,
+    request_context_compressor_from_env,
+)
 from lemoncrow.pro.capabilities.optimization.cache_economics import (
     CacheDecision,
     cache_control_for_tier,
@@ -168,6 +175,8 @@ class InteractiveRuntime:
         self._project_root = Path.cwd().resolve()
         self._sessions: dict[str, list[dict[str, Any]]] = {}
         self._session_costs: dict[str, float] = {}
+        self._request_context_compressor = request_context_compressor_from_env()
+        self._request_compression_states: dict[str, RequestCompressionState] = {}
         # Structured sidebar snapshot for rich frontends; cumulative for the
         # life of this gateway process (the HTTP adapter mints a fresh session
         # id per request, so per-session totals would reset every turn).
@@ -196,8 +205,10 @@ class InteractiveRuntime:
             oldest = next(iter(self._sessions))
             self._sessions.pop(oldest)
             self._session_costs.pop(oldest, None)
+            self._request_compression_states.pop(oldest, None)
         self._sessions[session_id] = []
         self._session_costs.setdefault(session_id, 0.0)
+        self._request_compression_states.pop(session_id, None)
         if project_root:
             self._project_root = Path(project_root).resolve()
             os.environ["CLAUDE_WORKSPACE_ROOT"] = str(self._project_root)
@@ -456,10 +467,12 @@ class InteractiveRuntime:
 
     def restore_session(self, session_id: str, messages: list[dict[str, Any]]) -> None:
         self._sessions[session_id] = list(messages)
+        self._request_compression_states.pop(session_id, None)
 
     def drop_session(self, session_id: str) -> None:
         self._sessions.pop(session_id, None)
         self._session_costs.pop(session_id, None)
+        self._request_compression_states.pop(session_id, None)
 
     async def handle_user_message(
         self,
@@ -876,12 +889,43 @@ class InteractiveRuntime:
                 reason="tool-only execution for explicit mutation work",
                 eligible=proposed_tool_choice == "required",
             )
+
+            request_messages = messages
+            compression_state: RequestCompressionState | None = None
+            if self._request_context_compressor.enabled:
+                compression_state = self._request_compression_states.setdefault(session_id, RequestCompressionState())
+                compression_input, frozen_message_count = compression_state.prepare(messages, model=current_model)
+                compression_result = await asyncio.to_thread(
+                    self._request_context_compressor.compress,
+                    compression_input,
+                    model=current_model,
+                    frozen_message_count=frozen_message_count,
+                )
+                request_messages = compression_result.messages
+                trace.decision(
+                    "context_compression",
+                    phase=state.phase,
+                    proposed={"backend": "headroom", "frozen_messages": frozen_message_count},
+                    actual={
+                        "backend": compression_result.backend,
+                        "tokens_before_est": compression_result.estimated_tokens_before,
+                        "tokens_after_est": compression_result.estimated_tokens_after,
+                        "tokens_saved_est": compression_result.estimated_tokens_saved,
+                        "savings_pct_est": compression_result.savings_pct,
+                        "changed_messages": compression_result.changed_messages,
+                        "protected_messages": compression_result.protected_messages,
+                        "transforms": list(compression_result.transforms),
+                    },
+                    reason=compression_result.reason or "optional residual request compression",
+                    eligible=True,
+                )
+
             cache_decision = choose_cache_decision(
                 self._root,
                 requested_policy=self._cache_policy,
                 provider=self._provider_override or "",
                 model=current_model,
-                messages=messages,
+                messages=request_messages,
                 optimization_mode=self._optimization_mode,
             )
             last_cache_enabled = cache_decision.enabled
@@ -895,7 +939,7 @@ class InteractiveRuntime:
             )
             request_kwargs: dict[str, Any] = {
                 "model": current_model,
-                "messages": self._messages_with_cache_breakpoint(messages, current_model, cache_decision),
+                "messages": self._messages_with_cache_breakpoint(request_messages, current_model, cache_decision),
                 "tools": tools,
                 "tool_choice": actual_tool_choice,
                 "stream": True,
@@ -908,11 +952,12 @@ class InteractiveRuntime:
                 cached_content = await asyncio.to_thread(
                     self._gemini_cached_content,
                     cache_decision,
-                    messages,
+                    request_messages,
                     current_model,
                 )
                 if cached_content:
                     request_kwargs["extra_body"] = {"cachedContent": cached_content}
+
             effort = reasoning_effort_for(current_model, budget_hint, state.phase)
             trace.decision(
                 "joint_policy",
@@ -947,6 +992,8 @@ class InteractiveRuntime:
 
             try:
                 stream = await self._completion_with_backoff(request_kwargs)
+                if compression_state is not None:
+                    compression_state.commit(messages, request_messages, model=current_model)
             except Exception as exc:
                 err_str = str(exc)
                 blocked = "API_KEY_SERVICE_BLOCKED" in err_str or "PERMISSION_DENIED" in err_str or "403" in err_str
@@ -1934,10 +1981,12 @@ class InteractiveRuntime:
         elif name == "bash":
             cmd = " ".join(args) if args else ""
             if cmd:
-                from lemoncrow.gateway.adapters.mcp_server import tool_bash
-
                 try:
-                    result = await asyncio.to_thread(tool_bash, {"command": cmd, "timeout": 30})
+                    result = await asyncio.to_thread(
+                        call_registered_tool,
+                        "bash",
+                        {"command": cmd, "timeout": 30},
+                    )
                     yield AssistantMessage(type="assistant.message", text=f"```\n{result}\n```")
                 except Exception as exc:
                     yield RuntimeErrorEvent(type="error", message=f"Shell failed: {exc}")
@@ -2139,9 +2188,11 @@ class InteractiveRuntime:
             yield RuntimeErrorEvent(type="error", message="Usage: /memory <query>")
             return
         try:
-            from lemoncrow.gateway.adapters.mcp_server import tool_memory
-
-            result = await asyncio.to_thread(tool_memory, {"op": "recall", "query": query, "top_k": 5})
+            result = await asyncio.to_thread(
+                call_registered_tool,
+                "memory",
+                {"op": "recall", "query": query, "top_k": 5},
+            )
             yield MemoryHit(type="memory.hit", key=query, summary=str(result)[:2000])
         except Exception as exc:
             yield RuntimeErrorEvent(type="error", message=f"Memory search failed: {exc}")
@@ -2235,11 +2286,11 @@ _OWNED_HIDDEN_PARAMS: dict[str, tuple[str, ...]] = {}
 
 def _get_litellm_tools() -> list[dict[str, Any]]:
     """Return canonical MCP tool definitions for the owned coding runtime."""
-    from lemoncrow.gateway.adapters.mcp_server import TOOLS
+    from lemoncrow.gateway.tools.registry import tool_spec
 
     tools: list[dict[str, Any]] = []
     for name in _OWNED_TOOL_NAMES:
-        spec = TOOLS.get(name)
+        spec = tool_spec(name)
         if spec is None:
             raise RuntimeError(
                 f"Owned tool {name!r} is missing from the MCP registry; "
@@ -2265,9 +2316,9 @@ def _get_litellm_tools() -> list[dict[str, Any]]:
 
 def _dispatch_tool(name: str, args: dict[str, Any]) -> Any:
     """Dispatch through the canonical MCP registry used by plugin integrations."""
-    from lemoncrow.gateway.adapters.mcp_server import TOOLS
+    from lemoncrow.gateway.tools.registry import tool_spec
 
-    spec = TOOLS.get(name)
+    spec = tool_spec(name)
     if spec is None or name not in _OWNED_TOOL_NAMES:
         raise ValueError(f"Unknown tool: {name!r}")
     hidden = _OWNED_HIDDEN_PARAMS.get(name, ())
@@ -2279,10 +2330,6 @@ def _dispatch_tool(name: str, args: dict[str, Any]) -> Any:
     return handler(args)
 
 
-# Read-style tools eligible for within-session byte-identical dedup.
-_CLI_DEDUP_TOOLS = frozenset({"read", "search", "grep"})
-
-
 def _render_tool_result(name: str, result: Any, args: dict[str, Any], *, session_id: str = "") -> str:
     """Render a tool result as the compact model-facing text the MCP path emits.
 
@@ -2290,8 +2337,6 @@ def _render_tool_result(name: str, result: Any, args: dict[str, Any], *, session
     then applies within-session content dedup for read-style tools so a
     byte-identical re-read costs a short stub instead of the full payload.
     """
-    from lemoncrow.gateway.adapters.mcp_server import render_tool_result_text
-
     text: str | None = None
     with contextlib.suppress(Exception):
         text = render_tool_result_text(name, result)
@@ -2303,28 +2348,15 @@ def _render_tool_result(name: str, result: Any, args: dict[str, Any], *, session
                 text = json.dumps(result, ensure_ascii=False, separators=(",", ":"), default=str)
             except (TypeError, ValueError):
                 text = str(result)
-    if session_id and name in _CLI_DEDUP_TOOLS and os.environ.get("LEMONCROW_CONTEXT_DEDUP", "1") != "0":
-        with contextlib.suppress(Exception):
-            from lemoncrow.pro.capabilities import context_dedup
-
-            outcome = context_dedup.registry().stub_for(
-                session_id=session_id,
-                content=text,
-                epoch=context_dedup.current_epoch(),
-                force=bool(args.get("force")),
-            )
-            if outcome is None and name == "read":
-                from lemoncrow.gateway.adapters.mcp_server import _read_dedup_resource
-
-                resource = _read_dedup_resource(args)
-                if resource:
-                    outcome = context_dedup.registry().delta_for(
-                        session_id=session_id,
-                        resource=resource,
-                        content=text,
-                        epoch=context_dedup.current_epoch(),
-                        force=bool(args.get("force")),
-                    )
-            if outcome is not None:
-                text = outcome[0]
+    resource = read_dedup_resource(args) if name == "read" else ""
+    dedup = dedup_output(
+        name=name,
+        args=args,
+        text=text,
+        session_id=session_id,
+        eligible_tools=CLI_DEDUP_TOOLS,
+        resource=resource,
+        require_session_id=True,
+    )
+    text = dedup.text
     return text

@@ -252,7 +252,7 @@ class RuntimeSession:
         validation_results: list[ValidationResult] | None = None,
     ) -> Trace:
         assert self.store is not None
-        from lemoncrow.core.foundation.redaction import redact, redact_list
+        from lemoncrow_client.kit.redaction import redact, redact_list
 
         # Build enriched tool calls with args and result summaries
         result_map: dict[str, str] = {}

@@ -2,7 +2,8 @@
 
 Nothing here is vendor-specific: ``serve`` publishes the standard
 streamable-HTTP MCP transport at ``/mcp``, protected by the OAuth 2.1 shim in
-``mcp_oauth.py`` (or open, with ``--no-auth``). Any client that accepts a remote
+the standalone pairing flow in ``mcp_oauth.py`` (or open, with ``--no-auth``).
+Hosted enterprise Remote MCP uses Authward instead. Any client that accepts a remote
 MCP server URL — ChatGPT connectors, Claude connectors, Cursor, VS Code, and
 other MCP hosts — connects to the same URL. By default a cloudflared *quick
 tunnel* is auto-launched (downloading cloudflared on first use if needed) to
@@ -29,18 +30,19 @@ import subprocess
 import tarfile
 import tempfile
 import threading
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import click
 
 if TYPE_CHECKING:
     import uvicorn
 
-    from lemoncrow.gateway.cli.commands._mcp_service import ServiceInfo
     from lemoncrow.gateway.cli.commands._persistent_tunnel import TunnelState
+    from lemoncrow.gateway.mcp_connectors import ConnectorBinding
 
 # How long to wait for cloudflared to print its quick-tunnel URL before giving
 # up and falling back to manual instructions. Tunnel establishment is normally
@@ -358,112 +360,174 @@ def _echo_client_hints() -> None:
         click.echo(f"       {name}:  " + click.style(where, dim=True))
 
 
+def _persistent_backend_port() -> int:
+    """Port of the indexed local LemonCrow server used by the MCP gateway."""
+    from urllib.parse import urlsplit
+
+    from lemoncrow_client.config import load_config
+
+    env = dict(os.environ)
+    if env.get("LEMONCROW_ROOT") and not env.get("LEMONCROW_HOME"):
+        env["LEMONCROW_HOME"] = env["LEMONCROW_ROOT"]
+    config = load_config(env, cwd=Path.cwd())
+    parsed = urlsplit(config.url)
+    host = (parsed.hostname or "").strip("[]").lower()
+    if config.install_mode != "local" or host not in {"127.0.0.1", "localhost", "::1"}:
+        raise click.ClickException(
+            "--persistent publishes a local thin-client gateway; configure local mode "
+            "(LEMONCROW_URL=http://127.0.0.1:7420) instead of tunnelling a hosted server"
+        )
+    return int(parsed.port or (443 if parsed.scheme == "https" else 80))
+
+
+def _persistent_origin_port() -> int:
+    """Independent loopback port where persistent MCP terminates."""
+    raw = os.environ.get("LEMONCROW_MCP_GATEWAY_PORT", "7421").strip()
+    try:
+        port = int(raw)
+    except ValueError as exc:
+        raise click.ClickException("LEMONCROW_MCP_GATEWAY_PORT must be an integer") from exc
+    if not 1 <= port <= 65_535:
+        raise click.ClickException("LEMONCROW_MCP_GATEWAY_PORT must be between 1 and 65535")
+    return port
+
+
+def _wait_gateway_ready(port: int, process: subprocess.Popen[str], timeout_s: float = 10.0) -> None:
+    deadline = time.monotonic() + timeout_s
+    url = f"http://127.0.0.1:{port}/healthz"
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise click.ClickException(f"MCP gateway exited {process.returncode} before becoming ready")
+        try:
+            with urllib.request.urlopen(url, timeout=0.25) as response:
+                if response.status == 200:
+                    return
+        except (OSError, urllib.error.URLError):
+            pass
+        time.sleep(0.1)
+    process.terminate()
+    raise click.ClickException(f"MCP gateway did not become ready at {url}")
+
+
+class _ThinHttpRuntime:
+    """Per-HTTP-session wrapper around the canonical thin-client MCP server."""
+
+    def __init__(self) -> None:
+        from lemoncrow_client.config import load_config
+
+        env = dict(os.environ)
+        if env.get("LEMONCROW_ROOT") and not env.get("LEMONCROW_HOME"):
+            env["LEMONCROW_HOME"] = env["LEMONCROW_ROOT"]
+        self._config = load_config(env, cwd=Path.cwd())
+        self._lock = threading.Lock()
+        self._sessions: dict[str, tuple[Any, threading.Lock]] = {}
+
+    def _entry(self, session_id: str | None) -> tuple[Any, threading.Lock]:
+        key = session_id or "http-default"
+        with self._lock:
+            entry = self._sessions.get(key)
+            if entry is None:
+                from lemoncrow_client.mcpserver import McpServer
+
+                entry = (McpServer(self._config), threading.Lock())
+                self._sessions[key] = entry
+            return entry
+
+    def dispatch(
+        self,
+        request: dict[str, Any],
+        session_id: str | None = None,
+        host: str | None = None,
+        bridge_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        del host, bridge_id
+        server, lock = self._entry(session_id)
+        with lock:
+            return server.handle(request)
+
+    @staticmethod
+    def tools() -> list[dict[str, Any]]:
+        from lemoncrow_client.surface import tool_list
+
+        return [dict(spec) for spec in tool_list()]
+
+    def close(self) -> None:
+        with self._lock:
+            sessions = list(self._sessions.values())
+            self._sessions.clear()
+        for server, lock in sessions:
+            with lock:
+                server.close()
+
+
+def _thin_http_runtime() -> _ThinHttpRuntime:
+    return _ThinHttpRuntime()
+
+
+def _register_connector(hostname: str) -> None:
+    from lemoncrow.gateway.mcp_connectors import ConnectorBinding, save_connector
+
+    try:
+        save_connector(ConnectorBinding(hostname=hostname, workspace=str(Path.cwd().resolve())))
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+
 def _handoff_to_service(
     *,
     hostname: str,
-    slug: str,
-    tunnel_state_path: Path,
-    existing_tunnel_state: TunnelState | None,
-    sock: socket.socket,
-    port: int,
-    explicit_port: bool,
-    host: str,
-    no_auth: bool,
+    tunnel_state: TunnelState,
+    origin_port: int,
+    backend_port: int,
+    binary: str,
     code: str | None,
 ) -> None:
-    """Install/refresh this hostname's service, start it, and print the banner.
-
-    The interactive half of ``--persistent`` (cloudflared browser login, tunnel
-    create, DNS route) runs *here*, in the operator's terminal, so that the
-    supervised process only ever has to do the silent half. The reserved socket
-    is released before the service starts — with an explicit ``--port`` the unit
-    binds that exact port, and holding it here would make the unit crash-loop.
-    """
+    """Install/restart the one shared cloudflared service and print the connector banner."""
     from lemoncrow.core.foundation.paths import default_store_root
     from lemoncrow.gateway.cli.commands._mcp_service import (
         ServiceError,
         management_hints,
-        register_persistent_service,
-    )
-    from lemoncrow.gateway.cli.commands._persistent_tunnel import (
-        TunnelSetupError,
-        provision_persistent_tunnel,
+        register_shared_tunnel_service,
     )
 
-    binary = _resolve_cloudflared()
-    if binary is None:
-        binary = _install_cloudflared_interactive(port)
     try:
-        provision_persistent_tunnel(
-            hostname=hostname,
-            existing_state=existing_tunnel_state,
-            state_path=tunnel_state_path,
+        unit = register_shared_tunnel_service(
             binary=binary,
-            narrate=lambda msg: click.secho(f"  {msg}", dim=True),
-        )
-    except TunnelSetupError as exc:
-        click.echo(f"  ✗ {exc}", err=True)
-        raise SystemExit(1) from exc
-
-    serve_args = ["mcp", "serve", "--persistent", "--hostname", hostname, "--foreground"]
-    if explicit_port:
-        serve_args += ["--port", str(port)]
-    if host != "127.0.0.1":
-        serve_args += ["--host", host]
-    if no_auth:
-        serve_args.append("--no-auth")
-
-    sock.close()
-    workspace = Path.cwd()
-    try:
-        unit = register_persistent_service(
-            hostname=hostname,
-            slug=slug,
-            workspace=workspace,
-            serve_args=serve_args,
+            tunnel_ref=tunnel_state.tunnel_id,
+            credentials_path=tunnel_state.credentials_path,
+            origin_port=origin_port,
+            backend_port=backend_port,
             root=default_store_root(),
             narrate=lambda msg: click.secho(f"  {msg}", dim=True),
         )
     except ServiceError as exc:
-        raise click.ClickException(
-            f"{exc}\n  (run the same command with --foreground to serve in this terminal instead)"
-        ) from exc
+        raise click.ClickException(str(exc)) from exc
 
+    workspace = Path.cwd().resolve()
     rule = "─" * 64
     click.echo("")
     click.echo(f"  {rule}")
-    click.secho("  LemonCrow remote MCP server " + ("(NO AUTH)" if no_auth else "(OAuth 2.1)"), fg="cyan", bold=True)
+    click.secho("  LemonCrow remote MCP connector (OAuth 2.1)", fg="cyan", bold=True)
     click.echo(f"  {rule}")
-    click.secho("  ✓ running as a background service — starts again on reboot", fg="green")
+    click.secho("  ✓ routed through the shared boot-persistent Cloudflare tunnel", fg="green")
     if code is not None:
         click.echo(click.style("  Pairing code:    ", dim=True) + click.style(code, fg="yellow", bold=True))
         click.secho("                   stays the same across restarts (--new-pairing-code changes it)", dim=True)
     click.echo(
         click.style("  MCP server URL:  ", dim=True) + click.style(f"https://{hostname}/mcp", fg="green", bold=True)
     )
-    click.echo(click.style("  Authentication:  ", dim=True) + ("None (no auth)" if no_auth else "OAuth"))
-    click.echo(click.style("  Service:         ", dim=True) + unit)
-    click.echo(click.style("  Workspace:       ", dim=True) + str(workspace))
+    click.echo(click.style("  MCP gateway:      ", dim=True) + f"http://127.0.0.1:{origin_port}")
+    click.echo(click.style("  Indexed backend:  ", dim=True) + f"http://127.0.0.1:{backend_port}")
+    click.echo(click.style("  Tunnel service:   ", dim=True) + unit)
+    click.echo(click.style("  Workspace:        ", dim=True) + str(workspace))
     click.echo("")
     click.echo(click.style("  1.", bold=True) + " Add it as a remote MCP server in any client that takes a URL:")
     _echo_client_hints()
-    if not no_auth:
-        click.echo(click.style("  2.", bold=True) + " Approve the browser OAuth page with the pairing code above.")
+    click.echo(click.style("  2.", bold=True) + " Approve the browser OAuth page with the pairing code above.")
     click.echo("")
-    click.secho("  Manage it:", dim=True)
+    click.secho("  Manage the shared tunnel:", dim=True)
     for hint in management_hints(unit):
         click.secho(f"      {hint}", fg="cyan")
-    click.echo("")
-    if no_auth:
-        click.secho("  ⚠  NO AUTHENTICATION: anyone who learns the URL gets", fg="red", bold=True)
-        click.secho("     unauthenticated shell-grade access to this machine.", fg="red", bold=True)
-    else:
-        click.echo(
-            click.style("  ⚠  ", fg="red", bold=True)
-            + click.style("This exposes shell-grade tool access to this machine over the", fg="yellow")
-        )
-        click.echo(click.style("     tunnel, now permanently. Only share the pairing code with", fg="yellow"))
-        click.echo(click.style("     yourself; stop the service when you are done.", fg="yellow"))
     click.echo(f"  {rule}")
     click.echo("")
 
@@ -584,11 +648,10 @@ def mcp_serve_cmd(
     With --no-auth, /mcp is served completely open (URL = the only secret).
     With --persistent --hostname mcp.example.com, get a stable URL that survives
     restarts instead of a rotating quick-tunnel one (first run only; --hostname
-    isn't needed again once configured). --persistent also installs the server
-    as a user service (systemd/launchd) bound to the current directory and
-    starts it: it stays up after you close the terminal and comes back on
-    reboot, with the same URL and the same pairing code. Add --foreground to
-    run it in this terminal instead.
+    isn't needed again once configured). --persistent registers this workspace
+    on the configured LemonCrow server and installs only the named Cloudflare
+    tunnel as a user service. The MCP execution runtime remains the one central
+    LemonCrow server. Add --foreground to run only the tunnel in this terminal.
     """
     import uvicorn
 
@@ -597,22 +660,11 @@ def mcp_serve_cmd(
         default_pairing_path,
         default_state_path,
         load_or_create_pairing_code,
+        migrate_legacy_state,
         reset_pairing_code,
         reset_state,
     )
-    from lemoncrow.gateway.adapters.mcp_oauth import migrate_legacy_state as migrate_legacy_oauth_state
-    from lemoncrow.gateway.cli.commands._mcp_service import is_supervised, supervisor_kind
-    from lemoncrow.gateway.cli.commands._persistent_tunnel import (
-        TunnelSetupError,
-        hostname_slug,
-        load_all_tunnel_states,
-        load_tunnel_state,
-        migrate_legacy_state,
-        reset_tunnel_state,
-        setup_persistent_tunnel,
-        tunnel_name_for,
-        tunnel_state_path_for,
-    )
+    from lemoncrow.gateway.cli.commands._mcp_service import supervisor_kind
 
     if no_auth and (pairing_code is not None or reset or new_pairing_code):
         raise click.UsageError("--no-auth cannot be combined with --pairing-code, --new-pairing-code or --reset")
@@ -620,14 +672,21 @@ def mcp_serve_cmd(
         raise click.UsageError("--new-pairing-code cannot be combined with --pairing-code (it sets the code itself)")
     if persistent and not tunnel:
         raise click.UsageError("--persistent cannot be combined with --no-tunnel (--persistent IS a tunnel mode)")
+    if persistent and no_auth:
+        raise click.UsageError(
+            "--persistent uses the central server OAuth surface and cannot be combined with --no-auth"
+        )
+    if persistent and (port is not None or host != "127.0.0.1"):
+        click.secho(
+            "  note: --port/--host are ignored in persistent mode; the tunnel targets the configured LemonCrow server",
+            dim=True,
+        )
     if reset_tunnel and not persistent:
         raise click.UsageError("--reset-tunnel requires --persistent")
 
-    # --persistent installs a boot-persistent service and hands the server to
-    # it (see _mcp_service); the supervised process itself re-enters here with
-    # --foreground. `is_supervised()` covers a unit installed before this flag
-    # existed, so an old ExecStart can never restart-loop itself.
-    register_service = persistent and not foreground and not is_supervised()
+    # Persistent mode installs one cloudflared unit directly. No LemonCrow CLI
+    # process re-enters this command under systemd anymore.
+    register_service = persistent and not foreground
     if register_service and supervisor_kind() is None:
         # No usable supervisor (container, WSL without a user bus, unknown
         # platform): serve here rather than failing — the URL is still stable.
@@ -642,7 +701,105 @@ def mcp_serve_cmd(
             "--pairing-code is a one-off for this process only, so it cannot configure a "
             "background service — use --new-pairing-code to rotate the stored code, or add --foreground"
         )
-    explicit_port = port is not None
+    # Persistent mode terminates at an independent thin-client HTTP gateway.
+    # That process owns client-side bash/edit execution and survives backend
+    # server restarts; only indexed/intelligence calls cross to the backend.
+    persistent_origin_port = _persistent_origin_port() if persistent else 0
+    persistent_backend_port = _persistent_backend_port() if persistent else 0
+
+    if persistent:
+        from lemoncrow.gateway.adapters.mcp_oauth import migrate_legacy_state as migrate_legacy_oauth_state
+        from lemoncrow.gateway.cli.commands._persistent_tunnel import (
+            TunnelSetupError,
+            hostname_slug,
+            provision_shared_tunnel,
+            start_named_tunnel_process,
+        )
+        from lemoncrow.gateway.mcp_connectors import load_all_connectors
+
+        if hostname is not None:
+            resolved_hostname = hostname
+        else:
+            configured = load_all_connectors()
+            if not configured:
+                raise click.UsageError("first --persistent run needs --hostname <your-domain-in-cloudflare>")
+            if len(configured) > 1:
+                raise click.UsageError(
+                    "several connector hostnames are configured — pass --hostname to pick one: "
+                    + ", ".join(binding.hostname for binding in configured)
+                )
+            resolved_hostname = configured[0].hostname
+
+        _register_connector(resolved_hostname)
+        oauth_scope = hostname_slug(resolved_hostname)
+        migrate_legacy_oauth_state(oauth_scope)
+        persistent_state_path = default_state_path(oauth_scope)
+        pairing_path = default_pairing_path(oauth_scope)
+        if reset:
+            removed = reset_state(persistent_state_path)
+            reset_pairing_code(pairing_path)
+            click.echo(
+                f"  Reset OAuth state "
+                f"({'removed ' + str(persistent_state_path) if removed else 'nothing to remove'})."
+            )
+        persistent_code = load_or_create_pairing_code(pairing_path, rotate=new_pairing_code)
+        if new_pairing_code:
+            click.secho("  Rotated the stored pairing code.", fg="yellow")
+
+        binary = _resolve_cloudflared()
+        if binary is None:
+            binary = _install_cloudflared_interactive(persistent_origin_port)
+        try:
+            tunnel_state = provision_shared_tunnel(
+                hostname=resolved_hostname,
+                binary=binary,
+                narrate=lambda msg: click.secho(f"  {msg}", dim=True),
+                reset=reset_tunnel,
+            )
+        except TunnelSetupError as exc:
+            raise click.ClickException(str(exc)) from exc
+
+        if register_service:
+            _handoff_to_service(
+                hostname=resolved_hostname,
+                tunnel_state=tunnel_state,
+                origin_port=persistent_origin_port,
+                backend_port=persistent_backend_port,
+                binary=binary,
+                code=persistent_code,
+            )
+            return
+
+        from lemoncrow.gateway.cli.commands._mcp_service import start_gateway_process
+
+        gateway_proc = start_gateway_process(
+            origin_port=persistent_origin_port,
+            backend_port=persistent_backend_port,
+        )
+        try:
+            _wait_gateway_ready(persistent_origin_port, gateway_proc)
+            persistent_tunnel_proc = start_named_tunnel_process(
+                binary, tunnel_state.tunnel_id, persistent_origin_port, tunnel_state.credentials_path
+            )
+            click.secho(
+                f"  ✓ {resolved_hostname} → shared tunnel → thin-client gateway :{persistent_origin_port} → backend :{persistent_backend_port}",
+                fg="green",
+            )
+            try:
+                returncode = persistent_tunnel_proc.wait()
+            except KeyboardInterrupt:
+                persistent_tunnel_proc.terminate()
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    persistent_tunnel_proc.wait(timeout=5)
+                return
+            if returncode:
+                raise click.ClickException(f"cloudflared tunnel exited {returncode}")
+            return
+        finally:
+            if gateway_proc.poll() is None:
+                gateway_proc.terminate()
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    gateway_proc.wait(timeout=5)
 
     # Bind the real listening socket now (not just pick a number): with no
     # --port, the OS assigns a free ephemeral port, so multiple `chatgpt
@@ -660,73 +817,19 @@ def mcp_serve_cmd(
         raise click.ClickException(f"could not bind {host}:{port if port is not None else '(auto)'} — {exc}") from exc
     port = sock.getsockname()[1]
 
-    tunnel_state_path: Path | None = None
-    existing_tunnel_state = None
-    resolved_hostname: str | None = None
-    if persistent:
-        migrate_legacy_state()
-        if hostname is not None:
-            resolved_hostname = hostname
-        else:
-            # No --hostname: unambiguous only while exactly one connector is
-            # configured. Silently picking one of several would resurrect the
-            # very cross-project mix-up per-hostname state exists to prevent.
-            configured = load_all_tunnel_states()
-            if not configured:
-                raise click.UsageError("first --persistent run needs --hostname <your-domain-in-cloudflare>")
-            if len(configured) > 1:
-                raise click.UsageError(
-                    "several hostnames are configured — pass --hostname to pick one: "
-                    + ", ".join(state.hostname for state in configured)
-                )
-            resolved_hostname = configured[0].hostname
-        tunnel_state_path = tunnel_state_path_for(resolved_hostname)
-        if reset_tunnel:
-            removed = reset_tunnel_state(tunnel_state_path)
-            click.echo(
-                "  Reset persistent-tunnel state "
-                f"({'removed ' + str(tunnel_state_path) if removed else 'nothing to remove'})."
-            )
-        else:
-            existing_tunnel_state = load_tunnel_state(tunnel_state_path)
-        if existing_tunnel_state is None:
-            # Tunnel names are the bare subdomain label, so two zones sharing
-            # a label would silently land both connectors on one tunnel —
-            # Cloudflare would then load-balance their traffic together.
-            claimed = tunnel_name_for(resolved_hostname)
-            clash = next(
-                (
-                    state
-                    for state in load_all_tunnel_states()
-                    if state.hostname != resolved_hostname and state.tunnel_name == claimed
-                ),
-                None,
-            )
-            if clash is not None:
-                raise click.UsageError(
-                    f"tunnel name {claimed!r} is already used by {clash.hostname} — "
-                    "pick a different subdomain label so each connector keeps its own tunnel"
-                )
-
     code: str | None = None
     state_path: Path | None = None
     if not no_auth:
-        # Per-hostname OAuth store under --persistent: every mutation flushes
-        # the whole file, so two concurrently-serving projects on one store
-        # would clobber each other's clients and token hashes (the other
-        # connector starts 401-ing mid-session).
-        oauth_scope = hostname_slug(resolved_hostname) if resolved_hostname else None
-        if oauth_scope is not None:
-            migrate_legacy_oauth_state(oauth_scope)
-        state_path = default_state_path(oauth_scope)
-        pairing_path = default_pairing_path(oauth_scope)
+        # One-off/quick-tunnel mode keeps its historical shared OAuth store.
+        # Persistent hostnames returned above and use hostname-scoped state on
+        # the central server.
+        migrate_legacy_state()
+        state_path = default_state_path()
+        pairing_path = default_pairing_path()
         if reset:
             removed = reset_state(state_path)
             reset_pairing_code(pairing_path)
             click.echo(f"  Reset OAuth state ({'removed ' + str(state_path) if removed else 'nothing to remove'}).")
-        # Explicit --pairing-code stays a one-off override; otherwise the code
-        # is read from (or minted into) the store, so restarting the server
-        # does not invalidate the code the operator already knows.
         if pairing_code is not None:
             code = pairing_code
         else:
@@ -734,35 +837,23 @@ def mcp_serve_cmd(
             if new_pairing_code:
                 click.secho("  Rotated the stored pairing code.", fg="yellow")
 
-    # ── boot-persistent handoff ───────────────────────────────────────────
-    # Everything above is state the service and this process share (tunnel
-    # reference, OAuth store, pairing code). What is left — binding the port,
-    # running cloudflared, serving — belongs to the supervisor, so the server
-    # comes back by itself after a reboot with the same URL and same code.
-    if register_service:
-        assert resolved_hostname is not None and tunnel_state_path is not None
-        _handoff_to_service(
-            hostname=resolved_hostname,
-            slug=hostname_slug(resolved_hostname),
-            tunnel_state_path=tunnel_state_path,
-            existing_tunnel_state=existing_tunnel_state,
-            sock=sock,
-            port=port,
-            explicit_port=explicit_port,
-            host=host,
-            no_auth=no_auth,
-            code=code,
-        )
-        return
-
+    thin_runtime = _thin_http_runtime()
     if no_auth:
         from lemoncrow.gateway.adapters.mcp_http import create_mcp_http_app
 
-        app = create_mcp_http_app()
+        app = create_mcp_http_app(
+            dispatch=thin_runtime.dispatch,
+            tools_provider=thin_runtime.tools,
+        )
     else:
         assert state_path is not None and code is not None
-        app = create_protected_mcp_app(pairing_code=code, state_path=state_path)
-
+        app = create_protected_mcp_app(
+            pairing_code=code,
+            state_path=state_path,
+            dispatch=thin_runtime.dispatch,
+            tools_provider=thin_runtime.tools,
+        )
+    app.router.add_event_handler("shutdown", thin_runtime.close)
     from lemoncrow.gateway.cli.commands._request_log import (
         RequestLogMiddleware,
         dated_log_dir,
@@ -788,28 +879,7 @@ def mcp_serve_cmd(
 
     tunnel_proc: subprocess.Popen[str] | None = None
     tunnel_url: str | None = None
-    if persistent:
-        # both guaranteed by the --persistent resolution above
-        assert resolved_hostname is not None
-        assert tunnel_state_path is not None
-        binary = _resolve_cloudflared()
-        if binary is None:
-            binary = _install_cloudflared_interactive(port)
-        try:
-            tunnel_proc = setup_persistent_tunnel(
-                port=port,
-                hostname=resolved_hostname,
-                existing_state=existing_tunnel_state,
-                state_path=tunnel_state_path,
-                binary=binary,
-                narrate=lambda msg: click.secho(f"  {msg}", dim=True),
-            )
-        except TunnelSetupError as exc:
-            click.echo(f"  ✗ {exc}", err=True)
-            raise SystemExit(1) from exc
-        tunnel_url = f"https://{resolved_hostname}"
-        click.secho("  ✓ persistent tunnel up", fg="green")
-    elif tunnel:
+    if tunnel:
         binary = _resolve_cloudflared()
         if binary is None:
             binary = _install_cloudflared_interactive(port)
@@ -861,11 +931,8 @@ def mcp_serve_cmd(
         if not no_auth:
             click.echo(click.style("  2.", bold=True) + " Approve the browser OAuth page with the pairing code above.")
         click.echo("")
-        if persistent:
-            click.secho("  Note: stable — this URL does not change across restarts.", dim=True)
-        else:
-            click.secho("  Note: this quick-tunnel URL rotates on every restart — re-point the", dim=True)
-            click.secho("  client each time, or use --persistent for a stable URL.", dim=True)
+        click.secho("  Note: this quick-tunnel URL rotates on every restart — re-point the", dim=True)
+        click.secho("  client each time, or use --persistent for a stable URL.", dim=True)
     else:
         click.echo(click.style("  1.", bold=True) + " Expose it through a tunnel (in another terminal):")
         click.echo(f"       cloudflared tunnel --url http://localhost:{port}")
@@ -946,6 +1013,7 @@ def mcp_client_cmd(redirect_uris: tuple[str, ...], hostname: str | None) -> None
         _is_allowed_redirect_uri,
         default_state_path,
         ensure_user_client,
+        migrate_legacy_state,
     )
     from lemoncrow.gateway.cli.commands._persistent_tunnel import hostname_slug
 
@@ -954,6 +1022,7 @@ def mcp_client_cmd(redirect_uris: tuple[str, ...], hostname: str | None) -> None
         if not _is_allowed_redirect_uri(uri):
             raise click.UsageError(f"redirect_uri must be https (or http loopback): {uri}")
     scope = hostname_slug(hostname) if hostname is not None else None
+    migrate_legacy_state(scope)
     record = ensure_user_client(default_state_path(scope), uris)
 
     click.echo("")
@@ -976,70 +1045,102 @@ def mcp_client_cmd(redirect_uris: tuple[str, ...], hostname: str | None) -> None
 # means re-typing the full serve invocation from the right directory.
 @click.group("service", context_settings={"help_option_names": ["-h", "--help"]})
 def mcp_service_group() -> None:
-    """Manage the boot-persistent MCP servers installed by `serve --persistent`."""
+    """Manage persistent MCP connectors and their one shared tunnel."""
 
 
-def _resolve_or_fail(selector: str | None) -> ServiceInfo:
-    from lemoncrow.gateway.cli.commands._mcp_service import ServiceError, resolve_service
+def _connector_or_fail(hostname: str | None) -> ConnectorBinding:
+    from lemoncrow.gateway.mcp_connectors import load_all_connectors, load_connector_for_hostname
 
-    try:
-        return resolve_service(selector)
-    except ServiceError as exc:
-        raise click.ClickException(str(exc)) from exc
+    if hostname:
+        binding = load_connector_for_hostname(hostname)
+        if binding is None:
+            raise click.ClickException(f"no persistent MCP connector for {hostname!r}")
+        return binding
+    connectors = load_all_connectors()
+    if not connectors:
+        raise click.ClickException("no persistent MCP connectors configured")
+    if len(connectors) > 1:
+        raise click.ClickException(
+            "several connector hostnames are configured — name one: "
+            + ", ".join(binding.hostname for binding in connectors)
+        )
+    return connectors[0]
 
 
 def echo_persistent_servers(*, empty_hint: bool = True) -> int:
-    """Render the installed always-on remote servers; returns how many there are.
+    """Render persistent connector bindings plus the one shared tunnel state."""
+    from lemoncrow.gateway.cli.commands._mcp_service import shared_tunnel_service_state
+    from lemoncrow.gateway.mcp_connectors import load_all_connectors
 
-    Shared by ``lc mcp list`` (the one inventory of everything MCP on this
-    machine — stdio sessions, singleton daemons, and these) and ``lc mcp
-    service list``, so the two can never drift into showing different things.
-    """
-    from lemoncrow.gateway.cli.commands._mcp_service import describe_services
-
-    services = describe_services()
+    connectors = load_all_connectors()
+    state, enabled, pid = shared_tunnel_service_state()
     click.echo("")
-    click.echo(f"  Always-on remote MCP servers · {len(services)}")
+    click.echo(f"  Persistent MCP connectors · {len(connectors)}")
     click.echo("  " + "─" * 70)
-    if not services:
+    if not connectors:
         if empty_hint:
-            click.echo("  None installed. Publish one with: lc mcp serve --persistent --hostname <host>")
+            click.echo("  None configured. Publish one with: lc mcp serve --persistent --hostname <host>")
             click.echo("")
         return 0
+    colour = {"active": "green", "failed": "red"}.get(state, "yellow")
+    click.echo(
+        "  "
+        + click.style(f"shared tunnel  {state}", fg=colour, bold=True)
+        + click.style(f"  ({enabled})", dim=True)
+        + (click.style(f"  pid={pid}", dim=True) if pid else "")
+    )
     home = str(Path.home())
-    for service in services:
-        colour = {"active": "green", "failed": "red"}.get(service.state, "yellow")
-        workspace = service.workspace
+    for binding in connectors:
+        workspace = binding.workspace
         if workspace.startswith(home):
             workspace = "~" + workspace[len(home) :]
-        click.echo(
-            "  "
-            + click.style(f"{service.state:<9}", fg=colour, bold=True)
-            + click.style(f"https://{service.hostname}/mcp", fg="green")
-        )
-        click.secho(f"            {service.name}  ({service.enabled})  {workspace}", dim=True)
+        click.echo("    " + click.style(f"https://{binding.hostname}/mcp", fg="green"))
+        click.secho(f"      {workspace}", dim=True)
     click.echo("")
-    return len(services)
+    return len(connectors)
 
 
 @mcp_service_group.command("list")
 def mcp_service_list() -> None:
-    """List installed MCP services, their hostname, workspace and run state."""
+    """List persistent MCP connectors and the shared tunnel state."""
     echo_persistent_servers()
 
 
+@mcp_service_group.command("repair")
+def mcp_service_repair() -> None:
+    """Restore the shared tunnel service from saved connector state."""
+    from lemoncrow.gateway.cli.commands._mcp_service import ServiceError, repair_shared_tunnel_service
+
+    try:
+        unit = repair_shared_tunnel_service(narrate=lambda msg: click.secho(f"  {msg}", dim=True))
+    except ServiceError as exc:
+        raise click.ClickException(str(exc)) from exc
+    if unit is None:
+        click.secho("  No persistent MCP connectors are configured; nothing to repair.", dim=True)
+        return
+    click.secho(f"  Repaired shared MCP tunnel ({unit}).", fg="green")
+
+
+def _control_shared(action: str) -> None:
+    from lemoncrow.gateway.cli.commands._mcp_service import ServiceError, control_shared_tunnel_service
+
+    try:
+        control_shared_tunnel_service(action)
+    except ServiceError as exc:
+        raise click.ClickException(str(exc)) from exc
+    click.secho(f"  {action}ed shared MCP tunnel", fg="green")
+
+
 @mcp_service_group.command("start")
-@click.argument("hostname", required=False)
-def mcp_service_start(hostname: str | None) -> None:
-    """Start one installed MCP service."""
-    _control(hostname, "start")
+def mcp_service_start() -> None:
+    """Start the shared persistent MCP tunnel."""
+    _control_shared("start")
 
 
 @mcp_service_group.command("stop")
-@click.argument("hostname", required=False)
-def mcp_service_stop(hostname: str | None) -> None:
-    """Stop one installed MCP service (it still starts again on reboot)."""
-    _control(hostname, "stop")
+def mcp_service_stop() -> None:
+    """Stop the shared persistent MCP tunnel (it remains enabled for reboot)."""
+    _control_shared("stop")
 
 
 @mcp_service_group.command("restart")
@@ -1048,37 +1149,37 @@ def mcp_service_stop(hostname: str | None) -> None:
     "--new-pairing-code",
     is_flag=True,
     default=False,
-    help="Rotate this server's stored pairing code before restarting (already-"
-    "authorized clients keep working; only re-pairing needs the new code).",
+    help="Rotate one connector's pairing code before restarting the shared tunnel.",
 )
 @click.option(
     "--reset",
     is_flag=True,
     default=False,
-    help="Revoke this server's OAuth state (all clients and tokens) before "
-    "restarting — every client has to pair again.",
+    help="Revoke one connector's OAuth clients/tokens before restarting the shared tunnel.",
 )
 def mcp_service_restart(hostname: str | None, new_pairing_code: bool, reset: bool) -> None:
-    """Restart one installed MCP service, optionally rotating its credentials."""
-    from lemoncrow.gateway.adapters.mcp_oauth import (
-        default_pairing_path,
-        default_state_path,
-        load_or_create_pairing_code,
-        reset_pairing_code,
-        reset_state,
-    )
-    from lemoncrow.gateway.cli.commands._persistent_tunnel import hostname_slug
-
-    service = _resolve_or_fail(hostname)
-    scope = hostname_slug(service.hostname) if service.hostname else None
-    if reset:
-        removed = reset_state(default_state_path(scope))
-        reset_pairing_code(default_pairing_path(scope))
-        click.echo(f"  Reset OAuth state ({'removed' if removed else 'nothing to remove'}).")
+    """Restart the shared tunnel; optionally reset one hostname's OAuth state."""
     code: str | None = None
     if new_pairing_code or reset:
+        from lemoncrow.gateway.adapters.mcp_oauth import (
+            default_pairing_path,
+            default_state_path,
+            load_or_create_pairing_code,
+            migrate_legacy_state,
+            reset_pairing_code,
+            reset_state,
+        )
+        from lemoncrow.gateway.cli.commands._persistent_tunnel import hostname_slug
+
+        binding = _connector_or_fail(hostname)
+        scope = hostname_slug(binding.hostname)
+        migrate_legacy_state(scope)
+        if reset:
+            removed = reset_state(default_state_path(scope))
+            reset_pairing_code(default_pairing_path(scope))
+            click.echo(f"  Reset OAuth state for {binding.hostname} ({'removed' if removed else 'nothing to remove'}).")
         code = load_or_create_pairing_code(default_pairing_path(scope), rotate=new_pairing_code)
-    _control(hostname, "restart", service=service)
+    _control_shared("restart")
     if code is not None:
         click.echo(click.style("  Pairing code:  ", dim=True) + click.style(code, fg="yellow", bold=True))
 
@@ -1086,56 +1187,54 @@ def mcp_service_restart(hostname: str | None, new_pairing_code: bool, reset: boo
 @mcp_service_group.command("code")
 @click.argument("hostname", required=False)
 def mcp_service_code(hostname: str | None) -> None:
-    """Print the stored pairing code of one installed MCP service."""
-    from lemoncrow.gateway.adapters.mcp_oauth import default_pairing_path, load_or_create_pairing_code
+    """Print the stored pairing code for one persistent connector."""
+    from lemoncrow.gateway.adapters.mcp_oauth import (
+        default_pairing_path,
+        load_or_create_pairing_code,
+        migrate_legacy_state,
+    )
     from lemoncrow.gateway.cli.commands._persistent_tunnel import hostname_slug
 
-    service = _resolve_or_fail(hostname)
-    scope = hostname_slug(service.hostname) if service.hostname else None
+    binding = _connector_or_fail(hostname)
+    scope = hostname_slug(binding.hostname)
+    migrate_legacy_state(scope)
     click.echo(load_or_create_pairing_code(default_pairing_path(scope)))
 
 
 @mcp_service_group.command("logs")
-@click.argument("hostname", required=False)
 @click.option("--lines", "-n", default=50, show_default=True, help="Recent lines to show.")
 @click.option("--follow/--no-follow", "-f", default=True, show_default=True, help="Keep streaming.")
-def mcp_service_logs(hostname: str | None, lines: int, follow: bool) -> None:
-    """Tail one installed MCP service's logs."""
-    from lemoncrow.gateway.cli.commands._mcp_service import log_command
+def mcp_service_logs(lines: int, follow: bool) -> None:
+    """Tail the shared cloudflared tunnel logs."""
+    from lemoncrow.gateway.cli.commands._mcp_service import shared_log_command
 
-    service = _resolve_or_fail(hostname)
-    cmd = log_command(service, lines=lines, follow=follow)
+    cmd = shared_log_command(lines=lines, follow=follow)
     os.execvp(cmd[0], cmd)
 
 
 @mcp_service_group.command("remove")
 @click.argument("hostname", required=False)
 def mcp_service_remove(hostname: str | None) -> None:
-    """Stop and unregister one MCP service (tunnel and OAuth state are kept)."""
-    from lemoncrow.gateway.cli.commands._mcp_service import ServiceError, remove_service
-
-    service = _resolve_or_fail(hostname)
-    try:
-        remove_service(service)
-    except ServiceError as exc:
-        raise click.ClickException(str(exc)) from exc
-    click.secho(f"  Removed {service.name}.", fg="green")
-    click.secho(
-        "  Its tunnel and OAuth store are untouched — `lc mcp serve --persistent "
-        f"--hostname {service.hostname}` brings it back with the same pairing code.",
-        dim=True,
+    """Remove one connector binding and its OAuth state."""
+    from lemoncrow.gateway.adapters.mcp_oauth import (
+        default_pairing_path,
+        default_state_path,
+        reset_pairing_code,
+        reset_state,
     )
+    from lemoncrow.gateway.cli.commands._mcp_service import remove_shared_tunnel_service
+    from lemoncrow.gateway.cli.commands._persistent_tunnel import hostname_slug
+    from lemoncrow.gateway.mcp_connectors import load_all_connectors, remove_connector
 
-
-def _control(selector: str | None, action: str, service: ServiceInfo | None = None) -> None:
-    from lemoncrow.gateway.cli.commands._mcp_service import ServiceError, control_service
-
-    target = service if service is not None else _resolve_or_fail(selector)
-    try:
-        control_service(target, action)
-    except ServiceError as exc:
-        raise click.ClickException(str(exc)) from exc
-    click.secho(f"  {action}ed {target.name}", fg="green")
+    binding = _connector_or_fail(hostname)
+    scope = hostname_slug(binding.hostname)
+    remove_connector(binding.hostname)
+    reset_state(default_state_path(scope))
+    reset_pairing_code(default_pairing_path(scope))
+    click.secho(f"  Removed connector {binding.hostname}.", fg="green")
+    if not load_all_connectors():
+        if remove_shared_tunnel_service():
+            click.secho("  Removed the shared tunnel service because no connectors remain.", fg="green")
 
 
 # ── deprecated alias ────────────────────────────────────────────────────────────────

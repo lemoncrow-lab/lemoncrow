@@ -23,6 +23,26 @@ export type GroupKey =
   | "mechanical";
 
 export type ReviewSessionStatus = "open" | "finished" | "archived";
+export type ReviewOutcomeKind = "comment" | "lgtm" | "changes_requested";
+
+export interface ReviewOutcome {
+  id: string;
+  review_id: string;
+  revision_id: string;
+  reviewer_id: string;
+  outcome: ReviewOutcomeKind;
+  summary: string;
+  created_at: string;
+  stale: boolean;
+}
+
+export interface ReviewOutcomeProjection {
+  review_id: string;
+  revision_id: string;
+  reviewer_id: string;
+  current: ReviewOutcome | null;
+  history: ReviewOutcome[];
+}
 
 export interface ReviewTargetSpan {
   side: "old" | "new";
@@ -86,8 +106,45 @@ export interface ReviewTargetList {
   outline: ReviewOutlineItem[];
 }
 
+export interface ReviewSurfaceInfo {
+  id: string;
+  provider: string;
+  kind: string;
+  title: string;
+  locator: string;
+  runtime: string;
+  affected_paths: string[];
+  capabilities: string[];
+  metadata: Record<string, unknown>;
+}
+
+export interface ReviewSurfaceList {
+  revision_id: string;
+  surfaces: ReviewSurfaceInfo[];
+}
+
+export interface ReviewSurfaceRunResult {
+  surface_id: string;
+  provider: string;
+  side: "old" | "new";
+  status: "passed" | "failed" | "unavailable" | string;
+  summary: string;
+  runner: string;
+  runtime: string;
+  exit_code: number | null;
+  duration_ms: number;
+  output: string;
+  data: Record<string, unknown>;
+}
+
+export interface ReviewSurfaceRunResponse {
+  revision_id: string;
+  result: ReviewSurfaceRunResult;
+}
+
 export interface ReviewSessionInfo {
   id: string;
+  ref: string;
   title: string;
   subject_type: string;
   range_mode: string;
@@ -98,10 +155,14 @@ export interface ReviewSessionInfo {
   repo_root: string;
   updated_at: string;
   revision_number?: number;
+  revision_id?: string;
+  comment_count?: number;
+  open_comment_count?: number;
 }
 
 export interface RevisionInfo {
   id: string;
+  ref: string;
   revision_number: number;
   range_mode: string;
   base_sha: string;
@@ -112,6 +173,84 @@ export interface RevisionInfo {
   provenance_model: string;
   provenance_session_id: string;
   provenance_certainty: string;
+  created_at: string;
+}
+
+export interface CompareSourceInfo {
+  spec: string;
+  label: string;
+  kind: string;
+}
+
+export interface CompareFile {
+  path: string;
+  old_path: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  patch: string;
+  renderable: boolean;
+  refusal: string;
+  detail: string;
+}
+
+export interface SourceComparison {
+  from: CompareSourceInfo;
+  to: CompareSourceInfo;
+  summary: { files: number; additions: number; deletions: number };
+  files: CompareFile[];
+}
+
+export type ReviewActorType = "human" | "agent" | "mixed" | "unknown";
+
+export interface ReviewActivityEvent {
+  id: string;
+  review_id: string;
+  revision_id: string;
+  kind: string;
+  actor_id: string;
+  actor_type: ReviewActorType;
+  subject_type: string;
+  subject_id: string;
+  summary: string;
+  detail: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface ReviewMarkEvent {
+  id: string;
+  review_id: string;
+  reviewer_id: string;
+  unit_key: string;
+  revision_id: string;
+  reviewed_revision_id: string;
+  event_kind: "judgment" | "reconciled" | "discarded" | "migrated";
+  from_state: MarkState | "";
+  to_state: MarkState | "";
+  content_fingerprint: string;
+  previous_unit_key: string;
+  actor_type: ReviewActorType;
+  note: string;
+  reason: string;
+  created_at: string;
+}
+
+export interface AnnotationVersion {
+  id: string;
+  annotation_id: string;
+  review_id: string;
+  revision_id: string;
+  version_number: number;
+  body: string;
+  kind: AnnotationKind;
+  state: AnnotationState;
+  author_response: "none" | "addressed";
+  author_response_source_id: string;
+  author_response_at: string;
+  resolved_revision_id: string;
+  changed_by: string;
+  changed_by_actor: ReviewActorType;
+  change_kind: "created" | "edited" | "state_changed" | "author_response" | "thread_reply";
   created_at: string;
 }
 
@@ -323,6 +462,14 @@ export interface RefreshInfo {
   discarded: DiscardedVerdict[];
   notes: string[];
   target_delta?: RevisionTargetDelta;
+  /** File cache validity relative to the revision the Reader showed before refresh. */
+  changed_paths?: string[];
+  added_paths?: string[];
+  removed_paths?: string[];
+  renamed_paths?: { old_path: string; path: string }[];
+  preserved_paths?: string[];
+  /** Reviewer-authored source proposals whose exact applied source was captured by this revision. */
+  applied_proposals?: ReviewChangeProposal[];
 }
 export interface ReviewBriefItem {
   path: string;
@@ -344,6 +491,10 @@ export interface ReviewOverview {
   session: ReviewSessionInfo;
   revision: RevisionInfo;
   revision_count: number;
+  historical?: boolean;
+  latest_revision_number?: number;
+  latest_revision?: RevisionInfo;
+  historical_judgment_complete?: boolean;
   packet_available: boolean;
   stats: Record<string, number>;
   title: string;
@@ -367,10 +518,33 @@ export interface ReviewOverview {
   /** Present only on the response to a refresh: what that refresh changed. */
   refreshed?: RefreshInfo;
 }
+export interface MarkdownPreview {
+  kind: "markdown";
+  old_content: string;
+  new_content: string;
+}
+
+export interface WebPreview {
+  kind: "web";
+  framework: "next" | "astro" | "vite" | string;
+  routes: string[];
+  default_route: string;
+  root?: string;
+}
+
+export interface MediaPreview {
+  kind: "media";
+  media_type: string;
+  media_kind: "image" | "video" | "audio" | "pdf";
+}
+
+export type FilePreview = MarkdownPreview | WebPreview | MediaPreview;
 
 /** One file's patch plus everything the right pane says about it. */
 export interface FileDetail {
   path: string;
+  /** Exact Review revision backing this projection. */
+  revision_id?: string;
   old_path?: string;
   status?: string;
   language?: string;
@@ -381,6 +555,8 @@ export interface FileDetail {
   /** `""` when the file rendered; otherwise why it did not. */
   refusal: string;
   detail: string;
+  /** Full, revision-pinned rich preview metadata where available. */
+  preview?: FilePreview | null;
   impact?: ImpactSite[];
   symbols?: SymbolInfo[];
   provenance?: ProvenanceInfo;
@@ -415,7 +591,82 @@ export type AnnotationKind = "comment" | "request_change" | "suggestion" | "look
 
 export type AnnotationState = "open" | "resolved" | "orphaned" | "obsolete";
 
+export type ReviewChangeProposalState = "proposed" | "applied" | "conflicted" | "dismissed" | "superseded";
+
+export interface ReviewChangeProposal {
+  id: string;
+  review_id: string;
+  base_revision_id: string;
+  base_revision_number: number;
+  path: string;
+  start_line: number;
+  end_line: number;
+  original_text: string;
+  replacement_text: string;
+  patch: string;
+  state: ReviewChangeProposalState;
+  target_unit_key: string;
+  annotation_id: string;
+  intent: string;
+  conflict_reason: string;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  applied_at: string;
+  result_revision_id: string;
+  result_target_ids: string[];
+  can_apply: boolean;
+}
+
+export interface ReviewChangeProposalList {
+  revision_id: string;
+  proposals: ReviewChangeProposal[];
+  source_mutation_supported: boolean;
+}
+
+export interface ReviewProposalSelection {
+  revision_id: string;
+  path: string;
+  start_line: number;
+  end_line: number;
+  side: "additions";
+  text: string;
+}
+
+export interface ReviewChangeProposalResult {
+  proposal: ReviewChangeProposal;
+}
+
+export interface ReviewChangeProposalApplyResult {
+  proposal: ReviewChangeProposal;
+  source_state: SourceState;
+}
+
 export type AnnotationSource = "human" | "author" | "lemoncrow" | "ai_review";
+
+export type ReviewDirectoryStatus = "all" | ReviewSessionStatus;
+
+export interface ReviewDirectoryRow {
+  id: string;
+  ref: string;
+  review_path: string;
+  repo_id: string;
+  title: string;
+  source_ref: string;
+  status: ReviewSessionStatus;
+  revision_number: number;
+  revision_id: string;
+  progress?: ReviewProgress;
+  updated_at: string;
+  created_at: string;
+}
+
+export interface ReviewDirectoryPage {
+  reviews: ReviewDirectoryRow[];
+  status: ReviewDirectoryStatus;
+  query: string;
+  next_cursor: string;
+}
 
 /** `@pierre/diffs`' name for a diff side. Ours is `old`/`new`; the edge translates. */
 export type DiffSide = "additions" | "deletions";
@@ -450,6 +701,8 @@ export interface Annotation {
   author_response?: "none" | "addressed";
   author_response_source_id?: string;
   author_response_at?: string;
+  turn_owner_kind?: "none" | "author" | "reviewer";
+  turn_owner_id?: string;
   is_human_judgment?: boolean;
   created_at: string;
   updated_at: string;
@@ -483,12 +736,22 @@ export interface Annotation {
   origin_symbol: string;
 }
 
+export interface FeedbackStatus {
+  open_total: number;
+  unpublished: number;
+  published: number;
+  in_flight: number;
+  addressed: number;
+}
+
 export interface AnnotationList {
   revision_id: string;
   annotations: Annotation[];
   counts: Record<string, number>;
+  feedback?: FeedbackStatus;
+  /** Current exact-session handoff capability for these comments. */
+  delivery?: FeedbackDeliveryCapability;
 }
-
 export interface AnnotationResult {
   annotation: Annotation;
   /** Present when a root request-change also updated its ReviewTarget. */
@@ -522,19 +785,35 @@ export interface RelatedSource {
   text: string;
 }
 
+export interface FeedbackDeliveryCapability {
+  supported: boolean;
+  host: string;
+  session_id: string;
+  target_ref: string;
+  label: string;
+  reason: string;
+}
+
 export interface FeedbackExport {
   markdown: string;
   open: number;
   orphaned: number;
   resolved: number;
+  revision_id: string;
+  feedback_hash: string;
+  operation_id: string;
+  annotation_versions: Record<string, number>;
+  delivery: FeedbackDeliveryCapability;
+  status?: FeedbackStatus;
 }
 
 export interface FeedbackDelivery {
-  state: "sent" | "blocked" | "failed";
+  state: "dispatching" | "queued" | "sent" | "blocked" | "failed" | "uncertain";
   target_ref: string;
   remote_ref: string;
   message: string;
   annotation_count: number;
+  operation_id: string;
 }
 
 /** Exact target-based completion snapshot used by the finish sheet and mutation result. */

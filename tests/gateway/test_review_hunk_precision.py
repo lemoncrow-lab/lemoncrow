@@ -1431,16 +1431,13 @@ def test_an_unmerged_path_says_so_instead_of_reading_as_an_empty_modification(tm
     assert "c.txt" not in load_blobs(root, rng, result.files).new
 
 
-def test_dirt_inside_a_submodule_does_not_hijack_the_default_range(tmp_path: Path) -> None:
-    """The diff layer drops a ``-dirty`` submodule, so the range picker must too.
+def test_dirt_inside_a_submodule_keeps_the_default_review_on_the_working_tree(tmp_path: Path) -> None:
+    """Dirty submodule bytes belong to a nested frozen WORKDIR revision.
 
-    ``collect_diff`` deliberately drops a gitlink delta naming the same commit on
-    both sides -- uncommitted work inside *another* repository is not part of this
-    change -- and counts it under ``submodule_dirty``. ``is_dirty`` counted that
-    very status entry, so a repo whose only dirt lives inside a submodule took
-    working-tree mode and rendered ``0 files - +0 -0``: a packet empty by
-    construction, in place of the documented ``HEAD~1..HEAD`` fallback. A
-    submodule whose recorded *pointer* moved is a real change here and still counts.
+    The parent diff still refuses to invent a gitlink source row for an unmoved
+    pointer, but the range must stay on HEAD -> WORKDIR so Review can capture and
+    render the nested submodule snapshot. A committed pointer move remains a
+    normal parent gitlink change.
     """
 
     sub = tmp_path / "subsrc"
@@ -1476,17 +1473,15 @@ def test_dirt_inside_a_submodule_does_not_hijack_the_default_range(tmp_path: Pat
         untracked_files="normal", ignored=False
     ), "the fixture did not make the submodule look dirty"
 
-    assert is_dirty(pygit2.Repository(str(root))) is False
+    assert is_dirty(pygit2.Repository(str(root))) is True
     rng = resolve_rev_range(root)
-    assert (rng.mode, rng.base_rev, rng.head_rev) == ("commit_range", "HEAD~1", "HEAD")
-    fallback = collect_diff(root, rng)
-    assert [item.path for item in fallback.files] == ["top.py"]
-    # The discount must not be silent. The header now reads "working tree clean
-    # -- reviewing the last commit instead" over a `git status` that reports
-    # `vendor/lib`, so the packet has to carry the same signal the working-tree
-    # path raises, or the substitution stops being disclosed.
-    assert rng.submodule_dirt_discounted == 1
-    assert "submodule_dirty:1" in fallback.degraded, fallback.degraded
+    assert (rng.mode, rng.base_rev, rng.head_rev) == ("working_tree", "HEAD", "WORKDIR")
+    nested = collect_diff(root, rng)
+    # The parent still does not manufacture a fake gitlink file row. The nested
+    # surface snapshot owns the submodule's HEAD -> WORKDIR bytes.
+    assert nested.files == ()
+    assert rng.submodule_dirt_discounted == 0
+    assert "submodule_dirty:1" in nested.degraded, nested.degraded
 
     # Committing inside the submodule moves the pointer this repo records: a real
     # change here, which keeps working-tree mode and renders as a gitlink row.

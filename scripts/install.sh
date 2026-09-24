@@ -5,11 +5,16 @@
 # and then installs LemonCrow into each detected agent host (Claude, Copilot,
 # Cursor, Codex, etc.).
 #
-# Usage:
-#   curl -fsSL https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download/install.sh | bash
+# Default mode is LOCAL: the extracted distribution includes the loopback
+# LemonCrow server wheel. Hosted installs use scripts/hosted.sh and never enter
+# this full-distribution installer; `install.sh --hosted` remains a compatibility
+# redirect to that thin path.
 #
-# For a comprehensive developer install (with uv, git, node, etc.) use
-# scripts/local.sh from the repo checkout.
+# From this repository:
+#   make prod                         # local loopback server
+#   make hosted HOSTED_URL=https://…  # hosted server
+#
+# For a development/source install use scripts/local.sh.
 #
 #   LEMONCROW_INSTALL_DIR     Target directory (default: ~/.lemoncrow/install)
 #   LEMONCROW_BIN_DIR         Binary directory (default: ~/.lemoncrow/bin)
@@ -20,6 +25,8 @@
 #   LEMONCROW_NON_INTERACTIVE If set to 1, skip all prompts (auto-install all hosts)
 #   LEMONCROW_NO_PATH         If set to 1, skip adding to PATH
 #   LEMONCROW_NO_ALIAS        If set to 1, do not write the `lcr` shell alias
+#   LEMONCROW_INSTALL_MODE    local (default) | hosted
+#   LEMONCROW_HOSTED_URL      Hosted server URL when mode=hosted
 #   LEMONCROW_NO_HOSTS        If set to 1, skip ALL post-extract setup (bundle.sh): host
 #                           integrations AND dependency installs (uv/node/jj/rtk) are
 #                           skipped — download & extract only
@@ -60,6 +67,8 @@ LEMONCROW_NO_PATH="${LEMONCROW_NO_PATH:-0}"
 LEMONCROW_NO_HOSTS="${LEMONCROW_NO_HOSTS:-0}"
 LEMONCROW_ALLOW_UNVERIFIED="${LEMONCROW_ALLOW_UNVERIFIED:-0}"
 LEMONCROW_LOCAL="${LEMONCROW_LOCAL:-0}"
+LEMONCROW_INSTALL_MODE="${LEMONCROW_INSTALL_MODE:-local}"
+export LEMONCROW_INSTALL_MODE
 # Default source for --local: the bundle/ directory produced by 'make build',
 # which lives one level up from this script (i.e. <repo>/bundle/).
 LEMONCROW_LOCAL_SRC="${LEMONCROW_LOCAL_SRC:-${SCRIPT_DIR}/../bundle}"
@@ -68,15 +77,46 @@ LEMONCROW_LOCAL_SRC="${LEMONCROW_LOCAL_SRC:-${SCRIPT_DIR}/../bundle}"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --local) LEMONCROW_LOCAL=1; shift ;;
+        --hosted) LEMONCROW_INSTALL_MODE=hosted; export LEMONCROW_INSTALL_MODE; shift ;;
         *) shift ;;
     esac
 done
+case "$LEMONCROW_INSTALL_MODE" in
+    local|hosted) ;;
+    *) fail "LEMONCROW_INSTALL_MODE must be 'local' or 'hosted', got: $LEMONCROW_INSTALL_MODE" ;;
+esac
 
 if [[ "$LEMONCROW_RELEASE_TAG" == "latest" ]]; then
     RELEASE_BASE_URL="https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download"
 else
     RELEASE_BASE_URL="https://github.com/lemoncrow-lab/lemoncrow/releases/download/${LEMONCROW_RELEASE_TAG}"
 fi
+
+# Hosted mode has its own architecture-neutral, client-only installer. Keep this
+# redirect so older automation using `install.sh --hosted` becomes thinner
+# rather than silently provisioning the legacy full runtime.
+if [[ "$LEMONCROW_INSTALL_MODE" == "hosted" ]]; then
+    hosted_installer="$SCRIPT_DIR/hosted.sh"
+    hosted_tmp=""
+    if [[ ! -f "$hosted_installer" ]]; then
+        hosted_tmp="$(mktemp -t lemoncrow-hosted-bootstrap.XXXXXX)"
+        if command -v curl >/dev/null 2>&1; then
+            curl -fLsS --retry 3 --retry-delay 2 --connect-timeout 15 "$RELEASE_BASE_URL/hosted.sh" -o "$hosted_tmp"
+        elif command -v wget >/dev/null 2>&1; then
+            wget -qO "$hosted_tmp" "$RELEASE_BASE_URL/hosted.sh"
+        else
+            echo "install.sh: curl or wget is required to fetch hosted.sh" >&2
+            exit 1
+        fi
+        hosted_installer="$hosted_tmp"
+        trap 'rm -f "${hosted_tmp:-}"' EXIT
+    fi
+    if [[ "$LEMONCROW_LOCAL" == "1" ]]; then
+        exec bash "$hosted_installer" --from-build "${SCRIPT_DIR}/../dist/lemoncrow-hosted-client.tar.gz"
+    fi
+    exec bash "$hosted_installer"
+fi
+
 ASSET_NAME="lemoncrow-distribution-${BINARY_SUFFIX}.tar.gz"
 RELEASE_URL="${RELEASE_BASE_URL}/${ASSET_NAME}"
 
@@ -208,8 +248,6 @@ need_cmd() {
 # Verifies <archive> against a published <url>.sha256 sidecar. Fails closed:
 # if the checksum cannot be fetched or does not match, the install aborts
 # unless LEMONCROW_ALLOW_UNVERIFIED=1 is set to explicitly opt out.
-# TODO: publish lemoncrow-distribution-*.tar.gz.sha256 sidecars in
-# .github/workflows/release.yml so this verification is enforced by default.
 verify_checksum() {
     local archive="$1" url="$2"
     local expected
@@ -226,8 +264,7 @@ verify_checksum() {
             warn "No published checksum at ${url}.sha256 — proceeding unverified (LEMONCROW_ALLOW_UNVERIFIED=1)."
             return 0
         fi
-        warn "No published checksum at ${url}.sha256 — skipping verification and proceeding."
-        return 0
+        fail "No valid checksum published at ${url}.sha256. Refusing an unverified install; set LEMONCROW_ALLOW_UNVERIFIED=1 only for an explicit development override."
     fi
     local actual
     if command -v sha256sum >/dev/null 2>&1; then
@@ -278,7 +315,7 @@ _local_bin_slot_writable() {
 # PATH — a dangling `lemoncrow` breaks every host config that shells out to it.
 _prune_dangling_local_links() {
     local name
-    for name in lemoncrow lc lcd; do
+    for name in lemoncrow lc; do
         if _is_dangling_lemoncrow_link "${HOME}/.local/bin/${name}"; then
             rm -f "${HOME}/.local/bin/${name}" 2>/dev/null || true
             warn "Removed broken symlink ${HOME}/.local/bin/${name} left by an earlier install."
@@ -367,7 +404,8 @@ _clean_managed_install_tree() {
         "$LEMONCROW_INSTALL_DIR/frontend" \
         "$LEMONCROW_INSTALL_DIR/integrations" \
         "$LEMONCROW_INSTALL_DIR/scripts" \
-        "$LEMONCROW_INSTALL_DIR/vendor"
+        "$LEMONCROW_INSTALL_DIR/vendor" \
+        "$LEMONCROW_INSTALL_DIR/server"
     do
         if [[ -e "$path" || -L "$path" ]]; then
             rm -rf -- "$path"
@@ -484,8 +522,8 @@ _resolve_installed_bin_dir() {
 }
 # An executable file is not a working install: a wheel built for another
 # interpreter, a half-written venv or a missing dependency all leave a binary
-# that is `-x` but dies on first run. Run it once and require success, so
-# "ready!" is never printed over a broken CLI (GH #41).
+# that is `-x` but dies on first run. Run it once and require success, so the
+# success banner is never printed over a broken CLI (GH #41).
 LEMONCROW_INSTALLED_VERSION=""
 if [[ "$LEMONCROW_DRY_RUN" != "1" ]]; then
     if RESOLVED_BIN_DIR="$(_resolve_installed_bin_dir)"; then
@@ -520,15 +558,15 @@ if [[ "$LEMONCROW_NO_PATH" != "1" ]]; then
     fi
 
     # Symlink into ~/.local/bin so non-login shells (opencode MCP spawns) find
-    # lemoncrow. The short `lc` alias and the `lcd` daemon entrypoint get the
-    # same treatment -- MCP host configs (e.g. Claude Code's mcpServers) invoke
+    # lemoncrow. The short `lc` alias gets the same treatment -- MCP host
+    # configs (e.g. Claude Code's mcpServers) invoke
     # the bare `lc` command. Only link a binary that is really there, and only
     # into a slot that is empty or holds a dangling LemonCrow link (the GH #41
     # leftover): never over a real file or a link that resolves elsewhere.
     # `-x`, not `-e`: a non-executable leftover in BIN_DIR is not a binary, and
     # linking it into ~/.local/bin only puts "Permission denied" on PATH.
     LOCAL_BIN="${HOME}/.local/bin"
-    for short_bin in lemoncrow lc lcd; do
+    for short_bin in lemoncrow lc; do
         if [[ -x "${LEMONCROW_BIN_DIR}/${short_bin}" ]] && _local_bin_slot_writable "$LOCAL_BIN/${short_bin}"; then
             mkdir -p "$LOCAL_BIN" 2>/dev/null || true
             ln -sfn "${LEMONCROW_BIN_DIR}/${short_bin}" "$LOCAL_BIN/${short_bin}"
@@ -574,14 +612,25 @@ cli="lemoncrow"
 [[ -x "${LEMONCROW_BIN_DIR}/lc" ]] && cli="lc"
 # Report readiness for the binary THIS run installed. `command -v lc` used to
 # satisfy this test with any foreign/older lc on PATH, so an install that put
-# nothing in place still printed "ready!". The version was also captured with
-# `|| echo ''`, which swallowed a binary that could not run at all — so this
-# reuses the version proven above rather than re-running and ignoring failure.
+# nothing in place still printed the success banner. The version was also
+# captured with `|| echo ''`, which swallowed a binary that could not run at
+# all — so this reuses the version proven above rather than re-running and
+# ignoring failure.
 if [[ -n "$LEMONCROW_INSTALLED_VERSION" ]]; then
-    info "LemonCrow ${LEMONCROW_INSTALLED_VERSION} ready!"
-    echo ""
+    # `lemoncrow --version` prints "lemoncrow, version 0.7.4": show the number
+    # alone, not the CLI's own name a second time.
+    version_label="${LEMONCROW_INSTALLED_VERSION%%$'\n'*}"
+    version_label="${version_label##* }"
+    echo "  Version:      ${version_label}"
+    if [[ "$LEMONCROW_INSTALL_MODE" == "local" ]]; then
+        echo "  Frontend:     http://127.0.0.1:${LEMONCROW_LOCAL_SERVER_PORT:-7420}"
+    fi
     echo "  Quick start:  ${cli} --help"
-    echo "  Init runtime: ${cli} init"
+    if [[ "$LEMONCROW_INSTALL_MODE" == "local" || "$LEMONCROW_INSTALL_MODE" == "hosted" ]]; then
+        echo "  Connection:   ${cli} mcp check"
+    else
+        echo "  Init runtime: ${cli} init"
+    fi
     echo "  Docs:         https://docs.lemoncrow.com"
     echo "  Github:       https://github.com/lemoncrow-lab/lemoncrow"
 else

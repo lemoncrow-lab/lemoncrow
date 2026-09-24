@@ -727,6 +727,68 @@ class TestListSessions:
         assert "started_model" in item
         assert "cost_status" in item
 
+    def test_limit_is_applied_after_merging_imported_sessions(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        old_run = _write_run(tmp_path, "sess-old-ledger")
+        snap = json.loads(old_run.read_text())
+        old = datetime.now(UTC) - timedelta(days=2)
+        snap["created_at"] = (old - timedelta(hours=1)).isoformat()
+        snap["updated_at"] = old.isoformat()
+        old_run.write_text(json.dumps(snap))
+        os.utime(old_run, (old.timestamp(), old.timestamp()))
+
+        _write_imported_trace(
+            tmp_path,
+            "sess-new-imported",
+            host="codex",
+            model="gpt-5.6-sol",
+            input_tokens=10_000,
+            output_tokens=1_000,
+        )
+
+        monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+        monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "0")
+        monkeypatch.chdir(tmp_path)
+
+        from lemoncrow.core.service.api import create_app
+
+        client = TestClient(create_app(store_root=str(tmp_path)))
+        response = client.get("/v1/sessions", params={"since": "7d", "limit": 1})
+
+        assert response.status_code == 200
+        rows = response.json()
+        assert [row["session_id"] for row in rows] == ["sess-new-imported"]
+        assert rows[0]["total_cost_usd"] > 0
+
+    def test_unpriced_imported_session_is_not_reported_as_zero_cost(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _write_imported_trace(
+            tmp_path,
+            "sess-unpriced",
+            host="opencode",
+            model="opencode/definitely-unknown-model",
+            input_tokens=25_000,
+            output_tokens=4_000,
+        )
+
+        monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
+        monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "0")
+        monkeypatch.chdir(tmp_path)
+
+        from lemoncrow.core.service.api import create_app
+
+        client = TestClient(create_app(store_root=str(tmp_path)))
+        response = client.get("/v1/sessions", params={"since": "7d", "limit": 10})
+
+        assert response.status_code == 200
+        item = next(row for row in response.json() if row["session_id"] == "sess-unpriced")
+        assert item["total_cost_usd"] == 0.0
+        assert item["cost_status"] == "unavailable"
+        assert item["input_tokens"] == 25_000
+        assert item["output_tokens"] == 4_000
+
     def test_returns_200_with_no_sessions(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
         monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "0")

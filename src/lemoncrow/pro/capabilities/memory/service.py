@@ -78,6 +78,83 @@ class MemoryService:
             ]
         )
 
+    def upsert_editable_block(
+        self,
+        *,
+        agent_id: str,
+        label: str,
+        value: str,
+        limit_chars: int = 8000,
+        description: str = "",
+        read_only: bool = False,
+        pinned: bool = False,
+        metadata: dict[str, Any] | None = None,
+        expected_version: int | None = None,
+        actor: str | None = None,
+        field_redactor: Callable[[str, str], str] | None = None,
+    ) -> dict[str, Any]:
+        """Create/update an editable named MemoryBlock with legacy arbitration semantics.
+
+        This is distinct from :meth:`store_fact`: callers choose the block label,
+        version contract, metadata, pin/read-only state and actor. ``field_redactor``
+        lets host boundaries retain their stricter field-aware secret guard.
+        """
+        clean_value = field_redactor(value, "value") if field_redactor else self._redactor(value)
+        clean_description = (
+            field_redactor(description, "description") if field_redactor else self._redactor(description)
+        )
+        existing = self._store.get_block(agent_id, label)
+        version = expected_version if expected_version is not None else (existing.version if existing else 1)
+        seed = existing or MemoryBlock(agent_id=agent_id, label=label, value=clean_value)
+        block = MemoryBlock(
+            id=seed.id,
+            agent_id=agent_id,
+            label=label,
+            value=clean_value,
+            limit_chars=limit_chars,
+            description=clean_description,
+            read_only=read_only,
+            metadata=metadata or {},
+            pinned=pinned,
+            version=version,
+            current_history_id=existing.current_history_id if existing else None,
+            created_at=seed.created_at,
+        )
+
+        decision = arbitrate(block, self._store, self._embedder)
+        target = None
+        if decision.target_block_id:
+            # Preserve the editable-block contract that predates MemoryService:
+            # the arbiter target is resolved across this agent namespace rather
+            # than restricted to the service's fact-similarity candidate set.
+            for item in self._store.list_blocks(agent_id, include_tombstoned=True, limit=500):
+                if item.id == decision.target_block_id:
+                    target = item
+                    break
+
+        resolved_actor = actor or f"agent:{agent_id}"
+        if decision.op == "NOOP" and target is not None:
+            stored = target
+        elif decision.op == "UPDATE" and target is not None:
+            # Legacy editable-block UPDATE deliberately changes only the value;
+            # it does not merge replacement metadata into the arbitration target.
+            stored = self._store.upsert_block(
+                target.model_copy(update={"value": decision.merged_value or clean_value}),
+                actor=resolved_actor,
+                reason=decision.reason,
+            )
+        elif decision.op == "DELETE" and target is not None:
+            self._store.tombstone_block(target.id, deprecated_by_block_id=block.id, reason=decision.reason)
+            stored = self._store.upsert_block(block, actor=resolved_actor, reason=decision.reason)
+        else:
+            stored = self._store.upsert_block(block, actor=resolved_actor)
+
+        return {
+            "id": stored.id,
+            "version": stored.version,
+            "arbitration": {"op": decision.op, "reason": decision.reason},
+        }
+
     def store_fact(
         self,
         *,

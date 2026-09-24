@@ -24,6 +24,7 @@ conflicts = [[
 members = [
     "lemoncrow",
     "lemoncrow-benchmarks",
+    "lemoncrow-client",
     "lemoncrow-integrations",
 ]
 
@@ -2618,6 +2619,7 @@ dependencies = [
     { name = "diff-match-patch" },
     { name = "fastapi" },
     { name = "gitpython" },
+    { name = "lemoncrow-client" },
     { name = "markdown-it-py" },
     { name = "markdownify" },
     { name = "opentelemetry-api", version = "1.30.0", source = { registry = "https://pypi.org/simple" }, marker = "extra == 'extra-9-lemoncrow-memory-server'" },
@@ -2739,6 +2741,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.136.1" },
     { name = "gitpython", specifier = ">=3.1.50" },
     { name = "langfuse", marker = "extra == 'langfuse'", specifier = ">=3" },
+    { name = "lemoncrow-client", editable = "client" },
     { name = "letta", marker = "extra == 'memory-server'", specifier = ">=0.16.7" },
     { name = "letta-client", marker = "extra == 'memory'", specifier = ">=1.7.12" },
     { name = "litellm", marker = "extra == 'litellm'", specifier = ">=1.83.14" },
@@ -2856,6 +2859,24 @@ requires-dist = [
     { name = "terminal-bench", specifier = "==0.2.18" },
 ]
 provides-extras = ["dev", "harbor"]
+
+[[package]]
+name = "lemoncrow-client"
+version = "0.1.0"
+source = { editable = "client" }
+
+[package.optional-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pytest" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.20" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "lemoncrow-integrations"

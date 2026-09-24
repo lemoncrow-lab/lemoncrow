@@ -1,7 +1,7 @@
 """Soft-detection of external command-output compactor binaries.
 
 LemonCrow already rewrites `cat`/`grep`/`find` in-process (see `classify_command`'s
-`read`/`grep`/`find_glob` rewrite targets in `bash_exec.py`) because those map
+`read`/`grep`/`find_glob` rewrite targets in `lemoncrow_client.kit.command_policy`) because those map
 cleanly onto LemonCrow's own indexed tools. Third-party CLIs like rtk
 (https://github.com/rtk-ai/rtk) go further and compact a much wider surface --
 git, gh, test runners, linters, cloud CLIs -- but reimplementing all of that
@@ -178,7 +178,7 @@ RTK = ExternalCompactor(
     ),
     rewrite_args=("rewrite",),
     # Keep the tag in sync with LEMONCROW_RTK_TAG in scripts/lib/common.sh.
-    install_hint="cargo install --git https://github.com/rtk-ai/rtk --tag v0.43.0",
+    install_hint="cargo install --git https://github.com/rtk-ai/rtk --tag v0.49.0",
 )
 
 # Registry of known compactors. Append here to support another binary; no

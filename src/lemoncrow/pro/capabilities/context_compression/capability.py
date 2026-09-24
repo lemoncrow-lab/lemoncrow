@@ -129,7 +129,7 @@ class ContextCompressionCapability:
                           Events whose summaries overlap with task terms score higher.
         """
         from lemoncrow.bench.mode import is_off as _bench_is_off
-        from lemoncrow.core.capabilities import licensing
+        from lemoncrow.core.capabilities import feature_access as licensing
 
         if _bench_is_off() or not licensing.has_feature("context_compression"):
             return CompressionResult.passthrough()
@@ -153,7 +153,7 @@ class ContextCompressionCapability:
         The original ``compress_with_provenance`` is unchanged.
         """
         from lemoncrow.bench.mode import is_off as _bench_is_off
-        from lemoncrow.core.capabilities import licensing
+        from lemoncrow.core.capabilities import feature_access as licensing
 
         if _bench_is_off() or not licensing.has_feature("context_compression"):
             return CompressionResult.passthrough()

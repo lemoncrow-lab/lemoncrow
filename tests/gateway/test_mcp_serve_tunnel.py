@@ -294,6 +294,8 @@ def test_no_auth_serves_open_mcp(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     from fastapi.testclient import TestClient
 
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / ".lemoncrow"))
+    monkeypatch.setenv("LEMONCROW_URL", "http://127.0.0.1:9")
+    monkeypatch.setenv("LEMONCROW_INSTALL_MODE", "local")
     captured_apps: list[Any] = []
     monkeypatch.setattr(uvicorn.Server, "run", lambda self, sockets=None: captured_apps.append(self.config.app))
 
@@ -303,13 +305,36 @@ def test_no_auth_serves_open_mcp(monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     assert "NO AUTHENTICATION" in result.output
     assert "Pairing code" not in result.output
 
-    resp = TestClient(captured_apps[0]).post(
+    client = TestClient(captured_apps[0])
+    resp = client.post(
         "/mcp",
         json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
     )
     assert resp.status_code == 200
     assert resp.json()["jsonrpc"] == "2.0"
-    assert resp.json()["result"]["serverInfo"]["name"]
+    assert resp.json()["result"]["serverInfo"]["name"] == "lc"
+
+    listed = client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+    ).json()[
+        "result"
+    ]["tools"]
+    assert [tool["name"] for tool in listed] == ["bash", "code_search", "edit", "read", "web_fetch"]
+
+    # The backend is deliberately unreachable, but client-routed bash still
+    # executes. This is the same routing contract as stdio lemoncrow-client.
+    local = client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {"name": "bash", "arguments": {"command": "printf quick-http-ok"}},
+        },
+    ).json()
+    assert local["result"]["isError"] is False
+    assert "quick-http-ok" in local["result"]["content"][0]["text"]
 
 
 def test_no_auth_conflicts_with_pairing_code_and_reset(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -322,7 +347,7 @@ def test_no_auth_conflicts_with_pairing_code_and_reset(monkeypatch: pytest.Monke
 
 # ── user-defined client (`lc chatgpt client`) ──────────────────────────────────
 def _state_clients(tmp_path: Path) -> dict[str, Any]:
-    state = json.loads((tmp_path / ".lemoncrow" / "chatgpt" / "oauth.json").read_text(encoding="utf-8"))
+    state = json.loads((tmp_path / ".lemoncrow" / "mcp" / "oauth.json").read_text(encoding="utf-8"))
     clients: dict[str, Any] = state["clients"]
     return clients
 

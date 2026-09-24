@@ -11,15 +11,15 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
-from lemoncrow.pro.capabilities.tool_supervision import output_delta
-from lemoncrow.pro.capabilities.tool_supervision.bash_exec import (
-    _TEST_CMD_RE,
-    _dedupe_repeated_lines,
-    _extract_test_output,
-    _inject_stable_flags,
-    run_command,
+from lemoncrow_client.kit import output_delta
+from lemoncrow_client.kit.bash_output import (
+    TEST_CMD_RE,
+    dedupe_repeated_lines,
+    extract_test_output,
+    inject_stable_flags,
 )
+
+from lemoncrow.pro.capabilities.tool_supervision.bash_exec import run_command
 
 
 @pytest.fixture(autouse=True)
@@ -36,7 +36,7 @@ def _reset(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_dedupe_collapses_long_run_with_count() -> None:
     text = "\n".join(["retrying connection..."] * 40)
-    deduped, saved = _dedupe_repeated_lines(text)
+    deduped, saved = dedupe_repeated_lines(text)
     assert "retrying connection..." in deduped
     assert "(line repeated 40 times)" in deduped
     assert saved == len(text) - len(deduped)
@@ -45,12 +45,12 @@ def test_dedupe_collapses_long_run_with_count() -> None:
 
 def test_dedupe_leaves_short_runs_alone() -> None:
     text = "a\na\nb"
-    assert _dedupe_repeated_lines(text) == (text, 0)
+    assert dedupe_repeated_lines(text) == (text, 0)
 
 
 def test_dedupe_blank_runs_collapse_silently() -> None:
     text = "start\n\n\n\n\n\nend"
-    deduped, saved = _dedupe_repeated_lines(text)
+    deduped, saved = dedupe_repeated_lines(text)
     assert deduped == "start\n\nend"
     assert saved == len(text) - len(deduped)
     assert "repeated" not in deduped
@@ -58,7 +58,7 @@ def test_dedupe_blank_runs_collapse_silently() -> None:
 
 def test_dedupe_preserves_interleaved_lines() -> None:
     text = "\n".join(["x", "x", "x", "y", "x", "x", "x"])
-    deduped, _ = _dedupe_repeated_lines(text)
+    deduped, _ = dedupe_repeated_lines(text)
     assert deduped.splitlines().count("y") == 1
     assert deduped.count("(line repeated 3 times)") == 2
 
@@ -97,7 +97,7 @@ def test_run_command_dedupes_repeated_output() -> None:
     ],
 )
 def test_test_cmd_re_matches_mainstream_runners(command: str) -> None:
-    assert _TEST_CMD_RE.search(command)
+    assert TEST_CMD_RE.search(command)
 
 
 @pytest.mark.parametrize(
@@ -105,7 +105,7 @@ def test_test_cmd_re_matches_mainstream_runners(command: str) -> None:
     ["go build ./...", "npm install", "cargo build", "gofmt -l .", "make lint"],
 )
 def test_test_cmd_re_ignores_non_test_commands(command: str) -> None:
-    assert not _TEST_CMD_RE.search(command)
+    assert not TEST_CMD_RE.search(command)
 
 
 def test_extract_go_test_failure_keeps_fail_block() -> None:
@@ -120,7 +120,7 @@ def test_extract_go_test_failure_keeps_fail_block() -> None:
             "FAIL\texample.com/pkg\t0.012s",
         ]
     )
-    kept = _extract_test_output(out)
+    kept = extract_test_output(out)
     assert "--- FAIL: TestBroken" in kept
     assert "--- PASS: TestOK" not in kept
 
@@ -135,7 +135,7 @@ def test_extract_jest_green_keeps_summary_only() -> None:
             "Time:        1.4 s",
         ]
     )
-    kept = _extract_test_output(out)
+    kept = extract_test_output(out)
     assert "Tests:       12 passed, 12 total" in kept
     assert "PASS src/a.test.ts" not in kept
 
@@ -156,7 +156,7 @@ def test_extract_cargo_failure_cuts_at_failures_section() -> None:
             "test result: FAILED. 2 passed; 1 failed",
         ]
     )
-    kept = _extract_test_output(out)
+    kept = extract_test_output(out)
     assert "---- tests::broken stdout ----" in kept
     assert "running 3 tests" not in kept
 
@@ -176,7 +176,7 @@ def test_extract_cargo_failure_cuts_at_failures_section() -> None:
     ],
 )
 def test_inject_stable_flags_appends(command: str, expected: str) -> None:
-    exec_command, note = _inject_stable_flags(command)
+    exec_command, note = inject_stable_flags(command)
     assert exec_command == expected
     assert expected in note
 
@@ -199,12 +199,12 @@ def test_inject_stable_flags_appends(command: str, expected: str) -> None:
     ],
 )
 def test_inject_stable_flags_leaves_alone(command: str) -> None:
-    assert _inject_stable_flags(command) == (command, "")
+    assert inject_stable_flags(command) == (command, "")
 
 
 def test_inject_stable_flags_kill_switch(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEMONCROW_BASH_FLAG_INJECTION", "0")
-    assert _inject_stable_flags("git status") == ("git status", "")
+    assert inject_stable_flags("git status") == ("git status", "")
 
 
 def test_run_command_injects_git_status_flags(tmp_path: Path) -> None:

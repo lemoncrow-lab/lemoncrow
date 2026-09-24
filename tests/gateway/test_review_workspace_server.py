@@ -21,6 +21,7 @@ import contextlib
 import http.server
 import json
 import os
+import signal
 import socket
 import stat
 import threading
@@ -86,8 +87,35 @@ def test_the_loopback_bind_keeps_the_socket_it_bound() -> None:
         sock.close()
 
 
-def test_serving_a_non_loopback_host_exits_non_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The refusal reaches the exit code, through the real CLI."""
+def test_local_workspace_idle_timeout_is_bounded_and_configurable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(ws.IDLE_TIMEOUT_ENV, raising=False)
+    assert ws._workspace_idle_seconds() == 4 * 60 * 60
+
+    monkeypatch.setenv(ws.IDLE_TIMEOUT_ENV, "90")
+    assert ws._workspace_idle_seconds() == 90
+
+    monkeypatch.setenv(ws.IDLE_TIMEOUT_ENV, "1")
+    assert ws._workspace_idle_seconds() == 30
+
+    monkeypatch.setenv(ws.IDLE_TIMEOUT_ENV, "not-a-number")
+    assert ws._workspace_idle_seconds() == 4 * 60 * 60
+
+
+def test_local_workspace_idle_reaper_requests_server_shutdown() -> None:
+    class _Server:
+        should_exit = False
+
+    server = _Server()
+    activity = ws._WorkspaceActivity(last_seen=0.0)
+    stop = threading.Event()
+
+    ws._idle_reaper(server, activity, stop, idle_seconds=0.001, check_interval=0.001)
+
+    assert server.should_exit is True
+
+
+def test_retired_workspace_entrypoint_exits_non_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The real CLI refuses the retired per-repository workspace server."""
 
     monkeypatch.setenv(ws.HOST_ENV, "0.0.0.0")
     monkeypatch.setenv("LEMONCROW_AST_GREP_BIN", str(tmp_path / "sg"))
@@ -97,7 +125,8 @@ def test_serving_a_non_loopback_host_exits_non_zero(tmp_path: Path, monkeypatch:
         catch_exceptions=False,
     )
     assert result.exit_code != 0
-    assert "127.0.0.1" in result.output
+    assert "per-repository Review workspace server is retired" in result.output
+    assert "LEMONCROW_URL" in result.output
 
 
 # --------------------------------------------------------------------------- #
@@ -183,6 +212,7 @@ def test_a_registration_naming_a_dead_pid_reads_as_absent(tmp_path: Path) -> Non
         encoding="utf-8",
     )
     assert ws.read_registration(store_root, repo_root) is None
+    assert not path.exists()
 
 
 def test_a_corrupt_or_missing_registration_reads_as_absent(tmp_path: Path) -> None:
@@ -193,6 +223,76 @@ def test_a_corrupt_or_missing_registration_reads_as_absent(tmp_path: Path) -> No
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("{not json", encoding="utf-8")
     assert ws.read_registration(store_root, repo_root) is None
+    assert not path.exists()
+
+
+def test_stale_registration_cleanup_never_deletes_a_concurrent_replacement(tmp_path: Path) -> None:
+    path = tmp_path / "workspace.json"
+    observed = "old"
+    path.write_text("new", encoding="utf-8")
+
+    ws._remove_stale_registration(path, observed)
+
+    assert path.read_text(encoding="utf-8") == "new"
+
+
+def test_retire_legacy_workspaces_only_signals_a_process_that_still_authenticates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store_root = tmp_path / "store"
+    registrations = store_root / "review" / "workspaces"
+    registrations.mkdir(parents=True)
+    healthy = registrations / "workspace-healthy.json"
+    stale = registrations / "workspace-stale.json"
+    healthy.write_text(
+        json.dumps(
+            {
+                "pid": 41001,
+                "url": "http://127.0.0.1:4101",
+                "token": "healthy-token",
+                "started_at": 1.0,
+                "repo_root": str(tmp_path / "healthy"),
+            }
+        ),
+        encoding="utf-8",
+    )
+    stale.write_text(
+        json.dumps(
+            {
+                "pid": 41002,
+                "url": "http://127.0.0.1:4102",
+                "token": "stale-token",
+                "started_at": 1.0,
+                "repo_root": str(tmp_path / "stale"),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(ws, "_pid_alive", lambda pid: True)
+    monkeypatch.setattr(ws, "probe_healthy", lambda handle, timeout=2.0: handle.pid == 41001)
+    killed: list[tuple[int, int]] = []
+    monkeypatch.setattr(os, "kill", lambda pid, sig: killed.append((pid, sig)))
+
+    assert ws.retire_legacy_workspaces(store_root) == 1
+    assert killed == [(41001, signal.SIGTERM)]
+    assert not healthy.exists()
+    assert not stale.exists()
+
+
+def test_retire_legacy_workspaces_removes_corrupt_registration_without_signalling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store_root = tmp_path / "store"
+    registrations = store_root / "review" / "workspaces"
+    registrations.mkdir(parents=True)
+    corrupt = registrations / "workspace-corrupt.json"
+    corrupt.write_text("{bad json", encoding="utf-8")
+
+    monkeypatch.setattr(os, "kill", lambda *args: pytest.fail("corrupt registration must never signal a pid"))
+
+    assert ws.retire_legacy_workspaces(store_root) == 0
+    assert not corrupt.exists()
 
 
 def test_two_repositories_get_two_registrations(tmp_path: Path) -> None:
@@ -263,100 +363,40 @@ def test_health_means_the_token_still_works_not_merely_that_the_pid_lives(tmp_pa
         server.server_close()
 
 
-def test_ensure_workspace_adopts_a_healthy_process_instead_of_spawning(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_ensure_workspace_is_a_hard_retirement_guard(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True)
+
+    with pytest.raises(RuntimeError, match="per-repository Review workspace server is retired"):
+        ws.ensure_workspace(tmp_path / "store", repo_root)
+
+
+def test_serve_workspace_is_a_hard_retirement_guard(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir(parents=True)
+
+    with pytest.raises(RuntimeError, match="per-repository Review workspace server is retired"):
+        ws.serve_workspace(tmp_path / "store", repo_root)
+
+
+def test_retirement_guard_never_touches_a_live_legacy_registration(tmp_path: Path) -> None:
     store_root = tmp_path / "store"
     repo_root = tmp_path / "repo"
     repo_root.mkdir(parents=True)
     server, port = _stub_server(accept_token="live")
     try:
-        ws.write_registration(store_root, repo_root, _handle(store_root, repo_root, port, token="live"))
-
-        def _never(*args: Any, **kwargs: Any) -> Any:
-            raise AssertionError("ensure_workspace spawned a second workspace for a healthy one")
-
-        monkeypatch.setattr(ws.subprocess, "Popen", _never)
-        handle = ws.ensure_workspace(store_root, repo_root)
-        assert handle.url.endswith(str(port))
+        handle = _handle(store_root, repo_root, port, token="live")
+        ws.write_registration(store_root, repo_root, handle)
+        with pytest.raises(RuntimeError, match="per-repository Review workspace server is retired"):
+            ws.ensure_workspace(store_root, repo_root)
+        adopted = ws.read_registration(store_root, repo_root)
+        assert adopted is not None
+        assert adopted.pid == handle.pid
+        assert adopted.url == handle.url
+        assert ws.probe_healthy(adopted) is True
     finally:
         server.shutdown()
         server.server_close()
-
-
-def test_ensure_workspace_replaces_a_healthy_process_serving_an_old_generation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Token-valid but stale code is not a workspace we may keep reviewing in."""
-
-    store_root = tmp_path / "store"
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir(parents=True)
-    server, port = _stub_server(accept_token="live")
-    retired: list[str] = []
-    spawned: list[list[str]] = []
-    try:
-        ws.write_registration(
-            store_root,
-            repo_root,
-            _handle(store_root, repo_root, port, token="live", generation="old-generation"),
-        )
-        monkeypatch.setattr(ws, "workspace_generation", lambda: "current-generation")
-        monkeypatch.setattr(
-            ws,
-            "_retire_workspace",
-            lambda _store, _repo, handle: retired.append(handle.generation),
-        )
-
-        def _record(command: list[str], **kwargs: Any) -> Any:
-            spawned.append(command)
-            raise KeyboardInterrupt
-
-        monkeypatch.setattr(ws.subprocess, "Popen", _record)
-        with pytest.raises(KeyboardInterrupt):
-            ws.ensure_workspace(store_root, repo_root, timeout=0.5)
-    finally:
-        server.shutdown()
-        server.server_close()
-
-    assert retired == ["old-generation"]
-    assert spawned and "--serve-workspace" in spawned[0]
-    assert spawned[0][1:3] == ["-P", "-m"]
-
-
-def test_ensure_workspace_replaces_a_registration_whose_token_no_longer_works(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The negative case: an unusable credential must respawn, not be adopted."""
-
-    store_root = tmp_path / "store"
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir(parents=True)
-    server, port = _stub_server(accept_token="the-real-token")
-    spawned: list[list[str]] = []
-    try:
-        ws.write_registration(store_root, repo_root, _handle(store_root, repo_root, port, token="stale"))
-
-        def _record(command: list[str], **kwargs: Any) -> Any:
-            spawned.append(command)
-            raise KeyboardInterrupt  # stop the wait loop immediately
-
-        monkeypatch.setattr(ws.subprocess, "Popen", _record)
-        with pytest.raises(KeyboardInterrupt):
-            ws.ensure_workspace(store_root, repo_root, timeout=0.5)
-    finally:
-        server.shutdown()
-        server.server_close()
-    assert spawned and "--serve-workspace" in spawned[0]
-
-
-def test_ensure_workspace_reports_a_child_that_never_came_up(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    store_root = tmp_path / "store"
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir(parents=True)
-    monkeypatch.setattr(ws.subprocess, "Popen", lambda *a, **k: None)
-    with pytest.raises(RuntimeError, match="did not become healthy"):
-        ws.ensure_workspace(store_root, repo_root, timeout=0.4)
 
 
 # --------------------------------------------------------------------------- #
@@ -372,7 +412,7 @@ def test_a_missing_bundle_reads_as_none_rather_than_raising(tmp_path: Path, monk
     monkeypatch.setenv(ws.BUNDLE_ENV, str(empty))
     monkeypatch.setattr(ws, "_checkout_bundle", lambda: empty)
     monkeypatch.setattr(
-        "lemoncrow.infra.runtime.stack_lifecycle._stack_frontend_dir",
+        "lemoncrow.infra.runtime.frontend_bundle.frontend_dir",
         lambda: empty,
     )
     assert ws.bundle_dir() is None
@@ -465,7 +505,7 @@ def test_workspace_generation_sees_a_compiled_review_module_change(
 def test_the_checkout_bundle_beats_the_installed_stack_bundle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A dev checkout must serve its own build, not the installed release.
 
-    ``_stack_frontend_dir`` points at ``~/.lemoncrow/install/frontend`` -- a
+    ``frontend_dir`` points at ``~/.lemoncrow/install/frontend`` -- a
     released dashboard bundle that predates this checkout's `/review` route.
     Serving it renders dashboard chrome around an empty pane, which reads as a
     broken workspace rather than a stale bundle. Observed live before the fix.
@@ -476,7 +516,7 @@ def test_the_checkout_bundle_beats_the_installed_stack_bundle(tmp_path: Path, mo
     (installed / "index.html").write_text("<html>old dashboard</html>", encoding="utf-8")
     monkeypatch.delenv(ws.BUNDLE_ENV, raising=False)
     monkeypatch.setattr(
-        "lemoncrow.infra.runtime.stack_lifecycle._stack_frontend_dir",
+        "lemoncrow.infra.runtime.frontend_bundle.frontend_dir",
         lambda: installed,
     )
 
@@ -515,6 +555,9 @@ def test_the_bundle_mount_serves_the_bundle_and_nothing_above_it(
     page = client.get(ws.WORKSPACE_ROUTE)
     assert page.status_code == 200
     assert "workspace" in page.text
+    assert client.get(ws.REVIEWS_ROUTE).status_code == 200
+    assert client.get(f"{ws.REVIEWS_ROUTE}/rev-1").status_code == 200
+    assert client.get(f"{ws.REVIEWS_ROUTE}/rev-1/revisions/2").status_code == 200
     assert client.get("/assets/app.js").status_code == 200
     for escape in ("/../secret.txt", "/..%2fsecret.txt", "/assets/../../secret.txt"):
         response = client.get(escape)
@@ -529,4 +572,4 @@ def test_the_bootstrap_url_carries_the_token_in_the_fragment_only(tmp_path: Path
     before_fragment, _, fragment = url.partition("#")
     assert "s3cret" not in before_fragment
     assert "t=s3cret" in fragment
-    assert before_fragment.endswith("/review")
+    assert before_fragment.endswith("/reviews/rev-1")

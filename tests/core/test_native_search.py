@@ -5,11 +5,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.pro.capabilities.tool_supervision.native_search import (
-    MAX_STRUCTURED_OUTPUT_CHARS,
-    _match_line_numbers,
-    search_workspace,
-)
+from lemoncrow_client.kit.search import MAX_STRUCTURED_OUTPUT_CHARS, _match_line_numbers
+
+from lemoncrow.pro.capabilities.tool_supervision.native_search import search_workspace
 
 
 def _texts(result: dict[str, Any]) -> list[str]:
@@ -205,6 +203,7 @@ def test_match_line_numbers_hard_bounds_catastrophic_single_line() -> None:
         None,
         include_all_when_no_regex=False,
         deadline=deadline,
+        regex_module=_regex_module,
     )
     elapsed = time.monotonic() - start
 
@@ -258,3 +257,20 @@ def test_native_search_ranked_file_map_includes_root_dotfiles_but_skips_internal
 
     files = [match["file"] for match in result["matches"]]
     assert files == [".env.example"]
+
+
+def test_an_unknown_type_filter_is_refused_by_name(tmp_path: Path) -> None:
+    (tmp_path / "main.go").write_text("package main // needle\n", encoding="utf-8")
+    (tmp_path / "notes.md").write_text("needle\n", encoding="utf-8")
+
+    refused = search_workspace(path=".", content_regex="needle", type="cobol", repo_root=tmp_path)
+    assert refused["isError"] is True
+    assert "unknown type filter 'cobol'" in refused["content"][0]["text"]
+    assert "go" in refused["content"][0]["text"]
+
+    found = search_workspace(
+        path=".", content_regex="needle", type="go", output_mode="file_paths_only", repo_root=tmp_path
+    )
+    text = found["content"][0]["text"]
+    assert "main.go" in text
+    assert "notes.md" not in text

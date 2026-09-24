@@ -86,8 +86,6 @@ Use LemonCrow context for this task and record a trace summary when it is done.
 Additional workspace helpers:
 
 - `LemonCrow: Session Summary` prints the latest LemonCrow per-session cost and savings breakdown after a Copilot task or chat run.
-- `LemonCrow: Worktree Bootstrap` writes `.env.worktree` with stable per-worktree ports and container names.
-- `LemonCrow: Runtime Evidence` captures `health`, `analytics/summary`, and `v1/traces` into `reports/runtime-evidence/latest.json`.
 
 ## Expected Behavior
 

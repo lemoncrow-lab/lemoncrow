@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.core.capabilities.licensing import entitlements
+from lemoncrow.core.capabilities import feature_access
 from lemoncrow.core.service import code_warm
 from lemoncrow.pro.capabilities.optimization.policy import load_current_policy
 from tests.helpers import deny_oauth, grant_oauth_pro
@@ -24,7 +24,6 @@ from tests.helpers import deny_oauth, grant_oauth_pro
 def _clean(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     deny_oauth(monkeypatch)
     yield
-    entitlements.reload()
 
 
 def _setup(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, n: int) -> None:
@@ -92,7 +91,5 @@ def test_scoped_context_pull_is_no_longer_locked() -> None:
     # called licensing.require("scoped_context"), which raised FeatureLocked when
     # signed out. That gate is neutralized now — require never raises and the
     # feature resolves as granted locally.
-    from lemoncrow.core.capabilities import licensing
-
-    assert licensing.require("scoped_context") is None  # never raises FeatureLocked
-    assert licensing.has_feature("scoped_context") is True
+    assert feature_access.require("scoped_context") is None
+    assert feature_access.has_feature("scoped_context") is True

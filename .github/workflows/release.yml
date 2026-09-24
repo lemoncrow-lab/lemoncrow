@@ -17,6 +17,37 @@ defaults:
     shell: bash
 
 jobs:
+  hosted-client-build:
+    name: Build hosted thin client
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Build architecture-neutral hosted client
+        run: bash scripts/build_hosted.sh
+
+      - name: Upload hosted client
+        uses: actions/upload-artifact@v4
+        with:
+          name: hosted-client
+          path: |
+            dist/lemoncrow-hosted-client.tar.gz
+            dist/lemoncrow-hosted-client.tar.gz.sha256
+          if-no-files-found: error
+
   binary-build:
     name: Build release archive (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -58,7 +89,7 @@ jobs:
 
   release:
     name: Create GitHub Release
-    needs: [binary-build]
+    needs: [hosted-client-build, binary-build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -75,6 +106,12 @@ jobs:
           merge-multiple: true
           path: binaries/
 
+      - name: Download hosted thin client
+        uses: actions/download-artifact@v4
+        with:
+          name: hosted-client
+          path: hosted/
+
       - name: Generate release notes
         id: release_notes
         run: |
@@ -86,21 +123,23 @@ jobs:
           ### Installation
 
           \`\`\`bash
-          curl -fsSL https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download/install.sh | bash
+          curl -fsSL https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download/hosted.sh | LEMONCROW_HOSTED_URL=https://your-lemoncrow-server bash
           \`\`\`
 
           ### Assets
-          - \`install.sh\` — public installer script
-          - \`sessions.sh\` — session management utility
-          - \`lemoncrow-distribution-*.tar.gz\` — bundled production binaries for supported platforms
+          - \`hosted.sh\` — hosted thin-client installer
+          - \`lemoncrow-hosted-client.tar.gz\` — architecture-neutral zero-dependency hosted client
+          - \`install.sh\` — local/full-distribution installer (\`--hosted\` redirects to \`hosted.sh\`)
+          - \`sessions.sh\` — session management utility for full local distributions
+          - \`lemoncrow-distribution-*.tar.gz\` — full local-mode bundles for supported platforms
           EOF
 
       # This workflow runs directly on THIS (public) repo: scripts/mirror.py
       # rewrites it from .github/public-workflows/release.yml (private repo)
-      # to .github/workflows/release.yml here. The full source tree (pro/
-      # included) is Apache-2.0 and fully mirrored, so the wheel built here
-      # from source is identical to one built in the private repo — no
-      # cross-repo publish needed, no PAT required.
+      # to .github/workflows/release.yml here. The public server core is mirrored,
+      # so platform distributions remain complete local-mode bundles. Hosted mode
+      # is the separate architecture-neutral lemoncrow-hosted-client.tar.gz built
+      # once above; it contains only the audited thin-client wheel.
       #
       # `make release` (private repo) pushes the release tag to this repo's
       # mirrored SHA before this workflow's trigger can fire, so the tag
@@ -119,8 +158,17 @@ jobs:
             shasum -a 256 "$f" | awk '{print $1}' > "${f}.sha256"
           done
 
+          # build_hosted.sh already produced this sidecar. Verify it again here
+          # before publication so a workflow/artifact mix-up fails the release.
+          hosted_archive="hosted/lemoncrow-hosted-client.tar.gz"
+          hosted_sidecar="${hosted_archive}.sha256"
+          test -s "$hosted_archive" -a -s "$hosted_sidecar"
+          expected="$(tr -d '[:space:]' < "$hosted_sidecar")"
+          actual="$(shasum -a 256 "$hosted_archive" | awk '{print $1}')"
+          test "$expected" = "$actual" || { echo "::error::Hosted client checksum mismatch"; exit 1; }
+
           shopt -s nullglob
-          assets=(binaries/* scripts/install.sh scripts/sessions.sh)
+          assets=(binaries/* hosted/* scripts/install.sh scripts/hosted.sh scripts/sessions.sh)
 
           if (( ${#assets[@]} == 0 )); then
             echo "::error::No release assets were found."

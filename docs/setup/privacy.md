@@ -1,9 +1,9 @@
 # Privacy & network behavior
 
-LemonCrow is a **local runtime**. It runs on your machine and works fully
-offline after install: indexing, search, edits, and memory never leave the
-machine. There is no account and no license check. The one thing LemonCrow does
-send by default is an anonymous telemetry rollup — counts, durations, and dollar
+LemonCrow's public/local runtime runs on your machine and works fully offline
+after install: indexing, search, edits, memory, and local Review do not require
+a LemonCrow account or commercial license. The one LemonCrow-bound request made
+by default is an anonymous telemetry rollup — counts, durations, and dollar
 estimates, never code or prompts. Turn it off with `lc telemetry remote off`, or
 set `DO_NOT_TRACK=1` or `LEMONCROW_TELEMETRY=off`.
 
@@ -23,6 +23,7 @@ aggregate telemetry rollup described below.
 | Model / embedding calls | The provider **you** configured (Anthropic, OpenAI, Ollama, …) | Only when a capability calls your configured model, using your API key |
 | Optional dependency bootstrap | Upstream project releases (e.g. ast-grep, Hugging Face models) | Only for optional features you enable; checksum-verified where applicable |
 | Startup auto-update | GitHub (`origin`) | **Opt-in only**: set `LEMONCROW_AUTO_UPDATE=1` |
+| Daily update check | GitHub Releases API for `lemoncrow-lab/lemoncrow` (one anonymous GET, no LemonCrow data) | **Opt-in only**: the interactive installer offers Auto-update, Notify only, or Don't check automatically (the default); or use `lc settings set cli.update_check true`. Off for non-interactive installs |
 | Remote telemetry | `lemoncrow.com` rollup endpoint — see below | **On by default**; opt out with `lc telemetry remote off` |
 
 User-configured model-provider calls are the product's core function and are
@@ -73,11 +74,21 @@ LemonCrow-backed agent. This is **off by default**. Opt in at install time with
 `.git/hooks/prepare-commit-msg` hook. `scripts/uninstall.sh` removes the hook (and
 the block it appended to any pre-existing hook).
 
-## Optional hosted account
+## Local identity versus hosted identity
 
-`lc account login` is an optional convenience for linking a hosted account. It
-is never required, never prompted, and never gates any feature. If you never run
-it, LemonCrow behaves identically.
+Local mode uses a machine credential stored under `LEMONCROW_HOME` and a
+separate Review-only browser capability. Neither requires a LemonCrow account.
+The local server binds to loopback and is not a supported remote-exposure
+surface. Standard reverse-proxy forwarding headers disable local browser trust;
+a raw TCP tunnel can be indistinguishable from true loopback traffic, so do not
+forward port `7420` to other machines.
+
+Hosted mode is separate. When `LEMONCROW_URL` points at a hosted LemonCrow
+server, `lc auth login` discovers the server's Authward issuer and performs RFC
+8628 device authorization directly with Authward. Authward access/refresh
+credentials are stored separately from the local machine credential. Remote
+browser Review uses Authward authorization-code + PKCE through the hosted BFF.
+Signing in to hosted LemonCrow does not become a prerequisite for local use.
 
 ## Removal
 

@@ -191,9 +191,9 @@ PYEOF
 lemoncrow_apply_reply_register_level() {
     # Rewrite the baked-in ultra reply-register in staged agent files to the
     # active level: $LEMONCROW_TELEGRAPHIC env, else the cli.telegraphic key in
-    # <root>/plugin_settings.json (ultra|lite|off). ultra/unset = no-op. Self-contained
-    # mirror of lemoncrow.core.reply_register.apply_reply_register_level — keep in
-    # sync. $1 = file or directory (recurses over *.md, *.mdc, *.toml).
+    # <root>/plugin_settings.json (ultra|lite|off), else ultra. Explicit ultra is
+    # the only no-op. Self-contained mirror of reply_register.py — keep in sync.
+    # $1 = file or directory (recurses over *.md, *.mdc, *.toml).
     local target="$1"
     local dry_run="${2:-false}"
     local repo_root="${LEMONCROW_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
@@ -222,8 +222,10 @@ if not level:
             level = str(raw.get("cli.telegraphic", "")).strip().lower()
     except Exception:
         level = ""
-if level not in ("lite", "off"):
-    raise SystemExit(0)  # ultra/unset/unknown -> keep files as shipped
+if level not in ("ultra", "lite", "off"):
+    level = "ultra"
+if level == "ultra":
+    raise SystemExit(0)  # generated files already contain the explicit ultra source form
 
 shared = Path(os.environ["LEMONCROW_RR_SHARED"])
 register_source = (shared / "reply-register.md").read_text(encoding="utf-8")

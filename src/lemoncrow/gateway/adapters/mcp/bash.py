@@ -39,9 +39,9 @@ from lemoncrow.gateway.adapters.mcp.smart_state import (
     _acquire_smart_state_flock,
     _read_smart_state,
     _release_smart_state_flock,
-    _tool_call_tokens_saved,
     _write_smart_state,
 )
+from lemoncrow.gateway.tools.state import tool_call_tokens_saved as _tool_call_tokens_saved
 
 logger = logging.getLogger(__name__)
 
@@ -230,6 +230,13 @@ _BASH_IDLE_FLOOR_S = _bash_env_float("LEMONCROW_BASH_IDLE_FLOOR", 120.0)
 _BASH_IDLE_GRACE_S = _bash_env_float("LEMONCROW_BASH_IDLE_GRACE", 75.0)
 # How often progress is sampled while waiting.
 _BASH_IDLE_TICK_S = _bash_env_float("LEMONCROW_BASH_IDLE_TICK", 3.0)
+# Bound one MCP response independently from the managed command's own wait
+# budget. Hosts often impose a shorter RPC/orchestration window; returning the
+# durable shell id before that boundary avoids losing the run and re-starting it.
+_MCP_BASH_RESPONSE_WINDOW_S = min(
+    _bash_env_float("LEMONCROW_MCP_BASH_RESPONSE_WINDOW", 45.0),
+    _BASH_IDLE_FLOOR_S,
+)
 
 
 def _proc_session_cpu_io(sid: int) -> tuple[int, int] | None:
@@ -337,12 +344,11 @@ def _start_idle_deadline_watcher(
     fire: Callable[[], None],
     peek_fn: Callable[[str], dict[str, Any]],
 ) -> None:
-    """Deferred-path replacement for a single ``Timer(timeout, fire)``: fire at
-    the absolute ``timeout`` (unchanged, so the MCP response never blocks past
-    it) OR early once the command has made no progress for the grace window past
-    the floor. Exits without firing if ``fired`` is already set -- natural
-    completion won the race. A ``finally`` guarantees the result is never left
-    orphaned even if sampling raises.
+    """Fire when one deferred MCP response lease expires, or earlier on idle.
+
+    This deadline is deliberately independent from the managed command's own
+    wait/deadline semantics: expiring it returns the durable session handle but
+    never kills the process. Natural completion still wins the race.
     """
     floor = min(timeout_s, _BASH_IDLE_FLOOR_S)
     grace = _BASH_IDLE_GRACE_S
@@ -411,9 +417,10 @@ def _run_bash_tool(
     idle_ttl: int | None = None,
 ) -> dict[str, Any] | _DeferredResult:
     """Execute a shell command and return compact structured output."""
+    from lemoncrow_client.kit.command_policy import execute_inline_op
+
     from lemoncrow.pro.capabilities.tool_supervision.bash_exec import (
         classify_command,
-        execute_inline_op,
         peek_managed_command,
         poll_managed_command,
         send_managed_input,
@@ -492,10 +499,16 @@ def _run_bash_tool(
                     raise ValueError("timeout must be positive")
                 return update_managed_command(session_id, timeout)
             # Block until the managed command finishes, is cancelled, or the
-            # caller's optional poll timeout expires. With no timeout, wait
-            # indefinitely (subject to the managed command's own deadline).
+            # caller's optional poll timeout expires. MCP calls additionally cap
+            # one response wait so a host orchestration/RPC deadline cannot lose
+            # the durable managed-shell handle underneath it.
             delay = 0.02
-            poll_deadline = None if timeout is None else time.monotonic() + max(0.0, float(timeout))
+            requested_wait = None if timeout is None else max(0.0, float(timeout))
+            response_capped = _deferral_supported() and (
+                requested_wait is None or requested_wait > _MCP_BASH_RESPONSE_WINDOW_S
+            )
+            effective_wait = _MCP_BASH_RESPONSE_WINDOW_S if response_capped else requested_wait
+            poll_deadline = None if effective_wait is None else time.monotonic() + effective_wait
             while True:
                 poll_result = poll_managed_command(session_id)
                 if poll_result.get("status") != "running":
@@ -504,6 +517,8 @@ def _run_bash_tool(
                 if poll_deadline is not None:
                     remaining = poll_deadline - time.monotonic()
                     if remaining <= 0:
+                        if response_capped:
+                            poll_result["orchestration_return"] = True
                         return poll_result
                     time.sleep(min(delay, remaining))
                 else:
@@ -815,22 +830,18 @@ def _run_bash_tool(
             register_completion,
         )
 
+        response_wait = min(float(timeout), _MCP_BASH_RESPONSE_WINDOW_S)
+        orchestration_capped = response_wait < float(timeout)
+
         def _collect() -> dict[str, Any]:
-            # A soft-deadline resolution (see _register below) races the real
-            # completion callback, so this can run before the command is
-            # actually done -- peek first (non-blocking, never reaps) and only
-            # fall through to the terminal, reaping poll once it agrees the
-            # process has actually finished. Covers a command that's
-            # genuinely still running past `timeout` (e.g. a backgrounded
-            # server a task wants left running).
+            # The response lease races natural completion. If the lease wins,
+            # return the durable session id while the same managed command keeps
+            # running under its original budget.
             snapshot = peek_managed_command(managed_id)
             if snapshot.get("status") == "running":
-                # This only runs via the deadline watcher (register_completion
-                # fires on natural completion → status != running). A still-
-                # running, NOT-over-budget snapshot therefore means the watcher
-                # fired EARLY on the idle rule, not at the absolute deadline --
-                # tag it so the model is told "looks stuck", not "still working".
-                if not snapshot.get("over_budget"):
+                if orchestration_capped:
+                    snapshot["orchestration_return"] = True
+                elif not snapshot.get("over_budget"):
                     snapshot["idle_return"] = True
                 return snapshot
             # The process has finished when this runs; poll once for the terminal
@@ -865,15 +876,11 @@ def _run_bash_tool(
             armed = register_completion(managed_id, _once)
             if not armed:
                 return False
-            # Deadline watcher (replaces a single Timer(timeout)): fires _once at
-            # the absolute `timeout` -- so the MCP response never blocks past it,
-            # exactly as before -- OR early once the command has gone idle (no
-            # output/CPU/IO progress) past the floor. Never kills anything: the
-            # managed session keeps running untouched; the model gets a
-            # session_id back to poll again, keep working, or action="kill" it.
-            # register_completion still wins the race on natural completion (it
-            # sets `fired`, waking the watcher so it exits without firing again).
-            _start_idle_deadline_watcher(managed_id, float(timeout), fired, _once, peek_managed_command)
+            # Keep the JSON-RPC response inside the host's orchestration
+            # window even when the command itself has a much larger wait budget.
+            # Natural completion still wins; this response lease never kills the
+            # managed process.
+            _start_idle_deadline_watcher(managed_id, response_wait, fired, _once, peek_managed_command)
             return True
 
         return _DeferredResult(collect=_collect, register=_register)
@@ -943,125 +950,9 @@ def _run_bash_tool(
 
 
 def _render_bash_text(result: dict[str, Any]) -> str:
-    """Render shell output as compact text while preserving structured internals."""
-    exit_code = result.get("exit_code")
-    stdout = str(result.get("stdout") or "")
-    stderr = str(result.get("stderr") or "")
-    blocked = bool(result.get("blocked"))
-    blocked_reason = str(result.get("blocked_reason") or "")
-    truncated = bool(result.get("truncated"))
-    lines_omitted = result.get("lines_omitted")
-    status = str(result.get("status") or "")
-    session_id = str(result.get("session_id") or "")
-    explicit_background = bool(result.get("explicit_background"))
+    from lemoncrow.gateway.tools.rendering import render_bash_text
 
-    parts: list[str] = []
-    if "updated" in result:
-        # action="update" response -- a distinct shape from the plain
-        # running/status payloads below, so render it up front and return.
-        remaining_ms = result.get("timeout_remaining_ms")
-        if result.get("updated"):
-            remaining_txt = f"{int(remaining_ms) // 1000}s" if isinstance(remaining_ms, int) else "?"
-            parts.append(f"kill deadline updated, {remaining_txt} left id={session_id}")
-        else:
-            parts.append(f"update failed: session already {status} id={session_id}")
-        return "\n".join(parts).strip()
-    if status == "running":
-        over_budget = bool(result.get("over_budget"))
-        idle_return = bool(result.get("idle_return"))
-        if explicit_background:
-            parts.append(f"background running id={session_id}; bash(id={session_id}) waits for it")
-        elif result.get("interactive"):
-            parts.append(f"interactive session id={session_id}")
-        elif idle_return:
-            # Cut early because progress stalled -- NOT because the budget ran
-            # out. Do not steer the model to just re-wait (that re-blocks on a
-            # stuck command); tell it the handle is a decision point.
-            parts.append(
-                f"no progress ~{int(_BASH_IDLE_GRACE_S)}s — likely stuck. id={session_id} still running "
-                f"(not killed): bash(id={session_id}, action=kill), or move on"
-            )
-        elif over_budget:
-            parts.append(f"still running id={session_id}; bash(id={session_id}) waits for it — don't sleep-poll")
-        else:
-            parts.append(f"running id={session_id}")
-    elif status and status != "completed":
-        # Terminal states (cancelled/timed_out): the session is reaped, its id
-        # can never be polled again -- don't ship a dead handle. A clean
-        # "completed" is implied by output + exit_code and costs a line.
-        # "blocked" with a reason skips the bare state word too -- every
-        # blocked_reason already says "blocked".
-        if not (status == "blocked" and blocked_reason):
-            parts.append(status)
-    # Log paths are recovery pointers: folded into the lossy-view marker
-    # (tail slice / truncation) instead of standalone log_file= lines. A spill
-    # hint already names a full-output path, so logs are skipped there.
-    log_file = str(result.get("log_file") or "")
-    log_file_stderr = str(result.get("log_file_stderr") or "")
-    tail_lines = result.get("tail_lines")
-    spill_hint = str(result.get("spill_hint") or "")
-    if log_file and log_file_stderr:
-        # The two stream logs differ only in suffix -- brace the divergence
-        # ({stdout.txt, stderr.txt}) instead of repeating the directory + id.
-        i = len(os.path.commonprefix([log_file, log_file_stderr]))
-        i = max(log_file.rfind(c, 0, i) + 1 for c in "./")
-        if i:
-            log_paths = f"{log_file[:i]}{{{log_file[i:]}, {log_file_stderr[i:]}}}"
-        else:
-            log_paths = f"{log_file} {log_file_stderr}"
-    else:
-        log_paths = log_file or log_file_stderr
-    log_ptr = f"; full: {log_paths}" if log_paths and not spill_hint else ""
-    if status == "running" and log_paths:
-        parts.append(f"[logs: {log_paths}]")
-    if isinstance(tail_lines, int) and tail_lines > 0:
-        parts.append(f"[tail: last {tail_lines} lines{log_ptr}]")
-    if blocked:
-        if status != "blocked":
-            header = "blocked"
-            if exit_code is not None:
-                header = f"{header} (exit_code={exit_code})"
-            parts.append(header)
-        if blocked_reason:
-            parts.append(blocked_reason)
-            # Streams that merely echo the reason are noise.
-            if stdout.strip() == blocked_reason:
-                stdout = ""
-            if stderr.strip() == blocked_reason:
-                stderr = ""
-    elif exit_code not in (None, 0):
-        parts.append(f"exit_code={exit_code}")
-
-    if stdout:
-        parts.append(stdout)
-    if stderr:
-        if stdout:
-            parts.append("")
-        if exit_code in (None, 0) and not blocked:
-            parts.append("stderr:")
-        parts.append(stderr)
-    _chars_omitted = result.get("chars_omitted")
-    _trivial_trim = isinstance(_chars_omitted, int) and 0 <= _chars_omitted < 300
-    if truncated and not (_trivial_trim and not spill_hint):
-        if stdout or stderr:
-            parts.append("")
-        # Character-only and structured-data sampling can be lossy without a
-        # meaningful line count. Surface recovery whenever the result says it
-        # was compacted, not only when lines_omitted happens to be positive.
-        # Trivial trims (a few progress/blank lines) get no notice at all --
-        # the footer would outweigh what it accounts for.
-        if spill_hint:
-            parts.append(spill_hint)
-        elif isinstance(lines_omitted, int) and lines_omitted > 0:
-            parts.append(f"[output truncated: {lines_omitted} lines omitted{log_ptr}]")
-        else:
-            parts.append(f"[output compacted{log_ptr}]")
-    rendered = "\n".join(parts).strip()
-    if rendered:
-        return rendered
-    if exit_code is not None:
-        return f"exit_code={exit_code}"
-    return ""
+    return render_bash_text(result, idle_grace_s=_BASH_IDLE_GRACE_S)
 
 
 def _lift_bash_command_list(args: dict[str, Any], known_params: frozenset[str]) -> dict[str, Any]:
@@ -1080,6 +971,10 @@ def _lift_bash_command_list(args: dict[str, Any], known_params: frozenset[str]) 
 BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
+        "project_id": {
+            "type": "string",
+            "description": "Optional registered project id; runs this command in that project's workspace.",
+        },
         "command": {
             "anyOf": [{"type": "string"}, {"type": "array", "items": {"type": "string"}}],
             "description": "Command, or array run sequentially — own subshell each, all run even if one fails, `## lc:cmd i/n` headers.",
@@ -1091,7 +986,7 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
         "timeout": {
             "type": "integer",
             "default": _DEFAULT_BASH_SOFT_TIMEOUT,
-            "description": "Seconds to WAIT. <1hr → handle returned, run continues (also on stall). >1hr → killed. Long builds → 21600.",
+            "description": "Command wait budget. Long MCP waits may return the same durable run id earlier to stay inside the host orchestration window; the command continues. Long builds → 21600.",
         },
         "bg": {
             "type": "boolean",
@@ -1126,7 +1021,7 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
     input_schema=BASH_TOOL_INPUT_SCHEMA,
     description=(
         "Execute git/build/test/install commands; use indexed tools for code reads/search. "
-        "cd doesn't persist → set cwd or use absolute paths. timeout waits, never kills. "
+        "cd doesn't persist → set cwd or use absolute paths. timeout budgets the command wait; long MCP waits return a durable id early. "
         "Servers → bg=true; REPLs → interactive=true. Batch checks with command=[...]."
     ),
     param_aliases={"session_id": "id", "background": "bg", "is_background": "bg"},
@@ -1135,6 +1030,7 @@ BASH_TOOL_INPUT_SCHEMA: dict[str, Any] = {
 def tool_bash(
     command: str = "",
     commands: list[str] | None = None,
+    project_id: str | None = None,
     ids: list[str] | None = None,
     timeout: int | None = None,
     cwd: str | None = None,
@@ -1168,6 +1064,7 @@ def tool_bash(
     heavy imports loaded). The session dies after `idle_ttl` seconds (default
     300) without a send; every send resets the clock.
     """
+    _ = project_id  # consumed by request routing in normal MCP dispatch
     if timeout is not None and timeout > 86_400:
         # A wait budget past 24h is a milliseconds value from a host whose
         # native convention is ms (e.g. 120000 meaning 120s), not a real wait.

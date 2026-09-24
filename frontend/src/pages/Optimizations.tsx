@@ -579,7 +579,7 @@ function SessionsBehindRecommendation({
               </div>
 
               <Link
-                to={`/sessions?trace=${encodeURIComponent(session.trace_id)}`}
+                to={`/runs?trace=${encodeURIComponent(session.trace_id)}`}
                 className="mt-4 inline-flex border border-neutral-700 px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest text-neutral-300 transition hover:border-amber-500/50 hover:text-amber-300"
               >
                 Open in Sessions

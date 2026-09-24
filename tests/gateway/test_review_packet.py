@@ -898,101 +898,19 @@ def test_the_working_tree_range_owes_its_signal_to_the_skip_not_the_discount(tmp
     assert _submodule_signals(parent, reopened) == ["submodule_dirty:1"]
 
 
-def test_the_no_argument_fallback_carries_the_submodule_discount(tmp_path: Path) -> None:
-    """The range the discount chose, and the state the disclosure exists for.
-
-    A bare ``lc review`` over this fixture reads the tree as clean only because
-    the submodule's own dirt was set aside, then reviews the last commit
-    instead -- a header that contradicts ``git status`` unless the packet says
-    what was set aside.
-    """
+def test_the_no_argument_review_keeps_dirty_submodule_in_working_tree_mode(tmp_path: Path) -> None:
+    """A dirty submodule is a nested review revision, not a reason to review HEAD~1."""
 
     parent = _submodule_discount_fixture(tmp_path)
-    fallback = resolve_rev_range(parent)
-    assert (fallback.mode, fallback.base_rev, fallback.head_rev) == ("commit_range", "HEAD~1", "HEAD")
-    assert fallback.submodule_dirt_discounted == 1
-    assert _submodule_signals(parent, fallback) == ["submodule_dirty:1"]
-    assert _reopened(parent, fallback).submodule_dirt_discounted == 1
+    working = resolve_rev_range(parent)
+    assert (working.mode, working.base_rev, working.head_rev) == ("working_tree", "HEAD", "WORKDIR")
+    assert working.submodule_dirt_discounted == 0
+    assert _submodule_signals(parent, working) == ["submodule_dirty:1"]
 
-
-def test_a_two_dot_range_spelling_the_fallback_carries_the_same_discount(tmp_path: Path) -> None:
-    """``HEAD~1..HEAD`` is the fallback, spelled out, and must read the same.
-
-    ``source_ref`` only keys a session by name when *both* endpoints are proven
-    canonical refs, which ``HEAD~1..HEAD`` is not: it stores the same
-    ``<parent>..<head>`` SHA pair the bare fallback stores, into the same
-    ReviewSession. Nothing downstream can tell which words opened it, so
-    silence here does not keep the signal quiet -- it schedules a
-    contradiction, because the reopen re-resolves those SHAs through
-    ``--base/--head``, recognises the fallback and raises the very signal the
-    CLI withheld.
-    """
-
-    parent = _submodule_discount_fixture(tmp_path)
-    fallback = resolve_rev_range(parent)
-    spelled = resolve_rev_range(parent, "HEAD~1..HEAD")
-    assert (spelled.base_sha, spelled.head_sha) == (fallback.base_sha, fallback.head_sha)
-    assert source_ref(spelled, repo_root=parent) == source_ref(fallback, repo_root=parent)
-    assert spelled.submodule_dirt_discounted == 1
-    assert _submodule_signals(parent, spelled) == ["submodule_dirty:1"]
-    assert _reopened(parent, spelled).submodule_dirt_discounted == 1
-    packet = build_review_packet(parent, spelled, store_root=tmp_path / "two-dot")
-    assert "submodule_dirty:1" in packet.degraded, packet.degraded
-
-    # A commit range the discount never chose stays silent on both sides.
-    unrelated = resolve_rev_range(parent, "HEAD~2..HEAD~1")
-    assert unrelated.submodule_dirt_discounted == 0
-    assert _submodule_signals(parent, unrelated) == []
-    assert _reopened(parent, unrelated).submodule_dirt_discounted == 0
-
-
-def test_a_three_dot_range_spelling_the_fallback_carries_the_same_discount(tmp_path: Path) -> None:
-    """``HEAD~1...HEAD`` stores the merge base, which is HEAD's first parent.
-
-    So it too persists ``<parent>..<head>`` and reopens through
-    ``--base/--head``. The three-dot spelling is pinned separately from the
-    two-dot one because it reaches that stored key by a different route --
-    ``_merge_base_sha`` rather than the literal left endpoint -- and a fix that
-    only recognised the literal one would leave this branch contradicting its
-    own reopen.
-    """
-
-    parent = _submodule_discount_fixture(tmp_path)
-    fallback = resolve_rev_range(parent)
-    spelled = resolve_rev_range(parent, "HEAD~1...HEAD")
-    assert spelled.merge_base_sha == fallback.base_sha, "the merge base is HEAD's first parent here"
-    assert source_ref(spelled, repo_root=parent) == source_ref(fallback, repo_root=parent)
-    assert spelled.submodule_dirt_discounted == 1
-    assert _submodule_signals(parent, spelled) == ["submodule_dirty:1"]
-    assert _reopened(parent, spelled).submodule_dirt_discounted == 1
-
-    unrelated = resolve_rev_range(parent, "HEAD~2...HEAD~1")
-    assert unrelated.submodule_dirt_discounted == 0
-    assert _submodule_signals(parent, unrelated) == []
-    assert _reopened(parent, unrelated).submodule_dirt_discounted == 0
-
-
-def test_a_single_rev_resolving_to_the_fallback_carries_the_same_discount(tmp_path: Path) -> None:
-    """``lc review HEAD~1`` is the fallback range under a third spelling.
-
-    A single spec is merge-based against HEAD, so ``HEAD~1`` resolves to
-    ``<parent>..<head>`` and shares the fallback's session too. ``HEAD~2`` is
-    the control: a range the discount never chose, silent on both sides.
-    """
-
-    parent = _submodule_discount_fixture(tmp_path)
-    fallback = resolve_rev_range(parent)
-    spelled = resolve_rev_range(parent, "HEAD~1")
-    assert (spelled.base_sha, spelled.head_sha) == (fallback.base_sha, fallback.head_sha)
-    assert source_ref(spelled, repo_root=parent) == source_ref(fallback, repo_root=parent)
-    assert spelled.submodule_dirt_discounted == 1
-    assert _submodule_signals(parent, spelled) == ["submodule_dirty:1"]
-    assert _reopened(parent, spelled).submodule_dirt_discounted == 1
-
-    unrelated = resolve_rev_range(parent, "HEAD~2")
-    assert unrelated.submodule_dirt_discounted == 0
-    assert _submodule_signals(parent, unrelated) == []
-    assert _reopened(parent, unrelated).submodule_dirt_discounted == 0
+    reopened = _reopened(parent, working)
+    assert reopened.mode == "working_tree"
+    assert reopened.submodule_dirt_discounted == 0
+    assert _submodule_signals(parent, reopened) == ["submodule_dirty:1"]
 
 
 def test_an_explicit_pair_that_is_not_the_fallback_carries_nothing(tmp_path: Path) -> None:
@@ -1009,36 +927,3 @@ def test_an_explicit_pair_that_is_not_the_fallback_carries_nothing(tmp_path: Pat
     assert unrelated.submodule_dirt_discounted == 0
     assert _submodule_signals(parent, unrelated) == []
     assert _reopened(parent, unrelated).submodule_dirt_discounted == 0
-
-
-def test_reopening_the_fallback_range_keeps_the_submodule_disclosure(tmp_path: Path) -> None:
-    """The disclosure must not vanish when the reader refetches the same range.
-
-    A bare ``lc review --track`` resolves the fallback, and ``source_ref`` stores
-    it as two resolved SHAs -- no named ref survives ``HEAD~1..HEAD``. So every
-    reopen and every ``POST /api/reviews/{id}/refresh`` re-resolves that range
-    through ``resolve_rev_range(base=..., head=...)``, the explicit branch. If
-    that branch cannot recognise the fallback it was handed, the reviewer sees
-    ``submodule_dirty:1`` in the CLI packet and watches "Uncertain signals"
-    empty itself on Refresh, over a range that has not moved.
-    """
-
-    parent = _submodule_discount_fixture(tmp_path)
-    fallback = resolve_rev_range(parent)
-    assert fallback.submodule_dirt_discounted == 1, "fixture no longer exercises the discount"
-
-    session = ReviewSession(
-        id="rev-fixture",
-        subject_type="commit_range",
-        repo_root=str(parent.resolve()),
-        range_mode=fallback.mode,
-        source_ref=source_ref(fallback, repo_root=parent),
-    )
-    assert session.source_ref == f"{fallback.base_sha}..{fallback.head_sha}", session.source_ref
-
-    reopened = range_for_session(parent, session)
-    assert (reopened.base_sha, reopened.head_sha) == (fallback.base_sha, fallback.head_sha)
-    assert reopened.submodule_dirt_discounted == 1
-    assert "submodule_dirty:1" in collect_diff(parent, reopened).degraded
-    packet = build_review_packet(parent, reopened, store_root=tmp_path / "reopened")
-    assert "submodule_dirty:1" in packet.degraded, packet.degraded

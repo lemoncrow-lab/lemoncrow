@@ -23,7 +23,7 @@ interface ToggleGroupProps {
 
 const ACTIVE_PILL: Record<ToggleTone, string> = {
   neutral: "border-neutral-500 bg-neutral-800 text-neutral-100",
-  purple: "border-brand-500/60 bg-brand-950/30 text-brand-200",
+  purple: "border-neutral-700 bg-neutral-800 text-neutral-100",
   amber: "border-amber-500/60 bg-amber-950/30 text-amber-200",
   emerald: "border-emerald-500/60 bg-emerald-950/30 text-emerald-200",
   cyan: "border-cyan-500/60 bg-cyan-950/30 text-cyan-200",
@@ -31,15 +31,15 @@ const ACTIVE_PILL: Record<ToggleTone, string> = {
 
 const ACTIVE_UNDERLINE: Record<ToggleTone, string> = {
   neutral: "border-neutral-500 bg-neutral-900/30 text-neutral-100",
-  purple: "border-brand-500 text-brand-300",
+  purple: "border-neutral-600 bg-neutral-900/30 text-neutral-100",
   amber: "border-amber-500 text-amber-300",
   emerald: "border-emerald-500 text-emerald-300",
   cyan: "border-cyan-500 text-cyan-300",
 };
 
 const SIZE_STYLES: Record<ToggleSize, string> = {
-  xs: "px-2.5 py-1 text-[10px]",
-  sm: "px-4 py-2 text-xs",
+  xs: "h-8 px-2.5 text-[10px]",
+  sm: "h-9 px-3 text-[11px]",
 };
 
 export function ToggleGroup({
@@ -69,10 +69,10 @@ export function ToggleGroup({
             title={option.title}
             onClick={() => onChange(option.value)}
             className={cn(
-              "border font-mono font-bold uppercase transition",
+              "rounded-md border font-medium transition-colors",
               SIZE_STYLES[size],
               variant === "underline"
-                ? "border-x-0 border-t-0 border-b-2 tracking-widest"
+                ? "border-x-0 border-t-0 border-b-2"
                 : "tracking-tight",
               active
                 ? variant === "underline"

@@ -65,14 +65,33 @@ const TONES: Record<
     border: "border-red-900/50",
   },
   purple: {
-    panel: "border-brand-900/30 bg-brand-950/20",
-    eyebrow: "text-brand-400",
-    value: "text-brand-200",
-    border: "border-brand-900/50",
+    panel: "border-neutral-800 bg-neutral-950/60",
+    eyebrow: "text-neutral-400",
+    value: "text-neutral-100",
+    border: "border-neutral-800",
   },
 };
 
 export const cx = cn;
+
+export function PageFrame({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "mx-auto w-full max-w-[1600px] px-5 py-4 lg:px-6",
+        className
+      )}
+    >
+      {children}
+    </div>
+  );
+}
 
 export function FieldLabel({
   children,
@@ -84,51 +103,12 @@ export function FieldLabel({
   return (
     <div
       className={cn(
-        "text-[10px] font-mono uppercase tracking-widest text-neutral-400",
+        "text-[10px] font-semibold uppercase tracking-[0.1em] text-neutral-500",
         className
       )}
     >
       {children}
     </div>
-  );
-}
-
-export function PageHero({
-  eyebrow,
-  title,
-  description,
-  tone = "neutral",
-  children,
-}: {
-  eyebrow: string;
-  title: string;
-  description: string;
-  tone?: Tone;
-  children?: ReactNode;
-}) {
-  const palette = TONES[tone];
-  return (
-    <Card className={cn("p-5 md:p-6", palette.panel)}>
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div className="max-w-3xl">
-          <div
-            className={cn(
-              "text-[11px] font-mono uppercase tracking-[0.22em]",
-              palette.eyebrow
-            )}
-          >
-            {eyebrow}
-          </div>
-          <h1 className={cn("mt-2 text-3xl font-semibold", palette.value)}>
-            {title}
-          </h1>
-          <p className="mt-3 text-sm leading-relaxed text-neutral-400">
-            {description}
-          </p>
-        </div>
-        {children && <div className="min-w-[220px]">{children}</div>}
-      </div>
-    </Card>
   );
 }
 
@@ -203,13 +183,13 @@ export function FeaturePanel({
         <div className="shrink-0 text-3xl">{icon}</div>
         <div className="flex-1">
           <div className="mb-2 flex items-center gap-3">
-            <h2 className="font-mono text-lg font-bold text-neutral-200">
+            <h2 className="text-lg font-semibold text-neutral-200">
               {title}
             </h2>
             <Badge tone="emerald">{status}</Badge>
           </div>
           {subtitle && (
-            <p className="mb-3 font-mono text-[11px] text-neutral-400">
+            <p className="mb-3 text-[11px] text-neutral-400">
               {subtitle}
             </p>
           )}

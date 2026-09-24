@@ -257,11 +257,11 @@ export default function Savings() {
             cache-read / retrieval cost avoided
           </div>
         </div>
-        <div className="border border-violet-900/60 bg-violet-950/30 p-4">
-          <div className="text-[10px] font-mono uppercase tracking-widest text-violet-300 mb-1">
+        <div className="rounded-lg border border-neutral-800/70 bg-neutral-900/60 p-4">
+          <div className="mb-1 text-[10px] font-medium text-neutral-500">
             Context Carry
           </div>
-          <div className="text-2xl font-semibold text-violet-300">
+          <div className="text-2xl font-semibold text-neutral-100">
             {fmtUsd(data.carry_usd ?? 0)}
           </div>
           <div className="text-xs text-neutral-400 mt-1">

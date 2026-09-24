@@ -100,12 +100,12 @@ if $WORKSPACE_SET; then
     PLUGIN_DEST_DIR="${OPENCODE_CONFIG_HOME}/plugins"
     fi
 
-LEMONCROW_SERVICE_BASE="${LEMONCROW_SERVICE_URL:-http://127.0.0.1:8787}"
-LEMONCROW_SERVICE_BASE="${LEMONCROW_SERVICE_BASE%/}"
-if [[ "$LEMONCROW_SERVICE_BASE" == */v1 ]]; then
-    LEMONCROW_OPENAI_BASE="$LEMONCROW_SERVICE_BASE"
+LEMONCROW_GATEWAY_BASE="${LEMONCROW_GATEWAY_URL:-http://127.0.0.1:8787}"
+LEMONCROW_GATEWAY_BASE="${LEMONCROW_GATEWAY_BASE%/}"
+if [[ "$LEMONCROW_GATEWAY_BASE" == */v1 ]]; then
+    LEMONCROW_OPENAI_BASE="$LEMONCROW_GATEWAY_BASE"
 else
-    LEMONCROW_OPENAI_BASE="${LEMONCROW_SERVICE_BASE}/v1"
+    LEMONCROW_OPENAI_BASE="${LEMONCROW_GATEWAY_BASE}/v1"
 fi
 
 info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lemoncrow:opencode] $*" || true; }
@@ -129,18 +129,10 @@ if $WORKSPACE_SET; then
 {
   "default_agent": "code",
   "permission": {
-    "lc_*": "allow",
-    "read": "deny",
-    "edit": "deny",
-    "grep": "deny",
-    "glob": "deny",
-    "list": "deny",
-    "bash": "deny",
-    "webfetch": "deny",
-    "lsp": "deny"
+    "lc_*": "allow"
   },
   "provider": {
-    "lc": {
+    "lemoncrow": {
       "npm": "@ai-sdk/openai-compatible",
       "options": {
         "baseURL": "${LEMONCROW_OPENAI_BASE}",
@@ -166,18 +158,10 @@ else
 {
   "default_agent": "code",
   "permission": {
-    "lc_*": "allow",
-    "read": "deny",
-    "edit": "deny",
-    "grep": "deny",
-    "glob": "deny",
-    "list": "deny",
-    "bash": "deny",
-    "webfetch": "deny",
-    "lsp": "deny"
+    "lc_*": "allow"
   },
   "provider": {
-    "lc": {
+    "lemoncrow": {
       "npm": "@ai-sdk/openai-compatible",
       "options": {
         "baseURL": "${LEMONCROW_OPENAI_BASE}",
@@ -231,7 +215,7 @@ run "mkdir -p $(printf %q "$(dirname "$OC_FILE")")"
 if [ -f "$OC_FILE" ]; then
     backup_file "$OC_FILE"
     if $DRY_RUN; then
-        echo "  [dry-run] merge lc into $OC_FILE"
+        echo "  [dry-run] merge LemonCrow entries into $OC_FILE"
     else
         LEMONCROW_OC_FILE="$OC_FILE" "${PYTHON_CMD[@]}" - <<PYEOF
 import json
@@ -245,12 +229,21 @@ stripped = re.sub(r'^\s*//.*', '', content, flags=re.M)
 existing = json.loads(stripped) if stripped.strip() else {}
 new_entry = json.loads('''$NEW_ENTRY''')
 existing.setdefault('mcp', {}).update(new_entry['mcp'])
-existing.setdefault('provider', {}).update(new_entry['provider'])
+providers = existing.setdefault('provider', {})
+providers.update(new_entry['provider'])
+providers.pop('lc', None)
 existing['default_agent'] = new_entry['default_agent']
 existing.pop('model', None)
-existing.setdefault('permission', {}).update(new_entry['permission'])
+permission = existing.setdefault('permission', {})
+# OpenCode's Console free tier rejects requests when every native OpenCode
+# tool is disabled, even if the model request itself uses the native provider.
+# Remove the legacy LemonCrow hard-deny policy while preserving other values.
+for tool in ('read', 'edit', 'grep', 'glob', 'list', 'bash', 'webfetch', 'lsp'):
+    if permission.get(tool) == 'deny':
+        permission.pop(tool)
+permission.update(new_entry['permission'])
 path.write_text(json.dumps(existing, indent=2) + '\n', encoding='utf-8')
-print(f"[lemoncrow:opencode] merged lc entry into {path}")
+print(f"[lemoncrow:opencode] merged LemonCrow entries into {path}")
 PYEOF
     fi
 else
@@ -401,7 +394,7 @@ content = Path(os.environ['LEMONCROW_OC_FILE']).read_text(encoding='utf-8')
 stripped = re.sub(r'^\s*//.*', '', content, flags=re.M)
 try:
     d = json.loads(stripped)
-    provider = d.get('provider', {}).get('lc', {})
+    provider = d.get('provider', {}).get('lemoncrow', {})
     base_url = provider.get('options', {}).get('baseURL')
     print('yes' if provider and base_url else 'no')
 except Exception:
@@ -409,7 +402,7 @@ except Exception:
 PYEOF
 )
     if [ "$HAS_PROVIDER" = "yes" ]; then
-        vpass "opencode provider.lc and model are configured for LemonCrow OpenAI gateway"
+        vpass "opencode provider.lemoncrow is configured for LemonCrow OpenAI gateway"
     elif [ "$HAS_PROVIDER" = "parse-error" ]; then
         vfail "opencode config parse error while validating provider settings"
     else

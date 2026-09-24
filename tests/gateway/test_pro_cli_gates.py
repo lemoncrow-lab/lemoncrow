@@ -6,28 +6,17 @@ gated behind a signed-in Pro account.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 from click.testing import CliRunner, Result
 
-from lemoncrow.core.capabilities.licensing import entitlements
 from lemoncrow.gateway.cli import cli
-from tests.helpers import deny_oauth, grant_oauth_pro, init_store_at
+from tests.helpers import grant_oauth_pro, init_store_at
 
 
 def _invoke(root: Path, *args: str) -> Result:
     return CliRunner().invoke(cli, ["--root", str(root), *args])
-
-
-@pytest.fixture(autouse=True)
-def _isolate(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[None]:
-    # Isolate the auth store away from any real ~/.lemoncrow and force signed-out.
-    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / "lic"))
-    deny_oauth(monkeypatch)
-    yield
-    entitlements.reload()
 
 
 GATED = [

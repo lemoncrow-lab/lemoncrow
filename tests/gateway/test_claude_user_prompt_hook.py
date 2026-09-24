@@ -82,6 +82,58 @@ def test_user_prompt_hook_bumps_session_turns_for_real_prompts(tmp_path: Path) -
         assert data["turns"] == i
 
 
+def test_user_prompt_hook_injects_exact_session_review_feedback_once(tmp_path: Path) -> None:
+    from lemoncrow.pro.capabilities.review.session_inbox import enqueue_session_message
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    lemoncrow_root = tmp_path / ".lemoncrow"
+    session_id = "sess-review-inbox"
+    enqueue_session_message(
+        lemoncrow_root,
+        host="claude",
+        session_id=session_id,
+        message="Apply review annotation ann-123 and verify the fix.",
+    )
+    env = os.environ.copy()
+    env.update(
+        {
+            "LEMONCROW_ROOT": str(lemoncrow_root),
+            "LEMONCROW_STORE_ROOT": str(lemoncrow_root),
+            "CLAUDE_WORKSPACE_ROOT": str(workspace),
+        }
+    )
+
+    def run(sid: str, prompt: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(HOOK)],
+            input=json.dumps(
+                {
+                    "hook_event_name": "UserPromptSubmit",
+                    "session_id": sid,
+                    "prompt": prompt,
+                    "transcript_path": str(tmp_path / "transcript.jsonl"),
+                }
+            ),
+            text=True,
+            capture_output=True,
+            check=True,
+            env=env,
+        )
+
+    wrong = run("other-session", "continue")
+    assert "ann-123" not in wrong.stdout
+
+    first = run(session_id, "continue")
+    payload = json.loads(first.stdout)
+    context = payload["hookSpecificOutput"]["additionalContext"]
+    assert "lemoncrow_review_feedback" in context
+    assert "ann-123" in context
+
+    second = run(session_id, "continue again")
+    assert "ann-123" not in second.stdout
+
+
 def test_user_prompt_hook_ignores_noop_continuation_for_turns(tmp_path: Path) -> None:
     """The harness-injected 'Continue from where you left off.' retry is not a
     real user directive and must not bump the turns counter -- otherwise a

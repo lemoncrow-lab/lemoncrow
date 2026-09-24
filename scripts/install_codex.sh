@@ -174,13 +174,30 @@ print(os.path.realpath(sys.argv[1]))
 PYEOF
 }
 
-resolve_lemoncrow_runtime_python() {
-    local lemoncrow_launcher lemoncrow_python
-    lemoncrow_launcher="$(command -v lemoncrow || true)"
-    if [ -z "$lemoncrow_launcher" ]; then
-        echo "[lemoncrow:codex] ERROR: cannot resolve LemonCrow Python interpreter: 'lemoncrow' is not on PATH" >&2
+resolve_lemoncrow_launcher() {
+    # Codex launches plugin MCP servers without an interactive shell, so it
+    # cannot rely on ~/.profile adding ~/.lemoncrow/bin to PATH. Prefer the
+    # stable managed-install symlink and persist an absolute executable path in
+    # .mcp.json. Fall back to an already-resolvable launcher for custom installs.
+    local managed_bin="${LEMONCROW_BIN_DIR:-${HOME}/.lemoncrow/bin}/lemoncrow"
+    local candidate=""
+    if [[ -x "$managed_bin" ]]; then
+        candidate="$managed_bin"
+    else
+        candidate="$(command -v lemoncrow || true)"
+        [[ -n "$candidate" ]] || candidate="$(command -v lc || true)"
+        [[ -n "$candidate" ]] || candidate="${HOME}/.local/bin/lc"
+    fi
+    if [[ "$candidate" != /* ]] || [[ ! -x "$candidate" ]]; then
+        echo "[lemoncrow:codex] ERROR: cannot resolve an absolute executable for the LemonCrow MCP server" >&2
         exit 1
     fi
+    printf '%s\n' "$candidate"
+}
+
+resolve_lemoncrow_runtime_python() {
+    local lemoncrow_launcher lemoncrow_python
+    lemoncrow_launcher="$(resolve_lemoncrow_launcher)"
     if [[ "${LEMONCROW_BINARY_MODE:-0}" == "1" ]]; then
         printf '%s\n' "python3"
         return
@@ -230,7 +247,7 @@ stage_plugin_bundle() {
 
 stamp_plugin_manifest_version() {
     if $DRY_RUN; then
-        echo "  [dry-run] stamp ${PLUGIN_TEMPLATE}/.codex-plugin/plugin.json with LemonCrow version"
+        echo "  [dry-run] stamp ${PLUGIN_TEMPLATE}/.codex-plugin/plugin.json with LemonCrow version and Codex cachebuster"
         return
     fi
     local lemoncrow_version
@@ -238,11 +255,14 @@ stamp_plugin_manifest_version() {
     PLUGIN_MANIFEST="${PLUGIN_TEMPLATE}/.codex-plugin/plugin.json" LEMONCROW_VERSION="$lemoncrow_version" python3 - <<'PYEOF'
 import json
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 manifest = Path(os.environ["PLUGIN_MANIFEST"])
 data = json.loads(manifest.read_text(encoding="utf-8"))
-data["version"] = os.environ["LEMONCROW_VERSION"]
+base_version = os.environ["LEMONCROW_VERSION"].split("+", 1)[0]
+cachebuster = datetime.now(UTC).strftime("local-%Y%m%d-%H%M%S")
+data["version"] = f"{base_version}+codex.{cachebuster}"
 manifest.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 PYEOF
 }
@@ -340,10 +360,12 @@ PYEOF
 
 patch_plugin_mcp() {
     if $DRY_RUN; then
-        echo "  [dry-run] patch $PLUGIN_MCP_JSON to run lemoncrow mcp --host codex"
+        echo "  [dry-run] patch $PLUGIN_MCP_JSON to run an absolute LemonCrow launcher: mcp --host codex"
         return
     fi
-    PLUGIN_MCP_JSON_PATH="$PLUGIN_MCP_JSON" MCP_SERVER_KEY="$MCP_SERVER_KEY" LEMONCROW_WORKSPACE_MODE="$($WORKSPACE_SET && printf 1 || printf 0)" LEMONCROW_WORKSPACE_VALUE="$WORKSPACE" python3 - <<'PYEOF'
+    local lemoncrow_launcher
+    lemoncrow_launcher="$(resolve_lemoncrow_launcher)"
+    PLUGIN_MCP_JSON_PATH="$PLUGIN_MCP_JSON" MCP_SERVER_KEY="$MCP_SERVER_KEY" LEMONCROW_MCP_COMMAND="$lemoncrow_launcher" LEMONCROW_WORKSPACE_MODE="$($WORKSPACE_SET && printf 1 || printf 0)" LEMONCROW_WORKSPACE_VALUE="$WORKSPACE" python3 - <<'PYEOF'
 import json
 import os
 from pathlib import Path
@@ -351,7 +373,7 @@ path = Path(os.environ["PLUGIN_MCP_JSON_PATH"])
 data = json.loads(path.read_text(encoding="utf-8"))
 server = data.setdefault(os.environ["MCP_SERVER_KEY"], {})
 data.pop("lemoncrow", None)
-server["command"] = "lemoncrow"
+server["command"] = os.environ["LEMONCROW_MCP_COMMAND"]
 server["args"] = ["mcp", "--host", "codex"]
 env = dict(server.get("env") or {})
 env["LEMONCROW_MCP_TOOL_PROFILE"] = "core"
@@ -363,6 +385,70 @@ server["env"] = env
 server.pop("alwaysLoad", None)
 server.pop("cwd", None)
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+PYEOF
+}
+
+verify_plugin_mcp_startup() {
+    local command="$1"
+    LEMONCROW_MCP_COMMAND="$command" python3 - <<'PYEOF'
+import json
+import os
+import subprocess
+import sys
+
+command = os.environ["LEMONCROW_MCP_COMMAND"]
+requests = [
+    {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "lemoncrow-installer", "version": "1"},
+        },
+    },
+    {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
+    {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+]
+env = dict(os.environ)
+env["LEMONCROW_MCP_TOOL_PROFILE"] = "core"
+try:
+    result = subprocess.run(
+        [command, "mcp", "--host", "codex"],
+        input="".join(json.dumps(request) + "\n" for request in requests),
+        text=True,
+        capture_output=True,
+        timeout=20,
+        env=env,
+        check=False,
+    )
+except (OSError, subprocess.TimeoutExpired) as exc:
+    print(f"[lemoncrow:codex] MCP startup probe failed: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+
+responses = {}
+for line in result.stdout.splitlines():
+    try:
+        payload = json.loads(line)
+    except (TypeError, ValueError):
+        continue
+    if isinstance(payload, dict) and payload.get("id") in (1, 2):
+        responses[payload["id"]] = payload
+initialized = responses.get(1, {}).get("result", {})
+listed = responses.get(2, {}).get("result", {})
+tool_names = {
+    tool.get("name")
+    for tool in listed.get("tools", [])
+    if isinstance(tool, dict) and isinstance(tool.get("name"), str)
+}
+if result.returncode != 0 or initialized.get("serverInfo", {}).get("name") != "lc" or not {"read", "bash"} <= tool_names:
+    print(
+        "[lemoncrow:codex] MCP startup probe did not initialize lc with core tools\n"
+        f"exit={result.returncode}\nstdout={result.stdout[-2000:]}\nstderr={result.stderr[-2000:]}",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
 PYEOF
 }
 
@@ -696,7 +782,6 @@ patch_plugin_mcp
 write_marketplace
 install_codex_plugin
 merge_agents_file "${LEMONCROW_REPO}/integrations/AGENTS.lemoncrow.md" "$AGENTS_FILE"
-merge_agents_file "${LEMONCROW_REPO}/integrations/AGENTS.lemoncrow.md" "$AGENTS_FILE"
 write_codex_tool_config
 
 TASKS_SRC_DIR="${LEMONCROW_REPO}/integrations/codex/tasks"
@@ -738,7 +823,16 @@ PYEOF
     MCP_COMMAND="$(printf '%s\n' "$MCP_STATUS" | sed -n '1p')"
     MCP_ARGS="$(printf '%s\n' "$MCP_STATUS" | sed -n '2p')"
     MCP_WORKSPACE_ROOT="$(printf '%s\n' "$MCP_STATUS" | sed -n '3p')"
-    [ "$MCP_COMMAND" = "lemoncrow" ] && [ "$MCP_ARGS" = "mcp --host codex" ] && vpass "plugin MCP config points at lemoncrow mcp --host codex" || vfail "plugin MCP config is invalid"
+    if [[ "$MCP_COMMAND" == /* ]] && [[ -x "$MCP_COMMAND" ]] && [[ "$MCP_ARGS" = "mcp --host codex" ]]; then
+        vpass "plugin MCP config points at executable $MCP_COMMAND mcp --host codex"
+        if verify_plugin_mcp_startup "$MCP_COMMAND"; then
+            vpass "local lc MCP initializes and lists its core tools"
+        else
+            vfail "local lc MCP failed its initialize/tools-list probe"
+        fi
+    else
+        vfail "plugin MCP config must use an absolute executable path with args: mcp --host codex"
+    fi
     if $WORKSPACE_SET && [ "$MCP_WORKSPACE_ROOT" != "$WORKSPACE" ]; then vfail "plugin MCP config expected LEMONCROW_WORKSPACE_ROOT=$WORKSPACE"; fi
 else
     vfail "plugin MCP config missing: $PLUGIN_MCP_JSON"
@@ -788,7 +882,8 @@ else
     [ "${#MISSING_TOOL_KEYS[@]}" -eq 0 ] && vpass "Codex natives replaced by LemonCrow tools are disabled in $CODEX_CONFIG" || vfail "native-tool substitution missing in $CODEX_CONFIG: ${MISSING_TOOL_KEYS[*]}"
 fi
 if $WORKSPACE_SET; then [ -d "$TASKS_DEST_DIR" ] && [ -f "$TASKS_DEST_DIR/preflight.md" ] && vpass "Codex task templates installed" || vfail "Codex task templates missing"; fi
-command -v lemoncrow >/dev/null 2>&1 && lemoncrow status --help >/dev/null 2>&1 && vpass "lemoncrow status command is available" || vfail "lemoncrow status command unavailable"
+LEMONCROW_STATUS_COMMAND="$(resolve_lemoncrow_launcher)"
+"$LEMONCROW_STATUS_COMMAND" status --help >/dev/null 2>&1 && vpass "lemoncrow status command is available at $LEMONCROW_STATUS_COMMAND" || vfail "lemoncrow status command unavailable"
 
 if [ "$VFAIL" -ne 0 ]; then
     echo "[lemoncrow:codex] ERROR: post-install verification failed." >&2

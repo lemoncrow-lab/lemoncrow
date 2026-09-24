@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from lemoncrow.core.environment import HIDDEN_LLM_TOOLS
+from lemoncrow.core.environment import LLM_VISIBLE_TOOLS
 from lemoncrow.gateway.adapters import mcp_server
 from lemoncrow.pro.capabilities.owned_execution_routing import NoFeasibleRouteError
 
 
 def test_agent_tool_registered_but_hidden() -> None:
     assert "agent" in mcp_server.TOOLS
-    assert "agent" in HIDDEN_LLM_TOOLS
+    assert "agent" not in LLM_VISIBLE_TOOLS
     assert not mcp_server._tool_visible_to_llm("agent", mcp_server.TOOLS["agent"])
 
 

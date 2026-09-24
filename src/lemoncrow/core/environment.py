@@ -1,8 +1,9 @@
 """Central runtime visibility policy.
 
 This module owns the always-on public tool/skill surface for LemonCrow runtime
-code. Keep hardcoded hidden lists here so MCP, HTTP, CLI, and UI-facing
-metadata stay consistent without a separate dev-mode branch.
+code. LLM tool exposure is deny-by-default: a registered tool is advertised
+only when it is explicitly allowlisted here. MCP, HTTP, CLI, generated thin-
+client metadata, and UI-facing surfaces all consume this policy.
 """
 
 from __future__ import annotations
@@ -22,61 +23,23 @@ logger = logging.getLogger(__name__)
 MEMORY_BACKEND_ENV_VAR = "LEMONCROW_MEMORY_BACKEND"
 TRUE_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
 MEMORY_BACKENDS = frozenset({"sqlite", "letta", "openmemory"})
-HIDDEN_LLM_TOOLS = frozenset(
+# Explicit model-facing allowlist. Registration and routability do NOT imply
+# visibility. Any new tool remains invisible until it is deliberately added
+# here, which makes accidental schema exposure fail closed.
+LLM_VISIBLE_TOOLS = frozenset(
     {
-        # Single-primary retrieval surface: `explore` (ranked source + call-graph
-        # relations + blast-radius in one call) and `read` are the only advertised
-        # retrieval tools. `grep` and `relations` stay registered and callable
-        # (escape hatch / internal routing / drill-in) but are hidden so the agent
-        # leads with `explore` instead of flailing on regex grep.
-        "grep",
-        "relations",
-        # Skill-only / orchestration tools: named MCP tools not surfaced to agents.
-        "agent",
-        "workflow",
-        # Internal / CLI-only IPC and lifecycle tools.
-        "statusline_segment",
-        "rescue",
-        "verify",
-        "trace",
-        "compact",
-        "context",
-        # WS4 graph analytics (blast radius / dead code / cycles / coupling /
-        # symbol centrality): registered and callable by name, but kept off the
-        # advertised surface to preserve the lean public tool set.
-        "graph",
-        # WS8 G11 security scan (SAST first iteration): callable by name but kept
-        # off the advertised surface to preserve the lean public tool set.
-        "scan",
-        # WS12 N8 on-demand tool-usage playbook: callable by name so the
-        # orientation guidance lives in one fetch, but kept off the advertised
-        # surface to preserve the lean public tool set.
-        "orient",
-        # Repo/admin code-intel ops: callable by name (tests, CLI, power use)
-        # but not surfaced to agents.
-        "index",
-        "blame",
-        # Review-author workflow hooks. These are invoked deliberately by the
-        # host/plugin while it still owns exact session/revision provenance;
-        # advertising them beside normal coding tools would invite arbitrary
-        # calls without that lifecycle context and clutter the lean tool surface.
-        "review_rationale",
-        "review_evidence",
-        "review_feedback_addressed",
-        # Code-intel cache admin (status + invalidate) folded into one tool.
-        "cache",
-        # Semantic/embedding search: registered and callable, but hidden until an
-        # embedding backend is wired up.
-        "search",
-        # MCP proxy for other configured stdio MCP servers: callable by name but
-        # not advertised until adopt mode needs it as the public route.
-        "mcp",
-        # Power/admin surfaces kept off the lean agent surface.
-        "memory",
-        "sql",
-        "codemod",
+        "bash",
+        "code_search",
+        "edit",
+        "read",
+        "web_fetch",
     }
 )
+
+# Profile membership can only narrow the explicit visible set. Keep this as a
+# separate name for future profile shaping, but require it to remain a subset
+# of LLM_VISIBLE_TOOLS.
+CORE_MCP_TOOLS = frozenset(LLM_VISIBLE_TOOLS)
 HIDDEN_SKILLS: frozenset[str] = frozenset()
 # Public skills that ship by default when installing a host. `lc` (the
 # on-demand install/remove/list discovery skill, integrations/skills/lemoncrow/)
@@ -116,15 +79,6 @@ def mcp_tool_description(tool_name: str, description: str | None) -> str:
     return str(description or "")
 
 
-def _extra_hidden_tools(env: Mapping[str, str] | None = None) -> frozenset[str]:
-    # Opt-in lean surface: LEMONCROW_HIDE_TOOLS=node,sql,... hides extra tools from
-    # the LLM surface (smaller per-turn schema, less tool-choice deliberation)
-    # without touching the always-hidden baseline set.
-    values = os.environ if env is None else env
-    raw = values.get("LEMONCROW_HIDE_TOOLS", "")
-    return frozenset(t.strip() for t in raw.split(",") if t.strip())
-
-
 def mcp_tool_visible_to_llm(tool_name: str) -> bool:
     # Bench-off overrides the normal public surface — the baseline arm must not
     # see LemonCrow MCP tools. Imported lazily so reading runtime config does not
@@ -133,13 +87,11 @@ def mcp_tool_visible_to_llm(tool_name: str) -> bool:
 
     if _bench_is_off():
         return False
-    if tool_name in HIDDEN_LLM_TOOLS:
-        return False
-    return tool_name not in _extra_hidden_tools()
+    return tool_name in LLM_VISIBLE_TOOLS
 
 
 def mcp_tool_mode(tool_name: str) -> str:
-    return "hidden" if tool_name in HIDDEN_LLM_TOOLS else "active"
+    return "active" if tool_name in LLM_VISIBLE_TOOLS else "hidden"
 
 
 def skill_visible(skill_name: str) -> bool:

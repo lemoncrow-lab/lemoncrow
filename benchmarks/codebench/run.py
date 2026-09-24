@@ -31,6 +31,10 @@ Usage:
         --agent-env ANTHROPIC_API_KEY=
     uv run python -m benchmarks.codebench.run --report results/<run_dir>
 
+    # LemonCrow Claude arms enable residual Headroom compression by default.
+    # Disable for a control run with CODEBENCH_HEADROOM_MODE=off, or observe-only
+    # with =shadow. Per-run telemetry is written as *.headroom.jsonl beside flows.
+
     # Owned-agent arm (LemonCrow runs the loop itself on YOUR API key; different
     # price/savings profile than the host-plugin "lemoncrow" arm). Requires a real
     # provider key, e.g. ANTHROPIC_API_KEY, and an explicit --model:
@@ -116,6 +120,8 @@ class ArmSpec:
     plugin: bool = False  # inject --plugin-dir LEMONCROW_CLAUDE_PLUGIN_ROOT
     strip_mcp: bool = True  # inject --mcp-config EMPTY_MCP --strict-mcp-config
     heavy: bool = False  # counts toward the HEAVY_ARMS rate-limit warning
+    reply_register_level: str | None = None  # project baked ultra to another register for this arm
+    runtime_env: Mapping[str, str] | None = None  # driver-independent runtime-policy env
     # --- BYO-competitor arms (see benchmarks/codebench/competitor.py) ---------
     # A competitor arm is vanilla Claude Code with an external GitHub tool wired
     # in; these fields carry that wiring. All None/empty for the built-in arms,
@@ -124,11 +130,13 @@ class ArmSpec:
     competitor_plugin_dir: str | None = None  # inject via --plugin-dir (an external plugin)
     append_system_prompt: str | None = None  # inject via --append-system-prompt
     competitor_env: Mapping[str, str] | None = None  # extra agent-subprocess env
+    competitor_workspace_setup: tuple[str, ...] = ()  # untimed per-workspace setup from pinned competitor
 
 
-# Persona is resolved by arm (every task is a ``code`` task): the baseline arm
-# runs the vanilla Claude default; the lemoncrow/execute/solve arms run LemonCrow
-# personas through the generated plugin.
+# Persona is resolved by arm (every task is a ``code`` task): baseline is
+# vanilla Claude; LemonCrow arms use the same generated plugin+MCP runtime.
+# ``lemoncrow-readable`` changes only the reply register to the public lite
+# level, keeping model, plugin, MCP, persona, and tools identical.
 ARM_SPECS: dict[str, ArmSpec] = {
     "baseline": ArmSpec({"code": None}),
     "lemoncrow": ArmSpec(
@@ -136,10 +144,65 @@ ARM_SPECS: dict[str, ArmSpec] = {
         plugin=True,
         strip_mcp=False,
         heavy=True,
+        runtime_env={"LEMONCROW_EVIDENCE_RESOLUTION_MODE": "shadow"},
     ),
-    "execute": ArmSpec({"code": "lemoncrow:execute"}, plugin=True, strip_mcp=False, heavy=True),
-    "solve": ArmSpec({"code": "lemoncrow:solve"}, plugin=True, strip_mcp=False, heavy=True),
-    "auto": ArmSpec({"code": "lemoncrow:auto"}, plugin=True, strip_mcp=False, heavy=True),
+    # Runtime-attribution arms. All use the exact same LemonCrow persona,
+    # plugin, MCP surface and host model; only evidence-resolution policy differs.
+    # A1 disables it, A2 observes in shadow, and A3 is an explicit benchmark-only
+    # experiment that cannot be enabled by the production ``enforce`` value.
+    "lemoncrow-control": ArmSpec(
+        {"code": "lemoncrow:solve"},
+        plugin=True,
+        strip_mcp=False,
+        heavy=True,
+        runtime_env={"LEMONCROW_EVIDENCE_RESOLUTION_MODE": "off"},
+    ),
+    "lemoncrow-shadow": ArmSpec(
+        {"code": "lemoncrow:solve"},
+        plugin=True,
+        strip_mcp=False,
+        heavy=True,
+        runtime_env={"LEMONCROW_EVIDENCE_RESOLUTION_MODE": "shadow"},
+    ),
+    "lemoncrow-candidate": ArmSpec(
+        {"code": "lemoncrow:solve"},
+        plugin=True,
+        strip_mcp=False,
+        heavy=True,
+        runtime_env={
+            "LEMONCROW_EVIDENCE_RESOLUTION_MODE": "experiment",
+            "LEMONCROW_EVIDENCE_RESOLUTION_EXPERIMENT": "benchmark",
+        },
+    ),
+    "lemoncrow-readable": ArmSpec(
+        {"code": "lemoncrow:solve"},
+        plugin=True,
+        strip_mcp=False,
+        heavy=True,
+        reply_register_level="lite",
+        runtime_env={"LEMONCROW_EVIDENCE_RESOLUTION_MODE": "shadow"},
+    ),
+    "execute": ArmSpec(
+        {"code": "lemoncrow:execute"},
+        plugin=True,
+        strip_mcp=False,
+        heavy=True,
+        runtime_env={"LEMONCROW_EVIDENCE_RESOLUTION_MODE": "shadow"},
+    ),
+    "solve": ArmSpec(
+        {"code": "lemoncrow:solve"},
+        plugin=True,
+        strip_mcp=False,
+        heavy=True,
+        runtime_env={"LEMONCROW_EVIDENCE_RESOLUTION_MODE": "shadow"},
+    ),
+    "auto": ArmSpec(
+        {"code": "lemoncrow:auto"},
+        plugin=True,
+        strip_mcp=False,
+        heavy=True,
+        runtime_env={"LEMONCROW_EVIDENCE_RESOLUTION_MODE": "shadow"},
+    ),
 }
 VALID_ARMS = tuple(ARM_SPECS)
 PERSISTENT_WORKSPACE_ROOT = Path(
@@ -355,28 +418,18 @@ _PLUGIN_STAGE_LOCK = threading.Lock()
 
 
 @functools.cache
-def _lean_plugin_root(persona: str) -> Path:
-    """Stage a bench-lean copy of the Claude plugin: every persona, zero skills.
+def _lean_plugin_root(persona: str, reply_register_level: str | None = None) -> Path:
+    """Stage a bench-lean Claude plugin and optionally project its reply register.
 
-    The repo plugin dir doubles as the on-demand install SOURCE (every role
-    agent + optional skills), so mounting/loading it raw ships the full skill
-    list into the system prompt on every turn -- dead prefix weight never
-    exercised by the benchmark arms. Drop ``skills/`` entirely (the bench
-    measures the CODING surface only) but keep every file under ``agents/``:
-    a diagnostic run may override the persona via CODEBENCH_LEMONCROW_AGENT
-    (e.g. lemoncrow:solve) independently of the persona this dir was staged
-    for, and Claude Code only resolves ``--agent`` values it finds mounted --
-    stripping down to one persona's file turned every other agent name into a
-    hard "--agent '<name>' not found" failure.
-
-    Still cached/keyed per persona (identical content per key, harmless
-    duplication) and guarded by a lock: two concurrent arms/jobs staging
-    different personas must not interleave rmtree/copytree on a shared dest.
-    The pid+persona suffix keeps a fresh driver process from clobbering a
-    still-running older one and keeps personas isolated from each other
-    within one process.
+    The repo plugin is the install source and carries every role + optional
+    skills. Bench runs strip skills but retain every agent so the tool/runtime
+    surface stays identical. ``reply_register_level`` transforms only persona
+    reply style after staging; model, plugin hooks, MCP, and tools are unchanged.
     """
-    dest = Path(tempfile.gettempdir()) / f"codebench-plugin-lean-{os.getpid()}-{persona.replace(':', '_')}"
+    level_suffix = reply_register_level or "source"
+    dest = Path(tempfile.gettempdir()) / (
+        f"codebench-plugin-lean-{os.getpid()}-{persona.replace(':', '_')}-{level_suffix}"
+    )
     with _PLUGIN_STAGE_LOCK:
         if dest.exists():
             shutil.rmtree(dest)
@@ -384,6 +437,15 @@ def _lean_plugin_root(persona: str) -> Path:
         skills = dest / "skills"
         if skills.is_dir():
             shutil.rmtree(skills)
+        if reply_register_level is not None:
+            from lemoncrow.core.reply_register import apply_reply_register_level
+
+            shared_dir = REPO_ROOT / "integrations" / "agents" / "shared"
+            for path in (dest / "agents").glob("*.md"):
+                text = path.read_text(encoding="utf-8")
+                projected = apply_reply_register_level(text, shared_dir, reply_register_level)
+                if projected != text:
+                    path.write_text(projected, encoding="utf-8")
     return dest
 
 
@@ -405,6 +467,108 @@ def _wait_port(port: int, timeout: float = 15.0) -> bool:
             return True
         time.sleep(0.2)
     return False
+
+
+@dataclass
+class _BenchmarkLocalServer:
+    process: subprocess.Popen[str]
+    log_path: Path
+
+    def stop(self) -> None:
+        if self.process.poll() is None:
+            self.process.terminate()
+            with contextlib.suppress(Exception):
+                self.process.wait(timeout=5)
+        if self.process.poll() is None:
+            self.process.kill()
+            with contextlib.suppress(Exception):
+                self.process.wait(timeout=5)
+
+
+def _start_benchmark_local_server(
+    *,
+    state_root: Path,
+    env: dict[str, str],
+    workspace: Path,
+    host: str,
+) -> _BenchmarkLocalServer:
+    """Start and prewarm the isolated server used by one host CodeBench row."""
+    state_root.mkdir(parents=True, exist_ok=True)
+    server_root = state_root / "server"
+    client_root = state_root / "client"
+    server_root.mkdir(parents=True, exist_ok=True)
+    client_root.mkdir(parents=True, exist_ok=True)
+    token_file = state_root / "token"
+    token_file.write_text(f"lc_codebench_{uuid.uuid4().hex}\n", encoding="utf-8")
+    token_file.chmod(0o600)
+    port = _free_port()
+    log_path = state_root / "server.log"
+    with log_path.open("w", encoding="utf-8") as log:
+        process = subprocess.Popen(
+            [
+                "uv",
+                "run",
+                "--project",
+                str(REPO_ROOT / "server"),
+                "lemoncrow-server",
+                "up",
+                "--ephemeral",
+                "--directory",
+                str(server_root),
+                "--port",
+                str(port),
+                "--token-file",
+                str(token_file),
+                "--allow-local-fs",
+            ],
+            cwd=str(REPO_ROOT),
+            env={**os.environ, **env},
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+    server = _BenchmarkLocalServer(process=process, log_path=log_path)
+    if not _wait_port(port, timeout=30.0):
+        server.stop()
+        detail = log_path.read_text(encoding="utf-8", errors="replace")[-4000:] if log_path.exists() else ""
+        raise RuntimeError(f"isolated LemonCrow server did not start on port {port}:\n{detail}")
+
+    env.update(
+        {
+            "LEMONCROW_URL": f"http://127.0.0.1:{port}",
+            "LEMONCROW_TOKEN_FILE": str(token_file),
+            "LEMONCROW_HOME": str(client_root),
+            "LEMONCROW_LOCAL_FS": "1",
+            "LEMONCROW_WORKSPACE_ROOT": str(workspace),
+            # Benchmarks must measure healthy server-backed retrieval, not the
+            # interactive client's one-second fail-open path. This budget covers
+            # cold view creation/index sync for both the preflight and the agent
+            # process spawned with this environment.
+            "LEMONCROW_STARTUP_BUDGET_S": "300",
+            "LEMONCROW_REQUEST_TIMEOUT_S": "300",
+            "NO_PROXY": ",".join(value for value in ("127.0.0.1", "localhost", env.get("NO_PROXY", "")) if value),
+            "no_proxy": ",".join(value for value in ("127.0.0.1", "localhost", env.get("no_proxy", "")) if value),
+        }
+    )
+    completed = subprocess.run(
+        ["lemoncrow", "mcp", "--host", host, "check", "--json", "--timeout", "300"],
+        cwd=str(workspace),
+        env=env,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        # Keep the process ceiling slightly above the MCP cold-start budget;
+        # otherwise the parent can kill a healthy large-repo preflight before
+        # the CLI's own 300-second diagnostic deadline has a chance to report.
+        timeout=330,
+        check=False,
+    )
+    if completed.returncode != 0:
+        server.stop()
+        detail = (completed.stderr or completed.stdout or "").strip()
+        raise RuntimeError(f"isolated LemonCrow MCP preflight failed: {detail[-4000:]}")
+    return server
 
 
 def _trust_entry(existing: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -714,6 +878,14 @@ class ArmResult:
     model_usage: dict[str, dict[str, int]] = field(default_factory=dict)
     timed_out: bool = False
     workspace: str = ""
+    headroom_events: int = 0
+    headroom_applied: int = 0
+    headroom_tokens_saved: int = 0
+    headroom_stats_path: str = ""
+    runtime_policy_events: int = 0
+    runtime_policy_experiment_events: int = 0
+    runtime_policy_expansions: int = 0
+    runtime_policy_stats_path: str = ""
 
 
 @dataclass
@@ -744,6 +916,74 @@ class PairwiseQualityResult:
 def _result_total_tokens(result: ArmResult) -> int:
     """Total billed tokens for one run (same basis the cost is charged on)."""
     return result.input_tokens + result.cache_read_tokens + result.cache_creation_tokens + result.output_tokens
+
+
+def _codebench_headroom_mode() -> str:
+    mode = os.environ.get("CODEBENCH_HEADROOM_MODE", "apply").strip().lower()
+    if mode not in {"off", "shadow", "apply"}:
+        raise ValueError("CODEBENCH_HEADROOM_MODE must be off, shadow, or apply")
+    return mode
+
+
+def _headroom_stats_summary(path: Path) -> tuple[int, int, int]:
+    """Return event count, applied rewrite count, and estimated applied token savings."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return 0, 0, 0
+    events = applied = saved = 0
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(row, dict):
+            continue
+        events += 1
+        if str(row.get("decision") or "") not in {"applied", "foreign_applied"}:
+            continue
+        applied += 1
+        with contextlib.suppress(TypeError, ValueError):
+            saved += max(0, int(row.get("tokens_saved") or 0))
+    return events, applied, saved
+
+
+def _attach_headroom_stats(result: ArmResult, path: Path) -> None:
+    events, applied, saved = _headroom_stats_summary(path)
+    result.headroom_events = events
+    result.headroom_applied = applied
+    result.headroom_tokens_saved = saved
+    result.headroom_stats_path = str(path) if path.exists() else ""
+
+
+def _runtime_policy_stats_summary(path: Path) -> tuple[int, int, int]:
+    """Return observed policy rows, experiment rows, and executed expansions."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return 0, 0, 0
+    events = experiments = expansions = 0
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(row, dict) or str(row.get("policy") or "") != "bounded-evidence-resolution":
+            continue
+        events += 1
+        if str(row.get("policy_version") or "") == "1-experiment" and str(row.get("mode") or "") == "experiment":
+            experiments += 1
+        if str(row.get("actual_action") or "") not in {"", "STOP"} and int(row.get("rounds") or 0) > 0:
+            expansions += 1
+    return events, experiments, expansions
+
+
+def _attach_runtime_policy_stats(result: ArmResult, path: Path) -> None:
+    events, experiments, expansions = _runtime_policy_stats_summary(path)
+    result.runtime_policy_events = events
+    result.runtime_policy_experiment_events = experiments
+    result.runtime_policy_expansions = expansions
+    result.runtime_policy_stats_path = str(path) if path.exists() else ""
 
 
 def _completed(result: ArmResult) -> bool:
@@ -900,104 +1140,6 @@ def _fmt_hms(seconds: float) -> str:
     if minutes:
         return f"{minutes}m{secs:02d}s"
     return f"{secs}s"
-
-
-# Inline Python used by _pre_index_workspace to warm the explore result cache
-# and OS page-cache in a subprocess.  Parameterised by ws_path and query so
-# the warm-up exercises exactly the files/git objects the agent will touch.
-_EXPLORE_WARMUP_SCRIPT = """
-import sys
-from pathlib import Path
-from lemoncrow.pro.capabilities.code_context.engine import CodeContextEngine
-
-ws_path, query = sys.argv[1], sys.argv[2]
-engine = CodeContextEngine(Path(ws_path))
-engine._ensure_indexed()
-# Match the parameter defaults used by the MCP tool_explore handler so the
-# warm result lands in the same SQLite cache slot the agent will hit.
-engine.tool_explore(
-    query,
-    max_files=8,
-    max_symbols=4,
-    budget_tokens=4000,
-)
-print("ok", flush=True)
-"""
-
-
-def _pre_index_workspace(task: Task, arm: str, rep: int, ws: Path) -> None:
-    """Build the LemonCrow code index and warm the explore cache for *ws* before
-    the timed run starts.
-
-    Two phases, both excluded from the benchmark timer:
-
-    1. **FTS index** — ``lc code index`` builds the SQLite FTS5 symbol
-       store (~40s for VS Code).  No model calls, no API cost.
-
-    2. **Explore warm-up** — a single ``engine.tool_explore(task_prompt)`` call
-       pays the first-call costs (git ``diff_to_tree`` / ``lstat`` on 15k files,
-       OS page-cache cold start) and persists the result to the SQLite retrieval
-       cache.  When the agent calls the same tool the result is served from cache
-       in milliseconds instead of spending 200-1000s on warm-up inside the timer.
-
-    Failures in either phase are logged but do not abort the run.
-    """
-    label = f"[pre-index:{task.id}/{arm}/rep{rep}]"
-
-    # ── Phase 1: FTS symbol index ────────────────────────────────────────────
-    print(f"  {label} building code index for {ws.name} ...", flush=True)
-    t0 = time.time()
-    try:
-        result = subprocess.run(
-            ["uv", "run", "lc", "code", "index", "--repo-root", str(ws)],
-            cwd=str(REPO_ROOT),
-            capture_output=True,
-            text=True,
-            timeout=2400,  # 40-min ceiling; VS Code ~10 min
-            check=False,
-        )
-        elapsed = time.time() - t0
-        if result.returncode == 0:
-            print(f"  {label} index done in {_fmt_hms(elapsed)}", flush=True)
-        else:
-            stderr_tail = (result.stderr or "").strip()[-200:]
-            print(
-                f"  {label} WARNING: index exited {result.returncode} after {_fmt_hms(elapsed)}"
-                + (f": {stderr_tail}" if stderr_tail else ""),
-                flush=True,
-            )
-    except subprocess.TimeoutExpired:
-        elapsed = time.time() - t0
-        print(f"  {label} WARNING: index timed out after {_fmt_hms(elapsed)}", flush=True)
-
-    # ── Phase 2: explore cache warm-up ───────────────────────────────────────
-    prompt_text = task.prompt()
-    if not prompt_text:
-        return
-    print(f"  {label} warming explore cache ...", flush=True)
-    t0 = time.time()
-    try:
-        result = subprocess.run(
-            ["uv", "run", "python", "-c", _EXPLORE_WARMUP_SCRIPT, str(ws), prompt_text],
-            cwd=str(REPO_ROOT),
-            capture_output=True,
-            text=True,
-            timeout=2400,
-            check=False,
-        )
-        elapsed = time.time() - t0
-        if result.returncode == 0:
-            print(f"  {label} explore warm in {_fmt_hms(elapsed)}", flush=True)
-        else:
-            stderr_tail = (result.stderr or "").strip()[-200:]
-            print(
-                f"  {label} WARNING: explore warmup exited {result.returncode} after {_fmt_hms(elapsed)}"
-                + (f": {stderr_tail}" if stderr_tail else ""),
-                flush=True,
-            )
-    except subprocess.TimeoutExpired:
-        elapsed = time.time() - t0
-        print(f"  {label} WARNING: explore warmup timed out after {_fmt_hms(elapsed)}", flush=True)
 
 
 def _recover_flow_result(
@@ -1780,6 +1922,38 @@ def _as_float(value: object) -> float:
     raise TypeError(f"cannot convert {type(value).__name__} to float")
 
 
+def _run_competitor_workspace_setup(
+    task: Task,
+    arm: str,
+    workspace: Path,
+    spec: ArmSpec,
+) -> None:
+    """Prepare one external comparator workspace before model timing starts."""
+
+    if not spec.competitor_workspace_setup:
+        return
+    env = dict(os.environ)
+    if spec.competitor_env:
+        env.update(spec.competitor_env)
+    for command in spec.competitor_workspace_setup:
+        print(f"  [competitor-setup:{task.id}/{arm}] {command}", flush=True)
+        try:
+            completed = subprocess.run(
+                command,
+                shell=True,
+                cwd=str(workspace),
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=1800,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(f"competitor workspace setup timed out for {arm!r}: {command!r}") from exc
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout or "").strip()[:400]
+            raise RuntimeError(f"competitor workspace setup failed for {arm!r}: {command!r}: {detail}")
+
+
 def run_arm(
     task: Task,
     arm: str,
@@ -1795,6 +1969,7 @@ def run_arm(
     capture: bool = True,
 ) -> ArmResult:
     assert arm in VALID_ARMS
+    spec = ARM_SPECS[arm]
     row_state: dict[str, object] = {}
     persistent_workspace = False
     should_resume_session = False
@@ -1829,11 +2004,11 @@ def run_arm(
         ws = prepare_workspace(task)
     if cli_driver not in CLI_DRIVERS:
         raise ValueError(f"unsupported cli driver: {cli_driver}")
-    # For plugin-enabled arms (lemoncrow) pre-build the code index so index time
-    # is not charged to the benchmark timer.  Idempotent: a second rep that
-    # reuses the same workspace finds the index already warm and returns quickly.
-    if ARM_SPECS[arm].plugin:
-        _pre_index_workspace(task, arm, rep, ws)
+    _run_competitor_workspace_setup(task, arm, ws, spec)
+    # Since the MCP runtime is a thin client, the benchmark must warm the same
+    # server-backed View the agent will query. The old local `code index` prewarm
+    # wrote a different SQLite store and could report success while MCP search was
+    # completely offline.
     flow_path = out_dir / f"{task.id}_{arm}_rep{rep}.flow"
     proxy_supported = capture and cli_driver in {"claude", "lemoncrow-run", "codex"}
     port = _free_port() if proxy_supported else 0
@@ -1865,6 +2040,8 @@ def run_arm(
             raise RuntimeError("mitmdump did not start")
         env = dict(os.environ)
         env.update(agent_env or {})
+        if spec.runtime_env:
+            env.update(spec.runtime_env)
         # Always expose the workspace root so MCP tools and shell commands can
         # resolve relative paths without guessing.
         env.setdefault("CLAUDE_WORKSPACE_ROOT", str(ws))
@@ -1872,8 +2049,15 @@ def run_arm(
         # MCP server). One JSONL of {tool, handler_ms, total_ms, overhead_ms}
         # per call, scoped to THIS run next to its .flow capture, so tool wait
         # is attributable per task instead of lost in the global debug log.
+        headroom_stats_path = out_dir / f"{task.id}_{arm}_rep{rep}.headroom.jsonl"
+        runtime_policy_stats_path = out_dir / f"{task.id}_{arm}_rep{rep}.runtime-policy.jsonl"
         if ARM_SPECS[arm].plugin:
             env["LEMONCROW_TOOL_PROFILE_PATH"] = str(out_dir / f"{task.id}_{arm}_rep{rep}.toolprofile.jsonl")
+            if cli_driver == "claude":
+                headroom_mode = _codebench_headroom_mode()
+                if headroom_mode != "off":
+                    env["LEMONCROW_HEADROOM_MCP_TAIL_MODE"] = headroom_mode
+                    env["LEMONCROW_HEADROOM_TAIL_STATS"] = str(headroom_stats_path)
         # For Python workspaces: if a .venv was created by setup_cmds, activate
         # it so all python/pytest commands in the workspace use the right env.
         ws_venv = ws / ".venv"
@@ -1881,6 +2065,24 @@ def run_arm(
             venv_bin = str(ws_venv / "bin")
             env["VIRTUAL_ENV"] = str(ws_venv)
             env["PATH"] = venv_bin + os.pathsep + env.get("PATH", os.environ.get("PATH", ""))
+        benchmark_server = None
+        if ARM_SPECS[arm].plugin and cli_driver != "lemoncrow-run":
+            benchmark_server = _start_benchmark_local_server(
+                state_root=out_dir / "server-state" / f"{task.id}_{arm}_rep{rep}",
+                env=env,
+                workspace=ws,
+                host=cli_driver,
+            )
+            print(
+                f"  [server:{task.id}/{arm}/rep{rep}] isolated LemonCrow ready at {env['LEMONCROW_URL']}",
+                flush=True,
+            )
+            # Arm benchmark-only policy capture only after the server preflight,
+            # otherwise the health/check bootstrap can contaminate this row's
+            # execution evidence.
+            with contextlib.suppress(FileNotFoundError):
+                runtime_policy_stats_path.unlink()
+            env["LEMONCROW_RUNTIME_ATTRIBUTION_PATH"] = str(runtime_policy_stats_path)
         if proxy_supported:
             env["HTTPS_PROXY"] = f"http://127.0.0.1:{port}"
             env["HTTP_PROXY"] = f"http://127.0.0.1:{port}"
@@ -1898,7 +2100,6 @@ def run_arm(
                 agent_command=agent_command,
                 extra_args=cli_extra_args,
             )
-            spec = ARM_SPECS[arm]
             persona = spec.persona_by_capability.get(task.capability)
             # Contamination-free config for every claude-driver arm: real
             # subscription auth, but no globally-installed plugins/hooks/MCP, so
@@ -1921,7 +2122,10 @@ def run_arm(
                 # Load a bench-lean copy of the plugin: only this arm's persona
                 # (no other agent personas) and zero skills -- see
                 # _lean_plugin_root. Its agents/MCP/hooks still resolve.
-                cmd += ["--plugin-dir", str(_lean_plugin_root(persona or "lemoncrow:auto"))]
+                cmd += [
+                    "--plugin-dir",
+                    str(_lean_plugin_root(persona or "lemoncrow:auto", spec.reply_register_level)),
+                ]
             if persona:
                 # Pin the arm to one agent persona: a built-in twin (e.g. "Explore"
                 # / "Plan") for baseline, or "lemoncrow:<x>" for the candidate. None
@@ -2082,6 +2286,10 @@ def run_arm(
                 excerpt = f"{excerpt}\n\n[stderr]\n{stderr_text.strip()}"
             res = _recover_flow_result(flow_path, task.id, arm, rep, model, wall_duration_ms, excerpt, timed_out=True)
             res.workspace = str(ws)
+            if ARM_SPECS[arm].plugin and cli_driver == "claude":
+                _attach_headroom_stats(res, headroom_stats_path)
+            if ARM_SPECS[arm].plugin and cli_driver != "lemoncrow-run":
+                _attach_runtime_policy_stats(res, runtime_policy_stats_path)
             return _apply_result_validity(task, res)
         wall_duration_ms = int((time.time() - started) * 1000)
         res = _parse_cli_result(proc.stdout, flow_path, task.id, arm, rep, cli_driver, wall_duration_ms)
@@ -2114,8 +2322,15 @@ def run_arm(
             else:
                 res.result_excerpt = diagnostics[-4000:]
         res.workspace = str(ws)
+        if ARM_SPECS[arm].plugin and cli_driver == "claude":
+            _attach_headroom_stats(res, headroom_stats_path)
+        if ARM_SPECS[arm].plugin and cli_driver != "lemoncrow-run":
+            _attach_runtime_policy_stats(res, runtime_policy_stats_path)
         return _apply_result_validity(task, res)
     finally:
+        benchmark_server = locals().get("benchmark_server")
+        if benchmark_server is not None:
+            benchmark_server.stop()
         if mitm is not None:
             mitm.terminate()
             with contextlib.suppress(Exception):
@@ -2476,6 +2691,49 @@ def judge_pairwise_quality(
     return rows
 
 
+def runtime_policy_pairwise_quality_rows(
+    results: list[ArmResult],
+    *,
+    primary_baseline_arm: str,
+    run_judge: bool,
+    judge_model: str,
+    judge_agent_command: str,
+    timeout: int,
+    agent_env: dict[str, str] | None = None,
+) -> list[PairwiseQualityResult]:
+    """Add the dedicated A1->A3 comparison required by runtime qualification.
+
+    Normal CodeBench pairwise output compares every treatment to the declared
+    host baseline. Runtime-policy qualification additionally needs the current
+    LemonCrow control (A1) compared directly with the benchmark-only candidate
+    (A3). Keep that extra comparison narrow so we do not multiply judge spend
+    across unrelated arm pairs.
+    """
+
+    control_arm = "lemoncrow-control"
+    candidate_arm = "lemoncrow-candidate"
+    available = {result.arm for result in results}
+    if control_arm not in available or candidate_arm not in available:
+        return []
+    if primary_baseline_arm == control_arm:
+        return []
+
+    policy_results = [result for result in results if result.arm in {control_arm, candidate_arm}]
+    rows = (
+        judge_pairwise_quality(
+            policy_results,
+            judge_model=judge_model,
+            judge_agent_command=judge_agent_command,
+            timeout=timeout,
+            agent_env=agent_env,
+            baseline_arm=control_arm,
+        )
+        if run_judge
+        else build_pairwise_quality_rows(policy_results, baseline_arm=control_arm)
+    )
+    return [row for row in rows if row.candidate_arm == candidate_arm]
+
+
 def _parse_judge_json(text: str) -> dict[str, object]:
     stripped = text.strip()
     if stripped.startswith("```"):
@@ -2559,6 +2817,9 @@ def _agg(results: list[ArmResult], arm: str) -> dict[str, Any]:
         "completed": sum(1 for r in rs if _completed(r)),
         "saved_usd": round(sum(r.saved_usd for r in rs), 4),
         "saved_tokens": sum(r.saved_tokens for r in rs),
+        "headroom_events": sum(r.headroom_events for r in rs),
+        "headroom_applied": sum(r.headroom_applied for r in rs),
+        "headroom_tokens_saved": sum(r.headroom_tokens_saved for r in rs),
         "model_usage": aggregated_model_usage,
     }
 
@@ -2698,6 +2959,14 @@ def report(results: list[ArmResult], *, mode: str = "cost") -> str:
     lines.append(row("output_tokens", [_as_float(aggregates[arm]["output_tokens"]) for arm in arms], ",.0f"))
     lines.append(row("saved_usd", [_as_float(aggregates[arm]["saved_usd"]) for arm in arms]))
     lines.append(row("saved_tokens", [_as_float(aggregates[arm]["saved_tokens"]) for arm in arms], ",.0f"))
+    lines.append(row("headroom_applied", [_as_float(aggregates[arm]["headroom_applied"]) for arm in arms], ",.0f"))
+    lines.append(
+        row(
+            "headroom_tokens_saved",
+            [_as_float(aggregates[arm]["headroom_tokens_saved"]) for arm in arms],
+            ",.0f",
+        )
+    )
     if baseline:
         lines.append("")
         for arm in arms:
@@ -3386,6 +3655,9 @@ def _summary_row(results: list[ArmResult], arm: str) -> dict[str, object]:
         "cache_read_tokens": sum(result.cache_read_tokens for result in arm_results),
         "cache_creation_tokens": sum(result.cache_creation_tokens for result in arm_results),
         "output_tokens": sum(result.output_tokens for result in arm_results),
+        "headroom_events": sum(result.headroom_events for result in arm_results),
+        "headroom_applied": sum(result.headroom_applied for result in arm_results),
+        "headroom_tokens_saved": sum(result.headroom_tokens_saved for result in arm_results),
     }
 
 
@@ -3495,6 +3767,14 @@ def write_csv_artifacts(
             "judge_reason",
             "saved_usd",
             "saved_tokens",
+            "headroom_events",
+            "headroom_applied",
+            "headroom_tokens_saved",
+            "headroom_stats_path",
+            "runtime_policy_events",
+            "runtime_policy_experiment_events",
+            "runtime_policy_expansions",
+            "runtime_policy_stats_path",
         ],
     )
     _write_csv(
@@ -3517,6 +3797,9 @@ def write_csv_artifacts(
             "cache_read_tokens",
             "cache_creation_tokens",
             "output_tokens",
+            "headroom_events",
+            "headroom_applied",
+            "headroom_tokens_saved",
             "cost_savings_vs_baseline_pct",
             "duration_savings_vs_baseline_pct",
             "input_token_savings_vs_baseline_pct",
@@ -3777,6 +4060,11 @@ def main() -> int:
     p.add_argument("--list", action="store_true", help="list available task ids and exit")
     p.add_argument("-a", "--arms", nargs="*", default=["baseline", "lemoncrow"])
     p.add_argument(
+        "--pairwise-baseline-arm",
+        default=None,
+        help="Arm used as the pairwise quality control; defaults to baseline when present, else the first executed arm.",
+    )
+    p.add_argument(
         "--capability",
         default=None,
         help="Run only tasks of this capability (code/explore/plan); also selects each arm's persona.",
@@ -3973,6 +4261,10 @@ def main() -> int:
                 timeout=args.timeout,
                 agent_env=agent_env,
             )
+        report_arms = _ordered_arms(report_results)
+        pairwise_baseline_arm = args.pairwise_baseline_arm or (
+            "baseline" if "baseline" in report_arms else (report_arms[0] if report_arms else "baseline")
+        )
         pairwise_rows = (
             judge_pairwise_quality(
                 report_results,
@@ -3980,9 +4272,21 @@ def main() -> int:
                 judge_agent_command=judge_agent_command,
                 timeout=args.timeout,
                 agent_env=agent_env,
+                baseline_arm=pairwise_baseline_arm,
             )
             if args.judge
-            else build_pairwise_quality_rows(report_results)
+            else build_pairwise_quality_rows(report_results, baseline_arm=pairwise_baseline_arm)
+        )
+        pairwise_rows.extend(
+            runtime_policy_pairwise_quality_rows(
+                report_results,
+                primary_baseline_arm=pairwise_baseline_arm,
+                run_judge=args.judge,
+                judge_model=judge_model,
+                judge_agent_command=judge_agent_command,
+                timeout=args.timeout,
+                agent_env=agent_env,
+            )
         )
         _apply_savings(report_results)
         _write_results_jsonl(rdir, report_results)
@@ -4069,6 +4373,7 @@ def main() -> int:
                 competitor_plugin_dir=prepared.plugin_dir,
                 append_system_prompt=prepared.system_prompt,
                 competitor_env=prepared.env or None,
+                competitor_workspace_setup=prepared.workspace_setup,
             )
         VALID_ARMS = tuple(ARM_SPECS)
         HEAVY_ARMS = tuple(name for name, spec in ARM_SPECS.items() if spec.heavy)
@@ -4078,27 +4383,14 @@ def main() -> int:
     unknown_arms = [arm for arm in args.arms if arm not in VALID_ARMS]
     if unknown_arms:
         p.error(f"unknown arm(s): {', '.join(unknown_arms)}")
-    # Both hosts reach LemonCrow through the same `lemoncrow mcp --host <host>`
-    # stdio server, so a missing binary or a server that cannot start is the same
-    # failure on either -- catch it here rather than after paying for workspace
-    # copies, index builds and half a run's tokens.
-    if args.cli_driver in {"claude", "codex"} and any(ARM_SPECS[arm].plugin for arm in args.arms):
-        executable = shutil.which("lemoncrow")
-        if executable is None:
-            print("LemonCrow MCP preflight failed: lemoncrow executable not found on PATH", flush=True)
-            return 1
-        preflight_env = {**os.environ, **agent_env, "LEMONCROW_WORKSPACE_ROOT": str(Path(args.repo).resolve())}
-        preflight = subprocess.run(
-            [executable, "mcp", "--host", args.cli_driver, "check"],
-            capture_output=True,
-            text=True,
-            env=preflight_env,
-            check=False,
-        )
-        if preflight.returncode != 0:
-            detail = preflight.stderr.strip() or preflight.stdout.strip() or f"exit {preflight.returncode}"
-            print(f"LemonCrow MCP preflight failed: {detail}", flush=True)
-            return 1
+    # The real MCP preflight happens per LemonCrow row after its isolated local
+    # server exists. A global check here would probe the developer's configured
+    # server instead and reintroduce exactly the quota/auth contamination the
+    # benchmark isolation is meant to remove. Keep only the cheap executable
+    # existence check at process startup.
+    if any(ARM_SPECS[arm].plugin for arm in args.arms) and shutil.which("lemoncrow") is None:
+        print("LemonCrow MCP preflight failed: lemoncrow executable not found on PATH", flush=True)
+        return 1
     if args.jobs < 1:
         p.error("--jobs must be >= 1")
     if args.mode == "budget" and args.budget_usd <= 0:
@@ -4295,6 +4587,10 @@ def main() -> int:
             timeout=args.timeout,
             agent_env=agent_env,
         )
+    executed_arms = _ordered_arms(results)
+    pairwise_baseline_arm = args.pairwise_baseline_arm or (
+        "baseline" if "baseline" in executed_arms else (executed_arms[0] if executed_arms else "baseline")
+    )
     pairwise_rows = (
         judge_pairwise_quality(
             results,
@@ -4302,9 +4598,21 @@ def main() -> int:
             judge_agent_command=judge_agent_command,
             timeout=args.timeout,
             agent_env=agent_env,
+            baseline_arm=pairwise_baseline_arm,
         )
         if args.judge
-        else build_pairwise_quality_rows(results)
+        else build_pairwise_quality_rows(results, baseline_arm=pairwise_baseline_arm)
+    )
+    pairwise_rows.extend(
+        runtime_policy_pairwise_quality_rows(
+            results,
+            primary_baseline_arm=pairwise_baseline_arm,
+            run_judge=args.judge,
+            judge_model=judge_model,
+            judge_agent_command=judge_agent_command,
+            timeout=args.timeout,
+            agent_env=agent_env,
+        )
     )
     _apply_savings(results)
     _write_results_jsonl(run_dir, results)

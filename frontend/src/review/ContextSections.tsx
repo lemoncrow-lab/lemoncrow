@@ -30,18 +30,25 @@ const STATUS_TONE: Record<string, string> = {
   NOT_RUN: "text-amber-300",
 };
 
+const STATUS_LABEL: Record<string, string> = {
+  PASS: "Passed",
+  FAIL: "Failed",
+  UNKNOWN: "Unknown",
+  NOT_RUN: "Not run",
+};
+
 export function Verification({ rows }: { rows: EvidenceRow[] }) {
   if (rows.length === 0) return <div className="text-[10px] text-neutral-600">No verification evidence recorded.</div>;
   return (
-    <div className="space-y-2">
+    <div className="divide-y divide-neutral-900 border-y border-neutral-900">
       {rows.map((row, index) => (
-        <div key={`${row.name}:${row.scope ?? "review"}:${index}`} className="border-l border-neutral-800 pl-2">
+        <div key={`${row.name}:${row.scope ?? "review"}:${index}`} className="py-2 first:pt-1.5 last:pb-1.5">
           <div className="flex items-baseline gap-2 text-[10px]">
+            <span className={`w-14 shrink-0 font-medium ${STATUS_TONE[row.status] ?? "text-neutral-500"}`}>{STATUS_LABEL[row.status] ?? row.status}</span>
             <span className="min-w-0 flex-1 text-neutral-300">{row.name}</span>
-            <span className={`font-mono ${STATUS_TONE[row.status] ?? "text-neutral-500"}`}>{row.status}</span>
           </div>
-          {row.detail && <div className="mt-0.5 text-[9px] leading-4 text-neutral-600">{row.detail}</div>}
-          <div className="mt-0.5 text-[9px] text-neutral-700">{row.scope === "file" ? "this file" : "review-wide"}{row.source ? ` · ${row.source}` : ""}</div>
+          {row.detail && <div className="mt-0.5 pl-16 text-[10px] leading-4 text-neutral-600">{row.detail}</div>}
+          <div className="mt-0.5 pl-16 text-[10px] text-neutral-700">{row.scope === "file" ? "this file" : "review-wide"}{row.source ? ` · ${row.source}` : ""}</div>
         </div>
       ))}
     </div>
@@ -63,11 +70,11 @@ export function Impact({ sites, onOpen }: { sites: ImpactSite[]; onOpen(site: Im
             <span className="min-w-0 flex-1 truncate font-mono text-neutral-300">{site.path}</span>
             <span className="text-neutral-600">{site.in_patch ? "in patch" : "outside patch"}</span>
           </div>
-          <div className={`mt-0.5 text-[9px] ${site.uncertainty ? "text-amber-400/80" : "text-neutral-600"}`}>
+          <div className={`mt-0.5 text-[10px] ${site.uncertainty ? "text-amber-400/80" : "text-neutral-600"}`}>
             {site.uncertainty ? "possible " : ""}{site.kind.replaceAll("_", " ")}{site.inspected_by_agent === false ? " · not inspected by author" : ""}
           </div>
-          {site.uncertainty && <div className="mt-0.5 text-[9px] leading-4 text-amber-500/70">? {site.uncertainty}</div>}
-          {site.snippet && <div className="mt-1 truncate font-mono text-[9px] text-neutral-500">{site.snippet}</div>}
+          {site.uncertainty && <div className="mt-0.5 text-[10px] leading-4 text-amber-500/70">? {site.uncertainty}</div>}
+          {site.snippet && <div className="mt-1 truncate font-mono text-[10px] text-neutral-500">{site.snippet}</div>}
         </button>
       ))}
     </div>
@@ -96,32 +103,36 @@ export function Provenance({ info }: { info: ProvenanceInfo }) {
   if (!info.host && !info.session_id && !info.task) {
     return <div className="text-[10px] text-neutral-600">No exact authoring provenance recorded.</div>;
   }
+  const technical = Boolean(info.session_id || info.commands_run.length > 0 || info.match_reason);
   return (
-    <div className="space-y-1.5 text-[10px]">
-      <div className="flex gap-2"><span className="w-20 shrink-0 text-neutral-600">Host</span><span className="text-neutral-300">{info.host || "unknown"}</span></div>
-      <div className="flex gap-2"><span className="w-20 shrink-0 text-neutral-600">Certainty</span><span className="text-neutral-300">{info.certainty || "unknown"}</span></div>
-      {info.model && <div className="flex gap-2"><span className="w-20 shrink-0 text-neutral-600">Model</span><span className="text-neutral-300">{info.model}</span></div>}
-      {info.session_id && <div className="flex gap-2"><span className="w-20 shrink-0 text-neutral-600">Session</span><span className="min-w-0 truncate font-mono text-neutral-300">{info.session_id}</span></div>}
-      {info.task && <div className="pt-1 leading-4 text-neutral-400">{info.task}</div>}
-      <div className="flex gap-2">
-        <span className="w-20 shrink-0 text-neutral-600">Reads</span>
+    <div className="space-y-2 text-[10px]">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+        <span className="text-neutral-300">{info.host || "unknown host"}</span>
+        {info.model && <span className="text-neutral-500">· {info.model}</span>}
+        <span className="text-neutral-600">· {info.certainty || "unknown"}</span>
+      </div>
+      {info.task && <div className="leading-4 text-neutral-400">{info.task}</div>}
+      <div className="text-[10px]">
         {!info.reads_recorded ? (
-          <span className="text-neutral-500">reads not recorded</span>
+          <span className="text-neutral-500">File-read history was not recorded.</span>
         ) : info.inspected === false ? (
-          <span className="text-amber-300">authoring agent did not read this file</span>
+          <span className="text-amber-300">Authoring agent did not read this file.</span>
         ) : info.inspected === true ? (
-          <span className="text-emerald-400/80">file inspected by authoring agent</span>
+          <span className="text-emerald-400/80">Authoring agent read this file.</span>
         ) : (
-          <span className="text-neutral-500">inspection unknown</span>
+          <span className="text-neutral-500">Whether the authoring agent read this file is unknown.</span>
         )}
       </div>
-      {info.commands_run.length > 0 && (
-        <div className="pt-1">
-          <div className="text-[9px] uppercase tracking-wider text-neutral-600">Commands run</div>
-          <div className="mt-1 space-y-1">{info.commands_run.map((command, index) => <div key={`${index}:${command}`} className="truncate font-mono text-[9px] text-neutral-500" title={command}>{command}</div>)}</div>
-        </div>
+      {technical && (
+        <details className="border-t border-neutral-900 pt-2 text-[10px] text-neutral-600">
+          <summary className="cursor-pointer hover:text-neutral-50">Technical provenance</summary>
+          <div className="mt-2 space-y-1.5 border-l border-neutral-800 pl-2">
+            {info.session_id && <div className="truncate font-mono" title={info.session_id}>session · {info.session_id}</div>}
+            {info.commands_run.map((command, index) => <div key={`${index}:${command}`} className="truncate font-mono" title={command}>command · {command}</div>)}
+            {info.match_reason && <div className="leading-4">{info.match_reason}</div>}
+          </div>
+        </details>
       )}
-      {info.match_reason && <div className="text-[9px] leading-4 text-neutral-600">{info.match_reason}</div>}
     </div>
   );
 }
@@ -133,7 +144,7 @@ export function Discussion({ annotations, path }: { annotations: Annotation[]; p
     <div className="space-y-2">
       {rows.map((item) => (
         <div key={item.id} className="border-l border-neutral-800 pl-2">
-          <div className="flex items-center gap-2 text-[9px] text-neutral-600">
+          <div className="flex items-center gap-2 text-[10px] text-neutral-600">
             <span>{SOURCE_LABELS[annotationSource(item)]}</span>
             <span>{item.file_level ? "file" : locationLabel(item.start_line, item.end_line)}</span>
             <span>{item.state}</span>
@@ -175,17 +186,17 @@ export function ArtifactCard({ artifact }: { artifact: ReviewEvidence }) {
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
           <div className="truncate text-[10px] text-neutral-300">{artifact.title || artifact.kind}</div>
-          <div className="mt-0.5 font-mono text-[9px] text-neutral-600">
+          <div className="mt-0.5 font-mono text-[10px] text-neutral-600">
             {artifact.kind} · {artifact.source}{artifact.verification_status ? ` · ${artifact.verification_status}` : ""}{artifact.status === "stale" ? " · previous revision" : ""}
           </div>
         </div>
         {(artifact.url || artifact.content_url) && (
-          <button type="button" onClick={() => void openArtifact()} disabled={opening} className="text-[9px] text-sky-400 disabled:opacity-40">{opening ? "Opening…" : "Open"}</button>
+          <button type="button" onClick={() => void openArtifact()} disabled={opening} className="text-[10px] text-sky-400 disabled:opacity-40">{opening ? "Opening…" : "Open"}</button>
         )}
       </div>
-      {artifact.status === "stale" && <div className="mt-1 text-[9px] leading-4 text-amber-400/70">This artifact is from a previous revision and is not current proof.</div>}
-      {artifact.detail && <div className="mt-1 text-[9px] leading-4 text-neutral-500">{artifact.detail}</div>}
-      {error && <div className="mt-1 text-[9px] text-amber-300">{error}</div>}
+      {artifact.status === "stale" && <div className="mt-1 text-[10px] leading-4 text-amber-400/70">This artifact is from a previous revision and is not current proof.</div>}
+      {artifact.detail && <div className="mt-1 text-[10px] leading-4 text-neutral-500">{artifact.detail}</div>}
+      {error && <div className="mt-1 text-[10px] text-amber-300">{error}</div>}
     </div>
   );
 }

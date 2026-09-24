@@ -18,70 +18,28 @@ bash: lc: command not found
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-## `lc background status` Shows Services Are Not Running
+## The Local Loopback Server Is Not Running
 
-LemonCrow background services should start automatically. If they are stopped or failed:
-
-**Fix:** Restart them using your background manager:
+Local mode uses one server on `127.0.0.1:7420`. Verify the exact client-to-server path first:
 
 ```bash
-lc background restart
-lc background status
+lc mcp --host claude check --json
 ```
 
-If you want to inspect what the controller is doing:
+From a source checkout you can inspect or restart it directly:
 
 ```bash
-lc background logs controller
+bash scripts/local_server.sh status
+bash scripts/local_server.sh restart
 ```
 
-## `lc background install` Fails on macOS
-
-**Cause:** `launchd` requires the target directory to exist and might have permission issues.
-
-**Fix:** Ensure `~/Library/LaunchAgents` exists and re-run:
+If port `7420` is occupied, inspect the owner before restarting:
 
 ```bash
-mkdir -p ~/Library/LaunchAgents
-lc background install --with-stack
+ss -ltnp | grep ':7420'
 ```
 
-## `lc stack start` Fails
-
-**Common causes:** npm dependencies are not installed, `npm` is missing from `PATH`, or ports are already in use.
-
-Check the frontend toolchain first:
-
-```bash
-npm --version
-test -d frontend/node_modules || echo "frontend deps missing"
-```
-
-If ports `3125` or `8787` are already busy, inspect what owns them first:
-
-```bash
-# Check if the managed background service is already running
-lc background status
-
-# Check network ports
-ss -ltnp | grep -E ':3125|:8787'
-```
-
-Then stop or reconfigure the conflicting process, or reset the LemonCrow stack:
-
-```bash
-lc background restart
-```
-
-## The UI Loads but API Calls Fail With Auth Errors
-
-For local no-auth service usage, start the service explicitly like this:
-
-```bash
-LEMONCROW_REQUIRE_AUTH=false lc service start --host 0.0.0.0 --port 8787
-```
-
-If you want auth enabled, set `LEMONCROW_API_KEY` and configure the client that is calling the service.
+A healthy local install should be running `lemoncrow_server_core`, not the retired `lemoncrow-controller`, `lemoncrow-stack`, or private `lemoncrow_server.ops` local runtime.
 
 ## `lc mcp` Is Not Found
 
@@ -119,7 +77,7 @@ runtime is healthy:
 
 ```bash
 lc init
-lc background status
+lc mcp --host claude check --json
 lc worker list
 ```
 
@@ -159,11 +117,10 @@ If you changed importer or pricing logic, rebuild imported traces first:
 lc import --force
 ```
 
-If the services are already running, restart them to pick up new code or configuration:
+After changing an installed local runtime, restart the loopback server so it picks up the new code or configuration:
 
 ```bash
-lc background restart
-lc background status
+bash scripts/local_server.sh restart
 ```
 
 When comparing totals, keep these rules in mind:

@@ -1,12 +1,16 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import ContextDrawer from "./ContextDrawer";
 import type { Annotation, FileDetail, ReviewTarget } from "./types";
 
+const reviewApi = vi.hoisted(() => ({
+  fetchTargetHistory: vi.fn(),
+}));
 vi.mock("./reviewApi", () => ({
   fetchReviewEvidenceContent: vi.fn(async () => new Blob(["artifact"])),
+  fetchTargetHistory: reviewApi.fetchTargetHistory,
 }));
 
 const TARGET: ReviewTarget = {
@@ -154,11 +158,12 @@ const OTHER_TARGET: ReviewTarget = {
 
 function drawerFor(
   target: ReviewTarget,
-  tab: "impact" | "checks" | "evidence" | "author" | "discussion",
+  tab: "impact" | "checks" | "evidence" | "author" | "discussion" | "history",
   onAddPreview = vi.fn(),
 ) {
   return (
     <ContextDrawer
+      reviewId="review-1"
       target={target}
       detail={DETAIL}
       degraded={[]}
@@ -177,7 +182,7 @@ function drawerFor(
 }
 
 function renderDrawer(
-  tab: "impact" | "checks" | "evidence" | "author" | "discussion" = "impact",
+  tab: "impact" | "checks" | "evidence" | "author" | "discussion" | "history" = "impact",
   detail: FileDetail = DETAIL,
   annotations: Annotation[] = [AUTHOR],
 ) {
@@ -187,6 +192,7 @@ function renderDrawer(
   const onOpenImpact = vi.fn();
   render(
     <ContextDrawer
+      reviewId="review-1"
       target={TARGET}
       detail={detail}
       degraded={[]}
@@ -206,21 +212,70 @@ function renderDrawer(
 }
 
 describe("ContextDrawer", () => {
+  beforeEach(() => {
+    reviewApi.fetchTargetHistory.mockReset();
+    reviewApi.fetchTargetHistory.mockResolvedValue({ review_id: "review-1", reviewer_id: "local", unit_key: TARGET.unit_key, events: [] });
+  });
+
   it("uses task-oriented tabs and starts from the caller-selected tab", async () => {
     const { onTab } = renderDrawer("impact");
-    expect(screen.getByText("Observed impact")).toBeTruthy();
+    expect(screen.getByText("Affected code")).toBeTruthy();
     expect(screen.queryByText("Summary")).toBeNull();
     await userEvent.click(screen.getByRole("tab", { name: /checks/i }));
     expect(onTab).toHaveBeenCalledWith("checks");
   });
 
+  it("keeps review-work tabs primary and exposes expert detail through Details", async () => {
+    const { onTab } = renderDrawer("impact");
+    expect(screen.getByRole("tab", { name: /impact/i })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /comments/i })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /checks/i })).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: /evidence/i })).toBeNull();
+
+    await userEvent.click(screen.getByText("Details"));
+    await userEvent.click(screen.getByRole("button", { name: /Evidence/i }));
+    expect(onTab).toHaveBeenCalledWith("evidence");
+  });
+
+  it("loads append-only judgment transitions for the active semantic target", async () => {
+    reviewApi.fetchTargetHistory.mockResolvedValue({
+      review_id: "review-1",
+      reviewer_id: "local",
+      unit_key: TARGET.unit_key,
+      events: [
+        {
+          id: "mark-1",
+          review_id: "review-1",
+          reviewer_id: "local",
+          unit_key: TARGET.unit_key,
+          revision_id: "rrv-2",
+          reviewed_revision_id: "rrv-1",
+          event_kind: "reconciled",
+          from_state: "reviewed",
+          to_state: "changed_since_review",
+          content_fingerprint: "fp",
+          previous_unit_key: "",
+          actor_type: "human",
+          note: "",
+          reason: "content changed",
+          created_at: "2026-09-16T07:00:00Z",
+        },
+      ],
+    });
+    renderDrawer("history");
+    await waitFor(() => expect(screen.getByText("reviewed → changed_since_review")).toBeTruthy());
+    expect(reviewApi.fetchTargetHistory).toHaveBeenCalledWith("review-1", TARGET.unit_key);
+    expect(screen.getByText("content changed")).toBeTruthy();
+    expect(screen.queryByText(/synthetic event/i)).toBeNull();
+  });
+
   it("orders failed and unresolved checks ahead of review-wide passes", () => {
     renderDrawer("checks");
     const text = screen.getByText("Lint").closest("div")?.parentElement?.parentElement?.textContent ?? "";
-    expect(text).toContain("FAIL");
+    expect(text).toContain("Failed");
     expect(screen.getByText("Focused tests")).toBeTruthy();
     expect(screen.getByText("Full suite")).toBeTruthy();
-    expect(screen.getByText(/review-wide PASS is context, not proof/i)).toBeTruthy();
+    expect(screen.getByText(/review-wide passes are context, not proof/i)).toBeTruthy();
   });
 
   it("describes the single ordered list of checks it actually renders", () => {
@@ -240,7 +295,7 @@ describe("ContextDrawer", () => {
       .filter((text) => text === "File lint" || text === "Packet suite");
     expect(order).toEqual(["Packet suite", "File lint"]);
     expect(panel.textContent).not.toMatch(/shown separately/i);
-    expect(panel.textContent).toMatch(/review-wide PASS is context, not proof/i);
+    expect(panel.textContent).toMatch(/review-wide passes are context, not proof/i);
   });
 
   it("puts a file-scoped check ahead of a review-wide check that ended the same way", () => {
@@ -259,7 +314,8 @@ describe("ContextDrawer", () => {
       .map((node) => node.textContent)
       .filter((text) => text === "Alpha suite" || text === "Zed lint");
     expect(order).toEqual(["Zed lint", "Alpha suite"]);
-    expect(panel.textContent).toMatch(/file-scoped before review-wide/i);
+    expect(panel.textContent).toContain("this file");
+    expect(panel.textContent).toContain("review-wide");
   });
 
   it("opens the evidence picker from the keyboard, not only with a pointer", async () => {
@@ -292,15 +348,15 @@ describe("ContextDrawer", () => {
     expect(screen.getByText("Validation moved before payment creation.")).toBeTruthy();
   });
 
-  it("counts the Discussion card by what is inside it, not by the orphans beside it", () => {
+  it("counts the Comments card by what is inside it, not by the orphans beside it", () => {
     // The badge hangs off the card and the card holds only anchored comments,
     // so counting the orphans too printed "Discussion 2" over one comment, with
     // the other one in a sibling block outside the card entirely.
     renderDrawer("discussion", DETAIL, [AUTHOR, ORPHAN]);
-    const header = screen.getByRole("heading", { name: "Discussion" }).parentElement as HTMLElement;
-    expect(header.textContent).toBe("Discussion1");
+    const header = screen.getByRole("heading", { name: "Comments" }).parentElement as HTMLElement;
+    expect(header.textContent).toBe("Comments1");
     // The tab still counts both halves: both of them are read on this tab.
-    expect(screen.getByRole("tab", { name: /discussion/i }).textContent).toBe("discussion 2");
+    expect(screen.getByRole("tab", { name: /comments/i }).textContent).toBe("Comments2");
   });
 
   it("drops a preview URL typed for one target when the drawer moves to the next", async () => {
@@ -321,9 +377,10 @@ describe("ContextDrawer", () => {
 
   it("keeps exact author provenance separate from discussion", () => {
     renderDrawer("author");
-    expect(screen.getByText("Authoring provenance")).toBeTruthy();
-    expect(screen.getByText("Why validation moved")).toBeTruthy();
-    expect(screen.queryByText("Discussion")).toBeNull();
+    const panel = screen.getByRole("tabpanel");
+    expect(within(panel).getByText("Authored by")).toBeTruthy();
+    expect(within(panel).getByText("Why validation moved")).toBeTruthy();
+    expect(within(panel).queryByRole("heading", { name: "Comments" })).toBeNull();
   });
 
   it("exposes explicit pin and close controls", async () => {
@@ -332,6 +389,13 @@ describe("ContextDrawer", () => {
     expect(onTogglePin).toHaveBeenCalledTimes(1);
     await userEvent.click(screen.getByRole("button", { name: "Close review context" }));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a selected expert section in the tab semantics", async () => {
+    renderDrawer("history");
+    expect(screen.getByRole("tab", { name: /history/i }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe("review-context-tab-history");
+    await waitFor(() => expect(reviewApi.fetchTargetHistory).toHaveBeenCalledWith("review-1", TARGET.unit_key));
   });
 
   it("uses tab semantics and moves focus into Context when it opens", async () => {

@@ -1859,11 +1859,7 @@ def _colorize_tip(text: str, c_dim: str, c_tool: str, c_reset: str) -> str:
 
 
 def _resolve_status_text(lemoncrow_root: str | Path | None = None) -> str:
-    """Return update / login / subscription warning text for the statusline.
-
-    Falls back to a rotating feature tip (when ``statusLineTips`` is enabled)
-    so the lowest-priority slot coaches the user toward LemonCrow features.
-    """
+    """Return an update notice or rotating local feature tip for the statusline."""
     root = Path(lemoncrow_root) if lemoncrow_root else None
     if root is None:
         root_env = os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT") or ""
@@ -1882,16 +1878,9 @@ def _resolve_status_text(lemoncrow_root: str | Path | None = None) -> str:
             logging.exception("Recovered from broad exception handler")
             return {}
 
-    auth = _read("auth.json")
-    if ((not auth) or auth.get("authenticated") is False) and os.environ.get("LEMONCROW_HIDE_MISSING_LOGIN") != "1":
-        return "login"
     update = _read("update.json")
     if update.get("toVersion") and update.get("toVersion") != update.get("fromVersion"):
         return f"update {update.get('toVersion')}"
-    subscription = _read("subscription.json")
-    if subscription.get("warning"):
-        return str(subscription.get("message") or "subscription")[:40]
-    # Lowest priority: a rotating feature tip, when statusLineTips is enabled.
     raw = _read("plugin_settings.json")
     nested = raw.get("lemoncrow")
     settings = nested if isinstance(nested, dict) else raw
@@ -2122,49 +2111,6 @@ def render_savings_summary(payload: dict[str, Any]) -> str:
     if lifetime_saved > 0:
         lines.append(f"  Lifetime saved (all history, modelled): {_fmt_usd(lifetime_saved)}.")
 
-    sub = payload.get("subscription") or {}
-    if sub.get("plan") or "monthlySavingsCapInUsd" in sub:
-        plan = str(sub.get("plan") or "free").strip() or "free"
-        status = str(sub.get("status") or "").strip().lower()
-        source = "server" if sub.get("savingsMeterSource") == "server" else "local est."
-        lines.append("")
-        lines.append(f"  Plan  {plan}" + (f" ({status})" if status else ""))
-        # Savings cap — the monetization ceiling that drives dormancy. Keyed to the
-        # monthly cap window (windowDays), NOT the ad-hoc 1/7/30d windows above, and
-        # taken from the server meter when present (else a local estimate) so this
-        # line can't disagree with the actual cap decision.
-        # Colour the cap status: RED when over cap (dormant), GREEN otherwise. The
-        # red/green boundary is keyed on ``savingsOverCap`` — the SAME flag (server
-        # ``savings >= cap`` / local ``compute_usage_meter``) that drives dormancy —
-        # so the colour flips at exactly the point the machine goes dormant, never
-        # off by one. click.echo strips ANSI when stdout is not a TTY; NO_COLOR /
-        # LEMONCROW_NO_COLOR force it off too. The [source] tag stays uncoloured.
-        _no_color = bool(os.environ.get("NO_COLOR") or os.environ.get("LEMONCROW_NO_COLOR"))
-        c_green = "" if _no_color else "\033[1;38;2;72;199;116m"
-        c_red = "" if _no_color else "\033[1;38;2;255;99;71m"
-        c_reset = "" if _no_color else "\033[0m"
-        cap = sub.get("monthlySavingsCapInUsd")
-        if cap is None:
-            lines.append(f"{c_green}  Cap   uncapped{c_reset}   [{source}]")
-        else:
-            cap_usd = float(cap)
-            saved_cycle = float(sub.get("monthlySavingsInUsd") or 0.0)
-            window_days = int(sub.get("windowDays") or 30)
-            if sub.get("savingsOverCap"):
-                lines.append(
-                    f"{c_red}  Cap   {_fmt_usd(saved_cycle)} of {_fmt_usd(cap_usd)} ({window_days}d)"
-                    f"  — CAP REACHED · LemonCrow dormant{c_reset}   [{source}]"
-                )
-            else:
-                remaining = sub.get("savingsRemainingUsd")
-                remaining_usd = float(remaining) if remaining is not None else max(0.0, cap_usd - saved_cycle)
-                frac = sub.get("savingsCapFraction")
-                pct = float(frac) * 100 if frac is not None else (saved_cycle / cap_usd * 100 if cap_usd > 0 else 0.0)
-                lines.append(
-                    f"{c_green}  Cap   {_fmt_usd(saved_cycle)} of {_fmt_usd(cap_usd)} ({window_days}d)"
-                    f"  · {_fmt_pct(pct)} used, {_fmt_usd(remaining_usd)} left{c_reset}   [{source}]"
-                )
-
     note = str(payload.get("local_note") or "").strip()
     if note:
         lines.append(f"  {note}")
@@ -2258,35 +2204,6 @@ def render_savings_markdown(payload: dict[str, Any]) -> str:
         )
     if lifetime_saved > 0:
         lines.append(f"_Lifetime saved (all history, modelled): {_fmt_usd(lifetime_saved)}._")
-
-    sub = payload.get("subscription") or {}
-    if sub.get("plan") or "monthlySavingsCapInUsd" in sub:
-        plan = str(sub.get("plan") or "free").strip() or "free"
-        status = str(sub.get("status") or "").strip().lower()
-        source = "server" if sub.get("savingsMeterSource") == "server" else "local est."
-        lines.append("")
-        lines.append(f"- **Plan** {plan}" + (f" ({status})" if status else ""))
-        cap = sub.get("monthlySavingsCapInUsd")
-        if cap is None:
-            lines.append(f"- **Cap** uncapped _[{source}]_")
-        else:
-            cap_usd = float(cap)
-            saved_cycle = float(sub.get("monthlySavingsInUsd") or 0.0)
-            window_days = int(sub.get("windowDays") or 30)
-            if sub.get("savingsOverCap"):
-                lines.append(
-                    f"- **Cap** {_fmt_usd(saved_cycle)} of {_fmt_usd(cap_usd)} ({window_days}d) — "
-                    f"**CAP REACHED · LemonCrow dormant** _[{source}]_"
-                )
-            else:
-                remaining = sub.get("savingsRemainingUsd")
-                remaining_usd = float(remaining) if remaining is not None else max(0.0, cap_usd - saved_cycle)
-                frac = sub.get("savingsCapFraction")
-                pct = float(frac) * 100 if frac is not None else (saved_cycle / cap_usd * 100 if cap_usd > 0 else 0.0)
-                lines.append(
-                    f"- **Cap** {_fmt_usd(saved_cycle)} of {_fmt_usd(cap_usd)} ({window_days}d) · "
-                    f"{_fmt_pct(pct)} used, {_fmt_usd(remaining_usd)} left _[{source}]_"
-                )
 
     note = str(payload.get("local_note") or "").strip()
     if note:
@@ -3820,42 +3737,6 @@ def savings_frames(
     # Backtick-wrapped tool names are highlighted in brand purple; rest is dim.
     if summary.status_text:
         frames.append((False, _colorize_tip(summary.status_text, C_DIM, C_BRAND, C_RESET)))
-
-    # Login nudge frame (free/unauthenticated only): a sign-in reminder folded
-    # into the rotating frames. Throttled to once per calendar day (same
-    # cadence/marker-file pattern as the old statusline.sh LOGIN_SEG and the
-    # STALE_SEG/TIP_SEG nudges below it) -- showing it on every rotation was
-    # reported as way too naggy for free users mid-session. Same auth signal
-    # as the MCP FeatureLocked path -- LEMONCROW_AUTH_TOKEN env, then
-    # <root>/auth_token (see licensing/store.py load_auth_token). Read from the
-    # resolved `root` directly (not load_auth_token, which keys off
-    # default_store_root and would ignore the lemoncrow_root param). The
-    # anonymous local-trial marker is a separate free-mode file and does NOT
-    # count as signed in.
-    try:
-        _signed_in = bool(os.environ.get("LEMONCROW_AUTH_TOKEN", "").strip())
-        if not _signed_in:
-            _tok_file = root / "auth_token"
-            _signed_in = _tok_file.exists() and bool(_tok_file.read_text(encoding="utf-8").strip())
-    except OSError:
-        _signed_in = True  # unknown auth state -> never nag
-    if not _signed_in:
-        _today = time.strftime("%Y-%m-%d")
-        _login_marker = root / "login_nudge_shown_date"
-        try:
-            _login_last = _login_marker.read_text(encoding="utf-8").strip()
-        except OSError:
-            _login_last = ""
-        if _login_last != _today:
-            # The marker is stamped at DISPLAY time (savings_segment), NOT on
-            # build: stamping here let the FIRST of the many per-day builds
-            # "consume" the day before the nudge was ever the rendered frame, so
-            # the next rebuild seconds later dropped it and the reminder was
-            # marked shown without ever appearing. Kept in the rotation until
-            # actually displayed.
-            frames.append(
-                (False, f"{C_DIM}not signed in -- {C_BRAND}/lemoncrow account login{C_DIM} to unlock Pro{C_RESET}")
-            )
 
     # Frame 0 (cost+savings+carry) and, when present, frame 1 (runway) each get 3
     # slots at 5s each = ~15s; others get 5s each. Weighting either higher than

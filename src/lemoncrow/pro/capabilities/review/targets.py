@@ -713,6 +713,38 @@ def _prelude_row(line: str) -> bool:
     return not text or text.startswith(("#", "//", "/*", "*", "@"))
 
 
+def _definition_shape(line: str) -> str | None:
+    """Normalize only the declared name of a visible callable/definition."""
+
+    binding = re.match(
+        r"^(\s*(?:(?:export|default|public|private|protected|static|declare)\s+)*"
+        r"(?:const|let|var)\s+)([A-Za-z_$][\w$]*)(\s*=\s*.+)$",
+        line,
+    )
+    if binding and _function_valued_binding(line):
+        return f"{binding.group(1)}<name>{binding.group(3)}"
+
+    definition = re.match(
+        r"^(\s*(?:(?:export|default|public|private|protected|internal|static|final|abstract|override|open|pub|declare|inline)\s+)*"
+        r"(?:async\s+)?(?:def|class|function|func|fn|struct|trait|impl|enum|interface|namespace|module|record|object|type|sub|proc)\s+"
+        r"(?:\([^)]*\)\s*)?)([A-Za-z_$][\w$]*)(.*)$",
+        line,
+    )
+    if definition:
+        return f"{definition.group(1)}<name>{definition.group(3)}"
+    return None
+
+
+def _same_definition_replacement(block: _ChangeBlock, owner_declaration: str) -> bool:
+    """Whether one deleted declaration is plainly the surviving declaration renamed."""
+
+    if len(block.old_lines) != 1 or len(block.new_lines) != 1 or len(block.old_text) != 1:
+        return False
+    old_shape = _definition_shape(block.old_text[0])
+    new_shape = _definition_shape(owner_declaration)
+    return bool(old_shape and new_shape and old_shape == new_shape)
+
+
 def _foreign_definition_start(block: _ChangeBlock, owner_declaration: str) -> int | None:
     """Where in *block*'s deleted rows a definition the owner does not own begins.
 
@@ -735,6 +767,8 @@ def _foreign_definition_start(block: _ChangeBlock, owner_declaration: str) -> in
     """
 
     if len(block.old_text) != len(block.old_lines):
+        return None
+    if _same_definition_replacement(block, owner_declaration):
         return None
     # An owner whose declaration line is outside the captured patch cannot vouch
     # for its own nesting level, so any definition in the deleted text counts.
@@ -790,6 +824,23 @@ def _review_worthy_symbols(
     for unit in trustworthy:
         meta = metadata.get((unit.symbol, unit.start_line))
         if meta is None:
+            declaration = source_lines.get(unit.start_line, "")
+            semantic_parent = any(
+                _strictly_contains(parent, unit) and metadata.get((parent.symbol, parent.start_line)) is not None
+                for parent in trustworthy
+            )
+            visible_definition = bool(
+                declaration and (_DEFINITION_HEADER.match(declaration) or _function_valued_binding(declaration))
+            )
+            if semantic_parent and declaration and not visible_definition:
+                # Tree-sitter/index capture may emit useful leaf symbols that
+                # are intentionally absent from the packet's semantic symbol
+                # table: interface fields, destructured parameters and local
+                # bindings are common examples. They belong to the enclosing
+                # definition's human judgment rather than becoming one review
+                # target per line. Keep a visible nested definition/callback,
+                # and stay conservative when its declaration text is missing.
+                continue
             structural.append(unit)
             continue
         kind = str(meta.get("kind") or "").lower()

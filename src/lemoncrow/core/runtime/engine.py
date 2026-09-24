@@ -154,7 +154,8 @@ class LemonCrowRuntimeCore:
 
         if recall:
             try:
-                from lemoncrow.core.foundation.redaction import redact
+                from lemoncrow_client.kit.redaction import redact
+
                 from lemoncrow.infra.embeddings.factory import get_embedder
                 from lemoncrow.infra.storage.factory import make_memory_store
                 from lemoncrow.pro.capabilities.archival_recall import ArchivalRecallCapability
@@ -418,7 +419,7 @@ class LemonCrowRuntimeCore:
         step_type: StepType = "plan",
         step_index: int = 0,
         session_id: str | None = None,
-        evidence_summary: dict[str, Any] | None = None,
+        evidence_summary: Any | None = None,
         ledger: RunLedger | None = None,
     ) -> RouteDecision:
         """Compute a deterministic quality-aware route decision."""

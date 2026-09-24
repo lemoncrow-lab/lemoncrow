@@ -91,7 +91,7 @@ SETTINGS: list[SettingSpec] = [
         "Days an installed OPTIONAL (non-default) agent/skill can go unused before a staleness nudge "
         "suggests removing it.",
     ),
-    # -- service: local HTTP service (lcd) --
+    # -- service: optional standalone HTTP API / lc code gateway --
     SettingSpec(
         "service.enabled",
         "LEMONCROW_SERVICE_ENABLED",
@@ -186,23 +186,7 @@ SETTINGS: list[SettingSpec] = [
         "str",
         "",
         "service",
-        "Override directory the daemon serves the dashboard frontend from.",
-    ),
-    SettingSpec(
-        "service.port_legacy",
-        "LEMONCROW_PORT",
-        "int",
-        8787,
-        "service",
-        "Legacy port override consulted by the daemon's root_url banner.",
-    ),
-    SettingSpec(
-        "service.host_legacy",
-        "LEMONCROW_HOST",
-        "str",
-        "127.0.0.1",
-        "service",
-        "Legacy bind-host override consulted by lcd's --host default.",
+        "Override frontend bundle directory used by the local loopback server.",
     ),
     SettingSpec(
         "service.web_port",
@@ -1077,6 +1061,30 @@ SETTINGS: list[SettingSpec] = [
         "Enable perplexity-based context pruning/compression.",
     ),
     SettingSpec(
+        "context.compressor",
+        "LEMONCROW_CONTEXT_COMPRESSOR",
+        "str",
+        "none",
+        "optimization",
+        "Optional second-stage provider-bound compressor: none (default) or headroom.",
+    ),
+    SettingSpec(
+        "context.headroom_min_tokens",
+        "LEMONCROW_HEADROOM_MIN_TOKENS",
+        "int",
+        250,
+        "optimization",
+        "Minimum Headroom-eligible tool-result size before residual compression.",
+    ),
+    SettingSpec(
+        "context.headroom_target_ratio",
+        "LEMONCROW_HEADROOM_TARGET_RATIO",
+        "float",
+        None,
+        "optimization",
+        "Optional Headroom keep-ratio override; unset uses Headroom's own default.",
+    ),
+    SettingSpec(
         "tool_supervision.context_window_tokens",
         "LEMONCROW_CONTEXT_WINDOW_TOKENS",
         "int",
@@ -1243,14 +1251,6 @@ SETTINGS: list[SettingSpec] = [
         False,
         "mcp",
         "Opt in to loading MCP servers from untrusted/unpinned sources.",
-    ),
-    SettingSpec(
-        "mcp.hide_tools",
-        "LEMONCROW_HIDE_TOOLS",
-        "str",
-        "",
-        "mcp",
-        "Comma-separated extra tool names to hide from the LLM-visible tool surface.",
     ),
     SettingSpec(
         "mcp.show_all",
@@ -1708,14 +1708,6 @@ SETTINGS: list[SettingSpec] = [
         "Comma-separated tool names to disallow while benchmarking.",
     ),
     SettingSpec(
-        "bench.hidden_mcp_tools",
-        "LEMONCROW_BENCH_HIDDEN_MCP_TOOLS",
-        "str",
-        "",
-        "bench",
-        "Comma-separated lc MCP tool names to hide from the advertised surface while benchmarking.",
-    ),
-    SettingSpec(
         "bench.token_slots",
         "LEMONCROW_BENCH_TOKEN_SLOTS",
         "int",
@@ -1860,15 +1852,6 @@ SETTINGS: list[SettingSpec] = [
         "llm",
         "Model id used for Ollama-backed internal LLM calls.",
     ),
-    # -- licensing --
-    SettingSpec(
-        "licensing.auth_token",
-        "LEMONCROW_AUTH_TOKEN",
-        "str",
-        "",
-        "licensing",
-        "OAuth session token created by `lc account login`; used for plan checks.",
-    ),
     # -- lessons --
     SettingSpec(
         "lessons.cluster_threshold",
@@ -1896,20 +1879,20 @@ SETTINGS: list[SettingSpec] = [
         "Enable automatic context compaction in the runtime engine loop.",
     ),
     SettingSpec(
+        "cli.update_check",
+        "LEMONCROW_UPDATE_CHECK",
+        "bool",
+        False,
+        "cli",
+        "Once a day, check GitHub Releases for a newer LemonCrow and tell you (opt-in; the installer asks once).",
+    ),
+    SettingSpec(
         "cli.auto_update",
         "LEMONCROW_AUTO_UPDATE",
         "bool",
-        True,
+        False,
         "cli",
-        "Automatically install available LemonCrow updates instead of only notifying.",
-    ),
-    SettingSpec(
-        "cli.auto_update_release",
-        "LEMONCROW_AUTO_UPDATE_RELEASE",
-        "bool",
-        True,
-        "cli",
-        "Allow the background service-lifecycle updater to pull new releases automatically.",
+        "Automatically install available LemonCrow updates instead of only notifying (opt-in; asked at install).",
     ),
     SettingSpec(
         "cli.cache_disabled",
@@ -1966,7 +1949,7 @@ SETTINGS: list[SettingSpec] = [
         "str",
         "ultra",
         "cli",
-        "Reply-register level baked into installed agent personas: ultra | lite | off. Setting it regenerates installed host agents (see lemoncrow.core.reply_register).",
+        "Reply-register level baked into installed agent personas: ultra (default, maximal readable compression) | lite | off. Setting it regenerates installed host agents (see lemoncrow.core.reply_register).",
     ),
     # -- core: bootstrap/location knobs (read-only through this surface) --
     SettingSpec(

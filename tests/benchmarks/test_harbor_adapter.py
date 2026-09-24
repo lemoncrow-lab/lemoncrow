@@ -77,6 +77,118 @@ def test_harbor_uses_shorter_bash_soft_timeout(agent: LemonCrowClaudeCodeHarborA
     assert agent._agent_env["LEMONCROW_BASH_SOFT_TIMEOUT"] == "60"
 
 
+def test_context_arms_resolve_exact_surfaces(tmp_path: Path) -> None:
+    expected = {
+        "raw": (False, False, False, False),
+        "rtk": (False, True, True, False),
+        "lemoncrow": (True, False, True, False),
+        "lemoncrow-headroom": (True, False, True, True),
+    }
+    for arm, flags in expected.items():
+        current = LemonCrowClaudeCodeHarborAgent(logs_dir=tmp_path / arm, context_arm=arm)
+        assert (
+            current._lemoncrow_enabled,
+            current._rtk_hook_enabled,
+            current._uses_rtk,
+            current._headroom_tail_enabled,
+        ) == flags
+        assert current._agent_env["LEMONCROW_BENCH_CONTEXT_ARM"] == arm
+
+    legacy_raw = LemonCrowClaudeCodeHarborAgent(logs_dir=tmp_path / "legacy-raw", bench_mode="off")
+    assert legacy_raw._context_arm == "raw"
+    legacy_lc = LemonCrowClaudeCodeHarborAgent(logs_dir=tmp_path / "legacy-lc", bench_mode="on")
+    assert legacy_lc._context_arm == "lemoncrow"
+    with pytest.raises(ValueError, match="unknown context_arm"):
+        LemonCrowClaudeCodeHarborAgent(logs_dir=tmp_path / "bad", context_arm="mystery")
+
+
+def test_context_arm_install_wires_rtk_lc_and_headroom_independently(tmp_path: Path) -> None:
+    async def capture(arm: str) -> list[str]:
+        current = LemonCrowClaudeCodeHarborAgent(logs_dir=tmp_path / arm, context_arm=arm)
+        calls: list[str] = []
+
+        async def fake_exec(environment: Any, command: str, env: dict[str, str] | None = None, **kw: Any) -> None:
+            calls.append(command)
+
+        current.exec_as_root = fake_exec  # type: ignore[method-assign]
+        await current.install(None)  # type: ignore[arg-type]
+        return calls
+
+    raw = asyncio.run(capture("raw"))
+    rtk = asyncio.run(capture("rtk"))
+    lc = asyncio.run(capture("lemoncrow"))
+    headroom = asyncio.run(capture("lemoncrow-headroom"))
+
+    assert any("snapshot.debian.org/archive/debian/20260831T235959Z" in command for command in raw)
+    assert not any("rtk-ai/rtk" in command for command in raw)
+    assert not any("rtk hook claude" in command for command in raw)
+    assert not any("lemoncrow mcp --host claude check" in command for command in raw)
+
+    assert any("rtk-ai/rtk" in command for command in rtk)
+    assert any("rtk hook claude" in command for command in rtk)
+    assert not any("lemoncrow mcp --host claude check" in command for command in rtk)
+
+    assert any("rtk-ai/rtk" in command for command in lc)
+    assert not any("rtk hook claude" in command for command in lc)
+    assert any("lemoncrow-server up" in command for command in lc)
+    assert any("/healthz" in command for command in lc)
+    assert any("lemoncrow mcp --host claude check --timeout 300" in command for command in lc)
+    assert not any("from headroom.transforms.log_compressor import LogCompressor" in command for command in lc)
+
+    assert any("lemoncrow-server up" in command for command in headroom)
+    assert any("lemoncrow mcp --host claude check --timeout 300" in command for command in headroom)
+    assert any("from headroom.transforms.log_compressor import LogCompressor" in command for command in headroom)
+
+
+def test_headroom_context_arm_uses_mcp_tail_without_provider_proxy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", FAKE_TOKEN)
+    current = LemonCrowClaudeCodeHarborAgent(
+        logs_dir=tmp_path,
+        model_name="anthropic/claude-opus-4-8",
+        context_arm="lemoncrow-headroom",
+    )
+    command, env = _run_and_capture(current)
+    assert "headroom proxy" not in command
+    assert "ANTHROPIC_BASE_URL" not in command
+    assert "headroom-proxy.log" not in command
+    assert env["LEMONCROW_BENCH_CONTEXT_ARM"] == "lemoncrow-headroom"
+    assert env["LEMONCROW_HEADROOM_MCP_TAIL_MODE"] == "apply"
+    assert env["LEMONCROW_HEADROOM_SITE_PACKAGES"] == "/opt/headroom-venv/lib/python3.13/site-packages"
+    assert env["LEMONCROW_HEADROOM_TAIL_STATS"] == "/logs/agent/headroom-tail-stats.jsonl"
+    assert env["LEMONCROW_HEADROOM_MODEL"] == "claude-opus-4-8"
+
+
+def test_lemoncrow_context_arm_registers_non_git_workspace_before_prewarm(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", FAKE_TOKEN)
+    current = LemonCrowClaudeCodeHarborAgent(
+        logs_dir=tmp_path,
+        model_name="anthropic/claude-opus-4-8",
+        context_arm="lemoncrow",
+    )
+    command, _ = _run_and_capture(current)
+    assert "git rev-parse --show-toplevel" in command
+    assert "lemoncrow init --no-login --no-index >/logs/agent/lemoncrow-workspace-init.log" in command
+    assert "lemoncrow mcp --host claude check --timeout 300" in command
+    assert command.index("lemoncrow init --no-login") < command.index("lemoncrow mcp --host claude check --timeout 300")
+
+
+def test_raw_context_arm_has_no_lc_prewarm_plugin_or_headroom(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", FAKE_TOKEN)
+    current = LemonCrowClaudeCodeHarborAgent(
+        logs_dir=tmp_path,
+        model_name="anthropic/claude-opus-4-8",
+        context_arm="raw",
+    )
+    command, _ = _run_and_capture(current)
+    assert "lemoncrow code index" not in command
+    assert "--plugin-dir /opt/lemoncrow-plugin-lean" not in command
+    assert "headroom proxy" not in command
+
+
 def test_solve_persona_protects_mechanical_deliverable_gates() -> None:
     solve_prompt = (REPO_ROOT / "integrations/claude/plugin/agents/solve.md").read_text(encoding="utf-8")
     assert "runnable candidate at the required location" in solve_prompt
@@ -228,52 +340,25 @@ def test_disallowed_tools_strips_dead_builtin_tools_never_used_in_a_real_run(
     assert dead_tools <= segment_tools, f"missing from constructed command: {dead_tools - segment_tools}"
 
 
-def test_web_tools_fully_off_by_default_matching_baseline(
+def test_harbor_uses_release_mcp_surface_without_visibility_overrides(
     agent: LemonCrowClaudeCodeHarborAgent,
 ) -> None:
-    """Baseline's real Harbor job registers zero web tools of any kind --
-    confirmed both by its own init event (`"tools":["Bash","Edit","Read"]`)
-    and by a full scrape of every tool_use call across all 445 real baseline
-    trials (0 WebSearch/WebFetch calls). WebSearch/ToolSearch (Claude Code
-    built-ins) go through _DISALLOWED_TOOLS; web_fetch (an `lc` MCP tool, not
-    a built-in) can only be turned off via _HIDDEN_MCP_TOOLS/
-    LEMONCROW_HIDE_TOOLS -- disallowing "WebFetch"/"mcp__lc__web_fetch" alone
-    is a no-op, which is exactly the bug this regression-guards against (an
-    earlier version claimed web_fetch was off via _DISALLOWED_TOOLS while the
-    real scrape showed 35 live calls to it).
-    """
+    """Harbor may disable Claude built-ins, but never mutates LemonCrow tools/list."""
     disallowed = set(lemoncrow_agent._DISALLOWED_TOOLS.split())
     assert "WebSearch" in disallowed
     assert "ToolSearch" in disallowed
 
-    hidden_mcp = {t.strip() for t in lemoncrow_agent._HIDDEN_MCP_TOOLS.split(",") if t.strip()}
-    assert "web_fetch" in hidden_mcp
-
-    # Both signals combined must report the tools as off WITHOUT implying the
-    # network itself is unreachable (allow_internet=true tasks like
-    # mteb-leaderboard need bash-level curl/git even with both tools hidden --
-    # see _web_access_line's docstring).
     line = lemoncrow_agent._web_access_line()
-    assert "web_fetch and WebSearch tools are unavailable" in line
-    assert "does not mean" in line and "unreachable" in line
+    assert "URL-fetch tool (web_fetch)" in line
     assert "Terminal-Bench integrity policy" in line
     assert "'" not in line
 
-    # End-to-end: LEMONCROW_HIDE_TOOLS actually reaches the container env,
-    # and --disallowedTools actually reaches the constructed command.
-    command, env = _run_and_capture(agent)
-    assert env["LEMONCROW_HIDE_TOOLS"] == lemoncrow_agent._HIDDEN_MCP_TOOLS
-    assert "web_fetch" in set(env["LEMONCROW_HIDE_TOOLS"].split(","))
+    command, _env = _run_and_capture(agent)
     disallowed_segment = command.split("--disallowedTools", 1)[1].split("2>&1", 1)[0]
     segment_tools = set(disallowed_segment.split())
     assert "WebSearch" in segment_tools
     assert "ToolSearch" in segment_tools
-
-    # Exactly 4 mcp__lc__ tools should remain visible after all hiding: bash,
-    # edit, read, code_search -- web_fetch is the one hidden.
-    live_lc_tools = {"mcp__lc__bash", "mcp__lc__edit", "mcp__lc__read", "mcp__lc__code_search"}
-    assert not (live_lc_tools & segment_tools), f"live lc tools wrongly disallowed: {live_lc_tools & segment_tools}"
-    assert "mcp__lc__web_fetch" not in segment_tools  # correctly NOT here -- it's hidden via MCP, not disallowed
+    assert "mcp__lc__web_fetch" not in segment_tools
 
 
 def test_run_requests_dynamic_system_prompt_section_exclusion(agent: LemonCrowClaudeCodeHarborAgent) -> None:
@@ -396,44 +481,14 @@ def test_supports_atif_and_commit_version(
     assert agent.version() == "abc1234"
 
 
-def test_agent_env_forwards_no_lemoncrow_account_credentials(
-    agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # Account-free: benchmarks never forward a LemonCrow token or device id --
-    # the runtime is fully unlocked without an account.
-    monkeypatch.setattr(lemoncrow_agent, "_host_lemoncrow_auth_token", lambda: "lc-faketoken")
-    assert "LEMONCROW_AUTH_TOKEN" not in agent._agent_env
-    assert "LEMONCROW_DEVICE_ID" not in agent._agent_env
+def test_agent_env_contains_no_lemoncrow_account_credentials(agent: LemonCrowClaudeCodeHarborAgent) -> None:
+    env = agent._agent_env
+    assert "LEMONCROW_AUTH_TOKEN" not in env
+    assert "LEMONCROW_DEVICE_ID" not in env
+    assert env["LEMONCROW_ROOT"] == "/root/.lemoncrow"
 
 
-def test_agent_env_never_forwards_host_device_id(
-    agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # Account-free: device minting is removed; no device id is ever forwarded.
-    from lemoncrow.core.capabilities.licensing import store
-
-    monkeypatch.setattr(lemoncrow_agent, "_host_lemoncrow_auth_token", lambda: "lc-faketoken")
-    monkeypatch.setattr(store, "load_or_create_device_id", lambda: "hostdev12345")
-    assert "LEMONCROW_DEVICE_ID" not in agent._agent_env
-
-
-def test_agent_env_omits_lemoncrow_auth_token_when_host_has_none(
-    agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(lemoncrow_agent, "_host_lemoncrow_auth_token", lambda: "")
-    assert "LEMONCROW_AUTH_TOKEN" not in agent._agent_env
-    assert "LEMONCROW_DEVICE_ID" not in agent._agent_env
-
-
-def test_install_forwards_no_lemoncrow_credentials_to_init(
-    agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # Account-free: the `lemoncrow init` exec carries no LemonCrow token/device
-    # env -- init runs fully local with no account.
-    from lemoncrow.core.capabilities.licensing import store
-
-    monkeypatch.setattr(lemoncrow_agent, "_host_lemoncrow_auth_token", lambda: "lc-faketoken")
-    monkeypatch.setattr(store, "load_or_create_device_id", lambda: "hostdev12345")
+def test_install_uses_plain_local_init(agent: LemonCrowClaudeCodeHarborAgent) -> None:
     calls: list[tuple[str, dict[str, str] | None]] = []
 
     async def fake_exec(environment: Any, command: str, env: dict[str, str] | None = None, **kw: Any) -> None:
@@ -441,118 +496,19 @@ def test_install_forwards_no_lemoncrow_credentials_to_init(
 
     agent.exec_as_root = fake_exec  # type: ignore[method-assign]
     asyncio.run(agent.install(None))  # type: ignore[arg-type]
-    init_calls = [c for c in calls if "lemoncrow init" in c[0]]
-    assert init_calls, "no `lemoncrow init` exec_as_root call captured"
-    assert not init_calls[0][1]  # no LemonCrow account credentials in the init env
 
-
-def test_lemoncrow_auth_files_write_cmd_includes_present_files_only(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """LEMONCROW_AUTH_TOKEN alone does NOT establish plan/cap identity inside
-    the container -- the compiled cap gate resolves plan from these cached
-    files (auth.json in particular), not the bare env token. Without writing
-    them into the container root before `init --no-login`, the container
-    bootstraps an ANONYMOUS identity and the MCP server comes up dormant
-    (empty tool list) even on a paid host plan -- confirmed via a local repro:
-    env token + device id alone resolved plan='anonymous'/dormant=True;
-    writing these files in resolved plan='pro'/dormant=False. Mirrors
-    benchmarks/codebench/incontainer.py's _HOST_AUTH_FILES mount.
-    """
-    import lemoncrow.core.foundation.paths as paths_mod
-
-    store_dir = tmp_path / "host_store"
-    store_dir.mkdir()
-    (store_dir / "auth_token").write_text("tok123")
-    (store_dir / "auth.json").write_text('{"plan":"pro"}')
-    # auth_user.json intentionally absent -- must be skipped, not error.
-    monkeypatch.setattr(paths_mod, "default_store_root", lambda: store_dir)
-    cmd = lemoncrow_agent._lemoncrow_auth_files_write_cmd("/root/.lemoncrow")
-    # Account-free: only the store dir is created; NO host auth files are copied.
-    assert cmd == "mkdir -p /root/.lemoncrow"
-    assert "auth_token" not in cmd
-    assert "auth.json" not in cmd
-
-
-def test_lemoncrow_auth_files_write_cmd_never_embeds_secret_data(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Regression: the write command must read each file's payload out of an
-    env var, never embed the base64 data literally. harbor's
-    BaseInstalledAgent._exec logs command= verbatim into trial.log/job.log
-    (which `harbor upload` makes public) but only attaches env= as logging
-    `extra`, which the default log formatter drops -- so secrets baked into
-    command= leak into every job dir and any uploaded job, while secrets that
-    only travel through env= do not.
-    """
-    import base64
-
-    import lemoncrow.core.foundation.paths as paths_mod
-
-    store_dir = tmp_path / "host_store"
-    store_dir.mkdir()
-    secret_token = "super-secret-token-do-not-leak"
-    secret_json = '{"accessToken": "super-secret-access-token", "plan": "pro"}'
-    (store_dir / "auth_token").write_text(secret_token)
-    (store_dir / "auth.json").write_text(secret_json)
-    monkeypatch.setattr(paths_mod, "default_store_root", lambda: store_dir)
-
-    cmd = lemoncrow_agent._lemoncrow_auth_files_write_cmd("/root/.lemoncrow")
-    env = lemoncrow_agent._lemoncrow_auth_files_env()
-
-    # Account-free: no host secret is forwarded at all -- not in the command
-    # string and not in the env dict (which is now always empty).
-    assert secret_token not in cmd
-    assert secret_json not in cmd
-    assert base64.b64encode(secret_token.encode()).decode() not in cmd
-    assert base64.b64encode(secret_json.encode()).decode() not in cmd
-    assert env == {}
-
-
-def test_lemoncrow_auth_files_write_cmd_no_op_when_host_has_none(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import lemoncrow.core.foundation.paths as paths_mod
-
-    empty_dir = tmp_path / "no_host_store"
-    empty_dir.mkdir()
-    monkeypatch.setattr(paths_mod, "default_store_root", lambda: empty_dir)
-    cmd = lemoncrow_agent._lemoncrow_auth_files_write_cmd("/root/.lemoncrow")
-    assert cmd == "mkdir -p /root/.lemoncrow"
-
-
-def test_install_creates_store_dir_but_writes_no_auth_files_before_init(
-    agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Account-free: install() creates the container store dir before
-    `lemoncrow init --no-login`, but copies NO host auth files (init runs fully
-    local and unlocked, so nothing needs seeding).
-    """
-    import lemoncrow.core.foundation.paths as paths_mod
-
-    store_dir = tmp_path / "host_store"
-    store_dir.mkdir()
-    (store_dir / "auth.json").write_text('{"plan":"pro"}')
-    monkeypatch.setattr(paths_mod, "default_store_root", lambda: store_dir)
-    monkeypatch.setattr(lemoncrow_agent, "_host_lemoncrow_auth_token", lambda: "lc-faketoken")
-    calls: list[str] = []
-
-    async def fake_exec(environment: Any, command: str, env: dict[str, str] | None = None, **kw: Any) -> None:
-        calls.append(command)
-
-    agent.exec_as_root = fake_exec
-    asyncio.run(agent.install(None))
-    mkdir_idx = next(i for i, c in enumerate(calls) if "mkdir -p /root/.lemoncrow" in c)
-    init_idx = next(i for i, c in enumerate(calls) if "lemoncrow init --no-login" in c)
-    assert mkdir_idx < init_idx
-    # No host auth file is ever written into the container.
-    assert not any("/root/.lemoncrow/auth.json" in c for c in calls)
+    init_calls = [(command, env) for command, env in calls if "lemoncrow init" in command]
+    assert len(init_calls) == 1
+    command, env = init_calls[0]
+    assert "--login" not in command
+    assert "--no-login" not in command
+    assert "auth_token" not in command
+    assert not env or "LEMONCROW_AUTH_TOKEN" not in env
 
 
 def test_install_configures_and_probes_lemoncrow_mcp(
     agent: LemonCrowClaudeCodeHarborAgent, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(lemoncrow_agent, "_host_lemoncrow_auth_token", lambda: "lc-faketoken")
     calls: list[str] = []
 
     async def fake_exec(environment: Any, command: str, env: dict[str, str] | None = None, **kw: Any) -> None:
@@ -565,4 +521,4 @@ def test_install_configures_and_probes_lemoncrow_mcp(
     assert '"mcpServers"' in config_call
     assert '"command": "lemoncrow"' in config_call
     assert '"alwaysLoad": true' in config_call
-    assert "lemoncrow mcp --host claude check" in calls
+    assert "lemoncrow mcp --host claude check --timeout 300" in calls

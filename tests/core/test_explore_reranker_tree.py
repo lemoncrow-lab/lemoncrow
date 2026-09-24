@@ -26,8 +26,9 @@ def _model(
     window: int = 5,
     *,
     rerank_lower_when_top_unchanged: bool = False,
+    enabled_intents: list[str] | None = None,
 ) -> dict[str, Any]:
-    return {
+    model = {
         "model_type": "lambdamart_trees",
         "version": 2,
         "enabled": True,
@@ -36,6 +37,9 @@ def _model(
         "trees": trees,
         "rerank_lower_when_top_unchanged": rerank_lower_when_top_unchanged,
     }
+    if enabled_intents is not None:
+        model["enabled_intents"] = enabled_intents
+    return model
 
 
 def test_bundled_reranker_model_is_valid() -> None:
@@ -150,6 +154,30 @@ def test_rerank_reorders_when_top_changes(monkeypatch) -> None:
 
     assert [e["path"] for e in out["files"]] == ["b.py", "a.py"]
     assert out["experiment"]["name"] == "explore_reranker_v2_lambdamart"
+
+
+def test_rerank_skips_intent_disabled_by_model(monkeypatch) -> None:
+    def fake_features(
+        _query: str,
+        entry: dict[str, Any],
+        _rank: int,
+        _active_feature_indices: Any = None,
+    ) -> list[float]:
+        feats = [0.0] * len(eng._ER_FEATURE_NAMES)
+        feats[0] = float(entry["fscore"])
+        return feats
+
+    monkeypatch.setattr(eng, "_er_entry_features", fake_features)
+    model = _model([_single_feature_tree(0)], enabled_intents=["prose"])
+    fake_self = SimpleNamespace(_load_explore_reranker=lambda: model)
+    payload = {
+        "experiment": {"name": "fused_explore_hybrid_v6", "intent": "definition"},
+        "files": [{"path": "a.py", "fscore": 0.0}, {"path": "b.py", "fscore": 1.0}],
+    }
+
+    out = eng.CodeContextEngine._rerank_explore_result(fake_self, "q", payload)
+
+    assert out is payload
 
 
 def test_rerank_noop_when_top_unchanged_for_legacy_model(monkeypatch) -> None:

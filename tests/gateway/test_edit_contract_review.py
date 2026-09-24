@@ -17,10 +17,12 @@ from lemoncrow.gateway.adapters import mcp_server
 
 def _astgrep_available() -> bool:
     try:
-        from lemoncrow.infra.code_intel.astgrep import AstGrepAdapter, AstGrepToolUnavailable
+        from lemoncrow_client.kit.astgrep import AstGrepToolUnavailable
+
+        from lemoncrow.infra.code_intel.astgrep import astgrep_adapter
 
         try:
-            AstGrepAdapter(Path(".")).search(pattern='"x"', language="python", limit=1)
+            astgrep_adapter(Path(".")).search(pattern='"x"', language="python", limit=1)
         except AstGrepToolUnavailable:
             return False
         return True

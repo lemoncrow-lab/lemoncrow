@@ -158,3 +158,45 @@ low_confidence = ["evidence-review"]
     assert budget.premium_call_budget == 2
     assert decision.tier == "cheap"
     assert decision.selected_model == "local-small"
+
+
+def test_dark_or_absent_retrieval_does_not_buy_a_bigger_model_for_evidence_alone() -> None:
+    config = RoutingPolicyConfig()
+    budget = ContextBudgetPolicy(
+        max_input_tokens=20_000,
+        cheap_model="cheap-local",
+        mid_model="mid-local",
+        premium_model="premium-local",
+    )
+
+    for status in ("dark", "absent"):
+        decision = draft_route_decision(
+            request=_request(risk_level="low", task_type="feature"),
+            budget=budget,
+            config=config,
+            evidence_summary={"confidence": 0.0, "retrieval_status": status},
+        )
+        assert decision.tier == "mid"
+        assert decision.selected_model == "mid-local"
+        assert decision.escalation_trigger is None
+        assert f"retrieval={status}" in decision.reason
+
+
+def test_high_risk_still_forces_premium_when_retrieval_is_dark() -> None:
+    config = RoutingPolicyConfig()
+    budget = ContextBudgetPolicy(
+        max_input_tokens=20_000,
+        cheap_model="cheap-local",
+        mid_model="mid-local",
+        premium_model="premium-local",
+    )
+
+    decision = draft_route_decision(
+        request=_request(risk_level="high", task_type="feature"),
+        budget=budget,
+        config=config,
+        evidence_summary={"confidence": 0.0, "retrieval_status": "dark"},
+    )
+
+    assert decision.tier == "premium"
+    assert decision.escalation_trigger == "high_risk"

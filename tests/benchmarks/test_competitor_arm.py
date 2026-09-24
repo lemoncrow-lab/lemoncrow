@@ -61,6 +61,7 @@ def test_load_spec_full(tmp_path: Path) -> None:
             "repo": "https://x/y",
             "ref": "v1.2.3",
             "install": ["npm ci", "npm run build"],
+            "workspace_setup": ["${CLONE}/bin/index --all"],
             "mcp": {"command": "node", "args": ["${CLONE}/dist/server.js"]},
             "agent": "rival:main",
             "env": {"RIVAL_HOME": "${CLONE}"},
@@ -68,6 +69,7 @@ def test_load_spec_full(tmp_path: Path) -> None:
     )
     spec = comp.load_competitor_spec(m)
     assert spec.install == ("npm ci", "npm run build")
+    assert spec.workspace_setup == ("${CLONE}/bin/index --all",)
     assert spec.ref == "v1.2.3"
     assert spec.agent == "rival:main"
     assert spec.env == {"RIVAL_HOME": "${CLONE}"}
@@ -111,6 +113,7 @@ def test_prepare_clone_install_resolve(tmp_path: Path) -> None:
         name="rival",
         repo=str(src),
         install=("echo hi > ${CLONE}/installed.txt",),
+        workspace_setup=("${CLONE}/bin/index --workspace",),
         mcp={"command": "node", "args": ["${CLONE}/server.js"]},
         plugin_dir="${CLONE}",
         skill_file="${CLONE}/SKILL.md",
@@ -128,6 +131,7 @@ def test_prepare_clone_install_resolve(tmp_path: Path) -> None:
     assert prepared.system_prompt is not None and "Be concise." in prepared.system_prompt
     assert prepared.agent == "rival:main"
     assert prepared.env == {"HOME_DIR": f"{clone}/x"}
+    assert prepared.workspace_setup == (f"{clone}/bin/index --workspace",)
 
 
 def test_prepare_is_idempotent(tmp_path: Path) -> None:
@@ -186,7 +190,9 @@ def test_prepared_maps_to_armspec_fields(tmp_path: Path) -> None:
         competitor_plugin_dir=prepared.plugin_dir,
         append_system_prompt=prepared.system_prompt,
         competitor_env=prepared.env or None,
+        competitor_workspace_setup=prepared.workspace_setup,
     )
     assert arm.persona_by_capability == {"code": "rival:main"}
     assert arm.append_system_prompt is not None
+    assert arm.competitor_workspace_setup == prepared.workspace_setup
     assert arm.plugin is False  # competitor never triggers LemonCrow pre-index / MCP

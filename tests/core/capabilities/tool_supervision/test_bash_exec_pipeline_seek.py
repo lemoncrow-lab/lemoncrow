@@ -3,7 +3,7 @@
 The single-command `tokens[0]` dispatch in classify_command can't see into a
 `producer | consumer` pipeline, so `od gpt2.ckpt | tail -60` used to hex-format
 the whole 497MB file (tail can't SIGPIPE-abort od early the way head does) just
-to show the end. _rewrite_pipeline detects the narrow, safely-rewritable shape
+to show the end. The kit's _rewrite_pipeline detects the narrow, safely-rewritable shape
 and seeks instead -- preserving od's absolute byte addresses, unlike the naive
 `tail -c N file | od` whose addresses restart at 0. Everything outside that
 narrow shape must run untouched (no silent rewrite we can't prove equivalent).
@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 
 import pytest
+from lemoncrow_client.kit.command_policy import CommandPolicyDecision
 
 import lemoncrow.pro.capabilities.tool_supervision.bash_exec as bx
 
@@ -32,11 +33,11 @@ def files(tmp_path: Path) -> dict[str, Path]:
     return {"dir": tmp_path, "big": big, "small": small}
 
 
-def _rewrote(cmd: str, cwd: Path) -> bx.CommandPolicyDecision:
+def _rewrote(cmd: str, cwd: Path) -> CommandPolicyDecision:
     return bx.classify_command(cmd, cwd=cwd)
 
 
-def _is_seek(policy: bx.CommandPolicyDecision) -> bool:
+def _is_seek(policy: CommandPolicyDecision) -> bool:
     return policy.action == "rewrite" and policy.rewrite_target == "pipeline_seek"
 
 

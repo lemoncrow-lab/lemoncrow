@@ -260,10 +260,12 @@ def test_read_force_true_is_not_an_unknown_argument(workspace: Path) -> None:
 def test_code_search_force_true_is_not_an_unknown_argument(workspace: Path) -> None:
     (workspace / "needle.py").write_text("NEEDLE_TOKEN = 1\n", encoding="utf-8")
 
-    _call("code_search", {"query": "needle.py"})
+    first = _text(_call("code_search", {"query": "needle.py"}))
     forced = _text(_call("code_search", {"query": "needle.py", "force": True}))
 
+    assert "NEEDLE_TOKEN" in first
     assert "error" not in forced.lower()
+    assert "NEEDLE_TOKEN" in forced
 
 
 def test_read_force_not_in_advertised_schema(workspace: Path) -> None:

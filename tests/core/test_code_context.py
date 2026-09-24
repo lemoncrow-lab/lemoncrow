@@ -9,8 +9,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from lemoncrow_client.kit.astgrep import PatternMatch, PatternSearchResult
 
-from lemoncrow.infra.code_intel.astgrep import PatternMatch, PatternSearchResult
 from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 from lemoncrow.pro.capabilities.code_context.budget import BudgetPacker
 from lemoncrow.pro.capabilities.code_context.models import SymbolRecord, TextMatch
@@ -2178,7 +2178,7 @@ def test_low_token_defaults_stay_lighter_for_search_and_pattern(
         assert key in tight["items"][0]
 
     monkeypatch.setattr(
-        "lemoncrow.pro.capabilities.code_context.engine.AstGrepAdapter.search",
+        "lemoncrow_client.kit.astgrep.AstGrepAdapter.search",
         lambda self, *, pattern, language=None, file_glob=None, limit=20: PatternSearchResult(
             matches=[
                 PatternMatch(

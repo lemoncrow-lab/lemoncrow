@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from typing import Any
+
+from lemoncrow_client.kit.astgrep import group_rows_by_file, render_pattern_text
 
 # Matches the "\d+\t" line-number prefix baked into explore source sections.
 _LINE_NUM_RE = re.compile(r"^\d+\t")
@@ -32,7 +34,7 @@ def render_code_payload(op: str, payload: Mapping[str, Any]) -> str | None:
     if op in {"callers", "callees", "usages"}:
         return _render_relations(op, payload)
     if op == "pattern":
-        return _render_pattern(payload)
+        return render_pattern_text(payload)
     if op == "blame":
         return _render_blame(payload)
     if op == "outline":
@@ -54,32 +56,6 @@ def render_code_payload(op: str, payload: Mapping[str, Any]) -> str | None:
     return None
 
 
-def _group_rows_by_file(rows: Iterable[tuple[str, int, str]]) -> list[str]:
-    """Render ``(path, line, label)`` rows with each file path emitted once.
-
-    Emitting the path once per file (a header line, then indented per-hit
-    lines) instead of repeating the full path on every hit is the dominant
-    token win for clustered usages/callers/callees/search/pattern results.
-    """
-    from itertools import groupby
-
-    ordered = sorted(rows, key=lambda row: (row[0], row[1], row[2]))
-    out: list[str] = []
-    for file_path, group in groupby(ordered, key=lambda row: row[0]):
-        out.append(f"- {file_path}")
-        for _path, line, label in group:
-            loc = str(line) if line > 0 else ""
-            if loc and label:
-                out.append(f"  - {loc} — {label}")
-            elif loc:
-                out.append(f"  - {loc}")
-            elif label:
-                out.append(f"  - {label}")
-            else:
-                out.append("  - ?")
-    return out
-
-
 def _render_search(payload: Mapping[str, Any]) -> str:
     items = payload.get("items")
     if not isinstance(items, list):
@@ -96,7 +72,7 @@ def _render_search(payload: Mapping[str, Any]) -> str:
     if not rows:
         return "- no matches"
     lines: list[str] = []
-    lines.extend(_group_rows_by_file(rows))
+    lines.extend(group_rows_by_file(rows))
     return "\n".join(lines)
 
 
@@ -143,35 +119,50 @@ def _render_symbol(payload: Mapping[str, Any], *, include_source: bool = True) -
 
 
 def _render_relations(op: str, payload: Mapping[str, Any]) -> str:
-    lines: list[str] = []
-
+    rows: list[tuple[str, int, str]] = []
     if op == "usages":
-        rows: list[tuple[str, int, str]] = []
         for ref in _flatten_usages(payload.get("references")):
             file_path = str(ref.get("path") or ref.get("file_path") or "?")
             line = int(ref.get("line") or 0)
             caller = str(ref.get("caller") or ref.get("enclosing_qualified_name") or "").strip()
             rows.append((file_path, line, caller))
-        if not rows:
-            lines.append("- no references")
-            return "\n".join(lines)
-        lines.extend(_group_rows_by_file(rows))
-        return "\n".join(lines)
+    else:
+        related = payload.get("related")
+        if isinstance(related, list):
+            for item in related:
+                if not isinstance(item, Mapping):
+                    continue
+                name = str(item.get("qualified_name") or item.get("name") or item.get("symbol_name") or "?")
+                file_path = str(item.get("path") or item.get("file_path") or "?")
+                line = int(item.get("line") or item.get("start_line") or 0)
+                rows.append((file_path, line, name))
 
-    related = payload.get("related")
-    rows = []
-    if isinstance(related, list):
-        for item in related:
-            if not isinstance(item, Mapping):
-                continue
-            name = str(item.get("qualified_name") or item.get("name") or item.get("symbol_name") or "?")
-            file_path = str(item.get("path") or item.get("file_path") or "?")
-            line = int(item.get("line") or item.get("start_line") or 0)
-            rows.append((file_path, line, name))
     if not rows:
-        lines.append("- no related symbols")
-        return "\n".join(lines)
-    lines.extend(_group_rows_by_file(rows))
+        return f"{op}\n- none"
+
+    from itertools import groupby
+
+    lines = [op]
+    ordered = sorted(rows, key=lambda row: (row[0], row[1], row[2]))
+    for file_path, group in groupby(ordered, key=lambda row: row[0]):
+        entries = list(group)
+        if len(entries) == 1:
+            _path, line, label = entries[0]
+            pointer = file_path + (f":L{line}" if line > 0 else "")
+            lines.append(f"→ {pointer}" + (f" · {label}" if label else ""))
+            continue
+        compact: list[str] = []
+        for _path, line, label in entries:
+            loc = f"L{line}" if line > 0 else "?"
+            compact.append(loc + (f" · {label}" if label else ""))
+        lines.append(f"→ {file_path}:" + "; ".join(compact))
+
+    if payload.get("truncated"):
+        total = payload.get("total_matches") or payload.get("reference_count")
+        if isinstance(total, int) and total > len(rows):
+            lines.append(f"+{total - len(rows)} more")
+        else:
+            lines.append("+more")
     return "\n".join(lines)
 
 
@@ -194,31 +185,6 @@ def _flatten_usages(references: Any) -> list[Mapping[str, Any]]:
             int(item.get("column") or 0),
         ),
     )
-
-
-def _render_pattern(payload: Mapping[str, Any]) -> str | None:
-    matches = payload.get("matches")
-    # Rewrite responses carry a diff/files_changed, not matches -- leave those as
-    # JSON so the agent still receives the structured diff. Only search responses
-    # (matches is a list, possibly empty) get the compact markdown treatment.
-    if not isinstance(matches, list):
-        return None
-    rows: list[tuple[str, int, str]] = []
-    for match in matches:
-        if not isinstance(match, Mapping):
-            continue
-        file_path = str(match.get("path") or match.get("file_path") or "?")
-        line = int(match.get("line") or match.get("start_line") or 0)
-        snippet = " ".join(str(match.get("snippet") or "").split())[:120]
-        rows.append((file_path, line, snippet))
-    if not rows:
-        return "- no matches"
-    lines: list[str] = []
-    lines.extend(_group_rows_by_file(rows))
-    if payload.get("truncated"):
-        total = payload.get("total_matches")
-        lines.append(f"- truncated (total_matches={total})" if total is not None else "- truncated")
-    return "\n".join(lines)
 
 
 def _render_blame(payload: Mapping[str, Any]) -> str:
@@ -362,35 +328,54 @@ def _render_context(payload: Mapping[str, Any]) -> str:
     related_symbols = _normalize_context_symbols(payload.get("related_symbols"), fallback=[])
     code_blocks = _normalize_code_blocks(payload.get("code_blocks"))
     import_neighbors = payload.get("import_neighbors")
-    lines: list[str] = []
+    parts: list[str] = []
 
-    if entry_points:
-        lines.append("#### entry_points")
-        for row in (entry_points or [])[:_CONTEXT_ENTRY_CAP]:
-            lines.append(f"- {row['file_path']}:L{row['start_line']} — {row['qualified_name']} [{row['kind']}]")
-
-    if related_symbols:
-        lines.append("#### related_symbols")
-        for row in related_symbols[:_CONTEXT_RELATED_CAP]:
-            lines.append(f"- {row['file_path']}:L{row['start_line']} — {row['qualified_name']} [{row['kind']}]")
-    elif isinstance(import_neighbors, list) and import_neighbors:
-        lines.append("#### related_symbols")
-        for item in sorted(str(value) for value in import_neighbors[:_CONTEXT_RELATED_CAP]):
-            lines.append(f"- {item}")
-
-    if code_blocks:
-        lines.append("#### code_blocks")
-        for block in code_blocks[:_CONTEXT_CODE_BLOCK_CAP]:
-            lines.append(
-                f"- {block['qualified_name']} ({block['file_path']}:L{block['start_line']}-L{block['end_line']})"
-            )
+    # Source is the highest-value context. Render it first and treat its exact
+    # symbol location as already navigated so the pointer sections do not repeat
+    # the same path/name a second time.
+    covered: set[tuple[str, int, str]] = set()
+    for block in code_blocks[:_CONTEXT_CODE_BLOCK_CAP]:
+        path = str(block["file_path"])
+        start = int(block["start_line"])
+        end = int(block["end_line"])
+        name = str(block["qualified_name"])
+        covered.add((path, start, name))
+        header = f"## {path}:L{start}-L{end} · {name}"
+        source = str(block["source"]).rstrip()
+        if source:
             language = str(block.get("language") or "")
             fence = f"```{language}" if language else "```"
-            lines.append(fence)
-            lines.append(str(block["source"]).rstrip())
-            lines.append("```")
+            parts.append(f"{header}\n{fence}\n{source}\n```")
+        else:
+            parts.append(header)
 
-    return "\n".join(lines) if lines else "no context"
+    def pointer_rows(rows: list[dict[str, Any]], *, cap: int) -> list[str]:
+        out: list[str] = []
+        for row in rows[:cap]:
+            path = str(row["file_path"])
+            line = int(row["start_line"])
+            name = str(row["qualified_name"])
+            if (path, line, name) in covered:
+                continue
+            kind = str(row.get("kind") or "").strip().lower()
+            suffix = "" if kind in {"", "?", "function"} else f" · {kind}"
+            pointer = path + (f":L{line}" if line > 0 else "")
+            out.append(f"→ {pointer} · {name}{suffix}")
+        return out
+
+    entry_lines = pointer_rows(entry_points, cap=_CONTEXT_ENTRY_CAP)
+    if entry_lines:
+        parts.append("entry\n" + "\n".join(entry_lines))
+
+    related_lines = pointer_rows(related_symbols, cap=_CONTEXT_RELATED_CAP)
+    if related_lines:
+        parts.append("related\n" + "\n".join(related_lines))
+    elif isinstance(import_neighbors, list) and import_neighbors:
+        neighbors = [str(value) for value in import_neighbors[:_CONTEXT_RELATED_CAP] if str(value).strip()]
+        if neighbors:
+            parts.append("related\n" + "\n".join(f"→ {item}" for item in sorted(neighbors)))
+
+    return "\n\n".join(parts) if parts else "no context"
 
 
 def _normalize_context_symbols(items: Any, *, fallback: Any) -> list[dict[str, Any]]:
@@ -404,8 +389,8 @@ def _normalize_context_symbols(items: Any, *, fallback: Any) -> list[dict[str, A
         normalized.append(
             {
                 "qualified_name": str(item.get("qualified_name") or item.get("symbol_name") or "?"),
-                "file_path": str(item.get("file_path") or "?"),
-                "start_line": int(item.get("start_line") or 0),
+                "file_path": str(item.get("file_path") or item.get("path") or "?"),
+                "start_line": int(item.get("start_line") or item.get("line") or 0),
                 "kind": str(item.get("kind") or "?"),
             }
         )
@@ -442,8 +427,8 @@ def _normalize_code_blocks(items: Any) -> list[dict[str, Any]]:
         normalized.append(
             {
                 "qualified_name": str(item.get("qualified_name") or item.get("symbol_name") or "?"),
-                "file_path": str(item.get("file_path") or "?"),
-                "start_line": int(item.get("start_line") or 0),
+                "file_path": str(item.get("file_path") or item.get("path") or "?"),
+                "start_line": int(item.get("start_line") or item.get("line") or 0),
                 "end_line": int(item.get("end_line") or 0),
                 "language": str(item.get("language") or ""),
                 "source": str(item.get("source") or "").strip(),
@@ -548,7 +533,7 @@ def _render_explore_relationships(relationships: Any) -> list[str]:
                 rows.append((file_path, line, label))
         if rows:
             out.append(f"#### {op_name}")
-            out.extend(_group_rows_by_file(rows))
+            out.extend(group_rows_by_file(rows))
     return out
 
 
@@ -595,3 +580,203 @@ def _render_routes(payload: Mapping[str, Any]) -> str:
         handler_part = f" — {handler}" if handler else ""
         lines.append(f"- {method} {path}{handler_part}{loc}")
     return "\n".join(lines) if lines else "no routes"
+
+
+def render_graph_payload(payload: Mapping[str, Any]) -> str | None:
+    """Compact agent view of structural graph analytics.
+
+    The caller retains the complete structured payload. This view omits only
+    transport/serving metadata (backend, view revision) while preserving the
+    graph facts an agent can act on: affected paths, metrics, factors, tests,
+    dependency lists and truncation state.
+    """
+    kind = str(payload.get("kind") or "").strip()
+    if kind == "blast_radius":
+        return _render_graph_blast_radius(payload)
+    if kind == "dead_code":
+        return _render_graph_dead_code(payload)
+    if kind == "cycles":
+        return _render_graph_cycles(payload)
+    if kind == "coupling":
+        return _render_graph_coupling(payload)
+    if kind == "centrality":
+        return _render_graph_centrality(payload)
+    if kind == "topology":
+        return _render_graph_topology(payload)
+    if kind == "pr_risk":
+        return _render_graph_pr_risk(payload)
+    return None
+
+
+def _graph_more(lines: list[str], *, total: int | None, shown: int, truncated: bool) -> None:
+    if isinstance(total, int) and total > shown:
+        lines.append(f"+{total - shown} more")
+    elif truncated:
+        lines.append("+more")
+
+
+def _graph_paths(label: str, paths: Any) -> list[str]:
+    if not isinstance(paths, list) or not paths:
+        return []
+    clean = [str(path) for path in paths if str(path).strip()]
+    if not clean:
+        return []
+    return [label, *(f"→ {path}" for path in clean)]
+
+
+def _render_graph_blast_radius(payload: Mapping[str, Any]) -> str:
+    path = str(payload.get("modified_file") or "?")
+    risk = str(payload.get("risk_level") or "unknown")
+    direct = payload.get("direct_importers")
+    transitive = payload.get("transitive_importers")
+    tests = payload.get("affected_tests")
+    direct_n = len(direct) if isinstance(direct, list) else 0
+    transitive_n = len(transitive) if isinstance(transitive, list) else 0
+    lines = [f"blast_radius {path} · {risk} · {direct_n + transitive_n} affected"]
+    lines.extend(_graph_paths("direct", direct))
+    lines.extend(_graph_paths("transitive", transitive))
+    lines.extend(_graph_paths("tests", tests))
+    return "\n".join(lines)
+
+
+def _render_graph_dead_code(payload: Mapping[str, Any]) -> str:
+    rows = payload.get("dead_files")
+    rows = rows if isinstance(rows, list) else []
+    total = int(payload.get("dead_file_count") or len(rows))
+    analyzed = int(payload.get("analyzed_files") or 0)
+    lines = [f"dead_code {total}/{analyzed} files"]
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        path = str(row.get("path") or "?")
+        complexity = int(row.get("complexity_score") or 0)
+        loc = int(row.get("lines_total") or 0)
+        language = str(row.get("language") or "").strip()
+        exports = row.get("exports")
+        suffix = [f"complexity {complexity}", f"{loc}L"]
+        if language:
+            suffix.append(language)
+        if isinstance(exports, list) and exports:
+            suffix.append("exports " + ",".join(str(item) for item in exports))
+        lines.append(f"→ {path} · " + " · ".join(suffix))
+    _graph_more(lines, total=total, shown=len(rows), truncated=bool(payload.get("truncated")))
+    return "\n".join(lines)
+
+
+def _render_graph_cycles(payload: Mapping[str, Any]) -> str:
+    cycles = payload.get("cycles")
+    cycles = cycles if isinstance(cycles, list) else []
+    total = int(payload.get("cycle_count") or len(cycles))
+    analyzed = int(payload.get("analyzed_files") or 0)
+    lines = [f"cycles {total} · {analyzed} files"]
+    for cycle in cycles:
+        if isinstance(cycle, list):
+            paths = [str(path) for path in cycle if str(path).strip()]
+            if paths:
+                lines.append("→ " + " ↔ ".join(paths))
+    _graph_more(lines, total=total, shown=len(cycles), truncated=bool(payload.get("truncated")))
+    return "\n".join(lines)
+
+
+def _render_graph_coupling(payload: Mapping[str, Any]) -> str:
+    rows = payload.get("files")
+    rows = rows if isinstance(rows, list) else []
+    total = int(payload.get("coupled_file_count") or len(rows))
+    analyzed = int(payload.get("analyzed_files") or 0)
+    lines = [f"coupling {total}/{analyzed} files"]
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        lines.append(
+            f"→ {row.get('path') or '?'} · in {int(row.get('afferent') or 0)} "
+            f"out {int(row.get('efferent') or 0)} · instability {row.get('instability', 0)}"
+        )
+    _graph_more(lines, total=total, shown=len(rows), truncated=bool(payload.get("truncated")))
+    return "\n".join(lines)
+
+
+def _render_graph_centrality(payload: Mapping[str, Any]) -> str:
+    rows = payload.get("ranking")
+    rows = rows if isinstance(rows, list) else []
+    nodes = int(payload.get("node_count") or len(rows))
+    edges = int(payload.get("edge_count") or 0)
+    lines = [f"centrality {nodes} nodes · {edges} edges"]
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        lines.append(
+            f"→ {row.get('symbol') or '?'} · in {int(row.get('in_degree') or 0)} "
+            f"out {int(row.get('out_degree') or 0)} · degree {row.get('degree', 0)} "
+            f"· eig {row.get('eigenvector', 0)}"
+        )
+    _graph_more(lines, total=nodes, shown=len(rows), truncated=bool(payload.get("truncated")))
+    return "\n".join(lines)
+
+
+def _render_graph_topology(payload: Mapping[str, Any]) -> str:
+    modules = payload.get("modules")
+    modules = modules if isinstance(modules, list) else []
+    total = int(payload.get("module_count") or len(modules))
+    analyzed = int(payload.get("analyzed_files") or 0)
+    lines = [f"topology {total} modules · {analyzed} files"]
+    for row in modules:
+        if not isinstance(row, Mapping):
+            continue
+        deps = row.get("depends_on")
+        dep_text = ",".join(str(dep) for dep in deps) if isinstance(deps, list) and deps else ""
+        suffix = (
+            f"{int(row.get('files') or 0)} files · in {int(row.get('afferent_modules') or 0)} "
+            f"out {int(row.get('efferent_modules') or 0)}"
+        )
+        if dep_text:
+            suffix += f" → {dep_text}"
+        lines.append(f"→ {row.get('module') or '?'} · {suffix}")
+    _graph_more(lines, total=total, shown=len(modules), truncated=bool(payload.get("truncated")))
+    hotspots = payload.get("hotspots")
+    if isinstance(hotspots, list) and hotspots:
+        lines.append("hotspots")
+        for row in hotspots:
+            if not isinstance(row, Mapping):
+                continue
+            lines.append(
+                f"→ {row.get('path') or '?'} · in {int(row.get('afferent') or 0)} "
+                f"out {int(row.get('efferent') or 0)} · instability {row.get('instability', 0)}"
+            )
+    return "\n".join(lines)
+
+
+def _render_graph_pr_risk(payload: Mapping[str, Any]) -> str:
+    rows = payload.get("files")
+    rows = rows if isinstance(rows, list) else []
+    tier = str(payload.get("overall_tier") or "unknown")
+    score = payload.get("overall_score", 0)
+    lines = [f"pr_risk {tier} {score} · {int(payload.get('file_count') or len(rows))} files · heuristic"]
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        factors = row.get("factors")
+        factors = factors if isinstance(factors, Mapping) else {}
+        blast = factors.get("blast_radius")
+        blast = blast if isinstance(blast, Mapping) else {}
+        churn = factors.get("churn")
+        churn = churn if isinstance(churn, Mapping) else {}
+        test_gap = factors.get("test_gap")
+        test_gap = test_gap if isinstance(test_gap, Mapping) else {}
+        complexity = factors.get("complexity")
+        complexity = complexity if isinstance(complexity, Mapping) else {}
+        missing = bool(test_gap.get("missing_tests"))
+        lines.append(
+            f"→ {row.get('path') or '?'} · {row.get('tier') or row.get('risk_level') or '?'} {row.get('score', 0)} "
+            f"· impact {int(blast.get('impacted_files') or 0)} · churn {int(churn.get('commit_count') or 0)} "
+            f"· complexity {int(complexity.get('score') or 0)} · tests {'missing' if missing else 'present'}"
+        )
+        affected = blast.get("affected_tests")
+        if isinstance(affected, list) and affected:
+            lines.append("  tests " + ",".join(str(path) for path in affected))
+    weights = payload.get("weights")
+    if isinstance(weights, Mapping) and weights:
+        ordered = ("blast_radius", "churn", "test_gap", "complexity")
+        compact = [f"{name} {weights[name]}" for name in ordered if name in weights]
+        if compact:
+            lines.append("weights " + " · ".join(compact))
+    return "\n".join(lines)

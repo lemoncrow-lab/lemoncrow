@@ -57,6 +57,17 @@ def test_codex_installer_avoids_gnu_only_readlink_flag() -> None:
     assert "resolve_real_path" in content
 
 
+def test_codex_installer_mounts_local_mcp_without_shell_path_and_refreshes_cache() -> None:
+    content = SCRIPT.read_text(encoding="utf-8")
+
+    assert 'managed_bin="${LEMONCROW_BIN_DIR:-${HOME}/.lemoncrow/bin}/lemoncrow"' in content
+    assert 'server["command"] = os.environ["LEMONCROW_MCP_COMMAND"]' in content
+    assert 'server["command"] = "lemoncrow"' not in content
+    assert 'data["version"] = f"{base_version}+codex.{cachebuster}"' in content
+    assert "verify_plugin_mcp_startup" in content
+    assert '{"read", "bash"} <= tool_names' in content
+
+
 def test_workspace_codex_commands_keep_user_codex_home() -> None:
     content = SCRIPT.read_text(encoding="utf-8")
 

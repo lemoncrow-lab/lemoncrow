@@ -46,6 +46,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+from lemoncrow_client.kit.redaction import redact, redact_jsonl
+
 from lemoncrow.core.foundation.models import (
     CommandRecord,
     FileEditRecord,
@@ -53,7 +55,6 @@ from lemoncrow.core.foundation.models import (
     ToolCall,
     Trace,
 )
-from lemoncrow.core.foundation.redaction import redact, redact_jsonl
 from lemoncrow.gateway.hosts.session_parsers._common import (
     _SIZE_LIMIT_BYTES,
     make_llm_usage_entry,

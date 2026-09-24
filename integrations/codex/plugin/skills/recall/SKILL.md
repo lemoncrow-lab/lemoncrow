@@ -8,7 +8,7 @@ description: "Retrieve what LemonCrow already learned from your past sessions �
 
 # Recall
 
-LemonCrow processes past sessions **in the background** — the `lemoncrow-controller` loop imports new sessions, indexes them for semantic recall, extracts lessons, stores durable facts as you work. **This skill only retrieves what's already processed.**
+LemonCrow recall searches session and memory state that has already been imported/indexed. **This skill is read-only: it retrieves what is already present and does not run a separate background controller or ingest sessions itself.**
 
 ## When invoked
 
@@ -36,12 +36,10 @@ ls .lemoncrow/lessons/blocks/*.md 2>/dev/null | wc -l    # lessons extracted for
 
 ## What you do NOT do
 
-The background loop is the sole owner of processing. From this skill, never:
+This skill is retrieval-only. Never run `lc import`, `lc session recall index`,
+or `lc knowledge extract` as a side effect of a recall request.
 
-- run `lc import`, `lc session recall index`, or `lc knowledge extract`
-- start, restart, or poll the controller / `servicectl`
-
-Empty/stale inventory → say so plainly; the background loop fills it as it runs.
+Empty/stale inventory → say so plainly; do not silently ingest or rebuild it.
 
 ## What you're retrieving (the processed layers)
 

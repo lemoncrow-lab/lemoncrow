@@ -3,7 +3,6 @@
 Single source of truth for how often this client talks to the server about
 usage/savings. Two independent pushers read it:
 
-- ``lemoncrow.core.capabilities.licensing.usage_report.REPORT_INTERVAL_SECONDS``
   -- personal cumulative saved/spend totals, drives this device's cap verdict.
 - ``lemoncrow.core.service.telemetry.public_rollup.FLUSH_INTERVAL_SECONDS``
   -- anonymous daily aggregate, feeds the public lemoncrow.com/savings page.

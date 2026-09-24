@@ -1,4 +1,10 @@
-"""The review workspace process: bind, mint, register, serve.
+"""Legacy per-repository Review workspace support, retained for safe cleanup.
+
+The supported Review architecture no longer starts or adopts a listener from
+this module. ``serve_workspace`` and ``ensure_workspace`` are hard retirement
+guards; registration/probe helpers remain so old installations can be detected
+and cleaned up safely during the migration.
+
 
 ``api.py`` owns the routes; this module owns everything that makes them
 reachable, and every one of those decisions is a security decision because the
@@ -38,24 +44,29 @@ import contextlib
 import hashlib
 import json
 import os
-import secrets
 import signal
 import socket
-import subprocess
-import sys
+import threading
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 LOOPBACK_HOST = "127.0.0.1"
 HOST_ENV = "LEMONCROW_REVIEW_HOST"
 BUNDLE_ENV = "LEMONCROW_REVIEW_BUNDLE_DIR"
+IDLE_TIMEOUT_ENV = "LEMONCROW_REVIEW_WORKSPACE_IDLE_SECONDS"
 WORKSPACE_ROUTE = "/review"
+REVIEWS_ROUTE = "/reviews"
 _REGISTRATION_DIRNAME = "workspaces"
+_PREPARATION_DIRNAME = "preparations"
+_PREPARATION_STALE_SECONDS = 300.0
 _SPAWN_TIMEOUT_SECONDS = 25.0
+_DEFAULT_IDLE_TIMEOUT_SECONDS = 4 * 60 * 60.0
+_MIN_IDLE_TIMEOUT_SECONDS = 30.0
 
 
 class WorkspaceBindRefused(RuntimeError):
@@ -85,7 +96,23 @@ class WorkspaceHandle:
         return f"{self.url}{WORKSPACE_ROUTE}"
 
 
-def bootstrap_url(handle: WorkspaceHandle, review_id: str) -> str:
+@dataclass(slots=True)
+class _WorkspaceActivity:
+    """Thread-safe last-request clock used only by the local idle reaper."""
+
+    last_seen: float = field(default_factory=time.monotonic)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def touch(self) -> None:
+        with self._lock:
+            self.last_seen = time.monotonic()
+
+    def idle_for(self) -> float:
+        with self._lock:
+            return max(0.0, time.monotonic() - self.last_seen)
+
+
+def bootstrap_url(handle: WorkspaceHandle, review_id: str, *, preparation_id: str = "") -> str:
     """The one URL a human is ever given.
 
     The token rides in the fragment and the review id rides with it: a fragment
@@ -94,7 +121,8 @@ def bootstrap_url(handle: WorkspaceHandle, review_id: str) -> str:
     its first render.
     """
 
-    return f"{handle.review_url}#t={handle.token}&r={review_id}"
+    suffix = f"&p={preparation_id}" if preparation_id else ""
+    return f"{handle.url}{REVIEWS_ROUTE}/{review_id}#t={handle.token}&r={review_id}{suffix}"
 
 
 # --------------------------------------------------------------------------- #
@@ -156,6 +184,72 @@ def registration_path(store_root: Path, repo_root: Path) -> Path:
     return store_root / "review" / _REGISTRATION_DIRNAME / f"workspace-{digest}.json"
 
 
+def preparation_path(store_root: Path, review_id: str) -> Path:
+    digest = hashlib.sha256(review_id.encode("utf-8")).hexdigest()[:20]
+    return store_root / "review" / _PREPARATION_DIRNAME / f"prepare-{digest}.json"
+
+
+def write_review_preparation(
+    store_root: Path,
+    review_id: str,
+    preparation_id: str,
+    stage: str,
+    *,
+    detail: str = "",
+) -> None:
+    """Publish one invocation's source-capture progress for the waiting Reader."""
+
+    path = preparation_path(store_root, review_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "review_id": review_id,
+        "preparation_id": preparation_id,
+        "stage": stage,
+        "detail": detail,
+        "updated_at": time.time(),
+    }
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    with contextlib.suppress(OSError):
+        tmp.unlink()
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+        stream.write(json.dumps(payload, separators=(",", ":")))
+    tmp.replace(path)
+
+
+def read_review_preparation(store_root: Path, review_id: str, preparation_id: str) -> dict[str, Any] | None:
+    """Read only the requested invocation; stale or unrelated markers are ignored."""
+
+    path = preparation_path(store_root, review_id)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict) or data.get("preparation_id") != preparation_id:
+        return None
+    updated_at = data.get("updated_at")
+    if not isinstance(updated_at, (int, float)) or time.time() - float(updated_at) > _PREPARATION_STALE_SECONDS:
+        return {
+            "review_id": review_id,
+            "preparation_id": preparation_id,
+            "stage": "failed",
+            "detail": "review preparation stopped before the first revision became ready",
+            "updated_at": float(updated_at) if isinstance(updated_at, (int, float)) else 0.0,
+        }
+    return data
+
+
+def clear_review_preparation(store_root: Path, review_id: str, preparation_id: str) -> None:
+    path = preparation_path(store_root, review_id)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    if isinstance(data, dict) and data.get("preparation_id") == preparation_id:
+        with contextlib.suppress(OSError):
+            path.unlink(missing_ok=True)
+
+
 def _pid_alive(pid: int) -> bool:
     if pid <= 0:
         return False
@@ -170,27 +264,45 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
+def _remove_stale_registration(path: Path, observed: str) -> None:
+    """Remove stale metadata only if nobody replaced it after our read."""
+
+    try:
+        if path.read_text(encoding="utf-8") == observed:
+            path.unlink(missing_ok=True)
+    except OSError:
+        return
+
+
 def read_registration(store_root: Path, repo_root: Path) -> WorkspaceHandle | None:
     """The recorded workspace for this repository, or ``None``.
 
-    ``None`` for a missing file, a corrupt one, or one naming a dead pid. A
-    crash without cleanup must read as "there is no workspace", so the caller
-    spawns instead of dialling a port nobody is listening on.
+    Missing metadata reads as absent. Corrupt metadata and entries naming dead
+    pids are removed opportunistically, but only when the file is still exactly
+    what this reader observed.
     """
 
     path = registration_path(store_root, repo_root)
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        _remove_stale_registration(path, raw)
         return None
     if not isinstance(data, dict):
+        _remove_stale_registration(path, raw)
         return None
     pid = data.get("pid")
     url = data.get("url")
     token = data.get("token")
     if not isinstance(pid, int) or not isinstance(url, str) or not isinstance(token, str):
+        _remove_stale_registration(path, raw)
         return None
     if not url or not token or not _pid_alive(pid):
+        _remove_stale_registration(path, raw)
         return None
     started = data.get("started_at")
     return WorkspaceHandle(
@@ -320,8 +432,8 @@ def bundle_dir() -> Path | None:
     files and ``integrations/``), so the CLI must fall back to the static HTML
     report rather than crash-loop -- which is exactly what happened once before.
 
-    Order matters and is not arbitrary. ``_stack_frontend_dir`` resolves to the
-    *installed* stack (``~/.lemoncrow/install/frontend``), which is a released
+    Order matters and is not arbitrary. ``frontend_dir`` resolves to the
+    installed frontend bundle (``~/.lemoncrow/install/frontend``), which is a released
     dashboard bundle that predates -- and therefore does not contain -- this
     checkout's ``/review`` route. Serving it renders dashboard chrome around an
     empty pane: a blank page that looks like a broken workspace rather than an
@@ -329,14 +441,14 @@ def bundle_dir() -> Path | None:
     is the one built from the same source as the API it is talking to.
     """
 
-    from lemoncrow.infra.runtime.stack_lifecycle import _stack_frontend_dir
+    from lemoncrow.infra.runtime.frontend_bundle import frontend_dir
 
     candidates: list[Path] = []
     override = os.environ.get(BUNDLE_ENV)
     if override:
         candidates.append(Path(override))
     candidates.append(_checkout_bundle())
-    frontend = _stack_frontend_dir()
+    frontend = frontend_dir()
     candidates.append(frontend / "dist")
     candidates.append(frontend)
     for candidate in candidates:
@@ -406,7 +518,44 @@ def workspace_generation() -> str:
 # --------------------------------------------------------------------------- #
 
 
-def build_app(store_root: Path, repo_root: Path, *, token: str, port: int) -> Any:
+def _workspace_idle_seconds() -> float:
+    """Configured local workspace idle lifetime, bounded away from churn."""
+
+    raw = os.environ.get(IDLE_TIMEOUT_ENV, "").strip()
+    if not raw:
+        return _DEFAULT_IDLE_TIMEOUT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        return _DEFAULT_IDLE_TIMEOUT_SECONDS
+    return max(_MIN_IDLE_TIMEOUT_SECONDS, value)
+
+
+def _idle_reaper(
+    server: Any,
+    activity: _WorkspaceActivity,
+    stop: threading.Event,
+    *,
+    idle_seconds: float,
+    check_interval: float | None = None,
+) -> None:
+    """Ask uvicorn to exit after a local workspace has been unused long enough."""
+
+    interval = check_interval if check_interval is not None else min(30.0, max(1.0, idle_seconds / 8.0))
+    while not stop.wait(interval):
+        if activity.idle_for() >= idle_seconds:
+            server.should_exit = True
+            return
+
+
+def build_app(
+    store_root: Path,
+    repo_root: Path,
+    *,
+    token: str,
+    port: int,
+    touch: Callable[[], None] | None = None,
+) -> Any:
     """The FastAPI app this workspace serves: review API plus the bundle.
 
     Separated from :func:`serve_workspace` so the whole surface -- including
@@ -422,6 +571,13 @@ def build_app(store_root: Path, repo_root: Path, *, token: str, port: int) -> An
 
     store = ReviewStore(store_root)
     app = FastAPI(title="LemonCrow review workspace", docs_url=None, redoc_url=None, openapi_url=None)
+    if touch is not None:
+
+        @app.middleware("http")
+        async def _record_activity(request: Any, call_next: Any) -> Any:
+            touch()
+            return await call_next(request)
+
     register_review_api(
         app,
         store,
@@ -435,15 +591,17 @@ def build_app(store_root: Path, repo_root: Path, *, token: str, port: int) -> An
         index = bundle / "index.html"
 
         @app.get(WORKSPACE_ROUTE)
-        async def _workspace_page() -> Any:
-            # The SPA entry point, answered explicitly. A catch-all fallback
-            # would make every unmatched path return HTML, which hides typos and
-            # widens what this process is willing to serve.
+        @app.get(REVIEWS_ROUTE)
+        @app.get(f"{REVIEWS_ROUTE}/{{review_path:path}}")
+        async def _workspace_page(review_path: str = "") -> Any:
+            # Review management routes are explicit SPA entry points.  Do not
+            # install a global catch-all: an arbitrary typo still stays a 404
+            # rather than being disguised as frontend HTML.
             return FileResponse(index, media_type="text/html")
 
         @app.get("/")
         async def _root() -> Any:
-            return RedirectResponse(WORKSPACE_ROUTE)
+            return RedirectResponse(REVIEWS_ROUTE)
 
         # Confined to the bundle directory. Anything outside it -- the store,
         # the repository -- is unreachable through this mount by construction.
@@ -452,36 +610,10 @@ def build_app(store_root: Path, repo_root: Path, *, token: str, port: int) -> An
 
 
 def serve_workspace(store_root: Path, repo_root: Path) -> int:
-    """Run the workspace in this process until it is stopped."""
+    """Retired compatibility entrypoint; Review uses the configured server."""
 
-    import uvicorn
-
-    host = requested_host()
-    sock = bind_loopback(host)  # raises WorkspaceBindRefused for anything else
-    port = int(sock.getsockname()[1])
-    token = secrets.token_urlsafe(32)
-    resolved_repo = repo_root.expanduser().resolve()
-    handle = WorkspaceHandle(
-        pid=os.getpid(),
-        url=f"http://{LOOPBACK_HOST}:{port}",
-        token=token,
-        started_at=time.time(),
-        repo_root=str(resolved_repo),
-        generation=workspace_generation(),
-    )
-    app = build_app(store_root, resolved_repo, token=token, port=port)
-    write_registration(store_root, resolved_repo, handle)
-    config = uvicorn.Config(app, log_level="warning", timeout_keep_alive=30)
-    server = uvicorn.Server(config)
-    try:
-        server.run(sockets=[sock])
-    except (KeyboardInterrupt, SystemExit):
-        pass
-    finally:
-        remove_registration(store_root, resolved_repo)
-        with contextlib.suppress(OSError):
-            sock.close()
-    return 0
+    del store_root, repo_root
+    raise RuntimeError("the per-repository Review workspace server is retired; use LEMONCROW_URL")
 
 
 def _retire_workspace(store_root: Path, repo_root: Path, handle: WorkspaceHandle) -> None:
@@ -500,65 +632,61 @@ def _retire_workspace(store_root: Path, repo_root: Path, handle: WorkspaceHandle
             path.unlink(missing_ok=True)
 
 
+def retire_legacy_workspaces(store_root: Path) -> int:
+    """Stop healthy legacy per-repository Review listeners and remove stale registrations.
+
+    This is a one-way migration helper for the single-server architecture.
+    A PID is signalled only after the registered bearer token successfully
+    authenticates against its Review API, which avoids killing an unrelated
+    process after PID reuse. Unhealthy/dead registrations are simply removed.
+    """
+
+    root = store_root / "review" / _REGISTRATION_DIRNAME
+    if not root.is_dir():
+        return 0
+    retired = 0
+    for path in root.glob("workspace-*.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            with contextlib.suppress(OSError):
+                path.unlink(missing_ok=True)
+            continue
+        if not isinstance(data, dict):
+            with contextlib.suppress(OSError):
+                path.unlink(missing_ok=True)
+            continue
+        pid = data.get("pid")
+        url = data.get("url")
+        token = data.get("token")
+        if isinstance(pid, int) and isinstance(url, str) and isinstance(token, str) and pid > 0:
+            handle = WorkspaceHandle(
+                pid=pid,
+                url=url,
+                token=token,
+                started_at=float(data.get("started_at") or 0.0),
+                repo_root=str(data.get("repo_root") or ""),
+                generation=str(data.get("generation") or ""),
+            )
+            if _pid_alive(pid) and probe_healthy(handle, timeout=0.25):
+                with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
+                    os.kill(pid, signal.SIGTERM)
+                retired += 1
+        with contextlib.suppress(OSError):
+            path.unlink(missing_ok=True)
+    return retired
+
+
 def ensure_workspace(
     store_root: Path,
     repo_root: Path,
     *,
     timeout: float = _SPAWN_TIMEOUT_SECONDS,
 ) -> WorkspaceHandle:
-    """Adopt the current-generation workspace, or replace/start one.
+    """Retired compatibility helper; never starts or adopts a listener."""
 
-    A working token proves liveness and authorization, but not that the process
-    serves the review code currently on disk. A generation mismatch therefore
-    retires the old process before spawning its replacement.
-    """
-
-    resolved_repo = repo_root.expanduser().resolve()
-    expected_generation = workspace_generation()
-    existing = read_registration(store_root, resolved_repo)
-    if existing is not None and probe_healthy(existing):
-        if existing.generation == expected_generation:
-            return existing
-        _retire_workspace(store_root, resolved_repo, existing)
-
-    command = [
-        sys.executable,
-        # Keep the repository as cwd for git resolution, but never make it a
-        # Python import root. Safe-path mode blocks a repo-root module/package
-        # from shadowing LemonCrow or any lazily imported dependency.
-        "-P",
-        "-m",
-        "lemoncrow.gateway.cli",
-        "--root",
-        str(store_root),
-        "review",
-        "--repo-root",
-        str(resolved_repo),
-        "--serve-workspace",
-    ]
-    env = os.environ.copy()
-    env["LEMONCROW_ROOT"] = str(store_root)
-    log_path = store_root / "review" / "workspace.log"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    with log_path.open("a", encoding="utf-8") as log_file:
-        subprocess.Popen(
-            command,
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL,
-            env=env,
-            start_new_session=True,
-            close_fds=True,
-            cwd=str(resolved_repo),
-        )
-
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        handle = read_registration(store_root, resolved_repo)
-        if handle is not None and handle.generation == expected_generation and probe_healthy(handle, timeout=1.0):
-            return handle
-        time.sleep(0.2)
-    raise RuntimeError(f"the review workspace did not become healthy within {timeout:.0f}s; see {log_path}")
+    del store_root, repo_root, timeout
+    raise RuntimeError("the per-repository Review workspace server is retired; use LEMONCROW_URL")
 
 
 __all__ = [
@@ -578,6 +706,7 @@ __all__ = [
     "registration_path",
     "remove_registration",
     "requested_host",
+    "retire_legacy_workspaces",
     "serve_workspace",
     "workspace_generation",
     "write_registration",

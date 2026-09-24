@@ -1,10 +1,9 @@
 """Streamable-HTTP / SSE MCP transport for LemonCrow (G17).
 
 This is an *opt-in*, additive transport that runs alongside the default stdio
-MCP server. It reuses the exact JSON-RPC dispatcher (``mcp_server._handle``) and
-tool registry (``mcp_server.TOOLS``) so every transport exposes identical
-behavior: ``initialize``, ``tools/list``, and ``tools/call`` all flow through
-the same code path.
+MCP server. It uses the same canonical control handling, tool registry, and
+transport-neutral tool runtime as stdio without importing the legacy MCP
+composition module.
 
 Endpoints:
   - ``POST /mcp``               — streamable-HTTP MCP: a single JSON-RPC request
@@ -31,8 +30,26 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
-from lemoncrow.gateway.adapters import mcp_server
+from lemoncrow.gateway.adapters.mcp.control import handle_control_request
+from lemoncrow.gateway.adapters.mcp.jsonrpc import error as jsonrpc_error
+from lemoncrow.gateway.adapters.mcp.jsonrpc import ok as jsonrpc_ok
+from lemoncrow.gateway.adapters.mcp.ledger import (
+    _clear_request_ledger,
+    _clear_request_session,
+    _set_request_ledger,
+    _set_request_session,
+)
 from lemoncrow.gateway.adapters.mcp_branding import ICON_BYTES, ICON_MIME_TYPE, ICON_PATH, icon_metadata
+from lemoncrow.gateway.tools.call_runtime import execute_default_tool_payload
+from lemoncrow.gateway.tools.errors import ToolProtocolError
+from lemoncrow.gateway.tools.registry import advertised_tools, registered_tools
+from lemoncrow.gateway.tools.surface import (
+    MCP_PROTOCOL_VERSION,
+    SERVER_NAME,
+    SERVER_VERSION,
+    tool_description,
+    tool_visible_to_llm,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,44 +72,25 @@ def _max_body_bytes() -> int:
 
 
 def _public_tools() -> list[dict[str, Any]]:
-    """The advertised tool surface, filtered by visibility and profile."""
-    tools = [
-        {
-            "name": name,
-            "description": mcp_server._tool_description(spec),
-            "inputSchema": spec.get("inputSchema", {}),
-        }
-        for name, spec in mcp_server.TOOLS.items()
-        if mcp_server._tool_profile_exposes(name) and mcp_server._tool_visible_to_llm(name, spec)
-    ]
-    if mcp_server._mcp_tool_profile() == "core":
-        spec = mcp_server._TOOL_BROKER_SPEC
-        tools.append(
-            {
-                "name": "tool",
-                "description": spec["description"],
-                "inputSchema": spec["inputSchema"],
-            }
-        )
-    tools.sort(key=lambda item: str(item["name"]))
-    return tools
+    """The canonical advertised tool surface for HTTP discovery."""
+    return advertised_tools()
 
 
-def discovery_manifest(*, endpoint: str = MCP_HTTP_PATH) -> dict[str, Any]:
+def discovery_manifest(*, endpoint: str = MCP_HTTP_PATH, tools: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Build the ``.well-known/mcp.json`` discovery document.
 
     Advertises the server identity, the streamable-HTTP endpoint, the protocol
     version, and the public tool names so a client can discover LemonCrow without
     a round-trip handshake.
     """
-    tools = _public_tools()
+    tools = _public_tools() if tools is None else tools
     return {
-        "name": mcp_server.SERVER_NAME,
+        "name": SERVER_NAME,
         "title": "LemonCrow",
-        "version": mcp_server.SERVER_VERSION,
+        "version": SERVER_VERSION,
         "description": "Indexed code search and bounded coding-agent tools.",
         "icons": [icon_metadata()],
-        "protocolVersion": mcp_server.PROTOCOL_VERSION,
+        "protocolVersion": MCP_PROTOCOL_VERSION,
         "transport": {
             "type": "streamable-http",
             "endpoint": endpoint,
@@ -100,6 +98,38 @@ def discovery_manifest(*, endpoint: str = MCP_HTTP_PATH) -> dict[str, Any]:
         "capabilities": {"tools": {}},
         "tools": [{"name": tool["name"], "description": tool["description"]} for tool in tools],
     }
+
+
+def _dispatch_jsonrpc(request_obj: dict[str, Any]) -> dict[str, Any] | None:
+    """Dispatch one synchronous HTTP JSON-RPC request through canonical runtime seams."""
+    rid = request_obj.get("id")
+    method = request_obj.get("method")
+    params = request_obj.get("params") or {}
+
+    control = handle_control_request(
+        method,
+        rid,
+        # HTTP sessions are supplied explicitly by request headers; unlike the
+        # stdio host this transport must not register itself as a window-local
+        # MCP process during initialize.
+        on_session_start=lambda: None,
+        visibility=lambda name, _spec: tool_visible_to_llm(name),
+        description=tool_description,
+    )
+    if control.handled:
+        return control.response
+
+    if method == "tools/call":
+        # Bootstrap handler registration + the default transport-neutral runtime
+        # before a direct tools/call that did not first perform tools/list.
+        registered_tools()
+        try:
+            payload = execute_default_tool_payload(rid, params)
+        except ToolProtocolError as exc:
+            return jsonrpc_error(rid, exc.code, str(exc))
+        return jsonrpc_ok(rid, payload)
+
+    return jsonrpc_error(rid, -32601, f"unknown method: {method}")
 
 
 # NOTE: error messages intentionally keep absolute filesystem paths. The daemon
@@ -128,27 +158,21 @@ def _dispatch(
     session-id/host consumer inside _handle resolves the calling session (the
     per-workspace daemon cannot self-resolve its callers' windows).
     """
-    prior_ledger = mcp_server._set_request_ledger(session_id)
-    prior_session = mcp_server._set_request_session(session_id or "", host or "", "", bridge_id or "")
+    prior_ledger = _set_request_ledger(session_id)
+    prior_session = _set_request_session(session_id or "", host or "", "", bridge_id or "")
     try:
-        response = mcp_server._handle(request_obj)
-        if isinstance(response, mcp_server._Deferred):
-            # Deferral is armed only on the stdio server worker path
-            # (_handle_and_write); the HTTP adapter never sets that context, so a
-            # deferred marker is unreachable here. Guard for type safety.
-            return mcp_server._err(request_obj.get("id"), -32603, "internal error: unexpected deferred result")
-        return response
+        return _dispatch_jsonrpc(request_obj)
     except Exception:
         correlation_id = uuid.uuid4().hex
         logger.exception("MCP HTTP dispatch failed (correlation_id=%s)", correlation_id)
-        return mcp_server._err(
+        return jsonrpc_error(
             request_obj.get("id"),
             -32603,
             f"internal error (correlation_id={correlation_id})",
         )
     finally:
-        mcp_server._clear_request_session(prior_session)
-        mcp_server._clear_request_ledger(prior_ledger)
+        _clear_request_session(prior_session)
+        _clear_request_ledger(prior_ledger)
 
 
 def _sse_event(payload: dict[str, Any]) -> str:
@@ -184,6 +208,8 @@ def register_mcp_http(
     *,
     path: str = MCP_HTTP_PATH,
     auth_dependency: Callable[..., Any] | None = None,
+    dispatch: Callable[[dict[str, Any], str | None, str | None, str | None], dict[str, Any] | None] | None = None,
+    tools_provider: Callable[[], list[dict[str, Any]]] | None = None,
 ) -> FastAPI:
     """Mount the MCP HTTP/SSE transport and discovery manifest onto ``app``.
 
@@ -207,14 +233,15 @@ def register_mcp_http(
 
     @app.get(MCP_DISCOVERY_PATH)
     async def mcp_discovery() -> dict[str, Any]:
-        return discovery_manifest(endpoint=path)
+        tools = tools_provider() if tools_provider is not None else _public_tools()
+        return discovery_manifest(endpoint=path, tools=tools)
 
     @app.post(path, dependencies=route_deps)
     async def mcp_post(request: Request) -> Any:
         raw = await _read_capped_body(request, _max_body_bytes())
         if raw is None:
             return JSONResponse(
-                mcp_server._err(None, -32600, "request body too large"),
+                jsonrpc_error(None, -32600, "request body too large"),
                 status_code=413,
             )
         try:
@@ -223,9 +250,9 @@ def register_mcp_http(
             # JSON-RPC over HTTP intentionally returns 200 with a JSON-RPC error
             # body (test_parse_error_returns_jsonrpc_error), so keep the status;
             # just don't echo the parser's exception text back to the client.
-            return JSONResponse(mcp_server._err(None, -32700, "parse error: request body is not valid JSON"))
+            return JSONResponse(jsonrpc_error(None, -32700, "parse error: request body is not valid JSON"))
         if not isinstance(body, dict):
-            return JSONResponse(mcp_server._err(None, -32600, "invalid request: expected a JSON object"))
+            return JSONResponse(jsonrpc_error(None, -32600, "invalid request: expected a JSON object"))
 
         # H2 — _dispatch runs the synchronous shared handler; offload it to a
         # worker thread so a slow tool call cannot block the event loop. Pass the
@@ -233,7 +260,8 @@ def register_mcp_http(
         session_id = request.headers.get("mcp-session-id")
         host = request.headers.get("x-lemoncrow-agent")
         bridge_id = request.headers.get("x-lemoncrow-bridge")
-        response = await run_in_threadpool(_dispatch, body, session_id, host, bridge_id)
+        dispatcher = dispatch or _dispatch
+        response = await run_in_threadpool(dispatcher, body, session_id, host, bridge_id)
         accept = request.headers.get("accept", "")
         wants_sse = "text/event-stream" in accept.lower()
 
@@ -262,11 +290,16 @@ def register_mcp_http(
     return app
 
 
-def create_mcp_http_app(*, path: str = MCP_HTTP_PATH) -> FastAPI:
+def create_mcp_http_app(
+    *,
+    path: str = MCP_HTTP_PATH,
+    dispatch: Callable[[dict[str, Any], str | None, str | None, str | None], dict[str, Any] | None] | None = None,
+    tools_provider: Callable[[], list[dict[str, Any]]] | None = None,
+) -> FastAPI:
     """Build a standalone FastAPI app exposing only the MCP HTTP transport."""
     app = FastAPI(
         title="LemonCrow MCP (HTTP)",
-        version=mcp_server.SERVER_VERSION,
+        version=SERVER_VERSION,
         description="Streamable-HTTP / SSE MCP transport for LemonCrow.",
     )
-    return register_mcp_http(app, path=path)
+    return register_mcp_http(app, path=path, dispatch=dispatch, tools_provider=tools_provider)

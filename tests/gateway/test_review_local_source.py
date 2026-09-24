@@ -37,6 +37,7 @@ from lemoncrow.pro.capabilities.review.sources.local import (
     open_or_create_session,
     range_for_session,
     read_packet_json,
+    record_revision,
     refresh,
     resolve_mark_units,
     resolve_unit,
@@ -177,6 +178,67 @@ def test_a_working_tree_session_has_no_source_ref_and_a_commit_range_has_shas(tm
     rng = resolve_rev_range(root, "HEAD~1")
     assert source_ref(rng) == f"{rng.base_sha}..{rng.head_sha}"
     assert "HEAD" not in source_ref(rng)
+
+
+def test_reusing_exact_revision_repairs_empty_packet_files_and_missing_blobs(tmp_path: Path) -> None:
+    from lemoncrow.pro.capabilities.review.snapshot import frozen_revision_overlay
+
+    root, _repo = _dirty_repo(tmp_path)
+    rng = resolve_rev_range(root)
+    store = _store(tmp_path)
+    session = open_or_create_session(store, root, rng)
+    build = build_review_packet_with_blobs(
+        root,
+        rng,
+        store_root=tmp_path / "store",
+        with_impact=False,
+        with_provenance=False,
+        with_patch_text=True,
+        unbounded_patch_text=True,
+    )
+
+    first = record_revision(
+        store,
+        session,
+        root,
+        rng,
+        store_root=tmp_path / "store",
+        build=build,
+        source_fingerprint_override="exact-hosted-source",
+    ).revision
+    packet = read_packet_json(store, first)
+    assert packet is not None and packet["files"]
+
+    damaged = dict(packet)
+    damaged["files"] = []
+    store.write_packet_artifact(
+        session.id,
+        first.id,
+        gzip.compress(json.dumps(damaged).encode("utf-8"), mtime=0),
+    )
+    (store.root / store.blob_artifact_relpath(session.id, first.id)).unlink()
+    assert read_packet_json(store, first)["files"] == []
+    assert store.read_blob_artifact(session.id, first.id) is None
+
+    reused = record_revision(
+        store,
+        session,
+        root,
+        rng,
+        store_root=tmp_path / "store",
+        build=build,
+        source_fingerprint_override="exact-hosted-source",
+    )
+    assert reused.created is False
+    assert reused.revision.id == first.id
+
+    repaired = read_packet_json(store, reused.revision)
+    assert repaired is not None
+    assert [row["path"] for row in repaired["files"]] == [item.path for item in build.packet.files]
+    assert store.read_blob_artifact(session.id, first.id) == build.blobs.new
+    overlay = frozen_revision_overlay(tmp_path / "store", reused.revision)
+    assert overlay is not None
+    assert overlay["src/session.py"] == _CHANGED.encode("utf-8")
 
 
 def test_a_working_tree_and_a_commit_range_are_different_sessions(tmp_path: Path) -> None:

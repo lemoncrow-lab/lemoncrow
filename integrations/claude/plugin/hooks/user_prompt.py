@@ -625,6 +625,31 @@ def _emit_ui_messages(ui_messages: list[str], additional_context: str | None = N
     sys.stdout.flush()
 
 
+def _review_inbox_context(session_id: str) -> str | None:
+    """Claim exact-session Review feedback and inject it once into Claude."""
+
+    if not session_id:
+        return None
+    try:
+        from lemoncrow.pro.capabilities.review.session_inbox import claim_session_messages
+
+        messages = claim_session_messages(
+            _lemoncrow_root(),
+            host="claude",
+            session_id=session_id,
+        )
+    except Exception:
+        return None
+    if not messages:
+        return None
+    body = "\n\n---\n\n".join(item.message for item in messages)
+    # Bound pathological review bundles without hiding normal feedback. The
+    # canonical comments remain durable in Review if the hook has to truncate.
+    if len(body) > 64_000:
+        body = body[:64_000] + "\n\n…(additional Review feedback remains in LemonCrow Review)"
+    return '<lemoncrow_review_feedback source="exact-session-inbox">\n' f"{body}\n" "</lemoncrow_review_feedback>"
+
+
 # ---------------------------------------------------------------------------
 # Prompt front-loading (opt-in via LEMONCROW_FRONTLOAD=1)
 #
@@ -771,8 +796,10 @@ def main() -> int:
     compact_msg = _maybe_emit_compaction_advice(prompt, transcript_path, stored_prompt, session_id)
     if compact_msg:
         ui_messages.append(compact_msg)
+    review_ctx = _review_inbox_context(session_id)
     frontload_ctx = _frontload_context(prompt, payload)
-    _emit_ui_messages(ui_messages, frontload_ctx)
+    injected = "\n\n".join(item for item in (review_ctx, frontload_ctx) if item) or None
+    _emit_ui_messages(ui_messages, injected)
 
     with contextlib.suppress(OSError, TypeError, ValueError):
         if session_id:

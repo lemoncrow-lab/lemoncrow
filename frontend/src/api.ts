@@ -1,3 +1,5 @@
+import { authenticatedFetch } from "./review/reviewApi";
+
 const BASE = "/api";
 
 export class ApiError extends Error {
@@ -11,14 +13,14 @@ export class ApiError extends Error {
 }
 
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE}${path}`);
+  const res = await authenticatedFetch(`${BASE}${path}`);
   if (!res.ok)
     throw new ApiError(res.status, `${res.status} ${res.statusText}`);
   return res.json();
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await authenticatedFetch(`${BASE}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -36,7 +38,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 }
 
 async function getText(path: string): Promise<string> {
-  const res = await fetch(`${BASE}${path}`);
+  const res = await authenticatedFetch(`${BASE}${path}`);
   if (!res.ok)
     throw new ApiError(res.status, `${res.status} ${res.statusText}`);
   return res.text();
@@ -1407,19 +1409,27 @@ export interface InsightsWindow {
 }
 
 export interface ReportMeta {
-  week: string;
-  week_start: string;
+  id: string;
+  project_id: string;
+  project_root: string;
+  project_label: string;
+  suite: string;
+  run_id: string;
   generated_at: string;
-  routing_sessions: number | null;
-  total_routing_savings_usd: number | null;
-  routing_quality_score: number | null;
-  compact_retention_score: number | null;
+  has_report: boolean;
+  files: string[];
 }
 
 export interface ReportContent {
-  week: string;
+  id: string;
+  project_id: string;
+  project_root: string;
+  project_label: string;
+  suite: string;
+  run_id: string;
+  generated_at: string;
   markdown: string;
-  json: Record<string, unknown>;
+  files: string[];
 }
 
 export interface GranularToolUsage {
@@ -1692,6 +1702,7 @@ export interface TraceListResponse {
 }
 
 export interface CodeMapProject {
+  project_id: string;
   root: string;
   label: string;
   indexed: boolean;
@@ -1764,10 +1775,52 @@ export interface CodeMapFull extends CodeMapOverview {
   languages: CodeMapFacet[];
 }
 
+export interface CodeMapFiles {
+  project: { root: string; label: string };
+  total_files: number;
+  files: CodeMapNode[];
+}
+
+export interface CodeMapFileSymbols {
+  path: string;
+  total_symbols: number;
+  symbols: CodeMapNode[];
+  truncated: boolean;
+}
+
 export interface CodeMapSymbol extends CodeMapNode {
   signature: string;
   source: string;
   source_truncated: boolean;
+}
+
+export interface CodeMapReference {
+  path: string;
+  line: number;
+  column: number;
+  end_line: number;
+  snippet: string;
+  caller: string;
+  edge_kind: string;
+  provenance: string;
+  confidence?: number | null;
+}
+
+export interface CodeMapReferences {
+  symbol_id: string;
+  reference_count: number;
+  references: CodeMapReference[];
+  truncated: boolean;
+}
+
+export interface CodeMapTextMatch {
+  id: string;
+  path: string;
+  line: number;
+  column: number;
+  text: string;
+  language?: string;
+  file_type?: string;
 }
 
 export type CodeMapActivityKind = "search" | "read" | "edit" | "verify";
@@ -1787,9 +1840,60 @@ export interface CodeMapActivityEvent {
 
 export interface CodeMapActivityResponse {
   session_id: string | null;
+  host?: string | null;
+  handoff_supported?: boolean;
   status: string;
   cursor?: string | null;
   events: CodeMapActivityEvent[];
+}
+
+export interface CodeMapReviewResponse {
+  review_id: string;
+  short_id: string;
+  review_path: string;
+  review_url: string;
+  revision_id: string;
+  revision_number: number;
+  revision_created: boolean;
+}
+
+export interface CodeMapEditorDescriptor {
+  id: string;
+  label: string;
+}
+
+export interface CodeMapEditorCapability {
+  available: boolean;
+  preferred: CodeMapEditorDescriptor | null;
+  editors: CodeMapEditorDescriptor[];
+}
+
+export interface CodeMapEditorOpenResponse {
+  opened: boolean;
+  editor: string;
+  label: string;
+  line: number;
+  column: number;
+  pid: number;
+}
+
+export interface CodeMapAgentHandoffRequest {
+  project_root?: string;
+  expected_session_id?: string;
+  path: string;
+  line?: number;
+  end_line?: number;
+  symbol?: string;
+  message: string;
+}
+
+export interface CodeMapAgentHandoffResponse {
+  state: "sent" | "blocked" | "failed" | "uncertain" | string;
+  host: string;
+  session_id: string;
+  target_ref: string;
+  remote_ref: string;
+  message: string;
 }
 
 export const api = {
@@ -1882,12 +1986,35 @@ export const api = {
     const query = params.toString();
     return get<CodeMapFull>(`/v1/code-map/full${query ? `?${query}` : ""}`);
   },
+  codeMapFiles: (projectRoot?: string) => {
+    const params = new URLSearchParams();
+    if (projectRoot) params.set("project_root", projectRoot);
+    const query = params.toString();
+    return get<CodeMapFiles>(`/v1/code-map/files${query ? `?${query}` : ""}`);
+  },
+  codeMapFileSymbols: (path: string, projectRoot?: string, limit = 2000) => {
+    const params = new URLSearchParams({ path, limit: String(limit) });
+    if (projectRoot) params.set("project_root", projectRoot);
+    return get<CodeMapFileSymbols>(
+      `/v1/code-map/file-symbols?${params.toString()}`
+    );
+  },
   codeMapSearch: (query: string, projectRoot?: string, limit = 20) => {
     const params = new URLSearchParams({ q: query, limit: String(limit) });
     if (projectRoot) params.set("project_root", projectRoot);
-    return get<{ query: string; results: CodeMapNode[] }>(
-      `/v1/code-map/search?${params.toString()}`
-    );
+    return get<{
+      query: string;
+      results: CodeMapNode[];
+      text_results: CodeMapTextMatch[];
+    }>(`/v1/code-map/search?${params.toString()}`);
+  },
+  codeMapReferences: (symbolId: string, projectRoot?: string, limit = 60) => {
+    const params = new URLSearchParams({
+      symbol_id: symbolId,
+      limit: String(limit),
+    });
+    if (projectRoot) params.set("project_root", projectRoot);
+    return get<CodeMapReferences>(`/v1/code-map/references?${params.toString()}`);
   },
   codeMapNeighborhood: (
     symbolId: string,
@@ -1908,6 +2035,26 @@ export const api = {
     if (projectRoot) params.set("project_root", projectRoot);
     return get<CodeMapSymbol>(`/v1/code-map/symbol?${params.toString()}`);
   },
+  codeMapEditorCapability: () =>
+    get<CodeMapEditorCapability>("/v1/code-map/editor"),
+  codeMapOpenEditor: (
+    projectRoot: string | undefined,
+    path: string,
+    line = 1,
+    column = 1
+  ) =>
+    post<CodeMapEditorOpenResponse>("/v1/code-map/editor", {
+      project_root: projectRoot || null,
+      path,
+      line,
+      column,
+    }),
+  codeMapReview: (projectRoot?: string) =>
+    post<CodeMapReviewResponse>("/v1/code-map/review", {
+      project_root: projectRoot || null,
+    }),
+  codeMapAgentHandoff: (payload: CodeMapAgentHandoffRequest) =>
+    post<CodeMapAgentHandoffResponse>("/v1/code-map/agent-handoff", payload),
   codeMapActivity: (
     projectRoot?: string,
     after?: string | null,
@@ -1957,15 +2104,32 @@ export const api = {
       `/v1/swarm/runs/${runId}/stop?cleanup=${cleanup}`,
       {}
     ),
-  workflowCurrent: () => get<WorkflowCurrentDetail>("/v1/workflow/current"),
-  pauseWorkflowCurrent: (reason?: string) =>
-    post<WorkflowCurrentDetail>("/v1/workflow/current/pause", {
-      reason: reason || null,
-    }),
-  stopWorkflowCurrent: (reason?: string) =>
-    post<WorkflowCurrentDetail>("/v1/workflow/current/stop", {
-      reason: reason || null,
-    }),
+  workflowCurrent: (projectRoot?: string) => {
+    const params = new URLSearchParams();
+    if (projectRoot) params.set("project_root", projectRoot);
+    const query = params.toString();
+    return get<WorkflowCurrentDetail>(
+      `/v1/workflow/current${query ? `?${query}` : ""}`
+    );
+  },
+  pauseWorkflowCurrent: (reason?: string, projectRoot?: string) => {
+    const params = new URLSearchParams();
+    if (projectRoot) params.set("project_root", projectRoot);
+    const query = params.toString();
+    return post<WorkflowCurrentDetail>(
+      `/v1/workflow/current/pause${query ? `?${query}` : ""}`,
+      { reason: reason || null }
+    );
+  },
+  stopWorkflowCurrent: (reason?: string, projectRoot?: string) => {
+    const params = new URLSearchParams();
+    if (projectRoot) params.set("project_root", projectRoot);
+    const query = params.toString();
+    return post<WorkflowCurrentDetail>(
+      `/v1/workflow/current/stop${query ? `?${query}` : ""}`,
+      { reason: reason || null }
+    );
+  },
   rubrics: () => get<Rubric[]>("/v1/rubrics"),
   rubric: (id: string) => get<Rubric>(`/v1/rubrics/${id}`),
   mcp_status: () => get<MCPStatus[]>("/mcp/status"),
@@ -2031,6 +2195,8 @@ export const api = {
     getText(`/raw-artifacts/${artifactId}/content`),
   fileContentUrl: (path: string) =>
     `${BASE}/v1/files/content?path=${encodeURIComponent(path)}`,
+  fileContent: (path: string) =>
+    getText(`/v1/files/content?path=${encodeURIComponent(path)}`),
   fileProjectionUrl: (
     path: string,
     options?: {
@@ -2096,5 +2262,8 @@ export const api = {
   outcomesForSession: (sessionId: string) =>
     get<Record<string, unknown>[]>(`/v1/outcomes/${sessionId}`),
   reports: () => get<ReportMeta[]>("/v1/reports"),
-  report: (week: string) => get<ReportContent>(`/v1/reports/${week}`),
+  report: (report: Pick<ReportMeta, "project_id" | "suite" | "run_id">) =>
+    get<ReportContent>(
+      `/v1/reports/${encodeURIComponent(report.project_id)}/${encodeURIComponent(report.suite)}/${encodeURIComponent(report.run_id)}`
+    ),
 };

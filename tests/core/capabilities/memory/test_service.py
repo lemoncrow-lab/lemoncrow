@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from lemoncrow.core.foundation.memory_models import MemoryBlock
 from lemoncrow.infra.embeddings.null_embedder import NullEmbedder
 from lemoncrow.infra.storage.sqlite_memory_store import SqliteMemoryStore
@@ -114,3 +116,153 @@ def test_upsert_ignores_target_block_id_outside_candidate_set(tmp_path: Path, mo
 
     survivors = {block.id for block in store.list_blocks("lemoncrow:code")}
     assert victim.id in survivors
+
+
+def test_upsert_editable_block_preserves_version_history_and_metadata(tmp_path: Path, monkeypatch) -> None:
+    from lemoncrow.infra.storage.memory_store import MemoryConcurrencyError
+
+    store = SqliteMemoryStore(tmp_path / "lemoncrow")
+    service = MemoryService(store=store, embedder=NullEmbedder(), redactor=lambda value: value)
+    monkeypatch.setattr(
+        service_module,
+        "arbitrate",
+        lambda block, store, embedder: ArbitrationDecision(op="ADD", reason="new editable block"),
+    )
+
+    created = service.upsert_editable_block(
+        agent_id="shared",
+        label="edits/sym-1",
+        value="trace-1",
+        metadata={"symbol_id": "sym-1"},
+        pinned=True,
+        actor="test:create",
+    )
+    assert created["version"] == 1
+    block = store.get_block("shared", "edits/sym-1")
+    assert block is not None
+    assert block.value == "trace-1"
+    assert block.metadata == {"symbol_id": "sym-1"}
+    assert block.pinned is True
+
+    updated = service.upsert_editable_block(
+        agent_id="shared",
+        label="edits/sym-1",
+        value="trace-2",
+        metadata={"symbol_id": "sym-1", "trace_id": "trace-2"},
+        actor="test:update",
+    )
+    assert updated["version"] == 2
+    block = store.get_block("shared", "edits/sym-1")
+    assert block is not None
+    assert block.value == "trace-2"
+    assert block.metadata["trace_id"] == "trace-2"
+    history = store.list_block_history(block.id)
+    assert history[0].actor == "test:update"
+    assert history[0].prev_value == "trace-1"
+    assert history[0].new_value == "trace-2"
+
+    with pytest.raises(MemoryConcurrencyError):
+        service.upsert_editable_block(
+            agent_id="shared",
+            label="edits/sym-1",
+            value="stale",
+            expected_version=1,
+        )
+
+
+def test_upsert_editable_block_update_keeps_target_metadata(tmp_path: Path, monkeypatch) -> None:
+    store = SqliteMemoryStore(tmp_path / "lemoncrow")
+    service = MemoryService(store=store, embedder=NullEmbedder(), redactor=lambda value: value)
+    target = store.upsert_block(
+        MemoryBlock(
+            agent_id="shared",
+            label="existing",
+            value="old",
+            metadata={"keep": "target"},
+        ),
+        actor="seed",
+    )
+    monkeypatch.setattr(
+        service_module,
+        "arbitrate",
+        lambda block, store, embedder: ArbitrationDecision(
+            op="UPDATE",
+            target_block_id=target.id,
+            merged_value="merged",
+            reason="merge exact legacy target",
+        ),
+    )
+
+    result = service.upsert_editable_block(
+        agent_id="shared",
+        label="new-label",
+        value="new",
+        metadata={"replace": "must-not-merge"},
+    )
+
+    stored = store.get_block("shared", "existing")
+    assert stored is not None
+    assert result["id"] == target.id
+    assert stored.value == "merged"
+    assert stored.metadata == {"keep": "target"}
+    assert store.get_block("shared", "new-label") is None
+
+
+def test_upsert_editable_block_delete_tombstones_target_then_adds_new_block(tmp_path: Path, monkeypatch) -> None:
+    store = SqliteMemoryStore(tmp_path / "lemoncrow")
+    service = MemoryService(store=store, embedder=NullEmbedder(), redactor=lambda value: value)
+    target = store.upsert_block(
+        MemoryBlock(agent_id="shared", label="old", value="obsolete"),
+        actor="seed",
+    )
+    monkeypatch.setattr(
+        service_module,
+        "arbitrate",
+        lambda block, store, embedder: ArbitrationDecision(
+            op="DELETE",
+            target_block_id=target.id,
+            reason="replace obsolete editable block",
+        ),
+    )
+
+    result = service.upsert_editable_block(
+        agent_id="shared",
+        label="replacement",
+        value="fresh",
+        metadata={"kind": "edit"},
+    )
+
+    old = store.get_block("shared", "old", include_tombstoned=True)
+    replacement = store.get_block("shared", "replacement")
+    assert old is not None and old.deprecated_at is not None
+    assert replacement is not None
+    assert old.deprecated_by_block_id == replacement.id
+    assert result["id"] == replacement.id
+
+
+def test_upsert_editable_block_uses_field_redactor_for_value_and_description(tmp_path: Path, monkeypatch) -> None:
+    store = SqliteMemoryStore(tmp_path / "lemoncrow")
+    service = MemoryService(store=store, embedder=NullEmbedder(), redactor=lambda value: f"base:{value}")
+    monkeypatch.setattr(
+        service_module,
+        "arbitrate",
+        lambda block, store, embedder: ArbitrationDecision(op="ADD", reason="new"),
+    )
+    seen: list[tuple[str, str]] = []
+
+    def field_redactor(value: str, field: str) -> str:
+        seen.append((field, value))
+        return f"{field}:{value}"
+
+    service.upsert_editable_block(
+        agent_id="shared",
+        label="edit/redacted",
+        value="trace",
+        description="desc",
+        field_redactor=field_redactor,
+    )
+    block = store.get_block("shared", "edit/redacted")
+    assert block is not None
+    assert block.value == "value:trace"
+    assert block.description == "description:desc"
+    assert seen == [("value", "trace"), ("description", "desc")]

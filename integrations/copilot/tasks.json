@@ -33,33 +33,25 @@
       "label": "LemonCrow: Record Trace",
       "type": "shell",
       "command": "lemoncrow",
-      "args": ["runs", "record", "--task", "${input:lemoncrowTask}", "--status", "partial", "--json"],
+      "args": [
+        "runs",
+        "record",
+        "--task",
+        "${input:lemoncrowTask}",
+        "--status",
+        "partial",
+        "--json"
+      ],
       "problemMatcher": []
     },
     {
       "label": "LemonCrow: Session Summary",
       "type": "shell",
       "command": "lemoncrow",
-      "args": ["session", "report", "--no-color"],
-      "problemMatcher": []
-    },
-    {
-      "label": "LemonCrow: Worktree Bootstrap",
-      "type": "shell",
-      "command": "bash",
       "args": [
-        "-lc",
-        "uv run python scripts/worktree_env.py --env-file .env.worktree --json && echo 'Use: docker compose --env-file .env.worktree up --build -d'"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "LemonCrow: Runtime Evidence",
-      "type": "shell",
-      "command": "bash",
-      "args": [
-        "-lc",
-        "uv run python scripts/runtime_evidence.py --base-url \"${input:lemoncrowBaseUrl}\""
+        "session",
+        "report",
+        "--no-color"
       ],
       "problemMatcher": []
     }
@@ -79,12 +71,6 @@
       "id": "lemoncrowStep2",
       "type": "promptString",
       "description": "Plan step 2"
-    },
-    {
-      "id": "lemoncrowBaseUrl",
-      "type": "promptString",
-      "description": "LemonCrow service base URL",
-      "default": "http://127.0.0.1:8787"
     }
   ]
 }

@@ -36,7 +36,6 @@ def register(cli: click.Group) -> None:
         cli.add_command(admin_commands.uninstall)
         _h(admin_commands.env_group)  # internal validation
         cli.add_command(admin_commands.env_group)
-        cli.add_command(admin_commands.account_group)
         # status_cmd is registered as 'dashboard' later (with 'status' as hidden alias)
         _h(admin_commands.share_cmd)
         cli.add_command(admin_commands.share_cmd)
@@ -48,17 +47,20 @@ def register(cli: click.Group) -> None:
         if reset_cmd is not None:
             _h(cast("click.Command", reset_cmd))
             cli.add_command(cast("click.Command", reset_cmd))
-        _h(admin_commands.team_group)
-        cli.add_command(admin_commands.team_group)
-        _h(admin_commands.governance_group)
-        cli.add_command(admin_commands.governance_group)
         _h(admin_commands.audit_group)
         cli.add_command(admin_commands.audit_group)
         _h(admin_commands.insights_cmd)
         cli.add_command(admin_commands.insights_cmd)
+
     except (ModuleNotFoundError, ImportError):
         _IMPORT_FAILED = True
 
+    try:
+        from .hosted_auth import auth_group
+
+        cli.add_command(auth_group)
+    except ImportError:
+        _IMPORT_FAILED = True
     try:
         from .agents_skills import agent_group, install_group, skill_group, stale_nudge_cmd
 
@@ -115,18 +117,10 @@ def register(cli: click.Group) -> None:
         _IMPORT_FAILED = True
 
     try:
-        from .servicectl import service_group, servicectl_group, worker_group
+        from .service_worker import service_group, worker_group
 
         cli.add_command(service_group)
         cli.add_command(worker_group)
-        cli.add_command(servicectl_group)
-    except (ModuleNotFoundError, ImportError):
-        _IMPORT_FAILED = True
-
-    try:
-        from .stack import stack_group
-
-        cli.add_command(stack_group)
     except (ModuleNotFoundError, ImportError):
         _IMPORT_FAILED = True
 
@@ -135,21 +129,6 @@ def register(cli: click.Group) -> None:
 
         _h(map_cmd)  # compatibility shortcut; Map is a tab in `lc dashboard open`
         cli.add_command(map_cmd)
-    except (ModuleNotFoundError, ImportError):
-        _IMPORT_FAILED = True
-
-    # ── hidden internal commands (used by dev.sh, not user-facing) ───────────
-    try:
-        from .background import background_group
-
-        cli.add_command(background_group, name="background")
-    except (ModuleNotFoundError, ImportError):
-        _IMPORT_FAILED = True
-
-    try:
-        from .background import systemd_alias_group
-
-        cli.add_command(systemd_alias_group)
     except (ModuleNotFoundError, ImportError):
         _IMPORT_FAILED = True
 
@@ -427,9 +406,8 @@ def register(cli: click.Group) -> None:
                 requested = f" on port {port}" if port is not None else ""
                 _click.echo(
                     f"  LemonCrow dashboard is not running{requested}.\n\n"
-                    f"  Start it once:\n"
-                    f"    lc stack start\n\n"
-                    f"  Then run: lc dashboard open"
+                    f"  Restart the LemonCrow local loopback server, then run:\n"
+                    f"    lc dashboard open"
                 )
                 return
             url = f"{frontend_url.rstrip('/')}/"

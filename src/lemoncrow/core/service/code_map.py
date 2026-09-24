@@ -20,7 +20,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.core.foundation.paths import is_recognized_workspace, resolve_workspace_store_dir
+from lemoncrow.core.foundation.paths import default_store_root, is_recognized_workspace, resolve_workspace_store_dir
 
 _MAX_SEARCH_RESULTS = 40
 _MAX_GRAPH_NODES = 160
@@ -146,16 +146,47 @@ def resolve_project_root(requested: str | Path | None = None) -> Path:
     """Resolve one exact, recognized workspace root for map queries."""
 
     if requested:
-        candidate = Path(requested).expanduser().resolve()
+        raw_requested = str(requested).strip()
+        if raw_requested.startswith("proj_"):
+            from lemoncrow.core.service.code_warm import discover_workspaces
+            from lemoncrow.core.service.project_registry import (
+                project_id_for_root,
+                resolve_registered_project,
+            )
+
+            registered = resolve_registered_project(raw_requested)
+            if registered is not None:
+                candidate = registered.root
+            else:
+                candidates = [path for path in discover_workspaces() if not _is_ephemeral(path)]
+                configured = os.environ.get("LEMONCROW_WORKSPACE_ROOT", "").strip()
+                if configured:
+                    with contextlib.suppress(OSError):
+                        candidates.append(Path(configured).expanduser().resolve())
+                match = next(
+                    (path.resolve() for path in candidates if project_id_for_root(path) == raw_requested),
+                    None,
+                )
+                if match is None:
+                    raise ValueError(f"unknown project id: {raw_requested}")
+                candidate = match
+        else:
+            candidate = Path(raw_requested).expanduser().resolve()
     else:
         configured = os.environ.get("LEMONCROW_WORKSPACE_ROOT", "").strip()
         if configured:
             candidate = Path(configured).expanduser().resolve()
         else:
             from lemoncrow.core.service.code_warm import discover_workspaces
+            from lemoncrow.core.service.project_registry import registered_projects
 
-            active = [path for path in discover_workspaces() if not _is_ephemeral(path)]
-            candidate = active[0] if active else (_git_root(Path.cwd()) or Path.cwd().resolve())
+            active = [path for path in discover_workspaces() if _is_user_project(path)]
+            registered_roots = [project.root for project in registered_projects() if _is_user_project(project.root)]
+            candidate = (
+                active[0]
+                if active
+                else registered_roots[0] if registered_roots else (_git_root(Path.cwd()) or Path.cwd().resolve())
+            )
 
     if not candidate.is_dir():
         raise ValueError(f"project root does not exist: {candidate}")
@@ -175,6 +206,16 @@ def _is_ephemeral(path: Path) -> bool:
     )
 
 
+def _is_internal_server_workspace(path: Path) -> bool:
+    resolved = path.expanduser().resolve()
+    server_root = (default_store_root() / "server").resolve()
+    return resolved == server_root or server_root in resolved.parents
+
+
+def _is_user_project(path: Path) -> bool:
+    return not _is_ephemeral(path) and not _is_internal_server_workspace(path)
+
+
 def list_projects() -> list[dict[str, Any]]:
     """List active, non-ephemeral workspaces plus the configured workspace."""
 
@@ -184,13 +225,17 @@ def list_projects() -> list[dict[str, Any]]:
         with contextlib.suppress(OSError):
             candidates.append(resolve_project_root(configured))
     from lemoncrow.core.service.code_warm import discover_workspaces
+    from lemoncrow.core.service.project_registry import registered_projects
 
     active_workspaces = discover_workspaces()
     active_set = {path.resolve() for path in active_workspaces}
-    candidates.extend(path for path in active_workspaces if not _is_ephemeral(path))
+    candidates.extend(path for path in active_workspaces if _is_user_project(path))
+    candidates.extend(project.root for project in registered_projects() if _is_user_project(project.root))
     if not candidates:
         with contextlib.suppress(ValueError):
             candidates.append(resolve_project_root())
+
+    from lemoncrow.core.service.project_registry import project_id_for_root
 
     seen: set[Path] = set()
     projects: list[dict[str, Any]] = []
@@ -202,6 +247,7 @@ def list_projects() -> list[dict[str, Any]]:
         db_path = resolve_workspace_store_dir(workspace_root=root) / "code_context.sqlite"
         projects.append(
             {
+                "project_id": project_id_for_root(root),
                 "root": str(root),
                 "label": root.name,
                 "indexed": db_path.is_file(),
@@ -317,6 +363,109 @@ def _tracked_files(project_root: Path) -> list[str]:
     return sorted(paths)
 
 
+def list_file_nodes(engine: Any, project_root: Path) -> dict[str, Any]:
+    """Return the complete repository file list for source browsing.
+
+    The relationship graph is intentionally bounded for interactive rendering,
+    but the source browser must not silently inherit that cap. Merge git-visible
+    files with indexed symbol paths so stale or non-git indexes remain browsable.
+    """
+
+    tracked_files = _tracked_files(project_root)
+    max_end_by_file: dict[str, int] = {}
+    with contextlib.suppress(sqlite3.Error):
+        rows = engine.connection().execute("""
+            SELECT file_path, MAX(end_line) AS end_line
+            FROM symbols
+            GROUP BY file_path
+            ORDER BY file_path
+            """).fetchall()
+        for row in rows:
+            path = str(row["file_path"] or "")
+            if path:
+                max_end_by_file[path] = max(1, int(row["end_line"] or 1))
+
+    all_files = sorted(set(tracked_files) | set(max_end_by_file))
+    files: list[dict[str, Any]] = []
+    for path in all_files:
+        file_type, language = _file_metadata(path)
+        files.append(
+            {
+                "id": _file_node_id(path),
+                "label": Path(path).name,
+                "qualified_name": path,
+                "path": path,
+                "kind": file_type,
+                "language": language,
+                "file_type": file_type,
+                "node_type": "file",
+                "line": 1,
+                "end_line": max_end_by_file.get(path, 1),
+                "community": _community_for_path(path),
+                "color": _FILE_TYPE_COLORS[file_type],
+                "degree": 0,
+            }
+        )
+
+    return {
+        "project": {"root": str(project_root), "label": project_root.name},
+        "total_files": len(files),
+        "files": files,
+    }
+
+
+def list_file_symbols(engine: Any, file_path: str, *, limit: int = 2000) -> dict[str, Any]:
+    """Return indexed symbols for one file without constructing the repository graph."""
+
+    clean_path = file_path.strip()
+    if not clean_path:
+        return {"path": "", "total_symbols": 0, "symbols": [], "truncated": False}
+    bounded_limit = max(1, min(limit, 2000))
+    conn = engine.connection()
+    total = int(
+        conn.execute(
+            "SELECT COUNT(*) FROM symbols WHERE file_path = ?",
+            (clean_path,),
+        ).fetchone()[0]
+    )
+    rows = conn.execute(
+        """
+        SELECT symbol_id, file_path, language, symbol_name, qualified_name,
+               kind, start_line, end_line
+        FROM symbols
+        WHERE file_path = ?
+        ORDER BY start_line, end_line, symbol_name
+        LIMIT ?
+        """,
+        (clean_path, bounded_limit),
+    ).fetchall()
+    file_type, inferred_language = _file_metadata(clean_path)
+    community = _community_for_path(clean_path)
+    symbols = [
+        {
+            "id": str(row["symbol_id"]),
+            "label": str(row["symbol_name"]),
+            "qualified_name": str(row["qualified_name"]),
+            "path": str(row["file_path"]),
+            "kind": str(row["kind"]),
+            "language": str(inferred_language or row["language"] or "Other"),
+            "file_type": file_type,
+            "node_type": "symbol",
+            "line": int(row["start_line"]),
+            "end_line": int(row["end_line"]),
+            "community": community,
+            "degree": 0,
+        }
+        for row in rows
+    ]
+    return {
+        "path": clean_path,
+        "total_symbols": total,
+        "symbols": symbols,
+        "truncated": total > len(symbols),
+    }
+
+
 def search_symbols(engine: Any, query: str, *, limit: int = 20) -> list[dict[str, Any]]:
     clean_query = query.strip()
     if not clean_query:
@@ -330,6 +479,80 @@ def search_symbols(engine: Any, query: str, *, limit: int = 20) -> list[dict[str
         auto_index=False,
     )
     return [_record_node(record) for record in records]
+
+
+def search_text(engine: Any, query: str, *, limit: int = 12) -> list[dict[str, Any]]:
+    clean_query = query.strip()
+    if len(clean_query) < 2:
+        return []
+    bounded_limit = max(1, min(limit, 40))
+    matches = engine.search_text(
+        clean_query,
+        path=".",
+        limit=bounded_limit,
+        ignore_case=True,
+    )
+    payload: list[dict[str, Any]] = []
+    for match in matches:
+        path = str(match.file_path)
+        file_type, language = _file_metadata(path)
+        payload.append(
+            {
+                "id": f"text::{path}:{match.line}:{match.column}",
+                "path": path,
+                "line": int(match.line),
+                "column": int(match.column),
+                "text": str(match.text).strip(),
+                "language": language,
+                "file_type": file_type,
+            }
+        )
+    return payload
+
+
+def find_references(engine: Any, symbol_id: str, *, limit: int = 60) -> dict[str, Any]:
+    bounded_limit = max(1, min(limit, 120))
+    payload = engine.find_references(
+        symbol_id=symbol_id,
+        group_by="none",
+        snippet_lines=1,
+        limit=bounded_limit,
+        auto_index=False,
+        budget_tokens=12_000,
+    )
+    if payload.get("error"):
+        raise LookupError(str(payload.get("message") or f"symbol not found: {symbol_id}"))
+
+    raw_references = payload.get("references")
+    references: list[dict[str, Any]] = []
+    if isinstance(raw_references, list):
+        for raw in raw_references:
+            if not isinstance(raw, dict):
+                continue
+            path = str(raw.get("file_path") or "")
+            line = int(raw.get("line") or 0)
+            if not path or line <= 0:
+                continue
+            references.append(
+                {
+                    "path": path,
+                    "line": line,
+                    "column": int(raw.get("column") or 1),
+                    "end_line": int(raw.get("end_line") or line),
+                    "snippet": str(raw.get("snippet") or ""),
+                    "caller": str(raw.get("caller") or ""),
+                    "edge_kind": str(raw.get("edge_kind") or "reference"),
+                    "provenance": str(raw.get("provenance") or ""),
+                    "confidence": raw.get("confidence"),
+                }
+            )
+
+    return {
+        "symbol_id": symbol_id,
+        "reference_count": int(payload.get("reference_count") or len(references)),
+        "references": references,
+        "truncated": bool(payload.get("truncated")),
+    }
 
 
 def build_neighborhood(engine: Any, symbol_id: str, *, depth: int = 1, limit: int = 80) -> dict[str, Any]:
@@ -884,6 +1107,7 @@ def recent_activity(
         reverse=True,
     )
     snapshot: dict[str, Any] | None = None
+    snapshot_host = ""
     for path in run_files[:40]:
         try:
             candidate = json.loads(path.read_text(encoding="utf-8"))
@@ -891,9 +1115,16 @@ def recent_activity(
             continue
         if isinstance(candidate, dict) and _session_relates_to_project(candidate, project_root):
             snapshot = candidate
+            snapshot_host = str(candidate.get("host") or candidate.get("agent") or path.parent.parent.name or "")
             break
     if snapshot is None:
-        return {"session_id": None, "status": "idle", "events": [], "cursor": after}
+        return {
+            "session_id": None,
+            "host": None,
+            "status": "idle",
+            "events": [],
+            "cursor": after,
+        }
 
     session_id = str(snapshot.get("session_id") or "")
     after_dt = _parse_at(after)
@@ -919,6 +1150,7 @@ def recent_activity(
     cursor = events[-1]["at"] if events else after
     return {
         "session_id": session_id,
+        "host": snapshot_host or None,
         "status": str(snapshot.get("status") or "running"),
         "events": events,
         "cursor": cursor,
@@ -935,5 +1167,6 @@ __all__ = [
     "recent_activity",
     "resolve_project_root",
     "search_symbols",
+    "search_text",
     "symbol_detail",
 ]

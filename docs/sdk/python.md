@@ -81,5 +81,4 @@ surface documented in [mcp.md](mcp.md), including `context`, `route`, `rescue`,
 `record`, `verify`, `memory`, `read`, `edit`, `search`, and `compact`.
 
 Use the CLI for operational workflows such as `lc report`, `lc
-benchmark ...`, `lc service ...`, `lc background ...`, and `lc
-domain ...`.
+benchmark ...`, `lc service ...`, `lc worker ...`, and `lc domain ...`.

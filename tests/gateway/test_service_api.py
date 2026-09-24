@@ -8,11 +8,12 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from lemoncrow.core.environment import HIDDEN_LLM_TOOLS
+from lemoncrow.core.environment import LLM_VISIBLE_TOOLS
 from lemoncrow.core.foundation.paths import resolve_session_state_path
 from lemoncrow.core.service.api import create_app
 from lemoncrow.infra.storage.bundle import StoreBundle, build_sqlite_store_bundle
@@ -115,8 +116,50 @@ def test_code_map_endpoints_are_bounded_and_use_the_selected_project(
     )
     monkeypatch.setattr(
         code_map,
+        "list_file_nodes",
+        lambda selected_engine, root: {
+            "project": {"root": str(root), "label": root.name},
+            "total_files": 2,
+            "files": [{"id": "file::one", "path": "src/one.py"}, {"id": "file::two", "path": "src/two.py"}],
+        },
+    )
+    monkeypatch.setattr(
+        code_map,
         "search_symbols",
         lambda selected_engine, query, limit: [{"id": "root", "label": query, "score": 1.0}],
+    )
+    monkeypatch.setattr(
+        code_map,
+        "search_text",
+        lambda selected_engine, query, limit: [
+            {
+                "id": "text::src/payment.py:8:4",
+                "path": "src/payment.py",
+                "line": 8,
+                "column": 4,
+                "text": f"call {query} here",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        code_map,
+        "list_file_symbols",
+        lambda selected_engine, path, limit: {
+            "path": path,
+            "total_symbols": 1,
+            "symbols": [{"id": "charge", "label": "chargeCard", "path": path}],
+            "truncated": False,
+        },
+    )
+    monkeypatch.setattr(
+        code_map,
+        "find_references",
+        lambda selected_engine, symbol_id, limit: {
+            "symbol_id": symbol_id,
+            "reference_count": 1,
+            "references": [{"path": "src/checkout.py", "line": 8}],
+            "truncated": False,
+        },
     )
     monkeypatch.setattr(
         code_map,
@@ -132,9 +175,18 @@ def test_code_map_endpoints_are_bounded_and_use_the_selected_project(
 
     overview = app_no_auth.get("/v1/code-map/overview", params={"project_root": str(project)})
     full = app_no_auth.get("/v1/code-map/full", params={"project_root": str(project)})
+    files = app_no_auth.get("/v1/code-map/files", params={"project_root": str(project)})
+    file_symbols = app_no_auth.get(
+        "/v1/code-map/file-symbols",
+        params={"project_root": str(project), "path": "src/payment.py", "limit": 9999},
+    )
     search = app_no_auth.get(
         "/v1/code-map/search",
         params={"project_root": str(project), "q": "chargeCard", "limit": 999},
+    )
+    references = app_no_auth.get(
+        "/v1/code-map/references",
+        params={"project_root": str(project), "symbol_id": "root", "limit": 999},
     )
     graph = app_no_auth.get(
         "/v1/code-map/neighborhood",
@@ -145,10 +197,239 @@ def test_code_map_endpoints_are_bounded_and_use_the_selected_project(
     assert overview.json()["project"]["root"] == str(project)
     assert full.status_code == 200
     assert full.json()["total_symbols"] == 3
+    assert files.status_code == 200
+    assert files.json()["total_files"] == 2
+    assert file_symbols.status_code == 200
+    assert file_symbols.json()["total_symbols"] == 1
     assert search.status_code == 200
     assert search.json()["results"][0]["label"] == "chargeCard"
+    assert search.json()["text_results"][0]["line"] == 8
+    assert references.status_code == 200
+    assert references.json()["reference_count"] == 1
     assert graph.status_code == 200
     assert graph.json()["depth"] == 2
+
+
+def test_code_map_editor_capability_and_open_are_repo_confined(
+    app_no_auth: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from lemoncrow.core.service import code_editor, code_map
+
+    project = tmp_path / "repo"
+    source = project / "src" / "payment.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("pass\n", encoding="utf-8")
+    monkeypatch.setattr(code_map, "resolve_project_root", lambda value=None: project)
+    monkeypatch.setattr(
+        code_editor,
+        "editor_capability",
+        lambda: {
+            "available": True,
+            "preferred": {"id": "cursor", "label": "Cursor"},
+            "editors": [{"id": "cursor", "label": "Cursor"}],
+        },
+    )
+    opened: list[tuple[Path, int, int, Path]] = []
+
+    def open_editor(path: Path, *, line: int, column: int, repo_root: Path) -> dict[str, object]:
+        opened.append((path, line, column, repo_root))
+        return {
+            "opened": True,
+            "editor": "cursor",
+            "label": "Cursor",
+            "line": line,
+            "column": column,
+            "pid": 42,
+        }
+
+    monkeypatch.setattr(code_editor, "open_in_editor", open_editor)
+
+    capability = app_no_auth.get("/v1/code-map/editor")
+    response = app_no_auth.post(
+        "/v1/code-map/editor",
+        json={
+            "project_root": "proj_example",
+            "path": "src/payment.py",
+            "line": 12,
+            "column": 3,
+        },
+    )
+
+    assert capability.status_code == 200
+    assert capability.json()["preferred"] == {"id": "cursor", "label": "Cursor"}
+    assert response.status_code == 200
+    assert response.json()["editor"] == "cursor"
+    assert opened == [(source.resolve(), 12, 3, project)]
+
+    escaped = app_no_auth.post(
+        "/v1/code-map/editor",
+        json={"project_root": "proj_example", "path": "../outside.py"},
+    )
+    assert escaped.status_code == 400
+    assert len(opened) == 1
+
+
+def test_code_map_review_uses_structured_server_capture(
+    app_no_auth: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from lemoncrow_client import config as client_config
+
+    from lemoncrow.core.service import code_map
+    from lemoncrow.pro.capabilities.review import gitdiff, hosted
+
+    project = tmp_path / "repo"
+    project.mkdir()
+    fake_range = SimpleNamespace(mode="working_tree")
+    fake_config = SimpleNamespace()
+    calls: dict[str, object] = {}
+
+    monkeypatch.setattr(code_map, "resolve_project_root", lambda value=None: project)
+
+    def resolve_range(root: Path):
+        calls["range_root"] = root
+        return fake_range
+
+    def load_config(*, cwd: Path):
+        calls["config_cwd"] = cwd
+        return fake_config
+
+    def capture(config, repo_root, review_range, **kwargs):
+        calls["capture"] = (config, repo_root, review_range, kwargs)
+        return SimpleNamespace(
+            review_id="r-deadbeefcafebabe",
+            review_url="http://127.0.0.1:7420/r/deadbeef",
+            response={
+                "review": {
+                    "id": "r-deadbeefcafebabe",
+                    "short_id": "r-deadbeef",
+                    "review_path": "/r/deadbeef",
+                },
+                "revision": {"id": "rr-feedface", "revision_number": 3},
+                "revision_created": True,
+            },
+        )
+
+    monkeypatch.setattr(gitdiff, "resolve_rev_range", resolve_range)
+    monkeypatch.setattr(client_config, "load_config", load_config)
+    monkeypatch.setattr(hosted, "capture_server_review", capture)
+
+    response = app_no_auth.post(
+        "/v1/code-map/review",
+        json={"project_root": "proj_example"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "review_id": "r-deadbeefcafebabe",
+        "short_id": "r-deadbeef",
+        "review_path": "/r/deadbeef",
+        "review_url": "http://127.0.0.1:7420/r/deadbeef",
+        "revision_id": "rr-feedface",
+        "revision_number": 3,
+        "revision_created": True,
+    }
+    assert calls["range_root"] == project
+    assert calls["config_cwd"] == project
+    config, repo_root, review_range, kwargs = calls["capture"]
+    assert config is fake_config
+    assert repo_root == project
+    assert review_range is fake_range
+    assert kwargs["store_root"] == tmp_path / ".lemoncrow"
+    assert kwargs["session_id"] is None
+    assert kwargs["with_impact"] is True
+    assert kwargs["with_provenance"] is True
+    assert kwargs["limit"] == 40
+
+
+def test_code_map_agent_handoff_targets_only_latest_project_session(
+    app_no_auth: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from lemoncrow.core.service import code_map
+    from lemoncrow.pro.capabilities.review import delivery
+
+    project = tmp_path / "repo"
+    project.mkdir()
+    engine = object()
+    monkeypatch.setattr(code_map, "resolve_project_root", lambda value=None: project)
+    monkeypatch.setattr(code_map, "get_engine", lambda value: engine)
+    current_session = {"id": "session-1"}
+    monkeypatch.setattr(
+        code_map,
+        "recent_activity",
+        lambda *args, **kwargs: {
+            "session_id": current_session["id"],
+            "host": "codex",
+            "status": "running",
+            "events": [],
+            "cursor": None,
+        },
+    )
+    delivered: list[tuple[str, str, Path, str]] = []
+
+    def deliver(host: str, session_id: str, repo_root: Path, prompt: str) -> delivery.AgentDeliveryResult:
+        delivered.append((host, session_id, repo_root, prompt))
+        return delivery.AgentDeliveryResult(
+            "sent",
+            f"{host}:{session_id}",
+            remote_ref="pid:42",
+            message="prompt sent",
+        )
+
+    monkeypatch.setattr(delivery, "deliver_prompt_to_agent_session", deliver)
+
+    response = app_no_auth.post(
+        "/v1/code-map/agent-handoff",
+        json={
+            "project_root": str(project),
+            "expected_session_id": "session-1",
+            "path": "src/payment.py",
+            "line": 12,
+            "end_line": 18,
+            "symbol": "PaymentGateway.chargeCard",
+            "message": "Check whether this handles retries correctly.",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "sent"
+    assert response.json()["session_id"] == "session-1"
+    assert delivered[0][:3] == ("codex", "session-1", project)
+    assert "Location: src/payment.py:L12-L18" in delivered[0][3]
+    assert "Symbol: PaymentGateway.chargeCard" in delivered[0][3]
+    assert "Check whether this handles retries correctly." in delivered[0][3]
+    assert "Human review feedback from LemonCrow" not in delivered[0][3]
+
+    current_session["id"] = "session-2"
+    stale = app_no_auth.post(
+        "/v1/code-map/agent-handoff",
+        json={
+            "project_root": str(project),
+            "expected_session_id": "session-1",
+            "path": "src/payment.py",
+            "message": "Do not send this to a different session.",
+        },
+    )
+    assert stale.status_code == 409
+    assert len(delivered) == 1
+
+    activity = app_no_auth.get(
+        "/v1/code-map/activity",
+        params={"project_root": str(project)},
+    )
+    assert activity.status_code == 200
+    assert activity.json()["handoff_supported"] is True
+
+    escaped = app_no_auth.post(
+        "/v1/code-map/agent-handoff",
+        json={
+            "project_root": str(project),
+            "expected_session_id": "session-2",
+            "path": "../outside.py",
+            "message": "Do not allow escaped locations.",
+        },
+    )
+    assert escaped.status_code == 400
+    assert len(delivered) == 1
 
 
 def test_code_map_requires_auth_when_service_auth_is_enabled(
@@ -205,7 +486,7 @@ def test_mcp_status_matches_non_dev_tool_visibility(store: StoreBundle, monkeypa
     tools = route.endpoint()
 
     names = {tool["tool_name"] for tool in tools}
-    assert not (names & HIDDEN_LLM_TOOLS)
+    assert names <= LLM_VISIBLE_TOOLS
     assert {tool["tool_name"] for tool in tools if tool["mode"] == "active"} == names
     assert not {tool["tool_name"] for tool in tools if tool["mode"] == "passive"}
     assert "read" in names
@@ -323,6 +604,86 @@ def test_workflow_current_and_snapshot_actions(
     stopped_payload = stopped.json()
     assert stopped_payload["summary"]["status"] == "stopped"
     assert stopped_payload["summary"]["stop_reason"] == "user cancelled"
+
+
+def test_dashboard_workspace_falls_back_to_registered_repo(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import lemoncrow.core.service.api as service_api
+    import lemoncrow.core.service.project_registry as project_registry
+    from lemoncrow.core.foundation.paths import WorkspaceNotRegisteredError
+    from lemoncrow.core.service.project_registry import RegisteredProject
+
+    workspace = tmp_path / "repo"
+    workspace.mkdir()
+    registered = RegisteredProject(project_id="proj_test", root=workspace)
+
+    def no_process_workspace(root: Path | str | None = None) -> Path:
+        del root
+        raise WorkspaceNotRegisteredError("no process workspace")
+
+    monkeypatch.setattr(service_api, "resolve_workspace_root", no_process_workspace)
+    monkeypatch.setattr(
+        service_api, "is_recognized_workspace", lambda path: Path(path).resolve() == workspace.resolve()
+    )
+    monkeypatch.setattr(service_api, "discover_repo_root", lambda path: Path(path).resolve())
+    monkeypatch.setattr(project_registry, "registered_projects", lambda: (registered,))
+
+    assert service_api._resolve_dashboard_workspace_root(tmp_path / ".lemoncrow") == workspace.resolve()
+    assert workspace.resolve() in service_api._swarm_candidate_project_roots(tmp_path / ".lemoncrow")
+
+
+def test_code_map_default_project_falls_back_to_registered_repo(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from lemoncrow.core.service import code_map, code_warm, project_registry
+    from lemoncrow.core.service.project_registry import RegisteredProject
+
+    workspace = tmp_path / "repo"
+    workspace.mkdir()
+    registered = RegisteredProject(project_id="proj_test", root=workspace)
+    monkeypatch.delenv("LEMONCROW_WORKSPACE_ROOT", raising=False)
+    monkeypatch.setattr(code_warm, "discover_workspaces", lambda: [])
+    monkeypatch.setattr(project_registry, "registered_projects", lambda: (registered,))
+    monkeypatch.setattr(code_map, "_git_root", lambda candidate: workspace.resolve())
+
+    assert code_map.resolve_project_root() == workspace.resolve()
+
+
+def test_code_map_projects_hide_internal_server_workspaces(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from lemoncrow.core.service import code_map, code_warm, project_registry
+    from lemoncrow.core.service.project_registry import RegisteredProject
+
+    store_root = tmp_path / ".lemoncrow"
+    internal = store_root / "server" / "data" / "workspaces" / "internal"
+    user_repo = tmp_path / "user-repo"
+    internal.mkdir(parents=True)
+    user_repo.mkdir()
+
+    monkeypatch.delenv("LEMONCROW_WORKSPACE_ROOT", raising=False)
+    monkeypatch.setattr(code_map, "default_store_root", lambda: store_root)
+    monkeypatch.setattr(code_map, "_is_ephemeral", lambda path: False)
+    monkeypatch.setattr(code_warm, "discover_workspaces", lambda: [])
+    monkeypatch.setattr(
+        project_registry,
+        "registered_projects",
+        lambda: (
+            RegisteredProject(project_id="proj_internal", root=internal),
+            RegisteredProject(project_id="proj_user", root=user_repo),
+        ),
+    )
+
+    projects = code_map.list_projects()
+
+    assert [item["root"] for item in projects] == [str(user_repo.resolve())]
+
+
+def test_skills_and_agents_load_integration_catalog(app_no_auth: TestClient) -> None:
+    skills = app_no_auth.get("/skills")
+    agents = app_no_auth.get("/agents")
+
+    assert skills.status_code == 200
+    assert agents.status_code == 200
+    assert {"swarm", "ux-review", "review-setup"} <= {item["name"] for item in skills.json()}
+    assert {"code", "review", "explore"} <= {item["id"] for item in agents.json()}
 
 
 def test_hosts_endpoint_lists_supported_integrations(store: StoreBundle, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1136,6 +1497,35 @@ def test_file_content_endpoint_serves_local_file(
     assert resp.status_code == 200
     assert resp.text == "hello rich sessions\n"
     assert resp.headers["content-type"].startswith("text/plain")
+
+
+def test_file_content_endpoint_allows_indexed_code_project(
+    app_no_auth: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lemoncrow.core.service import code_map
+
+    project_root = tmp_path.parent / f"{tmp_path.name}-indexed-project"
+    project_root.mkdir()
+    sample = project_root / "source.py"
+    sample.write_text("print('indexed project')\n", encoding="utf-8")
+    monkeypatch.setattr(
+        code_map,
+        "list_projects",
+        lambda: [
+            {
+                "root": str(project_root),
+                "label": "indexed-project",
+                "indexed": True,
+                "active": False,
+            }
+        ],
+    )
+
+    resp = app_no_auth.get("/v1/files/content", params={"path": str(sample)})
+    assert resp.status_code == 200
+    assert resp.text == "print('indexed project')\n"
 
 
 def test_file_projection_endpoint_returns_compact_projection_metadata(

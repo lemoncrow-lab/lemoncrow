@@ -22,6 +22,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from lemoncrow_client.kit.redaction import redact, redact_jsonl
+
 from lemoncrow.core.capabilities.pricing import is_placeholder_model
 from lemoncrow.core.foundation.models import (
     CommandRecord,
@@ -30,7 +32,6 @@ from lemoncrow.core.foundation.models import (
     ToolCall,
     Trace,
 )
-from lemoncrow.core.foundation.redaction import redact, redact_jsonl
 from lemoncrow.gateway.hosts.session_parsers._common import (
     _SIZE_LIMIT_BYTES,
     _SYSTEM_PREFIXES_CLAUDE,

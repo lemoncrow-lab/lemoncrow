@@ -4,8 +4,8 @@ import { cn } from "../../lib/utils";
 type InputSize = "xs" | "sm";
 
 const SIZE_STYLES: Record<InputSize, string> = {
-  xs: "px-2.5 py-1 text-[11px]",
-  sm: "px-3 py-2 text-sm",
+  xs: "h-8 px-2.5 text-[11px]",
+  sm: "h-9 px-3 text-xs",
 };
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
@@ -17,7 +17,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     <input
       ref={ref}
       className={cn(
-        "w-full border border-neutral-700 bg-neutral-950 font-mono text-neutral-200 outline-none transition placeholder:text-neutral-400 hover:border-neutral-600 focus:border-brand-500/60",
+        "w-full rounded-md border border-neutral-800/80 bg-neutral-900/55 text-neutral-200 outline-none transition-colors placeholder:text-neutral-600 hover:border-neutral-700 focus:border-neutral-600 focus-visible:outline-none",
         SIZE_STYLES[uiSize],
         className
       )}

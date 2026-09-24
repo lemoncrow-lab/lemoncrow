@@ -280,6 +280,14 @@ def test_makefile_has_single_dev_target() -> None:
     assert "scripts/local.sh" in content
 
 
+def test_dev_install_snapshots_workspace_client_and_server() -> None:
+    content = (SCRIPTS / "local.sh").read_text()
+    assert 'client_source="${LEMONCROW_INSTALL_DIR}/client"' in content
+    assert 'uv build --wheel "$client_source"' in content
+    assert 'client_with_args=(--with "$client_wheel")' in content
+    assert '"${client_with_args[@]}" "${server_with_args[@]}"' in content
+
+
 def test_makefile_has_single_verify_target() -> None:
     content = MAKEFILE.read_text()
     assert "verify:" in content
@@ -338,7 +346,22 @@ def test_opencode_example_has_mcp_key() -> None:
         pytest.skip("opencode example config not found")
     data = json.loads(example.read_text())
     assert "mcp" in data, "opencode example must have 'mcp' key"
-    assert "lc" in data["mcp"], "opencode example must have 'mcp.lemoncrow' key"
+    assert "lc" in data["mcp"], "opencode example must have 'mcp.lc' key"
+    assert "lemoncrow" in data["provider"], "OpenCode provider ID must use the full LemonCrow name"
+    assert "lc" not in data["provider"]
+
+
+def test_opencode_code_agent_uses_native_free_tier_transport() -> None:
+    agent = INTEGRATIONS / "opencode" / "agents" / "code.md"
+    frontmatter = agent.read_text(encoding="utf-8").split("---", 2)[1]
+    assert "model: opencode/big-pickle" in frontmatter
+
+
+def test_opencode_installer_keeps_native_tools_available_for_console_free_tier() -> None:
+    installer = (SCRIPTS / "install_opencode.sh").read_text(encoding="utf-8")
+    for tool in ("read", "edit", "grep", "glob", "list", "bash", "webfetch", "lsp"):
+        assert f'"{tool}": "deny"' not in installer
+    assert "permission.pop(tool)" in installer
 
 
 def test_lemoncode_example_has_mcp_key() -> None:
@@ -482,6 +505,15 @@ def test_install_scripts_document_global_and_workspace_paths() -> None:
     assert "lc" in antigravity
 
 
+def test_model_gateway_installers_do_not_reuse_service_url() -> None:
+    for host in ("opencode", "lemoncode"):
+        content = (SCRIPTS / f"install_{host}.sh").read_text()
+        assert "LEMONCROW_GATEWAY_URL" in content
+        assert "LEMONCROW_GATEWAY_BASE" in content
+        assert "LEMONCROW_SERVICE_URL" not in content
+        assert "LEMONCROW_SERVICE_BASE" not in content
+
+
 def test_opencode_install_passes_config_path_via_env_not_source_interpolation() -> None:
     """Regression: OC_FILE must not be interpolated into Python heredoc source.
 
@@ -565,6 +597,293 @@ def test_distribution_bundle_ships_python_bootstrap_helper() -> None:
     assert "cp -f scripts/lib/python_bootstrap.sh bundle/scripts/lib/python_bootstrap.sh" in build_content
 
 
+def test_distribution_constraints_exclude_local_paths_and_bundle_local_wheels() -> None:
+    build = (SCRIPTS / "build.sh").read_text()
+    bundle = (SCRIPTS / "bundle.sh").read_text()
+    sessions = (SCRIPTS / "sessions.sh").read_text()
+
+    # Constraints pin registry packages only. Workspace/path dependencies such
+    # as lemoncrow-client and the local Babel override ship as real wheels, or
+    # uv rejects them as unnamed constraints.
+    assert "--no-emit-local" in build
+    assert "uv build --wheel --package lemoncrow-client --out-dir bundle/vendor" in build
+    assert "cp vendor/babel-*.whl bundle/vendor/" in build
+    assert 'find_links_arg=(--find-links "${vendor_dir}")' in bundle
+    assert 'find_links_args=(--find-links "$vendor_dir")' in sessions
+    assert "constraints.resolved.txt" not in bundle
+    constraints_block = bundle.split("local constraints_arg=()", 1)[1].split("# litellm", 1)[0]
+    assert "sed -E" not in constraints_block
+
+
+def test_local_and_hosted_install_modes_are_separate_distributions() -> None:
+    makefile = (SCRIPTS.parent / "Makefile").read_text()
+    install = (SCRIPTS / "install.sh").read_text()
+    hosted = (SCRIPTS / "hosted.sh").read_text()
+    hosted_build = (SCRIPTS / "build_hosted.sh").read_text()
+    bundle = (SCRIPTS / "bundle.sh").read_text()
+    build = (SCRIPTS / "build.sh").read_text()
+    common = (SCRIPTS / "lib" / "common.sh").read_text()
+
+    assert "LEMONCROW_INSTALL_MODE=local bash scripts/install.sh --local" in makefile
+    assert "bash scripts/build_hosted.sh" in makefile
+    assert "bash scripts/hosted.sh --from-build dist/lemoncrow-hosted-client.tar.gz" in makefile
+    hosted_target = makefile.split("hosted:", 1)[1].split("build-lemoncode-host:", 1)[0]
+    assert "scripts/build.sh" not in hosted_target
+    assert "build-lemoncode-host" not in hosted_target
+
+    assert "https://api.lemoncrow.com" in hosted
+    assert "scripts/install.sh" not in hosted
+    assert 'exec bash "$installer"' not in hosted
+    assert "scripts/bundle.sh" not in hosted
+    assert 'bash "$BUNDLE_SH"' not in hosted
+    assert "lemoncrow-distribution-" not in hosted
+    assert "lemoncrow-hosted-client.tar.gz" in hosted
+    assert "--no-index --no-deps --force-reinstall" in hosted
+    assert "--local was renamed to --from-build" in hosted
+    assert "missing or invalid SHA-256 checksum; refusing" in hosted
+    assert "LEMONCROW_INSTALL_MODE=hosted" in hosted
+    assert "uv build --wheel --package lemoncrow-client" in hosted_build
+    assert "py3-none-any.whl" in hosted_build
+    assert "server" not in hosted_build.lower().split("# the full platform distribution", 1)[0]
+
+    # Compatibility: old install.sh --hosted callers are redirected into the
+    # new thin installer, never through the full bundle path.
+    assert 'if [[ "$LEMONCROW_INSTALL_MODE" == "hosted" ]]' in install
+    assert 'exec bash "$hosted_installer"' in install
+    assert "No valid checksum published" in install
+
+    # Local mode remains the complete loopback distribution.
+    assert "uv build --wheel server --out-dir bundle/server" in build
+    assert 'server_with_args=(--with "$server_wheel")' in bundle
+    assert 'bash "$server_script" restart' in bundle
+    assert 'bash "${SCRIPT_DIR}/local_server.sh" stop' in bundle
+    assert "Hosted install requires LEMONCROW_HOSTED_URL" in bundle
+    assert "LEMONCROW_INSTALL_MODE=hosted" in bundle
+    assert "LEMONCROW_LOCAL_FS|LEMONCROW_TOKEN_FILE" in bundle
+    assert "LEMONCROW_NO_SERVICECTL" not in bundle
+    assert "LEMONCROW_NO_STACK" not in bundle
+    assert '"$LEMONCROW_BIN_DIR/lemoncrow" mcp service repair' in common
+    assert "SessionStart" in common
+    server_mode_init = common.split('case "${LEMONCROW_INSTALL_MODE:-legacy}" in', 1)[1].split(
+        "local code_display=", 1
+    )[0]
+    assert "$lemoncrow_cli init" in server_mode_init  # legacy branch remains
+    assert "Workspace sync:" not in server_mode_init
+
+
+def test_pinned_tool_versions_stay_in_sync_across_installer_and_runtime() -> None:
+    common = (SCRIPTS / "lib" / "common.sh").read_text()
+    binaries = (LEMONCROW_ROOT / "src/lemoncrow/infra/code_intel/astgrep/binaries.py").read_text()
+    compactors = (LEMONCROW_ROOT / "src/lemoncrow/pro/capabilities/tool_supervision/external_compactors.py").read_text()
+
+    astgrep = re.search(r'LEMONCROW_ASTGREP_VERSION="([^"]+)"', common)
+    assert astgrep, "installer must pin LEMONCROW_ASTGREP_VERSION"
+    assert f'_MANAGED_VERSION = "{astgrep.group(1)}"' in binaries
+    assert f"ast-grep/releases/download/{astgrep.group(1)}/" in common
+    # Every runtime-pinned asset checksum must be the one the installer verifies.
+    shas = re.findall(r'sha256="([0-9a-f]{64})"', binaries)
+    assert len(shas) == 4
+    assert all(sha in common for sha in shas)
+
+    rtk = re.search(r'LEMONCROW_RTK_TAG="\$\{LEMONCROW_RTK_TAG-([^}]+)\}"', common)
+    assert rtk, "installer must pin LEMONCROW_RTK_TAG"
+    assert f"--tag {rtk.group(1)}" in compactors
+
+
+@pytest.mark.parametrize(
+    ("have", "want", "older"),
+    [
+        ("0.44.0", "0.45.1", True),
+        ("0.9.0", "0.45.1", True),  # numeric, not lexicographic
+        ("0.45.1", "0.45.1", False),
+        ("0.46.0", "0.45.1", False),  # never downgrade a newer install
+        ("", "0.45.1", False),  # unknown version is left alone
+    ],
+)
+def test_installer_version_compare_only_upgrades_older_installs(have: str, want: str, older: bool) -> None:
+    common = (SCRIPTS / "lib" / "common.sh").read_text()
+    funcs = re.search(r"^_ver_lt\(\) \{.*?^\}", common, re.S | re.M)
+    assert funcs
+    result = subprocess.run(
+        ["bash", "-c", f'{funcs.group(0)}\n_ver_lt "$1" "$2"', "_", have, want],
+        check=False,
+    )
+    assert (result.returncode == 0) is older
+
+
+def test_local_server_script_persists_machine_authenticated_thin_client_target() -> None:
+    local_server = (SCRIPTS / "local_server.sh").read_text()
+    assert 'URL="http://127.0.0.1:${PORT}"' in local_server
+    assert "LEMONCROW_URL=%s" in local_server
+    assert "LEMONCROW_INSTALL_MODE=local" in local_server
+    assert 'TOKEN_FILE="${LEMONCROW_LOCAL_TOKEN_FILE:-${HOME_DIR}/token}"' in local_server
+    assert "LEMONCROW_TOKEN_FILE=%s" in local_server
+    assert "--token-file" in local_server
+    assert local_server.count("--local-no-auth") == 1
+    assert 'grep -Fq -- "--local-no-auth" "$file"' in local_server
+    assert '--frontend-dir "$FRONTEND_DIR"' in local_server
+    assert 'SOURCE_FRONTEND_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)/frontend/dist"' in local_server
+    assert "sync_source_frontend" in local_server
+    assert '[[ -z "${LEMONCROW_FRONTEND_DIR:-}" ]] || return 0' in local_server
+    assert "--allow-local-fs" in local_server
+    assert "LEMONCROW_LOCAL_FS=1" in local_server
+    assert "--local-review-root" not in local_server
+    assert "retire_legacy_review_workspaces" in local_server
+    assert "lemoncrow_server_core up" in local_server
+    assert "lemoncrow_server.ops up" not in local_server
+    assert 'SYSTEMD_UNIT="lemoncrow-local-server.service"' in local_server
+    assert 'HEALTH_TIMEOUT_SECONDS="${LEMONCROW_LOCAL_SERVER_START_TIMEOUT:-120}"' in local_server
+    assert "while (( SECONDS < deadline ))" in local_server
+    assert "Restart=on-failure" in local_server
+
+
+def test_legacy_runtime_cleanup_is_shipped_wired_and_public() -> None:
+    cleanup = SCRIPTS / "cleanup_legacy_runtime.sh"
+    assert cleanup.exists()
+    assert is_executable(cleanup)
+    assert (
+        "cp -f scripts/cleanup_legacy_runtime.sh bundle/scripts/cleanup_legacy_runtime.sh"
+        in (SCRIPTS / "build.sh").read_text()
+    )
+    assert "cleanup_legacy_runtime" in (SCRIPTS / "bundle.sh").read_text()
+    assert "scripts/cleanup_legacy_runtime.sh" in (SCRIPTS / "public-paths.txt").read_text().splitlines()
+
+
+def test_legacy_runtime_cleanup_preserves_persistent_mcp_services(tmp_path: Path) -> None:
+    cleanup = SCRIPTS / "cleanup_legacy_runtime.sh"
+    home = tmp_path / "home"
+    user_units = home / ".config" / "systemd" / "user"
+    wants = user_units / "default.target.wants"
+    wants.mkdir(parents=True)
+    for name in ("lemoncrow-controller.service", "lemoncrow-stack.service", "lemoncrow-mcp.service"):
+        (user_units / name).write_text("legacy\n")
+        (wants / name).symlink_to(user_units / name)
+    persistent = user_units / "lemoncrow-mcp-keep-example-com.service"
+    persistent.write_text("supported persistent MCP\n")
+
+    state_root = home / ".lemoncrow"
+    (state_root / "servicectl").mkdir(parents=True)
+    (state_root / "servicectl" / "state.json").write_text("{}")
+    (state_root / "mcp_daemons").mkdir()
+    (state_root / "mcp_daemons" / "old.lock").write_text("")
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    log = tmp_path / "systemctl.log"
+    systemctl = fake_bin / "systemctl"
+    systemctl.write_text("#!/usr/bin/env bash\n" 'printf \'%s\\n\' "$*" >>"$FAKE_SYSTEMD_LOG"\n' "exit 0\n")
+    systemctl.chmod(0o755)
+    uname = fake_bin / "uname"
+    uname.write_text("#!/usr/bin/env bash\nprintf 'Linux\\n'\n")
+    uname.chmod(0o755)
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "HOME": str(home),
+            "LEMONCROW_HOME": str(state_root),
+            "FAKE_SYSTEMD_LOG": str(log),
+            "PATH": f"{fake_bin}:{env['PATH']}",
+        }
+    )
+    result = subprocess.run(["bash", str(cleanup)], env=env, capture_output=True, text=True, check=True)
+
+    assert "persistent MCP services were preserved" in result.stdout
+    for name in ("lemoncrow-controller.service", "lemoncrow-stack.service", "lemoncrow-mcp.service"):
+        assert not (user_units / name).exists()
+        assert not (wants / name).exists()
+    assert persistent.read_text() == "supported persistent MCP\n"
+    assert not (state_root / "servicectl").exists()
+    assert not (state_root / "mcp_daemons").exists()
+    commands = log.read_text()
+    assert "lemoncrow-mcp-keep-example-com.service" not in commands
+
+
+def test_local_server_uses_independent_systemd_user_service(tmp_path: Path) -> None:
+    script = SCRIPTS / "local_server.sh"
+    home = tmp_path / "home"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    systemctl_log = tmp_path / "systemctl.log"
+    systemd_state = tmp_path / "systemd-active"
+
+    fake_systemctl = fake_bin / "systemctl"
+    fake_systemctl.write_text("""#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"$FAKE_SYSTEMD_LOG"
+case "$*" in
+  *"show-environment"*) exit 0 ;;
+  *"is-active --quiet lemoncrow-local-server.service"*) [[ -f "$FAKE_SYSTEMD_STATE" ]] ;;
+  *"restart lemoncrow-local-server.service"*) touch "$FAKE_SYSTEMD_STATE"; exit 0 ;;
+  *"disable --now lemoncrow-local-server.service"*) rm -f "$FAKE_SYSTEMD_STATE"; exit 0 ;;
+  *"show lemoncrow-local-server.service -p MainPID --value"*) printf '4242\n'; exit 0 ;;
+  *) exit 0 ;;
+esac
+""")
+    fake_systemctl.chmod(0o755)
+
+    fake_python = tmp_path / "fake-python"
+    fake_python.write_text("""#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  -c) exit 0 ;;
+  -)
+    if [[ $# -eq 1 ]]; then printf 'lc_local_test_token\n'; fi
+    exit 0
+    ;;
+  *) exit 0 ;;
+esac
+""")
+    fake_python.chmod(0o755)
+
+    # Upgrade path: an install from the previous generation may already have a
+    # healthy, active --local-no-auth unit. `start` must rewrite it rather than
+    # treating HTTP health alone as proof that the security posture is current.
+    legacy_unit = home / ".config" / "systemd" / "user" / "lemoncrow-local-server.service"
+    legacy_unit.parent.mkdir(parents=True)
+    legacy_unit.write_text("ExecStart=fake --local-no-auth\n")
+    systemd_state.touch()
+
+    env = os.environ.copy()
+    env.update(
+        {
+            "HOME": str(home),
+            "LEMONCROW_HOME": str(home / ".lemoncrow"),
+            "LEMONCROW_SERVER_PYTHON": str(fake_python),
+            "LEMONCROW_LOCAL_SERVER_SUPERVISOR": "systemd",
+            "FAKE_SYSTEMD_LOG": str(systemctl_log),
+            "FAKE_SYSTEMD_STATE": str(systemd_state),
+            "PATH": f"{fake_bin}:{env['PATH']}",
+        }
+    )
+
+    start = subprocess.run(["bash", str(script), "start"], env=env, capture_output=True, text=True, check=True)
+    assert "ready at http://127.0.0.1:7420" in start.stdout
+    unit = home / ".config" / "systemd" / "user" / "lemoncrow-local-server.service"
+    content = unit.read_text()
+    assert "Description=LemonCrow Local Server" in content
+    assert f'ExecStart="{fake_python}" -m lemoncrow_server_core up' in content
+    assert f'--token-file "{home / ".lemoncrow" / "token"}"' in content
+    assert "--local-no-auth" not in content
+    assert "--allow-local-fs" in content
+    env_file = home / ".lemoncrow" / "env"
+    assert f"LEMONCROW_TOKEN_FILE={home / '.lemoncrow' / 'token'}" in env_file.read_text()
+    assert "Restart=on-failure" in content
+    assert (home / ".lemoncrow" / "server" / "server.pid").read_text().strip() == "4242"
+    commands = systemctl_log.read_text()
+    assert "--user enable lemoncrow-local-server.service" in commands
+    assert "--user restart lemoncrow-local-server.service" in commands
+
+    status = subprocess.run(["bash", str(script), "status"], env=env, capture_output=True, text=True, check=True)
+    assert "supervisor=systemd" in status.stdout
+
+    subprocess.run(["bash", str(script), "stop"], env=env, capture_output=True, text=True, check=True)
+    assert not unit.exists()
+    stop_commands = systemctl_log.read_text()
+    assert "--user disable lemoncrow-local-server.service" in stop_commands
+    assert "--user stop --no-block lemoncrow-local-server.service" in stop_commands
+
+
 def test_distribution_installer_always_installs_wheel_and_propagates_failures() -> None:
     content = (SCRIPTS / "install.sh").read_text()
     assert '[[ "$LEMONCROW_NO_HOSTS" == "1" ]] && SETUP_ARGS+=(--no-hosts)' in content
@@ -585,17 +904,19 @@ def test_installer_never_swallows_tar_or_foreign_cli_status() -> None:
     # has to be routed out of the process substitution.
     assert 'done < <(tar -xvzf "$arc" -C "$dest" 2>&1; printf \'%s\' "$?" >"$rc_file")' in content
     assert '|| _fail_install "Could not extract ${ASSET_NAME}' in content
-    # "ready!" must describe the binary this run installed, never a foreign lc.
+    # The success banner must describe the binary this run installed, never a
+    # foreign lc.
     assert "command -v lc >/dev/null 2>&1" not in content
-    # Whitespace-tolerant on purpose: the contract is that the "ready!" banner
+    # Whitespace-tolerant on purpose: the contract is that the success banner
     # is gated on a version captured from a *successful* `--version` run, not
-    # that the two lines keep their current indentation.
+    # that the lines keep their current indentation.
     assert re.search(
-        r'if\s*\[\[\s*-n\s*"\$LEMONCROW_INSTALLED_VERSION"\s*\]\]\s*;\s*then\s+info\s+"LemonCrow ',
+        r'if\s*\[\[\s*-n\s*"\$LEMONCROW_INSTALLED_VERSION"\s*\]\]\s*;\s*then\b' r'(?:(?!\nfi\b).)*?echo\s+"  Version:',
         content,
-    ), 'the "ready!" banner must be gated on a version proven by a successful --version'
+        re.S,
+    ), "the success banner must be gated on a version proven by a successful --version"
     # ...and that version must never be captured with a failure-swallowing
-    # fallback, which is what let a broken binary print "ready!".
+    # fallback, which is what let a broken binary report success.
     assert "--version 2>/dev/null || echo" not in content
 
 
@@ -624,14 +945,13 @@ LEMONCROW_ADVANCED=0
 LEMONCROW_VERBOSE=0
 LEMONCROW_NON_INTERACTIVE=1
 LEMONCROW_NO_HOSTS=0
-LEMONCROW_NO_SERVICECTL=0
-LEMONCROW_NO_STACK=0
 LEMONCROW_ZOEKT=0
 HOST_SCOPE_ARGS=()
 HOST_FLAGS=()
 FINAL_EXIT_CODE=0
 fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
 warn() { printf 'warn: %s\n' "$*" >&2; }
+info() { printf 'info: %s\n' "$*"; }
 verbose() { :; }
 need_cmd() { command -v "$1" >/dev/null 2>&1 || fail "missing $1"; }
 supports_interactive_selector() { return 1; }
@@ -642,6 +962,7 @@ prompt_memory_selection() { :; }
 prompt_auto_optimize_selection() { :; }
 prompt_local_zoekt_selection() { :; }
 prompt_rtk_selection() { :; }
+prompt_update_selection() { :; }
 install_uv_if_needed() { :; }
 install_node_if_needed() { :; }
 _capture_install_previous_version() { :; }
@@ -721,6 +1042,11 @@ def _run_installer(home: Path, src: Path, *, detached: bool = False) -> subproce
             "SHELL": "/bin/bash",
             "TERM": "dumb",
             "LEMONCROW_NON_INTERACTIVE": "1",
+            # Generic installer sandboxes predate the local-server payload and
+            # exercise wheel/install failure semantics, not loopback serving.
+            # Pin them to hosted mode; dedicated tests cover default local mode.
+            "LEMONCROW_INSTALL_MODE": "hosted",
+            "LEMONCROW_HOSTED_URL": "https://hosted.example.test",
             "LEMONCROW_LOCAL_SRC": str(src),
         },
         stdin=subprocess.DEVNULL,
@@ -763,8 +1089,8 @@ def test_installer_fails_when_the_installed_binary_cannot_run(tmp_path: Path) ->
     """`-x` is not proof of a working install (GH #41 follow-up).
 
     The readiness banner used to interpolate `lemoncrow --version` with
-    `|| echo ''`, so a binary that died on every invocation still printed
-    "ready!" and the installer exited 0.
+    `|| echo ''`, so a binary that died on every invocation still printed the
+    success banner and the installer exited 0.
     """
     home, src = _installer_sandbox(tmp_path, _BROKEN_BINARY_BUNDLE)
 
@@ -772,7 +1098,7 @@ def test_installer_fails_when_the_installed_binary_cannot_run(tmp_path: Path) ->
     output = result.stdout + result.stderr
 
     assert result.returncode != 0, output
-    assert "ready!" not in output
+    assert "Quick start:" not in output
     assert "does not run" in output
     # The underlying error is surfaced, not swallowed by 2>/dev/null.
     assert "ModuleNotFoundError" in output
@@ -791,7 +1117,7 @@ def test_installer_fails_loudly_when_bundle_installs_nothing(tmp_path: Path) -> 
 
     assert result.returncode != 0, output
     assert "installed no lemoncrow binary" in output
-    assert "ready!" not in output
+    assert "Quick start:" not in output
     # The broken link must be gone, not merely left in place.
     assert not link.is_symlink() and not link.exists(), output
 
@@ -825,7 +1151,7 @@ def test_installer_repairs_dangling_link_and_spares_foreign_entries(tmp_path: Pa
     output = result.stdout + result.stderr
 
     assert result.returncode == 0, output
-    assert "ready!" in output
+    assert "Quick start:" in output
     assert os.readlink(local_bin / "lemoncrow") == str(home / ".lemoncrow" / "uv-tools-bin" / "lemoncrow")
     assert os.readlink(local_bin / "lc") == str(home / "elsewhere" / "lc")
     assert (local_bin / "lcd").read_text() == "not ours\n"
@@ -836,7 +1162,7 @@ def test_wheelless_distribution_fails_even_with_a_foreign_lemoncrow_on_path(tmp_
 
     Accepting any `command -v lemoncrow` hit reopened GH #41: the foreign
     binary's directory was handed back to install.sh, which then reported that
-    binary's --version as "ready!".
+    binary's --version as the installed one.
     """
     home, src = _installer_sandbox(tmp_path, use_real_bundle=True, foreign_cli=True)
 
@@ -845,7 +1171,7 @@ def test_wheelless_distribution_fails_even_with_a_foreign_lemoncrow_on_path(tmp_
 
     assert result.returncode != 0, output
     assert "the distribution is incomplete" in output, output
-    assert "ready!" not in output, output
+    assert "Quick start:" not in output, output
     assert "0.0.0-foreign" not in output, output
     # The foreign directory must never be recorded as the resolved bin dir.
     assert not (home / ".lemoncrow" / "install" / ".lemoncrow-bin-dir").exists(), output
@@ -866,7 +1192,7 @@ def test_wheelless_rerun_still_accepts_a_lemoncrow_owned_binary(tmp_path: Path) 
     output = result.stdout + result.stderr
 
     assert result.returncode == 0, output
-    assert "9.9.9 ready!" in output, output
+    assert "Version:      9.9.9" in output, output
     assert "0.0.0-foreign" not in output, output
     recorded = (home / ".lemoncrow" / "install" / ".lemoncrow-bin-dir").read_text().strip()
     assert recorded == str(owned_bin), recorded
@@ -889,13 +1215,21 @@ def test_local_sh_bootstraps_lemoncrow_before_host_installers() -> None:
     local_content = (SCRIPTS / "local.sh").read_text()
     common_content = (SCRIPTS / "lib" / "common.sh").read_text()
 
+    assert 'step_start "Installing tools"' in local_content
     assert 'step_start "Installing LemonCrow"' in local_content
     assert 'step_start "Installing host integrations"' in common_content
-    # local.sh installs LemonCrow and only then calls run_setup (which installs hosts).
+    tools_pos = local_content.index('step_start "Installing tools"')
     install_pos = local_content.index('step_start "Installing LemonCrow"')
     # rindex: the actual run_setup call in main(), not the comment near the top.
     run_setup_pos = local_content.rindex("run_setup")
-    assert install_pos < run_setup_pos, "LemonCrow console installation must precede run_setup (host integrations)"
+    assert tools_pos < install_pos < run_setup_pos
+    assert "LEMONCROW_CODE_TOOLS_INSTALLED=1" in local_content
+    assert "LEMONCROW_CODE_TOOLS_INSTALLED:-0" in common_content
+    path_pos = local_content.index("_ensure_path_persistence", install_pos)
+    section_end_pos = local_content.index("step_done", install_pos)
+    assert install_pos < path_pos < section_end_pos
+    assert "LEMONCROW_PATH_PERSISTED=1" in local_content
+    assert "LEMONCROW_PATH_PERSISTED:-0" in common_content
 
 
 def test_local_sh_installs_tool_scripts_not_uv_runtime_wrappers() -> None:
@@ -905,6 +1239,58 @@ def test_local_sh_installs_tool_scripts_not_uv_runtime_wrappers() -> None:
     # The console-script extras the source installer requests. The runtime
     # ("repo-map"/"api"/"telemetry") extras were dropped on this branch.
     assert "mcp,memory,smart,cloud,postgres,vector,parsers,rename" in content
+
+
+def test_source_dev_installer_adds_and_reports_headroom_for_apply_mode() -> None:
+    content = (SCRIPTS / "local.sh").read_text()
+    assert "LEMONCROW_DEV_HEADROOM_APPLY" in content
+    assert "headroom-ai==${headroom_version}" in content
+    assert 'version("headroom-ai")' in content
+    assert "Headroom installed (headroom-ai ${headroom_version})" in content
+
+
+def test_source_dev_installer_formats_server_and_astgrep_status() -> None:
+    local_content = (SCRIPTS / "local.sh").read_text()
+    common_content = (SCRIPTS / "lib" / "common.sh").read_text()
+
+    assert 'spin_tail "LemonCrow local server ready at http://127.0.0.1:' in local_content
+    assert "ast-grep already installed (${astgrep_ver})" in common_content
+
+
+def test_source_install_cannot_replace_the_uv_tool_under_a_live_review_server() -> None:
+    local_content = (SCRIPTS / "local.sh").read_text()
+    server_content = (SCRIPTS / "local_server.sh").read_text()
+
+    uninstall_pos = local_content.index("uv tool uninstall lemoncrow")
+    install_pos = local_content.index("uv tool install --force --no-sources", uninstall_pos)
+    stop_call_pos = local_content.rindex("stop_local_server_for_install")
+    install_call_pos = local_content.index('spin_tail "Installing packages"', stop_call_pos)
+    restart_call_pos = local_content.rindex("restart_local_server_after_install")
+    assert uninstall_pos < install_pos
+    assert stop_call_pos < install_call_pos < restart_call_pos
+    assert 'bash "${SCRIPT_DIR}/local_server.sh" stop' in local_content
+    assert 'bash "${SCRIPT_DIR}/local_server.sh" restart' in local_content
+    assert 'server_source="${LEMONCROW_INSTALL_DIR}/server"' in local_content
+    assert 'uv build --wheel "$server_source" --out-dir "$server_wheel_dir"' in local_content
+    assert "lemoncrow_server-*.whl" in local_content
+    assert 'server_with_args=(--with "$server_wheel")' in local_content
+    assert "uv tool install --force --no-sources" in local_content
+    assert "tool.uv.sources" in local_content
+    assert "import lemoncrow_server_core" in server_content
+    assert "lemoncrow_server.ops" not in server_content
+    assert 'stop --no-block "$SYSTEMD_UNIT"' in server_content
+    assert 'kill --signal=KILL "$SYSTEMD_UNIT"' in server_content
+    assert '"/proc/${loaded_pid}/cmdline"' in server_content
+    assert '[[ -e "$SYSTEMD_UNIT_FILE" || -L "$SYSTEMD_UNIT_FILE"' in server_content
+    assert 'systemctl --user show "$SYSTEMD_UNIT" -p ActiveState --value' in server_content
+
+
+def test_source_installer_uses_single_local_server_topology() -> None:
+    content = (SCRIPTS / "local.sh").read_text()
+    assert "LEMONCROW_INSTALL_MODE=local" in content
+    assert "LEMONCROW_NO_SERVICECTL" not in content
+    assert "LEMONCROW_NO_STACK" not in content
+    assert 'bash "${SCRIPT_DIR}/cleanup_legacy_runtime.sh"' in content
 
 
 def test_source_installer_is_always_local_mode() -> None:
@@ -1258,6 +1644,15 @@ def test_install_claude_always_loads_only_short_lc_server() -> None:
     assert 'data.setdefault("mcpServers", {})["lc"]' in content
 
 
+def test_install_claude_manages_dev_headroom_apply_env() -> None:
+    content = (SCRIPTS / "install_claude.sh").read_text()
+    assert "configure_dev_headroom_env" in content
+    assert 'env["LEMONCROW_HEADROOM_MCP_TAIL_MODE"] = "apply"' in content
+    assert 'env["LEMONCROW_HEADROOM_TAIL_STATS"]' in content
+    assert "env.pop(key, None)" in content
+    assert "headroom-tail-dev.jsonl" in content
+
+
 def test_install_claude_stages_workflow_assets() -> None:
     script = SCRIPTS / "install_claude.sh"
     content = script.read_text()
@@ -1343,3 +1738,151 @@ def test_makefile_has_lemoncrow_status_target() -> None:
     content = MAKEFILE.read_text()
     assert "status:" in content
     assert "scripts/status.sh" in content
+
+
+def test_local_server_closes_inherited_installer_lock_fd(tmp_path: Path) -> None:
+    script = SCRIPTS / "local_server.sh"
+    assert "9>&-" in script.read_text(), "local server must close the installer lock fd before daemonizing"
+    if not Path("/proc/self/fd").exists():
+        pytest.skip("dynamic fd inheritance check requires procfs")
+
+    fake_python = tmp_path / "fake-python"
+    fake_python.write_text("""#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  -c) exit 0 ;;
+  -)
+    if [[ $# -eq 1 ]]; then printf 'lc_local_test_token\\n'; fi
+    exit 0
+    ;;
+  -m)
+    trap 'exit 0' TERM INT
+    while :; do sleep 1; done
+    ;;
+  *) exit 2 ;;
+esac
+""")
+    fake_python.chmod(0o755)
+
+    home = tmp_path / "home"
+    state = home / ".lemoncrow" / "server"
+    env = os.environ.copy()
+    env.update(
+        {
+            "HOME": str(home),
+            "LEMONCROW_HOME": str(home / ".lemoncrow"),
+            "LEMONCROW_SERVER_PYTHON": str(fake_python),
+            "LEMONCROW_LOCAL_SERVER_SUPERVISOR": "none",
+        }
+    )
+    lock = tmp_path / "install.lock"
+    subprocess.run(
+        ["bash", "-c", 'exec 9>"$1"; bash "$2" start', "bash", str(lock), str(script)],
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    pid = int((state / "server.pid").read_text().strip())
+    try:
+        assert not Path(f"/proc/{pid}/fd/9").exists(), "local server inherited installer fd 9"
+    finally:
+        subprocess.run(["bash", str(script), "stop"], env=env, check=True)
+
+
+def test_hosted_build_artifact_contains_only_one_architecture_neutral_client_wheel(tmp_path: Path) -> None:
+    out = tmp_path / "dist"
+    env = os.environ.copy()
+    env["LEMONCROW_HOSTED_DIST_DIR"] = str(out)
+    subprocess.run(["bash", str(SCRIPTS / "build_hosted.sh")], cwd=LEMONCROW_ROOT, env=env, check=True)
+
+    archive = out / "lemoncrow-hosted-client.tar.gz"
+    sidecar = out / "lemoncrow-hosted-client.tar.gz.sha256"
+    assert archive.is_file() and sidecar.is_file()
+    listing = subprocess.run(
+        ["tar", "-tzf", str(archive)], capture_output=True, text=True, check=True
+    ).stdout.splitlines()
+    files = [line for line in listing if not line.endswith("/")]
+    assert len(files) == 1
+    assert re.fullmatch(r"vendor/lemoncrow_client-[^-]+-py3-none-any\.whl", files[0])
+    expected = sidecar.read_text().strip()
+    actual = subprocess.run(["sha256sum", str(archive)], capture_output=True, text=True, check=True).stdout.split()[0]
+    assert expected == actual
+
+
+def test_hosted_from_build_installs_only_the_thin_client(tmp_path: Path) -> None:
+    out = tmp_path / "dist"
+    env = os.environ.copy()
+    env["LEMONCROW_HOSTED_DIST_DIR"] = str(out)
+    subprocess.run(["bash", str(SCRIPTS / "build_hosted.sh")], cwd=LEMONCROW_ROOT, env=env, check=True)
+
+    home = tmp_path / "home"
+    bin_dir = tmp_path / "bin"
+    state = home / ".lemoncrow"
+    env.update({"HOME": str(home), "LEMONCROW_HOME": str(state), "LEMONCROW_BIN_DIR": str(bin_dir)})
+    subprocess.run(
+        [
+            "bash",
+            str(SCRIPTS / "hosted.sh"),
+            "--from-build",
+            str(out / "lemoncrow-hosted-client.tar.gz"),
+            "--url",
+            "https://api.example.test",
+            "--no-hosts",
+        ],
+        cwd=LEMONCROW_ROOT,
+        env=env,
+        check=True,
+    )
+
+    version = subprocess.run([str(bin_dir / "lc"), "--version"], env=env, capture_output=True, text=True, check=True)
+    assert version.stdout.startswith("lemoncrow-client ")
+    assert (bin_dir / "lemoncrow-client").is_symlink()
+    assert (bin_dir / "lc").is_symlink()
+    env_text = (state / "env").read_text()
+    assert "LEMONCROW_URL=https://api.example.test" in env_text
+    assert "LEMONCROW_INSTALL_MODE=hosted" in env_text
+
+    freeze = subprocess.run(
+        [str(state / "hosted/venv/bin/python"), "-m", "pip", "list", "--format=freeze"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    lemoncrow_packages = [line for line in freeze.splitlines() if line.lower().startswith("lemoncrow")]
+    assert lemoncrow_packages == ["lemoncrow-client==0.1.0"]
+    assert not (state / "install/frontend").exists()
+    assert not (state / "install/server").exists()
+
+
+def test_hosted_from_build_refuses_a_mismatched_checksum(tmp_path: Path) -> None:
+    out = tmp_path / "dist"
+    env = os.environ.copy()
+    env["LEMONCROW_HOSTED_DIST_DIR"] = str(out)
+    subprocess.run(["bash", str(SCRIPTS / "build_hosted.sh")], cwd=LEMONCROW_ROOT, env=env, check=True)
+    archive = out / "lemoncrow-hosted-client.tar.gz"
+    (out / "lemoncrow-hosted-client.tar.gz.sha256").write_text("0" * 64 + "\n")
+
+    home = tmp_path / "home"
+    env.update(
+        {"HOME": str(home), "LEMONCROW_HOME": str(home / ".lemoncrow"), "LEMONCROW_BIN_DIR": str(tmp_path / "bin")}
+    )
+    result = subprocess.run(
+        [
+            "bash",
+            str(SCRIPTS / "hosted.sh"),
+            "--from-build",
+            str(archive),
+            "--url",
+            "https://api.example.test",
+            "--no-hosts",
+        ],
+        cwd=LEMONCROW_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "checksum mismatch; refusing hosted install" in result.stderr
+    assert not (home / ".lemoncrow/hosted/venv").exists()

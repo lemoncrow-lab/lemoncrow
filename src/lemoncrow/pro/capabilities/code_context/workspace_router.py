@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -10,12 +11,13 @@ from typing import Any
 from lemoncrow.core.capabilities.code_context_contract import (
     UnsupportedWorkspaceOperationError as UnsupportedWorkspaceOperationError,
 )
+from lemoncrow.core.service.project_registry import project_id_for_root
 from lemoncrow.pro.capabilities.code_context.workspace_config import (
     WorkspaceConfig,
     load_workspace_config,
 )
 
-SUPPORTED_WORKSPACE_OPS = frozenset({"search", "symbol"})
+SUPPORTED_WORKSPACE_OPS = frozenset({"search", "symbol", "explore"})
 
 
 class WorkspaceCodeRouter:
@@ -42,6 +44,8 @@ class WorkspaceCodeRouter:
         targets = self._target_repo_roots(repo)
         if op == "search":
             return self._route_search(targets, **kwargs)
+        if op == "explore":
+            return self._route_explore(targets, **kwargs)
         return self._route_symbol(targets, **kwargs)
 
     def _target_repo_roots(self, repo: str | None) -> list[Path]:
@@ -64,9 +68,11 @@ class WorkspaceCodeRouter:
         provenance = "local"
         provenance_breakdown: dict[str, int] = {}
         mode: str | None = None
-        for repo_root, payload in self._search_payloads(targets, **kwargs):
+        for repo_root, payload in self._payloads(targets, "tool_search", **kwargs):
             repo_name = self._repo_name_for_root(repo_root)
-            merged_items.extend(self._annotate_items(list(payload.get("items", [])), repo_name=repo_name))
+            merged_items.extend(
+                self._annotate_items(list(payload.get("items", [])), repo_name=repo_name, repo_root=repo_root)
+            )
             total_tokens += int(payload.get("total_tokens", 0))
             tokens_saved += int(payload.get("tokens_saved", 0))
             cache_hit = cache_hit and bool(payload.get("cache_hit", False))
@@ -93,19 +99,106 @@ class WorkspaceCodeRouter:
             result["provenance_breakdown"] = provenance_breakdown
         return result
 
-    def _search_payloads(self, targets: list[Path], **kwargs: Any) -> list[tuple[Path, dict[str, Any]]]:
-        """Run ``tool_search`` per repo, concurrently for multi-repo workspaces.
-
-        Results are returned in the original ``targets`` order so the merged
-        union stays deterministic regardless of completion order.
-        """
-        if len(targets) <= 1:
-            return [(repo_root, self.engine_factory(repo_root).tool_search(**kwargs)) for repo_root in targets]
-        with ThreadPoolExecutor(max_workers=len(targets)) as executor:
-            payloads = list(
-                executor.map(lambda repo_root: self.engine_factory(repo_root).tool_search(**kwargs), targets)
+    def _route_explore(self, targets: list[Path], **kwargs: Any) -> dict[str, Any]:
+        """Merge rich explore payloads while preserving workspace-addressable paths."""
+        entry_points: list[dict[str, Any]] = []
+        files: list[dict[str, Any]] = []
+        tails: dict[str, list[str]] = {
+            "additional_relevant_files": [],
+            "fused_recall": [],
+            "deep_recall": [],
+        }
+        project_by_path: dict[str, str] = {}
+        exact_match = False
+        truncated = False
+        for repo_root, payload in self._payloads(targets, "tool_explore", **kwargs):
+            repo_name = self._repo_name_for_root(repo_root)
+            exact_match = exact_match or bool(payload.get("exact_match"))
+            truncated = truncated or bool(payload.get("truncated"))
+            routed_entry_points = self._annotate_items(
+                [item for item in payload.get("entry_points", []) if isinstance(item, dict)],
+                repo_name=repo_name,
+                repo_root=repo_root,
             )
+            routed_files = self._annotate_items(
+                [item for item in payload.get("files", []) if isinstance(item, dict)],
+                repo_name=repo_name,
+                repo_root=repo_root,
+            )
+            entry_points.extend(routed_entry_points)
+            files.extend(routed_files)
+            project_id = project_id_for_root(repo_root)
+            for item in (*routed_entry_points, *routed_files):
+                path = item.get("path") or item.get("file_path")
+                if isinstance(path, str) and path:
+                    project_by_path[path] = project_id
+            for key in tails:
+                for value in payload.get(key, []) or []:
+                    if not isinstance(value, str):
+                        continue
+                    rebased = self._workspace_path(repo_root, value)
+                    if rebased not in tails[key]:
+                        tails[key].append(rebased)
+                    project_by_path[rebased] = project_id
+        result: dict[str, Any] = {
+            "exact_match": exact_match,
+            "entry_points": entry_points,
+            "files": files,
+        }
+        for key, values in tails.items():
+            if values:
+                result[key] = values
+        if project_by_path:
+            result["project_by_path"] = project_by_path
+        if truncated:
+            result["truncated"] = True
+        return result
+
+    def _payloads(self, targets: list[Path], method: str, **kwargs: Any) -> list[tuple[Path, dict[str, Any]]]:
+        """Run one engine method per repo concurrently, preserving target order."""
+
+        def invoke(repo_root: Path) -> dict[str, Any]:
+            engine = self.engine_factory(repo_root)
+            call = getattr(engine, method)
+            return call(**self._kwargs_for_repo(repo_root, kwargs))
+
+        if len(targets) <= 1:
+            return [(repo_root, invoke(repo_root)) for repo_root in targets]
+        with ThreadPoolExecutor(max_workers=len(targets)) as executor:
+            payloads = list(executor.map(invoke, targets))
         return list(zip(targets, payloads, strict=True))
+
+    def _kwargs_for_repo(self, repo_root: Path, kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Translate workspace-relative seed paths to the target repo's coordinates."""
+        routed = dict(kwargs)
+        seeds = routed.get("seed_files")
+        if not isinstance(seeds, list):
+            return routed
+        repo_seeds: list[str] = []
+        for seed in seeds:
+            if not isinstance(seed, str) or not seed.strip():
+                continue
+            candidate = (self.repo_root / seed).resolve()
+            # Nested repos overlap their parent's filesystem. Route an explicit
+            # seed only to the most-specific configured repo that contains it,
+            # otherwise both engines receive the same scope and duplicate work.
+            if self.config is not None:
+                owners = [
+                    entry.repo_root
+                    for entry in self.config.repos
+                    if candidate == entry.repo_root or entry.repo_root in candidate.parents
+                ]
+                if owners:
+                    owner = max(owners, key=lambda path: len(path.parts))
+                    if owner != repo_root:
+                        continue
+            try:
+                relative = candidate.relative_to(repo_root)
+            except ValueError:
+                continue
+            repo_seeds.append(relative.as_posix())
+        routed["seed_files"] = repo_seeds or None
+        return routed
 
     def _route_symbol(self, targets: list[Path], **kwargs: Any) -> dict[str, Any]:
         isolate_failures = len(targets) > 1
@@ -117,14 +210,12 @@ class WorkspaceCodeRouter:
                 last_error = {"error": "symbol_not_found"}
                 continue
             except Exception:
-                # One repo's engine failing (bad index, IO error, ...) must not
-                # abort the multi-repo lookup; a later repo may still resolve it.
                 if not isolate_failures:
                     raise
                 last_error = {"error": "symbol_not_found"}
                 continue
             if "error" not in payload:
-                return self._annotate_item(payload, repo_name=self._repo_name_for_root(repo_root))
+                return self._annotate_item(payload, repo_name=self._repo_name_for_root(repo_root), repo_root=repo_root)
             last_error = payload
         return last_error or {"error": "symbol_not_found"}
 
@@ -136,12 +227,37 @@ class WorkspaceCodeRouter:
                 return entry.name
         return None
 
-    def _annotate_items(self, items: list[dict[str, Any]], *, repo_name: str | None) -> list[dict[str, Any]]:
-        return [self._annotate_item(item, repo_name=repo_name) for item in items]
+    def _workspace_path(self, repo_root: Path, value: str) -> str:
+        path = Path(value)
+        candidate = path.resolve() if path.is_absolute() else (repo_root / path).resolve()
+        try:
+            return candidate.relative_to(self.repo_root).as_posix()
+        except ValueError:
+            # A workspace config may deliberately name a sibling repo. Keep the
+            # path honest and addressable from the workspace rather than silently
+            # pretending it belongs to the root repo.
+            return Path(os.path.relpath(candidate, self.repo_root)).as_posix()
 
-    def _annotate_item(self, item: dict[str, Any], *, repo_name: str | None) -> dict[str, Any]:
-        if repo_name is None:
-            return dict(item)
+    def _annotate_items(
+        self,
+        items: list[dict[str, Any]],
+        *,
+        repo_name: str | None,
+        repo_root: Path,
+    ) -> list[dict[str, Any]]:
+        return [self._annotate_item(item, repo_name=repo_name, repo_root=repo_root) for item in items]
+
+    def _annotate_item(self, item: dict[str, Any], *, repo_name: str | None, repo_root: Path) -> dict[str, Any]:
         annotated = dict(item)
-        annotated["repo_name"] = repo_name
+        if repo_name is not None:
+            annotated["repo_name"] = repo_name
+        annotated["project_id"] = project_id_for_root(repo_root)
+        # External-provider paths are not workspace files and must retain their
+        # provider coordinates. Internal paths are rebased so read/edit can use
+        # the merged result directly from the workspace root.
+        if annotated.get("origin") != "external":
+            for key in ("path", "file_path", "src_path", "dst_path"):
+                value = annotated.get(key)
+                if isinstance(value, str) and value:
+                    annotated[key] = self._workspace_path(repo_root, value)
         return annotated

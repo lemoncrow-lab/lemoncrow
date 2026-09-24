@@ -6,8 +6,7 @@ import string
 import time
 
 import pytest
-
-from lemoncrow.core.foundation.redaction import (
+from lemoncrow_client.kit.redaction import (
     _redact_json_values,
     escape_jsonl_line_breaks,
     redact,
@@ -230,13 +229,13 @@ def test_redact_jsonl_escapes_unicode_line_separators() -> None:
     # emits it raw -- but str.splitlines() treats it as a line break, so one
     # record silently becomes two unparseable halves for every reader. Seen on
     # real sessions quoting scraped web copy.
-    line = json.dumps({"text": "before after"}, ensure_ascii=False)
+    line = json.dumps({"text": "before\u2028after"}, ensure_ascii=False)
     assert len(line.splitlines()) == 2, "precondition: raw U+2028 splits the record"
 
     out = redact_jsonl(line)
 
     assert len(out.splitlines()) == 1
-    assert json.loads(out)["text"] == "before after"
+    assert json.loads(out)["text"] == "before\u2028after"
 
 
 def test_redact_jsonl_masks_secrets_inside_nested_values() -> None:

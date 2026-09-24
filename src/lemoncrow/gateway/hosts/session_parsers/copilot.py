@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from lemoncrow_client.kit.redaction import redact
 
 from lemoncrow.core.foundation.models import (
     CommandRecord,
@@ -35,7 +36,6 @@ from lemoncrow.core.foundation.models import (
     Trace,
     ValidationResult,
 )
-from lemoncrow.core.foundation.redaction import redact
 from lemoncrow.gateway.hosts.session_parsers._common import (
     _SIZE_LIMIT_BYTES,
     make_llm_usage_entry,

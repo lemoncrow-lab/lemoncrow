@@ -266,8 +266,6 @@ _register_command_modules(cli)
 
 def _argv_for_program(prog_name: str, argv: list[str]) -> list[str]:
     """Translate permanent symlink entrypoints onto the canonical command tree."""
-    if prog_name in ("lemoncrowd", "lcd"):
-        return ["background", "service", *argv]
     if prog_name == "lemoncrow-mcp":
         return ["mcp", *argv]
     if prog_name == "lemoncode":
@@ -275,6 +273,25 @@ def _argv_for_program(prog_name: str, argv: list[str]) -> list[str]:
     if prog_name == "lc" and not argv:
         return ["code"]
     return argv
+
+
+# Machine-facing commands: their stdout/stderr feeds another program, never a person.
+_NO_UPDATE_FOOTER = frozenset({"mcp", "update", "savings", "stale-nudge", "completions"})
+
+
+def _print_update_footer(command_name: str, argv: list[str]) -> None:
+    """One "update available" line on stderr, at most once a day, interactive terminals only."""
+    if command_name in _NO_UPDATE_FOOTER or {"--json", "-p", "--print"} & set(argv):
+        return
+    try:
+        if not (sys.stdout.isatty() and sys.stderr.isatty()):
+            return
+        from lemoncrow.core.foundation.update_notice import notice_for
+
+        if notice := notice_for("cli"):
+            click.echo(f"\n{notice}", err=True)
+    except Exception:
+        return
 
 
 def main() -> None:
@@ -370,6 +387,7 @@ def main() -> None:
     finally:
         from lemoncrow.core.service.telemetry import shutdown_otel
 
+        _print_update_footer(command_name, argv)
         shutdown_otel()
 
 

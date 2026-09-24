@@ -1,9 +1,8 @@
 """Offline-core acceptance (maintenance-mode transition).
 
-With all outbound (non-loopback) network access blocked and no account
-credentials, the core local chokepoints succeed, entitlements are unlocked, the
-cap gate is never dormant, local identity works, and telemetry emits nothing
-over the wire once disabled. See docs/maintenance-mode-transition.md.
+With all outbound (non-loopback) network access blocked, the local capability
+seam stays enabled, local identity works, and telemetry emits nothing over the
+wire once disabled.
 """
 
 from __future__ import annotations
@@ -35,33 +34,25 @@ def _no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(socket.socket, "connect", _connect)
 
 
-def test_licensing_chokepoints_work_offline(_no_network: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_local_feature_access_works_offline(_no_network: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
-    monkeypatch.delenv("LEMONCROW_AUTH_TOKEN", raising=False)
+    from lemoncrow.core.capabilities import feature_access
 
-    from lemoncrow.core.capabilities import licensing
-    from lemoncrow.pro.capabilities.licensing_gate import cap_exhausted, resolve_cap_verdict
-
-    assert licensing.is_pro() is True
-    assert licensing.has_feature("code_search") is True
-    licensing.require("optimizer")  # never raises
-    verdict = resolve_cap_verdict(tmp_path)
-    assert verdict.dormant is False
-    assert cap_exhausted(tmp_path) is False
+    assert feature_access.is_pro() is True
+    assert feature_access.has_feature("code_search") is True
+    feature_access.require("optimizer")
 
 
 def test_local_identity_works_offline(_no_network: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
     monkeypatch.setenv("LEMONCROW_TELEMETRY_ID_PATH", str(tmp_path / "telemetry_id"))
 
-    from lemoncrow.core.capabilities.licensing import store
     from lemoncrow.core.foundation.identity import get_anon_id, reset_anon_id
     from lemoncrow.core.foundation.legacy_migration import run_startup_migrations
 
     anon = get_anon_id()
     assert anon and anon == get_anon_id()  # stable, local
     assert reset_anon_id() != anon  # resettable
-    assert len(store.load_or_create_device_id()) >= 4  # random-local, no network
     run_startup_migrations(tmp_path)  # migration is offline
 
 

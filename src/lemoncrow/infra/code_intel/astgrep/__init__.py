@@ -1,39 +1,16 @@
-"""Ast-grep structural search helpers for the existing `code` MCP surface."""
+"""The main package's ast-grep: managed bootstrap on top of :mod:`lemoncrow_client.kit.astgrep`."""
 
-from lemoncrow.infra.code_intel.astgrep.adapter import (
-    AstGrepAdapter,
-    AstGrepToolUnavailable,
-    PatternMatch,
-    PatternRewriteResult,
-    PatternSearchResult,
-    RuleMatch,
-    RuleScanResult,
-)
+from lemoncrow.infra.code_intel.astgrep.adapter import astgrep_adapter, resolve_astgrep_binary
 from lemoncrow.infra.code_intel.astgrep.binaries import (
-    AstGrepBinaryResolution,
     ManagedAstGrepAsset,
     bootstrap_managed_astgrep,
     discover_astgrep_binary,
 )
-from lemoncrow.infra.code_intel.astgrep.rewrite import (
-    RewriteCandidate,
-    RewriteOutcome,
-    execute_rewrite,
-)
 
 __all__ = [
-    "AstGrepAdapter",
-    "AstGrepBinaryResolution",
-    "AstGrepToolUnavailable",
     "ManagedAstGrepAsset",
-    "PatternMatch",
-    "PatternRewriteResult",
-    "PatternSearchResult",
-    "RewriteCandidate",
-    "RewriteOutcome",
-    "RuleMatch",
-    "RuleScanResult",
+    "astgrep_adapter",
     "bootstrap_managed_astgrep",
     "discover_astgrep_binary",
-    "execute_rewrite",
+    "resolve_astgrep_binary",
 ]

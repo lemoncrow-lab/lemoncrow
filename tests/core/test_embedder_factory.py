@@ -102,6 +102,27 @@ def test_make_code_embedder_no_pin_stays_null_even_with_extras(monkeypatch: pyte
     make_code_embedder.cache_clear()
 
 
+def test_bge_embedder_honors_encode_batch_size(monkeypatch: pytest.MonkeyPatch) -> None:
+    from lemoncrow.infra.embeddings.bge import BgeEmbedder
+
+    captured: dict[str, object] = {}
+
+    class _FakeModel:
+        def encode(self, texts: list[str], **kwargs: object) -> list[list[float]]:
+            captured["texts"] = texts
+            captured.update(kwargs)
+            return [[1.0, 0.0] for _ in texts]
+
+    monkeypatch.setenv("LEMONCROW_BGE_ENCODE_BATCH_SIZE", "128")
+    embedder = BgeEmbedder()
+    embedder._model = _FakeModel()
+
+    assert embedder.embed(["a", "b"]) == [[1.0, 0.0], [1.0, 0.0]]
+    assert captured["batch_size"] == 128
+    assert captured["normalize_embeddings"] is True
+    assert captured["show_progress_bar"] is False
+
+
 def test_make_code_embedder_bge_requires_explicit_pin(monkeypatch: pytest.MonkeyPatch) -> None:
     """BGE is only selected via an explicit pin (LEMONCROW_CODE_EMBEDDER=bge)."""
     from lemoncrow.infra.embeddings.bge import BgeEmbedder
@@ -225,3 +246,11 @@ def test_ollama_embedder_is_unavailable_when_model_is_missing(
     embedder = OllamaEmbedder(model="nomic-embed-text")
 
     assert embedder.is_available() is False
+
+
+def test_make_code_embedder_reuses_pinned_bge_instance() -> None:
+    make_code_embedder.cache_clear()
+    first = make_code_embedder(pin="bge")
+    second = make_code_embedder(pin="bge")
+    assert first is second
+    make_code_embedder.cache_clear()

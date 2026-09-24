@@ -1,13 +1,10 @@
-"""Single-user OAuth 2.1 shim so remote MCP clients can reach LemonCrow.
+"""Standalone/local single-user OAuth 2.1 shim for ``lc mcp serve``.
 
-Hosted MCP clients — ChatGPT's custom connectors, Claude's custom connectors,
-Cursor, VS Code, Zed — all speak the same two authentication dialects:
-**no-auth** or **OAuth 2.1 with dynamic client registration (DCR)**. LemonCrow's
-streamable-HTTP transport (``mcp_http.py``) exposes shell-grade tools, so
-no-auth over a public tunnel is out of the question. This module supplies the
-smallest possible OAuth 2.1 authorization server that satisfies those clients
-while gating ``/mcp`` behind a single human secret — a *pairing code* printed
-at startup.
+This module is intentionally **not** the hosted LemonCrow authentication path.
+Hosted Remote MCP delegates authorization to Authward and validates Authward
+resource tokens. The shim remains for an operator explicitly exposing a local
+``lc mcp serve`` process to clients such as ChatGPT, Claude, Cursor, VS Code or
+Zed, where a one-human pairing-code OAuth flow is still useful.
 
 Design constraints that shape everything below:
 
@@ -31,9 +28,10 @@ Design constraints that shape everything below:
     short-lived authorization codes stay in memory only. ``--reset`` (or a
     corrupt file) starts fresh, revoking everything.
 
-Wiring: ``create_protected_mcp_app`` builds a FastAPI app that mounts the OAuth
-endpoints (all public) plus the MCP transport gated by a bearer dependency via
-``register_mcp_http(auth_dependency=...)`` — we do not modify ``mcp_http.py``.
+Wiring: ``create_protected_mcp_app`` builds the standalone FastAPI app used by
+``lc mcp serve``. It mounts the local OAuth endpoints plus the MCP transport
+gated by a bearer dependency via ``register_mcp_http(auth_dependency=...)``.
+The hosted enterprise server does not import this module.
 """
 
 from __future__ import annotations
@@ -51,7 +49,7 @@ import tempfile
 import threading
 import time
 import urllib.parse
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -59,8 +57,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from lemoncrow.core.foundation.paths import default_store_root
-from lemoncrow.gateway.adapters import mcp_server
 from lemoncrow.gateway.adapters.mcp_http import register_mcp_http
+from lemoncrow.gateway.tools.surface import SERVER_VERSION
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +75,11 @@ AUTH_CODE_TTL_SECONDS = 120.0
 # for the lockout window regardless of how fast the attacker retries.
 MAX_PAIRING_FAILURES = 5
 PAIRING_LOCKOUT_SECONDS = 60.0
+# Dynamic client registration is unauthenticated by design, and every accepted
+# registration rewrites the whole state file. Past this many, the oldest
+# registrations are dropped. Only ``authorize`` consults the registry: issued
+# tokens stay valid, and the pairing code still gates every new grant.
+MAX_DCR_CLIENTS = 256
 
 _DEFAULT_STATE_FILENAME = "oauth.json"
 
@@ -154,46 +157,56 @@ def _sha256_hex(token: str) -> str:
 
 # ── State persistence ─────────────────────────────────────────────────────────
 def default_state_path(scope: str | None = None) -> Path:
-    """Where OAuth state lives by default: ``<store_root>/chatgpt/oauth.json``,
-    or ``<store_root>/chatgpt/oauth-<scope>.json`` when ``scope`` is given.
+    """Return the canonical OAuth store under <store_root>/mcp.
 
-    ``scope`` is a hostname slug, passed by ``serve --persistent`` so two
-    projects serving different hostnames at once get separate stores: every
-    mutation flushes the whole file, so a shared one is last-writer-wins and
-    the other connector's clients/token hashes vanish mid-session.
-
-    ``<store_root>`` is ``default_store_root()`` (``~/.lemoncrow``, or
-    ``$LEMONCROW_ROOT`` when set) — the same root every other LemonCrow
-    on-disk state lives under (``sessions/``, ``mitm/``, ``settings.json``,
-    …), with ``chatgpt/`` as this feature's peer subdirectory. This used to be
-    ``$XDG_STATE_HOME/lemoncrow/chatgpt_oauth.json``; that XDG-rooted file is
-    NOT migrated (no code moves it), so anyone who paired a ChatGPT connector
-    before this change will need to re-pair once — a one-time, accepted
-    wrinkle in exchange for keeping all LemonCrow state under one root instead
-    of split across XDG directories. Parent dirs are created lazily on first
-    write.
+    A hostname scope keeps each persistent connector's registered clients and
+    token hashes isolated. Call migrate_legacy_state before opening the returned
+    path so pre-rename chatgpt/ state is moved, not regenerated.
     """
+    name = _DEFAULT_STATE_FILENAME if scope is None else f"oauth-{scope}.json"
+    return default_store_root() / "mcp" / name
+
+
+def _legacy_state_path(scope: str | None) -> Path:
     name = _DEFAULT_STATE_FILENAME if scope is None else f"oauth-{scope}.json"
     return default_store_root() / "chatgpt" / name
 
 
-def migrate_legacy_state(scope: str) -> None:
-    """One-time move of the pre-isolation shared ``chatgpt/oauth.json`` onto
-    the first per-hostname store that asks for it — without it, a connector
-    paired before the split hits ``Unknown client_id`` on its next authorize.
+def _legacy_pairing_path(scope: str | None) -> Path:
+    name = "pairing.json" if scope is None else f"pairing-{scope}.json"
+    return default_store_root() / "chatgpt" / name
 
-    Moved, never copied: two stores holding the same token hashes would let a
-    token minted for one connector authenticate against the other's server.
-    Whichever hostname serves first inherits the old pairings; any other
-    connector re-pairs once.
-    """
-    legacy = default_state_path()
-    target = default_state_path(scope)
-    if target.exists() or not legacy.exists():
+
+def _move_first_existing(candidates: list[Path], target: Path) -> None:
+    if target.exists():
         return
-    target.parent.mkdir(parents=True, exist_ok=True)
-    with contextlib.suppress(OSError):
-        os.replace(legacy, target)
+    for legacy in candidates:
+        if not legacy.exists():
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.replace(legacy, target)
+        except FileNotFoundError:
+            continue
+        return
+
+
+def migrate_legacy_state(scope: str | None = None) -> None:
+    """Atomically move pre-rename chatgpt/ OAuth and pairing state.
+
+    Scoped state wins. The older shared file is considered only when no scoped
+    file exists, preserving the historical rule that the first hostname after
+    isolation inherits a formerly shared credential store. Other I/O failures
+    are intentionally fatal: silently minting replacements would invalidate
+    credentials while pretending migration succeeded.
+    """
+    state_candidates = [_legacy_state_path(scope)]
+    pairing_candidates = [_legacy_pairing_path(scope)]
+    if scope is not None:
+        state_candidates.append(_legacy_state_path(None))
+        pairing_candidates.append(_legacy_pairing_path(None))
+    _move_first_existing(state_candidates, default_state_path(scope))
+    _move_first_existing(pairing_candidates, default_pairing_path(scope))
 
 
 def reset_state(state_path: Path) -> bool:
@@ -219,7 +232,7 @@ def default_pairing_path(scope: str | None = None) -> Path:
     code exactly like it gets its own client/token store.
     """
     name = "pairing.json" if scope is None else f"pairing-{scope}.json"
-    return default_store_root() / "chatgpt" / name
+    return default_store_root() / "mcp" / name
 
 
 def load_or_create_pairing_code(pairing_path: Path, *, rotate: bool = False) -> str:
@@ -373,6 +386,9 @@ class _OAuthStore:
             # the tag lets later invocations find and reuse it (stable ID).
             record["user_defined"] = True
         with self._lock:
+            dynamic = [cid for cid, known in self._clients.items() if not known.get("user_defined")]
+            for stale in dynamic[: max(0, len(dynamic) - MAX_DCR_CLIENTS + 1)]:
+                del self._clients[stale]
             self._clients[client_id] = record
             self._save()
         return record
@@ -428,27 +444,42 @@ class _OAuthStore:
         """Mint a fresh access+refresh pair, persisting only their hashes."""
         access_token = secrets.token_urlsafe(32)
         refresh_token = secrets.token_urlsafe(32)
+        now = time.time()
         with self._lock:
+            # Expired entries are otherwise dropped only when someone presents
+            # them, so tokens nobody presents again would accumulate forever.
+            for digest in [d for d, held in self._access_tokens.items() if now > held["expires_at"]]:
+                del self._access_tokens[digest]
             self._access_tokens[_sha256_hex(access_token)] = {
                 "client_id": client_id,
-                "expires_at": time.time() + ACCESS_TOKEN_TTL_SECONDS,
+                "expires_at": now + ACCESS_TOKEN_TTL_SECONDS,
             }
             self._refresh_tokens[_sha256_hex(refresh_token)] = {"client_id": client_id}
             self._save()
         return access_token, refresh_token
 
-    def verify_access_token(self, token: str) -> bool:
-        """Constant-work lookup by hash; drops the entry if past its TTL."""
+    def access_token_client_id(self, token: str) -> str | None:
+        """Return the durable OAuth client identity for a valid access token.
+
+        Access tokens rotate while the registered client does not.  Callers that
+        keep per-client runtime state must key it by this identity rather than by
+        the bearer value, otherwise every refresh leaks another runtime session.
+        """
         digest = _sha256_hex(token)
         with self._lock:
             record = self._access_tokens.get(digest)
             if record is None:
-                return False
+                return None
             if time.time() > record["expires_at"]:
                 del self._access_tokens[digest]
                 self._save()
-                return False
-            return True
+                return None
+            client_id = record.get("client_id")
+            return str(client_id) if isinstance(client_id, str) and client_id else None
+
+    def verify_access_token(self, token: str) -> bool:
+        """Constant-work lookup by hash; drops the entry if past its TTL."""
+        return self.access_token_client_id(token) is not None
 
     def rotate_refresh_token(self, refresh_token: str) -> tuple[str, str] | None:
         """Revoke the presented refresh token and issue a new access+refresh.
@@ -569,6 +600,8 @@ def create_protected_mcp_app(
     pairing_code: str,
     state_path: Path | None = None,
     path: str = "/mcp",
+    dispatch: Callable[[dict[str, Any], str | None, str | None, str | None], dict[str, Any] | None] | None = None,
+    tools_provider: Callable[[], list[dict[str, Any]]] | None = None,
 ) -> FastAPI:
     """Build a FastAPI app: OAuth 2.1 shim + bearer-gated MCP transport.
 
@@ -581,7 +614,7 @@ def create_protected_mcp_app(
 
     app = FastAPI(
         title="LemonCrow MCP (OAuth)",
-        version=mcp_server.SERVER_VERSION,
+        version=SERVER_VERSION,
         description="OAuth 2.1-protected streamable-HTTP MCP transport for remote MCP clients.",
     )
 
@@ -757,7 +790,13 @@ def create_protected_mcp_app(
         )
 
     # Reuse the untouched MCP transport; only /mcp is gated, discovery stays open.
-    register_mcp_http(app, path=path, auth_dependency=_require_bearer)
+    register_mcp_http(
+        app,
+        path=path,
+        auth_dependency=_require_bearer,
+        dispatch=dispatch,
+        tools_provider=tools_provider,
+    )
     return app
 
 

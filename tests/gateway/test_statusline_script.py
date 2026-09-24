@@ -64,6 +64,15 @@ def _payload() -> dict[str, object]:
     }
 
 
+def test_statusline_shows_pending_update_badge_and_hides_it_when_absent(tmp_path: Path) -> None:
+    assert "⬆" not in _run_statusline(tmp_path, _payload())
+    (tmp_path / "update_badge").write_text("9.9.9", encoding="utf-8")
+    output = _run_statusline(tmp_path, _payload())
+    assert "⬆ v9.9.9 · lc update" in output
+    (tmp_path / "update_badge").write_text("9.9.9$(touch pwned)", encoding="utf-8")
+    assert not (tmp_path / "pwned").exists()  # badge content is sanitised, never executed
+
+
 def test_statusline_prefers_fresh_mcp_sidecar_in_canonical_session_dir(tmp_path: Path) -> None:
     """The MCP server writes statusline_segment under the date+host partitioned
     session dir (sessions/YYYY/MM/DD/<host>/<id>/); the script must find it

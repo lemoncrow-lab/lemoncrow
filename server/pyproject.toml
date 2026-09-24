@@ -1,0 +1,26 @@
+[project]
+name = "lemoncrow-server"
+version = "0.1.0"
+description = "Public LemonCrow local server and shared server engine"
+requires-python = ">=3.12,<3.14"
+license = { text = "Apache-2.0" }
+authors = [{ name = "LemonCrow" }]
+dependencies = [
+  "aiohttp>=3.14.1",
+  "regex>=2026.5.9",
+  "lemoncrow==0.7.4",
+  "lemoncrow-client==0.1.0",
+]
+
+[tool.uv.sources]
+lemoncrow = { path = "..", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.scripts]
+lemoncrow-server = "lemoncrow_server_core.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lemoncrow_server_core"]

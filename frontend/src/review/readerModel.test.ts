@@ -5,14 +5,20 @@ import {
   filterTargets,
   firstActionable,
   groupReaderFiles,
+  nextReviewGuideTarget,
+  orderedAttentionTargets,
   outlineSections,
   progressFromTargets,
+  reviewAttentionPath,
+  reviewScopeTone,
+  reviewStorySteps,
+  stepAttentionTarget,
   stepFile,
   stepTarget,
   targetDisplayLabel,
   targetScrollLocation,
 } from "./readerModel";
-import type { RevisionTargetDelta, ReviewOutlineItem, ReviewTarget } from "./types";
+import type { RevisionTargetDelta, ReviewOutlineItem, ReviewOverview, ReviewTarget } from "./types";
 
 function target(
   id: string,
@@ -67,6 +73,23 @@ describe("reader model", () => {
       ],
     });
     expect(targetDisplayLabel(fallback)).toBe("Uncovered changes · 2 regions");
+  });
+
+  it("uses diff semantics for scope tone instead of review state", () => {
+    expect(reviewScopeTone(target("added", "a.ts"))).toBe("added");
+    expect(reviewScopeTone(target("deleted", "d.ts", "needs_changes", {
+      spans: [{ side: "old", start_line: 12, end_line: 14, hunk_ordinal: 0 }],
+      additions: 0,
+      deletions: 3,
+    }))).toBe("deleted");
+    expect(reviewScopeTone(target("modified", "m.ts", "reviewed", {
+      spans: [
+        { side: "old", start_line: 12, end_line: 13, hunk_ordinal: 0 },
+        { side: "new", start_line: 12, end_line: 14, hunk_ordinal: 0 },
+      ],
+      additions: 3,
+      deletions: 2,
+    }))).toBe("modified");
   });
 
   it("j/k stepping is target-based and can skip reviewed work", () => {
@@ -141,6 +164,102 @@ describe("reader model", () => {
   it("selects the first outstanding judgment before settled work", () => {
     const rows = [target("a", "a.py", "reviewed"), target("b", "b.py")];
     expect(firstActionable(rows)?.target_id).toBe("b");
+  });
+
+  it("derives the next review guide target from current durable state", () => {
+    const rows = [
+      target("done", "src/done.py", "reviewed"),
+      target("returned", "src/auth.py", "unreviewed", {
+        symbol: "authorize",
+        annotation_counts: { open: 1, orphaned: 0, addressed_needs_rereview: 1 },
+      }),
+      target("later", "src/api.py", "unreviewed", { reasons: ["public API changed"] }),
+    ];
+    expect(nextReviewGuideTarget(rows)).toEqual({
+      targetId: "returned",
+      path: "src/auth.py",
+      label: "authorize",
+      reason: "1 addressed comment needs re-review",
+    });
+  });
+
+  it("uses observed target state before generic attention prose in the guide", () => {
+    expect(nextReviewGuideTarget([
+      target("changed", "src/auth.py", "changed_since_review", { reasons: ["public contract changed"] }),
+    ])?.reason).toBe("Changed since your last review");
+    expect(nextReviewGuideTarget([
+      target("failed", "src/api.py", "unreviewed", { verification: { pass: 0, fail: 2, unknown: 0 } }),
+    ])?.reason).toBe("2 verification failures");
+  });
+
+  it("orders the attention path by durable human state before ordinary unreviewed work", () => {
+    const rows = [
+      target("normal", "src/normal.py", "unreviewed", { attention_rank: 1 }),
+      target("changed", "src/changed.py", "changed_since_review", { attention_rank: 8 }),
+      target("returned", "src/returned.py", "unreviewed", {
+        attention_rank: 9,
+        annotation_counts: { open: 1, orphaned: 0, addressed_needs_rereview: 1 },
+      }),
+      target("failed", "src/failed.py", "unreviewed", {
+        attention_rank: 7,
+        verification: { pass: 0, fail: 1, unknown: 0 },
+      }),
+    ];
+
+    expect(orderedAttentionTargets(rows).map((row) => row.target_id)).toEqual([
+      "returned",
+      "changed",
+      "failed",
+      "normal",
+    ]);
+    expect(reviewAttentionPath(rows).map((row) => row.reason)).toEqual([
+      "1 addressed comment needs re-review",
+      "Changed since your last review",
+      "1 verification failure",
+      "normal review order",
+    ]);
+  });
+
+  it("keeps pure mechanical work out of the attention path but elevates explicit blockers", () => {
+    const rows = [
+      target("mechanical", "vendor.lock", "unreviewed", { attention_level: "mechanical" }),
+      target("mechanical-comment", "generated.ts", "unreviewed", {
+        attention_level: "mechanical",
+        annotation_counts: { open: 1, orphaned: 0, addressed_needs_rereview: 0 },
+      }),
+    ];
+    expect(orderedAttentionTargets(rows).map((row) => row.target_id)).toEqual(["mechanical-comment"]);
+  });
+
+  it("steps through the deterministic attention path and wraps", () => {
+    const rows = [
+      target("normal", "src/normal.py"),
+      target("changed", "src/changed.py", "changed_since_review"),
+      target("returned", "src/returned.py", "unreviewed", {
+        annotation_counts: { open: 1, orphaned: 0, addressed_needs_rereview: 1 },
+      }),
+    ];
+    expect(stepAttentionTarget(rows, "returned", 1)?.target_id).toBe("changed");
+    expect(stepAttentionTarget(rows, "normal", 1)?.target_id).toBe("returned");
+    expect(stepAttentionTarget(rows, "returned", -1)?.target_id).toBe("normal");
+  });
+
+  it("maps the deterministic change story to navigable chapter paths", () => {
+    const overview = {
+      change_story: ["Identity", "API"],
+      chapters: {
+        intent: [
+          { key: "intent:identity", label: "Identity", reason: "", rows: [{ path: "src/auth.py" }], file_count: 1, attention_count: 1, reviewed_count: 0, changed_count: 0, min_attention_rank: 1, depends_on: [] },
+          { key: "intent:api", label: "API", reason: "", rows: [{ path: "src/api.py" }], file_count: 1, attention_count: 0, reviewed_count: 0, changed_count: 0, min_attention_rank: 2, depends_on: [] },
+        ],
+        dependency: [],
+        commits: [],
+      },
+    } as unknown as ReviewOverview;
+    expect(reviewStorySteps(overview)).toEqual([
+      { label: "Identity", path: "src/auth.py" },
+      { label: "API", path: "src/api.py" },
+    ]);
   });
 
   it("restores the viewport to the surviving active target after a revision", () => {

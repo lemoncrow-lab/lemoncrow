@@ -516,6 +516,97 @@ def test_same_named_methods_in_one_file_are_named_by_their_class_not_by_an_ordin
     assert len({unit.content_fingerprint for unit in runs}) == 2
 
 
+def test_stale_index_parent_cannot_collapse_sibling_methods_onto_one_unit_key() -> None:
+    text = (
+        "class CommandRunner:\n"
+        "    def run(self):\n"
+        "        return 1\n\n"
+        "class HttpServiceRunner:\n"
+        "    def run(self):\n"
+        "        return 2\n"
+    )
+    hunk = _hunk(1, 7, ranges=((1, 7),))
+    packet = _packet(
+        files=(ChangedFile(path="runtimes.py", old_path=None, status="modified", hunks=(hunk,)),),
+        symbols=(
+            ChangedSymbol(
+                symbol_name="run",
+                qualified_name="ReviewRunner.run",
+                kind="method",
+                file_path="runtimes.py",
+                start_line=2,
+                end_line=3,
+                change="modified",
+            ),
+            ChangedSymbol(
+                symbol_name="run",
+                qualified_name="ReviewRunner.run",
+                kind="method",
+                file_path="runtimes.py",
+                start_line=6,
+                end_line=7,
+                change="modified",
+            ),
+        ),
+    )
+
+    runs = [unit for unit in derive_units(packet, {"runtimes.py": text}) if unit.symbol.endswith("run")]
+    assert [unit.symbol for unit in runs] == ["CommandRunner.run", "HttpServiceRunner.run"]
+    assert len({unit.unit_key for unit in runs}) == 2
+
+
+def test_index_bare_name_cannot_collapse_scoped_shell_assignments_onto_one_unit_key() -> None:
+    """A lossy index name must not erase scope recovered from containment.
+
+    Shell indexing can report both a module assignment and an assignment inside
+    a function as the same bare qualified name. That used to produce two
+    ``ReviewUnit`` rows with the same ``(revision_id, unit_key)`` and made a bare
+    ``lc review`` die in ``ReviewStore.add_revision``.
+    """
+
+    text = (
+        'LEMONCROW_TELEGRAPHIC="${LEMONCROW_TELEGRAPHIC:-}"\n'
+        "prompt_telegraphic_selection() {\n"
+        '    LEMONCROW_TELEGRAPHIC="lite"\n'
+        "}\n"
+    )
+    hunk = _hunk(1, 4, ranges=((1, 4),))
+    packet = _packet(
+        files=(ChangedFile(path="scripts/lib/common.sh", old_path=None, status="modified", hunks=(hunk,)),),
+        symbols=(
+            ChangedSymbol(
+                symbol_name="LEMONCROW_TELEGRAPHIC",
+                qualified_name="LEMONCROW_TELEGRAPHIC",
+                kind="variable",
+                file_path="scripts/lib/common.sh",
+                start_line=1,
+                end_line=1,
+                change="modified",
+            ),
+            ChangedSymbol(
+                symbol_name="LEMONCROW_TELEGRAPHIC",
+                qualified_name="LEMONCROW_TELEGRAPHIC",
+                kind="variable",
+                file_path="scripts/lib/common.sh",
+                start_line=3,
+                end_line=3,
+                change="modified",
+            ),
+        ),
+    )
+
+    assignments = [
+        unit
+        for unit in derive_units(packet, {"scripts/lib/common.sh": text})
+        if unit.symbol.endswith("LEMONCROW_TELEGRAPHIC")
+    ]
+    assert [unit.symbol for unit in assignments] == [
+        "LEMONCROW_TELEGRAPHIC",
+        "prompt_telegraphic_selection.LEMONCROW_TELEGRAPHIC",
+    ]
+    assert len({unit.unit_key for unit in assignments}) == 2
+
+
 def test_two_definitions_nesting_cannot_separate_still_fall_back_to_the_ordinal() -> None:
     """Containment is not always enough, and the ordinal is still the backstop.
 

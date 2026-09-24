@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -91,19 +92,43 @@ class ZoektIndexer:
         snapshot = self.ensure_snapshot()
         return int(max(0, time() - snapshot.indexed_at))
 
+    def _git_dir(self) -> Path | None:
+        marker = self.repo_root / ".git"
+        if marker.is_dir():
+            return marker
+        if marker.is_file():
+            try:
+                value = marker.read_text(encoding="utf-8").strip()
+            except OSError:
+                return None
+            if value.startswith("gitdir:"):
+                raw = value.split(":", 1)[1].strip()
+                candidate = Path(raw)
+                if not candidate.is_absolute():
+                    candidate = self.repo_root / candidate
+                return candidate.resolve()
+        return None
+
     def _snapshot_cache_path(self) -> Path:
-        return self.repo_root / ".git" / "lemoncrow" / "zoekt_snapshot.json"
+        git_dir = self._git_dir()
+        if git_dir is None:
+            return self.repo_root / ".git" / "lemoncrow" / "zoekt_snapshot.json"
+        return git_dir / "lemoncrow" / "zoekt_snapshot.json"
 
     def _current_head(self) -> str | None:
-        head_file = self.repo_root / ".git" / "HEAD"
         try:
-            ref = head_file.read_text(encoding="utf-8").strip()
-            if ref.startswith("ref: "):
-                ref_path = self.repo_root / ".git" / ref[5:]
-                return ref_path.read_text(encoding="utf-8").strip()
-            return ref
-        except OSError:
+            proc = subprocess.run(
+                ["git", "-C", str(self.repo_root), "rev-parse", "HEAD"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                check=False,
+                timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired):
             return None
+        value = proc.stdout.strip()
+        return value if proc.returncode == 0 and value else None
 
     def _load_snapshot_from_disk(self) -> ZoektIndexSnapshot | None:
         cache_path = self._snapshot_cache_path()

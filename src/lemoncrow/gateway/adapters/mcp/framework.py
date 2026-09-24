@@ -1,8 +1,8 @@
 """MCP tool framework: registry + @mcp_tool decorator + argument coercion.
 
 Shared substrate imported by every MCP tool module so all tools register into
-the same ``TOOLS`` dict. Deliberately has NO ``lemoncrow`` imports so any tool
-module (public or engine) can import it without circular-import risk.
+the same ``TOOLS`` dict. The registry state itself lives in a dependency-minimal
+gateway module so decorators and transport-independent callers share one object.
 
 Extracted verbatim from ``mcp_server.py`` (behaviour-preserving); ``mcp_server``
 re-exports these names for backward compatibility.
@@ -21,16 +21,14 @@ from typing import Any, Union, get_args, get_origin, get_type_hints
 
 from pydantic import Field, ValidationError, create_model
 
+from lemoncrow.gateway.tool_registry_state import REGISTERED_TOOLS as TOOLS
+from lemoncrow.gateway.tools.errors import ToolArgumentError as _ToolArgumentError
+
 # Advisory labels other hosts' native tool schemas train models to attach to
 # every call (e.g. Cursor's `description`/`explanation` on terminal commands).
 # Dropped before the unknown-args check when the tool has no such parameter --
 # rejecting them throws away the whole emitted call for a zero-information key.
 _HOST_METADATA_KEYS = frozenset({"description", "explanation", "reasoning", "rationale"})
-
-# Registry: tool_name -> {name, handler, description, inputSchema, param_aliases}.
-# Populated at import time by every @mcp_tool-decorated handler.
-TOOLS: dict[str, dict[str, Any]] = {}
-
 
 _COERCE_UNCHANGED: Any = object()
 
@@ -159,15 +157,6 @@ def _slim_schema(node: Any) -> Any:
     if isinstance(node, list):
         return [_slim_schema(item) for item in node]
     return node
-
-
-class _ToolArgumentError(ValueError):
-    """Malformed tool arguments (pre-dispatch or handler argument-shape checks).
-
-    Split marker for the dispatcher: a params-shape fault maps to a JSON-RPC
-    -32602 protocol error, while any other handler-raised execution failure is
-    returned as a successful response whose result carries ``isError: true``.
-    """
 
 
 def mcp_tool(
@@ -329,3 +318,6 @@ def mcp_tool(
         return handler_wrapper
 
     return decorator
+
+
+__all__ = ["TOOLS", "_ToolArgumentError", "mcp_tool"]

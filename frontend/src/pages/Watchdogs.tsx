@@ -90,26 +90,20 @@ export default function Watchdogs() {
   };
 
   return (
-    <div className="space-y-6">
-      <SectionHeader
-        title="Watchdogs"
-        description="Active execution pathology guards (loops, thrashing, repeated failures)."
-        action={
-          <div className="flex items-center gap-3">
-            <span className="text-[10px] font-bold text-amber-300 border border-amber-500/30 px-1.5 py-0.5">
-              DEV
-            </span>
-            <button
-              type="button"
-              disabled={!isDirty || saveState === "saving"}
-              className="border border-brand-500/60 px-4 py-1 font-mono text-xs uppercase tracking-widest text-brand-400 hover:bg-brand-500/10 disabled:opacity-30"
-              onClick={persistConfig}
-            >
-              {saveState === "saving" ? "Saving..." : "Save Configuration"}
-            </button>
-          </div>
-        }
-      />
+    <div className="space-y-4">
+      <div className="flex items-center justify-end gap-2">
+        <span className="border border-amber-500/30 px-1.5 py-0.5 text-[10px] font-bold text-amber-300">
+          DEV
+        </span>
+        <button
+          type="button"
+          disabled={!isDirty || saveState === "saving"}
+          className="border border-brand-500/60 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-brand-400 hover:bg-brand-500/10 disabled:opacity-30"
+          onClick={persistConfig}
+        >
+          {saveState === "saving" ? "Saving..." : "Save"}
+        </button>
+      </div>
 
       {error && <div className="text-sm text-red-300">{error}</div>}
 

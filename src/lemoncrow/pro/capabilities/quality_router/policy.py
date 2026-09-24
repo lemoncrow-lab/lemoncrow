@@ -59,6 +59,25 @@ def evidence_confidence(evidence_summary: EvidenceSummary | None) -> float:
     return min(max(confidence, 0.0), 1.0)
 
 
+def evidence_status(evidence_summary: EvidenceSummary | None) -> str:
+    """Return the retrieval evidence status when supplied by CodeContext."""
+
+    if not evidence_summary:
+        return ""
+    raw = evidence_summary.get("retrieval_status", "")
+    return str(raw) if raw is not None else ""
+
+
+def evidence_quality_can_escalate(evidence_summary: EvidenceSummary | None) -> bool:
+    """Whether weak retrieval evidence may justify a more expensive model.
+
+    A dark or absent repository signal is a retrieval problem, not evidence that
+    a stronger model will help. Other risk/escalation rules remain independent.
+    """
+
+    return evidence_status(evidence_summary) not in {"dark", "absent"}
+
+
 def evidence_refs(evidence_summary: EvidenceSummary | None) -> list[str]:
     """Extract observable evidence references from a provider-neutral summary."""
 
@@ -129,7 +148,9 @@ def select_tier(
         return "premium", "protected_file"
     if high_risk:
         return "premium", "high_risk"
-    if confidence <= config.thresholds.premium_evidence_confidence_max:
+    if confidence <= config.thresholds.premium_evidence_confidence_max and evidence_quality_can_escalate(
+        evidence_summary
+    ):
         return "premium", "low_evidence_confidence"
     if context_ratio >= config.thresholds.premium_context_ratio_min:
         return "premium", "context_pressure"
@@ -189,6 +210,9 @@ def draft_route_decision(
     reason_parts = [f"risk={request.risk_level}", f"task={request.task_type}", f"tier={tier}"]
     if domain:
         reason_parts.append(f"domain={domain}")
+    retrieval_status = evidence_status(evidence_summary)
+    if retrieval_status:
+        reason_parts.append(f"retrieval={retrieval_status}")
     if protected_file_match:
         reason_parts.append("protected_file_match=true")
     if escalation_trigger:
@@ -215,7 +239,9 @@ __all__ = [
     "EvidenceSummary",
     "draft_route_decision",
     "evidence_confidence",
+    "evidence_quality_can_escalate",
     "evidence_refs",
+    "evidence_status",
     "has_protected_file_match",
     "is_high_risk_domain",
     "required_verifiers",

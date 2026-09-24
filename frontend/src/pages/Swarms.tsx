@@ -16,6 +16,7 @@ import {
   DisclosureCard,
   FieldLabel,
   Input,
+  PageFrame,
   Select,
   SnippetCard,
   cx,
@@ -486,13 +487,8 @@ export default function Swarms() {
   };
 
   return (
-    <div className="space-y-5 px-6 py-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="pl-2 text-xl font-semibold text-neutral-100">
-            Swarms
-          </h1>
-        </div>
+    <PageFrame className="space-y-4">
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <div className="flex items-center gap-2">
           <Button
             variant="ghost"
@@ -1054,7 +1050,7 @@ export default function Swarms() {
                       {detail.export.accepted_commits.map((commit) => (
                         <div
                           key={`${commit.child_id}-${commit.order}`}
-                          className="rounded-2xl border border-white/10 bg-white/[0.03] p-3"
+                          className="rounded-sm border border-neutral-800 bg-neutral-950/40 p-3"
                         >
                           <div className="flex items-center justify-between gap-3">
                             <span className="font-medium text-neutral-100">
@@ -1123,7 +1119,7 @@ export default function Swarms() {
                     </Select>
                   </div>
 
-                  <pre className="max-h-[28rem] overflow-auto rounded-2xl border border-white/10 bg-neutral-950/80 p-4 text-xs leading-6 text-neutral-100">
+                  <pre className="max-h-[28rem] overflow-auto rounded-sm border border-neutral-800 bg-neutral-950/80 p-4 text-xs leading-6 text-neutral-100">
                     {logs || "No logs captured yet for this run."}
                   </pre>
                 </Card>
@@ -1160,8 +1156,8 @@ export default function Swarms() {
           </div>
         }
       >
-        <WorkflowSection />
+        <WorkflowSection projectRoot={selectedProjectRoot || undefined} />
       </DisclosureCard>
-    </div>
+    </PageFrame>
   );
 }

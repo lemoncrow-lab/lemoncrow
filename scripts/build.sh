@@ -68,7 +68,18 @@ trap cleanup_build_stage EXIT INT TERM
 
 cp -a pyproject.toml hatch_build.py README.md LICENSE LICENSE-APACHE NOTICE "$BUILD_STAGE/"
 [[ -f uv.lock ]] && cp -a uv.lock "$BUILD_STAGE/"
-cp -a src integrations "$BUILD_STAGE/"
+mkdir -p "$BUILD_STAGE/src/lemoncrow"
+cp -a \
+    src/lemoncrow/__init__.py \
+    src/lemoncrow/py.typed \
+    src/lemoncrow/bench \
+    src/lemoncrow/core \
+    src/lemoncrow/gateway \
+    src/lemoncrow/infra \
+    src/lemoncrow/pro \
+    src/lemoncrow/sdk \
+    "$BUILD_STAGE/src/lemoncrow/"
+cp -a integrations "$BUILD_STAGE/"
 if [[ -d vendor ]]; then
     mkdir -p "$BUILD_STAGE/vendor"
     cp -a vendor/babel-stub vendor/babel-99.0.0-py3-none-any.whl "$BUILD_STAGE/vendor/"
@@ -100,20 +111,22 @@ cp "$WHEEL_PATH" bundle/bin/
 # 5. Include distribution scripts
 echo "◆ Including distribution scripts..."
 cp -f scripts/install.sh bundle/scripts/install.sh
+cp -f scripts/hosted.sh bundle/scripts/hosted.sh
+cp -f scripts/local_server.sh bundle/scripts/local_server.sh
+cp -f scripts/cleanup_legacy_runtime.sh bundle/scripts/cleanup_legacy_runtime.sh
 cp -f scripts/sessions.sh bundle/scripts/sessions.sh
 cp -f scripts/bundle.sh bundle/scripts/bundle.sh
 cp -f scripts/uninstall.sh bundle/scripts/uninstall.sh
 
-# Export the locked dependency set as a constraints file. The bundle ships a
-# prebuilt wheel (no uv.lock / source), so on a cold end-user machine
-# `uv tool install` would otherwise resolve ~293 unbounded `>=` deps from PyPI
-# — the "stuck resolving packages" hang. bundle.sh passes this file via
-# `uv tool install -c` to pin every transitive dep to its locked version, so
-# resolution is deterministic with no version search. The markers uv emits make
-# a single file valid across every release platform.
+# Export the locked registry dependency set as a constraints file. The bundle
+# ships a prebuilt wheel (no uv.lock / source), so on a cold end-user machine
+# `uv tool install` would otherwise resolve ~293 unbounded `>=` deps from PyPI.
+# Local/workspace dependencies are deliberately omitted here: constraints must
+# contain named registry requirements only. Their wheels are staged in
+# bundle/vendor below and supplied to uv via --find-links at install time.
 if [ -f "uv.lock" ]; then
     echo "◆ Exporting dependency constraints (uv export)..."
-    uv export --frozen --no-emit-project --no-hashes \
+    uv export --frozen --no-emit-project --no-emit-local --no-hashes \
         --extra mcp \
         --extra memory \
         --extra smart \
@@ -127,17 +140,27 @@ if [ -f "uv.lock" ]; then
         -o bundle/constraints.txt \
         >/dev/null \
         || echo "  (constraints export skipped; install will resolve from PyPI)"
-
-    # uv export emits local-path deps (the babel stub) as a bare, unnamed,
-    # build-machine-relative path -- `uv tool install -c` rejects unnamed
-    # constraint entries outright. Ship the wheel alongside the bundle;
-    # bundle.sh rewrites the constraint line to a named, absolute file:// URL
-    # pointing at it at install time (the path isn't known until then).
-    if [ -f "bundle/constraints.txt" ] && grep -q "vendor/babel-" bundle/constraints.txt; then
-        mkdir -p bundle/vendor
-        cp vendor/babel-*.whl bundle/vendor/
-    fi
 fi
+
+# The main wheel has publishable metadata that depends on the public thin
+# client, while this monorepo resolves that dependency from the uv workspace.
+# Production bundles therefore need the client as a real wheel, not `-e
+# ./client` in constraints (uv correctly rejects unnamed/local constraints).
+# Babel is another local wheel override. Keep all local artifacts together so
+# every installer can discover them through one --find-links directory.
+echo "◆ Staging local dependency wheels..."
+mkdir -p bundle/vendor
+uv build --wheel --package lemoncrow-client --out-dir bundle/vendor >/dev/null
+cp vendor/babel-*.whl bundle/vendor/
+
+# The public loopback server is part of every distribution. Hosted installs do
+# not install this wheel, but the release artifact must always be capable of a
+# complete local install without reaching into the private enterprise tree.
+echo "◆ Staging public LemonCrow server wheel..."
+[[ -f server/pyproject.toml ]] \
+    || { echo "✗ server/pyproject.toml is missing — cannot build the local server" >&2; exit 1; }
+mkdir -p bundle/server
+uv build --wheel server --out-dir bundle/server >/dev/null
 
 # Bundle all host integration scripts so install.sh can run them after binary install.
 echo "◆ Bundling host integration scripts..."

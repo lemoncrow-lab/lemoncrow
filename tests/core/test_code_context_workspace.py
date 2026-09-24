@@ -85,8 +85,8 @@ def test_workspace_router_unions_search_results_and_allows_repo_filter(tmp_path:
     merged = router.route("search", query="SharedConfig", limit=5)
     filtered = router.route("search", query="SharedConfig", repo="billing", limit=5)
 
-    assert [item["file_path"] for item in merged["items"]] == ["src/local.py", "src/billing.py"]
-    assert [item["file_path"] for item in filtered["items"]] == ["src/billing.py"]
+    assert [item["file_path"] for item in merged["items"]] == ["src/local.py", "billing/src/billing.py"]
+    assert [item["file_path"] for item in filtered["items"]] == ["billing/src/billing.py"]
     # Multi-repo search runs engine calls concurrently via ThreadPoolExecutor,
     # so call ordering is non-deterministic.  Verify the set of operations
     # instead of exact sequence.
@@ -194,3 +194,51 @@ def test_workspace_router_symbol_defaults_to_first_repo_and_respects_repo_filter
     assert default_symbol["qualified_name"] == "lemoncrow.SharedConfig"
     assert billing_symbol["repo_name"] == "billing"
     assert billing_symbol["qualified_name"] == "billing.SharedConfig"
+    assert billing_symbol["file_path"] == "billing/src/config.py"
+
+
+def test_workspace_router_explore_fans_out_and_rebases_paths_and_seeds(tmp_path: Path) -> None:
+    _write_workspace_config(tmp_path)
+    billing_root = (tmp_path / "billing").resolve()
+    calls: list[tuple[Path, list[str] | None]] = []
+
+    class FakeEngine:
+        def __init__(self, repo_root: Path) -> None:
+            self.repo_root = repo_root
+
+        def tool_explore(self, query: str, *, seed_files: list[str] | None = None, **_: object) -> dict[str, object]:
+            calls.append((self.repo_root, seed_files))
+            if self.repo_root == billing_root:
+                return {
+                    "exact_match": True,
+                    "entry_points": [
+                        {"path": "src/billing.py", "qualified_name": "billing.SharedConfig", "score": 9.0}
+                    ],
+                    "files": [{"path": "src/billing.py", "source_sections": []}],
+                    "additional_relevant_files": ["src/models.py"],
+                }
+            return {
+                "exact_match": False,
+                "entry_points": [{"path": "src/local.py", "qualified_name": "local.SharedConfig", "score": 4.0}],
+                "files": [{"path": "src/local.py", "source_sections": []}],
+            }
+
+    router = WorkspaceCodeRouter(
+        repo_root=tmp_path,
+        engine_factory=lambda repo_root: FakeEngine(Path(repo_root).resolve()),
+    )
+
+    result = router.route(
+        "explore",
+        query="SharedConfig",
+        seed_files=["billing/src/billing.py"],
+        max_files=6,
+    )
+
+    assert result["exact_match"] is True
+    assert [item["path"] for item in result["entry_points"]] == ["src/local.py", "billing/src/billing.py"]
+    assert [item["repo_name"] for item in result["entry_points"]] == ["lemoncrow", "billing"]
+    assert [item["path"] for item in result["files"]] == ["src/local.py", "billing/src/billing.py"]
+    assert result["additional_relevant_files"] == ["billing/src/models.py"]
+    assert (tmp_path.resolve(), None) in calls
+    assert (billing_root, ["src/billing.py"]) in calls

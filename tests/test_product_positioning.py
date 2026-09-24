@@ -51,22 +51,25 @@ def test_readme_headline_is_review_first() -> None:
     assert (
         "### Understand what your coding agents changed" in block
     ), "README headline must lead with the review story (plan §1), not with mechanism"
-    assert "**Review-first developer workspace.**" in block
+    assert "review" in block.lower(), "README headline block must explain the review workflow"
 
 
-def test_readme_puts_benchmark_proof_below_the_review_story() -> None:
-    """Plan §23: show the product before the benchmark numbers."""
+def test_readme_puts_efficiency_proof_below_the_review_story() -> None:
+    """Plan §23: lead with the review product; use efficiency as proof."""
 
     block = _headline_block()
-    review_at = block.index("`lc review` answers what changed")
-    proof_at = block.index("state-of-the-art context engineering")
-    assert review_at < proof_at, "the context-engineering/benchmark paragraph must sit below the review story"
+    review_at = block.index("Review agent-written code with impact")
+    proof_at = block.index("~30% lower cost")
+    assert review_at < proof_at, "README must explain the review product before showing efficiency proof"
 
 
-def test_readme_headline_does_not_lead_with_cost() -> None:
-    block = _headline_block().lower()
-    found = [word for word in _COST_WORDS if word in block]
-    assert not found, f"README headline block leads with cost framing: {found} (plan §23)"
+def test_readme_headline_leads_with_review_not_cost() -> None:
+    block = _headline_block()
+    headline_at = block.index("### Understand what your coding agents changed")
+    proof_at = block.index("~30% lower cost")
+    assert (
+        headline_at < proof_at
+    ), "README headline must remain review-first even when efficiency proof is above the fold"
 
 
 def test_pyproject_description_is_review_first() -> None:

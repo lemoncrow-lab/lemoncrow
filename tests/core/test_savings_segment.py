@@ -13,10 +13,6 @@ def lemoncrow_root(tmp_path: Path) -> Path:
     root.mkdir()
     (root / "runs").mkdir()
     (root / "reviews").mkdir()
-    # Suppress the "login" status tip so status_text is empty in tests.
-    (root / "auth.json").write_text(json.dumps({"authenticated": True}))
-    # Signed-in: keeps the login-nudge frame out of the default frame set.
-    (root / "auth_token").write_text("test-token")
     # Suppress status tips so no extra frame is injected.
     (root / "plugin_settings.json").write_text(json.dumps({"lemoncrow": {"statusLineTips": False}}))
     return root
@@ -344,48 +340,15 @@ def test_savings_frames_weighted_and_segment_consistent(lemoncrow_root: Path) ->
         assert seg in frames, f"counter={i}: {seg!r} not in frames"
 
 
-def test_login_frame_only_for_unauthenticated(lemoncrow_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Free/unauthenticated users get a rotating '/lemoncrow account login' frame; a
-    signed-in user (auth_token present) does not."""
-    from lemoncrow.core.capabilities.savings_summary import savings_frames
+def test_savings_frames_never_include_account_or_login_nudges(lemoncrow_root: Path) -> None:
+    from lemoncrow.core.capabilities.savings_summary import dynamic_status_lines, savings_frames
 
-    monkeypatch.delenv("LEMONCROW_AUTH_TOKEN", raising=False)
     kw = {"live_in_tok": 10_000, "live_cache_tok": 50_000}
-
-    # Signed in (fixture wrote auth_token): no login frame.
     frames = savings_frames("", lemoncrow_root=lemoncrow_root, no_color=True, **kw)  # type: ignore[arg-type]
-    assert not any("/lemoncrow account login" in f for f in frames)
-
-    # Free: remove the token -> login frame appears exactly once.
-    (lemoncrow_root / "auth_token").unlink()
-    frames = savings_frames("", lemoncrow_root=lemoncrow_root, no_color=True, **kw)  # type: ignore[arg-type]
-    login = [f for f in frames if "/lemoncrow account login" in f]
-    assert len(login) == 1, f"expected one login frame, got {login!r}"
-    assert "not signed in" in login[0]
-
-    # Env token also counts as signed in.
-    monkeypatch.setenv("LEMONCROW_AUTH_TOKEN", "env-token")
-    frames = savings_frames("", lemoncrow_root=lemoncrow_root, no_color=True, **kw)  # type: ignore[arg-type]
-    assert not any("/lemoncrow account login" in f for f in frames)
-
-
-def test_dynamic_status_lines_excludes_frame0_and_strips_separators(
-    lemoncrow_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Plain-text dynamic messages omit the live cost/savings headline."""
-    from lemoncrow.core.capabilities.savings_summary import dynamic_status_lines
-
-    monkeypatch.delenv("LEMONCROW_AUTH_TOKEN", raising=False)
-
-    # Signed in (fixture wrote auth_token): no login nudge, no frame-0 leak.
     lines = dynamic_status_lines("", lemoncrow_root=lemoncrow_root)
-    assert not any("/lemoncrow account login" in line for line in lines)
+    assert not any("account login" in frame.lower() or "unlock pro" in frame.lower() for frame in frames)
+    assert not any("account login" in line.lower() or "unlock pro" in line.lower() for line in lines)
     assert not any("$0.00(I:" in line for line in lines)
-
-    # Free: login nudge appears exactly once, as bare text (no "|", no ANSI).
-    (lemoncrow_root / "auth_token").unlink()
-    lines = dynamic_status_lines("", lemoncrow_root=lemoncrow_root)
-    assert lines.count("not signed in -- /lemoncrow account login to unlock Pro") == 1
     assert all("|" not in line and "\033" not in line for line in lines)
 
 

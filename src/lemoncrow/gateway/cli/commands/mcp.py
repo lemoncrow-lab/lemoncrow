@@ -21,9 +21,13 @@ _BENCHMARK_REQUIRED_TOOLS = frozenset({"read", "edit", "code_search", "bash"})
 
 def probe_stdio_server(*, host: str = "claude", timeout: float = 30.0) -> dict[str, Any]:
     """Start the configured LemonCrow stdio command and verify its core MCP surface."""
-    executable = shutil.which("lemoncrow")
+    # Source/local installs expose the supported short command (`lc`) through
+    # ~/.local/bin, while the underlying `lemoncrow` executable can live only
+    # inside uv's private tool directory.  Accept either entry point so the
+    # diagnostic probes the same CLI the user can actually invoke.
+    executable = shutil.which("lemoncrow") or shutil.which("lc")
     if executable is None:
-        return {"ok": False, "error": "lemoncrow executable not found on PATH", "tools": []}
+        return {"ok": False, "error": "LemonCrow CLI executable not found on PATH", "tools": []}
     requests = "\n".join(
         [
             json.dumps(
@@ -40,14 +44,39 @@ def probe_stdio_server(*, host: str = "claude", timeout: float = 30.0) -> dict[s
             ),
             json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}),
             json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}),
+            # ``tools/list`` is intentionally available while the thin client is
+            # degraded, so it cannot prove the configured LemonCrow server is
+            # reachable. Exercise one real server-side tool as part of the
+            # preflight; a healthy empty result is fine, a degraded/refused
+            # result is not.
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 3,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "code_search",
+                        "arguments": {"query": "LemonCrow MCP preflight", "limit": 1},
+                    },
+                }
+            ),
         ]
     )
+    # A health/preflight check is allowed to wait for a cold server-side view
+    # bootstrap. The ordinary thin client deliberately fails open quickly, but
+    # using that interactive startup budget here would turn a slow first sync
+    # into a false "server_unreachable" diagnostic. Respect explicit operator
+    # overrides while giving diagnostics a bounded cold-start budget by default.
+    probe_env = dict(os.environ)
+    probe_env.setdefault("LEMONCROW_STARTUP_BUDGET_S", str(timeout))
+    probe_env.setdefault("LEMONCROW_REQUEST_TIMEOUT_S", str(timeout))
     try:
         completed = subprocess.run(
             [executable, "mcp", "--host", host],
             input=requests + "\n",
             capture_output=True,
             text=True,
+            env=probe_env,
             timeout=timeout,
             check=False,
         )
@@ -59,18 +88,31 @@ def probe_stdio_server(*, host: str = "claude", timeout: float = 30.0) -> dict[s
     try:
         responses = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
         by_id = {response.get("id"): response for response in responses if isinstance(response, dict)}
-        server_name = by_id[1]["result"]["serverInfo"]["name"]
+        initialize_result = by_id[1]["result"]
+        server_name = initialize_result["serverInfo"]["name"]
+        instructions = str(initialize_result.get("instructions") or "")
         tools = sorted(tool["name"] for tool in by_id[2]["result"]["tools"])
+        probe_result = by_id[3].get("result", {})
+        probe_error = by_id[3].get("error")
     except (KeyError, TypeError, json.JSONDecodeError) as exc:
         return {"ok": False, "error": f"invalid MCP handshake response: {exc}", "tools": []}
+    from lemoncrow_client.mcpserver import SERVER_NAME as expected_server_name
+
     missing = sorted(_BENCHMARK_REQUIRED_TOOLS - set(tools))
-    if server_name != "lemoncrow" or missing:
+    if server_name != expected_server_name or missing:
         detail = (
             f"unexpected server {server_name!r}"
-            if server_name != "lemoncrow"
+            if server_name != expected_server_name
             else f"missing tools: {', '.join(missing)}"
         )
         return {"ok": False, "error": detail, "tools": tools}
+    if "server-side tools unavailable" in instructions:
+        return {"ok": False, "error": instructions, "tools": tools}
+    if probe_error:
+        return {"ok": False, "error": f"server-side code_search probe failed: {probe_error}", "tools": tools}
+    if not isinstance(probe_result, dict) or bool(probe_result.get("isError")):
+        probe_detail: object = probe_result.get("content") if isinstance(probe_result, dict) else probe_result
+        return {"ok": False, "error": f"server-side code_search probe failed: {probe_detail}", "tools": tools}
     return {"ok": True, "server": server_name, "tools": tools}
 
 
@@ -191,20 +233,6 @@ def _pid_is_running(pid: int) -> bool:
     return mcp_pid_is_live(pid)
 
 
-def _probe_live_sessions(reg: dict[str, Any]) -> int | None:
-    """Best-effort live-session count for a daemon via its /healthz route."""
-    try:
-        from lemoncrow.gateway.adapters.mcp_daemon import _HEALTHZ_PATH, _UDS_BASE_URL, daemon_client
-
-        with daemon_client(reg, timeout=1.0) as client:
-            resp = client.get(_UDS_BASE_URL + _HEALTHZ_PATH)
-        if resp.status_code == 200:
-            return int(resp.json().get("live_sessions", 0))
-    except Exception:
-        return None
-    return None
-
-
 def active_mcp_sessions(root: Path) -> list[dict[str, Any]]:
     """Live LemonCrow MCP server registrations (PID-checked), oldest first.
 
@@ -250,7 +278,7 @@ def active_mcp_sessions(root: Path) -> list[dict[str, Any]]:
 def mcp_group(ctx: click.Context, root: Path | None, host: str | None) -> None:
     """Start the LemonCrow MCP server, or inspect MCP diagnostics.
 
-    With no subcommand: starts the stdio MCP server (what a local agent spawns).
+    With no subcommand: runs the short-lived thin-client stdio MCP server.
     Use ``lc mcp serve`` to publish the same tools at a public https URL that
     any remote MCP client — ChatGPT, Claude, Cursor, VS Code — can connect to.
     Use ``lc mcp stats`` to view latency analytics.
@@ -262,34 +290,19 @@ def mcp_group(ctx: click.Context, root: Path | None, host: str | None) -> None:
         os.environ["LEMONCROW_ROOT"] = str(root)
     if host is not None:
         os.environ["LEMONCROW_AGENT"] = host
-    from lemoncrow.gateway.adapters.mcp_bridge import run_bridge, singleton_enabled
-
-    if singleton_enabled():
-        # Singleton mode: this process becomes a thin stdio<->HTTP proxy to the
-        # shared per-workspace daemon instead of a full heavy stdio server.
-        run_bridge(os.environ.get("LEMONCROW_ROOT"))
-        return
-    from lemoncrow.gateway.adapters.mcp_server import main as _mcp_main
-
-    _mcp_main()
-
-
-@mcp_group.command("daemon", hidden=True)
-@click.option("--workspace", required=True, help="Absolute workspace root this daemon serves.")
-@click.option(
-    "--idle-grace-seconds",
-    type=float,
-    default=600.0,
-    show_default=True,
-    help="Self-shutdown after this many seconds with no tool traffic (0 disables).",
-)
-@click.pass_context
-def mcp_daemon(ctx: click.Context, workspace: str, idle_grace_seconds: float) -> None:
-    """Run the per-workspace singleton MCP daemon (internal; spawned by the bridge)."""
-    root: Path = ctx.obj["root"]
-    from lemoncrow.gateway.adapters.mcp_daemon import run_daemon
-
-    run_daemon(str(Path(workspace).resolve()), root, idle_grace_seconds=idle_grace_seconds)
+    # ``lc mcp`` is now only the compatibility entrypoint for the dependency-free
+    # thin client.  There is deliberately no local-index/server fallback here:
+    # local means the same client talking to a separately running loopback
+    # LemonCrow server, and hosted means the URL points at the remote server.
+    if root is not None:
+        os.environ["LEMONCROW_HOME"] = str(root)
+    try:
+        from lemoncrow_client.mcpserver import serve as serve_thin_client
+    except ImportError as exc:  # pragma: no cover - packaging contract catches this
+        raise click.ClickException(
+            "lemoncrow-client is required by lc mcp; reinstall LemonCrow so the thin-client dependency is present"
+        ) from exc
+    raise SystemExit(serve_thin_client())
 
 
 @mcp_group.command("check")
@@ -307,59 +320,6 @@ def mcp_check(ctx: click.Context, as_json: bool, timeout: float) -> None:
         click.echo(f"MCP ready: {result['server']} ({len(result['tools'])} tools)")
     if not result["ok"]:
         raise click.ClickException(str(result["error"]))
-
-
-# Subcommands whose argv also says "mcp" but which are not a per-session
-# bridge: the daemon itself, the remote server, and the diagnostics verbs
-# (including the very `lc mcp list` running this scan).
-_NON_BRIDGE_MCP_ARGS = ("daemon", "daemons", "serve", "service", "list", "stats", "check", "client", "debug")
-
-
-def _bridge_processes() -> list[dict[str, Any]]:
-    """The per-agent-session ``lc mcp`` processes attached to the daemons.
-
-    In singleton mode these are thin stdio<->UDS proxies that deliberately
-    write no registration file (only the daemon behind them does), so they are
-    invisible to every registry -- yet they are exactly what a host like Claude
-    launches per session. Enumerated from the process table instead: one ``ps``
-    call, with the workspace read from ``/proc/<pid>/cwd`` where available.
-    """
-    result = subprocess.run(["ps", "-eo", "pid=,etimes=,args="], check=False, capture_output=True, text=True)
-    bridges: list[dict[str, Any]] = []
-    for line in result.stdout.splitlines():
-        parts = line.split(maxsplit=2)
-        if len(parts) < 3 or not parts[0].isdigit():
-            continue
-        pid, etimes, args = int(parts[0]), parts[1], parts[2]
-        if pid == os.getpid():
-            continue
-        words = args.split()
-        if "mcp" not in words:
-            continue
-        if not any("lemoncrow" in word or word.endswith("/lc") or word == "lc" for word in words):
-            continue
-        after = words[words.index("mcp") + 1 :]
-        if any(word in _NON_BRIDGE_MCP_ARGS for word in after):
-            continue
-        host = ""
-        for index, word in enumerate(after):
-            if word == "--host" and index + 1 < len(after):
-                host = after[index + 1]
-            elif word.startswith("--host="):
-                host = word.split("=", 1)[1]
-        try:
-            workspace = os.readlink(f"/proc/{pid}/cwd")
-        except OSError:
-            workspace = ""
-        bridges.append(
-            {
-                "pid": pid,
-                "host": host,
-                "workspace": workspace,
-                "age_seconds": float(etimes) if etimes.isdigit() else 0.0,
-            }
-        )
-    return sorted(bridges, key=lambda row: -float(row["age_seconds"]))
 
 
 def _cpu_ticks(pid: int) -> float | None:
@@ -446,54 +406,28 @@ def _proc_stats(pids: list[int]) -> dict[int, tuple[float, float]]:
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def mcp_list(ctx: click.Context, as_json: bool) -> None:
-    """List every LemonCrow MCP server on this machine, by kind.
+    """List managed/public MCP servers still running on this machine.
 
-    Three different things answer to "MCP server" here, and only the first is
-    something you manage:
-
-    \b
-      remote  always-on public https server (`serve --persistent`), supervised
-              by systemd/launchd — drive it with `lc mcp service`
-      daemon  shared per-workspace singleton every local agent bridges into;
-              starts on demand, self-reaps when idle (detail: `lc mcp daemons`)
-      stdio   one host session's own server/bridge process; lives and dies
-              with the agent that spawned it
+    ``lc mcp`` itself is a short-lived stdio thin client and intentionally has
+    no daemon registry to inspect. Persistent/public ``lc mcp serve`` services
+    remain visible here because they are explicitly managed server processes.
     """
     root: Path = ctx.obj["root"]
     from dataclasses import asdict
 
     from lemoncrow.gateway.adapters.mcp.session_state import prune_stale_mcp_sessions
-    from lemoncrow.gateway.adapters.mcp_daemon import list_daemons, prune_stale_daemons
     from lemoncrow.gateway.cli.commands._mcp_service import describe_services
 
-    # Reclaim the registry before reading it, rather than filtering dead
-    # entries out of this one view and leaving them on disk for every other
-    # reader (code-warm discovery, the controller, the next `list`).
-    pruned = prune_stale_mcp_sessions(root) + prune_stale_daemons(root)
+    pruned = prune_stale_mcp_sessions(root)
     registered = active_mcp_sessions(root)
     remote = describe_services()
-    daemons = list_daemons(root)
-    for daemon in daemons:
-        daemon["live_sessions"] = _probe_live_sessions(daemon)
-        daemon.pop("token", None)  # never surface the bearer token
-    # A singleton daemon *is* the MCP server, so it also writes a session
-    # registration; showing that row twice would imply two processes. What is
-    # left after removing them is the legacy one-server-per-session mode
-    # (LEMONCROW_MCP_SINGLETON=0). The agents attached to a daemon are thin
-    # bridges that register nothing — they are the `sessions=N` on its row.
-    daemon_pids = {int(d["pid"]) for d in daemons if str(d.get("pid", "")).isdigit()}
-    sessions = [s for s in registered if not (str(s.get("pid", "")).isdigit() and int(s["pid"]) in daemon_pids)]
-    bridges = [row for row in _bridge_processes() if int(row["pid"]) not in daemon_pids]
 
     if as_json:
         _emit(
             {
-                "count": len(registered) + len(remote) + len(daemons) + len(bridges),
+                "count": len(registered) + len(remote),
                 "remote_servers": [asdict(service) for service in remote],
-                "daemons": daemons,
-                "bridges": bridges,
                 "servers": registered,
-                "stdio_servers": sessions,
             },
             as_json=True,
         )
@@ -507,202 +441,41 @@ def mcp_list(ctx: click.Context, as_json: bool) -> None:
 
     stats = _proc_stats(
         [service.pid for service in remote if service.pid]
-        + [
-            int(str(entry.get("pid")))
-            for entry in (*daemons, *sessions, *bridges)
-            if str(entry.get("pid", "")).isdigit()
-        ]
+        + [int(str(entry.get("pid"))) for entry in registered if str(entry.get("pid", "")).isdigit()]
     )
 
-    def _as_pid(pid: object) -> int | None:
-        text = str(pid or "")
-        return int(text) if text.isdigit() else None
-
     def _usage(pid: object) -> str:
-        key = _as_pid(pid)
+        text = str(pid or "")
+        key = int(text) if text.isdigit() else None
         entry = stats.get(key) if key is not None else None
         if entry is None:
-            return "gone"  # registry entry outlived its process
+            return "gone"
         memory_mb, cpu_pct = entry
         if memory_mb <= 0:
-            return "defunct"  # zombie: exited, parent has not waited on it yet
+            return "defunct"
         return f"{memory_mb:,.0f} MB  cpu {cpu_pct:.0f}%"
 
-    def _totals(pids: list[object]) -> str:
-        # dedupe: a singleton daemon also registers a stdio session under the
-        # same pid, and counting it twice would inflate the section total.
-        keys = sorted({key for key in (_as_pid(pid) for pid in pids) if key is not None})
-        entries = [stats[key] for key in keys if key in stats]
-        if not entries:
-            return ""
-        return f"  [{sum(entry[0] for entry in entries):,.0f} MB · cpu {sum(entry[1] for entry in entries):.0f}%]"
-
-    def _section(title: str, subtitle: str, count: int, colour: str) -> None:
-        click.echo("")
-        click.echo(
-            "  " + click.style(f"{title} · {count}", fg=colour, bold=True) + click.style(f"   {subtitle}", dim=True)
-        )
-        click.echo("  " + "─" * 76)
-
-    def _row(ident: str, where: str, usage: str, detail: str) -> None:
-        click.echo(
-            f"  {ident:<13} {where:<40} "
-            + click.style(f"{usage:<20}", fg="bright_black")
-            + click.style(detail, dim=True)
-        )
-
-    total = len(remote) + len(daemons) + len(bridges) + len(sessions)
+    total = len(remote) + len(registered)
     click.echo("")
     click.secho(f"  LemonCrow MCP servers · {total}", bold=True)
     if pruned:
         click.secho(f"  pruned {pruned} stale registration(s) whose process had exited", dim=True)
     if total == 0:
-        click.echo("")
-        click.echo("  Nothing running. A daemon starts on the first `lc mcp` in a workspace;")
-        click.echo("  publish a public one with: lc mcp serve --persistent --hostname <host>")
+        click.echo("  No managed/public server processes are running.")
+        click.echo("  `lc mcp` is a short-lived thin client and is not listed here.")
         click.echo("")
         return
 
-    _section(
-        "Remote",
-        "always-on public URL, supervised — manage: lc mcp service"
-        + _totals([service.pid for service in remote if service.pid]),
-        len(remote),
-        "green",
-    )
-    if not remote:
-        click.secho("  none — publish one: lc mcp serve --persistent --hostname <host>", dim=True)
     for service in remote:
-        state_colour = {"active": "green", "failed": "red"}.get(service.state, "yellow")
-        _row(
-            click.style(f"{service.state:<13}", fg=state_colour),
-            _short(service.workspace),
-            _usage(service.pid) if service.pid else "",
-            f"https://{service.hostname}/mcp  ({service.name})",
+        click.echo(
+            f"  {service.state:<13} {_short(service.workspace):<40} "
+            f"{_usage(service.pid) if service.pid else '':<20} https://{service.hostname}/mcp"
         )
-
-    _section(
-        "Singleton daemons",
-        "shared per workspace, on demand — detail: lc mcp daemons" + _totals([daemon.get("pid") for daemon in daemons]),
-        len(daemons),
-        "cyan",
-    )
-    if not daemons:
-        click.secho("  none — one starts on the first `lc mcp` in a workspace", dim=True)
-    for daemon in daemons:
-        age = _fmt_age(float(daemon["started_at"])) if isinstance(daemon.get("started_at"), (int, float)) else ""
-        live = daemon.get("live_sessions")
-        attached = f"agents {live}" if isinstance(live, int) else "agents ?"
-        detail = f"{attached}  uds {Path(str(daemon.get('socket') or '')).name}"
-        _row(
-            f"pid {daemon.get('pid')}",
-            _short(daemon.get("workspace")),
-            _usage(daemon.get("pid")),
-            f"{detail}  started {age}" if age else detail,
+    for session in registered:
+        click.echo(
+            f"  pid {session.get('pid')!s:<8} {_short(session.get('workspace')):<40} "
+            f"{_usage(session.get('pid')):<20} explicit server process"
         )
-
-    _section(
-        "Bridges",
-        "one per agent session (what the host launches as `lc mcp`) — proxies into a daemon"
-        + _totals([bridge.get("pid") for bridge in bridges]),
-        len(bridges),
-        "magenta",
-    )
-    if not bridges:
-        click.secho("  none attached right now", dim=True)
-    for bridge in bridges:
-        detail_parts = [f"started {_fmt_age(time.time() - float(bridge['age_seconds']))}"]
-        if bridge.get("host"):
-            detail_parts.append(f"host={bridge['host']}")
-        _row(
-            f"pid {bridge['pid']}",
-            _short(bridge.get("workspace")),
-            _usage(bridge.get("pid")),
-            "  ".join(detail_parts),
-        )
-
-    _section(
-        "Legacy stdio servers",
-        "full server per agent, no daemon (LEMONCROW_MCP_SINGLETON=0)"
-        + _totals([session.get("pid") for session in sessions]),
-        len(sessions),
-        "yellow",
-    )
-    if not sessions:
-        click.secho("  none — every agent goes through a bridge above", dim=True)
-    for session in sessions:
-        age = ""
-        started = session.get("started_at") or ""
-        if started:
-            try:
-                from datetime import UTC, datetime
-
-                age = _fmt_age(datetime.fromisoformat(started).replace(tzinfo=UTC).timestamp())
-            except ValueError:
-                age = ""
-        detail_parts = [f"started {age}" if age else ""]
-        sid = str(session.get("claude_session_id") or "")[:8]
-        if sid:
-            detail_parts.append(f"session={sid}")
-        model = str(session.get("model") or "")
-        if model:
-            detail_parts.append(model)
-        _row(
-            f"pid {session.get('pid')}",
-            _short(session.get("workspace")),
-            _usage(session.get("pid")),
-            "  ".join(part for part in detail_parts if part),
-        )
-    click.echo("")
-
-
-# ─── mcp daemons ──────────────────────────────────────────────────────────
-
-
-@mcp_group.command("daemons")
-@click.option("--json", "as_json", is_flag=True)
-@click.pass_context
-def mcp_daemons(ctx: click.Context, as_json: bool) -> None:
-    """List active per-workspace singleton MCP daemons.
-
-    In singleton mode (default) one shared daemon per workspace serves every
-    host session; each ``lc mcp`` is a thin bridge to it. Reads the daemon
-    registry (``~/.lemoncrow/mcp_daemons/``); crashed daemons are skipped.
-    """
-    root: Path = ctx.obj["root"]
-    from lemoncrow.gateway.adapters.mcp_daemon import list_daemons
-
-    daemons = list_daemons(root)
-    for d in daemons:
-        d["live_sessions"] = _probe_live_sessions(d)
-        d.pop("token", None)  # never surface the bearer token
-    if as_json:
-        _emit({"count": len(daemons), "daemons": daemons}, as_json=True)
-        return
-
-    click.echo("")
-    click.echo(f"  Active LemonCrow MCP daemons · {len(daemons)}")
-    click.echo("  " + "─" * 70)
-    if not daemons:
-        click.echo("  None running. A daemon starts on the first `lc mcp` in a workspace.")
-        click.echo("")
-        return
-    home = str(Path.home())
-    for d in daemons:
-        ws = str(d.get("workspace") or "?")
-        if ws.startswith(home):
-            ws = "~" + ws[len(home) :]
-        age = ""
-        started = d.get("started_at")
-        if isinstance(started, (int, float)):
-            age = _fmt_age(float(started))
-        sessions = d.get("live_sessions")
-        parts = [f"  pid {d.get('pid'):<8}", f"{ws:<40}", f"uds {Path(str(d.get('socket') or '')).name}"]
-        if age:
-            parts.append(f"age {age}")
-        if sessions is not None:
-            parts.append(f"sessions={sessions}")
-        click.echo(" ".join(parts))
     click.echo("")
 
 

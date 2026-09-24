@@ -34,17 +34,20 @@ try:
 except ImportError:  # pragma: no cover - non-POSIX platforms
     fcntl = None  # type: ignore[assignment]
 
-from lemoncrow.core.environment import bool_env
-from lemoncrow.core.foundation.paths import default_store_root
-from lemoncrow.core.foundation.weakref_token import WeakRefToken
-from lemoncrow.core.service.telemetry import emit_product_local
-from lemoncrow.infra.code_intel.astgrep import (
-    AstGrepAdapter,
+from lemoncrow_client.kit.astgrep import (
     AstGrepToolUnavailable,
     PatternMatch,
     PatternRewriteResult,
     PatternSearchResult,
+    bound_rewrite_diff,
+    one_based,
 )
+
+from lemoncrow.core.environment import bool_env
+from lemoncrow.core.foundation.paths import default_store_root
+from lemoncrow.core.foundation.weakref_token import WeakRefToken
+from lemoncrow.core.service.telemetry import emit_product_local
+from lemoncrow.infra.code_intel.astgrep import astgrep_adapter
 from lemoncrow.infra.tree_sitter.tags import Tag, detect_language, extract_tags
 from lemoncrow.pro.capabilities.code_context.ann_symbol_index import (
     SymbolAnnIndex,
@@ -953,6 +956,38 @@ def _default_db_path(repo_root: Path) -> Path:
 
 def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _line_fts_source_section(
+    file_path: str,
+    lines: Sequence[str],
+    match: Mapping[str, Any],
+    *,
+    context_lines: int = 4,
+) -> dict[str, Any] | None:
+    """Render bounded source around one retained line-FTS match."""
+
+    try:
+        line = int(match.get("line") or 0)
+    except (TypeError, ValueError):
+        return None
+    if line <= 0 or line > len(lines):
+        return None
+    radius = max(0, int(context_lines))
+    start = max(1, line - radius)
+    end = min(len(lines), line + radius)
+    content = "\n".join(f"{number}\t{lines[number - 1]}" for number in range(start, end + 1))
+    return {
+        "file_path": file_path,
+        "start_line": start,
+        "end_line": end,
+        "symbol_id": f"line-fts::{file_path}:{line}",
+        "symbol_name": "line_fts_match",
+        "kind": "line_match",
+        "content": content,
+        "matched": True,
+        "provenance": "line_fts",
+    }
 
 
 def _line_offsets(text: str) -> list[int]:
@@ -4211,7 +4246,7 @@ class CodeContextEngine:
             )
             if not self._excluded(path, exclude_globs or [])
         ]
-        from lemoncrow.core.capabilities import licensing
+        from lemoncrow.core.capabilities import feature_access as licensing
 
         capped = False
         if not licensing.has_feature("context_engine") and len(all_files) > _FREE_TIER_MAX_FILES:
@@ -5232,7 +5267,12 @@ class CodeContextEngine:
         # max_files cut truncated), then let every other file race by rank below.
         if _seed_norm:
             fused = self._reserve_scoped_entries(fused, result, _seed_norm)
-        return self._rerank_explore_result(query, fused)
+        ranked = self._rerank_explore_result(query, fused)
+        return self._finalize_line_fts_sources(
+            ranked,
+            include_source=include_source,
+            budget_tokens=budget_tokens,
+        )
 
     @staticmethod
     def _explore_entry_path(entry: Any) -> str:
@@ -5240,6 +5280,66 @@ class CodeContextEngine:
         if not isinstance(entry, dict):
             return ""
         return str(entry.get("path") or entry.get("file_path") or "")
+
+    def _finalize_line_fts_sources(
+        self,
+        payload: dict[str, Any],
+        *,
+        include_source: bool,
+        budget_tokens: int,
+    ) -> dict[str, Any]:
+        """Hydrate line-only fusion hits after ranking without exceeding budget.
+
+        The private ``_line_fts_match`` marker is stripped unconditionally. Source
+        is added only for files that otherwise have no rendered section, and only
+        when the resulting payload remains within the caller's token budget. This
+        keeps learned ranking byte-for-byte independent of the hydrated evidence.
+        """
+
+        raw_files = payload.get("files")
+        if not isinstance(raw_files, list):
+            return payload
+        files: list[Any] = []
+        matches: list[Mapping[str, Any] | None] = []
+        changed = False
+        for raw in raw_files:
+            if not isinstance(raw, dict):
+                files.append(raw)
+                matches.append(None)
+                continue
+            entry = dict(raw)
+            match = entry.pop("_line_fts_match", None)
+            changed = changed or match is not None
+            files.append(entry)
+            matches.append(match if isinstance(match, Mapping) else None)
+        result = dict(payload)
+        result["files"] = files
+        if not include_source:
+            return result if changed else payload
+
+        for index, match in enumerate(matches):
+            if match is None:
+                continue
+            entry = files[index]
+            if not isinstance(entry, dict) or entry.get("source_sections"):
+                continue
+            file_path = self._explore_entry_path(entry)
+            if not file_path:
+                continue
+            lines = self._read_file_lines(file_path)
+            for radius in (4, 2, 1, 0):
+                section = _line_fts_source_section(file_path, lines, match, context_lines=radius)
+                if section is None:
+                    break
+                entry["source_sections"] = [section]
+                if self._compute_total_tokens(result) <= max(1, int(budget_tokens)):
+                    changed = True
+                    break
+                entry["source_sections"] = []
+
+        if "total_tokens" in result:
+            result["total_tokens"] = self._compute_total_tokens(result)
+        return result if changed else payload
 
     def _reserve_scoped_entries(
         self, fused: dict[str, Any], baseline: dict[str, Any], seed_norm: list[str], *, limit: int = 2
@@ -5385,6 +5485,18 @@ class CodeContextEngine:
         model = self._load_explore_reranker()
         if model is None:
             return payload
+
+        enabled_intents = model.get("enabled_intents")
+        if isinstance(enabled_intents, list):
+            experiment = payload.get("experiment")
+            intent = "unknown"
+            while isinstance(experiment, dict):
+                if experiment.get("intent"):
+                    intent = str(experiment["intent"])
+                    break
+                experiment = experiment.get("base")
+            if intent not in {str(value) for value in enabled_intents}:
+                return payload
 
         window = min(int(model.get("window", 5)), len(raw_entries))
         if window < 2:
@@ -5802,6 +5914,7 @@ class CodeContextEngine:
                     "max_line_coverage": 0.0,
                     "multi_term_lines": 0,
                     "literal_hits": 0,
+                    "best_match": None,
                 },
             )
             item["covered"].update(covered)
@@ -5812,6 +5925,29 @@ class CodeContextEngine:
             if len(covered) >= 2:
                 item["multi_term_lines"] += 1
             item["literal_hits"] += literal_hits
+            line_number = int(row["line"] or 0)
+            if line_number > 0:
+                candidate = {
+                    "line": line_number,
+                    "text": str(row["text"] or ""),
+                    "rank": float(row["rank"] or 0.0),
+                    "line_coverage": line_coverage,
+                    "and_hit": bool(from_and),
+                }
+                current = item["best_match"]
+                candidate_key = (-line_coverage, -int(from_and), candidate["rank"], line_number)
+                current_key = (
+                    (
+                        -float(current["line_coverage"]),
+                        -int(bool(current["and_hit"])),
+                        float(current["rank"]),
+                        int(current["line"]),
+                    )
+                    if isinstance(current, Mapping)
+                    else None
+                )
+                if current_key is None or candidate_key < current_key:
+                    item["best_match"] = candidate
         for file_path, item in per_file.items():
             file_coverage = len(item["covered"]) / max(1, len(term_set))
             repeat_conf = min(1.0, math.log1p(int(item["hit_count"])) / math.log(13.0))
@@ -5855,6 +5991,7 @@ class CodeContextEngine:
                 "literal_hits": int(per_file[p]["literal_hits"]),
                 "best_rank": round(float(per_file[p]["best_rank"]), 6),
                 "confidence": round(float(per_file[p]["confidence"]), 6),
+                "best_match": per_file[p]["best_match"],
             }
             for p in ordered
         }
@@ -6125,17 +6262,20 @@ class CodeContextEngine:
         fused_entries: list[dict[str, Any]] = []
         for file_path in ordered:
             existing = baseline_entries.get(file_path)
-            if existing is not None:
-                fused_entries.append(existing)
-            else:
-                fused_entries.append(
-                    {
-                        "path": file_path,
-                        "language": "unknown",
-                        "symbols": [],
-                        "source_sections": [],
-                    }
-                )
+            entry = (
+                dict(existing)
+                if existing is not None
+                else {
+                    "path": file_path,
+                    "language": "unknown",
+                    "symbols": [],
+                    "source_sections": [],
+                }
+            )
+            line_match = line_details.get(file_path, {}).get("best_match")
+            if isinstance(line_match, Mapping):
+                entry["_line_fts_match"] = dict(line_match)
+            fused_entries.append(entry)
 
         result = dict(baseline_payload)
         result["files"] = fused_entries
@@ -7484,7 +7624,7 @@ class CodeContextEngine:
     ) -> dict[str, Any]:
         self._ensure_indexed()
         effective_budget_tokens = self._effective_budget_tokens("pattern", budget_tokens)
-        adapter = AstGrepAdapter(self.repo_root)
+        adapter = astgrep_adapter(self.repo_root)
         if rewrite is None:
             cache_args = {
                 "pattern": pattern,
@@ -7515,7 +7655,7 @@ class CodeContextEngine:
             if hit and cached is not None:
                 return self._mark_cache_hit(cached)
             try:
-                result = adapter.search(pattern=pattern, language=language, file_glob=file_glob, limit=limit)
+                result = one_based(adapter.search(pattern=pattern, language=language, file_glob=file_glob, limit=limit))
             except AstGrepToolUnavailable as exc:
                 native_unavailable = self._native_python_pattern_search(
                     pattern=pattern,
@@ -13801,20 +13941,9 @@ class CodeContextEngine:
         # the model context; head+tail truncate so large rewrites stay bounded
         # while small previews pass through untouched. files_changed always lists
         # every affected file regardless of truncation.
-        diff_lines = (result.diff or "").splitlines(keepends=True)
-        diff_head, diff_tail = 170, 30
-        if len(diff_lines) > diff_head + diff_tail:
-            elided = len(diff_lines) - diff_head - diff_tail
-            diff = (
-                "".join(diff_lines[:diff_head])
-                + f"... ({elided} more diff lines elided; see files_changed)\n"
-                + "".join(diff_lines[-diff_tail:])
-            )
-        else:
-            diff = result.diff
         return self._pack_single_payload(
             {
-                "diff": diff,
+                "diff": bound_rewrite_diff(result.diff),
                 "files_changed": result.files_changed,
                 "provenance": "ast-grep",
             },
@@ -14740,11 +14869,29 @@ class CodeContextEngine:
             daemon=True,
         )
         self._autosync_thread.start()
-        weakref.finalize(self._gc_sentinel, self._stop_autosync_worker)
+        # Never register a bound engine method as a finalizer callback: the
+        # finalizer registry would then strongly retain the engine and defeat
+        # daemon-side LRU eviction. The Event is independent of the engine.
+        weakref.finalize(self._gc_sentinel, self._autosync_stop.set)
 
     def _stop_autosync_worker(self) -> None:
         self._autosync_stop.set()
         self._stop_file_watcher()
+
+    def close(self) -> None:
+        """Release background resources when a daemon evicts this engine.
+
+        Active callers keep their own engine reference, so stopping autosync is
+        safe even if eviction races the tail of a read-only query. Persistent
+        index state stays on disk and a later request can construct a fresh
+        engine cheaply.
+        """
+        self._stop_autosync_worker()
+        worker = self._autosync_thread
+        if worker is not None and worker is not threading.current_thread():
+            worker.join(timeout=0.25)
+        if worker is None or not worker.is_alive():
+            self._autosync_thread = None
 
     # --- File watcher (event-driven via watchdog) ---
 

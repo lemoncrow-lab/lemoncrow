@@ -38,7 +38,7 @@ is required for normal local, single-machine use.
 - Run ledger persistence verified in `.lemoncrow/runs/`.
 - Trace ingestion verified via `lc runs record` and `/v1/traces`.
 - Analytics summary checked via `/analytics/summary` or the dashboard summary endpoint.
-- Background controller status reviewed with `lc background status`.
+- Loopback server health reviewed with `lc mcp --host claude check --json`.
 
 ## Logging
 

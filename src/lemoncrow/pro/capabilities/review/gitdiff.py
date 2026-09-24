@@ -20,7 +20,7 @@ import os
 import re
 import stat
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -46,6 +46,7 @@ EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 # Blobs larger than this are never decoded: the impact detectors are text
 # diffing and a multi-megabyte minified bundle costs more than it can inform.
 MAX_BLOB_BYTES = 512 * 1024
+MAX_REVIEW_MEDIA_BYTES = 32 * 1024 * 1024
 
 # The largest hunk body ``collect_diff(..., with_patch_text=True)`` will carry.
 # A hunk is one edit; 64 KB is far above any hand-written one and small enough
@@ -114,11 +115,17 @@ class DiffResult:
 
 @dataclass(frozen=True)
 class BlobPair:
-    """Both text sides of the change, keyed by the packet's NEW-side path."""
+    """Exact changed-file content captured with one review packet.
+
+    ``old``/``new`` remain text-only because they feed symbol/impact analysis.
+    ``binary_new`` freezes changed binary/media bytes for working-tree and staged
+    reviews so later Preview/Compare surfaces never read a newer worktree file.
+    """
 
     old: dict[str, str]
     new: dict[str, str]
     degraded: tuple[str, ...]
+    binary_new: dict[str, bytes] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +284,14 @@ def _dirt_state(repo: Any) -> tuple[bool, int]:
     if non_submodule:
         return True, 0
     internal = [path for path in candidates if _submodule_dirt_is_internal(repo, path)]
-    return len(internal) < len(candidates), len(internal)
+    # Dirty submodule worktrees are now reviewable as nested frozen revisions.
+    # They therefore keep the parent in working-tree mode instead of silently
+    # substituting the previous parent commit. ``collect_diff`` still avoids a
+    # fake gitlink row; rendered surfaces consume the separately frozen nested
+    # snapshot.
+    if internal:
+        return True, 0
+    return True, 0
 
 
 def is_dirty(repo: Any) -> bool:
@@ -634,16 +648,16 @@ _UNREADABLE = "blob_unreadable"
 _BARE_IDENTIFIER_RE = re.compile(r"\w+")
 
 
-def _blob_payload(blob: Any) -> tuple[bytes | None, str]:
+def _blob_payload(blob: Any, *, max_bytes: int = MAX_BLOB_BYTES) -> tuple[bytes | None, str]:
     data = getattr(blob, "data", None)
     if not isinstance(data, bytes):
         return None, _UNREADABLE
-    if len(data) > MAX_BLOB_BYTES:
+    if len(data) > max_bytes:
         return None, _OVERSIZE
     return data, ""
 
 
-def _blob_from_tree(repo: Any, tree: Any, path: str) -> tuple[bytes | None, str]:
+def _blob_from_tree(repo: Any, tree: Any, path: str, *, max_bytes: int = MAX_BLOB_BYTES) -> tuple[bytes | None, str]:
     if tree is None or not path:
         return None, _UNREADABLE
     try:
@@ -651,19 +665,19 @@ def _blob_from_tree(repo: Any, tree: Any, path: str) -> tuple[bytes | None, str]
         blob = repo.get(entry.id)
     except Exception:
         return None, _UNREADABLE
-    return _blob_payload(blob)
+    return _blob_payload(blob, max_bytes=max_bytes)
 
 
-def _blob_from_index(repo: Any, path: str) -> tuple[bytes | None, str]:
+def _blob_from_index(repo: Any, path: str, *, max_bytes: int = MAX_BLOB_BYTES) -> tuple[bytes | None, str]:
     try:
         entry = repo.index[path]
         blob = repo.get(entry.id)
     except Exception:
         return None, _UNREADABLE
-    return _blob_payload(blob)
+    return _blob_payload(blob, max_bytes=max_bytes)
 
 
-def _blob_from_disk(repo_root: Path, path: str) -> tuple[bytes | None, str]:
+def _blob_from_disk(repo_root: Path, path: str, *, max_bytes: int = MAX_BLOB_BYTES) -> tuple[bytes | None, str]:
     """The worktree bytes of *path* — as git records them, never as the link resolves.
 
     ``stat()``/``read_bytes()`` follow symlinks, and git does not: a symlink's
@@ -683,24 +697,32 @@ def _blob_from_disk(repo_root: Path, path: str) -> tuple[bytes | None, str]:
         if stat.S_ISLNK(info.st_mode):
             link = os.readlink(target)
             data = os.fsencode(link)
-            if len(data) > MAX_BLOB_BYTES:
+            if len(data) > max_bytes:
                 return None, _OVERSIZE
             return data, ""
         if not stat.S_ISREG(info.st_mode):
             return None, _UNREADABLE
-        if info.st_size > MAX_BLOB_BYTES:
+        if info.st_size > max_bytes:
             return None, _OVERSIZE
         return target.read_bytes(), ""
     except OSError:
         return None, _UNREADABLE
 
 
-def _new_side_bytes(repo: Any, repo_root: Path, rng: RevRange, head_tree: Any, path: str) -> tuple[bytes | None, str]:
+def _new_side_bytes(
+    repo: Any,
+    repo_root: Path,
+    rng: RevRange,
+    head_tree: Any,
+    path: str,
+    *,
+    max_bytes: int = MAX_BLOB_BYTES,
+) -> tuple[bytes | None, str]:
     if rng.mode == "commit_range":
-        return _blob_from_tree(repo, head_tree, path)
+        return _blob_from_tree(repo, head_tree, path, max_bytes=max_bytes)
     if rng.mode == "staged":
-        return _blob_from_index(repo, path)
-    return _blob_from_disk(repo_root, path)
+        return _blob_from_index(repo, path, max_bytes=max_bytes)
+    return _blob_from_disk(repo_root, path, max_bytes=max_bytes)
 
 
 def _decode(data: bytes | None) -> str:
@@ -1441,10 +1463,15 @@ def commit_datetime(repo_root: Path, sha: str) -> datetime | None:
 
 
 def load_blobs(repo_root: Path, rng: RevRange, files: tuple[ChangedFile, ...]) -> BlobPair:
-    """Return both text sides of every non-binary changed file, keyed by new path.
+    """Return the exact changed content needed by Review.
 
-    Files over ``MAX_BLOB_BYTES`` are skipped and reported through
-    ``BlobPair.degraded`` so the impact layer knows its recall is reduced.
+    Text sides feed analysis/fingerprints and remain capped by ``MAX_BLOB_BYTES``.
+    Binary new-side bytes are captured separately up to
+    ``MAX_REVIEW_MEDIA_BYTES`` so working-tree/staged media previews can stay
+    revision-pinned after the worktree changes again.
+
+    Files over their applicable limit are skipped and reported through
+    ``BlobPair.degraded`` so downstream consumers know exact content is absent.
 
     A key is present only for a side that was actually read. A skipped or
     unreadable blob is **absent**, never ``""``: an empty string is a file we
@@ -1462,10 +1489,24 @@ def load_blobs(repo_root: Path, rng: RevRange, files: tuple[ChangedFile, ...]) -
     head_tree = _tree_for_sha(repo, rng.head_sha) if rng.mode == "commit_range" else None
     old: dict[str, str] = {}
     new: dict[str, str] = {}
+    binary_new: dict[str, bytes] = {}
     degraded: set[str] = set()
 
     for item in files:
         if item.is_binary:
+            if item.status != "deleted":
+                payload, reason = _new_side_bytes(
+                    repo,
+                    repo_root,
+                    rng,
+                    head_tree,
+                    item.path,
+                    max_bytes=MAX_REVIEW_MEDIA_BYTES,
+                )
+                if reason:
+                    degraded.add(reason)
+                elif payload is not None:
+                    binary_new[item.path] = payload
             continue
         if item.submodule_pointer is not None:
             # A gitlink has no blob on either side: the old side resolves to a
@@ -1493,7 +1534,7 @@ def load_blobs(repo_root: Path, rng: RevRange, files: tuple[ChangedFile, ...]) -
         if not new_reason:
             new[item.path] = _decode(new_bytes)
 
-    return BlobPair(old=old, new=new, degraded=tuple(sorted(degraded)))
+    return BlobPair(old=old, new=new, degraded=tuple(sorted(degraded)), binary_new=binary_new)
 
 
 @dataclass(frozen=True)
@@ -1561,6 +1602,17 @@ def source_state(repo_root: Path, rng: RevRange) -> SourceState:
         if not path or path.startswith(f"{DEFAULT_STORE_DIRNAME}/") or path in intent_to_add:
             continue
         if _is_gitlink(delta) and _gitlink_unmoved(delta):
+            if rng.mode == "working_tree" and _submodule_dirt_is_internal(repo, path):
+                sub_root = (repo_root / path).resolve()
+                try:
+                    nested = source_state(sub_root, resolve_rev_range(sub_root, working_tree=True))
+                except (KeyError, OSError, RuntimeError, ValueError):
+                    # Shallow/partial submodules may lack the object named by
+                    # their local base. The parent review still needs a stable
+                    # advisory fingerprint instead of crashing on that gap.
+                    nested = SourceState(hashlib.sha256(f"unreadable-submodule\0{path}".encode()).hexdigest())
+                rows.append("\0".join(("nested", path, "", nested.fingerprint)))
+                paths.append(path)
             continue
 
         old_path = old_path_raw if status in ("renamed", "copied", "deleted") else ""
@@ -1576,7 +1628,12 @@ def source_state(repo_root: Path, rng: RevRange) -> SourceState:
         rows.append("\0".join((status, path, old_path, identity)))
         paths.append(path)
 
-    fingerprint = hashlib.sha256("\n".join(sorted(rows)).encode("utf-8")).hexdigest()
+    # The reviewed patch is a function of both the mutable side and its Git
+    # base. A commit can move HEAD while leaving the same working-tree bytes in
+    # place; hashing only those bytes would then claim the review is unchanged
+    # even though every hunk is now relative to a different base tree.
+    payload = "\n".join((f"range:{rng.mode}:{rng.base_sha}:{rng.merge_base_sha}", *sorted(rows)))
+    fingerprint = hashlib.sha256(payload.encode()).hexdigest()
     return SourceState(fingerprint, tuple(sorted(set(paths))))
 
 

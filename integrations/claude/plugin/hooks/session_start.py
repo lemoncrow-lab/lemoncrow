@@ -209,12 +209,15 @@ def _append_session_start_event(
 # ---------------------------------------------------------------------------
 
 
-def _emit_env_context(cwd: str) -> None:
+def _emit_env_context(cwd: str, system_message: str | None = None) -> None:
     """Inject cwd + git state via additionalContext.
 
     ``--agent <persona>`` replaces Claude Code's default system prompt, losing
     its built-in ``# Environment``/gitStatus blocks — persona sessions start
     blind. Recreate the essentials here; fail-open.
+
+    ``system_message`` (user-visible only, never sent to the model) rides in the
+    same JSON object: a hook must print exactly one.
     """
     import platform
     import subprocess
@@ -241,16 +244,26 @@ def _emit_env_context(cwd: str) -> None:
         if log:
             lines.append("Recent commits:")
             lines.extend(log.splitlines())
-    print(
-        json.dumps(
-            {
-                "hookSpecificOutput": {
-                    "hookEventName": "SessionStart",
-                    "additionalContext": "\n".join(lines),
-                }
-            }
-        )
-    )
+    output: dict[str, Any] = {
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": "\n".join(lines),
+        }
+    }
+    if system_message:
+        output["systemMessage"] = system_message
+    print(json.dumps(output))
+
+
+def _update_notice(source: str) -> str | None:
+    """Once-a-day "update available" line for the user (opt-in; None when off/none)."""
+    if source != "startup":
+        return None
+    with suppress(Exception):
+        from lemoncrow.core.foundation.update_notice import notice_for
+
+        return notice_for("hook")
+    return None
 
 
 def main() -> int:
@@ -259,9 +272,15 @@ def main() -> int:
     except (json.JSONDecodeError, TypeError):
         return 0
 
+    notice = _update_notice(payload.get("source", "startup") or "startup")
     if payload.get("cwd") and payload.get("source", "startup") in ("startup", "clear"):
-        with suppress(Exception):
-            _emit_env_context(payload["cwd"])
+        try:
+            _emit_env_context(payload["cwd"], notice)
+            notice = None  # carried in the env-context JSON
+        except Exception:
+            pass
+    if notice:
+        print(json.dumps({"systemMessage": notice}))
 
     session_id_raw: str = payload.get("session_id", "") or ""
     source: str = payload.get("source", "startup") or "startup"

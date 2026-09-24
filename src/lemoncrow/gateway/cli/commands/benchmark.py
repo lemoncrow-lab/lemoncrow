@@ -152,16 +152,20 @@ Use --help on the sub-command for all available flags:
 from __future__ import annotations
 
 import contextlib
+import functools
+import hashlib
 import importlib.util
 import io
 import json
 import re
+import shlex
 import subprocess
 import sys
 from datetime import UTC, datetime
 from os import cpu_count, environ
 from pathlib import Path
 from shutil import which
+from typing import Any
 
 import click
 
@@ -171,14 +175,31 @@ from lemoncrow.core.capabilities.benchmark_evidence import (
     write_benchmark_evidence,
 )
 from lemoncrow.core.capabilities.benchmark_gate import (
+    evaluate_codebench_comparison_gates,
     evaluate_codebench_gate,
+    evaluate_runtime_policy_gate,
     load_benchmark_gate,
     require_benchmark_gate_pass,
+    write_benchmark_comparison_gates,
     write_benchmark_gate,
+    write_runtime_policy_gate,
 )
 from lemoncrow.core.capabilities.benchmark_manifest import (
     build_codebench_manifest,
+    build_runtime_attribution,
+    runtime_policy_fingerprint,
     write_benchmark_manifest,
+)
+from lemoncrow.core.capabilities.benchmark_protocol import (
+    codebench_prompt_sha256,
+    codebench_protocol_commands,
+    codebench_protocol_summary,
+    load_codebench_protocol,
+    verify_codebench_protocol_hosts,
+    verify_codebench_publication,
+    verify_codebench_run,
+    write_protocol_verification,
+    write_publication_verification,
 )
 from lemoncrow.core.capabilities.host_runners import (
     CLAUDE_PROVIDER_PRESETS,
@@ -214,6 +235,42 @@ def _resolve_driver_model(cli_driver: str, model: str | None) -> str:
             "id (e.g. gpt-5.6-sol) or omit --model."
         )
     return model
+
+
+@functools.lru_cache(maxsize=16)
+def _benchmark_command_version(command: str) -> str:
+    """Best-effort, content-free CLI version probe for benchmark provenance."""
+
+    parts = shlex.split(command)
+    if not parts:
+        return ""
+    binary = which(parts[0]) or parts[0]
+    try:
+        completed = subprocess.run(
+            [binary, "--version"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    output = (completed.stdout or completed.stderr or "").strip()
+    return output.splitlines()[0].strip() if output else ""
+
+
+def _benchmark_driver_version(cli_driver: str, *, agent_command: str) -> str:
+    if cli_driver == "claude":
+        return _benchmark_command_version(agent_command)
+    if cli_driver == "codex":
+        return _benchmark_command_version("codex")
+    if cli_driver == "cursor":
+        return _benchmark_command_version("cursor-agent")
+    if cli_driver == "opencode":
+        return _benchmark_command_version("opencode")
+    if cli_driver == "lemoncrow-run":
+        return _benchmark_command_version("lemoncrow")
+    return ""
 
 
 @click.group("benchmark")
@@ -313,7 +370,18 @@ def benchmark_mini_cmd(
     show_default=True,
     help="Agent arm: direct API, Bedrock, or Claude Code CLI + LemonCrow plugin.",
 )
-@click.option("--baseline", is_flag=True, default=False, help="Run baseline arm (bench_mode=off, no plugin).")
+@click.option(
+    "--context-arm",
+    type=click.Choice(["raw", "rtk", "lemoncrow", "lemoncrow-headroom"]),
+    default=None,
+    help="Claude Code context arm: raw, RTK-only, LemonCrow, or LemonCrow + Headroom.",
+)
+@click.option(
+    "--baseline",
+    is_flag=True,
+    default=False,
+    help="Legacy alias for --context-arm raw on the Claude Code arm; bench_mode=off elsewhere.",
+)
 @click.option("--model", default=None, help="Model override (default: LEMONCROW_BENCH_MODEL or claude-opus-4-8).")
 @click.option(
     "--attempts",
@@ -366,6 +434,7 @@ def benchmark_harbor_cmd(
     limit: int | None,
     include_tasks: tuple[str, ...],
     agent_arm: str,
+    context_arm: str | None,
     baseline: bool,
     model: str | None,
     attempts: int,
@@ -389,8 +458,11 @@ def benchmark_harbor_cmd(
       # Fresh run, all tasks, 5 attempts, slots from LEMONCROW_BENCH_TOKEN_SLOTS (auto-rebuilds bundle):
       lc benchmark harbor -y
 
-      # Baseline arm (no LemonCrow plugin):
-      lc benchmark harbor --baseline -y
+      # Four-way context arms for Claude Code:
+      lc benchmark harbor --context-arm raw -y
+      lc benchmark harbor --context-arm rtk -y
+      lc benchmark harbor --context-arm lemoncrow -y
+      lc benchmark harbor --context-arm lemoncrow-headroom -y
 
       # Resume a rate-limited job (must point at the dated job dir, not its parent):
       lc benchmark harbor --resume benchmarks/harbor/results/lemoncrow/2026-07-01__12-00-00 -y
@@ -406,6 +478,15 @@ def benchmark_harbor_cmd(
 
     repo_root = _Path(__file__).parents[5]
     repo_root_str = str(repo_root)
+    source_commit = (
+        _subprocess.run(
+            ["git", "-C", repo_root_str, "rev-parse", "--short=12", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+        ).stdout.strip()
+        or "nogit"
+    )
 
     # ── helpers ────────────────────────────────────────────────────────────
     def _read_env(key: str) -> str:
@@ -461,8 +542,14 @@ def benchmark_harbor_cmd(
     }
     agent_import_path = _agent_import_paths[agent_arm]
 
-    # ── Output dir ─────────────────────────────────────────────────────────
-    arm_label = "baseline" if baseline else "lemoncrow"
+    # ── Context-arm resolution / output dir ────────────────────────────────
+    if agent_arm == "lemoncrow-claude-code":
+        resolved_context_arm = "raw" if baseline else (context_arm or "lemoncrow")
+    else:
+        if context_arm is not None:
+            raise click.ClickException("--context-arm is only supported by --agent lemoncrow-claude-code")
+        resolved_context_arm = None
+    arm_label = resolved_context_arm or ("baseline" if baseline else "lemoncrow")
     out_dir = _Path(output) if output else repo_root / "benchmarks" / "harbor" / "results" / arm_label
     out_dir.mkdir(parents=True, exist_ok=True)
     out_dir_str = str(out_dir)
@@ -501,16 +588,7 @@ def benchmark_harbor_cmd(
                 # Caller didn't pin a path -- tag the built artifact with the
                 # source commit so the bundle filename on disk shows what it
                 # was built from.
-                commit_sha = (
-                    _subprocess.run(
-                        ["git", "-C", repo_root_str, "rev-parse", "--short", "HEAD"],
-                        capture_output=True,
-                        text=True,
-                        check=False,
-                    ).stdout.strip()
-                    or "nogit"
-                )
-                bundle_path = bundle_path.with_name(f"lemoncrow-bundle-{commit_sha}.tar.gz")
+                bundle_path = bundle_path.with_name(f"lemoncrow-bundle-{source_commit}.tar.gz")
             click.echo(f"Building bundle from current source -> {bundle_path} ...")
             rebuild_script = repo_root / "benchmarks" / "harbor" / "build_bundle.sh"
             bundle_path.parent.mkdir(parents=True, exist_ok=True)
@@ -522,6 +600,11 @@ def benchmark_harbor_cmd(
                 f"{repo_root_str}:/lemoncrow:ro",
                 "-v",
                 f"{bundle_path.parent}:/out",
+            ]
+            headroom_version = _read_env("LEMONCROW_BENCH_HEADROOM_VERSION")
+            if headroom_version:
+                rebuild_cmd += ["-e", f"LEMONCROW_BENCH_HEADROOM_VERSION={headroom_version}"]
+            rebuild_cmd += [
                 "debian:bullseye-slim",
                 "bash",
                 f"/lemoncrow/{rebuild_script.relative_to(repo_root)}",
@@ -544,6 +627,7 @@ def benchmark_harbor_cmd(
     click.echo("\n◆ Harbor eval")
     click.echo(f"  dataset          : {dataset}")
     click.echo(f"  arm              : {arm_label}")
+    click.echo(f"  source commit    : {source_commit}")
     click.echo(f"  model            : {model or _read_env('LEMONCROW_BENCH_MODEL') or 'claude-opus-4-8'}")
     click.echo(f"  attempts/task    : {attempts}")
     if include_tasks:
@@ -599,7 +683,9 @@ def benchmark_harbor_cmd(
         cmd += ["-i", _task if "/" in _task else f"{_task_ns}/{_task}"]
     if model:
         cmd += ["--model", model]
-    if baseline:
+    if agent_arm == "lemoncrow-claude-code":
+        cmd += ["--ak", f"context_arm={resolved_context_arm}"]
+    elif baseline:
         cmd += ["--ak", "bench_mode=off"]
     if agent_arm == "lemoncrow-claude-code":
         # Recorded into config.agents[].kwargs.reasoning_effort -- the only
@@ -613,13 +699,20 @@ def benchmark_harbor_cmd(
     # ── Env: PYTHONPATH + token pool + slots ───────────────────────────────
     existing_pythonpath = _os.environ.get("PYTHONPATH", "")
     pythonpath = f"{repo_root_str}:{existing_pythonpath}" if existing_pythonpath else repo_root_str
-    run_env = {**_os.environ, "PYTHONPATH": pythonpath, "LEMONCROW_BENCH_TOKEN_SLOTS": str(slots)}
+    run_env = {
+        **_os.environ,
+        "PYTHONPATH": pythonpath,
+        "LEMONCROW_BENCH_TOKEN_SLOTS": str(slots),
+        "LEMONCROW_BENCH_COMMIT": source_commit,
+    }
     # Forward all bench env vars from .env
     for key in (
         "LEMONCROW_BENCH_MODEL",
         "LEMONCROW_BENCH_EFFORT",
         "LEMONCROW_BENCH_DISALLOWED_TOOLS",
-        "LEMONCROW_BENCH_HIDDEN_MCP_TOOLS",
+        "LEMONCROW_BENCH_RTK_VERSION",
+        "LEMONCROW_BENCH_HEADROOM_VERSION",
+        "LEMONCROW_BENCH_HEADROOM_PORT",
     ):
         val = _read_env(key)
         if val:
@@ -671,6 +764,154 @@ def benchmark_gate_cmd(run_dir: Path, as_json: bool, require_pass: bool) -> None
             raise click.ClickException(str(exc)) from exc
 
 
+@benchmark_group.command("protocol")
+@click.option(
+    "--file",
+    "protocol_path",
+    type=click.Path(path_type=Path, dir_okay=False, exists=True),
+    default=Path("benchmarks/codebench/protocols/intelligent-runtime-v1.json"),
+    show_default=True,
+)
+@click.option("--json", "as_json", is_flag=True, help="Emit the resolved protocol as JSON.")
+@click.option(
+    "--check-hosts",
+    is_flag=True,
+    help="Verify local Claude/Codex CLI versions against the frozen protocol without model calls.",
+)
+@click.option(
+    "--verify-run",
+    "verify_runs",
+    multiple=True,
+    metavar="RUN_ID=DIR",
+    help="Verify an existing run directory against one frozen run; repeatable.",
+)
+@click.option(
+    "--output-root",
+    type=click.Path(path_type=Path, file_okay=False),
+    default=None,
+    help="Render frozen run commands with deterministic --out ROOT/<run-id> destinations.",
+)
+@click.option(
+    "--verify-all",
+    "verify_all_root",
+    type=click.Path(path_type=Path, file_okay=False, exists=True),
+    default=None,
+    help="Verify every frozen lane under ROOT/<run-id> and write publication-readiness.json.",
+)
+def benchmark_protocol_cmd(
+    protocol_path: Path,
+    as_json: bool,
+    check_hosts: bool,
+    verify_runs: tuple[str, ...],
+    output_root: Path | None,
+    verify_all_root: Path | None,
+) -> None:
+    """Validate a frozen CodeBench proof protocol without running any agents."""
+
+    repo_root = Path.cwd().resolve()
+    task_source_dir = _ensure_codebench_tasks_dir(repo_root, None)
+    catalog = _load_codebench_catalog(repo_root)
+    try:
+        protocol = load_codebench_protocol(
+            protocol_path,
+            task_catalog=catalog,
+            task_source_dir=task_source_dir,
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    resolved_output_root = output_root.expanduser().resolve() if output_root is not None else None
+    commands = codebench_protocol_commands(
+        protocol,
+        task_source_dir=task_source_dir,
+        output_root=resolved_output_root,
+    )
+    host_preflight: dict[str, Any] | None = None
+    if check_hosts:
+        host_preflight = verify_codebench_protocol_hosts(
+            protocol,
+            current_versions={
+                "claude": _benchmark_command_version("claude"),
+                "codex": _benchmark_command_version("codex"),
+            },
+        )
+    verifications: list[dict[str, Any]] = []
+    for value in verify_runs:
+        if "=" not in value:
+            raise click.ClickException("--verify-run must use RUN_ID=DIR")
+        run_id, raw_dir = value.split("=", 1)
+        run_dir = Path(raw_dir).expanduser().resolve()
+        try:
+            verification = verify_codebench_run(protocol, run_id=run_id, run_dir=run_dir)
+        except ValueError as exc:
+            raise click.ClickException(str(exc)) from exc
+        write_protocol_verification(run_dir, verification)
+        verifications.append(verification)
+
+    publication_verification: dict[str, Any] | None = None
+    if verify_all_root is not None:
+        resolved_verify_root = verify_all_root.expanduser().resolve()
+        publication_verification = verify_codebench_publication(
+            protocol,
+            run_root=resolved_verify_root,
+            current_versions={
+                "claude": _benchmark_command_version("claude"),
+                "codex": _benchmark_command_version("codex"),
+            },
+        )
+        for run_id, verification in publication_verification["runs"].items():
+            write_protocol_verification(resolved_verify_root / run_id, verification)
+        write_publication_verification(resolved_verify_root, publication_verification)
+
+    if as_json:
+        payload = codebench_protocol_summary(protocol)
+        payload["commands"] = [{"run_id": run_id, "argv": list(argv)} for run_id, argv in commands]
+        payload["host_preflight"] = host_preflight
+        payload["verifications"] = verifications
+        payload["publication_verification"] = publication_verification
+        click.echo(json.dumps(payload, indent=2, sort_keys=True))
+        if (
+            (host_preflight is not None and not bool(host_preflight["passed"]))
+            or any(not bool(item["passed"]) for item in verifications)
+            or (publication_verification is not None and not bool(publication_verification["passed"]))
+        ):
+            raise click.exceptions.Exit(1)
+        return
+
+    summary = codebench_protocol_summary(protocol)
+    click.echo(f"protocol: {protocol.id}")
+    click.echo(f"fingerprint: {protocol.fingerprint}")
+    click.echo(f"tasks: {len(protocol.tasks)}")
+    click.echo(f"runs: {len(protocol.runs)}")
+    click.echo(f"agent rows: {summary['total_agent_rows']}")
+    click.echo(f"pairwise judge comparisons: {summary['pairwise_judge_comparisons']}")
+    click.echo("validated: no model calls or competitor installs were executed")
+    if host_preflight is not None:
+        state = "PASS" if host_preflight["passed"] else "FAIL"
+        click.echo(f"host preflight: {state}")
+        for reason in host_preflight["reasons"]:
+            click.echo(f"  - {reason}")
+    for verification in verifications:
+        state = "PASS" if verification["passed"] else "FAIL"
+        click.echo(f"verify {verification['run_id']}: {state}")
+        for reason in verification["reasons"]:
+            click.echo(f"  - {reason}")
+    if publication_verification is not None:
+        state = "PASS" if publication_verification["passed"] else "FAIL"
+        click.echo(f"publication readiness: {state}")
+        for reason in publication_verification["reasons"]:
+            click.echo(f"  - {reason}")
+    if host_preflight is not None and not bool(host_preflight["passed"]):
+        raise click.ClickException("frozen-protocol host preflight failed")
+    if any(not bool(item["passed"]) for item in verifications):
+        raise click.ClickException("one or more frozen-protocol run verifications failed")
+    if publication_verification is not None and not bool(publication_verification["passed"]):
+        raise click.ClickException("frozen protocol is not publication-ready")
+    for run_id, argv in commands:
+        click.echo("")
+        click.echo(f"[{run_id}]")
+        click.echo(" ".join(argv))
+
+
 @benchmark_group.command("codebench")
 @click.option(
     "--task",
@@ -693,7 +934,9 @@ def benchmark_gate_cmd(run_dir: Path, as_json: bool, require_pass: bool) -> None
     multiple=True,
     default=("baseline", "lemoncrow"),
     show_default=True,
-    type=click.Choice(["baseline", "lemoncrow", "auto"]),
+    type=click.Choice(
+        ["baseline", "lemoncrow", "lemoncrow-control", "lemoncrow-shadow", "lemoncrow-candidate", "auto"]
+    ),
 )
 @click.option("--reps", type=int, default=1, show_default=True)
 @click.option("--model", default="sonnet", show_default=True)
@@ -821,10 +1064,28 @@ def benchmark_gate_cmd(run_dir: Path, as_json: bool, require_pass: bool) -> None
 @click.option("--bridge-command", default=None, help="Optional background bridge command to launch first.")
 @click.option("--bridge-wait", type=float, default=3.0, show_default=True)
 @click.option(
+    "--competitor",
+    "competitors",
+    multiple=True,
+    type=click.Path(path_type=Path, dir_okay=False, exists=True),
+    metavar="MANIFEST.json",
+    help=(
+        "Add an external Claude-Code comparator described by a CodeBench competitor manifest. "
+        "Repeatable; each comparator receives its own baseline-vs-candidate gate."
+    ),
+)
+@click.option(
     "--task-source-dir",
     "codebench_tasks_dir",
     type=click.Path(path_type=Path, file_okay=False),
     default=None,
+)
+@click.option(
+    "--out",
+    "out_dir",
+    type=click.Path(path_type=Path, file_okay=False),
+    default=None,
+    help="Explicit CodeBench output directory; default is a timestamped reports/benchmark/codebench path.",
 )
 @click.option(
     "--require-pass/--allow-failed-gate",
@@ -872,7 +1133,9 @@ def benchmark_codebench_cmd(
     clear_claude_api_key: bool,
     bridge_command: str | None,
     bridge_wait: float,
+    competitors: tuple[Path, ...],
     codebench_tasks_dir: Path | None,
+    out_dir: Path | None,
     require_pass: bool,
     provider: str | None,
 ) -> None:
@@ -884,8 +1147,44 @@ def benchmark_codebench_cmd(
         for task in catalog:
             click.echo(f"  {task.get('id', '?')!s:30} {task.get('language', '')!s:12} {task.get('source', '')!s}")
         return
-    run_dir = _codebench_run_dir(repo_root)
+    run_dir = _codebench_run_dir(repo_root) if out_dir is None else _run_dir("codebench", out_dir, repo_root=repo_root)
     resolved_codebench_tasks_dir = _ensure_codebench_tasks_dir(repo_root, codebench_tasks_dir)
+    comparator_metadata: dict[str, dict[str, object]] = {}
+    competitor_args: list[str] = []
+    for manifest in competitors:
+        manifest_path = Path(manifest).expanduser().resolve()
+        try:
+            raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise click.ClickException(f"invalid competitor manifest {manifest_path}: {exc}") from exc
+        if not isinstance(raw, dict):
+            raise click.ClickException(f"competitor manifest {manifest_path} must be a JSON object")
+        name = str(raw.get("name") or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", name):
+            raise click.ClickException(f"competitor manifest {manifest_path} has invalid arm name {name!r}")
+        if name in comparator_metadata or name in arms:
+            raise click.ClickException(f"duplicate/colliding competitor arm {name!r}")
+        safe_fingerprint_input = {
+            "name": name,
+            "repo": str(raw.get("repo") or ""),
+            "ref": str(raw.get("ref") or ""),
+            "install_steps": (
+                len(raw.get("install") or []) if isinstance(raw.get("install"), list) else int(bool(raw.get("install")))
+            ),
+            "has_mcp": isinstance(raw.get("mcp"), dict),
+            "has_plugin": bool(raw.get("plugin_dir")),
+            "has_skill": bool(raw.get("skill_file")),
+            "has_agent": bool(raw.get("agent")),
+        }
+        comparator_metadata[name] = {
+            "manifest_path": str(manifest_path),
+            "manifest_sha256": hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+            "manifest_fingerprint": runtime_policy_fingerprint(safe_fingerprint_input),
+            "repo": safe_fingerprint_input["repo"],
+            "ref": safe_fingerprint_input["ref"],
+        }
+        competitor_args.extend(["--competitor", str(manifest_path)])
+    benchmark_arms = [*arms, *(name for name in comparator_metadata if name not in arms)]
     env = {"CODEBENCH_TASKS_DIR": str(resolved_codebench_tasks_dir)}
     bridge_args = []
     if bridge_command:
@@ -932,16 +1231,26 @@ def benchmark_codebench_cmd(
         agent_env_args.extend(["--agent-env", item])
     for item in agent_env_from_host:
         agent_env_args.extend(["--agent-env-from-host", item])
-    baseline_arm = "baseline" if "baseline" in arms else arms[0]
-    candidate_arm = next((arm for arm in arms if arm != baseline_arm), baseline_arm)
+    baseline_arm = "baseline" if "baseline" in benchmark_arms else benchmark_arms[0]
+    candidate_arm = next((arm for arm in benchmark_arms if arm != baseline_arm), baseline_arm)
     task_catalog = _load_codebench_catalog(repo_root)
     task_ids = [task["id"] for task in task_catalog] if tasks == ("all",) else list(tasks)
-    task_payload = [task for task in task_catalog if task["id"] in task_ids]
+    task_payload = [dict(task) for task in task_catalog if task["id"] in task_ids]
+    for task in task_payload:
+        with contextlib.suppress(ValueError):
+            task["prompt_sha256"] = codebench_prompt_sha256(
+                resolved_codebench_tasks_dir,
+                str(task["task_dir"]),
+            )
+    cli_version = _benchmark_driver_version(cli_driver, agent_command=agent_command)
+    resolved_judge_model = (judge_model or model) if judge else None
+    resolved_judge_command = judge_agent_command or agent_command
+    judge_cli_version = _benchmark_command_version(resolved_judge_command) if judge else ""
     manifest_path = write_benchmark_manifest(
         run_dir,
         build_codebench_manifest(
             tasks=task_payload,
-            arms=list(arms),
+            arms=list(benchmark_arms),
             reps=reps,
             model=model,
             cli_driver=cli_driver,
@@ -950,6 +1259,16 @@ def benchmark_codebench_cmd(
             parallel_scope=parallel_scope,
             codebench_tasks_dir=resolved_codebench_tasks_dir,
             bridge_command=bridge_command,
+            mode=mode,
+            judge=judge,
+            judge_model=resolved_judge_model,
+            cli_version=cli_version,
+            judge_cli_version=judge_cli_version,
+            runtime_attribution=build_runtime_attribution(
+                arms=list(benchmark_arms),
+                cli_driver=cli_driver,
+                comparators=comparator_metadata,
+            ),
         ),
     )
     repo_state = git_state(repo_root)
@@ -960,7 +1279,7 @@ def benchmark_codebench_cmd(
     # every 30s) and write whole lines (in_place would fight the subprocess
     # output for the cursor).
     progress = ProgressReporter("codebench", total=1, heartbeat_seconds=0, in_place=False)
-    progress.start("starting benchmark", current=f"{len(tasks)} task selector(s) x {len(arms)} arm(s)")
+    progress.start("starting benchmark", current=f"{len(tasks)} task selector(s) x {len(benchmark_arms)} arm(s)")
     returncode = _run(
         [
             *_python_cmd(repo_root),
@@ -985,6 +1304,8 @@ def benchmark_codebench_cmd(
             str(jobs),
             "--parallel-scope",
             parallel_scope,
+            "--pairwise-baseline-arm",
+            baseline_arm,
             "--mode",
             mode,
             "--budget-usd",
@@ -995,6 +1316,7 @@ def benchmark_codebench_cmd(
             *agent_env_args,
             *judge_args,
             *bridge_args,
+            *competitor_args,
             "--out",
             str(run_dir),
         ],
@@ -1020,19 +1342,45 @@ def benchmark_codebench_cmd(
             repo_state=repo_state,
         ),
     )
-    write_benchmark_gate(
-        run_dir,
-        evaluate_codebench_gate(
+    gate = (
+        evaluate_runtime_policy_gate(
+            run_dir,
+            control_arm=baseline_arm,
+            candidate_arm=candidate_arm,
+        )
+        if baseline_arm == "lemoncrow-control" and candidate_arm == "lemoncrow-candidate"
+        else evaluate_codebench_gate(
             run_dir,
             baseline_arm=baseline_arm,
             candidate_arm=candidate_arm,
-        ),
+        )
     )
+    write_benchmark_gate(run_dir, gate)
+    comparison_gates = evaluate_codebench_comparison_gates(
+        run_dir,
+        baseline_arm=baseline_arm,
+        candidate_arms=[arm for arm in benchmark_arms if arm != baseline_arm],
+        mode=mode,
+    )
+    write_benchmark_comparison_gates(run_dir, comparison_gates)
+    runtime_policy_gate = None
+    if "lemoncrow-control" in benchmark_arms and "lemoncrow-candidate" in benchmark_arms:
+        runtime_policy_gate = evaluate_runtime_policy_gate(
+            run_dir,
+            control_arm="lemoncrow-control",
+            candidate_arm="lemoncrow-candidate",
+        )
+        write_runtime_policy_gate(run_dir, runtime_policy_gate)
     if require_pass:
         try:
             require_benchmark_gate_pass(run_dir)
         except ValueError as exc:
             raise click.ClickException(str(exc)) from exc
+        if comparison_gates["candidate_arms"] and not comparison_gates["passed_all"]:
+            failed = [name for name, candidate in comparison_gates["candidates"].items() if not candidate.get("passed")]
+            raise click.ClickException(f"comparison gate failed for: {', '.join(failed)}")
+        if runtime_policy_gate is not None and not runtime_policy_gate.get("passed"):
+            raise click.ClickException("runtime policy qualification gate failed")
     progress.finish("benchmark complete")
     click.echo(f"Results: {run_dir}")
 
@@ -1260,12 +1608,12 @@ def benchmark_local_cmd(
     multiple=True,
     default=("baseline", "lemoncrow"),
     show_default=True,
-    type=click.Choice(["baseline", "lemoncrow", "caveman"]),
+    type=click.Choice(["baseline", "lemoncrow", "lemoncrow-readable", "caveman"]),
     help=(
-        "baseline/lemoncrow run through the full codebench harness (plugin+MCP for "
-        "lemoncrow). caveman is vanilla Claude Code plus ONE appended system prompt "
-        "(its own SKILL.md verbatim) -- no plugin, no agent, no MCP; isolates the "
-        "reply style alone, the way caveman's own harness does."
+        "baseline is vanilla Claude Code. lemoncrow is the full runtime with the "
+        "current ultra reply register. lemoncrow-readable is the same plugin+MCP+persona "
+        "with only the public lite register selected. caveman is vanilla Claude Code "
+        "plus its own appended SKILL.md and no plugin/agent/MCP."
     ),
 )
 @click.option(
@@ -1309,16 +1657,17 @@ def benchmark_telegraphic_cmd(
     estimate_only: bool,
     yes: bool,
 ) -> None:
-    """Uses LLM: token-savings vs vanilla Claude Code on caveman's 20-prompt Q&A set.
+    """Uses LLM: output-cost tradeoffs vs vanilla Claude Code on caveman's 20-prompt Q&A set.
 
     Reproduces JuliusBrussee/caveman's benchmark+eval prompt sets
     (github.com/JuliusBrussee/caveman/tree/main/{benchmarks,evals}) with the
-    FULL real LemonCrow runtime as the "lemoncrow" arm (tools + MCP + the
-    ``lemoncrow:auto`` persona's shipped ultra reply-register) -- not an
-    isolated system-prompt swap, so the number is apples-to-apples with every
-    other figure in BENCHMARKS.md. Prints a cost estimate and confirms before
-    spending real tokens; report = per-prompt output-token savings, not
-    patch-accept-rate (these are Q&A prompts, no golden patch to verify).
+    real LemonCrow runtime. ``lemoncrow`` uses the current ultra register;
+    ``lemoncrow-readable`` changes only that register to lite, so the pair
+    isolates reply style while keeping model, plugin, MCP, persona, and tools
+    fixed. Historical ultra-v2 through ultra-v5 experiments are documented in
+    BENCHMARKS.md but are intentionally not runtime/CLI levels. The report
+    measures output-token cost; these Q&A prompts have no golden patch
+    correctness score.
 
     \b
     Usage:

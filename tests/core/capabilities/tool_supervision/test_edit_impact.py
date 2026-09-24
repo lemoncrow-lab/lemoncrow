@@ -31,10 +31,12 @@ from lemoncrow.pro.capabilities.tool_supervision.edit_impact import (
 
 def _astgrep_available() -> bool:
     try:
-        from lemoncrow.infra.code_intel.astgrep import AstGrepAdapter, AstGrepToolUnavailable
+        from lemoncrow_client.kit.astgrep import AstGrepToolUnavailable
+
+        from lemoncrow.infra.code_intel.astgrep import astgrep_adapter
 
         try:
-            AstGrepAdapter(Path(".")).search(pattern='"x"', language="python", limit=1)
+            astgrep_adapter(Path(".")).search(pattern='"x"', language="python", limit=1)
         except AstGrepToolUnavailable:
             return False
         return True
@@ -303,7 +305,7 @@ def test_astgrep_detection_batches_rules_and_normalizes_scan_paths(
         def search(self, **_kwargs: object) -> None:
             raise AssertionError("batched rule-mode should avoid per-pattern ast-grep processes")
 
-    monkeypatch.setattr(astgrep, "AstGrepAdapter", _FakeAdapter)
+    monkeypatch.setattr(astgrep, "astgrep_adapter", _FakeAdapter)
 
     detection = edit_impact._astgrep_detect(
         ["passwd"],
@@ -370,7 +372,7 @@ def test_common_candidate_cannot_starve_a_rare_one_out_of_the_batched_scan(
         def search(self, **_kwargs: object) -> None:
             raise AssertionError("batched rule-mode should avoid per-pattern ast-grep processes")
 
-    monkeypatch.setattr(astgrep, "AstGrepAdapter", _FakeAdapter)
+    monkeypatch.setattr(astgrep, "astgrep_adapter", _FakeAdapter)
 
     detection = edit_impact._astgrep_detect(
         ["legacy_mode", "zz_rare_contract"],

@@ -30,6 +30,8 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+from lemoncrow_client.kit.notices import spill_notice
+
 # Bounded retention so the shared spill dir can't grow without limit across a long
 # session or many sessions (nothing else ever deletes these files). The sweep runs
 # best-effort on each write. Override via env; set either axis to 0 to disable it.
@@ -209,32 +211,6 @@ def spill_bytes(
 # "shrunk" (spill + head/tail summary), "truncated" (hard byte/char cap),
 # "compacted" or "compacted:{method}" (structured compaction, e.g.
 # "compacted:dedup").
-
-
-def spill_notice(
-    *,
-    verb: str,
-    original_chars: int,
-    kept_chars: int,
-    path: Path | str | None = None,
-) -> str:
-    """The ONE canonical footer notice for every shrink/spill/truncate/compact event.
-
-    Single source of truth for the notice grammar so the model learns exactly
-    one pattern for reading a shrink/spill/truncate notice instead of the
-    ~6 divergent ones this replaces. Counts are CHARACTERS, never bytes.
-
-    ``path`` names the on-disk file the full content can be recovered from via
-    ``read <path>``. Pass ``None`` when there is no recovery path (the spill
-    itself failed, or the cap that triggered this notice has nothing spilled
-    behind it) -- the notice then reports a hard truncation with no ``read``
-    hint (the ``verb`` argument is unused in that shape: without a recovery
-    path the event is, from the model's perspective, just a truncation
-    regardless of which mechanism triggered it).
-    """
-    if path is None:
-        return f"[lc: truncated {original_chars}→{kept_chars}; narrow the query for full]"
-    return f"[lc: {verb} {original_chars}→{kept_chars}; full: {path}]"
 
 
 # Clipped-summary marker: spliced in before the footer when max_chars forces

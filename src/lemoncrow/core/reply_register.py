@@ -3,11 +3,13 @@
 All response policy lives in sectioned ``shared/reply-register.md``:
 
 - ``invariants``: byte-exact technical content and safety expansion; always on.
-- ``telegraphic-default``: strict default appended through core discipline and
-  removed for lite/off.
+- ``telegraphic-default``: strict ultra-only default appended through core
+  discipline and removed for lite/off.
 - ``ultra`` / ``lite``: mutually exclusive reply-style registers.
 - ``off``: no reply-style register; invariants remain.
 
+Generated host surfaces intentionally bake ``ultra`` as a deterministic source
+form, then installation/runtime projection swaps it to the selected level.
 Resolution order: ``LEMONCROW_TELEGRAPHIC`` env var → persisted
 ``cli.telegraphic`` key in ``<root>/plugin_settings.json`` → ``ultra``. The
 same transformation is mirrored in
@@ -59,14 +61,14 @@ def _toml_escape(value: str) -> str:
 
 
 def apply_reply_register_level(text: str, shared_dir: Path, level: str | None = None) -> str:
-    """Replace baked ultra style and remove its telegraphic-default section."""
+    """Project the baked ultra source to a selected public reply-register level."""
     lvl = level if level in REPLY_REGISTER_LEVELS else reply_register_level()
     if lvl == "ultra":
         return text
     default_body = _register_body(shared_dir, "ultra")
     if not default_body:
         return text
-    replacement = "" if lvl == "off" else _register_body(shared_dir, "lite")
+    replacement = "" if lvl == "off" else _register_body(shared_dir, lvl)
     bullet = _register_body(shared_dir, "telegraphic-default")
     pairs: list[tuple[str, str]] = [(default_body, replacement)]
     if bullet:

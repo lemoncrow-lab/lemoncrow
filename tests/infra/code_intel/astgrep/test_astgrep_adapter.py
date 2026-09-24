@@ -6,8 +6,8 @@ from pathlib import Path
 from subprocess import CompletedProcess
 
 import pytest
+from lemoncrow_client.kit.astgrep import AstGrepAdapter, _parse_json_output
 
-from lemoncrow.infra.code_intel.astgrep.adapter import AstGrepAdapter, _parse_json_output
 from lemoncrow.infra.code_intel.astgrep.binaries import discover_astgrep_binary
 
 

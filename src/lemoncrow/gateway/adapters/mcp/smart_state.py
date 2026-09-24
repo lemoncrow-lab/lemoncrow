@@ -20,15 +20,14 @@ from pathlib import Path
 from typing import Any
 
 from lemoncrow.gateway.adapters.mcp.session_state import _lemoncrow_root
+from lemoncrow.gateway.tools.state import (
+    tool_call_tokens_saved as _tool_call_tokens_saved,  # noqa: F401  (compat re-export)
+)
 
 logger = logging.getLogger(__name__)
 
 # Serializes read-modify-write of the machine-global counters across threads.
 _STATE_LOCK = threading.RLock()
-
-# Per-call token-savings thread-local: written by tool handlers (incl. bash),
-# reset + read by the dispatcher's savings accounting. One shared instance.
-_tool_call_tokens_saved: threading.local = threading.local()
 
 
 def _smart_state_path() -> Path:

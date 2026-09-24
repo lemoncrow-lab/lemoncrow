@@ -7,9 +7,9 @@ import re
 from pathlib import Path
 
 import pytest
+from lemoncrow_client.kit import bash_output_compression as bc
 
 from lemoncrow.pro.capabilities.tool_supervision import bash_exec as bx
-from lemoncrow.pro.capabilities.tool_supervision import bash_output_compression as bc
 
 
 @pytest.fixture(autouse=True)
@@ -164,3 +164,28 @@ def test_lossy_compaction_spill_recovers_full_clean_output() -> None:
     assert match is not None
     recovered = Path(match.group(1)).read_text(encoding="utf-8")
     assert recovered == raw
+
+
+def test_unique_explicit_level_logs_are_sampled_but_keep_all_diagnostics() -> None:
+    labels = [f"{chr(65 + (i // 26))}{chr(65 + (i % 26))}" for i in range(80)]
+    lines = [f"2026-09-20T18:00:{i:02d}Z INFO worker component={labels[i]} ready" for i in range(80)]
+    lines[23] = "2026-09-20T18:00:23Z WARNING cache nearing capacity"
+    lines[61] = "2026-09-20T18:01:01Z ERROR upload failed for tenant-7"
+    result = bc.compact_bash_stream("\n".join(lines), budget=700)
+
+    assert "[lc log levels:" in result.text
+    assert "info=78" in result.text
+    assert "warn=1" in result.text
+    assert "error=1" in result.text
+    assert "cache nearing capacity" in result.text
+    assert "upload failed for tenant-7" in result.text
+    assert "component=AA" in result.text
+    assert f"component={labels[-1]}" in result.text
+    assert "routine ..." in result.text
+    assert result.lossy is True
+
+
+def test_log_level_sampler_ignores_mixed_prose_without_explicit_levels() -> None:
+    raw = "\n".join(f"step {i}: processed unique business record {i}" for i in range(100))
+    result = bc.compact_bash_stream(raw, budget=700)
+    assert "[lc log levels:" not in result.text

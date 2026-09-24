@@ -33,6 +33,8 @@ from lemoncrow.pro.capabilities.review.session_models import (
 )
 from lemoncrow.pro.capabilities.review.store import (
     DB_NAME,
+    AnnotationHistoryContext,
+    AnnotationVersionConflict,
     ReviewStore,
     new_annotation_id,
     new_evidence_id,
@@ -114,7 +116,16 @@ def test_init_creates_the_file_and_every_required_table(tmp_path: Path) -> None:
     with sqlite3.connect(store.db_path) as conn:
         names = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert set(ReviewStore.REQUIRED_TABLES) <= names
-    assert len(ReviewStore.REQUIRED_TABLES) == 12
+    assert len(ReviewStore.REQUIRED_TABLES) == 17
+    assert {
+        "review_participants",
+        "review_requests",
+        "review_attention",
+        "review_attention_events",
+        "review_provider_subjects",
+        "provider_webhook_receipts",
+        "provider_operations",
+    }.isdisjoint(names)
 
 
 def test_init_is_idempotent_and_keeps_existing_rows(tmp_path: Path) -> None:
@@ -141,6 +152,12 @@ def test_additive_review_migrations_are_registered_without_bumping_schema_versio
         "v3_002_review_source_fingerprint.sql",
         "v3_003_review_author_response.sql",
         "v3_004_review_evidence_verification.sql",
+        "v3_005_review_history.sql",
+        "v3_006_review_collaboration.sql",
+        "v3_009_review_feedback_operations.sql",
+        "v3_011_review_outcomes.sql",
+        "v3_012_review_current_revision.sql",
+        "v3_013_review_change_proposals.sql",
     )
     assert SESSION_SCHEMA_VERSION == 1
 
@@ -149,6 +166,17 @@ def test_additive_review_migrations_are_registered_without_bumping_schema_versio
         annotation_columns = {row[1] for row in conn.execute("PRAGMA table_info(annotations)")}
         revision_columns = {row[1] for row in conn.execute("PRAGMA table_info(review_revisions)")}
         evidence_columns = {row[1] for row in conn.execute("PRAGMA table_info(review_evidence)")}
+        delivery_columns = {row[1] for row in conn.execute("PRAGMA table_info(deliveries)")}
+        session_columns = {row[1] for row in conn.execute("PRAGMA table_info(review_sessions)")}
+        proposal_columns = {row[1] for row in conn.execute("PRAGMA table_info(review_change_proposals)")}
+        history_tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN "
+                "('review_mark_events', 'review_activity_events', 'annotation_versions')"
+            )
+        }
+        annotation_version_columns = {row[1] for row in conn.execute("PRAGMA table_info(annotation_versions)")}
     assert {
         "source",
         "source_id",
@@ -160,7 +188,239 @@ def test_additive_review_migrations_are_registered_without_bumping_schema_versio
         "author_response_at",
     } <= annotation_columns
     assert "source_fingerprint" in revision_columns
+    assert "current_revision_id" in session_columns
     assert {"verification_status", "detail"} <= evidence_columns
+    assert {"operation_id", "revision_id", "feedback_hash", "annotation_version"} <= delivery_columns
+    assert history_tables == {"review_mark_events", "review_activity_events", "annotation_versions"}
+    assert {"turn_owner_kind", "turn_owner_id"} <= annotation_columns
+    assert {"turn_owner_kind", "turn_owner_id"} <= annotation_version_columns
+    assert {
+        "base_revision_id",
+        "replacement_text",
+        "base_file_sha256",
+        "applied_source_fingerprint",
+        "result_revision_id",
+    } <= proposal_columns
+    assert {"operation_id", "revision_id", "feedback_hash", "annotation_version"} <= delivery_columns
+
+
+def test_v3_009_migrates_an_existing_deliveries_table_before_building_operation_indexes(tmp_path: Path) -> None:
+    """An existing review DB must gain feedback-operation columns before their indexes."""
+
+    root = tmp_path / "pre-feedback-operations"
+    store = _store(root)
+    session, revision = _seed(store)
+    annotation = store.add_annotation(
+        Annotation(
+            id="",
+            review_id=session.id,
+            revision_id=revision.id,
+            anchor=_anchor(),
+            body="preserve this delivery",
+        )
+    )
+    stored = store.record_delivery(
+        DeliveryRecord(
+            id="",
+            annotation_id=annotation.id,
+            target_type="agent_session",
+            target_ref="claude:session-1",
+            state="sent",
+        )
+    )
+
+    # Recreate the table exactly as it existed before v3_009 and mark only that
+    # migration unapplied. The next ReviewStore.init() exercises the same path
+    # as a real user upgrading an existing ~/.lemoncrow review database.
+    with sqlite3.connect(store.db_path) as conn:
+        conn.executescript("""
+            DROP INDEX IF EXISTS idx_deliveries_operation_annotation;
+            DROP INDEX IF EXISTS idx_deliveries_operation;
+            ALTER TABLE deliveries RENAME TO deliveries_current;
+            CREATE TABLE deliveries (
+              id            TEXT PRIMARY KEY,
+              annotation_id TEXT NOT NULL REFERENCES annotations(id) ON DELETE CASCADE,
+              target_type   TEXT NOT NULL,
+              target_ref    TEXT NOT NULL DEFAULT '',
+              state         TEXT NOT NULL DEFAULT 'pending',
+              remote_ref    TEXT NOT NULL DEFAULT '',
+              last_error    TEXT NOT NULL DEFAULT '',
+              created_at    TEXT NOT NULL,
+              updated_at    TEXT NOT NULL
+            );
+            INSERT INTO deliveries (
+              id, annotation_id, target_type, target_ref, state, remote_ref,
+              last_error, created_at, updated_at
+            )
+            SELECT id, annotation_id, target_type, target_ref, state, remote_ref,
+                   last_error, created_at, updated_at
+              FROM deliveries_current;
+            DROP TABLE deliveries_current;
+            CREATE INDEX idx_deliveries_state ON deliveries(state, updated_at DESC);
+            DELETE FROM _schema_migrations WHERE name = 'v3_009_review_feedback_operations.sql';
+            """)
+
+    upgraded = ReviewStore(root)
+    upgraded.init()
+    with sqlite3.connect(upgraded.db_path) as conn:
+        delivery_columns = {row[1] for row in conn.execute("PRAGMA table_info(deliveries)")}
+        indexes = {row[1] for row in conn.execute("PRAGMA index_list(deliveries)")}
+    assert {"operation_id", "revision_id", "feedback_hash", "annotation_version"} <= delivery_columns
+    assert {"idx_deliveries_operation", "idx_deliveries_operation_annotation"} <= indexes
+    (delivery,) = upgraded.list_deliveries(annotation.id)
+    assert delivery.id == stored.id
+    assert delivery.state == "sent"
+    assert delivery.operation_id == ""
+
+
+def test_h1_store_migrates_to_history_without_losing_review_state(tmp_path: Path) -> None:
+    """H2 migration is additive: durable H1 review state survives unchanged."""
+
+    root = tmp_path / "h1-store"
+    store = _store(root)
+    session, revision = _seed(store)
+    unit = store.list_units(revision.id)[0]
+    mark = store.set_mark(
+        ReviewMark(
+            review_id=session.id,
+            reviewer_id="local",
+            unit_key=unit.unit_key,
+            state="reviewed",
+            reviewed_revision_id=revision.id,
+            content_fingerprint=unit.content_fingerprint,
+        )
+    )
+    annotation = store.add_annotation(
+        Annotation(
+            id="",
+            review_id=session.id,
+            revision_id=revision.id,
+            anchor=_anchor(),
+            body="keep this comment",
+        )
+    )
+
+    # Simulate the on-disk shape immediately before H2: all existing review
+    # rows remain, the three new history tables and their migration marker do not.
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute("DROP TABLE annotation_versions")
+        conn.execute("DROP TABLE review_activity_events")
+        conn.execute("DROP TABLE review_mark_events")
+        conn.execute("DELETE FROM _schema_migrations WHERE name = 'v3_005_review_history.sql'")
+
+    migrated = ReviewStore(root)
+    migrated.init()
+    assert migrated.get_session(session.id) == session
+    assert migrated.get_revision(revision.id) == revision
+    assert migrated.list_marks(session.id) == (mark,)
+    assert migrated.get_annotation(annotation.id) == annotation
+    with sqlite3.connect(migrated.db_path) as conn:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        migration = conn.execute("SELECT 1 FROM _schema_migrations WHERE name = 'v3_005_review_history.sql'").fetchone()
+    assert {"review_mark_events", "review_activity_events", "annotation_versions"} <= tables
+    assert migration is not None
+
+
+def test_v3_006_migrates_shared_thread_ownership_without_hosted_tables(tmp_path: Path) -> None:
+    root = tmp_path / "pre-turn-owner"
+    store = _store(root)
+    session, revision = _seed(store)
+    annotation = store.add_annotation(
+        Annotation(
+            id="",
+            review_id=session.id,
+            revision_id=revision.id,
+            anchor=_anchor(),
+            body="existing comment",
+        )
+    )
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute("ALTER TABLE annotations DROP COLUMN turn_owner_id")
+        conn.execute("ALTER TABLE annotations DROP COLUMN turn_owner_kind")
+        conn.execute("ALTER TABLE annotation_versions DROP COLUMN turn_owner_id")
+        conn.execute("ALTER TABLE annotation_versions DROP COLUMN turn_owner_kind")
+        conn.execute("DELETE FROM _schema_migrations WHERE name = 'v3_006_review_collaboration.sql'")
+
+    migrated = ReviewStore(root)
+    migrated.init()
+    assert migrated.get_session(session.id) == session
+    assert migrated.get_revision(revision.id) == revision
+    assert migrated.get_annotation(annotation.id) == annotation
+    with sqlite3.connect(migrated.db_path) as conn:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        annotation_columns = {row[1] for row in conn.execute("PRAGMA table_info(annotations)")}
+        version_columns = {row[1] for row in conn.execute("PRAGMA table_info(annotation_versions)")}
+        marker = conn.execute(
+            "SELECT 1 FROM _schema_migrations WHERE name = 'v3_006_review_collaboration.sql'"
+        ).fetchone()
+    assert {"review_participants", "review_requests", "review_attention", "review_attention_events"}.isdisjoint(tables)
+    assert {"turn_owner_kind", "turn_owner_id"} <= annotation_columns
+    assert {"turn_owner_kind", "turn_owner_id"} <= version_columns
+    assert marker is not None
+
+
+def test_reviewer_outcome_is_revision_bound_append_only_history(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    session, first_revision = _seed(store)
+
+    first = store.record_outcome(
+        session.id,
+        first_revision.id,
+        "reviewer-a",
+        outcome="lgtm",
+        summary="Looks good to me.",
+    )
+    second_revision = store.add_revision(
+        _revision(session.id, tree_fingerprint="tree-bbb"),
+        [_unit(content_fingerprint="fp-2")],
+    )
+    second = store.record_outcome(
+        session.id,
+        second_revision.id,
+        "reviewer-a",
+        outcome="changes_requested",
+        summary="Please fix the retry path.",
+    )
+    other = store.record_outcome(
+        session.id,
+        second_revision.id,
+        "reviewer-b",
+        outcome="comment",
+        summary="No overall verdict.",
+    )
+
+    assert store.latest_outcome(session.id, "reviewer-a") == second
+    assert store.list_outcomes(session.id, reviewer_id="reviewer-a") == (second, first)
+    assert store.latest_outcomes(session.id) == (second, other)
+    assert first.revision_id != second.revision_id
+    activity = [event for event in store.list_activity_events(session.id) if event.subject_type == "outcome"]
+    assert [event.kind for event in activity] == ["outcome.recorded", "outcome.recorded", "outcome.recorded"]
+
+
+def test_reviewer_outcome_rejects_wrong_revision_or_unknown_kind(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    session, revision = _seed(store)
+    other = store.create_session(_session(source_ref="a..b", subject_type="commit_range"))
+    other_revision = store.add_revision(_revision(other.id, tree_fingerprint="other"), [])
+
+    with pytest.raises(ValueError, match="does not belong"):
+        store.record_outcome(session.id, other_revision.id, "reviewer-a", outcome="lgtm")
+    with pytest.raises(ValueError, match="unknown review outcome"):
+        store.record_outcome(session.id, revision.id, "reviewer-a", outcome="approve")  # type: ignore[arg-type]
+
+
+def test_existing_pre_outcome_database_migrates_with_outcome_table(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute("DROP TABLE review_outcomes")
+        conn.execute("DELETE FROM _schema_migrations WHERE name = 'v3_011_review_outcomes.sql'")
+    migrated = ReviewStore(store.root)
+    migrated.init()
+    with sqlite3.connect(migrated.db_path) as conn:
+        table = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'review_outcomes'").fetchone()
+        marker = conn.execute("SELECT 1 FROM _schema_migrations WHERE name = 'v3_011_review_outcomes.sql'").fetchone()
+    assert table is not None
+    assert marker is not None
 
 
 def test_existing_pre_annotation_source_database_migrates_before_source_index(tmp_path: Path) -> None:
@@ -309,6 +569,23 @@ def test_revision_numbers_are_dense_and_assigned_by_the_store(tmp_path: Path) ->
     assert (first.revision_number, second.revision_number) == (1, 2)
     assert store.latest_revision(session.id) == second
     assert [r.id for r in store.list_revisions(session.id)] == [first.id, second.id]
+
+
+def test_current_revision_can_move_back_without_rewriting_history(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    session = store.create_session(_session())
+    first = store.add_revision(_revision(session.id, tree_fingerprint="t1"), [])
+    second = store.add_revision(_revision(session.id, tree_fingerprint="t2"), [])
+
+    assert store.set_current_revision(session.id, second.id) is True
+    assert store.latest_revision(session.id) == second
+    assert store.set_current_revision(session.id, first.id) is True
+    assert store.latest_revision(session.id) == first
+    assert [item.id for item in store.list_revisions(session.id)] == [first.id, second.id]
+    stored = store.get_session(session.id)
+    assert stored is not None
+    assert stored.current_revision_id == first.id
+    assert store.set_current_revision(session.id, first.id) is False
 
 
 def test_add_revision_is_one_transaction(tmp_path: Path) -> None:
@@ -851,6 +1128,145 @@ def test_update_annotation_rewrites_the_anchor_and_the_search_index(tmp_path: Pa
         store.update_annotation(created.id, nonsense="x")
 
 
+def test_mark_events_and_activity_are_append_only_while_live_mark_is_latest(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    session, revision = _seed(store)
+    unit = store.list_units(revision.id)[0]
+
+    first = store.set_mark(
+        ReviewMark(
+            review_id=session.id,
+            reviewer_id="local",
+            unit_key=unit.unit_key,
+            state="reviewed",
+            reviewed_revision_id=revision.id,
+            content_fingerprint=unit.content_fingerprint,
+        ),
+        event_kind="judgment",
+        event_revision_id=revision.id,
+    )
+    second = store.set_mark(
+        replace(first, state="needs_changes"),
+        event_kind="judgment",
+        event_revision_id=revision.id,
+        event_reason="reviewer found a blocker",
+    )
+
+    assert store.list_marks(session.id) == (second,)
+    events = store.list_mark_events(session.id)
+    assert [(item.event_kind, item.from_state, item.to_state) for item in events] == [
+        ("judgment", "", "reviewed"),
+        ("judgment", "reviewed", "needs_changes"),
+    ]
+    assert events[-1].reason == "reviewer found a blocker"
+    activity = store.list_activity_events(session.id)
+    assert [item.kind for item in activity] == [
+        "review.created",
+        "revision.recorded",
+        "mark.judgment",
+        "mark.judgment",
+    ]
+
+
+def test_annotation_versions_track_thread_turn_ownership(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    session, revision = _seed(store)
+    created = store.add_annotation(
+        Annotation(
+            id="",
+            review_id=session.id,
+            revision_id=revision.id,
+            anchor=_anchor(),
+            body="please change this",
+            kind="request_change",
+            created_by="bob",
+            turn_owner_kind="author",
+        )
+    )
+    versions = store.list_annotation_versions(created.id)
+    assert [(item.version_number, item.turn_owner_kind, item.turn_owner_id) for item in versions] == [(1, "author", "")]
+
+    returned = store.update_annotation(
+        created.id,
+        AnnotationHistoryContext(
+            revision_id=revision.id,
+            changed_by="alice",
+            changed_by_actor="human",
+            change_kind="author_response",
+            expected_version=1,
+        ),
+        author_response="addressed",
+        author_response_source_id="alice",
+        author_response_at=utc_now(),
+        turn_owner_kind="reviewer",
+        turn_owner_id="bob",
+    )
+    assert returned is not None
+    assert returned.turn_owner_kind == "reviewer"
+    assert returned.turn_owner_id == "bob"
+    versions = store.list_annotation_versions(created.id)
+    assert [(item.version_number, item.change_kind, item.turn_owner_kind, item.turn_owner_id) for item in versions] == [
+        (1, "created", "author", ""),
+        (2, "author_response", "reviewer", "bob"),
+    ]
+
+    with pytest.raises(AnnotationVersionConflict):
+        store.update_annotation(
+            created.id,
+            AnnotationHistoryContext(
+                revision_id=revision.id,
+                changed_by="stale-author",
+                changed_by_actor="human",
+                expected_version=1,
+            ),
+            body="stale write must not land",
+        )
+    assert store.get_annotation(created.id) == returned
+    assert store.annotation_version_number(created.id) == 2
+
+
+def test_annotation_versions_track_semantics_not_anchor_only_movement(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    session, revision = _seed(store)
+    created = store.add_annotation(
+        Annotation(id="", review_id=session.id, revision_id=revision.id, anchor=_anchor(), body="first wording")
+    )
+    assert [
+        (item.version_number, item.change_kind, item.body) for item in store.list_annotation_versions(created.id)
+    ] == [(1, "created", "first wording")]
+
+    moved = _anchor(path="src/other.py", start_line=7, end_line=7, unit_key="file:src/other.py")
+    store.update_annotation(
+        created.id,
+        AnnotationHistoryContext(revision_id=revision.id, changed_by="lemoncrow"),
+        anchor=moved,
+        anchor_method="unique_text",
+    )
+    assert len(store.list_annotation_versions(created.id)) == 1
+
+    store.update_annotation(
+        created.id,
+        AnnotationHistoryContext(revision_id=revision.id, changed_by="local", changed_by_actor="human"),
+        body="second wording",
+    )
+    store.update_annotation(
+        created.id,
+        AnnotationHistoryContext(revision_id=revision.id, changed_by="local", changed_by_actor="human"),
+        state="resolved",
+    )
+    versions = store.list_annotation_versions(created.id)
+    assert [(item.version_number, item.change_kind, item.body, item.state) for item in versions] == [
+        (1, "created", "first wording", "open"),
+        (2, "edited", "second wording", "open"),
+        (3, "state_changed", "second wording", "resolved"),
+    ]
+    assert [item.kind for item in store.list_activity_events(session.id)][-3:] == [
+        "annotation.created",
+        "annotation.updated",
+        "annotation.state_changed",
+    ]
+
+
 def test_search_annotations_matches_a_prefix_and_stays_inside_one_review(tmp_path: Path) -> None:
     store = _store(tmp_path)
     session, revision = _seed(store)
@@ -1278,24 +1694,20 @@ def test_a_reader_sees_a_concurrent_writers_committed_rows(tmp_path: Path) -> No
 # ----- 12. sync-friendliness ----------------------------------------------- #
 
 
-def test_ids_are_prefixed_sortable_uuids_and_carry_no_local_path(tmp_path: Path) -> None:
-    """A hosted team service must be able to replicate these rows verbatim."""
+def test_review_ids_are_bare_sortable_uuid_payloads_and_carry_no_local_path(tmp_path: Path) -> None:
+    """Review/revision storage ids are opaque UUID payloads; namespaces live only in public refs."""
     store = _store(tmp_path)
     session, revision = _seed(store)
     annotation = store.add_annotation(
         Annotation(id="", review_id=session.id, revision_id=revision.id, anchor=_anchor(), body="b")
     )
-    for identifier, prefix in (
-        (session.id, "rev-"),
-        (revision.id, "rrv-"),
-        (annotation.id, "ann-"),
-    ):
-        assert identifier.startswith(prefix)
-        uuid_part = identifier[len(prefix) :]
-        assert len(uuid_part) == 36
-        assert uuid_part[14] == "7", "UUIDv7 version nibble: ids must sort by creation time"
+    for identifier in (session.id, revision.id):
+        assert len(identifier) == 32
+        assert all(char in "0123456789abcdef" for char in identifier)
+        assert identifier[12] == "7", "UUIDv7 version nibble: ids must sort by creation time"
         assert str(tmp_path) not in identifier
         assert "/" not in identifier
+    assert annotation.id.startswith("ann-")
 
 
 def test_ids_sort_by_creation_time(tmp_path: Path) -> None:
@@ -1305,12 +1717,12 @@ def test_ids_sort_by_creation_time(tmp_path: Path) -> None:
     arbitrary -- what a sync layer needs is that ids never sort *backwards* in
     time, which is what the timestamp prefix guarantees.
     """
-    prefixes = []
+    timestamp_prefixes = []
     for _ in range(5):
-        prefixes.append(new_session_id()[4:17].replace("-", ""))
+        timestamp_prefixes.append(new_session_id()[:12])
         time.sleep(0.002)
-    assert prefixes == sorted(prefixes)
-    assert len(set(prefixes)) == len(prefixes)
+    assert timestamp_prefixes == sorted(timestamp_prefixes)
+    assert len(set(timestamp_prefixes)) == len(timestamp_prefixes)
 
 
 def test_every_timestamp_is_aware_utc_iso8601(tmp_path: Path) -> None:
@@ -1468,3 +1880,93 @@ def test_unified_annotation_source_round_trips_and_rejects_fake_human_judgment(t
                 source="ai_review",
             )
         )
+
+
+def test_prefixed_review_identity_migrates_without_losing_refs_or_frozen_blobs(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    session, revision = _seed(store)
+    store.write_blob_artifact(session.id, revision.id, {"src/app.py": "print('frozen')\n"})
+    store.set_mark(
+        ReviewMark(
+            review_id=session.id,
+            unit_key="file:src/app.py",
+            state="reviewed",
+            reviewed_revision_id=revision.id,
+            content_fingerprint="fp-1",
+        )
+    )
+
+    def dashed(value: str) -> str:
+        return f"{value[:8]}-{value[8:12]}-{value[12:16]}-{value[16:20]}-{value[20:]}"
+
+    old_review = f"r-{dashed(session.id)}"
+    old_revision = f"rr-{dashed(revision.id)}"
+    with sqlite3.connect(store.db_path) as conn:
+        conn.execute("PRAGMA foreign_keys = OFF")
+        conn.execute("DELETE FROM review_meta WHERE key = 'review_identity_version'")
+        conn.execute("UPDATE review_units SET revision_id = ? WHERE revision_id = ?", (old_revision, revision.id))
+        conn.execute(
+            "UPDATE review_marks SET review_id = ?, reviewed_revision_id = ? WHERE review_id = ?",
+            (old_review, old_revision, session.id),
+        )
+        conn.execute(
+            "UPDATE review_activity_events SET review_id = ?, revision_id = CASE WHEN revision_id = ? THEN ? ELSE revision_id END, "
+            "subject_id = CASE WHEN subject_type = 'review' AND subject_id = ? THEN ? "
+            "WHEN subject_type = 'revision' AND subject_id = ? THEN ? ELSE subject_id END WHERE review_id = ?",
+            (old_review, revision.id, old_revision, session.id, old_review, revision.id, old_revision, session.id),
+        )
+        conn.execute(
+            "UPDATE review_revisions SET id = ?, review_id = ? WHERE id = ?", (old_revision, old_review, revision.id)
+        )
+        conn.execute(
+            "UPDATE review_sessions SET id = ?, current_revision_id = CASE WHEN current_revision_id = ? THEN ? ELSE current_revision_id END WHERE id = ?",
+            (old_review, revision.id, old_revision, session.id),
+        )
+        conn.commit()
+
+    bare_dir = store.root / "review" / "artifacts" / session.id / revision.id
+    legacy_dir = store.root / "review" / "artifacts" / old_review / old_revision
+    legacy_dir.parent.mkdir(parents=True, exist_ok=True)
+    bare_dir.rename(legacy_dir)
+
+    migrated = ReviewStore(tmp_path)
+    migrated.init()
+
+    loaded_session = migrated.get_session(session.id)
+    loaded_revision = migrated.get_revision(revision.id)
+    assert loaded_session is not None
+    assert loaded_revision is not None
+    assert loaded_revision.review_id == session.id
+    assert migrated.resolve_session(f"r/{session.id}") == loaded_session
+    assert migrated.resolve_revision(f"rr/{revision.id}") == loaded_revision
+    assert any(mark.unit_key == "file:src/app.py" for mark in migrated.list_marks(session.id))
+    assert migrated.read_blob_artifact(session.id, revision.id) == {"src/app.py": "print('frozen')\n"}
+    assert not legacy_dir.exists()
+    assert (store.root / "review" / "artifacts" / session.id / revision.id).is_dir()
+
+
+def test_review_identity_is_bare_uuid_with_canonical_public_ref(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    session = store.create_session(_session(source_ref="current"))
+
+    assert len(session.id) == 32
+    assert all(char in "0123456789abcdef" for char in session.id)
+    assert store.session_reference(session.id) == f"r/{session.id}"
+    assert store.resolve_session(session.id) == session
+    assert store.resolve_session(f"r/{session.id}") == session
+    assert store.resolve_session(f"r-{session.id}") is None
+    assert store.resolve_session(session.id[:8]) is None
+
+
+def test_revision_identity_is_bare_uuid_with_canonical_public_ref(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    session = store.create_session(_session())
+    revision = store.add_revision(_revision(session.id), [_unit()])
+
+    assert len(revision.id) == 32
+    assert all(char in "0123456789abcdef" for char in revision.id)
+    assert store.revision_reference(revision.id) == f"rr/{revision.id}"
+    assert store.resolve_revision(revision.id) == revision
+    assert store.resolve_revision(f"rr/{revision.id}") == revision
+    assert store.resolve_revision(f"rr-{revision.id}") is None
+    assert store.resolve_revision(revision.id[:8]) is None

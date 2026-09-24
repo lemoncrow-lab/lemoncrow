@@ -52,20 +52,22 @@ def _no_astgrep_download(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
 
 
 @pytest.fixture(autouse=True)
-def _no_review_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Pin `--open` to the static report for this file.
+def _no_review_server(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin `--open` to the static report for this renderer-only test file.
 
-    Since PR-R3b, `--open` starts the loopback review workspace when a built
-    frontend bundle is present and only falls back to the HTML report when
-    there is none. A developer checkout *has* a bundle, so without this the
-    tests below would spawn a real background server on the machine running
-    them -- and they would be testing the workspace, which is not what this
-    file is for.
+    Review now uses the configured LemonCrow server for both local and hosted
+    installs; it no longer starts a per-repository workspace listener. These
+    tests exercise standalone HTML, so make server capture unavailable and
+    verify the documented static fallback instead of contacting a developer's
+    real local server.
     """
 
-    from lemoncrow.pro.capabilities.review import workspace as workspace_mod
+    from lemoncrow.pro.capabilities.review import hosted as hosted_mod
 
-    monkeypatch.setattr(workspace_mod, "bundle_dir", lambda: None)
+    def _unavailable(*args: Any, **kwargs: Any) -> Any:
+        raise ValueError("Review server unavailable in standalone HTML test")
+
+    monkeypatch.setattr(hosted_mod, "capture_server_review", _unavailable)
 
 
 # --- packet fixtures --------------------------------------------------------
@@ -600,44 +602,55 @@ def test_cli_html_reports_an_unwritable_path_without_a_traceback(tmp_path: Path)
     assert "Traceback" not in result.output
 
 
-def test_cli_open_flag_never_raises_headless(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    repo_root = _fixture_repo(tmp_path)
-    out = tmp_path / "review.html"
+def test_server_reader_open_never_raises_headless(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from types import SimpleNamespace
+
+    from lemoncrow.gateway.cli.commands.review import _open_server_review
 
     def boom(url: str, *args: Any, **kwargs: Any) -> bool:
         raise RuntimeError("no browser on this box")
 
     monkeypatch.setattr(webbrowser, "open", boom)
+    from lemoncrow.pro.capabilities.review import hosted as review_server
 
-    result = _invoke(
-        tmp_path,
-        ["--repo-root", str(repo_root), "HEAD~1", "--no-color", "--html", str(out), "--open"],
+    monkeypatch.setattr(
+        review_server,
+        "pair_local_review_browser",
+        lambda _config, _path: {"state": "armed"},
+    )
+    _open_server_review(
+        "http://127.0.0.1:7420/reviews/rev-test",
+        config=SimpleNamespace(hosted=False, token="local-test-token"),
+        review_id="rev-test",
+        open_browser=True,
     )
 
-    assert result.exit_code == 0, result.output
-    assert out.exists()
-    assert "could not open a browser" in result.output
+    assert "could not open a browser" in capsys.readouterr().err
 
 
-def test_cli_open_without_a_bundle_still_writes_a_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """With no frontend bundle, `--open` degrades to the static report.
-
-    This is the pip-install path: no bundle was ever built, so the workspace
-    cannot be served. Saying so and opening the report beats refusing to run.
-    """
+def test_cli_open_without_a_review_server_fails_instead_of_substituting_static_html(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Any server-backed Review failure is fatal; HTML is never an automatic substitute."""
 
     repo_root = _fixture_repo(tmp_path)
     opened: list[str] = []
     monkeypatch.setattr(webbrowser, "open", lambda url, *a, **k: opened.append(url) or True)
 
-    result = _invoke(tmp_path, ["--repo-root", str(repo_root), "HEAD~1", "--no-color", "--open"])
+    out = tmp_path / "explicit.html"
+    for args in (
+        ["--repo-root", str(repo_root), "HEAD~1", "--no-color", "--open"],
+        ["--repo-root", str(repo_root), "HEAD~1", "--no-color", "--html", str(out), "--open"],
+    ):
+        result = _invoke(tmp_path, args)
+        assert result.exit_code != 0
+        assert "Review server unavailable in standalone HTML test" in result.output
 
-    assert result.exit_code == 0, result.output
-    written = sorted((tmp_path / "store" / "review").glob("*.html"))
-    assert len(written) == 1, written
-    assert opened and opened[0].startswith("file://")
-    assert written[0].name.startswith("review-")
-    assert "no built frontend bundle found" in result.stderr
+    assert not out.exists()
+    assert not list((tmp_path / "store" / "review").glob("*.html"))
+    assert opened == []
 
 
 def test_cli_review_html_is_stable_across_runs(tmp_path: Path) -> None:

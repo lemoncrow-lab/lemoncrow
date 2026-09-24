@@ -22,7 +22,7 @@ Options:
     --public-remote URL Override public repo URL
     --resync            Publish paths the allowlist newly allows, as ONE new
                         commit on top of public HEAD (fast-forward, no rewrite)
-    --force             Force-push (use after rebase / history rewrite)
+    --force             Force-push (use after rebase / source-history rewrite)
     --verbose           Print one line per commit
 
 Allowlist changes need --resync:
@@ -57,11 +57,10 @@ DEV_REMOTE = "origin"  # lemoncrow-dev -- where the watermark refs live
 # standard workflow path in the public repo.
 PUBLIC_PATH_REWRITES = ((".github/public-workflows", ".github/workflows"),)
 
-# The whole source tree is mirrored, `pro` engine included -- the public repo
-# builds from source with no proprietary component, all of it Apache-2.0.
-# Release wheels are still built from this repo (.github/workflows/release.yml)
-# and cross-published to the public repo's Releases, optionally mypyc-compiled
-# for performance (see hatch_build.py).
+# Public engine packages are explicitly allowlisted, including `lemoncrow.pro`;
+# the public repo builds the local product from source with no proprietary runtime
+# dependency. New source-package siblings are private until deliberately added
+# to scripts/public-paths.txt.
 
 
 # ---------------------------------------------------------------------------
@@ -92,10 +91,9 @@ def load_public_prefixes() -> list[str]:
     """Load the allowlist, plus any ``!``-prefixed private denies.
 
     A line beginning with ``!`` marks a path (or subtree) that must stay OUT of
-    the public mirror even though a broader allow (e.g. ``src/``) would include
-    it — used to keep compiled-only IP (shipped as ``.so`` in the wheel) out of
-    the public source. The ``!`` marker is preserved so :func:`is_public` can
-    evaluate denies; a deny always beats an allow, regardless of order.
+    the public mirror even though a broader public subtree would include it. The
+    ``!`` marker is preserved so :func:`is_public` can evaluate denies; a deny
+    always beats an allow, regardless of order.
     """
     prefixes = []
     for line in PUBLIC_PATHS_FILE.read_text().splitlines():
@@ -560,7 +558,8 @@ def main() -> int:
     parser.add_argument("--source-ref", default=DEFAULT_SOURCE_REF)
     parser.add_argument("--since", metavar="DEV:PUB", help="Override watermark (dev_sha:pub_sha, both local)")
     parser.add_argument("--public-remote", default=DEFAULT_PUBLIC_REMOTE)
-    parser.add_argument(
+    tree_action = parser.add_mutually_exclusive_group()
+    tree_action.add_argument(
         "--resync",
         action="store_true",
         help="Rebuild the full filtered tree and publish it as one fast-forward commit",

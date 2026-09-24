@@ -14,12 +14,12 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
-
-from lemoncrow.core.foundation.redaction import (
+from lemoncrow_client.kit.redaction import (
     assert_safe_grep_args,
     is_shell_injection,
     redact,
 )
+
 from lemoncrow.gateway.cli import cli
 
 # ---------------------------------------------------------------------------

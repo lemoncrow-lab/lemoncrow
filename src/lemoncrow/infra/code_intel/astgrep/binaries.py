@@ -8,7 +8,6 @@ import io
 import json
 import os
 import platform
-import shutil
 import stat
 import threading
 import time
@@ -21,9 +20,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-_ENV_VAR = "LEMONCROW_AST_GREP_BIN"
-_EXPECTED_BINARY = "ast-grep"
-_MANAGED_VERSION = "0.42.2"
+from lemoncrow_client.kit.astgrep import ASTGREP_BINARY, AstGrepBinaryResolution, discover_astgrep
+
+_EXPECTED_BINARY = ASTGREP_BINARY
+_MANAGED_VERSION = "0.45.3"
 
 
 @dataclass(frozen=True)
@@ -35,73 +35,32 @@ class ManagedAstGrepAsset:
     sha256: str
 
 
-@dataclass(frozen=True)
-class AstGrepBinaryResolution:
-    """Structured ast-grep availability status."""
-
-    available: bool
-    path: Path | None = None
-    source: str | None = None
-    checked: tuple[str, ...] = ()
-    reason: str | None = None
-
-    def to_payload(self) -> dict[str, Any]:
-        return {
-            "error": "tool_unavailable",
-            "tool": "ast-grep",
-            "expected_binary": _EXPECTED_BINARY,
-            "message": self.reason or "ast-grep is unavailable",
-            "checked": list(self.checked),
-            "hint": f"Set {_ENV_VAR} to an executable ast-grep binary or allow the managed bootstrap path.",
-        }
-
-
 _MANAGED_ASSETS: dict[str, ManagedAstGrepAsset] = {
     "Darwin-arm64": ManagedAstGrepAsset(
         archive_name="app-aarch64-apple-darwin.zip",
-        url="https://github.com/ast-grep/ast-grep/releases/download/0.42.2/app-aarch64-apple-darwin.zip",
-        sha256="9f1522db1f7174ab0cba5a6d1df1861f9b92803fac407988177c28f744bd0f94",
+        url="https://github.com/ast-grep/ast-grep/releases/download/0.45.3/app-aarch64-apple-darwin.zip",
+        sha256="6d2279dea5bea2ad79c66ea93f5fe54ba926e398a8a26de76c56db68fe59eac6",
     ),
     "Darwin-x86_64": ManagedAstGrepAsset(
         archive_name="app-x86_64-apple-darwin.zip",
-        url="https://github.com/ast-grep/ast-grep/releases/download/0.42.2/app-x86_64-apple-darwin.zip",
-        sha256="6652401a9b98f7c8c528f969d34e2a42d2cb60f29fc4dc569209d16c29702d9c",
+        url="https://github.com/ast-grep/ast-grep/releases/download/0.45.3/app-x86_64-apple-darwin.zip",
+        sha256="b2ffd26f42810340326a9e8a084bdc3647a8795c1a3f21fc06bd7bef3c7c5b2c",
     ),
     "Linux-aarch64": ManagedAstGrepAsset(
         archive_name="app-aarch64-unknown-linux-gnu.zip",
-        url="https://github.com/ast-grep/ast-grep/releases/download/0.42.2/app-aarch64-unknown-linux-gnu.zip",
-        sha256="a68d7645d49dbd97b423cc8a64f7839fe5541eedf0b4bb4ab79f4ba5d53f0376",
+        url="https://github.com/ast-grep/ast-grep/releases/download/0.45.3/app-aarch64-unknown-linux-gnu.zip",
+        sha256="b39cfbc58da4b869a88b8a4bc57bd5deb0d24541e704cf7c257da7b53ec81c8f",
     ),
     "Linux-x86_64": ManagedAstGrepAsset(
         archive_name="app-x86_64-unknown-linux-gnu.zip",
-        url="https://github.com/ast-grep/ast-grep/releases/download/0.42.2/app-x86_64-unknown-linux-gnu.zip",
-        sha256="52aef3ed330a5fb1d9f399b83285bfcf47d92401249803f62711573e83cb47ae",
+        url="https://github.com/ast-grep/ast-grep/releases/download/0.45.3/app-x86_64-unknown-linux-gnu.zip",
+        sha256="f8ac830881339d1edee6b2652f54798c0f4da5a827f2db38a08ee31117783ce8",
     ),
 }
 
 
 def _is_executable(path: Path) -> bool:
     return path.is_file() and os.access(path, os.X_OK)
-
-
-def _reject_reason(path: str) -> str | None:
-    name = Path(path).name
-    if name == "sg":
-        return "resolved binary is the Linux `sg` group-switch utility, not ast-grep"
-    return None
-
-
-def _resolve_candidate(candidate: str) -> Path | None:
-    expanded = Path(candidate).expanduser()
-    if expanded.name == candidate:
-        resolved = shutil.which(candidate)
-        if not resolved:
-            return None
-        expanded = Path(resolved)
-    try:
-        return expanded.resolve()
-    except OSError:
-        return None
 
 
 def _platform_key() -> str:
@@ -402,55 +361,13 @@ def discover_astgrep_binary(
 ) -> AstGrepBinaryResolution:
     """Resolve ast-grep via env override, exact binary discovery, then optional bootstrap."""
 
-    root = Path(repo_root).resolve()
-    checked: list[str] = []
+    def bootstrap(root: Path) -> AstGrepBinaryResolution:
+        return bootstrap_managed_astgrep(root, downloader=downloader)
 
-    env_candidate = os.environ.get(_ENV_VAR)
-    if env_candidate:
-        checked.append(env_candidate)
-        reason = _reject_reason(env_candidate)
-        resolved = _resolve_candidate(env_candidate)
-        if reason:
-            return AstGrepBinaryResolution(available=False, checked=tuple(checked), reason=reason)
-        if resolved is not None and _is_executable(resolved):
-            return AstGrepBinaryResolution(available=True, path=resolved, source="env", checked=tuple(checked))
-
-    exact_candidate = shutil.which(_EXPECTED_BINARY)
-    if exact_candidate:
-        checked.append(exact_candidate)
-        reason = _reject_reason(exact_candidate)
-        resolved = _resolve_candidate(exact_candidate)
-        if reason:
-            return AstGrepBinaryResolution(available=False, checked=tuple(checked), reason=reason)
-        if resolved is not None and _is_executable(resolved):
-            return AstGrepBinaryResolution(
-                available=True,
-                path=resolved,
-                source="system",
-                checked=tuple(checked),
-            )
-
-    if allow_bootstrap:
-        managed = bootstrap_managed_astgrep(root, downloader=downloader)
-        if managed.available:
-            return AstGrepBinaryResolution(
-                available=True,
-                path=managed.path,
-                source=managed.source,
-                checked=tuple([*checked, *managed.checked]),
-            )
-        checked.extend(managed.checked)
-        return AstGrepBinaryResolution(available=False, checked=tuple(checked), reason=managed.reason)
-
-    return AstGrepBinaryResolution(
-        available=False,
-        checked=tuple(checked),
-        reason="ast-grep could not be resolved from env override or exact binary discovery",
-    )
+    return discover_astgrep(repo_root, bootstrap=bootstrap if allow_bootstrap else None)
 
 
 __all__ = [
-    "AstGrepBinaryResolution",
     "ManagedAstGrepAsset",
     "bootstrap_managed_astgrep",
     "discover_astgrep_binary",

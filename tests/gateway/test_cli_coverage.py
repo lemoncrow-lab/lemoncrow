@@ -19,7 +19,6 @@ from typing import Any
 import pytest
 from click.testing import CliRunner, Result
 
-from lemoncrow.core.capabilities.licensing import entitlements
 from lemoncrow.core.foundation.paths import session_dir
 from lemoncrow.gateway.cli import cli
 from lemoncrow.infra.runtime.run_ledger import RunLedger
@@ -242,7 +241,6 @@ def test_savings_detail_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     payload = json.loads(res.output)
     assert "summary" in payload
     assert "operations" in payload
-    entitlements.reload()
 
 
 def test_savings_reset_clears_counters(tmp_path: Path) -> None:
@@ -267,7 +265,6 @@ def test_usage_optimize_detail_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     payload = json.loads(res.output)
     assert "summary" in payload
     assert "operations" in payload
-    entitlements.reload()
 
 
 def test_usage_optimize_reset_clears_counters(tmp_path: Path) -> None:

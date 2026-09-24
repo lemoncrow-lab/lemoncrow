@@ -65,20 +65,21 @@ def test_full_help_tree_renders_deterministically() -> None:
 def test_help_tree_contains_expected_public_groups() -> None:
     """Core public groups must appear in the rendered tree."""
     tree = render_help_tree()
-    for group in ("benchmark", "stack", "servicectl", "ledger"):
+    for group in ("benchmark", "ledger", "service", "worker"):
         assert f"lc {group}\n" in tree, f"missing group: {group}"
+    for retired in ("stack", "servicectl", "background", "systemd"):
+        assert f"lc {retired}\n" not in tree
 
 
 def test_help_tree_includes_hidden_command_paths() -> None:
     """Hidden commands are walked too -- assert their explicit paths exist."""
     tree = render_help_tree()
-    for hidden_path in ("lc stack run\n", "lc servicectl run\n", "lc systemd\n"):
-        assert hidden_path in tree, f"missing hidden path: {hidden_path!r}"
+    for retired_path in ("lc stack run\n", "lc servicectl run\n", "lc systemd\n"):
+        assert retired_path not in tree
 
-    # And they must be directly resolvable via get_command recursion.
-    assert _resolve(("stack", "run")) is not None
-    assert _resolve(("servicectl", "run")) is not None
-    assert _resolve(("systemd",)) is not None
+    assert _resolve(("stack", "run")) is None
+    assert _resolve(("servicectl", "run")) is None
+    assert _resolve(("systemd",)) is None
 
 
 def test_help_tree_excludes_mcp_only_entries() -> None:

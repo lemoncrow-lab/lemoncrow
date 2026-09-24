@@ -9,7 +9,7 @@ import pytest
 from click.testing import CliRunner
 
 from lemoncrow.gateway.cli import cli
-from lemoncrow.gateway.cli.app import _argv_for_program
+from lemoncrow.gateway.cli.app import _argv_for_program, _print_update_footer
 
 
 def test_permanent_cli_entrypoints_map_to_canonical_cli() -> None:
@@ -25,6 +25,28 @@ def test_permanent_cli_entrypoints_map_to_canonical_cli() -> None:
 def test_lemoncode_program_name_maps_to_code_group() -> None:
     assert _argv_for_program("lemoncode", ["-p", "hello"]) == ["code", "-p", "hello"]
     assert _argv_for_program("lc", ["code"]) == ["code"]
+
+
+def test_update_footer_only_targets_interactive_human_commands(monkeypatch: pytest.MonkeyPatch) -> None:
+    import types
+
+    from lemoncrow.core.foundation import update_notice
+    from lemoncrow.gateway.cli import app as cli_app
+
+    tty = types.SimpleNamespace(isatty=lambda: True)
+    monkeypatch.setattr(cli_app.sys, "stdout", tty)
+    monkeypatch.setattr(cli_app.sys, "stderr", tty)
+    monkeypatch.setattr(update_notice, "notice_for", lambda surface: "LemonCrow 9.9.9 is available")
+    emitted: list[tuple[str, bool]] = []
+    monkeypatch.setattr(cli_app.click, "echo", lambda message, err=False: emitted.append((str(message), bool(err))))
+
+    _print_update_footer("review", ["review"])
+    assert emitted == [("\nLemonCrow 9.9.9 is available", True)]
+
+    emitted.clear()
+    for command, argv in (("mcp", ["mcp", "check"]), ("review", ["review", "--json"]), ("code", ["code", "-p", "hi"])):
+        _print_update_footer(command, argv)
+    assert emitted == []
 
 
 def test_code_without_subcommand_starts_managed_engine(monkeypatch, tmp_path: Path) -> None:

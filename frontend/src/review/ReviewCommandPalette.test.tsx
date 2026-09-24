@@ -24,7 +24,7 @@ const OVERVIEW = {
 
 function actions(): ReviewPaletteAction[] {
   return [
-    { id: "refresh", label: "Refresh revision", detail: "Accept latest source", run: vi.fn() },
+    { id: "refresh", label: "Refresh local revision", detail: "Accept latest source", run: vi.fn() },
     { id: "feedback", label: "Prepare feedback", detail: "Preview human feedback", run: vi.fn() },
     { id: "finish", label: "Finish review", run: vi.fn() },
   ];
@@ -40,7 +40,7 @@ describe("ReviewCommandPalette", () => {
     await waitFor(() => expect(document.activeElement).toBe(input));
     await userEvent.type(input, "feedback");
 
-    expect(screen.queryByText("Refresh revision")).toBeNull();
+    expect(screen.queryByText("Refresh local revision")).toBeNull();
     expect(screen.getByText("Prepare feedback")).toBeTruthy();
     await userEvent.keyboard("{Enter}");
 
@@ -81,7 +81,7 @@ describe("ReviewCommandPalette", () => {
       const [overviewOpen, setOverviewOpen] = useState(false);
       const rows: ReviewPaletteAction[] = [
         { id: "overview", label: "Open change overview", run: () => setOverviewOpen(true) },
-        { id: "refresh", label: "Refresh revision", run: vi.fn() },
+        { id: "refresh", label: "Refresh local revision", run: vi.fn() },
       ];
       return (
         <>
@@ -124,6 +124,7 @@ describe("ReviewCommandPalette", () => {
     for (const key of ["j / k", "J / K", "] / [", "r", "u", "x", "c", "s", "/", "f", "e", "p", "?"]) {
       expect(screen.getByText(key)).toBeTruthy();
     }
+    expect(screen.getByText("Next / previous attention target")).toBeTruthy();
     expect(screen.getAllByText("Esc")).toHaveLength(2);
 
     await userEvent.keyboard("{Escape}");

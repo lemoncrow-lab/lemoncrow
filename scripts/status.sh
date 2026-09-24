@@ -45,6 +45,25 @@ VSCODE_USER_DIR="${VSCODE_USER_DIR:-${XDG_CONFIG_HOME:-${HOME}/.config}/Code/Use
 has_cmd() { command -v "$1" &> /dev/null; }
 has_lemoncrow() { grep -q "lemoncrow" "$1" 2>/dev/null; }
 
+# Host CLIs are external programs and some of their status commands may block
+# on network/plugin startup. Installation status is advisory, so no probe may
+# hold up an install indefinitely. Python is already bootstrapped above and is
+# available on Linux/macOS without depending on GNU `timeout`.
+bounded_output() {
+    python3 - "$@" <<'PY_STATUS_TIMEOUT'
+import subprocess
+import sys
+
+try:
+    result = subprocess.run(sys.argv[1:], capture_output=True, text=True, timeout=5)
+except subprocess.TimeoutExpired:
+    raise SystemExit(124)
+sys.stdout.write(result.stdout)
+sys.stdout.write(result.stderr)
+raise SystemExit(result.returncode)
+PY_STATUS_TIMEOUT
+}
+
 check_runtime() {
     if [ -f "${HOME}/.lemoncrow/ledger.json" ] || [ -f "${HOME}/.lemoncrow/lemoncrow.db" ]; then
         echo "initialized"
@@ -71,10 +90,10 @@ check_claude() {
 
     local plugin="no"
     local mcp="no"
-    if claude plugin list 2>&1 | grep -q "lemoncrow"; then
+    if bounded_output claude plugin list | grep -q "lemoncrow"; then
         plugin="yes"
     fi
-    if has_lemoncrow "${WORKSPACE}/.mcp.json" || claude mcp list 2>&1 | grep -q "lemoncrow"; then
+    if has_lemoncrow "${WORKSPACE}/.mcp.json" || bounded_output claude mcp list | grep -q "lemoncrow"; then
         mcp="yes"
     fi
 

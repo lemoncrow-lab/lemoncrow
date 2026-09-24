@@ -211,14 +211,14 @@ def test_normal_body_still_dispatches_under_cap(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_internal_error_does_not_leak_exception_text(monkeypatch: pytest.MonkeyPatch) -> None:
-    from lemoncrow.gateway.adapters import mcp_server
+    from lemoncrow.gateway.adapters import mcp_http
 
     secret = "SECRET-PATH-/etc/lemoncrow/should-not-leak"
 
     def _boom(_request: object) -> dict[str, object]:
         raise RuntimeError(secret)
 
-    monkeypatch.setattr(mcp_server, "_handle", _boom)
+    monkeypatch.setattr(mcp_http, "_dispatch_jsonrpc", _boom)
     resp = _client().post(
         MCP_HTTP_PATH,
         json={"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "read"}},
@@ -229,3 +229,13 @@ def test_internal_error_does_not_leak_exception_text(monkeypatch: pytest.MonkeyP
     assert secret not in resp.text  # raw exception text must not reach the client
     assert "RuntimeError" not in resp.text
     assert "correlation_id=" in body["error"]["message"]  # operator can still trace it
+
+
+def test_http_transport_does_not_import_mcp_server() -> None:
+    import inspect
+
+    from lemoncrow.gateway.adapters import mcp_http
+
+    source = inspect.getsource(mcp_http)
+    assert "from lemoncrow.gateway.adapters import mcp_server" not in source
+    assert "mcp_server." not in source

@@ -9,7 +9,23 @@
 # all public history).
 
 # === Source code, CLI, MCP server ===
-src/
+# Explicit package-level allowlist: a new sibling under src/ is private until
+# deliberately added here. Everything inside these public engine packages stays
+# OSS by design.
+src/lemoncrow/__init__.py
+src/lemoncrow/py.typed
+src/lemoncrow/bench/
+src/lemoncrow/core/
+src/lemoncrow/gateway/
+src/lemoncrow/infra/
+src/lemoncrow/pro/
+src/lemoncrow/sdk/
+
+# === Public server core + local composition ===
+server/
+
+# === Public thin client (stdlib-only, audited by enterprise security review) ===
+client/
 
 # === Tests & benchmarks ===
 tests/
@@ -19,8 +35,39 @@ benchmarks/
 docs/
 docs-site/
 
-# === Web dashboard & landing page (landing/ is a submodule; frontend/ is not) ===
-frontend/
+# === Web dashboard & local Review frontend ===
+# Public local UI is explicit at the package/subtree level. A new frontend/src
+# sibling is private until deliberately opted in here. Hosted composition lives
+# under enterprise/frontend and is never mirrored.
+frontend/.gitignore
+frontend/.prettierrc.json
+frontend/README.md
+frontend/bun.lock
+frontend/index.html
+frontend/nginx.conf
+frontend/package-lock.json
+frontend/package.json
+frontend/postcss.config.js
+frontend/tailwind.config.ts
+frontend/test-results.json
+frontend/tsconfig.json
+frontend/tsconfig.node.json
+frontend/vite.config.d.ts
+frontend/vite.config.js
+frontend/vite.config.ts
+frontend/public/
+frontend/scripts/
+frontend/src/api.ts
+frontend/src/App.test.tsx
+frontend/src/App.tsx
+frontend/src/index.css
+frontend/src/main.tsx
+frontend/src/vite-env.d.ts
+frontend/src/components/
+frontend/src/lib/
+frontend/src/pages/
+frontend/src/review/
+frontend/src/test/
 landing/
 
 # === Agent integrations ===
@@ -30,6 +77,7 @@ integrations/
 scripts/LICENSE
 scripts/build_host_skills.sh
 scripts/build.sh
+scripts/build_hosted.sh
 scripts/bundle.sh
 scripts/install_agents.sh
 scripts/install_antigravity.sh
@@ -43,6 +91,9 @@ scripts/install_lemoncode.sh
 scripts/install_opencode.sh
 scripts/install_pi.sh
 scripts/install.sh
+scripts/hosted.sh
+scripts/local_server.sh
+scripts/cleanup_legacy_runtime.sh
 scripts/lib/
 scripts/local.sh
 scripts/managed_context.sh
@@ -50,7 +101,6 @@ scripts/mirror.py
 scripts/public-paths.txt
 scripts/reconcile.sh
 scripts/refresh_model_prices.py
-scripts/runtime_evidence.py
 scripts/sessions.sh
 scripts/status.sh
 scripts/sync_agent_context.py
@@ -70,7 +120,6 @@ scripts/verify_claude.sh
 scripts/verify_codex.sh
 scripts/verify_copilot.sh
 scripts/verify_opencode.sh
-scripts/worktree_env.py
 
 # === Examples ===
 examples/
@@ -116,9 +165,9 @@ uv.lock
 requirements-audit.txt
 
 # === Engine: published, Apache-2.0 ===========================================
-# `src/lemoncrow/pro` IS published (covered by the broad `src/` allow above),
-# Apache-2.0 like the rest of the tree. There is no deny for it any more, and
-# the public repository builds the whole runtime from source.
+# `src/lemoncrow/pro/` is intentionally public, Apache-2.0 like the rest of the
+# local engine. The explicit package allowlist above is about future leakage,
+# not shrinking the OSS runtime.
 
 # Large generated embedding corpus (build artifact); excluded to keep the mirror small.
 !benchmarks/embedding/corpus.jsonl

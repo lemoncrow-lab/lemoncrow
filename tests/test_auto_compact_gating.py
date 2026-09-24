@@ -35,7 +35,7 @@ FRACTION = BALANCED.trigger_at_context_fraction
 def _entitle_savings_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     # This module exercises the Pro savings engine (compaction policy); treat the
     # install as licensed so load_current_policy returns the real policy.
-    monkeypatch.setattr("lemoncrow.core.capabilities.licensing.has_feature", lambda *a, **k: True)
+    monkeypatch.setattr("lemoncrow.core.capabilities.feature_access.has_feature", lambda *a, **k: True)
 
 
 # --------------------------------------------------------------------------- #

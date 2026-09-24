@@ -19,7 +19,10 @@
  * `getRootNode() instanceof ShadowRoot === false`.
  */
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Check, LoaderCircle, MessageSquareText, Reply, RotateCcw, X } from "lucide-react";
+
+import "./reviewUi.css";
 
 import {
   KIND_ACCENTS,
@@ -44,6 +47,14 @@ export interface AnnotationCardProps {
   busy: boolean;
   /** Whether this composer is attached to a current ReviewTarget. */
   targetMarkAvailable?: boolean;
+  draftBody?: string;
+  draftKind?: AnnotationKind;
+  draftMarkTarget?: boolean;
+  /** Changes whenever the draft's anchor moves, so the composer re-takes focus. */
+  draftFocusKey?: string;
+  onDraftChange?(fields: { body?: string; kind?: AnnotationKind; markTarget?: boolean }): void;
+  onSuggestEdit?(): void;
+  onEditSource?(): void;
   onSubmit(body: string, kind: AnnotationKind, parentId: string, markTarget: boolean): void;
   onCancel(): void;
   onResolve(id: string): void;
@@ -55,32 +66,80 @@ function Composer({
   busy,
   parentId,
   targetMarkAvailable,
+  initialBody = "",
+  initialKind = "comment",
+  initialMarkTarget = true,
+  focusKey = "",
+  onDraftChange,
+  onSuggestEdit,
+  onEditSource,
   onSubmit,
   onCancel,
 }: {
+  focusKey?: string;
   label: string;
   busy: boolean;
   parentId: string;
   targetMarkAvailable: boolean;
+  initialBody?: string;
+  initialKind?: AnnotationKind;
+  initialMarkTarget?: boolean;
+  onDraftChange?(fields: { body?: string; kind?: AnnotationKind; markTarget?: boolean }): void;
+  onSuggestEdit?(): void;
+  onEditSource?(): void;
   onSubmit(body: string, kind: AnnotationKind, parentId: string, markTarget: boolean): void;
   onCancel(): void;
 }) {
-  const [body, setBody] = useState("");
-  const [kind, setKind] = useState<AnnotationKind>("comment");
-  const [markTarget, setMarkTarget] = useState(true);
+  const [body, setBody] = useState(initialBody);
+  const [kind, setKind] = useState<AnnotationKind>(initialKind);
+  const [markTarget, setMarkTarget] = useState(initialMarkTarget);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  // `autoFocus` only fires on mount. A drag-selection in the diff finishes on
+  // the gutter after the composer mounted (and re-anchors it when the range
+  // grows), so take focus again once the pointer interaction has settled.
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const input = inputRef.current;
+      if (input && document.activeElement !== input) input.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [focusKey]);
   const canMarkTarget = targetMarkAvailable && parentId === "" && kind === "request_change";
+  const submitLabel = parentId
+    ? "Reply"
+    : kind === "request_change"
+      ? "Request changes"
+      : kind === "suggestion"
+        ? "Add suggestion"
+        : "Add comment";
+  const placeholder = parentId
+    ? "Write a reply…"
+    : kind === "request_change"
+      ? "What needs to change?"
+      : kind === "suggestion"
+        ? "What do you suggest?"
+        : "Leave feedback…";
   const submit = () => {
     if (busy || body.trim() === "") return;
     onSubmit(body, kind, parentId, canMarkTarget && markTarget);
   };
   return (
-    <div className="flex flex-col gap-2">
-      <div className="font-mono text-[10px] uppercase tracking-widest text-neutral-500">{label}</div>
+    <div className="review-composer" aria-busy={busy}>
+      <div className="review-composer-heading">
+        <MessageSquareText size={16} className="text-neutral-400" aria-hidden="true" />
+        <span>{label}</span>
+      </div>
       <textarea
+        ref={inputRef}
         autoFocus
         rows={3}
+        aria-label={parentId ? "Reply text" : "Comment text"}
+        aria-keyshortcuts="Control+Enter Meta+Enter"
         value={body}
-        onChange={(event) => setBody(event.target.value)}
+        onChange={(event) => {
+          setBody(event.target.value);
+          if (parentId === "") onDraftChange?.({ body: event.target.value });
+        }}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             event.preventDefault();
@@ -92,49 +151,79 @@ function Composer({
             submit();
           }
         }}
-        placeholder="What does the reviewer need to know?"
-        className="w-full resize-y border border-neutral-800 bg-neutral-950 p-2 font-sans text-[12px] text-neutral-200 outline-none focus:border-neutral-600"
+        placeholder={placeholder}
+        className="review-field review-composer-input"
       />
-      <div className="flex flex-wrap items-center gap-1.5">
-        {KIND_ORDER.map((option) => (
+      <div className="review-composer-options" role="group" aria-label="Feedback type">
+        {KIND_ORDER.filter((option) => option !== "suggestion" || !(onSuggestEdit || onEditSource)).map((option) => (
           <button
             key={option}
             type="button"
             aria-pressed={kind === option}
-            onClick={() => setKind(option)}
-            className={`border px-2 py-0.5 text-[11px] ${
-              kind === option ? KIND_ACCENTS[option] : "border-neutral-800 text-neutral-500"
+            onClick={() => {
+              setKind(option);
+              if (parentId === "") onDraftChange?.({ kind: option });
+            }}
+            className={`review-composer-kind ${
+              kind === option ? KIND_ACCENTS[option] : "border-transparent text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-100"
             }`}
           >
             {KIND_LABELS[option]}
           </button>
         ))}
+        {!parentId && (onSuggestEdit || onEditSource) && (
+          <div className="review-composer-source-actions" role="group" aria-label="Source actions">
+            {onSuggestEdit && (
+              <button
+                type="button"
+                onClick={onSuggestEdit}
+                className="review-composer-kind review-composer-kind-source border-violet-900/70 text-violet-300"
+                title="Save a concrete patch without changing the working source"
+              >
+                Suggest edit
+              </button>
+            )}
+            {onEditSource && (
+              <button
+                type="button"
+                onClick={onEditSource}
+                className="review-composer-kind review-composer-kind-source border-sky-900/70 text-sky-300"
+                title="Edit the trusted working source through the guarded proposal path"
+              >
+                Edit source
+              </button>
+            )}
+          </div>
+        )}
+      </div>
         {canMarkTarget && (
-          <label className="flex items-center gap-1.5 px-1 text-[10px] text-rose-300/80">
+          <label className="review-composer-mark">
             <input
               type="checkbox"
               checked={markTarget}
-              onChange={(event) => setMarkTarget(event.target.checked)}
+              onChange={(event) => {
+                setMarkTarget(event.target.checked);
+                if (parentId === "") onDraftChange?.({ markTarget: event.target.checked });
+              }}
               className="accent-rose-500"
             />
-            Mark target needs changes
+            Also mark target needs changes
           </label>
         )}
-        <span className="flex-1" />
-        <button
-          type="button"
-          onClick={onCancel}
-          className="border border-neutral-800 px-2 py-0.5 text-[11px] text-neutral-400"
-        >
-          Cancel (esc)
+      <div className="review-composer-footer">
+        <span className="review-composer-shortcut"><kbd>Ctrl/⌘</kbd> + <kbd>Enter</kbd> to send</span>
+        <button type="button" onClick={onCancel} className="review-toolbar-button">
+          <X size={14} aria-hidden="true" />
+          Cancel
         </button>
         <button
           type="button"
           disabled={busy || body.trim() === ""}
           onClick={submit}
-          className="border border-sky-800 px-2 py-0.5 text-[11px] text-sky-300 disabled:opacity-40"
+          className="review-toolbar-button-primary"
         >
-          Save
+          {busy ? <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}
+          {busy ? "Saving…" : submitLabel}
         </button>
       </div>
     </div>
@@ -160,41 +249,50 @@ function Comment({
   const source = annotationSource(comment);
   const human = isHumanJudgment(comment);
   const sourceDetail = comment.source_id || comment.created_by;
+  const blocking = human && comment.kind === "request_change" && !resolved;
   return (
-    <div className={`flex flex-col gap-1 ${resolved ? "opacity-60" : ""}`}>
-      <div className="flex items-center gap-2 font-mono text-[10px]">
-        <span className={`border px-1 ${SOURCE_ACCENTS[source]}`}>{SOURCE_LABELS[source]}</span>
-        {human && <span className={`border px-1 ${KIND_ACCENTS[comment.kind]}`}>{KIND_LABELS[comment.kind]}</span>}
-        {sourceDetail && <span className="text-neutral-500">{sourceDetail}</span>}
+    <article className={`review-thread ${blocking ? "review-thread-blocking" : ""} ${resolved ? "review-thread-resolved" : ""}`}>
+      <div className="review-thread-heading">
+        <span className={`review-thread-source ${SOURCE_ACCENTS[source].split(" ").at(-1) ?? "text-neutral-400"}`}>{SOURCE_LABELS[source]}</span>
+        {sourceDetail && <span className="review-thread-author">{sourceDetail}</span>}
+        {human && comment.kind !== "comment" && (
+          <span className={`rounded-md border px-1.5 py-0.5 ${KIND_ACCENTS[comment.kind]}`}>{KIND_LABELS[comment.kind]}</span>
+        )}
+        {!comment.file_level && comment.end_line > comment.start_line && (
+          <span className="review-thread-symbol font-mono">{locationLabel(comment.start_line, comment.end_line)}</span>
+        )}
         {comment.symbol ? (
-          <span className="truncate text-neutral-600">in {comment.symbol}</span>
+          <span className="review-thread-symbol">in {comment.symbol}</span>
         ) : (
           comment.origin_symbol && (
-            <span className="truncate text-neutral-600">originally in {comment.origin_symbol}</span>
+            <span className="review-thread-symbol">originally in {comment.origin_symbol}</span>
           )
         )}
-        {resolved && <span className="text-neutral-500">resolved</span>}
-        {human && comment.author_response === "addressed" && !resolved && (
-          <span className="border border-sky-800 px-1 text-sky-300">
-            author says addressed · re-review
-          </span>
-        )}
+        <span className="flex-1" />
+        {comment.created_at && <time dateTime={comment.created_at} className="review-thread-date">{new Date(comment.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time>}
+        {resolved && <span className="inline-flex items-center gap-1 text-emerald-400"><Check size={13} aria-hidden="true" />Resolved</span>}
       </div>
+      <div className="review-thread-content">
+      {comment.title && <div className="review-thread-title">{comment.title}</div>}
+      <div className="review-thread-body">{comment.body}</div>
       {/*
-        How this comment got to this line, on every card. Without it a
-        heuristic re-find is indistinguishable from an untouched file, which
-        is the one thing the relocation ladder must never let happen.
+        How this comment got to this line remains visible on every card, but it
+        follows the human message instead of interrupting it. The relocation
+        contract is trust metadata; the comment itself is the thing to read.
       */}
       <div
         title={comment.anchor_detail}
-        className={`w-fit border px-1 font-mono text-[10px] ${anchorAccent(comment)}`}
+        className={`review-thread-anchor ${anchorAccent(comment)}`}
       >
         anchor: {comment.anchor_method_label || comment.anchor_method}
       </div>
-      {comment.title && <div className="font-sans text-[12px] font-semibold text-neutral-100">{comment.title}</div>}
-      <div className="whitespace-pre-wrap font-sans text-[12px] text-neutral-200">{comment.body}</div>
+      {human && comment.author_response === "addressed" && !resolved && (
+        <div className="w-fit rounded-md border border-sky-900/55 bg-sky-950/15 px-2 py-1 text-[10px] font-medium text-sky-300">
+          marked addressed · re-review
+        </div>
+      )}
       {comment.evidence && comment.evidence.length > 0 && (
-        <details className="font-mono text-[10px] text-neutral-500">
+        <details className="review-thread-evidence">
           <summary className="cursor-pointer">evidence · {comment.evidence.length}</summary>
           <ul className="pl-4 pt-1">
             {comment.evidence.map((item) => <li key={item}>{item}</li>)}
@@ -202,40 +300,52 @@ function Comment({
         </details>
       )}
       {comment.confidence != null && (
-        <div className="font-mono text-[10px] text-neutral-600">confidence {Math.round(comment.confidence * 100)}%</div>
+        <div className="text-[11px] text-neutral-400">confidence {Math.round(comment.confidence * 100)}%</div>
       )}
       {human && comment.author_response === "addressed" && !resolved && comment.author_response_source_id && (
         <div className="font-mono text-[10px] text-sky-500/80">
-          claimed by {comment.author_response_source_id}; only you can resolve this comment
+          addressed by {comment.author_response_source_id}; only you can resolve this comment
         </div>
       )}
-      {replies.map((reply) => (
-        <div key={reply.id} className="border-l border-neutral-800 pl-2">
-          <div className="font-mono text-[10px] text-neutral-500">{reply.created_by}</div>
-          <div className="whitespace-pre-wrap font-sans text-[12px] text-neutral-300">{reply.body}</div>
+      {replies.length > 0 && (
+        <div className="review-thread-replies">
+          {replies.map((reply) => (
+            <div key={reply.id} className="review-thread-reply">
+              <div className="mb-1 flex items-center gap-2 text-[12px] font-medium text-neutral-400">
+                <span>{reply.created_by}</span>
+                {reply.kind !== "comment" && (
+                  <span className={`rounded-md border px-1.5 py-0.5 text-[10px] ${KIND_ACCENTS[reply.kind]}`}>{KIND_LABELS[reply.kind]}</span>
+                )}
+              </div>
+              <div className="review-thread-body">{reply.body}</div>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
       {human && (
-        <div className="flex gap-1.5">
+        <div className="review-thread-actions">
           <button
             type="button"
             disabled={busy}
             onClick={() => onReply(comment.id)}
-            className="text-[11px] text-neutral-500 hover:text-neutral-300 disabled:opacity-40"
+            className="review-compact-action"
           >
+            <Reply size={14} aria-hidden="true" />
             Reply
           </button>
           <button
             type="button"
             disabled={busy}
             onClick={() => (resolved ? onReopen(comment.id) : onResolve(comment.id))}
-            className="text-[11px] text-neutral-500 hover:text-neutral-300 disabled:opacity-40"
+            className="review-compact-action"
           >
+            {resolved ? <RotateCcw size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}
             {resolved ? "Reopen" : "Resolve"}
           </button>
         </div>
       )}
-    </div>
+      </div>
+    </article>
   );
 }
 export default function AnnotationCard({
@@ -245,6 +355,13 @@ export default function AnnotationCard({
   composing,
   busy,
   targetMarkAvailable = false,
+  draftBody = "",
+  draftKind = "comment",
+  draftMarkTarget = true,
+  draftFocusKey = "",
+  onDraftChange,
+  onSuggestEdit,
+  onEditSource,
   onSubmit,
   onCancel,
   onResolve,
@@ -252,7 +369,7 @@ export default function AnnotationCard({
 }: AnnotationCardProps) {
   const [replyTo, setReplyTo] = useState("");
   return (
-    <div className="my-1 flex flex-col gap-3 border border-neutral-800 bg-neutral-900/70 p-2.5">
+    <div className="review-annotations">
       {comments.map((comment) => (
         <Comment
           key={comment.id}
@@ -279,12 +396,23 @@ export default function AnnotationCard({
           busy={busy}
           parentId={replyTo}
           targetMarkAvailable={targetMarkAvailable}
+          initialBody={replyTo ? "" : draftBody}
+          initialKind={replyTo ? "comment" : draftKind}
+          initialMarkTarget={replyTo ? true : draftMarkTarget}
+          focusKey={replyTo || draftFocusKey}
+          onDraftChange={replyTo ? undefined : onDraftChange}
+          onSuggestEdit={replyTo ? undefined : onSuggestEdit}
+          onEditSource={replyTo ? undefined : onEditSource}
           onSubmit={(body, kind, parentId, markTarget) => {
             setReplyTo("");
             onSubmit(body, kind, parentId, markTarget);
           }}
           onCancel={() => {
-            setReplyTo("");
+            // Cancelling a reply must not discard an unrelated top-level draft.
+            if (replyTo) {
+              setReplyTo("");
+              return;
+            }
             onCancel();
           }}
         />
@@ -313,13 +441,13 @@ export default function AnnotationCard({
 export function OrphanedComments({ comments }: { comments: Annotation[] }) {
   if (comments.length === 0) return null;
   return (
-    <div className="border-b border-amber-900/60 bg-amber-950/20 px-3 py-2">
-      <div className="font-mono text-[10px] uppercase tracking-widest text-amber-300">
+    <div className="border-b border-amber-900/50 bg-amber-950/15 px-3 py-2.5">
+      <div className="review-kicker text-amber-300">
         {comments.length === 1 ? "1 comment lost its anchor" : `${comments.length} comments lost their anchor`}
       </div>
       {comments.map((comment) => (
-        <div key={comment.id} className="pt-1.5 text-[11px] text-amber-200/80">
-          <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] text-amber-300/80">
+        <div key={comment.id} className="mt-2 rounded-md border border-amber-900/35 bg-amber-950/10 px-3 py-2 text-[11px] text-amber-200/80">
+          <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] text-amber-300/75">
             <span>{SOURCE_LABELS[annotationSource(comment)]}</span>
             <span>{comment.file_level ? "file" : locationLabel(comment.start_line, comment.end_line)}</span>
             <span>{comment.state}</span>

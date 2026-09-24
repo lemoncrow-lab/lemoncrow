@@ -26,8 +26,8 @@ bash scripts/local.sh
 
 ## Full Developer Install
 
-For host integrations, background services, and the optional
-visualization stack, install from a repo checkout using the dev installer:
+For host integrations plus the local loopback server, install from a repo
+checkout using the dev installer:
 
 ```bash
 git clone https://github.com/lemoncrow-lab/lemoncrow.git
@@ -37,23 +37,20 @@ bash scripts/local.sh --local
 
 The dev installer:
 
-- installs `lc` and `lc mcp` as user-level console commands in `~/.local/bin`
-- clones or updates LemonCrow under `~/.local/share/lemoncrow`
-- initializes `~/.lemoncrow`
-- starts the detached `servicectl` loop
-- attempts to start the optional visualization stack when npm is available
+- installs `lc` and the thin MCP client as user-level commands
+- installs the public `lemoncrow-server` package
+- starts one loopback server on `http://127.0.0.1:7420`
 - installs host integrations when compatible CLIs are found on `PATH`
+- preserves persistent MCP connector state across reinstalls
 
 The dev installer uses uv at install time to create a managed tool environment.
-After install, `lc` and `lc mcp` run directly from that environment;
-normal CLI usage does not shell through `uv run`.
+After install, normal CLI/MCP usage runs directly from that environment.
 
 Verify the install:
 
 ```bash
 lc --version
-lc mcp --version
-lc background status
+lc mcp --host claude check --json
 ```
 
 ## Useful Installer Variants
@@ -62,18 +59,6 @@ Skip host integrations:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/lemoncrow-lab/lemoncrow/main/scripts/local.sh | bash -s -- --no-hosts
-```
-
-Skip auto-starting background services:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/lemoncrow-lab/lemoncrow/main/scripts/local.sh | LEMONCROW_NO_SERVICECTL=1 bash
-```
-
-Skip auto-starting the visualization stack:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/lemoncrow-lab/lemoncrow/main/scripts/local.sh | LEMONCROW_NO_STACK=1 bash
 ```
 
 Install from a local checkout instead of GitHub:
@@ -102,88 +87,35 @@ above to remove the runtime itself.
 
 ## Runtime Modes After Install
 
-### Default Runtime
+### Local mode (default)
 
-No HTTP server is required for normal usage.
+Local mode has one persistent LemonCrow process: the public loopback server on `127.0.0.1:7420`.
+The thin client used by `lc mcp` connects to that server; it does not build a second local index or start per-worktree services.
 
-- `lc ...` is the main CLI
-- `lc mcp` is the MCP server used by host integrations
-- `lc background ...` manages background services and auto-updates
-
-If npm is installed and `LEMONCROW_NO_STACK=1` was not set during install, the
-installer will also register the visualization stack as a background service for you.
-
-### Background Services & Auto-Update
-
-LemonCrow uses your OS-native manager (**systemd** on Linux, **launchd** on macOS) to ensure background tasks and the visualization stack are always running.
+From a source checkout:
 
 ```bash
-# Check service health and auto-update status
-lc background status
-
-# View background logs
-lc background logs controller
-lc background logs stack
-
-# Restart the entire stack (e.g. after a manual code change)
-lc background restart
+make start
+make stop
+make restart
+bash scripts/local_server.sh status
 ```
 
-#### Auto-Update
+The installer starts the loopback server automatically. `LEMONCROW_URL` can point the thin client at another endpoint; its default is `http://127.0.0.1:7420`.
 
-The background controller periodically checks your git repository for updates. When found, it automatically:
+### Hosted mode
 
-1. Pulls the latest code.
-2. Syncs dependencies using `uv`.
-3. Restarts the services to apply changes.
+Hosted mode starts no local LemonCrow server. The same thin client connects to the configured hosted endpoint.
 
-### Optional UI Stack
+### `lc code` model gateway
 
-Manage the visualization UI as a background service:
+`lc code` is LemonCrow's coding agent. When it uses LemonCode/Pi as a frontend, it starts an **ephemeral** OpenAI/Anthropic-compatible gateway for that coding session and stops it when the session exits. That gateway is not the local data-plane server and is not a background stack.
 
-```bash
-lc background restart  # Restarts both controller and stack
-```
+### Optional standalone HTTP service
 
-Or control the native stack manually:
+`lc service start` remains an explicit standalone API surface for integrations that need the older service API. It is not started by the local installer and is not required for MCP or `lc code`.
 
-```bash
-lc stack start
-```
-
-Then open:
-
-- `http://localhost:3125` for the frontend
-- `http://localhost:8787` for the service API
-
-Other stack commands:
-
-```bash
-lc stack status
-lc stack logs
-lc stack stop
-```
-
-### Optional HTTP Service Without the UI
-
-If you want the service API without the full stack:
-
-```bash
-LEMONCROW_REQUIRE_AUTH=false lc service start --host 0.0.0.0 --port 8787
-```
-
-For authenticated deployments, set `LEMONCROW_API_KEY` and keep `LEMONCROW_REQUIRE_AUTH=true`.
-
-### Background Controller Variables
-
-The installer registers background services by default.
-
-```bash
-lc background status
-lc background logs
-```
-
-Manual job control is available too:
+Manual job control remains available without a controller daemon:
 
 ```bash
 lc worker enqueue consolidate_playbooks
@@ -193,12 +125,10 @@ lc worker list
 
 ### Installer Behavior Variables
 
-| Variable                | Default | Description                                              |
-| ----------------------- | ------- | -------------------------------------------------------- |
-| `LEMONCROW_NO_HOSTS`      | `0`     | Skip host integration install scripts                    |
-| `LEMONCROW_NO_SERVICECTL` | `0`     | Skip auto-registering background services during install |
-| `LEMONCROW_NO_STACK`      | `0`     | Skip auto-registering the visualization stack service    |
-| `LEMONCROW_LOCAL`         | `0`     | Install from the current checkout in editable mode       |
+| Variable | Default | Description |
+| --- | --- | --- |
+| `LEMONCROW_NO_HOSTS` | `0` | Skip host integration install scripts |
+| `LEMONCROW_LOCAL` | `0` | Install from the current checkout in editable mode |
 
 ## Storage Backends
 
@@ -266,15 +196,11 @@ lc init
 
 | Variable                                          | Default | Description                                    |
 | ------------------------------------------------- | ------- | ---------------------------------------------- |
-| `LEMONCROW_NO_SERVICECTL`                           | `0`     | Skip auto-starting `servicectl` during install |
-| `LEMONCROW_SERVICECTL_INTERVAL_SECONDS`             | `60`    | Poll interval for the detached loop            |
-| `LEMONCROW_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS` | `21600` | Periodic maintenance enqueue interval          |
 
 ### Optional Stack
 
 | Variable           | Default | Description                           |
 | ------------------ | ------- | ------------------------------------- |
-| `LEMONCROW_NO_STACK` | `0`     | Skip auto-starting the optional stack |
 
 ### Optional HTTP Service
 
@@ -373,13 +299,7 @@ Contributor verification flow:
 make verify
 ```
 
-When working from multiple git worktrees, bootstrap each worktree once with:
-
-```bash
-make worktree-env
-```
-
-If `.env.worktree` is present, `make start` and `make restart` automatically load it so each worktree gets its own ports and `.lemoncrow-worktree` runtime root.
+Local mode uses one machine-wide loopback server on `127.0.0.1:7420`; git worktrees do not allocate their own LemonCrow service ports.
 
 ## Per-Agent Host Setup
 

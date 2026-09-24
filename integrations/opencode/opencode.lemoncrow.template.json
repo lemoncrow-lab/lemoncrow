@@ -1,7 +1,7 @@
 {
-  "model": "lc/lemoncrow",
+  "model": "lemoncrow/lemoncrow",
   "provider": {
-    "lc": {
+    "lemoncrow": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "LemonCrow",
       "options": {

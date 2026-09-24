@@ -119,15 +119,6 @@ class _SavingsReconciler:
                 _prune_aggregate_days(self._root, agg, retention_days=_retention_days())
             except Exception:
                 logger.exception("savings reconciler: pass failed")
-            # Sync savings to the account ONLY when signed in (login is the
-            # opt-in). maybe_report_usage no-ops when logged out, so a
-            # logged-out install never phones home.
-            try:
-                from lemoncrow.core.capabilities.licensing.usage_report import maybe_report_usage
-
-                maybe_report_usage(self._root)
-            except Exception:
-                logger.exception("savings reconciler: savings sync failed")
             if self._stop.wait(self._poll_seconds):
                 return
 

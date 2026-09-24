@@ -34,7 +34,13 @@ import pytest
 
 from lemoncrow.pro.capabilities.review.anchors import build_anchor
 from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range
-from lemoncrow.pro.capabilities.review.revisions import compute_frontier, group_frontier, reconcile
+from lemoncrow.pro.capabilities.review.revisions import (
+    compare_revision_units,
+    compute_frontier,
+    file_revision_delta,
+    group_frontier,
+    reconcile,
+)
 from lemoncrow.pro.capabilities.review.session_models import (
     Annotation,
     ReviewMark,
@@ -662,6 +668,41 @@ def _mark(key: str, fingerprint: str, state: str = "reviewed") -> ReviewMark:
     )
 
 
+def test_file_revision_delta_preserves_only_exact_known_file_identity() -> None:
+    before = [
+        replace(_unit("fil:a", "same"), path="src/a.py"),
+        replace(_unit("fil:b", "old"), path="src/b.py"),
+        replace(_unit("fil:gone", "gone"), path="src/gone.py"),
+        replace(_unit("fil:old-name", "moved"), path="src/old-name.py"),
+        replace(_unit("fil:opaque", "placeholder", method="unknown"), path="src/opaque.bin"),
+    ]
+    after = [
+        replace(_unit("fil:a", "same"), path="src/a.py"),
+        replace(_unit("fil:b", "new"), path="src/b.py"),
+        replace(_unit("fil:new", "new"), path="src/new.py"),
+        replace(_unit("fil:new-name", "moved"), path="src/new-name.py"),
+        replace(_unit("fil:opaque", "placeholder", method="unknown"), path="src/opaque.bin"),
+    ]
+
+    delta = file_revision_delta(before, after, renames=[("src/old-name.py", "src/new-name.py")])
+
+    assert delta.preserved == ("src/a.py",)
+    assert delta.changed == ("src/b.py", "src/opaque.bin")
+    assert delta.added == ("src/new.py",)
+    assert delta.removed == ("src/gone.py",)
+    assert delta.renamed == (("src/old-name.py", "src/new-name.py"),)
+
+    base_moved = file_revision_delta(before, before, same_diff_base=False)
+    assert base_moved.preserved == ()
+    assert base_moved.changed == (
+        "src/a.py",
+        "src/b.py",
+        "src/gone.py",
+        "src/old-name.py",
+        "src/opaque.bin",
+    )
+
+
 def test_reviewed_is_never_silently_preserved_across_changed_content() -> None:
     """The sentence the whole module exists for, asserted as one line."""
 
@@ -776,6 +817,46 @@ def test_a_mark_on_a_renamed_unit_moves_to_its_new_key_and_leaves_no_duplicate()
     assert [mark.unit_key for mark in result.dropped] == [old.unit_key]
     assert result.added == ()
     assert result.removed == ()
+
+
+def test_revision_compare_reports_only_semantic_changes_and_preserves_judgment_context() -> None:
+    before = (
+        replace(_unit("stable", "fp-stable"), path="src/a.py", start_line=3),
+        replace(_unit("changed", "fp-old"), path="src/a.py", start_line=10),
+        replace(_unit("removed", "fp-removed"), path="src/old.py", start_line=4),
+    )
+    after = (
+        replace(_unit("stable", "fp-stable"), path="src/a.py", start_line=5),
+        replace(_unit("changed", "fp-new"), path="src/a.py", start_line=12),
+        replace(_unit("added", "fp-added"), path="src/new.py", start_line=8),
+    )
+    result = compare_revision_units(
+        before,
+        after,
+        previous_marks=[_mark("changed", "fp-old", state="reviewed")],
+        next_marks=[_mark("changed", "fp-old", state="changed_since_review")],
+    )
+
+    assert (result.added, result.changed, result.removed, result.unchanged) == (1, 1, 1, 1)
+    assert [(item.unit_key, item.status, item.from_state, item.to_state) for item in result.units] == [
+        ("added", "added", "unreviewed", "unreviewed"),
+        ("changed", "changed", "reviewed", "changed_since_review"),
+        ("removed", "removed", "unreviewed", "unreviewed"),
+    ]
+    assert [(item.path, item.status, item.added, item.changed, item.removed) for item in result.files] == [
+        ("src/a.py", "changed", 0, 1, 0),
+        ("src/new.py", "added", 1, 0, 0),
+        ("src/old.py", "removed", 0, 0, 1),
+    ]
+
+
+def test_revision_compare_never_calls_unknown_fingerprints_unchanged() -> None:
+    before = [replace(_unit("opaque", "placeholder", method="unknown"), path="opaque.bin")]
+    after = [replace(_unit("opaque", "placeholder", method="unknown"), path="opaque.bin")]
+    result = compare_revision_units(before, after)
+    assert result.changed == 1
+    assert result.unchanged == 0
+    assert [(item.path, item.status) for item in result.files] == [("opaque.bin", "changed")]
 
 
 def test_the_frontier_is_derived_and_cannot_disagree_with_the_marks() -> None:

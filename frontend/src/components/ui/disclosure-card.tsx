@@ -23,7 +23,7 @@ export function DisclosureCard({
   return (
     <div
       className={cn(
-        "overflow-hidden border border-neutral-800 bg-neutral-900/50 transition-all",
+        "overflow-hidden rounded-lg border border-neutral-800/70 bg-neutral-900/50 transition-colors",
         className
       )}
     >
@@ -31,7 +31,7 @@ export function DisclosureCard({
         type="button"
         onClick={onToggle}
         className={cn(
-          "w-full px-5 py-4 text-left transition-colors hover:bg-neutral-800/50",
+          "w-full px-4 py-3 text-left transition-colors hover:bg-neutral-800/50",
           triggerClassName
         )}
       >
@@ -40,7 +40,7 @@ export function DisclosureCard({
       {open && (
         <div
           className={cn(
-            "border-t border-neutral-800 bg-neutral-950/50 px-5 py-4",
+            "border-t border-neutral-800 bg-neutral-950/50 px-4 py-3",
             contentClassName
           )}
         >

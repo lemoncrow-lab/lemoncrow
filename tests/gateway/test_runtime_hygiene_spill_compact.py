@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 
 import pytest
+from lemoncrow_client.kit.notices import spill_notice
 
 from lemoncrow.gateway.adapters import mcp_server
 from lemoncrow.pro.capabilities.tool_supervision import tool_output_spill
@@ -216,23 +217,19 @@ def test_summary_with_ref_preserves_ref_under_tiny_cap() -> None:
 
 
 def test_spill_notice_shrunk_with_path() -> None:
-    text = tool_output_spill.spill_notice(
+    text = spill_notice(
         verb="shrunk", original_chars=100907, kept_chars=5035, path=Path("/tmp/lemoncrow-spill/tool_output-x.txt")
     )
     assert text == ("[lc: shrunk 100907→5035; full: /tmp/lemoncrow-spill/tool_output-x.txt]")
 
 
 def test_spill_notice_truncated_with_path() -> None:
-    text = tool_output_spill.spill_notice(
-        verb="truncated", original_chars=9000, kept_chars=1024, path=Path("/tmp/x.txt")
-    )
+    text = spill_notice(verb="truncated", original_chars=9000, kept_chars=1024, path=Path("/tmp/x.txt"))
     assert text == "[lc: truncated 9000→1024; full: /tmp/x.txt]"
 
 
 def test_spill_notice_compacted_with_method_verb() -> None:
-    text = tool_output_spill.spill_notice(
-        verb="compacted:dedup", original_chars=500, kept_chars=100, path=Path("/tmp/x.txt")
-    )
+    text = spill_notice(verb="compacted:dedup", original_chars=500, kept_chars=100, path=Path("/tmp/x.txt"))
     assert text == "[lc: compacted:dedup 500→100; full: /tmp/x.txt]"
 
 
@@ -240,7 +237,7 @@ def test_spill_notice_no_path_is_spill_failed_shape() -> None:
     # No recovery path -> always reported as a hard truncation, regardless of
     # the requested verb -- from the model's perspective there's nothing to
     # recover either way.
-    text = tool_output_spill.spill_notice(verb="shrunk", original_chars=9000, kept_chars=1024, path=None)
+    text = spill_notice(verb="shrunk", original_chars=9000, kept_chars=1024, path=None)
     assert text == "[lc: truncated 9000→1024; narrow the query for full]"
 
 
@@ -249,12 +246,7 @@ def test_summary_with_ref_inserts_clipped_marker_when_summary_must_shrink() -> N
     assert record is not None
     summary = "S" * 500
     footer_len = (
-        len(
-            tool_output_spill.spill_notice(
-                verb="shrunk", original_chars=5000, kept_chars=len(summary), path=record.path
-            )
-        )
-        + 2
+        len(spill_notice(verb="shrunk", original_chars=5000, kept_chars=len(summary), path=record.path)) + 2
     )  # + the "\n\n" separator summary_with_ref prepends
     cap = footer_len + 80  # room for the footer + a clipped (not full) summary
 
@@ -335,7 +327,7 @@ def test_auto_compact_is_reversible_via_spill(monkeypatch: pytest.MonkeyPatch) -
 
 def test_auto_compact_code_is_ast_aware(monkeypatch: pytest.MonkeyPatch) -> None:
     # The AST source-projection path is Pro; treat the install as licensed.
-    monkeypatch.setattr("lemoncrow.core.capabilities.licensing.has_feature", lambda *a, **k: True)
+    monkeypatch.setattr("lemoncrow.core.capabilities.feature_access.has_feature", lambda *a, **k: True)
     monkeypatch.setenv("LEMONCROW_AUTO_COMPACT_OUTPUT", "1")
     monkeypatch.setenv("LEMONCROW_MCP_COMPACT_RESULT_CHARS", "2000")
     # Python source with lots of blank lines -> source_projection compact applies.

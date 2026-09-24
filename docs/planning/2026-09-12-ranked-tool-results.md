@@ -3,7 +3,7 @@
 Status: draft for review
 Date: 2026-09-12
 Constrains: all work on `mcp_proxy`, `mcp_output_shrink`, and the spill path
-Related: `2026-09-12-hosted-mcp-thin-client.md` (execution sites), `savings-optimization-roadmap.md`
+Related: `../../client/README.md` (public thin-client execution contract), `savings-optimization-roadmap.md`
 
 ## 1. Problem
 
@@ -135,9 +135,10 @@ BM25 over units, scored against a query assembled from, in order of weight:
 2. the last user turn, when the host exposes it;
 3. nothing else. No conversation history, no embeddings.
 
-`sqlite3` ships FTS5 in the stdlib, which satisfies the thin-client constraint in
-`2026-09-12-hosted-mcp-thin-client.md` §4 (stdlib only, no transitive tree). The index is
-built in-memory per call and discarded.
+`sqlite3` ships FTS5 in the stdlib. For public-client code, any such optimization
+must preserve the audited stdlib-only/no-transitive-dependency contract in
+`client/README.md`. The index described here is built in-memory per call and
+discarded.
 
 Server-side semantic rerank over the same units is a later upgrade, gated on the
 measurement in §12 showing lexical ranking leaving turns on the table. It is not v1.
@@ -232,12 +233,11 @@ tool router, and a bad one costs correctness, not bytes.
 
 ## 10. Where it runs
 
-Per the execution matrix in `2026-09-12-hosted-mcp-thin-client.md` §5, `mcp` (proxy) is a
-client tool — it spawns stdio servers the user configured. Capture, shape, rank and compose
-all run client-side, in-process, with no network hop. The spill store is already local.
-
-This is a property worth protecting: the general-purpose optimizer must not require the
-server, or it cannot ship to the audience that rejected daemons.
+The enterprise thin client no longer exposes the legacy local `mcp` proxy because
+spawning another MCP process violates its one-process security contract. Any generalized
+result-ranking path that ships in that client must therefore run inside the existing
+stdio process or on the configured LemonCrow server; it must not introduce another local
+service, daemon, or MCP child process.
 
 ## 11. Failure modes
 

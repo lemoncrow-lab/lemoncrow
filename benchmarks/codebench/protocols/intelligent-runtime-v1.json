@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "id": "intelligent-runtime-v1",
+  "frozen_at": "2026-09-23",
+  "tasks": [
+    {
+      "id": "cg_vscode",
+      "language": "typescript",
+      "repo": "https://github.com/microsoft/vscode",
+      "ref": "be441a4dc809ea2d98fe7903fcdead9eb0ec31e7",
+      "prompt_sha256": "4ce654a11bcf83bea637e09b308680158c5d71512637a020c2c331803c14839a"
+    },
+    {
+      "id": "cg_excalidraw",
+      "language": "typescript",
+      "repo": "https://github.com/excalidraw/excalidraw",
+      "ref": "28a9b1711dc0625b8ab5d643dc871810ee13642f",
+      "prompt_sha256": "f2b3cfe5d4f0dd5e70881808c265774382c43f5a25df38b959f402f1c8e6e6a8"
+    },
+    {
+      "id": "cg_django",
+      "language": "python",
+      "repo": "https://github.com/django/django",
+      "ref": "cd385e6b8c16b51f68c1f220ff09a4cfd679af0c",
+      "prompt_sha256": "86d82a61f7587a5e7ad9ab52fd1d4428818865d19125bb66387a1b468fd04a4d"
+    },
+    {
+      "id": "cg_tokio",
+      "language": "rust",
+      "repo": "https://github.com/tokio-rs/tokio",
+      "ref": "7892f6020d9c914a41d0c350693fb71937d43c03",
+      "prompt_sha256": "112b2bab1f2d105edbc21b49b96b37d8cead1dedca536e228b4bc046d9aca1e3"
+    },
+    {
+      "id": "cg_okhttp",
+      "language": "java",
+      "repo": "https://github.com/square/okhttp",
+      "ref": "6abc678ad07aefe055cb1afb6fd897c34a988eb9",
+      "prompt_sha256": "fbcaafa3b3136435c3c1de09606926ecf0aa1744b0e30cfd8789e09edae20e48"
+    },
+    {
+      "id": "cg_gin",
+      "language": "go",
+      "repo": "https://github.com/gin-gonic/gin",
+      "ref": "d75fcd4c9ab260e5225de590f1f0f8c0e0e12d11",
+      "prompt_sha256": "cb8c0283794a0c93b1dc0a68dc0247571cc1cb7b48275999a5475d225fc1ca74"
+    },
+    {
+      "id": "cg_alamofire",
+      "language": "swift",
+      "repo": "https://github.com/Alamofire/Alamofire",
+      "ref": "7595cbcf59809f9977c5f6378500de2ad73b7ddb",
+      "prompt_sha256": "1bfc128a02c06aa75b2184463008ed8fe562e179f1b499800d629a8b92923cca"
+    }
+  ],
+  "runs": [
+    {
+      "id": "claude-policy-qualification",
+      "kind": "qualification",
+      "cli_driver": "claude",
+      "model": "claude-opus-4-8",
+      "arms": [
+        "baseline",
+        "lemoncrow-control",
+        "lemoncrow-shadow",
+        "lemoncrow-candidate"
+      ],
+      "reps": 5,
+      "timeout": 1800,
+      "jobs": 2,
+      "parallel_scope": "task",
+      "mode": "cost",
+      "require_pass": true,
+      "judge": true,
+      "judge_model": "claude-opus-4-8",
+      "cli_version": "2.1.197 (Claude Code)",
+      "judge_cli_version": "2.1.197 (Claude Code)"
+    },
+    {
+      "id": "codex-policy-generalization",
+      "kind": "generalization",
+      "cli_driver": "codex",
+      "model": "gpt-6-astra",
+      "arms": [
+        "baseline",
+        "lemoncrow-control",
+        "lemoncrow-candidate"
+      ],
+      "reps": 3,
+      "timeout": 1800,
+      "jobs": 2,
+      "parallel_scope": "task",
+      "mode": "cost",
+      "require_pass": true,
+      "judge": true,
+      "judge_model": "claude-opus-4-8",
+      "cli_version": "codex-cli 0.155.1",
+      "judge_cli_version": "2.1.197 (Claude Code)"
+    },
+    {
+      "id": "claude-codegraph-external",
+      "kind": "external",
+      "cli_driver": "claude",
+      "model": "claude-opus-4-8",
+      "arms": [
+        "baseline",
+        "lemoncrow"
+      ],
+      "reps": 5,
+      "timeout": 1800,
+      "jobs": 2,
+      "parallel_scope": "task",
+      "mode": "cost",
+      "require_pass": false,
+      "judge": true,
+      "judge_model": "claude-opus-4-8",
+      "cli_version": "2.1.197 (Claude Code)",
+      "judge_cli_version": "2.1.197 (Claude Code)",
+      "competitors": [
+        {
+          "path": "competitors/codegraph-1.6.0.json",
+          "sha256": "ec783c5b228daa422f072b42bddb05ad9edcb40ed0f0efe98a527c5e9ae1ee94"
+        }
+      ]
+    }
+  ]
+}

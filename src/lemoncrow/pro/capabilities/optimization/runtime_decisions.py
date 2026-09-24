@@ -13,6 +13,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 
+from lemoncrow.core.foundation.runtime_decisions import RuntimeDecisionEvent
+
 OptimizationMode = Literal["off", "shadow", "enforce"]
 _SCHEMA_VERSION = 1
 _MAX_DECISIONS = 256
@@ -138,6 +140,38 @@ class OptimizationTraceRecorder:
             }
         )
         if kind == "route" and proposed_safe != actual_safe:
+            self._payload["route_switches"] += 1
+
+    def record_runtime_decision(self, event: RuntimeDecisionEvent) -> None:
+        """Adapt a shared runtime decision to the existing redacted trace row."""
+
+        if not self.enabled or len(self._payload["decisions"]) >= _MAX_DECISIONS:
+            return
+        proposed_safe = _safe_value(event.proposed)
+        actual_safe = _safe_value(event.actual)
+        row = {
+            "id": event.id,
+            "kind": event.kind,
+            "phase": event.phase,
+            "policy": event.policy,
+            "policy_version": event.policy_version,
+            "mode": event.mode,
+            "eligible": bool(event.metrics.get("eligible", True)),
+            "changed": proposed_safe != actual_safe,
+            "proposed": proposed_safe,
+            "actual": actual_safe,
+            "reason": ",".join(event.reason_codes)[:256],
+            "reason_codes": list(event.reason_codes),
+            "confidence": event.confidence,
+            "workspace_revision": _safe_value(event.workspace_revision),
+            "evidence_refs": [_safe_value(ref, key="path") for ref in event.evidence_refs],
+            "budget": _safe_value(event.budget),
+            "metrics": _safe_value(event.metrics),
+        }
+        if event.session_id:
+            row["session_fingerprint"] = _fingerprint(event.session_id)
+        self._payload["decisions"].append(row)
+        if event.kind in {"route", "route.model", "route.phase"} and proposed_safe != actual_safe:
             self._payload["route_switches"] += 1
 
     def record_provider_call(

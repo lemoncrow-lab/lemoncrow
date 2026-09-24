@@ -20,7 +20,6 @@ import json
 import logging
 import os
 import sys
-import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -677,31 +676,13 @@ def _prose_output_tokens(transcript_path: str) -> int:
 
 
 def _write_output_style_row(session_id: str, stats: dict[str, Any], transcript_path: str) -> None:
-    """Credit the telegraphic output style: prose the model did NOT emit.
+    """Credit response-style savings only when the active register is calibrated.
 
-    Personas instruct telegraphic replies; default-prose Claude answers the
-    same content in more words. Credit = measured prose output tokens x
-    (ratio - 1), priced at the output rate plus a cache write (the avoided
-    prose would have re-entered context). Code output and code fences are
-    excluded from the basis. Incremental per Stop fire via the cumulative
-    marker on the last ``output_style`` row. ``LEMONCROW_OUTPUT_STYLE_RATIO``
-    (<=1 disables) defaults to 2.09 -- measured AND reconciled, not guessed.
-    Matched telegraphic Q&A head-to-head (2026-07-08, opus-4-8, 20 prompts x
-    5 reps x 2 arms = 200 runs; prose isolated on both arms by stripping
-    fences/code-ish lines/the session-title JSON turn): baseline reply prose
-    is 2.09x LemonCrow's pooled (40.3k vs 19.2k tokens). Supersedes swe-lite's
-    smaller 10-instance measurement. No turn-cut overlap to net out here
-    (unlike swe-lite): baseline's extra turns are 100% the benchmark
-    harness's title-generation turn (LemonCrow skips it outright, 0/100 vs
-    100/100 runs); once that's excluded from both arms, answering-turn
-    counts are flat (138 vs 142), so none of the prose delta double-counts
-    with the turn_cut row -- the pooled ratio applies directly. Per-prompt
-    ratios ranged 1.37x-8.33x across the 20 prompts (median 1.85x). Raw data:
-    benchmarks/codebench/results/telegraphic_2026_07_08_5rep/.
+    Ultra's 2.09 prose ratio is measured on the matched Q&A benchmark. Lite is
+    intentionally more readable and currently receives no guessed style credit;
+    the shared writer selects the calibrated default from the active register.
+    ``LEMONCROW_OUTPUT_STYLE_RATIO`` remains an explicit override.
     """
-    # Prose measurement stays host-local (parses this session's transcript);
-    # the pricing/ledger logic is shared plugin-level code so every host credits
-    # output-style identically.
     prose_tokens = _prose_output_tokens(transcript_path)
     try:
         from lemoncrow.core.capabilities.plugin_runtime import write_stop_hook_output_style_row
@@ -1038,11 +1019,9 @@ def main() -> int:
     with contextlib.suppress(Exception):
         savings = _load_session_savings(session_id, transcript_path)
 
-    # Public rollup: no longer pushed from here. The servicectl daemon's daily
-    # tick computes it directly from the same savings.jsonl ledger written
-    # below (see lemoncrow.core.service.telemetry.public_rollup), so there is
-    # nothing to send on every Stop -- the hook now touches neither the
-    # network nor a side queue file for this.
+    # Public rollup is not pushed from Stop. This hook only writes the local
+    # savings ledger below; an explicit publisher may aggregate that ledger
+    # later without putting network work on the session-stop path.
 
     # ── Write session cost + carry to savings.jsonl for historical 7d/30d spend tracking
     if stats and stats.get("est_cost_usd", 0) > 0:

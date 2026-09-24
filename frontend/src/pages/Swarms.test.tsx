@@ -424,8 +424,14 @@ describe("Swarms page", () => {
         if (url.endsWith("/api/v1/swarm/launch/options")) {
           return Promise.resolve(
             jsonResponse({
-              project_roots: [],
-              selected_project_root: "",
+              project_roots: [
+                {
+                  path: "/workspace/project",
+                  label: "project",
+                  full_path: "/workspace/project",
+                },
+              ],
+              selected_project_root: "/workspace/project",
               files: [],
               providers: [],
               runners: [],
@@ -449,7 +455,7 @@ describe("Swarms page", () => {
         if (url.endsWith("/api/v1/swarm/runs")) {
           return Promise.resolve(jsonResponse([]));
         }
-        if (url.endsWith("/api/v1/workflow/current")) {
+        if (url.includes("/api/v1/workflow/current")) {
           return Promise.resolve(
             jsonResponse({
               workspace_root: "/workspace/project",
@@ -511,10 +517,14 @@ describe("Swarms page", () => {
     await userEvent.click(screen.getByText("Workflow (advanced)"));
 
     expect(
-      await screen.findByRole("heading", { name: "Workflow" })
-    ).toBeInTheDocument();
+      (await screen.findAllByText(/owned-execute-review-loop/i)).length
+    ).toBeGreaterThan(0);
     expect(
-      screen.getAllByText(/owned-execute-review-loop/i)[0]
-    ).toBeInTheDocument();
+      vi.mocked(globalThis.fetch).mock.calls.some(([input]) =>
+        String(input).includes(
+          "/api/v1/workflow/current?project_root=%2Fworkspace%2Fproject"
+        )
+      )
+    ).toBe(true);
   });
 });

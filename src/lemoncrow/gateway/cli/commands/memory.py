@@ -35,7 +35,8 @@ def _make_memory_registry(cwd: Path | None = None) -> Any:
 
 
 def _make_memory_service(root: Path) -> Any:
-    from lemoncrow.core.foundation.redaction import redact
+    from lemoncrow_client.kit.redaction import redact
+
     from lemoncrow.infra.embeddings.factory import make_embedder
     from lemoncrow.infra.storage.factory import make_memory_store
     from lemoncrow.pro.capabilities.memory import MemoryService
@@ -198,56 +199,6 @@ def memory_show_cmd(fact_id: str, as_json: bool) -> None:
     click.echo(fact.content)
 
 
-@memory_group_cli.command("share")
-@click.option("--agent-id", required=True, help="Editable memory agent id, e.g. lemoncrow:code.")
-@click.option("--label", required=True, help="Editable memory block label.")
-@click.option("--json", "as_json", is_flag=True, default=False, help="Output JSON.")
-@click.pass_context
-def memory_share_cmd(ctx: click.Context, agent_id: str, label: str, as_json: bool) -> None:
-    """Promote one editable memory block into workspace-shared memory."""
-    from lemoncrow.infra.storage.factory import make_memory_store
-    from lemoncrow.pro.capabilities.team import (
-        TeamAuditEvent,
-        TeamWorkspaceManager,
-        ensure_shared_memory_write,
-    )
-
-    root = ctx.obj["root"]
-    manager = TeamWorkspaceManager(root)
-    workspace = manager.load_workspace()
-    member = manager.require_member(None, workspace=workspace)
-    ensure_shared_memory_write(member)
-
-    store = make_memory_store(root)
-    block = store.get_block(agent_id, label)
-    if block is None:
-        raise click.ClickException(f"memory block not found: {agent_id}:{label}")
-    metadata = dict(block.metadata or {})
-    metadata["scope"] = "shared"
-    metadata.setdefault("workspace_id", workspace.id)
-    metadata.setdefault("owner_user_id", member.user_id)
-    metadata["shared_by_user_id"] = member.user_id
-    updated = block.model_copy(update={"metadata": metadata})
-    stored = store.upsert_block(updated, actor=f"team:{member.user_id}", reason="workspace share")
-    manager.append_audit_event(
-        TeamAuditEvent(
-            action="memory.share",
-            actor_user_id=member.user_id,
-            details={"agent_id": agent_id, "label": label, "block_id": stored.id},
-        )
-    )
-    payload = {
-        "id": stored.id,
-        "label": stored.label,
-        "scope": stored.metadata.get("scope"),
-        "workspace_id": workspace.id,
-    }
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    click.echo(f"shared {agent_id}:{label} into workspace {workspace.name}")
-
-
 @memory_group_cli.command("find")
 @click.argument("query")
 @click.option("--limit", default=20, show_default=True, help="Max results.")
@@ -317,7 +268,8 @@ def memory_recall_cmd(
 
     QUERY is the natural-language search string.
     """
-    from lemoncrow.core.foundation.redaction import redact
+    from lemoncrow_client.kit.redaction import redact
+
     from lemoncrow.infra.embeddings.factory import make_embedder
     from lemoncrow.infra.storage.factory import make_memory_store
     from lemoncrow.pro.capabilities.archival_recall import ArchivalRecallCapability

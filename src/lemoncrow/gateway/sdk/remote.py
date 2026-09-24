@@ -16,7 +16,6 @@ from lemoncrow.core.foundation.models import (
     TraceStatus,
     ValidationResult,
 )
-from lemoncrow.gateway.adapters import remote_client as service_remote_client
 from lemoncrow.gateway.sdk.client import (
     ContextResult,
     EvalRunResult,
@@ -30,6 +29,7 @@ from lemoncrow.gateway.sdk.client import (
     TraceRecordResult,
 )
 from lemoncrow.gateway.trace_payloads import serialize_trace_learnings, serialize_validation_results
+from lemoncrow.gateway.transports.service import ServiceTransport
 
 
 class RemoteClient(LemonCrowClient):
@@ -40,7 +40,7 @@ class RemoteClient(LemonCrowClient):
         api_key: str | None = None,
         timeout: float = 30.0,
     ) -> None:
-        self._client = service_remote_client.RemoteClient(
+        self._client = ServiceTransport(
             base_url=base_url,
             api_key=api_key,
             timeout=timeout,

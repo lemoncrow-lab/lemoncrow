@@ -62,6 +62,55 @@ ReviewUnitKind = Literal["file", "symbol", "hunk", "document_section"]
 UNIT_KINDS: tuple[str, ...] = ("file", "symbol", "hunk", "document_section")
 
 MarkState = Literal["unreviewed", "reviewed", "needs_changes", "changed_since_review", "unknown"]
+ReviewMarkEventKind = Literal["judgment", "reconciled", "discarded", "migrated"]
+REVIEW_MARK_EVENT_KINDS: tuple[str, ...] = ("judgment", "reconciled", "discarded", "migrated")
+
+ReviewOutcomeKind = Literal["comment", "lgtm", "changes_requested"]
+REVIEW_OUTCOME_KINDS: tuple[str, ...] = ("comment", "lgtm", "changes_requested")
+ThreadTurnOwnerKind = Literal["none", "author", "reviewer"]
+THREAD_TURN_OWNER_KINDS: tuple[str, ...] = ("none", "author", "reviewer")
+
+ReviewActivityKind = Literal[
+    "review.created",
+    "review.status_changed",
+    "revision.recorded",
+    "mark.judgment",
+    "mark.reconciled",
+    "mark.discarded",
+    "mark.migrated",
+    "annotation.created",
+    "annotation.updated",
+    "annotation.state_changed",
+    "annotation.author_response",
+    "annotation.thread_reply",
+    "proposal.created",
+    "proposal.applied",
+    "proposal.conflicted",
+    "proposal.dismissed",
+    "outcome.recorded",
+]
+REVIEW_ACTIVITY_KINDS: tuple[str, ...] = (
+    "review.created",
+    "review.status_changed",
+    "revision.recorded",
+    "mark.judgment",
+    "mark.reconciled",
+    "mark.discarded",
+    "mark.migrated",
+    "annotation.created",
+    "annotation.updated",
+    "annotation.state_changed",
+    "annotation.author_response",
+    "annotation.thread_reply",
+    "proposal.created",
+    "proposal.applied",
+    "proposal.conflicted",
+    "proposal.dismissed",
+    "outcome.recorded",
+)
+
+AnnotationVersionKind = Literal["created", "edited", "state_changed", "author_response", "thread_reply"]
+ANNOTATION_VERSION_KINDS: tuple[str, ...] = ("created", "edited", "state_changed", "author_response", "thread_reply")
 """``unknown`` is a first-class state, not a gap.
 
 It is what a unit whose fingerprint could not be computed *is*, and it must
@@ -87,6 +136,15 @@ AnnotationState = Literal["open", "resolved", "orphaned", "obsolete"]
 ANNOTATION_STATES: tuple[str, ...] = ("open", "resolved", "orphaned", "obsolete")
 AuthorResponseState = Literal["none", "addressed"]
 AUTHOR_RESPONSE_STATES: tuple[str, ...] = ("none", "addressed")
+
+ReviewChangeProposalState = Literal["proposed", "applied", "conflicted", "dismissed", "superseded"]
+REVIEW_CHANGE_PROPOSAL_STATES: tuple[str, ...] = (
+    "proposed",
+    "applied",
+    "conflicted",
+    "dismissed",
+    "superseded",
+)
 
 ReviewEvidenceKind = Literal["screenshot", "image", "video", "playwright_trace", "document", "live_preview"]
 REVIEW_EVIDENCE_KINDS: tuple[str, ...] = (
@@ -247,7 +305,7 @@ class ReviewSession:
     """
 
     id: str
-    """``rev-<uuid7>``. Client-generated, globally unique, sortable by creation."""
+    """Bare 32-hex UUIDv7 payload. Public refs add the ``r/`` namespace."""
     subject_type: ReviewSubjectType
     repo_root: str
     """Absolute and ``resolve()``d. The only filesystem root a review service
@@ -263,6 +321,9 @@ class ReviewSession:
     not an unresolved one."""
     status: ReviewSessionStatus = "open"
     reviewer_id: str = "local"
+    current_revision_id: str = ""
+    """Revision whose source state is active now. History remains append-only,
+    but an undo may legitimately point back to an older revision number."""
     created_at: str = ""
     """Aware-UTC ISO-8601. Blank means "not yet stamped"; the store fills it."""
     updated_at: str = ""
@@ -279,7 +340,7 @@ class ReviewRevision:
     """
 
     id: str
-    """``rrv-<uuid7>``."""
+    """Bare 32-hex UUIDv7 payload. Public refs add the ``rr/`` namespace."""
     review_id: str
     revision_number: int
     """1-based and dense within a review."""
@@ -381,6 +442,114 @@ class ReviewMark:
 
 
 @dataclass(frozen=True)
+class ReviewMarkEvent:
+    """Append-only transition of one reviewer's judgment on one semantic unit."""
+
+    id: str
+    review_id: str
+    reviewer_id: str
+    unit_key: str
+    revision_id: str
+    reviewed_revision_id: str
+    event_kind: ReviewMarkEventKind
+    from_state: MarkState | Literal[""]
+    to_state: MarkState | Literal[""]
+    content_fingerprint: str
+    previous_unit_key: str = ""
+    actor_type: ActorType = "human"
+    note: str = ""
+    reason: str = ""
+    created_at: str = ""
+
+
+@dataclass(frozen=True)
+class ReviewActivityEvent:
+    """Human-visible product history; deliberately separate from security audit."""
+
+    id: str
+    review_id: str
+    revision_id: str
+    kind: ReviewActivityKind
+    actor_id: str = ""
+    actor_type: ActorType = "unknown"
+    subject_type: str = ""
+    subject_id: str = ""
+    summary: str = ""
+    detail_json: str = "{}"
+    created_at: str = ""
+
+
+@dataclass(frozen=True)
+class ReviewOutcome:
+    """One reviewer-level verdict bound to one immutable review revision."""
+
+    id: str
+    review_id: str
+    revision_id: str
+    reviewer_id: str
+    outcome: ReviewOutcomeKind
+    summary: str = ""
+    created_at: str = ""
+
+
+@dataclass(frozen=True)
+class ReviewChangeProposal:
+    """One reviewer-authored source change proposed against an immutable revision.
+
+    The proposal is not the revision and never mutates one. ``base_file_sha256``
+    is the compare-and-swap guard for applying it to a trusted mutable checkout;
+    ``applied_source_fingerprint`` links that write to the later ReviewRevision
+    whose source fingerprint captured the same working tree.
+    """
+
+    id: str
+    review_id: str
+    base_revision_id: str
+    path: str
+    start_line: int
+    end_line: int
+    original_text: str
+    replacement_text: str
+    patch_text: str
+    base_file_sha256: str
+    state: ReviewChangeProposalState = "proposed"
+    target_unit_key: str = ""
+    annotation_id: str = ""
+    intent: str = ""
+    conflict_reason: str = ""
+    created_by: str = "local"
+    created_at: str = ""
+    updated_at: str = ""
+    applied_at: str = ""
+    applied_source_fingerprint: str = ""
+    result_revision_id: str = ""
+
+
+@dataclass(frozen=True)
+class AnnotationVersion:
+    """Append-only semantic snapshot of one comment, excluding anchor movement."""
+
+    id: str
+    annotation_id: str
+    review_id: str
+    revision_id: str
+    version_number: int
+    body: str
+    kind: AnnotationKind
+    state: AnnotationState
+    author_response: AuthorResponseState = "none"
+    author_response_source_id: str = ""
+    author_response_at: str = ""
+    resolved_revision_id: str = ""
+    changed_by: str = ""
+    changed_by_actor: ActorType = "unknown"
+    change_kind: AnnotationVersionKind = "edited"
+    turn_owner_kind: ThreadTurnOwnerKind = "none"
+    turn_owner_id: str = ""
+    created_at: str = ""
+
+
+@dataclass(frozen=True)
 class AnnotationAnchor:
     """Where a comment is attached, described richly enough to be found again.
 
@@ -457,6 +626,10 @@ class Annotation:
     """Exact authoring session that made the response claim."""
     author_response_at: str = ""
     """When the author made the claim; empty until one exists."""
+    turn_owner_kind: ThreadTurnOwnerKind = "none"
+    """Whose turn the root thread is waiting on. Replies normally leave this ``none``."""
+    turn_owner_id: str = ""
+    """Exact reviewer principal for reviewer turns; empty means role-level author ownership."""
 
 
 def validate_annotation_semantics(annotation: Annotation) -> None:
@@ -486,6 +659,14 @@ def validate_annotation_semantics(annotation: Annotation) -> None:
         raise ValueError(f"unknown author response {annotation.author_response!r}")
     if annotation.source != "human" and annotation.author_response != "none":
         raise ValueError("author responses may only be attached to human review annotations")
+    if annotation.turn_owner_kind not in THREAD_TURN_OWNER_KINDS:
+        raise ValueError(f"unknown thread turn owner {annotation.turn_owner_kind!r}")
+    if annotation.parent_id and annotation.turn_owner_kind != "none":
+        raise ValueError("only root annotations may own a thread turn")
+    if annotation.turn_owner_kind == "none" and annotation.turn_owner_id:
+        raise ValueError("a thread with no owner kind cannot name an owner id")
+    if annotation.turn_owner_kind == "reviewer" and not annotation.turn_owner_id:
+        raise ValueError("reviewer-owned thread turns require a reviewer principal id")
 
 
 @dataclass(frozen=True)
@@ -574,6 +755,10 @@ class DeliveryRecord:
     last_error: str = ""
     created_at: str = ""
     updated_at: str = ""
+    operation_id: str = ""
+    revision_id: str = ""
+    feedback_hash: str = ""
+    annotation_version: int = 0
 
 
 @dataclass(frozen=True)

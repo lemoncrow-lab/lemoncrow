@@ -5,8 +5,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
-
-from lemoncrow.pro.capabilities.tool_supervision.sql_tool import (
+from lemoncrow_client.kit.sql import (
     _bound_cell,
     detect_dialect,
     discover_connection,
@@ -14,6 +13,8 @@ from lemoncrow.pro.capabilities.tool_supervision.sql_tool import (
     mask_connection_string,
     sql_tool,
 )
+
+from lemoncrow.pro.capabilities.tool_supervision.sql_tool import SQL_HOOKS
 
 
 def test_sql_discovery_masking_and_lint(tmp_path: Path) -> None:
@@ -86,7 +87,7 @@ def test_bound_cell_spills_full_text_when_truncated(tmp_path: Path, monkeypatch:
     monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(tmp_path / "spill"))
     monkeypatch.delenv("LEMONCROW_TOOL_OUTPUT_SPILL", raising=False)  # default on
     full = "y" * 5000 + "TAIL-MARKER"
-    out = _bound_cell(full)
+    out = _bound_cell(full, SQL_HOOKS.cell_spill)
     assert "TAIL-MARKER" not in out  # dropped from the truncated cell
     assert "[lc: truncated" in out
     match = re.search(r"full: (\S+\.txt)\]", out)
@@ -97,7 +98,7 @@ def test_bound_cell_spills_full_text_when_truncated(tmp_path: Path, monkeypatch:
 
 def test_bound_cell_no_spill_hint_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEMONCROW_TOOL_OUTPUT_SPILL", "0")
-    out = _bound_cell("y" * 5000)
+    out = _bound_cell("y" * 5000, SQL_HOOKS.cell_spill)
     assert "spilled to" not in out
     assert "truncated" in out
 

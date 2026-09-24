@@ -35,7 +35,7 @@ bash scripts/run_opencode_with_lemoncrow.sh --workspace /path/to/workspace
 The installer merges:
 
 1. `mcp.lemoncrow` for `lc mcp`
-2. `provider.lemoncrow` for OpenAI-compatible chat completions (`http://127.0.0.1:8787/v1`)
+2. `provider.lemoncrow` for OpenAI-compatible chat completions (`http://127.0.0.1:8787/v1`; override with `LEMONCROW_GATEWAY_URL`)
 3. A local `chat.message` plugin that injects LemonCrow guidance before a user prompt is sent
 
 MCP entry:
@@ -70,6 +70,8 @@ bash scripts/run_opencode_with_lemoncrow.sh --dry-run --workspace /path/to/works
 
 - opencode connects to the local LemonCrow HTTP service via the MCP stdio wrapper
 - Workspace LemonCrow agent profile is installed at `.opencode/agents/lemoncrow.code.md`
+- The code agent defaults to `opencode/big-pickle`, keeping free-tier requests inside OpenCode's native provider transport
+- Native OpenCode tools remain available because Console rejects free-tier requests when every native tool is disabled; agent instructions still prefer LemonCrow tools
 - The installer sets `default_agent` to `code` even when the config already exists
 - The local plugin adds context-window and multi-file-edit nudges to submitted prompts when applicable
 - opencode loads local plugins at startup; restart it after installation or plugin changes

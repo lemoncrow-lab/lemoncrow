@@ -13,20 +13,20 @@ from unittest.mock import MagicMock
 
 import pytest
 from click.testing import CliRunner
-
-from lemoncrow.core.capabilities.licensing import entitlements
-from lemoncrow.core.environment import HIDDEN_LLM_TOOLS
-from lemoncrow.core.service.bootstrap_context import build_bootstrap_plan, persist_bootstrap_plan
-from lemoncrow.core.service.jobs import JOB_BOOTSTRAP_CONTEXT
-from lemoncrow.gateway.adapters import mcp_server
-from lemoncrow.gateway.adapters.mcp_server import TOOLS, _handle, tool_smart_edit
-from lemoncrow.gateway.cli import cli
-from lemoncrow.infra.code_intel.astgrep import (
+from lemoncrow_client.kit.astgrep import (
     AstGrepToolUnavailable,
     PatternMatch,
     PatternRewriteResult,
     PatternSearchResult,
 )
+from lemoncrow_client.kit.sql import render_sql_text
+
+from lemoncrow.core.environment import LLM_VISIBLE_TOOLS
+from lemoncrow.core.service.bootstrap_context import build_bootstrap_plan, persist_bootstrap_plan
+from lemoncrow.core.service.jobs import JOB_BOOTSTRAP_CONTEXT
+from lemoncrow.gateway.adapters import mcp_server
+from lemoncrow.gateway.adapters.mcp_server import TOOLS, _handle, tool_smart_edit
+from lemoncrow.gateway.cli import cli
 from lemoncrow.infra.storage.factory import create_store, make_memory_store
 from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 from tests.helpers import grant_oauth_pro, init_store_at
@@ -35,13 +35,7 @@ from tests.helpers import grant_oauth_pro, init_store_at
 # generic tools/list because they only make sense with exact host/session
 # provenance. `grep`, `relations`, `search`, `memory`, `sql`, `codemod` and the
 # review hooks remain callable as internal/power surfaces.
-EXPECTED_TOOLS = {
-    "read",
-    "edit",
-    "code_search",
-    "bash",
-    "web_fetch",
-}
+EXPECTED_TOOLS = set(LLM_VISIBLE_TOOLS)
 
 
 def _call(name: str, args: dict[str, Any]) -> dict[str, Any]:
@@ -214,7 +208,7 @@ def test_tools_list_returns_exact_public_surface(
     assert resp is not None
     names = {tool["name"] for tool in resp["result"]["tools"]}
     assert names == EXPECTED_TOOLS
-    assert EXPECTED_TOOLS | HIDDEN_LLM_TOOLS == set(TOOLS)
+    assert EXPECTED_TOOLS <= set(TOOLS)
 
 
 def test_tools_list_hides_internal_tools(
@@ -226,7 +220,7 @@ def test_tools_list_hides_internal_tools(
     tools = resp["result"]["tools"]
     names = {tool["name"] for tool in tools}
     assert names == EXPECTED_TOOLS
-    assert not (names & HIDDEN_LLM_TOOLS)
+    assert names <= LLM_VISIBLE_TOOLS
     assert "read" in names
     assert all("passive" not in tool["description"] for tool in tools if tool["name"] in EXPECTED_TOOLS)
 
@@ -311,7 +305,7 @@ def test_tools_list_grep_is_lean_and_relations_is_the_drill_in() -> None:
     # matches; the dedicated `relations` tool expands a count into the list.
     # `search` stays registered but hidden (semantic-only).
     assert "search" in TOOLS
-    assert "search" in HIDDEN_LLM_TOOLS
+    assert "search" not in LLM_VISIBLE_TOOLS
     assert "relations" in TOOLS
     grep_tool = TOOLS["grep"]
     grep_props = grep_tool["inputSchema"]["properties"]
@@ -449,8 +443,9 @@ def test_get_context_can_include_folded_state(store_root: Path) -> None:
         {"task": "Fix publish regression", "include_run_ledger": True},
     )
     payload = _result(resp)
-    assert isinstance(payload.get("context"), str)
-    assert "run_ledger" in payload
+    assert isinstance(payload, str)
+    assert "Here are the relevant procedures." in payload
+    assert "run_ledger" not in payload
 
 
 @pytest.mark.slow
@@ -488,6 +483,12 @@ def test_context_worker_tick_persists_bootstrap_blocks_without_blocking_initial_
     mcp_server._remote_client = None
     _write_bootstrap_fixture_repo(workspace_root)
     mcp_server._reset_runtime_cache_for_testing()
+    # This test drives _run_worker_tick_safe directly (up to 7x, in the retry
+    # loop below) to exercise real job draining; it isn't testing the
+    # maintenance duties, which now spawn real `lc import`/`session recall
+    # index`/`code prune` subprocesses on a fresh store_root. Neutralize just
+    # that call so the test stays fast and hermetic.
+    monkeypatch.setattr("lemoncrow.core.service.maintenance_tick.run_maintenance_tick", lambda *a, **k: {"ran": False})
 
     payload = mcp_server.tool_get_context({"task": "Warm the repository context"})
 
@@ -518,6 +519,8 @@ def test_context_reuses_bootstrap_blocks_instead_of_enqueuing_duplicate_work(
     mcp_server._remote_client = None
     _write_bootstrap_fixture_repo(workspace_root)
     mcp_server._reset_runtime_cache_for_testing()
+    # See the neutralization note in the sibling test above.
+    monkeypatch.setattr("lemoncrow.core.service.maintenance_tick.run_maintenance_tick", lambda *a, **k: {"ran": False})
 
     mcp_server.tool_get_context({"task": "Warm the repository context"})
     mcp_server._run_worker_tick_safe(store_root)
@@ -595,7 +598,6 @@ def test_context_pull_threads_keywords_and_excluded_paths(monkeypatch: pytest.Mo
     assert subtask.excluded_paths == ["src/legacy"]
     assert subtask.budget_tokens == 321
     assert payload["rationale"] == "ok"
-    entitlements.reload()
 
 
 def test_context_pull_reuses_cached_scoped_context(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -648,7 +650,6 @@ def test_context_pull_reuses_cached_scoped_context(monkeypatch: pytest.MonkeyPat
 
     assert first["provenance"] == "fresh"
     assert second["provenance"] == "cached"
-    entitlements.reload()
 
 
 def test_rescue_failure_returns_procedure(store_root: Path) -> None:
@@ -663,8 +664,8 @@ def test_rescue_failure_returns_procedure(store_root: Path) -> None:
             },
         )
     )
-    assert "rescue" in payload
-    assert "analysis" in payload
+    assert isinstance(payload, str)
+    assert payload.startswith("rescue\n")
 
 
 def test_record_trace_accepts_monitor_event_payload(store_root: Path) -> None:
@@ -801,14 +802,17 @@ def test_run_rubric_gate_pass(store_root: Path) -> None:
             },
         )
     )
-    assert payload["status"] == "pass"
+    assert isinstance(payload, str)
+    assert "status=pass" in payload
 
 
 def test_compact_session_call_returns_summary(store_root: Path) -> None:
     _ = store_root
     payload = _result(_call("compact", {}))
-    assert "tokens_freed" in payload
-    assert "prompt_block" in payload
+    assert isinstance(payload, str)
+    assert "LemonCrow compact state" in payload
+    assert "compact " in payload and "freed " in payload
+    assert "prompt_block" not in payload
 
 
 def test_compact_auto_gate_requires_boundary_and_turns(store_root: Path) -> None:
@@ -1629,9 +1633,11 @@ def test_code_context_workspace_search_returns_repo_tagged_hits_and_repo_filter(
 
     assert [(item["repo_name"], item["path"]) for item in payload["items"]] == [
         ("lemoncrow", "src/config.py"),
-        ("billing", "src/config.py"),
+        ("billing", "../billing/src/config.py"),
     ]
     assert [item["repo_name"] for item in billing_only["items"]] == ["billing"]
+    assert [item["path"] for item in billing_only["items"]] == ["../billing/src/config.py"]
+    assert all(str(item.get("project_id", "")).startswith("proj_") for item in payload["items"])
 
 
 def test_repo_map_and_seed_files_dropped_from_grep(store_root: Path, tmp_path: Path) -> None:
@@ -1690,8 +1696,10 @@ def test_code_context_mcp_surfaces(store_root: Path, tmp_path: Path) -> None:
             },
         )
     )
-    assert isinstance(context, dict)
-    assert context.get("task") == "change alpha"
+    assert isinstance(context, str)
+    assert "alpha" in context
+    assert "a.py" in context
+    assert "?:L0" not in context
 
 
 def test_code_context_search_surface_supports_snippet_scope_and_glob(store_root: Path, tmp_path: Path) -> None:
@@ -2004,11 +2012,16 @@ def test_tool_code_search_response_includes_saved_section_retrieval(
         ],
     }
     appended: list[tuple[str, int, int]] = []
+    observed: list[dict[str, Any]] = []
     monkeypatch.setattr("lemoncrow.gateway.adapters.mcp_server._workspace_root", lambda: tmp_path)
     monkeypatch.setattr("lemoncrow.gateway.adapters.mcp_server._code_context_engine", lambda repo_root=".": fake_engine)
     monkeypatch.setattr(
         "lemoncrow.gateway.adapters.mcp_server._append_workspace_savings",
         lambda tool, tokens, calls, rid="": appended.append((tool, tokens, calls)),
+    )
+    monkeypatch.setattr(
+        "lemoncrow.gateway.adapters.mcp_server._observe_code_search_evidence",
+        lambda **kwargs: observed.append(kwargs),
     )
 
     response = _call("code_search", {"query": "calculate_total", "max_files": 1})
@@ -2018,6 +2031,10 @@ def test_tool_code_search_response_includes_saved_section_retrieval(
     assert saved["tokens"] > 0
     assert saved["calls"] == 1  # single whole-source Read avoided; symbol map stays in-file
     assert appended == [("code_search", saved["tokens"], 1)]
+    assert len(observed) == 1
+    assert observed[0]["query"] == "calculate_total"
+    assert observed[0]["payload"] is fake_engine.tool_explore.return_value
+    assert "evidence_state" not in response["result"]["content"][0]["text"]
 
 
 def test_resolve_query_as_existing_file_pins_verbatim_and_prefixed_paths(tmp_path: Path) -> None:
@@ -2312,7 +2329,7 @@ def test_code_context_pattern_search_surface_is_cached(
     (tmp_path / "src" / "app.py").write_text("requests.get(url)\n", encoding="utf-8")
 
     monkeypatch.setattr(
-        "lemoncrow.pro.capabilities.code_context.engine.AstGrepAdapter.search",
+        "lemoncrow_client.kit.astgrep.AstGrepAdapter.search",
         lambda self, *, pattern, language=None, file_glob=None, limit=20: PatternSearchResult(
             matches=[
                 PatternMatch(
@@ -2420,7 +2437,7 @@ def test_code_context_pattern_rewrite_reindexes_changed_files(
 
     reindexed: list[list[str]] = []
 
-    monkeypatch.setattr("lemoncrow.pro.capabilities.code_context.engine.AstGrepAdapter.rewrite", fake_rewrite)
+    monkeypatch.setattr("lemoncrow_client.kit.astgrep.AstGrepAdapter.rewrite", fake_rewrite)
     monkeypatch.setattr(
         CodeContextEngine,
         "_reindex_files",
@@ -2467,7 +2484,7 @@ def test_code_context_pattern_returns_structured_tool_unavailable(
         "hint": "install ast-grep",
     }
     monkeypatch.setattr(
-        "lemoncrow.pro.capabilities.code_context.engine.AstGrepAdapter.search",
+        "lemoncrow_client.kit.astgrep.AstGrepAdapter.search",
         lambda self, *, pattern, language=None, file_glob=None, limit=20: (_ for _ in ()).throw(
             AstGrepToolUnavailable(payload)
         ),
@@ -2489,7 +2506,7 @@ def test_code_context_pattern_returns_structured_tool_unavailable(
 
 def test_path_safety_module_is_importable_and_has_protected_parts() -> None:
     """Centralised PROTECTED_PARTS frozenset must exist and cover the canonical dirs."""
-    from lemoncrow.pro.capabilities.tool_supervision.path_safety import PROTECTED_PARTS
+    from lemoncrow_client.kit.edit import PROTECTED_PARTS
 
     required = {".git", ".lemoncrow", "node_modules", ".venv"}
     assert required <= set(PROTECTED_PARTS), f"Missing entries: {required - set(PROTECTED_PARTS)}"
@@ -3809,3 +3826,307 @@ def test_smart_edit_failed_edit_preserves_large_new_payload(
     )
     assert not retry.get("failed")
     assert target.read_text(encoding="utf-8") == big
+
+
+def test_render_context_procedure_drops_structured_echo() -> None:
+    payload = {
+        "context": "### procedure\nUse the exact tenant id.\n<memory>Keep refresh tokens short-lived.</memory>",
+        "recalled_passages": [{"text": "Keep refresh tokens short-lived.", "source_ref": "s1"}],
+        "tokens_breakdown": {"playbooks": 20, "bootstrap": 5, "memory": 10, "total": 35},
+        "bootstrap": {"status": "warm", "repo_id": "repo-1", "blocks": [{"label": "architecture"}]},
+    }
+    rendered = mcp_server._render_context_tool_md(payload)
+    assert rendered == payload["context"]
+    raw = json.dumps(payload, separators=(",", ":"))
+    assert len(rendered or "") < len(raw) * 0.6
+
+
+def test_render_context_procedure_surfaces_only_non_warm_bootstrap_state() -> None:
+    payload = {"context": "Use the playbook.", "bootstrap": {"status": "warming", "job_id": "job-secret"}}
+    assert mcp_server._render_context_tool_md(payload) == "Use the playbook.\n\n[bootstrap warming]"
+
+
+def test_render_context_scoped_pull_is_source_plus_budget_tail() -> None:
+    payload = {
+        "rationale": "ranked for auth flow",
+        "chunks": [
+            {
+                "path": "src/auth.py",
+                "symbol": "issue_token",
+                "kind": "function",
+                "signature": "def issue_token(user):",
+                "snippet": "return sign(user)",
+                "score": 0.94,
+                "channel": "hybrid",
+                "provenance": "fresh",
+            }
+        ],
+        "excluded": [{"path": "legacy/auth.py", "reason": "excluded path"}],
+        "trace_id": "trace-1",
+        "total_tokens": 80,
+        "dropped_for_budget": 2,
+        "provenance": "fresh",
+    }
+    rendered = mcp_server._render_context_tool_md(payload)
+    assert rendered == (
+        "ranked for auth flow\n"
+        "→ src/auth.py · issue_token\n"
+        "def issue_token(user):\n"
+        "return sign(user)\n"
+        "+2 dropped for budget"
+    )
+    assert "trace-1" not in rendered
+    assert "0.94" not in rendered
+
+
+def test_render_compact_returns_state_not_json_wrapper() -> None:
+    payload = {
+        "prompt_block": "# LemonCrow compact state\nDecision: keep one shared server.",
+        "tokens_before": 120000,
+        "tokens_after_estimate": 32000,
+        "tokens_freed": 88000,
+        "cost_saved_usd": 0.42,
+    }
+    rendered = mcp_server._render_compact_md(payload)
+    assert rendered == (
+        "# LemonCrow compact state\nDecision: keep one shared server.\n\n" "compact 120000→32000 tokens · freed 88000"
+    )
+    assert "cost_saved_usd" not in rendered
+
+
+def test_render_rescue_md_keeps_actionable_history_without_trace_metadata() -> None:
+    payload = {
+        "rescue": "Stop retrying. Run the focused parser test, then verify the corrected range.",
+        "matched_blocks": ["playbook/parser-recovery"],
+        "analysis": {
+            "matched": True,
+            "match_score": 0.83,
+            "current_fingerprint": "assertionerror expected <n>",
+            "incident": {
+                "fingerprint": "assertionerror expected <n>",
+                "count": 4,
+                "trace_ids": ["trace-1", "trace-2", "trace-3", "trace-4"],
+                "sample_errors": ["AssertionError: expected 3"],
+                "common_commands": ["pytest tests/test_parser.py"],
+                "root_cause_hypothesis": "the parser range is stale after an insertion",
+                "confidence": 0.9,
+                "suggested_playbooks": ["playbook/parser-recovery"],
+                "suggested_fixes": ["re-read the exact range", "rerun the focused parser test"],
+            },
+        },
+    }
+    rendered = mcp_server._render_rescue_md(payload)
+    assert rendered == (
+        "rescue\n"
+        "Stop retrying. Run the focused parser test, then verify the corrected range.\n"
+        "history\n"
+        "root cause · the parser range is stale after an insertion\n"
+        "seen 4x · confidence 0.9 · match 0.83\n"
+        "next\n"
+        "- re-read the exact range\n"
+        "- rerun the focused parser test"
+    )
+    assert "trace-1" not in rendered
+    assert "fingerprint" not in rendered
+
+
+def test_render_sql_query_md_preserves_types_batches_and_query_state() -> None:
+    rendered = render_sql_text(
+        {
+            "isError": False,
+            "dialect": "sqlite",
+            "took_ms": 7,
+            "results": [
+                {
+                    "name": "items",
+                    "columns": ["id", "note", "payload"],
+                    "rows": [[1, "a\tb\nline", None], [2, "plain", b"\x00\xff"]],
+                    "row_count": 2,
+                    "truncated": True,
+                    "auto_limit_changed": True,
+                },
+                {"name": "broken", "isError": True, "message": "no such table: missing"},
+            ],
+        }
+    )
+    assert rendered == (
+        "### sql query items · 2 rows · truncated · auto-limit\n"
+        "id\tnote\tpayload\n"
+        '1\t"a\\tb\\nline"\tnull\n'
+        '2\t"plain"\t0x00ff\n\n'
+        "### sql query broken · error\n"
+        "no such table: missing"
+    )
+    assert "took_ms" not in rendered
+    assert "dialect" not in rendered
+
+
+def test_cli_tools_call_uses_direct_registry_and_preserves_json(monkeypatch, tmp_path) -> None:
+    from click.testing import CliRunner
+
+    from lemoncrow.gateway.cli.app import cli
+    from lemoncrow.gateway.tools import registry
+
+    seen: dict[str, object] = {}
+
+    def fake_call(name: str, arguments: dict[str, object]) -> dict[str, object]:
+        seen["name"] = name
+        seen["arguments"] = arguments
+        return {"ok": True, "value": 7}
+
+    monkeypatch.setattr(registry, "call_registered_tool", fake_call)
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "--root",
+            str(tmp_path / ".lemoncrow"),
+            "tools",
+            "call",
+            "read",
+            "--args",
+            '{"path":"x.py"}',
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert seen == {"name": "read", "arguments": {"path": "x.py"}}
+    assert json.loads(result.output) == {"ok": True, "value": 7}
+
+
+def test_cli_tools_call_unknown_tool_is_click_error(tmp_path) -> None:
+    from click.testing import CliRunner
+
+    from lemoncrow.gateway.cli.app import cli
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["--root", str(tmp_path / ".lemoncrow"), "tools", "call", "definitely-not-a-tool"],
+    )
+    assert result.exit_code != 0
+    assert "unknown tool: definitely-not-a-tool" in result.output
+
+
+def test_code_search_evidence_observer_records_state_and_shadow_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
+    from lemoncrow.pro.capabilities.code_context.search_verdict import ChannelHealth
+
+    ledger = MagicMock()
+    engine = MagicMock()
+    engine.search_channel_health.return_value = ChannelHealth(semantic=False)
+    monkeypatch.setattr(mcp_server, "_get_ledger", lambda: ledger)
+    monkeypatch.setattr(mcp_server, "_get_claude_session_id", lambda: "session-observe")
+
+    payload = {
+        "entry_points": [],
+        "files": [],
+        "total_tokens": 24,
+        "truncated": False,
+    }
+
+    mcp_server._observe_code_search_evidence(query="semantic architecture question", payload=payload, engine=engine)
+
+    assert ledger.record_runtime_decision.call_count == 2
+    evidence_event = ledger.record_runtime_decision.call_args_list[0].args[0]
+    proposal_event = ledger.record_runtime_decision.call_args_list[1].args[0]
+
+    assert evidence_event.kind == "retrieval.evidence_state"
+    assert evidence_event.reason_codes == ("channel_dark:semantic",)
+    assert proposal_event.kind == "retrieval.stop"
+    assert proposal_event.actual == {"action": "STOP", "rounds": 0}
+    assert "repair_dark_channel_first" in proposal_event.reason_codes
+
+
+def test_code_search_evidence_experiment_executes_one_scoped_relation_round(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lemoncrow.pro.capabilities.code_context.search_verdict import ChannelHealth
+
+    monkeypatch.setenv("LEMONCROW_EVIDENCE_RESOLUTION_MODE", "experiment")
+    monkeypatch.setenv("LEMONCROW_EVIDENCE_RESOLUTION_EXPERIMENT", "benchmark")
+    ledger = MagicMock()
+    engine = MagicMock()
+    engine.search_channel_health.return_value = ChannelHealth()
+    expanded = {
+        "entry_points": [
+            {"path": "src/a.py", "line": 10, "end_line": 20, "score": 1.0},
+            {"path": "src/b.py", "line": 3, "end_line": 8, "score": 0.95},
+        ],
+        "files": [
+            {"path": "src/a.py", "source_sections": [{"line_start": 10, "line_end": 20, "text": "x"}]},
+            {"path": "src/b.py", "source_sections": []},
+        ],
+        "relationships": [{"from": "a", "to": "b"}],
+        "total_tokens": 500,
+        "truncated": False,
+    }
+    engine.tool_explore.return_value = expanded
+    monkeypatch.setattr(mcp_server, "_get_ledger", lambda: ledger)
+    monkeypatch.setattr(mcp_server, "_get_claude_session_id", lambda: "session-experiment")
+    initial = {
+        "entry_points": [
+            {"path": "src/a.py", "line": 10, "end_line": 20, "score": 1.0},
+            {"path": "src/b.py", "line": 3, "end_line": 8, "score": 0.95},
+        ],
+        "files": [
+            {"path": "src/a.py", "source_sections": [{"line_start": 10, "line_end": 20, "text": "x"}]},
+            {"path": "src/b.py", "source_sections": []},
+        ],
+        "relationships": [],
+        "total_tokens": 400,
+        "truncated": False,
+    }
+
+    result = mcp_server._observe_code_search_evidence(
+        query="how do a and b interact",
+        payload=initial,
+        engine=engine,
+        seed_files=["src/a.py"],
+        max_files=5,
+    )
+
+    assert result is expanded
+    engine.tool_explore.assert_called_once_with(
+        "how do a and b interact",
+        max_files=5,
+        seed_files=["src/a.py"],
+        include_source=True,
+        include_relationships=True,
+        depth=1,
+        budget_tokens=800,
+    )
+    proposal_event = ledger.record_runtime_decision.call_args_list[-1].args[0]
+    assert proposal_event.mode == "enforce"
+    assert proposal_event.actual == {"action": "EXPAND_RELATIONS", "rounds": 1}
+    assert "benchmark_experiment" in proposal_event.reason_codes
+
+
+def test_code_search_shadow_never_executes_an_eligible_expansion(monkeypatch: pytest.MonkeyPatch) -> None:
+    from lemoncrow.pro.capabilities.code_context.search_verdict import ChannelHealth
+
+    monkeypatch.setenv("LEMONCROW_EVIDENCE_RESOLUTION_MODE", "shadow")
+    ledger = MagicMock()
+    engine = MagicMock()
+    engine.search_channel_health.return_value = ChannelHealth()
+    monkeypatch.setattr(mcp_server, "_get_ledger", lambda: ledger)
+    monkeypatch.setattr(mcp_server, "_get_claude_session_id", lambda: "session-shadow")
+    initial = {
+        "entry_points": [
+            {"path": "src/a.py", "line": 10, "end_line": 20, "score": 1.0},
+            {"path": "src/b.py", "line": 3, "end_line": 8, "score": 0.95},
+        ],
+        "files": [
+            {"path": "src/a.py", "source_sections": [{"line_start": 10, "line_end": 20, "text": "x"}]},
+        ],
+        "relationships": [],
+        "total_tokens": 400,
+        "truncated": False,
+    }
+
+    result = mcp_server._observe_code_search_evidence(query="relationship", payload=initial, engine=engine)
+
+    assert result is initial
+    engine.tool_explore.assert_not_called()
+    proposal_event = ledger.record_runtime_decision.call_args_list[-1].args[0]
+    assert proposal_event.mode == "shadow"
+    assert proposal_event.actual == {"action": "STOP", "rounds": 0}

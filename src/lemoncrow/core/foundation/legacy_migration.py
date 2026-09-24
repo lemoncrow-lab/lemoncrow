@@ -1,9 +1,8 @@
-"""One-time local migrations for the maintenance-mode / account-free transition.
+"""One-time cleanup of local state left by retired LemonCrow account/cap builds.
 
-Removes commercial device-identity and savings-cap state left by older installs.
 Idempotent and versioned via a marker file in the store root. Never transmits
-anything, and never touches user repositories, lessons, memory, or the code
-index. See docs/maintenance-mode-transition.md.
+anything and never touches user repositories, lessons, memory, or the code index.
+Hosted Authward credentials use the separate client credential store.
 """
 
 from __future__ import annotations
@@ -15,17 +14,25 @@ from lemoncrow.core.foundation.paths import default_store_root
 
 logger = logging.getLogger(__name__)
 
-MIGRATION_VERSION = 1
+MIGRATION_VERSION = 2
 _MARKER_FILENAME = ".migration_version"
 
-# v1 removes: the legacy hardware-derived device id (regenerated as a fresh
-# random-local id on next use) and commercial savings-cap state. The OPTIONAL
-# hosted-account session (auth_token / auth_user.json / auth_base) is
-# intentionally preserved — it is not commercial identity and gates nothing.
+# v1 removed the legacy device/cap state.
 _V1_REMOVE = (
     "device_id",
     "cap_anon_token",
     "login_declined",
+)
+
+# v2 removes the retired local LemonCrow-account cache. Hosted Authward sessions
+# are stored by lemoncrow_client.credentials and are intentionally unrelated.
+_V2_REMOVE = (
+    "auth_token",
+    "auth_user.json",
+    "auth_base",
+    "auth.json",
+    "subscription.json",
+    "login_pending.json",
 )
 
 
@@ -53,8 +60,8 @@ def run_startup_migrations(root: Path | str | None = None) -> int:
     if version >= MIGRATION_VERSION:
         return version
 
-    if version < 1:
-        for name in _V1_REMOVE:
+    def _remove(names: tuple[str, ...]) -> None:
+        for name in names:
             target = store_root / name
             try:
                 if target.exists():
@@ -62,6 +69,11 @@ def run_startup_migrations(root: Path | str | None = None) -> int:
                     logger.info("legacy-migration: removed %s", name)
             except OSError:
                 logger.warning("legacy-migration: could not remove %s", name, exc_info=True)
+
+    if version < 1:
+        _remove(_V1_REMOVE)
+    if version < 2:
+        _remove(_V2_REMOVE)
 
     try:
         _marker_path(store_root).write_text(f"{MIGRATION_VERSION}\n", encoding="utf-8")

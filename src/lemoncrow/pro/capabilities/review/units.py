@@ -262,22 +262,41 @@ def _symbol_reasons(base: tuple[str, ...], symbol: ChangedSymbol | None) -> tupl
 
 
 def _name_for(symbol: ChangedSymbol | None, fallback: str) -> str:
-    """The name a symbol unit is keyed on: qualified where the index knew one.
+    """The name a symbol unit is keyed on, keeping the most specific scope.
 
-    The index is preferred because it resolves imports and aliases that nothing
-    in this module can see. Where there is no index, *fallback* is the name read
-    off definition containment (:func:`qualified_window_names`) rather than the
-    bare identifier, so ``Reader.run`` and ``Writer.run`` are two units with two
-    labels instead of ``run`` printed twice.
+    The index normally wins because it resolves imports and aliases that the
+    containment walk cannot see. Some language indexes, however, report a local
+    assignment with only its bare name (for example a shell variable assigned
+    both at module scope and inside a function). In that case blindly preferring
+    the index collapses two definitions onto one ``unit_key``. When the
+    containment name is a strict qualification of the indexed name, keep the
+    containment name instead; it contains strictly more identity information
+    without contradicting the index.
+
+    Where there is no index, *fallback* is the name read off definition
+    containment (:func:`qualified_window_names`) rather than the bare
+    identifier, so ``Reader.run`` and ``Writer.run`` remain distinct.
 
     Known limitation: units derived with an index and units derived without one
-    can key the same definition differently, so marks do not carry across that
-    boundary. Reopening a file for one look is a far smaller harm than sending a
-    reviewer to the wrong method of the two.
+    can key the same definition differently. Reopening a file for one look is a
+    far smaller harm than sending a reviewer to the wrong definition.
     """
 
-    if symbol is not None and symbol.qualified_name:
-        return symbol.qualified_name
+    indexed = symbol.qualified_name if symbol is not None else None
+    if indexed:
+        if fallback and fallback != indexed:
+            if fallback.endswith(f".{indexed}"):
+                return fallback
+            if indexed.endswith(f".{fallback}"):
+                return indexed
+            # If both sources agree on the leaf definition but disagree on its
+            # owning scope, the containment walk is tied to the actual parsed
+            # body we are fingerprinting. Prefer it over a stale/misattributed
+            # index qualification rather than collapsing two sibling methods
+            # onto the same unit key.
+            if "." in fallback and "." in indexed and fallback.rsplit(".", 1)[-1] == indexed.rsplit(".", 1)[-1]:
+                return fallback
+        return indexed
     if fallback:
         return fallback
     return symbol.symbol_name if symbol is not None else ""

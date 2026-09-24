@@ -4,8 +4,8 @@ import { cn } from "../../lib/utils";
 type SelectSize = "xs" | "sm";
 
 const SIZE_STYLES: Record<SelectSize, string> = {
-  xs: "px-2.5 py-1 text-[10px]",
-  sm: "px-3 py-2 text-sm",
+  xs: "h-8 px-2.5 text-[10px]",
+  sm: "h-9 px-3 text-xs",
 };
 
 interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
@@ -17,7 +17,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
     <select
       ref={ref}
       className={cn(
-        "border border-neutral-700 bg-neutral-950 font-mono text-neutral-200 outline-none transition hover:border-neutral-600 focus:border-brand-500/60",
+        "rounded-md border border-neutral-800/80 bg-neutral-900/55 text-neutral-200 outline-none transition-colors hover:border-neutral-700 focus:border-neutral-600 focus-visible:outline-none",
         SIZE_STYLES[uiSize],
         className
       )}

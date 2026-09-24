@@ -131,3 +131,102 @@ def test_set_returns_prior_for_nesting(monkeypatch: pytest.MonkeyPatch, tmp_path
     assert mcp_server._request_project.value == str(a.resolve())
     mcp_server._clear_request_project(p0)
     assert mcp_server._request_project.value is None
+
+
+def test_registered_project_id_routes_without_arbitrary_path_opt_in(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from lemoncrow.core.service.project_registry import register_project
+
+    store = tmp_path / "store"
+    project = tmp_path / "project"
+    fallback = tmp_path / "fallback"
+    project.mkdir()
+    fallback.mkdir()
+    monkeypatch.setenv("LEMONCROW_ROOT", str(store))
+    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(fallback))
+    monkeypatch.delenv("LEMONCROW_HTTP_ALLOW_PROJECT_OVERRIDE", raising=False)
+    registered = register_project(project)
+
+    prior = mcp_server._set_request_project(registered.project_id)
+    try:
+        assert mcp_server._workspace_root().resolve() == project.resolve()
+    finally:
+        mcp_server._clear_request_project(prior)
+
+
+def test_exact_registered_path_routes_without_arbitrary_path_opt_in(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from lemoncrow.core.service.project_registry import register_project
+
+    store = tmp_path / "store"
+    project = tmp_path / "project"
+    fallback = tmp_path / "fallback"
+    project.mkdir()
+    fallback.mkdir()
+    monkeypatch.setenv("LEMONCROW_ROOT", str(store))
+    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(fallback))
+    monkeypatch.delenv("LEMONCROW_HTTP_ALLOW_PROJECT_OVERRIDE", raising=False)
+    register_project(project)
+
+    mcp_server._set_request_project(str(project))
+
+    assert mcp_server._request_project.value == str(project.resolve())
+
+
+def test_extract_prefers_project_id_and_consumes_transport_args() -> None:
+    args = {"project_id": "proj_abc", "project_path": "/legacy/path", "query": "x"}
+
+    assert mcp_server._extract_request_project({}, args) == "proj_abc"
+    assert args == {"query": "x"}
+
+
+def test_extract_project_id_from_meta() -> None:
+    params = {"_meta": {"lemoncrow-project-id": "proj_abc", "mcp-project-path": "/legacy/path"}}
+
+    assert mcp_server._extract_request_project(params, {}) == "proj_abc"
+
+
+def test_unknown_project_id_fails_closed() -> None:
+    with pytest.raises(mcp_server._ToolArgumentError, match="unknown registered project"):
+        mcp_server._set_request_project("proj_does_not_exist")
+
+
+def test_registered_projects_route_independently_across_worker_threads(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    from lemoncrow.core.service.project_registry import register_project
+
+    store = tmp_path / "store"
+    fallback = tmp_path / "fallback"
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    fallback.mkdir()
+    a.mkdir()
+    b.mkdir()
+    monkeypatch.setenv("LEMONCROW_ROOT", str(store))
+    monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(fallback))
+    a_id = register_project(a).project_id
+    b_id = register_project(b).project_id
+
+    def route(project_id: str) -> Path:
+        prior = mcp_server._set_request_project(project_id)
+        try:
+            return mcp_server._workspace_root().resolve()
+        finally:
+            mcp_server._clear_request_project(prior)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        routed = list(executor.map(route, [a_id, b_id]))
+
+    assert routed == [a.resolve(), b.resolve()]
+    assert mcp_server._workspace_root().resolve() == fallback.resolve()
+
+
+def test_primary_workspace_tools_advertise_project_id_selector() -> None:
+    for tool_name in ("code_search", "read", "edit", "bash"):
+        properties = mcp_server.TOOLS[tool_name]["inputSchema"]["properties"]
+        assert "project_id" in properties, tool_name

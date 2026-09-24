@@ -7,8 +7,15 @@ a hook or a CI step.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
+import socket
+import subprocess
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +46,95 @@ def _no_astgrep_download(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     monkeypatch.setenv("LEMONCROW_AST_GREP_BIN", str(tmp_path / "sg"))
 
 
+@pytest.fixture(autouse=True)
+def _review_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Any:
+    """Run the production loopback server for every CLI Review test.
+
+    Tracked Review is a server-backed product in both local and hosted mode.
+    Each test gets an isolated data plane so repeated ``_invoke`` calls share
+    durable Review state while no state leaks into another test.
+    """
+
+    repo_root = Path(__file__).resolve().parents[2]
+    python = repo_root / "enterprise" / "server" / ".venv" / "bin" / "python"
+    frontend = repo_root / "frontend" / "dist"
+    assert python.is_file(), "enterprise server test environment is missing"
+    assert (frontend / "index.html").is_file(), "frontend/dist is required for Review CLI tests"
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = int(sock.getsockname()[1])
+
+    log = (tmp_path / "server.log").open("w", encoding="utf-8")
+    env = os.environ.copy()
+    root_site = repo_root / ".venv" / "lib" / "python3.13" / "site-packages"
+    env["PYTHONPATH"] = os.pathsep.join(
+        value
+        for value in (
+            str(root_site),
+            str(repo_root / "enterprise" / "server" / "src"),
+            str(repo_root / "server" / "src"),
+            str(repo_root / "src"),
+            env.get("PYTHONPATH", ""),
+        )
+        if value
+    )
+    token_file = tmp_path / "machine-token"
+    process = subprocess.Popen(
+        [
+            str(python),
+            "-m",
+            "lemoncrow_server_core",
+            "up",
+            "--directory",
+            str(tmp_path / "server"),
+            "--port",
+            str(port),
+            "--token-file",
+            str(token_file),
+            "--frontend-dir",
+            str(frontend),
+        ],
+        cwd=repo_root,
+        env=env,
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    url = f"http://127.0.0.1:{port}"
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            log.flush()
+            raise AssertionError(f"Review test server exited early; see {log.name}")
+        try:
+            with urllib.request.urlopen(f"{url}/healthz", timeout=0.2) as response:
+                if response.status == 200:
+                    break
+        except (OSError, urllib.error.URLError):
+            time.sleep(0.03)
+    else:
+        process.terminate()
+        log.flush()
+        raise AssertionError(f"Review test server did not become healthy; see {log.name}")
+
+    monkeypatch.setenv("LEMONCROW_INSTALL_MODE", "local")
+    monkeypatch.setenv("LEMONCROW_URL", url)
+    monkeypatch.delenv("LEMONCROW_TOKEN", raising=False)
+    monkeypatch.setenv("LEMONCROW_TOKEN_FILE", str(token_file))
+    monkeypatch.setenv("LEMONCROW_LOCAL_FS", "1")
+    try:
+        yield
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+        log.close()
+
+
 def _ctx() -> click.Context:
     return click.Context(cli, info_name="lc")
 
@@ -56,7 +152,7 @@ def _commit(repo: Any, message: str, offset: int) -> str:
     return str(repo.create_commit("HEAD", signature, signature, message, tree, parents))
 
 
-def _fixture_repo(tmp_path: Path) -> Path:
+def _fixture_repo(tmp_path: Path, *, identity_marker: str = "") -> Path:
     root = tmp_path / "repo"
     root.mkdir(parents=True, exist_ok=True)
     repo = pygit2.init_repository(str(root), initial_head="main")
@@ -66,6 +162,8 @@ def _fixture_repo(tmp_path: Path) -> Path:
     (root / "src").mkdir()
     (root / "src" / "app.py").write_text("def one():\n    return 1\n", encoding="utf-8")
     (root / "README.md").write_text("# fixture\n", encoding="utf-8")
+    if identity_marker:
+        (root / ".fixture-id").write_text(identity_marker + "\n", encoding="utf-8")
     _commit(repo, "seed", 0)
 
     (root / "src" / "app.py").write_text("def one():\n    return 2\n", encoding="utf-8")
@@ -80,7 +178,17 @@ def _invoke(tmp_path: Path, args: list[str], *, suppress_default_open: bool = Tr
     command_args = list(args)
     if suppress_default_open and "--open" not in command_args and "--no-open" not in command_args:
         command_args.append("--no-open")
-    return runner.invoke(cli, ["--root", str(tmp_path / "store"), "review", *command_args], catch_exceptions=False)
+    # Some A/B tests intentionally create two independent fixture repositories
+    # with byte-identical synthetic root commits. Production correctly treats
+    # identical root history as the same repo when no SCM identity is supplied;
+    # the test needs to state that these sandboxes are distinct repositories.
+    fixture_repo_id = hashlib.sha256(str(tmp_path.resolve()).encode("utf-8")).hexdigest()[:24]
+    return runner.invoke(
+        cli,
+        ["--root", str(tmp_path / "store"), "review", *command_args],
+        catch_exceptions=False,
+        env={"LEMONCROW_SCM_PROVIDER": "fixture", "LEMONCROW_SCM_REPO_ID": fixture_repo_id},
+    )
 
 
 def test_review_registered_and_help_exits_zero() -> None:
@@ -94,14 +202,16 @@ def test_review_registered_and_help_exits_zero() -> None:
     assert "--staged" in result.output
     assert "--all" in result.output
     assert "--no-open" in result.output
-    # The default range and the current browser product are product claims; the
-    # help must not regress to the deleted selected-file/three-pane workspace.
-    assert "UNCOMMITTED working-tree changes" in result.output
-    assert "continuous multi-file diff stream" in result.output
-    assert "overlapping review targets" in result.output
-    assert "raw unit count" in result.output
+    # The first-run help protects the durable developer loop rather than
+    # exposing internal target/reconciliation mechanics.
+    help_text = re.sub(r"\s+", " ", result.output)
+    assert "uncommitted working-tree changes" in help_text.lower()
+    assert "stable Reader URL" in help_text
+    assert "Review ID and URL stay the same" in help_text
+    assert "new immutable revision" in help_text
+    assert "does not start a per-repository server" in help_text
+    assert "raw unit count" not in result.output
     assert "three-pane" not in result.output
-    assert "mark files reviewed" not in result.output
 
 
 def test_review_help_leads_with_the_review_one_liner() -> None:
@@ -119,12 +229,14 @@ def test_review_help_leads_with_the_review_one_liner() -> None:
 
     body = [line.strip() for line in result.output.splitlines() if line.strip()]
     # [0] is the `Usage:` line click always prints first.
-    assert body[1] == "Review what the agent just did: what changed, what it affects, who made it."
+    assert body[1] == "Review the current change."
 
-    # The HTML report is named in the description, not only in the option list:
-    # `--open` is the surface the review workspace grows from.
+    # The description leads with the durable browser loop, while advanced
+    # terminal mechanics stay in option help.
     description = result.output.partition("Options:")[0]
-    assert "`--open`" in description
+    assert "stable Reader URL" in description
+    assert "--no-open" in description
+    assert "Review ID and URL" in description
 
 
 def test_review_short_help_matches_the_root_listing() -> None:
@@ -132,9 +244,36 @@ def test_review_short_help_matches_the_root_listing() -> None:
 
     review = cli.get_command(_ctx(), "review")
     assert review is not None
-    assert review.get_short_help_str(limit=200) == (
-        "Review what the agent just did: what changed, what it affects, who made it."
+    assert review.get_short_help_str(limit=200) == "Review the current change."
+
+
+def test_review_server_error_is_actionable_without_misleading_repairs() -> None:
+    from types import SimpleNamespace
+
+    from lemoncrow_client.errors import ErrorCode
+
+    from lemoncrow.gateway.cli.commands.review import _review_server_click_error
+
+    error = _review_server_click_error(
+        SimpleNamespace(message="internal error (correlation_id=test)", code=ErrorCode.INTERNAL),
+        hosted=False,
     )
+    assert str(error) == "Review server failed: internal error (correlation_id=test)"
+
+    too_large = SimpleNamespace(
+        message="request body exceeds the server limit",
+        details={"limit": 4194304, "declared": 4804037},
+        code=ErrorCode.REQUEST_TOO_LARGE,
+    )
+    assert str(_review_server_click_error(too_large, hosted=False)) == (
+        "Review server failed: request body exceeds the server limit (4,804,037 bytes sent, limit 4,194,304)"
+    )
+
+    offline = SimpleNamespace(message="connection refused", code=ErrorCode.SERVER_UNREACHABLE)
+    local_message = str(_review_server_click_error(offline, hosted=False))
+    assert "local_server.sh restart" in local_message
+    assert "lc update --force" in local_message
+    assert "local_server.sh restart" not in str(_review_server_click_error(offline, hosted=True))
 
 
 def test_review_json_shape(tmp_path: Path) -> None:
@@ -573,7 +712,12 @@ def test_a_target_label_can_be_typed_straight_back(tmp_path: Path) -> None:
     # A second store over the same tree, so the label is the only thing typed.
     for label in labels:
         sandbox = tmp_path / f"typed-{label.replace('/', '_').replace(':', '-').replace('#', '-')}"
-        typed = _invoke(sandbox, [*base, "--mark", label, "--marks", "--json"])
+        typed_root = _fixture_repo(sandbox, identity_marker=label)
+        (typed_root / "src" / "app.py").write_text(_TWO_MORE_SYMBOLS, encoding="utf-8")
+        typed = _invoke(
+            sandbox,
+            ["--repo-root", str(typed_root), "--working-tree", "--mark", label, "--marks", "--json"],
+        )
         assert typed.exit_code == 0, typed.output
         state = json.loads(typed.stderr.strip().splitlines()[-1])
         # One label names one judgment: recorded there, nowhere else, and
@@ -616,7 +760,21 @@ def test_a_repository_file_outranks_a_label_spelled_the_same_way(tmp_path: Path)
     assert row["target"] == "src/app.py::two"
     assert {item["path"] for item in row["shadowed"]} == {"src/app.py"}, row
     # The unit key it names is typeable, which is the point of naming it.
-    keyed = _invoke(tmp_path / "by-key", [*base, "--mark", row["shadowed"][0]["unit_key"], "--marks", "--json"])
+    keyed_sandbox = tmp_path / "by-key"
+    keyed_root = _fixture_repo(keyed_sandbox, identity_marker="shadowed-by-key")
+    (keyed_root / "src" / "app.py").write_text(_TWO_MORE_SYMBOLS, encoding="utf-8")
+    keyed = _invoke(
+        keyed_sandbox,
+        [
+            "--repo-root",
+            str(keyed_root),
+            "--working-tree",
+            "--mark",
+            row["shadowed"][0]["unit_key"],
+            "--marks",
+            "--json",
+        ],
+    )
     assert keyed.exit_code == 0, keyed.output
     assert {mark["path"] for mark in json.loads(keyed.stderr.strip().splitlines()[-1])["marks"]} == {"src/app.py"}
 
@@ -693,7 +851,7 @@ def test_json_tracking_keeps_stdout_parseable(tmp_path: Path) -> None:
     assert payload["schema_version"] == 2
 
     state = json.loads(result.stderr.strip().splitlines()[-1])
-    assert state["review_id"].startswith("rev-")
+    assert state["review_id"].startswith("r/")
     assert state["revision_number"] == 1
     assert state["unit_count"] > 0
 
@@ -948,6 +1106,28 @@ def test_since_my_review_reaches_json_consumers_on_stderr(tmp_path: Path) -> Non
     assert frontier["removed_units"] == []
 
 
+def test_repeated_working_tree_review_reuses_id_and_adds_revision(tmp_path: Path) -> None:
+    """The canonical developer loop keeps one URL while the diff evolves."""
+
+    repo_root = _fixture_repo(tmp_path)
+    (repo_root / "src" / "app.py").write_text("def one():\n    return 3\n", encoding="utf-8")
+    args = ["--repo-root", str(repo_root), "--working-tree", "--track", "--json"]
+
+    first = _invoke(tmp_path, args)
+    assert first.exit_code == 0, first.output
+    first_state = json.loads(first.stderr.strip().splitlines()[-1])
+    assert first_state["revision_number"] == 1
+
+    (repo_root / "src" / "app.py").write_text("def one():\n    return 4\n", encoding="utf-8")
+    second = _invoke(tmp_path, args)
+    assert second.exit_code == 0, second.output
+    second_state = json.loads(second.stderr.strip().splitlines()[-1])
+
+    assert second_state["review_id"] == first_state["review_id"]
+    assert second_state["revision_id"] != first_state["revision_id"]
+    assert second_state["revision_number"] == 2
+
+
 # --------------------------------------------------------------------------- #
 # `--open`: the workspace is the surface, the static report is the fallback
 # --------------------------------------------------------------------------- #
@@ -968,13 +1148,74 @@ def _no_browser(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return opened
 
 
-def test_open_without_a_bundle_falls_back_to_the_static_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A pip install ships no built frontend; `--open` still has to work.
+def test_existing_review_can_be_listed_and_shown_by_id_without_recapturing(tmp_path: Path) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    tracked = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--track", "--json"])
+    assert tracked.exit_code == 0, tracked.output
+    state = json.loads(tracked.stderr.strip().splitlines()[-1])
+    review_id = state["review_id"]
 
-    The fallback is the documented one -- say what is missing, write the static
-    report, and exit zero. Crashing because a bundle was not built would make
-    `--open` unusable everywhere LemonCrow is installed rather than developed.
-    """
+    before = _invoke(tmp_path, ["--show-review", review_id, "--json"])
+    assert before.exit_code == 0, before.output
+    before_detail = json.loads(before.output)
+    revision_count = before_detail["revision_count"]
+
+    listed = _invoke(tmp_path, ["--list-reviews", "--review-status", "all"])
+    assert listed.exit_code == 0, listed.output
+    assert review_id in listed.output
+    assert before_detail["review"]["status"] in listed.output
+
+    shown = _invoke(tmp_path, ["--show-review", review_id])
+    assert shown.exit_code == 0, shown.output
+    assert review_id in shown.output
+    assert f"Revisions   {revision_count}" in shown.output
+    after = _invoke(tmp_path, ["--show-review", review_id, "--json"])
+    assert json.loads(after.output)["revision_count"] == revision_count
+
+
+def test_finished_and_archived_review_ids_remain_discoverable_from_cli(tmp_path: Path) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    base = ["--repo-root", str(repo_root), "--working-tree"]
+    tracked = _invoke(tmp_path, [*base, "--track", "--json"])
+    assert tracked.exit_code == 0, tracked.output
+    review_id = json.loads(tracked.stderr.strip().splitlines()[-1])["review_id"]
+
+    finished_result = _invoke(tmp_path, [*base, "--finish"])
+    assert finished_result.exit_code == 0, finished_result.output
+    finished = _invoke(tmp_path, ["--list-reviews", "--review-status", "finished"])
+    assert finished.exit_code == 0, finished.output
+    assert review_id in finished.output
+
+    discarded_result = _invoke(tmp_path, [*base, "--discard-review"])
+    assert discarded_result.exit_code == 0, discarded_result.output
+    archived = _invoke(tmp_path, ["--list-reviews", "--review-status", "archived"])
+    assert archived.exit_code == 0, archived.output
+    assert review_id in archived.output
+    all_rows = _invoke(tmp_path, ["--list-reviews", "--review-status", "all", "--json"])
+    assert all_rows.exit_code == 0
+    assert review_id in all_rows.output
+
+
+def test_open_review_reuses_the_recorded_repository_and_review_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    tracked = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--track", "--json"])
+    assert tracked.exit_code == 0, tracked.output
+    review_id = json.loads(tracked.stderr.strip().splitlines()[-1])["review_id"]
+    opened = _no_browser(monkeypatch)
+
+    result = _invoke(tmp_path, ["--open-review", review_id])
+    assert result.exit_code == 0, result.output
+    payload = review_id.removeprefix("r/")
+    canonical = f"{os.environ['LEMONCROW_URL']}/r/{payload}"
+    assert result.output.count(canonical) == 1
+    expected = canonical
+    assert opened == [expected]
+
+
+def test_open_ignores_the_retired_workspace_bundle_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The configured server owns the Reader even if legacy workspace code sees no bundle."""
 
     from lemoncrow.pro.capabilities.review import workspace as workspace_mod
 
@@ -985,66 +1226,78 @@ def test_open_without_a_bundle_falls_back_to_the_static_report(tmp_path: Path, m
     result = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--open"])
 
     assert result.exit_code == 0, result.output
-    assert "no built frontend bundle found" in result.stderr
+    assert "no built frontend bundle found" not in result.stderr
     assert "Review workspace:" not in result.stderr
-    reports = list((tmp_path / "store" / "review").glob("*.html"))
-    assert reports, "the fallback has to leave a report behind, not just a message"
-    assert opened == [reports[0].resolve().as_uri()]
+    assert not list((tmp_path / "store" / "review").glob("*.html"))
+    assert opened and opened[0].startswith(f"{os.environ['LEMONCROW_URL']}/r/")
 
 
-def test_open_with_a_bundle_opens_the_workspace_and_writes_no_second_copy(
+def test_open_reports_meaningful_preparation_progress(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    opened = _no_browser(monkeypatch)
+    repo_root = _fixture_repo(tmp_path)
+    (repo_root / "src" / "app.py").write_text("def one():\n    return 3\n", encoding="utf-8")
+
+    result = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--open"])
+
+    assert result.exit_code == 0, result.output
+    assert "Preparing review…" in result.stderr
+    assert "Reading changed files and diff" in result.stderr
+    assert "Loading exact old/new source snapshots" in result.stderr
+    assert "Analyzing symbols, callers, and change impact" in result.stderr
+    assert "Correlating the authoring agent session" in result.stderr
+    assert "Ranking the human review order" in result.stderr
+    assert "Change packet ready" in result.stderr
+    assert "Connecting to Review server" in result.stderr
+    assert "Synchronizing current source" in result.stderr
+    assert "Publishing reviewable source revision" in result.stderr
+    assert "Pairing and opening Review Reader" in result.stderr
+    assert "Freezing current snapshot" not in result.stderr
+    assert "Freezing base snapshot in background" in result.stderr
+    assert "Base snapshot attached" in result.stderr
+    assert "Loading durable review state" in result.stderr
+    assert "Review Reader opened" in result.stderr
+    assert result.stderr.index("Pairing and opening Review Reader") < result.stderr.index("Base snapshot attached")
+    assert opened
+
+
+def test_open_uses_the_configured_server_and_writes_no_second_copy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`--open` no longer implies `--html`.
+    """`--open` is the canonical server Reader and does not also freeze HTML."""
 
-    Two surfaces built from the same packet disagree the moment a mark lands,
-    so the workspace path must not also freeze a copy to disk.
-    """
+    opened = _no_browser(monkeypatch)
+    repo_root = _fixture_repo(tmp_path)
+    result = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--open"])
+
+    assert result.exit_code == 0, result.output
+    assert f"{os.environ['LEMONCROW_URL']}/r/" in result.output
+    assert f"{os.environ['LEMONCROW_URL']}/r/" not in result.stderr
+    machine_token = Path(os.environ["LEMONCROW_TOKEN_FILE"]).read_text(encoding="utf-8").strip()
+    assert machine_token not in result.output
+    assert machine_token not in result.stderr
+    assert "#t=" not in result.output
+    assert "#t=" not in result.stderr
+    assert opened and opened[0].startswith(f"{os.environ['LEMONCROW_URL']}/r/")
+    assert not list((tmp_path / "store" / "review").glob("*.html"))
+
+
+def test_retired_workspace_launcher_cannot_affect_review_open(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Normal Review must never consult or start the retired per-repository launcher."""
 
     from lemoncrow.pro.capabilities.review import workspace as workspace_mod
 
-    handle = workspace_mod.WorkspaceHandle(
-        pid=4242,
-        url="http://127.0.0.1:54321",
-        token="s3cret-token",
-        started_at=0.0,
-        repo_root=str(tmp_path / "repo"),
-    )
-    monkeypatch.setattr(workspace_mod, "bundle_dir", lambda: tmp_path / "bundle")
-    monkeypatch.setattr(workspace_mod, "ensure_workspace", lambda *a, **k: handle)
+    def _boom(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("retired workspace launcher was called")
+
+    monkeypatch.setattr(workspace_mod, "ensure_workspace", _boom)
     opened = _no_browser(monkeypatch)
 
     repo_root = _fixture_repo(tmp_path)
     result = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--open"])
 
     assert result.exit_code == 0, result.output
-    assert "http://127.0.0.1:54321/review#t=<token>&r=rev-" in result.stderr
-    # The token reaches the browser, never the terminal.
-    assert "s3cret-token" not in result.output
-    assert "s3cret-token" not in result.stderr
-    assert opened and opened[0].startswith("http://127.0.0.1:54321/review#t=s3cret-token&r=rev-")
-    assert not list((tmp_path / "store" / "review").glob("*.html"))
-
-
-def test_a_workspace_that_will_not_start_still_reviews(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A refused bind or a dead child is a notice, not an exit code."""
-
-    from lemoncrow.pro.capabilities.review import workspace as workspace_mod
-
-    def _boom(*args: Any, **kwargs: Any) -> Any:
-        raise RuntimeError("refused to bind to 0.0.0.0")
-
-    monkeypatch.setattr(workspace_mod, "bundle_dir", lambda: tmp_path / "bundle")
-    monkeypatch.setattr(workspace_mod, "ensure_workspace", _boom)
-    _no_browser(monkeypatch)
-
-    repo_root = _fixture_repo(tmp_path)
-    result = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--open"])
-
-    assert result.exit_code == 0, result.output
-    assert "could not start the review workspace" in result.stderr
-    assert "refused to bind to 0.0.0.0" in result.stderr
-    assert "no built frontend bundle found" in result.stderr
+    assert "could not start the review workspace" not in result.stderr
+    assert opened and opened[0].startswith(f"{os.environ['LEMONCROW_URL']}/r/")
 
 
 def test_html_still_writes_a_report_on_its_own(tmp_path: Path) -> None:
@@ -1059,21 +1312,33 @@ def test_html_still_writes_a_report_on_its_own(tmp_path: Path) -> None:
     assert f"HTML report: {out}" in result.output
 
 
-def test_review_opens_workspace_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from lemoncrow.pro.capabilities.review import workspace as workspace_mod
-
-    handle = workspace_mod.WorkspaceHandle(
-        pid=4242,
-        url="http://127.0.0.1:54321",
-        token="default-open-token",
-        started_at=0.0,
-        repo_root=str(tmp_path / "repo"),
-    )
-    monkeypatch.setattr(workspace_mod, "bundle_dir", lambda: tmp_path / "bundle")
-    monkeypatch.setattr(workspace_mod, "ensure_workspace", lambda *a, **k: handle)
-    opened = _no_browser(monkeypatch)
+@pytest.mark.parametrize(
+    ("mode", "url", "hosted"),
+    [
+        ("local", "http://127.0.0.1:7420", False),
+        ("hosted", "https://lemoncrow.example", True),
+    ],
+)
+def test_review_uses_configured_server_in_both_modes_without_workspace_start(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    url: str,
+    hosted: bool,
+) -> None:
+    from lemoncrow.gateway.cli.commands import review as review_mod
 
     repo_root = _fixture_repo(tmp_path)
+    monkeypatch.setenv("LEMONCROW_INSTALL_MODE", mode)
+    monkeypatch.setenv("LEMONCROW_URL", url)
+    monkeypatch.setenv("LEMONCROW_TOKEN", "review-test-token-0123456789")
+    called: list[tuple[str, bool, str]] = []
+
+    def _server(config: Any, root: Path, *args: Any, **kwargs: Any) -> None:
+        called.append((str(root), bool(config.hosted), str(config.url)))
+
+    monkeypatch.setattr(review_mod, "_review_server_capture", _server)
+
     result = _invoke(
         tmp_path,
         ["--repo-root", str(repo_root), "--working-tree"],
@@ -1081,8 +1346,84 @@ def test_review_opens_workspace_by_default(tmp_path: Path, monkeypatch: pytest.M
     )
 
     assert result.exit_code == 0, result.output
-    assert "Review workspace:" in result.stderr
-    assert opened and opened[0].startswith("http://127.0.0.1:54321/review#t=default-open-token&r=rev-")
+    assert called == [(str(repo_root.resolve()), hosted, url)]
+
+
+@pytest.mark.parametrize("mode", ["local", "hosted"])
+def test_both_modes_refuse_the_retired_workspace_server_entrypoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
+) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    monkeypatch.setenv("LEMONCROW_INSTALL_MODE", mode)
+    monkeypatch.setenv(
+        "LEMONCROW_URL",
+        "http://127.0.0.1:7420" if mode == "local" else "https://lemoncrow.example",
+    )
+    monkeypatch.setenv("LEMONCROW_TOKEN", "review-test-token-0123456789")
+
+    result = _invoke(tmp_path, ["--repo-root", str(repo_root), "--serve-workspace"])
+
+    assert result.exit_code != 0
+    assert "per-repository Review workspace server is retired" in result.output
+
+
+def test_local_server_review_url_is_credential_free(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from lemoncrow.gateway.cli.commands.review import _open_server_review
+    from lemoncrow.pro.capabilities.review import hosted as review_server
+
+    paired: list[str] = []
+    monkeypatch.setattr(
+        review_server,
+        "pair_local_review_browser",
+        lambda _config, path: paired.append(path) or {"state": "armed"},
+    )
+    opened = _no_browser(monkeypatch)
+    config = SimpleNamespace(hosted=False, token="legacy-token-that-must-not-leak")
+    _open_server_review(
+        "http://127.0.0.1:7420/reviews/rev-one",
+        config=config,
+        review_id="rev-one",
+        open_browser=True,
+    )
+    assert paired == ["/reviews/rev-one"]
+    assert opened == ["http://127.0.0.1:7420/reviews/rev-one"]
+    assert config.token not in opened[0]
+
+
+def test_hosted_server_review_url_never_embeds_cli_bearer(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    from lemoncrow.gateway.cli.commands.review import _open_server_review
+
+    opened = _no_browser(monkeypatch)
+    config = SimpleNamespace(hosted=True, token="hosted-secret-token")
+    _open_server_review(
+        "https://lemoncrow.example/reviews/rev-one",
+        config=config,
+        review_id="rev-one",
+        open_browser=True,
+    )
+    assert opened == ["https://lemoncrow.example/reviews/rev-one"]
+
+
+def test_default_open_announces_the_canonical_review_url_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    opened = _no_browser(monkeypatch)
+    repo_root = _fixture_repo(tmp_path)
+
+    result = _invoke(
+        tmp_path,
+        ["--repo-root", str(repo_root), "--working-tree"],
+        suppress_default_open=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    urls = re.findall(r"Review  (https?://\S+/r/[0-9a-f]+)", result.output)
+    assert len(urls) == 1
+    assert opened and opened[0].split("#", 1)[0] == urls[0]
 
 
 def test_no_open_keeps_terminal_review_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1097,9 +1438,27 @@ def test_no_open_keeps_terminal_review_only(tmp_path: Path, monkeypatch: pytest.
 
     assert result.exit_code == 0, result.output
     assert opened == []
+    assert "Preparing review…" not in result.stderr
     assert "Review workspace:" not in result.output
     assert "HTML report:" not in result.output
     assert not list((tmp_path / "store" / "review").glob("*.html"))
+
+
+def test_json_open_keeps_progress_on_stderr_and_json_on_stdout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    opened = _no_browser(monkeypatch)
+    repo_root = _fixture_repo(tmp_path)
+
+    result = _invoke(
+        tmp_path,
+        ["--repo-root", str(repo_root), "--working-tree", "--json", "--open"],
+        suppress_default_open=False,
+    )
+
+    assert result.exit_code == 0, result.output
+    json.loads(result.stdout)
+    assert "Preparing review…" in result.stderr
+    assert "Pairing and opening Review Reader" in result.stderr
+    assert opened
 
 
 def test_json_does_not_open_unless_explicitly_requested(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1505,16 +1864,19 @@ def _reviewed_then_rewritten(tmp_path: Path, name: str) -> tuple[Path, Path]:
     repo_root = _fixture_repo(sandbox)
     (repo_root / "src" / "app.py").write_text(_ALPHA_BEFORE, encoding="utf-8")
     base = ["--repo-root", str(repo_root), "--working-tree"]
-    _invoke(sandbox, [*base, "--comment", "why times two?", "--on", "src/app.py:L3"])
-    _invoke(sandbox, [*base, "--mark", _symbol_unit_key(sandbox, repo_root, "src/app.py#0")])
+    commented = _invoke(sandbox, [*base, "--comment", "why times two?", "--on", "src/app.py:L3"])
+    assert commented.exit_code == 0, commented.output
+    marked = _invoke(sandbox, [*base, "--mark", _symbol_unit_key(sandbox, repo_root, "src/app.py#0")])
+    assert marked.exit_code == 0, marked.output
     (repo_root / "src" / "app.py").write_text(_ALPHA_AFTER, encoding="utf-8")
     return sandbox, repo_root
 
 
 def _without_session_id(output: str) -> str:
-    """Blank the one token that is legitimately per-sandbox."""
+    """Blank durable object ids that are legitimately unique per sandbox."""
 
-    return re.sub(r"rev-[0-9a-f-]{36}", "<session>", output)
+    normalized = re.sub(r"r/[0-9a-f]{32}", "r/<session>", output)
+    return re.sub(r"(?m)^(  checkpoint )\S+$", r"\1<revision>", normalized)
 
 
 def test_looking_at_the_comments_first_does_not_freeze_the_review_in_the_past(tmp_path: Path) -> None:
@@ -1606,7 +1968,9 @@ def test_looking_twice_records_nothing_the_first_look_did_not(tmp_path: Path) ->
     for args in (["--comments"], ["--since-my-review"], ["--units"], ["--comments"]):
         assert _invoke(sandbox, [*base, *args]).exit_code == 0
 
-    store = ReviewStore(sandbox / "store")
+    databases = list((tmp_path / "server" / "reviews").glob("*/lemoncrow_reviews.db"))
+    assert len(databases) == 1
+    store = ReviewStore(databases[0].parent)
     (session,) = store.list_sessions()
     revisions = store.list_revisions(session.id)
     assert [revision.revision_number for revision in revisions] == [1, 2]
@@ -1614,7 +1978,7 @@ def test_looking_twice_records_nothing_the_first_look_did_not(tmp_path: Path) ->
     (annotation,) = store.list_annotations(session.id)
     events = [move for move in store.anchor_moves_on(revisions[1].id) if move.annotation_id == annotation.id]
     assert len(events) == 1
-    assert len(store.list_marks(session.id)) == 1
+    assert len(store.list_marks(session.id, reviewer_id=session.reviewer_id)) == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -1853,66 +2217,52 @@ def test_the_frontier_survives_the_verdict_that_reconciliation_deletes(tmp_path:
         assert "not yet reviewed         4" in output
 
 
-def test_a_discarded_verdict_is_reported_on_every_command_and_every_run(tmp_path: Path) -> None:
-    """A destroyed verdict belongs to the revision, not to whoever reconciled it.
-
-    The ship blocker this replaces: the block was rendered off the *invocation's*
-    ``RefreshResult.discarded``, and reconciliation runs once per revision. So
-    the one event on this screen that looking again cannot recover was shown to
-    whichever command happened to reconcile first, once, and to nobody
-    afterwards -- type ``--marks`` or ``--comments`` before
-    ``--since-my-review`` and a human's approval was deleted with the banner
-    printed on no run at all, while the row proving the loss sat in
-    ``review_discarded_marks`` carrying the exact words that belonged on screen.
-
-    Four first-commands x three consecutive runs. Every cell says the same
-    thing, because a reviewer's typing order is not a fact about their review.
-    """
-
-    # A bare `lc review` is deliberately not in the matrix: it tracks nothing,
-    # so it opens no session and destroys nothing. Every command that *does*
-    # track is here.
-    firsts = (
+@pytest.mark.parametrize(
+    ("name", "first"),
+    [
         ("marks", ["--marks"]),
         ("comments", ["--comments"]),
         ("frontier", ["--since-my-review"]),
         ("track", ["--track"]),
-    )
-    for name, first in firsts:
-        sandbox, repo_root = _symbol_reviewed_then_renamed(tmp_path, f"discard_{name}_first")
-        base = ["--repo-root", str(repo_root), "--working-tree"]
+    ],
+)
+def test_a_discarded_verdict_is_reported_on_every_command_and_every_run(
+    tmp_path: Path, name: str, first: list[str]
+) -> None:
+    """A destroyed verdict belongs to the revision, not to whoever reconciled it.
 
-        blocks: list[str] = []
-        for run in range(3):
-            # Run 1 types *first*; runs 2 and 3 ask a different question, which
-            # is what a reviewer actually does and what used to lose the banner.
-            result = _invoke(sandbox, [*base, *(first if run == 0 else ["--since-my-review"])])
-            assert result.exit_code == 0, result.output
-            assert "VERDICTS DISCARDED  (1)" in result.output, (name, run, result.output)
-            assert "src/app.py::alpha_1" in result.output
-            assert "the unit it attested to is not in this revision" in result.output
-            tail = result.output.partition("VERDICTS DISCARDED")[2].splitlines()
-            body: list[str] = []
-            for line in tail:
-                if not line.strip():
-                    break
-                body.append(line)
-            blocks.append("\n".join(body))
+    Each first-command gets an independent server/quota bucket, while the three
+    consecutive runs inside the scenario still prove that the loss belongs to
+    the revision rather than whichever command happened to reconcile first.
+    """
 
-        # Idempotent in text, not merely present: a second row for the same loss
-        # would read as a second loss.
-        assert blocks[0] == blocks[1] == blocks[2], (name, blocks)
+    sandbox, repo_root = _symbol_reviewed_then_renamed(tmp_path, f"discard_{name}_first")
+    base = ["--repo-root", str(repo_root), "--working-tree"]
 
-        # The JSON says it too, on a run that is not the one that reconciled.
-        as_json = _invoke(sandbox, [*base, "--since-my-review", "--json"])
-        assert as_json.exit_code == 0, as_json.output
-        state = json.loads(as_json.stderr.strip().splitlines()[-1])
-        (discarded,) = state["discarded_verdicts"]
-        assert discarded["state"] == "reviewed"
-        assert discarded["label"] == "src/app.py::alpha_1"
-        # And inside the frontier document, so a consumer reading only
-        # `--since-my-review` is not the one consumer left in the dark.
-        assert state["frontier"]["discarded_verdicts"] == state["discarded_verdicts"]
+    blocks: list[str] = []
+    for run in range(3):
+        result = _invoke(sandbox, [*base, *(first if run == 0 else ["--since-my-review"])])
+        assert result.exit_code == 0, result.output
+        assert "VERDICTS DISCARDED  (1)" in result.output, (name, run, result.output)
+        assert "src/app.py::alpha_1" in result.output
+        assert "the unit it attested to is not in this revision" in result.output
+        tail = result.output.partition("VERDICTS DISCARDED")[2].splitlines()
+        body: list[str] = []
+        for line in tail:
+            if not line.strip():
+                break
+            body.append(line)
+        blocks.append("\n".join(body))
+
+    assert blocks[0] == blocks[1] == blocks[2], (name, blocks)
+
+    as_json = _invoke(sandbox, [*base, "--since-my-review", "--json"])
+    assert as_json.exit_code == 0, as_json.output
+    state = json.loads(as_json.stderr.strip().splitlines()[-1])
+    (discarded,) = state["discarded_verdicts"]
+    assert discarded["state"] == "reviewed"
+    assert discarded["label"] == "src/app.py::alpha_1"
+    assert state["frontier"]["discarded_verdicts"] == state["discarded_verdicts"]
 
 
 def test_a_discarded_verdict_outlives_the_revision_that_discarded_it(tmp_path: Path) -> None:
@@ -2141,7 +2491,9 @@ def test_three_looks_at_an_unchanged_tree_are_one_answer_three_times(tmp_path: P
     _invoke(sandbox, [*base, "--mark", _symbol_unit_key(sandbox, repo_root, "src/app.py::beta_1")])
 
     def snapshot() -> tuple[Any, ...]:
-        store = ReviewStore(sandbox / "store")
+        databases = list((tmp_path / "server" / "reviews").glob("*/lemoncrow_reviews.db"))
+        assert len(databases) == 1
+        store = ReviewStore(databases[0].parent)
         (session,) = store.list_sessions()
         with store._transaction() as conn:
             events = conn.execute(
@@ -2150,8 +2502,11 @@ def test_three_looks_at_an_unchanged_tree_are_one_answer_three_times(tmp_path: P
             ).fetchall()
         return (
             tuple(revision.tree_fingerprint for revision in store.list_revisions(session.id)),
-            tuple((mark.unit_key, mark.state, mark.reviewed_revision_id) for mark in store.list_marks(session.id)),
-            store.frontier_revision(session.id),
+            tuple(
+                (mark.unit_key, mark.state, mark.reviewed_revision_id)
+                for mark in store.list_marks(session.id, reviewer_id=session.reviewer_id)
+            ),
+            store.frontier_revision(session.id, session.reviewer_id),
             tuple(tuple(row) for row in events),
             tuple(
                 (item.state, item.anchor.start_line, item.anchor_method) for item in store.list_annotations(session.id)
@@ -2438,7 +2793,9 @@ def test_discard_review_is_read_only_until_explicit_restore(tmp_path: Path) -> N
 
     from lemoncrow.pro.capabilities.review.store import ReviewStore
 
-    store = ReviewStore(tmp_path / "store")
+    databases = list((tmp_path / "server" / "reviews").glob("*/lemoncrow_reviews.db"))
+    assert len(databases) == 1
+    store = ReviewStore(databases[0].parent)
     open_sessions = [session for session in store.list_sessions(status="open")]
     assert len(open_sessions) == 1
     assert store.prune(older_than_days=0) == 0
@@ -2452,9 +2809,43 @@ def test_finish_survives_into_the_stored_session(tmp_path: Path) -> None:
     state = json.loads(result.stderr.strip().splitlines()[-1])
     assert state["closure"]["status"] == "finished"
 
-    from lemoncrow.pro.capabilities.review.store import ReviewStore
+    stored = _invoke(tmp_path, ["--show-review", state["review_id"], "--json"])
+    assert stored.exit_code == 0, stored.output
+    detail = json.loads(stored.output)
+    assert detail["review"]["ref"] == state["review_id"]
+    assert detail["review"]["id"] == state["review_id"].removeprefix("r/")
+    assert detail["review"]["status"] == "finished"
 
-    store = ReviewStore(tmp_path / "store")
-    session = store.get_session(state["review_id"])
-    assert session is not None
-    assert session.status == "finished"
+
+def test_review_setup_reports_detected_surfaces_without_opening_review(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    frontend = root / "frontend"
+    frontend.mkdir()
+    (frontend / "package.json").write_text(json.dumps({"dependencies": {"vite": "8", "react": "19"}}))
+
+    result = _invoke(tmp_path, ["--repo-root", str(root), "--setup", "--json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    web = [item for item in payload["detected"] if item["provider"] == "web"]
+    assert len(web) == 1
+    assert web[0]["root"] == "frontend"
+    assert web[0]["framework"] == "vite"
+    assert not (root / ".lemoncrow" / "review.yaml").exists()
+
+
+def test_review_setup_can_write_high_confidence_config(tmp_path: Path) -> None:
+    root = _fixture_repo(tmp_path)
+    (root / "package.json").write_text(json.dumps({"dependencies": {"astro": "5"}}))
+
+    result = _invoke(
+        tmp_path,
+        ["--repo-root", str(root), "--setup", "--write-review-config"],
+    )
+
+    assert result.exit_code == 0, result.output
+    config = root / ".lemoncrow" / "review.yaml"
+    assert config.is_file()
+    text = config.read_text(encoding="utf-8")
+    assert "provider: web" in text
+    assert "framework: astro" in text

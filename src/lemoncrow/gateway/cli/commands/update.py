@@ -29,6 +29,7 @@ from pathlib import Path
 import click
 
 from lemoncrow import __version__ as current_version
+from lemoncrow.core.foundation.update_notice import clear as clear_update_notice
 from lemoncrow.core.foundation.update_state import write_update_state
 
 # Single source of truth for the distribution channel. Keep these in lockstep
@@ -373,6 +374,7 @@ def update_cmd(ctx: click.Context, check_only: bool, force_update: bool, as_json
         )
         if method == "git" and project_root:
             _reconcile_companions(project_root)
+        clear_update_notice(root)
         click.echo(f"\n  ◆ Updated from {previous} → {remote_version}")
         click.echo("  ◆ Restart the MCP server or hooks to pick up changes.")
     else:

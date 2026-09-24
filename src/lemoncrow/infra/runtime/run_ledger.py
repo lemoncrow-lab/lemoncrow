@@ -14,6 +14,7 @@ from lemoncrow.core.foundation.models import (
     LedgerEvent,
     to_jsonable,
 )
+from lemoncrow.core.foundation.runtime_decisions import RuntimeDecisionEvent
 from lemoncrow.infra.runtime.cost_tracker import CostTracker
 
 
@@ -576,6 +577,22 @@ class RunLedger:
         return self.record("note", f"workflow_step:{step_id}:{event}", normalized)
 
     # ----- recording ------------------------------------------------------ #
+
+    def record_runtime_decision(self, event: RuntimeDecisionEvent) -> LedgerEvent:
+        """Persist a shared runtime decision inside the existing run ledger.
+
+        The ledger already carries the raw session identifier at the run level,
+        so omit the nested copy. All mapping fields were bounded/redacted by
+        RuntimeDecisionEvent before they reach this sink.
+        """
+
+        payload = event.to_payload()
+        payload.pop("session_id", None)
+        return self.record(
+            "note",
+            f"runtime_decision:{event.kind}",
+            {"runtime_decision": payload},
+        )
 
     def record(
         self,

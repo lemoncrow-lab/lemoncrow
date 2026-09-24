@@ -25,7 +25,7 @@ export function Alert({
   className,
 }: AlertProps) {
   return (
-    <div className={cn("border p-4 text-sm", ALERT_STYLES[tone], className)}>
+    <div className={cn("rounded-lg border p-4 text-sm", ALERT_STYLES[tone], className)}>
       {title && <div className="font-semibold">{title}</div>}
       {description && (
         <div className={cn(Boolean(title) && "mt-1", "leading-relaxed")}>

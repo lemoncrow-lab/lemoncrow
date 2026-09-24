@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from lemoncrow.core.foundation.runtime_decisions import RuntimeDecisionEvent, RuntimeDecisionSink
 from lemoncrow.infra.runtime.run_ledger import RunLedger
 
 
@@ -107,3 +108,27 @@ def test_ledger_persists_structured_workflow_progress(tmp_path: Path) -> None:
         "completed_tasks": 1,
         "remaining_tasks": 2,
     }
+
+
+def test_ledger_is_runtime_decision_sink_without_duplicating_session_id(tmp_path: Path) -> None:
+    led = RunLedger(session_id="session-1", agent="codex", root=tmp_path)
+    event = RuntimeDecisionEvent(
+        kind="retrieval.stop",
+        phase="retrieve",
+        policy="evidence-state",
+        mode="observe",
+        session_id="session-1",
+        reason_codes=("decisive",),
+        proposed={"action": "STOP", "prompt": "must not persist"},
+        actual={"action": "STOP"},
+    )
+
+    assert isinstance(led, RuntimeDecisionSink)
+    recorded = led.record_runtime_decision(event)
+
+    assert recorded.kind == "note"
+    assert recorded.summary == "runtime_decision:retrieval.stop"
+    payload = recorded.payload["runtime_decision"]
+    assert "session_id" not in payload
+    assert payload["proposed"]["prompt"] != "must not persist"
+    assert "redacted_sha256" in payload["proposed"]["prompt"]

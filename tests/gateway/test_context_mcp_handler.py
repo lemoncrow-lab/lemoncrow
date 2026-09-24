@@ -476,8 +476,13 @@ def test_all_known_job_types_defined(ctx_root: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_run_worker_tick_safe_suppresses_exceptions(tmp_path: Path) -> None:
+def test_run_worker_tick_safe_suppresses_exceptions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from lemoncrow.gateway.adapters.mcp_server import _run_worker_tick_safe
+
+    # Not testing the maintenance duties here -- just that a broken store
+    # can't make this raise -- so keep it from spawning real `lc import`/
+    # `session recall index`/`code prune` subprocesses against bad_root.
+    monkeypatch.setattr("lemoncrow.core.service.maintenance_tick.run_maintenance_tick", lambda *a, **k: {"ran": False})
 
     # Pass a non-existent root to trigger failure in create_store/store.init
     bad_root = tmp_path / "nonexistent_subdir" / "another"

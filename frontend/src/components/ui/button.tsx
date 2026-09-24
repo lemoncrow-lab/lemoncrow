@@ -21,7 +21,7 @@ const VARIANT_STYLES: Record<ButtonVariant, string> = {
   ghost:
     "border-transparent text-neutral-400 hover:border-neutral-700 hover:bg-neutral-900/40 hover:text-neutral-200",
   accent:
-    "border-brand-500/60 text-brand-300 hover:bg-brand-500/10 hover:text-brand-200",
+    "border-neutral-200 bg-neutral-100 text-neutral-950 hover:border-neutral-200 hover:bg-neutral-200 hover:text-neutral-950",
   amber:
     "border-amber-500/60 text-amber-200 hover:bg-amber-500/10 hover:text-amber-100",
   emerald:
@@ -31,9 +31,9 @@ const VARIANT_STYLES: Record<ButtonVariant, string> = {
 };
 
 const SIZE_STYLES: Record<ButtonSize, string> = {
-  xs: "px-2.5 py-1 text-[10px] tracking-widest",
-  sm: "px-3 py-2 text-xs tracking-widest",
-  icon: "h-5 w-5 px-0 py-0 text-xs",
+  xs: "h-7 px-2 text-[10px]",
+  sm: "h-8 px-3 text-[11px]",
+  icon: "h-7 w-7 px-0 py-0 text-xs",
 };
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -61,7 +61,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       ref={ref}
       type={type}
       className={cn(
-        "inline-flex items-center justify-center gap-2 border bg-transparent font-mono uppercase transition disabled:cursor-not-allowed disabled:opacity-40",
+        "inline-flex items-center justify-center gap-2 rounded-md border bg-transparent font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
         SIZE_STYLES[size],
         VARIANT_STYLES[variant],
         active && variant === "outline" && "border-neutral-500 bg-neutral-800 text-neutral-100",

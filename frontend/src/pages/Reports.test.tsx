@@ -25,42 +25,49 @@ describe("Reports page", () => {
   it("shows loading state initially", () => {
     vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise(() => {}));
     renderReports();
-    expect(screen.getByText(/Loading reports/i)).toBeInTheDocument();
+    expect(screen.getByText(/Loading benchmark reports/i)).toBeInTheDocument();
   });
 
   it("shows empty state when no reports", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse([]));
     renderReports();
-    expect(await screen.findByText(/No reports published yet/i)).toBeInTheDocument();
+    expect(await screen.findByText(/No benchmark reports yet/i)).toBeInTheDocument();
   });
 
   it("renders report list and content", async () => {
     const reportList = [
       {
-        week: "2026-W20",
-        week_start: "2026-05-11",
-        generated_at: "2026-05-17T12:00:00Z",
-        routing_sessions: 5,
-        total_routing_savings_usd: 1.23,
-        routing_quality_score: 0.85,
-        compact_retention_score: 0.9,
+        id: "proj_test:codebench:20260920T203438Z",
+        project_id: "proj_test",
+        project_root: "/workspace/lemoncrow",
+        project_label: "lemoncrow",
+        suite: "codebench",
+        run_id: "20260920T203438Z",
+        generated_at: "2026-09-20T20:34:38Z",
+        has_report: true,
+        files: ["report.txt", "summary.csv"],
       },
     ];
     const reportContent = {
-      week: "2026-W20",
-      markdown: "# Week 20\n\nSome **content** here.",
-      json: {},
+      ...reportList[0],
+      markdown: "# CodeBench\n\nSome **content** here.",
     };
 
     vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
       const url = String(input);
-      if (url.includes("/v1/reports/2026-W20")) {
+      if (
+        url.includes(
+          "/v1/reports/proj_test/codebench/20260920T203438Z"
+        )
+      ) {
         return Promise.resolve(jsonResponse(reportContent));
       }
       return Promise.resolve(jsonResponse(reportList));
     });
 
     renderReports();
-    expect(await screen.findByText("2026-W20")).toBeInTheDocument();
+    expect(await screen.findByText("codebench")).toBeInTheDocument();
+    expect(screen.getByText("20260920T203438Z")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "CodeBench" })).toBeInTheDocument();
   });
 });

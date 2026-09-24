@@ -1,0 +1,186 @@
+.lc-markdown-review {
+  width: 100%;
+  border-top: 1px solid rgb(38 38 38);
+}
+
+.lc-markdown-review.lc-md-theme-light {
+  color-scheme: light;
+  background: #ffffff;
+}
+
+.lc-markdown-review.lc-md-theme-dark {
+  color-scheme: dark;
+  background: #0d1117;
+}
+
+.lc-markdown-preview {
+  padding: 24px;
+}
+
+.lc-md-theme-light.lc-markdown-preview {
+  background: #f6f8fa;
+}
+
+.lc-md-theme-dark.lc-markdown-preview {
+  background: #010409;
+}
+
+.lc-markdown-preview-canvas {
+  margin: 0 auto;
+  max-width: 1012px;
+  min-width: 0;
+  padding: 40px 48px 56px;
+  border: 1px solid;
+  border-radius: 6px;
+}
+
+.lc-md-theme-light .lc-markdown-preview-canvas {
+  background: #ffffff;
+  border-color: #d1d9e0;
+  box-shadow: 0 1px 2px rgba(31, 35, 40, 0.04);
+}
+
+.lc-md-theme-dark .lc-markdown-preview-canvas {
+  background: #0d1117;
+  border-color: #3d444d;
+  box-shadow: 0 1px 2px rgba(1, 4, 9, 0.35);
+}
+
+.lc-markdown-help,
+.lc-markdown-side-label {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.lc-markdown-help {
+  padding: 8px 14px;
+  border-bottom: 1px solid;
+}
+
+.lc-markdown-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.lc-markdown-columns.lc-markdown-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.lc-markdown-pane + .lc-markdown-pane {
+  border-left: 1px solid;
+}
+
+.lc-markdown-side-label {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 7px 14px;
+  border-bottom: 1px solid;
+  text-transform: uppercase;
+}
+
+.lc-md-theme-light .lc-markdown-help,
+.lc-md-theme-light .lc-markdown-side-label {
+  color: #59636e;
+  background: #f6f8fa;
+  border-color: #d1d9e0;
+}
+
+.lc-md-theme-dark .lc-markdown-help,
+.lc-md-theme-dark .lc-markdown-side-label {
+  color: #9198a1;
+  background: #0d1117;
+  border-color: #3d444d;
+}
+
+.lc-md-theme-light .lc-markdown-pane + .lc-markdown-pane {
+  border-color: #d1d9e0;
+}
+
+.lc-md-theme-dark .lc-markdown-pane + .lc-markdown-pane {
+  border-color: #3d444d;
+}
+
+.lc-markdown-pane .markdown-body {
+  max-width: none;
+  min-width: 0;
+  padding: 24px 28px 42px;
+}
+
+.lc-markdown-document .markdown-body {
+  padding: 0;
+}
+
+/* Keep inline/backtick code tied to the preview theme even when application
+ * globals or Reader chrome styles also target `code`. Fenced blocks retain
+ * github-markdown-css's dedicated `pre` treatment below. */
+.lc-md-theme-light .markdown-body code,
+.lc-md-theme-light .markdown-body tt {
+  color: #1f2328;
+  background-color: #818b981f !important;
+  border: 0;
+}
+
+.lc-md-theme-dark .markdown-body code,
+.lc-md-theme-dark .markdown-body tt {
+  color: #f0f6fc;
+  background-color: #656c7633 !important;
+  border: 0;
+}
+
+.lc-markdown-review .markdown-body pre {
+  border: 0;
+}
+
+.lc-md-theme-light .markdown-body pre code,
+.lc-md-theme-light .markdown-body pre tt,
+.lc-md-theme-dark .markdown-body pre code,
+.lc-md-theme-dark .markdown-body pre tt {
+  color: inherit;
+  background-color: transparent !important;
+}
+.lc-md-review-block {
+  border-radius: 3px;
+  cursor: default;
+  transition: background-color 100ms ease, box-shadow 100ms ease;
+}
+
+.lc-md-review-block:hover {
+  box-shadow: inset 2px 0 rgb(82 82 82);
+}
+
+.lc-md-changed-add {
+  background: rgb(22 101 52 / 0.16);
+  box-shadow: inset 3px 0 rgb(34 197 94 / 0.7);
+}
+
+.lc-md-changed-del {
+  background: rgb(127 29 29 / 0.16);
+  box-shadow: inset 3px 0 rgb(239 68 68 / 0.65);
+}
+
+.lc-markdown-empty {
+  padding: 22px 0;
+  color: rgb(115 115 115);
+  font-style: italic;
+}
+
+@media (max-width: 900px) {
+  .lc-markdown-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .lc-markdown-preview {
+    padding: 12px;
+  }
+
+  .lc-markdown-preview-canvas {
+    padding: 24px 20px 36px;
+    border-radius: 4px;
+  }
+
+  .lc-markdown-document .markdown-body {
+    padding: 0;
+  }
+}

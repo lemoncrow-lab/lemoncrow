@@ -8,7 +8,6 @@ from typing import ClassVar
 
 import pytest
 
-from lemoncrow.core.capabilities.licensing import entitlements
 from lemoncrow.pro.capabilities.context_compression.capability import (
     ContextCompressionCapability,
 )
@@ -42,7 +41,6 @@ def test_compress_with_sleeptime_reduces_tokens(monkeypatch: pytest.MonkeyPatch)
     cap = ContextCompressionCapability()
     result = cap.compress_with_sleeptime(ledger, token_budget=4000)
     assert result.chars_after < result.chars_before, "sleeptime must reduce context"
-    entitlements.reload()
 
 
 def test_compress_with_sleeptime_writes_run_frame(
@@ -62,7 +60,6 @@ def test_compress_with_sleeptime_writes_run_frame(
 
     assert result is not None
     assert result.token_savings >= 0
-    entitlements.reload()
 
 
 def test_compress_with_sleeptime_archives_passages(
@@ -96,7 +93,6 @@ def test_compress_with_sleeptime_archives_passages(
         passages = store.list_passages("lemoncrow", limit=500)
 
     assert len(passages) >= 1, "at least one archival passage must be written"
-    entitlements.reload()
 
 
 def test_compress_with_provenance_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -107,4 +103,3 @@ def test_compress_with_provenance_unchanged(monkeypatch: pytest.MonkeyPatch) -> 
     result = cap.compress_with_provenance(ledger, token_budget=2000)
     assert result.chars_before > 0
     assert result.chars_after <= result.chars_before
-    entitlements.reload()

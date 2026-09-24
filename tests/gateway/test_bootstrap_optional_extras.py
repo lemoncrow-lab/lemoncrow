@@ -85,6 +85,15 @@ def test_makefile_dev_target_does_not_force_non_interactive() -> None:
     )
 
 
+def test_makefile_dev_enables_headroom_apply() -> None:
+    content = MAKEFILE.read_text()
+    dev_pos = content.index("\ndev:")
+    next_target_pos = content.index("\nbuild:", dev_pos)
+    dev_recipe = content[dev_pos:next_target_pos]
+    assert "LEMONCROW_DEV_HEADROOM_APPLY=1" in dev_recipe
+    assert "LEMONCROW_DEV_HEADROOM_SHADOW=1" not in dev_recipe
+
+
 def test_agent_roles_and_skills_blocks_ordered_inside_host_wizard() -> None:
     """Static ordering check: host-select -> agent-roles -> skills -> scope,
     all inside one host_wizard() call -- exactly what the user asked for."""

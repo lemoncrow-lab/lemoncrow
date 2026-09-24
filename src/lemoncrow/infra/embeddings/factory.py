@@ -90,6 +90,13 @@ def _default_code_model(model: str | None = None) -> str:
     ).strip() or DEFAULT_CODE_EMBED_MODEL
 
 
+@lru_cache(maxsize=4)
+def _cached_bge_code_embedder(model: str) -> BgeEmbedder:
+    """Share one lazy BGE model per process/model across repository engines."""
+
+    return BgeEmbedder(model_name=model)
+
+
 @lru_cache(maxsize=8)
 def _cached_ollama_code_embedder(model: str) -> OllamaEmbedder:
     return OllamaEmbedder(model=model)
@@ -136,7 +143,7 @@ def make_code_embedder(pin: str | None = None, model: str | None = None) -> Embe
             use_cache=True,  # use_cache kwarg currently unused; DynamicCache compat is handled in _load()
         )
     if chosen == "bge":
-        return BgeEmbedder()
+        return _cached_bge_code_embedder(model or "BAAI/bge-code-v1")
     if chosen == "ollama":
         if os.getenv("LEMONCROW_OFFLINE"):
             return NullEmbedder()
@@ -162,6 +169,7 @@ def get_code_embedder() -> Embedder:
 
 
 def _clear_code_embedder_cache() -> None:
+    _cached_bge_code_embedder.cache_clear()
     _cached_ollama_code_embedder.cache_clear()
 
 

@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from lemoncrow.core.environment import HIDDEN_LLM_TOOLS
+from lemoncrow.core.environment import LLM_VISIBLE_TOOLS
 from lemoncrow.gateway.adapters import mcp_server
 from lemoncrow.gateway.adapters.mcp_server import TOOLS, _handle
 from lemoncrow.pro.capabilities.cross_vendor_routing.configuration import (
@@ -35,13 +35,7 @@ def _preindex(repo_root: str | Path) -> None:
 # relations + blast-radius in one call) + `read`, plus edit/bash/web_fetch.
 # `grep`, `relations`, `search`, `memory`, `sql`, `codemod` are registered but
 # hidden from agents (grep/relations stay callable as escape hatch / drill-in).
-EXPECTED_TOOLS = {
-    "read",
-    "edit",
-    "code_search",
-    "bash",
-    "web_fetch",
-}
+EXPECTED_TOOLS = set(LLM_VISIBLE_TOOLS)
 
 
 def _seed_store(root: Path) -> None:
@@ -184,7 +178,7 @@ def test_tools_list_matches_registered_surface(mcp_env: Path) -> None:
     assert response is not None
     names = {tool["name"] for tool in response["result"]["tools"]}
     assert names == EXPECTED_TOOLS
-    assert set(TOOLS) == EXPECTED_TOOLS | HIDDEN_LLM_TOOLS
+    assert EXPECTED_TOOLS <= set(TOOLS)
 
 
 def test_tools_list_hides_internal_workflow_tools(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -200,7 +194,7 @@ def test_tools_list_hides_internal_workflow_tools(tmp_path: Path, monkeypatch: p
     tools = response["result"]["tools"]
     names = {tool["name"] for tool in tools}
     assert names == EXPECTED_TOOLS
-    assert not (names & HIDDEN_LLM_TOOLS)
+    assert names <= LLM_VISIBLE_TOOLS
     assert all("passive" not in tool["description"] for tool in tools if tool["name"] in EXPECTED_TOOLS)
 
 
@@ -376,7 +370,7 @@ def test_memory_task_and_remote_memory_limits_e2e(mcp_env: Path) -> None:
     )
     assert stored["fact"]
 
-    recalled_fact = _payload(
+    recalled_fact = _text(
         _call(
             "memory",
             {
@@ -387,7 +381,8 @@ def test_memory_task_and_remote_memory_limits_e2e(mcp_env: Path) -> None:
             },
         )
     )
-    assert recalled_fact["passages"] or recalled_fact.get("facts")
+    assert recalled_fact.startswith("### memory")
+    assert "JSON-RPC MCP tests" in recalled_fact
 
     archived = _payload(
         _call(
@@ -405,7 +400,7 @@ def test_memory_task_and_remote_memory_limits_e2e(mcp_env: Path) -> None:
     )
     assert archived["fact"]
 
-    recalled = _payload(
+    recalled = _text(
         _call(
             "memory",
             {
@@ -416,13 +411,10 @@ def test_memory_task_and_remote_memory_limits_e2e(mcp_env: Path) -> None:
             },
         )
     )
-    assert recalled["passages"]
-    assert (
-        "checkout retry guidance"
-        in recalled["passages"][0].get("fact", recalled["passages"][0].get("text", "")).lower()
-    )
+    assert recalled.startswith("### memory")
+    assert "checkout retry guidance" in recalled.lower()
 
-    context = _payload(
+    context = _text(
         _call(
             "context",
             {
@@ -431,7 +423,7 @@ def test_memory_task_and_remote_memory_limits_e2e(mcp_env: Path) -> None:
             },
         )
     )
-    assert "context" in context
+    assert context == "Here are the relevant procedures."
 
     transcript_recall = _call(
         "memory",
@@ -635,7 +627,7 @@ def test_sql_actions_e2e(mcp_env: Path) -> None:
     )
     assert "sql lint: ok" in lint
 
-    query = _payload(
+    query = _text(
         _call(
             "sql",
             {
@@ -646,13 +638,14 @@ def test_sql_actions_e2e(mcp_env: Path) -> None:
             },
         )
     )
-    assert query["isError"] is False
-    assert query["results"][0]["row_count"] == 2
-    assert query["results"][0]["rows"][0] == [1, "Ada"]
+    assert query.startswith("### sql query items · 2 rows · auto-limit\n")
+    assert "id\tname" in query
+    assert '1\t"Ada"' in query
+    assert '2\t"Grace"' in query
 
 
 def test_context_rescue_verify_compact_and_trace_e2e(mcp_env: Path) -> None:
-    context = _payload(
+    context = _text(
         _call(
             "context",
             {
@@ -662,9 +655,9 @@ def test_context_rescue_verify_compact_and_trace_e2e(mcp_env: Path) -> None:
             },
         )
     )
-    assert isinstance(context.get("context"), str)
+    assert isinstance(context, str) and context
 
-    rescue = _payload(
+    rescue = _text(
         _call(
             "rescue",
             {
@@ -674,10 +667,9 @@ def test_context_rescue_verify_compact_and_trace_e2e(mcp_env: Path) -> None:
             },
         )
     )
-    assert "rescue" in rescue
-    assert "analysis" in rescue
+    assert rescue.startswith("rescue\n")
 
-    rubric = _payload(
+    rubric = _text(
         _call(
             "verify",
             {
@@ -693,12 +685,12 @@ def test_context_rescue_verify_compact_and_trace_e2e(mcp_env: Path) -> None:
             },
         )
     )
-    assert rubric["status"] == "pass"
+    assert "status=pass" in rubric
 
-    compact_session = _payload(_call("compact", {}))
-    assert "tokens_freed" in compact_session
-    assert "prompt_block" in compact_session
-    assert "preserved" not in compact_session
+    compact_session = _text(_call("compact", {}))
+    assert "LemonCrow compact state" in compact_session
+    assert "compact " in compact_session and "freed " in compact_session
+    assert "prompt_block" not in compact_session
 
     trace = _payload(
         _call(

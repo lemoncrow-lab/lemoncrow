@@ -6,10 +6,10 @@ LemonCrow has five "memory"-named packages, each serving a distinct purpose.
 They are NOT competing systems — understand the scope before choosing one:
 
 ``memory/`` (this package)
-    Canonical CRUD facade for **user-created named facts**.  Think: Copilot
-    Memory / store_memory / vote_memory.  Stores facts as ``MemoryBlock``
-    entries in the LemonCrow SQLite/Postgres store.  Uses ``archival_recall``
-    for recall and ``memory_arbitration`` for write-time deduplication.
+    Canonical host-neutral facade for LemonCrow ``MemoryBlock`` lifecycle:
+    user-created named facts plus explicit editable named blocks used by runtime
+    features such as symbol-edit provenance. Uses ``archival_recall`` for recall
+    and ``memory_arbitration`` for write-time deduplication.
 
 ``archival_recall/``
     Archives session **transcript passages and code chunks** (chunked,

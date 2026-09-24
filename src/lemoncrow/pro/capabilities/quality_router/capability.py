@@ -15,6 +15,7 @@ from lemoncrow.core.foundation.routing_models import (
     TaskType,
     VerificationEnvelope,
 )
+from lemoncrow.core.foundation.runtime_decisions import RuntimeDecisionEvent
 from lemoncrow.pro.capabilities.quality_router.config import (
     RoutingPolicyConfig,
     load_routing_policy_config,
@@ -34,6 +35,7 @@ from lemoncrow.pro.foundation.retriever import TaskContext, retrieve
 if TYPE_CHECKING:
     from lemoncrow.infra.runtime.run_ledger import RunLedger
     from lemoncrow.infra.storage.bundle import StoreBundle
+    from lemoncrow.pro.capabilities.code_context.evidence_state import EvidenceState
 
 
 class QualityRouterCapability:
@@ -64,7 +66,7 @@ class QualityRouterCapability:
         step_type: StepType = "plan",
         step_index: int = 0,
         session_id: str | None = None,
-        evidence_summary: Mapping[str, object] | None = None,
+        evidence_summary: Mapping[str, object] | EvidenceState | None = None,
         ledger: RunLedger | None = None,
     ) -> RouteDecision:
         files = self._merge_changed_files(changed_files, ledger)
@@ -103,7 +105,65 @@ class QualityRouterCapability:
             summary=summary,
             step_type=step_type,
         )
+        self._record_route_decision(
+            decision=decision,
+            request=request,
+            summary=summary,
+            step_type=step_type,
+            ledger=ledger,
+        )
         return decision
+
+    @staticmethod
+    def _record_route_decision(
+        *,
+        decision: RouteDecision,
+        request: AgentRequest,
+        summary: Mapping[str, object],
+        step_type: StepType,
+        ledger: RunLedger | None,
+    ) -> None:
+        """Record the enforced route as an observable runtime fact.
+
+        This is deliberately an observation, not a second router. Candidate
+        policy A/Bs can later use proposed != actual on the same event contract.
+        """
+
+        if ledger is None:
+            return
+        reason_codes: list[str] = []
+        retrieval_status = str(summary.get("retrieval_status") or "").strip()
+        if retrieval_status:
+            reason_codes.append(f"retrieval:{retrieval_status}")
+        if decision.escalation_trigger:
+            reason_codes.append(f"escalation:{decision.escalation_trigger}")
+        if decision.protected_file_match:
+            reason_codes.append("protected_file")
+        try:
+            ledger.record_runtime_decision(
+                RuntimeDecisionEvent(
+                    kind="route.model",
+                    phase=str(step_type),
+                    policy="quality-router",
+                    policy_version="1",
+                    mode="observe",
+                    session_id=request.session_id,
+                    evidence_refs=tuple(decision.evidence_refs),
+                    confidence=decision.confidence,
+                    reason_codes=tuple(reason_codes),
+                    proposed={"tier": decision.tier, "model": decision.selected_model},
+                    actual={"tier": decision.tier, "model": decision.selected_model},
+                    metrics={
+                        "risk_level": request.risk_level,
+                        "retrieval_status": retrieval_status,
+                        "protected_file_match": decision.protected_file_match,
+                        "verifier_required_count": len(decision.verifier_required),
+                    },
+                )
+            )
+        except Exception:
+            # Instrumentation must never make routing unavailable.
+            return
 
     def verify(
         self,
@@ -152,10 +212,13 @@ class QualityRouterCapability:
         request: AgentRequest,
         budget: ContextBudgetPolicy,
         domain: str | None,
-        evidence_summary: Mapping[str, object] | None,
+        evidence_summary: Mapping[str, object] | EvidenceState | None,
         ledger: RunLedger | None,
     ) -> dict[str, object]:
-        summary = dict(evidence_summary or {})
+        if evidence_summary is not None and hasattr(evidence_summary, "to_routing_summary"):
+            summary = dict(evidence_summary.to_routing_summary())
+        else:
+            summary = dict(evidence_summary or {})
 
         raw_refs = summary.get("refs")
         refs = list(raw_refs) if isinstance(raw_refs, list) else []

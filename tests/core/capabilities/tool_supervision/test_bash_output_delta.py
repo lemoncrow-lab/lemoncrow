@@ -8,8 +8,9 @@ in full.
 from __future__ import annotations
 
 import pytest
+from lemoncrow_client.kit import output_delta
 
-from lemoncrow.pro.capabilities.tool_supervision import bash_exec, output_delta
+from lemoncrow.pro.capabilities.tool_supervision import bash_exec
 
 _BIG = "\n".join(f"line {i}" for i in range(120))  # > _MIN_CHARS
 
@@ -64,7 +65,7 @@ def test_kill_switch(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_tracking_map_stays_bounded() -> None:
     for i in range(output_delta._MAX_TRACKED * 2):
         output_delta.observe(f"cmd-{i}", cwd=None, stdout=_BIG, stderr="", exit_code=0)
-    assert len(output_delta._last) <= output_delta._MAX_TRACKED
+    assert len(output_delta._PROCESS_RUNS) <= output_delta._MAX_TRACKED
 
 
 def test_run_command_second_identical_run_ships_marker() -> None:

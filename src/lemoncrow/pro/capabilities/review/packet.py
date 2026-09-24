@@ -252,6 +252,7 @@ def build_review_packet_with_blobs(
     limit: int = 40,
     with_patch_text: bool = False,
     unbounded_patch_text: bool = False,
+    progress: Callable[[str], None] | None = None,
 ) -> PacketBuild:
     """:func:`build_review_packet`, plus the blob texts the build actually read.
 
@@ -273,6 +274,55 @@ def build_review_packet_with_blobs(
         with_patch_text=with_patch_text,
         unbounded_patch_text=unbounded_patch_text,
         keep_blobs=True,
+        progress=progress,
+    )
+
+
+def attach_changed_symbols(
+    repo_root: Path,
+    build: PacketBuild,
+    *,
+    limit: int = 40,
+) -> PacketBuild:
+    """Attach stable changed-symbol identity without running impact fan-out."""
+
+    try:
+        from .impact import collect_changed_symbols
+
+        result = collect_changed_symbols(
+            repo_root,
+            build.packet.files,
+            old_blobs=build.blobs.old,
+            new_blobs=build.blobs.new,
+        )
+        symbols = result.symbols
+        index_status = result.index_status
+        symbol_degraded = result.degraded
+    except Exception:
+        symbols = ()
+        index_status = "absent"
+        symbol_degraded = ("impact_failed",)
+    degraded = set(build.packet.degraded)
+    degraded.update(symbol_degraded)
+    order = _collect_order(
+        build.packet.files,
+        symbols,
+        (),
+        inspected=frozenset(build.packet.provenance.files_inspected),
+        limit=len(build.packet.files),
+    )
+    stats = dict(build.packet.stats)
+    stats["symbols"] = len(symbols)
+    return PacketBuild(
+        packet=replace(
+            build.packet,
+            symbols=tuple(symbols),
+            order=order,
+            index_status=index_status,
+            degraded=tuple(sorted(degraded)),
+            stats=stats,
+        ),
+        blobs=build.blobs,
     )
 
 
@@ -354,9 +404,12 @@ def _build(
     with_patch_text: bool,
     keep_blobs: bool,
     unbounded_patch_text: bool = False,
+    progress: Callable[[str], None] | None = None,
 ) -> PacketBuild:
     """The single composition pass behind both public entry points."""
 
+    if progress is not None:
+        progress("diff")
     diff = collect_diff(
         repo_root,
         rng,
@@ -370,6 +423,8 @@ def _build(
     # One read, whether it feeds the impact pass, the fingerprints, or both.
     blobs = BlobPair(old={}, new={}, degraded=())
     if files and (with_impact or keep_blobs):
+        if progress is not None:
+            progress("source")
         blobs = load_blobs(repo_root, rng, files)
         degraded.update(blobs.degraded)
 
@@ -377,6 +432,8 @@ def _build(
     impact: tuple[ImpactSite, ...] = ()
     index_status: IndexStatus = "absent"
     if with_impact and files:
+        if progress is not None:
+            progress("impact")
         in_head: Callable[[str, str, str], int | None] | None
         try:
             in_head = head_symbol_filter(repo_root, rng)
@@ -399,6 +456,8 @@ def _build(
     provenance = unknown_provenance()
     evidence: tuple[EvidenceRecord, ...] = ()
     if with_provenance:
+        if progress is not None:
+            progress("provenance")
         provenance, evidence, provenance_degraded = _collect_provenance(
             store_root,
             repo_root,
@@ -413,6 +472,8 @@ def _build(
 
     provenance, impact = _link_impact_to_provenance(provenance, impact)
 
+    if progress is not None:
+        progress("ranking")
     order = _collect_order(
         files,
         symbols,
@@ -457,4 +518,10 @@ def _build(
     return PacketBuild(packet=packet, blobs=blobs)
 
 
-__all__ = ["PacketBuild", "attach_impact", "build_review_packet", "build_review_packet_with_blobs"]
+__all__ = [
+    "PacketBuild",
+    "attach_changed_symbols",
+    "attach_impact",
+    "build_review_packet",
+    "build_review_packet_with_blobs",
+]

@@ -611,7 +611,7 @@ def codex_tool_discipline_body(
 
 
 def core_discipline_body(shared_dir: Path) -> str:
-    """Render core discipline plus strict reply defaults and invariants.
+    """Render core discipline plus compact reply defaults and invariants.
 
     Reply-level application later removes ``telegraphic-default`` for lite/off;
     ``invariants`` remains at every level, including off.

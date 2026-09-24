@@ -37,9 +37,12 @@ DEFAULT_RUNTIME_MODELS = {
 }
 
 # Per-host default model pins for roles that should NOT inherit the session
-# model out of the box. Read-only exploration/research run on a cheap model
-# (mirrors the built-in Explore=haiku); coding/judgment roles inherit. Users
-# override any entry via ``lc init`` (writes models.hosts.<host>.roles).
+# model out of the box. OpenCode's code agent uses its native free-tier model
+# so OpenCode itself owns the provider request; routing that turn through the
+# LemonCrow gateway is rejected by Zen's external-client policy. Read-only
+# exploration/research run on a cheap model (mirrors the built-in
+# Explore=haiku); other coding/judgment roles inherit. Users override any entry
+# via ``lc init`` (writes models.hosts.<host>.roles).
 # Claude entries use Claude Code's bare model aliases ("sonnet"/"opus"/"haiku"),
 # not versioned ids. Claude Code itself resolves an alias to its current model
 # on every invocation, so these pins never go stale as new versions ship --
@@ -50,8 +53,8 @@ DEFAULT_RUNTIME_MODELS = {
 DEFAULT_HOST_ROLE_MODELS: dict[str, dict[str, str]] = {
     "claude": {"explore": "haiku", "research": "haiku"},
     "codex": {"explore": "gpt-5.4-mini", "research": "gpt-5.4-mini"},
+    "opencode": {"code": "opencode/big-pickle"},
 }
-
 _CLAUDE_DOT_VERSION_RE = re.compile(r"(\d)\.(?=\d)")
 _CODEX_MODEL_DISCOVERY_TIMEOUT_SECONDS = 3.0
 

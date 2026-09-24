@@ -685,14 +685,6 @@ def test_statusline_shows_routing_savings(tmp_path: Path) -> None:
 
 def test_status_line_priority_and_weighted_rotation() -> None:
     assert status_line_choose_message(update_flag={"fromVersion": "1", "toVersion": "2"})["message_family"] == "update"
-    assert (
-        status_line_choose_message(auth_present=False, update_flag={"fromVersion": "1", "toVersion": "2"})[
-            "message_family"
-        ]
-        == "login"
-    )
-    assert status_line_choose_message(auth_present=False)["message_family"] == "login"
-    assert status_line_choose_message(subscription_warning=True)["message_family"] == "subscription"
 
     rotated = status_line_choose_message(
         session_id="s1",

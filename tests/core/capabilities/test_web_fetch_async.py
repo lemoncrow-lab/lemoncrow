@@ -82,6 +82,19 @@ class _BinaryHandler(BaseHTTPRequestHandler):
         pass
 
 
+class _ImageHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        body = b"\x89PNG\r\n\x1a\npreview"
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_a: Any) -> None:
+        pass
+
+
 class _PdfHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         from tests.core.capabilities.test_web_fetch import _build_minimal_pdf
@@ -205,6 +218,27 @@ def test_async_rejects_binary_content_type() -> None:
     try:
         with pytest.raises(ValueError, match="unsupported content type"):
             asyncio.run(web_fetch.async_fetch_url(f"http://127.0.0.1:{port}/", output_format="text"))
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+
+def test_async_fetch_image_accepts_only_bounded_image_content() -> None:
+    srv, port = _loopback_server(_ImageHandler)
+    try:
+        body, media_type = asyncio.run(web_fetch.async_fetch_image(f"http://127.0.0.1:{port}/"))
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    assert body.startswith(b"\x89PNG")
+    assert media_type == "image/png"
+
+
+def test_async_fetch_image_rejects_non_image_content() -> None:
+    srv, port = _loopback_server(_TextHandler)
+    try:
+        with pytest.raises(ValueError, match="unsupported content type"):
+            asyncio.run(web_fetch.async_fetch_image(f"http://127.0.0.1:{port}/"))
     finally:
         srv.shutdown()
         srv.server_close()

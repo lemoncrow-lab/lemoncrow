@@ -259,12 +259,16 @@ if command -v lc &>/dev/null; then
             ;;
     esac
 
-    info "Removing LemonCrow background services (systemd user units / launchd agents)..."
-    run "lc background uninstall 2>/dev/null || true"
-    info "Stopping LemonCrow background service controller..."
-    run "lc servicectl stop --force 2>/dev/null || true"
-    info "Stopping LemonCrow visualization stack..."
-    run "lc stack stop 2>/dev/null || true"
+    info "Stopping persistent MCP tunnel..."
+    run "lc mcp service stop 2>/dev/null || true"
+    if [[ -x "${SCRIPT_DIR}/local_server.sh" ]]; then
+        info "Stopping LemonCrow local loopback server..."
+        run "bash '${SCRIPT_DIR}/local_server.sh' stop 2>/dev/null || true"
+    fi
+    if [[ -x "${SCRIPT_DIR}/cleanup_legacy_runtime.sh" ]]; then
+        info "Removing retired controller/stack services from older installs..."
+        run "bash '${SCRIPT_DIR}/cleanup_legacy_runtime.sh' 2>/dev/null || true"
+    fi
 else
     warn "lc CLI not found on PATH — skipping service shutdown"
 fi

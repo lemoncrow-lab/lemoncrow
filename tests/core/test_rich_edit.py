@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from lemoncrow_client.kit.edit import parse_target as _parse_target
+
 from lemoncrow.pro.capabilities.source_projection import build_compact_projection
-from lemoncrow.pro.capabilities.tool_supervision.rich_edit import _parse_target, apply_rich_edits
+from lemoncrow.pro.capabilities.tool_supervision.rich_edit import apply_rich_edits
 
 
 def test_parse_target_minified_suffix_is_order_independent() -> None:

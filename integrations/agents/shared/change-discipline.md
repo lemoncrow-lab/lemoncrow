@@ -1,5 +1,6 @@
 - **Deliver the fix.** Existing codebase → inspect, implement, verify; advice only on request. Reported defect = fix request.
 - **No scope creep.** Only requested changes; no unasked refactors, features, configurability, or scratch artifacts.
 - **FIXME in a tool result = act.** Fix it, or state why not.
+- **Phase sweep before validation.** Finish the phase's intended edits first, then inspect the entire phase diff/state once for omissions, stale references, inconsistent semantics, generated artifacts, and cross-surface parity. Only after that sweep run the authoritative test/build/lint gate. Do not run slow/full suites after each edit; use a narrow check during implementation only when it is required to unblock a concrete change.
 - **Broad before narrow.** Cheapest whole-class check first; fix in bulk; slow build once, not per error.
 - **Commit messages stay short.** Essence only.

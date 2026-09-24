@@ -56,11 +56,132 @@ describe("ReviewOutline accessibility", () => {
     expect(screen.getByRole("complementary", { name: "Review outline" })).toBeTruthy();
     const changed = screen.getByRole("button", { name: /Changed since review/i });
     expect(changed.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByRole("button", { name: /a.py/i }).getAttribute("aria-current")).toBe("location");
+    const activeFile = screen.getByRole("button", { name: /a.py/i });
+    expect(activeFile.getAttribute("aria-current")).toBe("location");
+    expect(activeFile.querySelector('[data-file-icon="a.py"]')).toBeTruthy();
 
     await userEvent.click(changed);
     expect(changed.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByRole("button", { name: /a.py/i })).toBeNull();
+  });
+
+  it("shows a compact change story and live review-first jump", async () => {
+    const onSelectPath = vi.fn();
+    const onSelectTarget = vi.fn();
+    const onNavigateAttention = vi.fn();
+    const onShowOverview = vi.fn();
+    render(
+      <ReviewOutline
+        rows={ROWS}
+        activePath="src/a.py"
+        query=""
+        searchInputRef={createRef<HTMLInputElement>()}
+        matchTargetCount={0}
+        matchFileCount={0}
+        matchCountsByPath={new Map()}
+        storySteps={[
+          { label: "Identity", path: "src/a.py" },
+          { label: "API", path: "src/b.py" },
+        ]}
+        storyMore={2}
+        nextAttention={{
+          targetId: "target-b",
+          path: "src/b.py",
+          label: "authorize",
+          reason: "Changed since your last review",
+        }}
+        attentionCount={4}
+        onQuery={vi.fn()}
+        onNavigateMatch={vi.fn()}
+        onDismissSearch={vi.fn()}
+        onSelectPath={onSelectPath}
+        onSelectTarget={onSelectTarget}
+        onNavigateAttention={onNavigateAttention}
+        onShowOverview={onShowOverview}
+        collapsed={false}
+        onToggleCollapsed={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId("review-guide")).toBeTruthy();
+    expect(screen.getByText("Change story")).toBeTruthy();
+    expect(screen.getByText("Review first")).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: "API" }));
+    expect(onSelectPath).toHaveBeenCalledWith("src/b.py");
+
+    await userEvent.click(screen.getByRole("button", { name: "Review first: authorize" }));
+    expect(onSelectTarget).toHaveBeenCalledWith("target-b");
+
+    await userEvent.click(screen.getByRole("button", { name: "Next attention target" }));
+    await userEvent.click(screen.getByRole("button", { name: "Previous attention target" }));
+    expect(onNavigateAttention).toHaveBeenNthCalledWith(1, 1);
+    expect(onNavigateAttention).toHaveBeenNthCalledWith(2, -1);
+
+    await userEvent.click(screen.getByRole("button", { name: "Show 2 more change areas" }));
+    expect(onShowOverview).toHaveBeenCalledTimes(1);
+  });
+
+  it("omits orientation when a small review would only repeat the file list", () => {
+    render(
+      <ReviewOutline
+        rows={ROWS.slice(0, 1)}
+        activePath="src/a.py"
+        query=""
+        searchInputRef={createRef<HTMLInputElement>()}
+        matchTargetCount={0}
+        matchFileCount={0}
+        matchCountsByPath={new Map()}
+        nextAttention={{
+          targetId: "target-a",
+          path: "src/a.py",
+          label: "authorize",
+          reason: "public contract changed",
+        }}
+        onQuery={vi.fn()}
+        onNavigateMatch={vi.fn()}
+        onDismissSearch={vi.fn()}
+        onSelectPath={vi.fn()}
+        onSelectTarget={vi.fn()}
+        collapsed={false}
+        onToggleCollapsed={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("review-guide")).toBeNull();
+  });
+
+  it("hides orientation while an explicit search is active", () => {
+    render(
+      <ReviewOutline
+        rows={ROWS}
+        activePath="src/a.py"
+        query="contract"
+        searchInputRef={createRef<HTMLInputElement>()}
+        matchTargetCount={1}
+        matchFileCount={1}
+        matchCountsByPath={new Map([["src/a.py", 1]])}
+        storySteps={[
+          { label: "Identity", path: "src/a.py" },
+          { label: "API", path: "src/b.py" },
+        ]}
+        nextAttention={{
+          targetId: "target-a",
+          path: "src/a.py",
+          label: "authorize",
+          reason: "public contract changed",
+        }}
+        onQuery={vi.fn()}
+        onNavigateMatch={vi.fn()}
+        onDismissSearch={vi.fn()}
+        onSelectPath={vi.fn()}
+        onSelectTarget={vi.fn()}
+        collapsed={false}
+        onToggleCollapsed={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("review-guide")).toBeNull();
   });
 
   it("shows target/file match counts and uses Enter, Shift+Enter, and Escape for search flow", async () => {
@@ -87,6 +208,7 @@ describe("ReviewOutline accessibility", () => {
     expect(screen.getByText("2 targets · 1 file")).toBeTruthy();
     expect(screen.getByText("2 matches")).toBeTruthy();
     const input = screen.getByRole("textbox", { name: "Search review" });
+    expect(input.classList.contains("review-outline-search-field")).toBe(true);
     await userEvent.click(input);
     await userEvent.keyboard("{Enter}");
     await userEvent.keyboard("{Shift>}{Enter}{/Shift}");

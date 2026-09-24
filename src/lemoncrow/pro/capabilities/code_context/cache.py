@@ -5,11 +5,56 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from collections.abc import Iterable
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
 _CODE_FINGERPRINT: str | None = None
+
+
+def _retrieval_source_roots() -> tuple[tuple[Path, ...], tuple[Path, ...]]:
+    """``(retrieval roots, shared roots)`` whose sources key the cache.
+
+    The shared roots hold :mod:`lemoncrow_client.kit`, whose ast-grep adapter
+    produces the ``code.pattern`` payloads, so a kit change invalidates them
+    like a change to the retrieval code does.
+    """
+    import lemoncrow_client.kit as kit
+
+    kit_file = getattr(kit, "__file__", None)
+    if not kit_file:
+        raise OSError("shared kit sources not found")
+    pkg_root = Path(__file__).resolve().parent  # .../capabilities/code_context
+    infra_root = pkg_root.parents[2] / "infra"
+    return (
+        (pkg_root, infra_root / "code_intel", infra_root / "embeddings"),
+        (Path(kit_file).resolve().parent,),
+    )
+
+
+def _sources_digest(roots: Iterable[Path], *, shared: Iterable[Path] = ()) -> str:
+    """Hash every ``*.py`` under ``roots``, then under ``shared``.
+
+    Raises :class:`OSError` when ``roots`` hold no source: a digest of the
+    shared sources alone would miss a retrieval-code upgrade, so the caller
+    falls back to the package version instead.
+    """
+    digest = hashlib.sha256()
+    count = 0
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for source in sorted(root.rglob("*.py")):
+            digest.update(source.read_bytes())
+            count += 1
+    if count == 0:
+        raise OSError("no retrieval sources found")
+    for root in shared:
+        if root.is_dir():
+            for source in sorted(root.rglob("*.py")):
+                digest.update(source.read_bytes())
+    return digest.hexdigest()[:16]
 
 
 def _code_fingerprint() -> str:
@@ -18,27 +63,17 @@ def _code_fingerprint() -> str:
     ``index_version`` only tracks the *index*; a change to the ranking code (an
     upgrade, or a candidate build in a fitness sweep) must not serve payloads
     computed by older code. Hashing the code_context + code_intel + embeddings
-    sources keys the cache by code version too, so stale-code hits are
-    impossible. Computed once per process (~2 MB read); falls back to the
-    package version when sources aren't readable (e.g. zipped install).
+    sources, plus the shared client kit they call, keys the cache by code
+    version too, so stale-code hits are impossible. Computed once per process
+    (~2 MB read); falls back to the package version when sources aren't
+    readable (e.g. zipped install).
     """
     global _CODE_FINGERPRINT
     if _CODE_FINGERPRINT is not None:
         return _CODE_FINGERPRINT
     try:
-        pkg_root = Path(__file__).resolve().parent  # .../capabilities/code_context
-        infra_root = pkg_root.parents[2] / "infra"
-        digest = hashlib.sha256()
-        count = 0
-        for root in (pkg_root, infra_root / "code_intel", infra_root / "embeddings"):
-            if not root.is_dir():
-                continue
-            for source in sorted(root.rglob("*.py")):
-                digest.update(source.read_bytes())
-                count += 1
-        if count == 0:
-            raise OSError("no retrieval sources found")
-        _CODE_FINGERPRINT = digest.hexdigest()[:16]
+        roots, shared = _retrieval_source_roots()
+        _CODE_FINGERPRINT = _sources_digest(roots, shared=shared)
     except Exception:
         try:
             from lemoncrow import __version__ as _pkg_version

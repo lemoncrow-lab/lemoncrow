@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from lemoncrow.core.foundation.runtime_decisions import RuntimeDecisionEvent, RuntimeDecisionSink
 from lemoncrow.pro.capabilities.optimization.runtime_decisions import (
     OptimizationTraceRecorder,
     load_runtime_decision_traces,
@@ -73,3 +74,47 @@ def test_runtime_decision_trace_off_mode_writes_nothing(tmp_path) -> None:
     recorder.record_tool("read", ok=True)
     assert recorder.finish(accepted=True) is None
     assert not runtime_decision_trace_path(tmp_path).exists()
+
+
+def test_optimization_recorder_is_runtime_decision_sink_and_keeps_shared_event_redacted(tmp_path) -> None:
+    now = datetime(2026, 9, 23, tzinfo=UTC)
+    recorder = OptimizationTraceRecorder(
+        tmp_path,
+        session_id="trace-session",
+        task_text="task",
+        mode="shadow",
+        now=now,
+    )
+    event = RuntimeDecisionEvent(
+        id="shared-decision",
+        kind="route.model",
+        phase="execute",
+        policy="quality-router",
+        policy_version="v2",
+        mode="shadow",
+        session_id="raw-session-must-not-appear",
+        evidence_refs=("/private/repo/a.py:L1-L10",),
+        confidence=0.91,
+        reason_codes=("high_risk",),
+        proposed={"model": "cheap/model", "prompt": "never persist this"},
+        actual={"model": "strong/model", "prompt": "never persist this"},
+        metrics={"eligible": True},
+    )
+
+    assert isinstance(recorder, RuntimeDecisionSink)
+    recorder.record_runtime_decision(event)
+    path = recorder.finish(accepted=True)
+    assert path is not None
+    raw = path.read_text(encoding="utf-8")
+
+    assert "raw-session-must-not-appear" not in raw
+    assert "/private/repo/a.py" not in raw
+    assert "never persist this" not in raw
+
+    row = load_runtime_decision_traces(tmp_path, days=7, now=now)[0]["decisions"][0]
+    assert row["id"] == "shared-decision"
+    assert row["kind"] == "route.model"
+    assert row["policy"] == "quality-router"
+    assert row["policy_version"] == "v2"
+    assert row["reason_codes"] == ["high_risk"]
+    assert row["changed"] is True

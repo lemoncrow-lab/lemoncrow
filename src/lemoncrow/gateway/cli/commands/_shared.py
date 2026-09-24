@@ -66,7 +66,7 @@ def require_pro(feature: str, label: str) -> None:
 
 
 def _redact_memory_input(text: str, field_name: str) -> str:
-    from lemoncrow.core.foundation.redaction import redact
+    from lemoncrow_client.kit.redaction import redact
 
     redacted = redact(text)
     if not text:

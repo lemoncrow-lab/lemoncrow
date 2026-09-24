@@ -8,6 +8,18 @@ contract (:class:`lemoncrow.core.capabilities.retrieval.Retriever`).
 from lemoncrow.pro.capabilities.code_context.budget import BudgetPacker
 from lemoncrow.pro.capabilities.code_context.cache import RetrievalCache
 from lemoncrow.pro.capabilities.code_context.engine import CodeContextEngine
+from lemoncrow.pro.capabilities.code_context.evidence_resolution import (
+    EvidenceResolutionAction,
+    EvidenceResolutionMode,
+    EvidenceResolutionProposal,
+    normalize_evidence_resolution_mode,
+    propose_evidence_resolution,
+)
+from lemoncrow.pro.capabilities.code_context.evidence_state import (
+    EvidenceState,
+    EvidenceStatus,
+    evaluate_explore_evidence,
+)
 from lemoncrow.pro.capabilities.code_context.models import (
     ContextPack,
     IndexStats,
@@ -23,8 +35,16 @@ __all__ = [
     "CodeContextEngine",
     "CodeRetriever",
     "ContextPack",
+    "EvidenceResolutionAction",
+    "EvidenceResolutionMode",
+    "EvidenceResolutionProposal",
+    "EvidenceState",
+    "EvidenceStatus",
     "IndexStats",
     "RetrievalCache",
     "SymbolRecord",
     "TextMatch",
+    "evaluate_explore_evidence",
+    "normalize_evidence_resolution_mode",
+    "propose_evidence_resolution",
 ]

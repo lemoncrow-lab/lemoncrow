@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from lemoncrow.core.environment import HIDDEN_LLM_TOOLS
+from lemoncrow.core.environment import LLM_VISIBLE_TOOLS
 from lemoncrow.gateway.adapters import mcp_server
 from lemoncrow.gateway.adapters.mcp_server import (
     TOOLS,
@@ -46,7 +46,7 @@ def test_symbols_removed_in_favor_of_grep() -> None:
     # (semantic / relation modes) to find code by name and read definitions.
     # The _op_search engine survives: grep(semantic=True) routes through it.
     assert "symbols" not in TOOLS
-    assert "symbols" not in HIDDEN_LLM_TOOLS
+    assert "symbols" not in LLM_VISIBLE_TOOLS
     assert not hasattr(mcp_server, "tool_symbols")
     assert "code" not in TOOLS
     transport = _LoopbackTransport()
@@ -96,12 +96,12 @@ def test_explore_is_primary_grep_relations_hidden() -> None:
     # stays registered-but-hidden (semantic, surfaced once embeddings are wired).
     for name in ("callers", "callees", "usages", "node"):
         assert name not in TOOLS
-        assert name not in HIDDEN_LLM_TOOLS
+        assert name not in LLM_VISIBLE_TOOLS
     assert "code_search" in TOOLS
-    assert "code_search" not in HIDDEN_LLM_TOOLS
+    assert "code_search" in LLM_VISIBLE_TOOLS
     for name in ("grep", "relations", "search"):
         assert name in TOOLS
-        assert name in HIDDEN_LLM_TOOLS
+        assert name not in LLM_VISIBLE_TOOLS
 
 
 def test_mcp_grep_native_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -246,11 +246,11 @@ def test_explore_is_primary_search_and_relations_hidden() -> None:
     # `explore` is the advertised primary retrieval tool (ranked source + relations
     # in one call). `search` and `relations` stay registered but hidden.
     assert "code_search" in TOOLS
-    assert "code_search" not in HIDDEN_LLM_TOOLS
+    assert "code_search" in LLM_VISIBLE_TOOLS
     assert hasattr(mcp_server, "tool_code_search")
     assert "search" in TOOLS
-    assert "search" in HIDDEN_LLM_TOOLS
-    assert "relations" in HIDDEN_LLM_TOOLS
+    assert "search" not in LLM_VISIBLE_TOOLS
+    assert "relations" not in LLM_VISIBLE_TOOLS
     assert hasattr(mcp_server, "tool_smart_search")
     # `relations` is the single drill-in tool: just `symbol` + `kind`.
     rel_props = TOOLS["relations"]["inputSchema"]["properties"]
@@ -762,9 +762,8 @@ def test_tool_code_callers_rendered_shape_excludes_source(tmp_path: Path, monkey
 
     assert "rendered" not in payload
     rendered = mcp_server._tool_call_rendered_text.value
-    # Grouped by file: path header once, then an indented per-hit line.
-    assert "- src/checkout.py" in rendered
-    assert "  - 24 — checkout.place_order" in rendered
+    # One relation is one precise navigation pointer.
+    assert rendered == "callers\n→ src/checkout.py:L24 · checkout.place_order"
     assert "def place_order" not in rendered
 
 

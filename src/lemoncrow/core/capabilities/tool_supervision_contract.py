@@ -18,10 +18,6 @@ if TYPE_CHECKING:
 CompactMethod = Literal["passthrough", "deterministic_truncate", "llm_summary"]
 
 
-class SqlPathError(Exception):
-    """Raised when a sqlite DSN resolves outside the repo sandbox."""
-
-
 class FuzzyAmbiguousMatchError(ValueError):
     """Raised when fuzzy matching finds multiple acceptable candidate ranges."""
 

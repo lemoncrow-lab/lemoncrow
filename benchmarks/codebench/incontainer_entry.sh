@@ -98,35 +98,67 @@ elif [ "$DRIVER" = "cursor" ]; then
 fi
 
 if [ "$ARM" = "lemoncrow" ]; then
-  # Activate the store + persist the --no-login opt-out so the live MCP
-  # server's background seamless-login (mcp_server._try_seamless_login) never
-  # pops a browser tab in this headless container. Runs from $HOME, NOT
-  # $REPO, with --no-index: init's own project-setup step (AGENTS.md,
-  # .gitignore, .codex/config.toml) targets the CURRENT git repo, and
-  # $REPO -- the task repo the agent is about to edit -- would otherwise get
-  # scaffolding files written straight into it, contaminating the diff
-  # captured between the DIFF markers below. $HOME is not a git repo, so
-  # `lc init` there only initialises the global store and skips that step.
-  (cd "$HOME" && lemoncrow init --no-login --no-index >/tmp/lemoncrow-init.log 2>&1) \
-    || { echo "FATAL: lemoncrow init --no-login failed" >&2; tail -n 20 /tmp/lemoncrow-init.log >&2 || true; exit 7; }
+  # The MCP process is a thin client now, so the benchmark must provide the
+  # server it connects to. Keep both client and server state inside this Docker
+  # container: no host server, host token, view quota, or developer session can
+  # influence a SWE run.
+  export LEMONCROW_HOME=/tmp/codebench-lemoncrow-client
+  export LEMONCROW_URL=http://127.0.0.1:7420
+  export LEMONCROW_TOKEN_FILE=/tmp/codebench-lemoncrow-token
+  export LEMONCROW_LOCAL_FS=1
+  # The benchmark must not fall into degraded local-tool mode merely because a
+  # fresh container needs more than the interactive one-second bootstrap budget
+  # to create and index its first server-backed View.
+  export LEMONCROW_STARTUP_BUDGET_S=300
+  export LEMONCROW_REQUEST_TIMEOUT_S=300
+  export NO_PROXY="127.0.0.1,localhost${NO_PROXY:+,$NO_PROXY}"
+  export no_proxy="$NO_PROXY"
+  mkdir -p "$LEMONCROW_HOME" /tmp/codebench-lemoncrow-server
+  printf '%s\n' 'lc_codebench_isolated_token_2026' >"$LEMONCROW_TOKEN_FILE"
+  chmod 600 "$LEMONCROW_TOKEN_FILE"
 
-  # Build the FULL code index BEFORE the timed agent run (setup, not graded).
-  # The live MCP server only READS this index -- it must never build on the
-  # tool-call path. A forced full rebuild (--reindex) avoids incremental-on-
-  # fresh edge cases; we then HARD-FAIL on an empty index so a broken build
-  # aborts the run (which --resume retries) instead of silently degrading: an
-  # empty index makes grep return nothing, and the agent burns turns falling
-  # back to shell.
-  idx_json="$(lemoncrow code index --repo-root "$REPO" --reindex --json 2>/tmp/lemoncrow-index.log)"
-  files_indexed="$(printf '%s' "$idx_json" | grep -o '"files_indexed"[^,}]*' | grep -o '[0-9][0-9]*' | head -1)"
-  files_indexed="${files_indexed:-0}"
-  if [ "$files_indexed" -gt 0 ] 2>/dev/null; then
-    echo "lemoncrow code index: prewarm OK ($files_indexed files)" >&2
-  else
-    echo "FATAL: lemoncrow code index built 0 files for $REPO -- aborting so the run is retried instead of over-searching on an empty index." >&2
-    tail -n 20 /tmp/lemoncrow-index.log >&2 || true
+  # Initialize the isolated client home without indexing or interactive model
+  # configuration. Run from $HOME, not $REPO, so init cannot scaffold files
+  # into the task checkout. Authentication is no longer part of `lc init`.
+  (cd "$HOME" && lemoncrow init --no-index --no-configure-models >/tmp/lemoncrow-init.log 2>&1) \
+    || { echo "FATAL: lemoncrow init failed" >&2; tail -n 20 /tmp/lemoncrow-init.log >&2 || true; exit 7; }
+
+  lemoncrow-server up \
+    --ephemeral \
+    --directory /tmp/codebench-lemoncrow-server \
+    --port 7420 \
+    --token-file "$LEMONCROW_TOKEN_FILE" \
+    --allow-local-fs \
+    >/tmp/lemoncrow-server.log 2>&1 &
+  LEMONCROW_SERVER_PID=$!
+  _stop_lemoncrow_server() {
+    kill "$LEMONCROW_SERVER_PID" 2>/dev/null || true
+    wait "$LEMONCROW_SERVER_PID" 2>/dev/null || true
+  }
+  trap _stop_lemoncrow_server EXIT INT TERM
+
+  server_ready=0
+  for _attempt in $(seq 1 100); do
+    if curl -fsS "$LEMONCROW_URL/healthz" >/dev/null 2>&1; then
+      server_ready=1
+      break
+    fi
+    if ! kill -0 "$LEMONCROW_SERVER_PID" 2>/dev/null; then
+      break
+    fi
+    sleep 0.1
+  done
+  if [ "$server_ready" -ne 1 ]; then
+    echo "FATAL: isolated LemonCrow server did not become healthy" >&2
+    tail -n 40 /tmp/lemoncrow-server.log >&2 || true
     exit 4
   fi
+  echo "lemoncrow server: isolated loopback ready at $LEMONCROW_URL" >&2
+
+  # `lemoncrow code index` is a legacy local SQLite index and is no longer the
+  # store read by the thin client/server architecture. The MCP preflight below
+  # opens and syncs a real server View and executes code_search, which both warms
+  # and validates the exact path the agent will use.
 
   # Prewarm Zoekt trigram index -- only when LEMONCROW_ZOEKT_MODE opts in (defaults
   # to "off": lexical/FTS5-only, matching the host default -- see zoekt_mode() in
@@ -144,7 +176,7 @@ if [ "$ARM" = "lemoncrow" ]; then
       || { echo "[warn] lemoncrow zoekt up failed -- falling back to FTS5" >&2; tail -n 5 /tmp/lemoncrow-zoekt.log >&2 || true; }
   fi
 
-  if ! lemoncrow mcp --host "$HOST" check >/tmp/lemoncrow-mcp-check.log 2>&1; then
+  if ! lemoncrow mcp --host "$HOST" check --timeout 300 >/tmp/lemoncrow-mcp-check.log 2>&1; then
     echo "FATAL: LemonCrow MCP failed initialize/tools-list preflight; aborting before Claude starts." >&2
     tail -n 20 /tmp/lemoncrow-mcp-check.log >&2 || true
     exit 6

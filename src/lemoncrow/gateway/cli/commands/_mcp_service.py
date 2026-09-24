@@ -1,20 +1,14 @@
-"""Boot-persistent supervision for ``lc mcp serve --persistent``.
+"""Supervise persistent remote MCP transport.
 
-``--persistent`` promises a URL that survives restarts. Before this module it
-only survived *tunnel* restarts: the server itself was a foreground process
-that died with the terminal, so every reboot meant re-running the command by
-hand. Here the same invocation registers itself as a user-level service
-(systemd on Linux, launchd on macOS) bound to the directory it was started
-from, so the machine brings it back after a reboot with the same hostname,
-the same OAuth store and the same pairing code.
+Persistent MCP has three machine-wide processes regardless of connector count:
 
-One unit per hostname (``lemoncrow-mcp-<slug>.service`` /
-``com.lemoncrow.mcp.<slug>``) — hostnames already own their tunnel state and
-OAuth store, so a second project never disturbs the first one's service.
+* ``lemoncrow-local-server.service`` owns indexed/server intelligence on 7420.
+* ``lemoncrow-mcp-gateway.service`` owns the thin-client HTTP/MCP surface on 7421.
+* ``lemoncrow-mcp-tunnel.service`` carries configured public hostnames to 7421.
 
-The registered command carries ``--foreground``, and the unit exports
-``LEMONCROW_MCP_SUPERVISED=1``: both keep the supervised process from trying
-to re-register (and restart) itself, which would be a self-kill loop.
+The gateway uses ``lemoncrow-client`` routing, so client-side tools stay usable
+while the indexed backend restarts. Per-host state is data only: hostname ->
+workspace binding and OAuth files. There is no LemonCrow process per connector.
 """
 
 from __future__ import annotations
@@ -29,10 +23,8 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from xml.sax.saxutils import escape as _xml_escape
 
 from lemoncrow.infra.runtime.daemon_units import (
-    CONTROLLER_UNIT,
     LAUNCHD_USER_DIR,
     MCP_LABEL,
     SYSTEMD_USER_DIR,
@@ -42,39 +34,35 @@ from lemoncrow.infra.runtime.daemon_units import (
     _systemd_user_bus_unavailable,
 )
 
-# Set in the unit environment; also the escape hatch for anything else that
-# must not recurse into registration (tests, a manually supervised run).
-SUPERVISED_ENV = "LEMONCROW_MCP_SUPERVISED"
-
-_UNIT_PREFIX = "lemoncrow-mcp-"
+SHARED_SYSTEMD_UNIT = "lemoncrow-mcp-tunnel.service"
+SHARED_GATEWAY_SYSTEMD_UNIT = "lemoncrow-mcp-gateway.service"
+SHARED_LAUNCHD_LABEL = f"{MCP_LABEL}.tunnel"
+SHARED_GATEWAY_LAUNCHD_LABEL = f"{MCP_LABEL}.gateway"
+_LEGACY_UNIT_GLOB = "lemoncrow-mcp-*.service"
 
 
 class ServiceError(RuntimeError):
-    """Registration failed in a way the operator has to act on."""
+    pass
 
 
-def unit_name(slug: str) -> str:
-    """systemd unit for one hostname slug: ``lemoncrow-mcp-<slug>.service``."""
-    return f"{_UNIT_PREFIX}{slug}.service"
+@dataclass(frozen=True)
+class ServiceInfo:
+    """One public connector projected onto the shared tunnel runtime."""
 
+    name: str
+    slug: str
+    hostname: str
+    workspace: str
+    state: str
+    enabled: str
+    pid: int | None = None
 
-def launchd_label(slug: str) -> str:
-    """launchd label for one hostname slug: ``com.lemoncrow.mcp.<slug>``."""
-    return f"{MCP_LABEL}.{slug}"
+    @property
+    def is_systemd(self) -> bool:
+        return self.name.endswith(".service")
 
 
 def supervisor_kind() -> str | None:
-    """``"systemd"``, ``"launchd"``, or ``None`` when neither is usable.
-
-    ``None`` is not an error: the caller falls back to today's foreground
-    behaviour (containers, WSL without a user bus, exotic platforms).
-
-    Registration is refused inside a test process unless explicitly opted in:
-    installing (and starting) a real user unit on the developer's machine is
-    an irreversible side effect no unit test should ever have — tests that
-    want to cover this path set ``LEMONCROW_MCP_ALLOW_SERVICE=1`` and point
-    the unit directories at a tmp_path.
-    """
     if os.environ.get("PYTEST_CURRENT_TEST") and os.environ.get("LEMONCROW_MCP_ALLOW_SERVICE", "") != "1":
         return None
     if _is_macos() and shutil.which("launchctl") is not None:
@@ -84,49 +72,11 @@ def supervisor_kind() -> str | None:
     return None
 
 
-def is_supervised() -> bool:
-    """True inside the unit we installed — registration must be skipped."""
-    return os.environ.get(SUPERVISED_ENV, "").strip() not in ("", "0", "false", "False")
-
-
-def installed_units() -> list[str]:
-    """Every installed per-hostname systemd unit, sorted (for ``lc background``)."""
-    if not SYSTEMD_USER_DIR.is_dir():
-        return []
-    return sorted(p.name for p in SYSTEMD_USER_DIR.glob(f"{_UNIT_PREFIX}*.service"))
-
-
-def installed_labels() -> list[str]:
-    """Every installed per-hostname launchd label, sorted (for ``lc background``)."""
-    if not LAUNCHD_USER_DIR.is_dir():
-        return []
-    return sorted(p.stem for p in LAUNCHD_USER_DIR.glob(f"{MCP_LABEL}.*.plist"))
-
-
-def lemoncrow_binary() -> str:
-    """Absolute path to the CLI the unit should exec.
-
-    ``shutil.which`` first (the installed entry point, which survives a venv
-    being rebuilt), falling back to this process's own argv[0] resolved — a
-    unit holding a relative path would fail the moment systemd starts it from
-    a different cwd.
-    """
-    return shutil.which("lemoncrow") or str(Path(sys.argv[0]).resolve())
-
-
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, check=False, capture_output=True, text=True)
 
 
 def _enable_linger(narrate: Callable[[str], None]) -> None:
-    """Ask logind to keep user services running without an active login.
-
-    Without linger a user unit is stopped at logout and only started at the
-    next login — which breaks the "same server after a reboot" promise for
-    headless/auto-login-less machines. Best effort: on a desktop that already
-    lingers, or where polkit refuses without a password, the service still
-    works for every logged-in session, so a failure is a note, not an error.
-    """
     if shutil.which("loginctl") is None:
         return
     user = getpass.getuser()
@@ -135,319 +85,376 @@ def _enable_linger(narrate: Callable[[str], None]) -> None:
         return
     result = _run(["loginctl", "enable-linger", user])
     if result.returncode == 0:
-        narrate("Enabled linger — the service also runs while you are logged out.")
+        narrate("Enabled linger — the tunnel also runs while you are logged out.")
     else:
-        narrate(
-            "Could not enable linger (needs authorization); the service starts at login. "
-            f"Run manually: sudo loginctl enable-linger {user}"
-        )
+        narrate(f"Could not enable linger; run manually: sudo loginctl enable-linger {user}")
 
 
-def _systemd_unit_content(*, hostname: str, workspace: Path, command: list[str], root: Path) -> str:
-    # shlex.join quotes any path with spaces; systemd honours POSIX single
-    # quotes in ExecStart, so this is safe for both.
-    exec_start = shlex.join(command)
-    return f"""[Unit]
-Description=LemonCrow MCP server ({hostname})
-After=network-online.target {CONTROLLER_UNIT}
+def _gateway_python() -> str:
+    explicit = os.environ.get("LEMONCROW_SERVER_PYTHON", "").strip()
+    if explicit:
+        return explicit
+    tool_dir = os.environ.get("LEMONCROW_TOOL_DIR", "").strip()
+    if tool_dir:
+        candidate = Path(tool_dir).expanduser() / "bin" / "python"
+        if candidate.is_file():
+            return str(candidate)
+    home = os.environ.get("LEMONCROW_HOME", "").strip() or os.environ.get("LEMONCROW_ROOT", "").strip()
+    root = Path(home).expanduser() if home else Path.home() / ".lemoncrow"
+    candidate = root / "uv-tools" / "lemoncrow" / "bin" / "python"
+    if candidate.is_file():
+        return str(candidate)
+    return sys.executable
+
+
+def _gateway_command(*, origin_port: int, backend_port: int) -> list[str]:
+    return [
+        _gateway_python(),
+        "-m",
+        "lemoncrow_server_core",
+        "mcp-gateway",
+        "--port",
+        str(origin_port),
+        "--backend-port",
+        str(backend_port),
+    ]
+
+
+def start_gateway_process(*, origin_port: int, backend_port: int) -> subprocess.Popen[str]:
+    """Start the thin-client HTTP gateway as an independent foreground child."""
+    return subprocess.Popen(_gateway_command(origin_port=origin_port, backend_port=backend_port), text=True)
+
+
+def _tunnel_command(*, binary: str, tunnel_ref: str, credentials_path: str, origin_port: int) -> list[str]:
+    return [
+        binary,
+        "tunnel",
+        "--no-autoupdate",
+        # Cloudflare's default is 30s. The origin server already owns request
+        # draining, and a persistent tunnel is restarted independently, so a
+        # short tunnel drain avoids turning every local server update into a
+        # 30-second outage.
+        "--grace-period",
+        "2s",
+        "run",
+        "--credentials-file",
+        credentials_path,
+        "--url",
+        f"http://127.0.0.1:{origin_port}",
+        tunnel_ref,
+    ]
+
+
+def register_shared_tunnel_service(
+    *,
+    binary: str,
+    tunnel_ref: str,
+    credentials_path: str,
+    origin_port: int,
+    backend_port: int,
+    root: Path,
+    narrate: Callable[[str], None],
+) -> str:
+    """Install/restart the persistent thin-client gateway and Cloudflare tunnel."""
+    kind = supervisor_kind()
+    tunnel_command = _tunnel_command(
+        binary=binary,
+        tunnel_ref=tunnel_ref,
+        credentials_path=credentials_path,
+        origin_port=origin_port,
+    )
+    gateway_command = _gateway_command(origin_port=origin_port, backend_port=backend_port)
+    if kind == "systemd":
+        SYSTEMD_USER_DIR.mkdir(parents=True, exist_ok=True)
+        gateway_path = SYSTEMD_USER_DIR / SHARED_GATEWAY_SYSTEMD_UNIT
+        tunnel_path = SYSTEMD_USER_DIR / SHARED_SYSTEMD_UNIT
+        gateway_content = f"""[Unit]
+Description=LemonCrow MCP thin-client gateway
+After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory={workspace}
-ExecStart={exec_start}
+ExecStart={shlex.join(gateway_command)}
 Restart=always
-RestartSec=5
-Environment=LEMONCROW_ROOT={root}
-Environment=PYTHONUNBUFFERED=1
-Environment={SUPERVISED_ENV}=1
-Environment=PATH={os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin")}
+RestartSec=1
+TimeoutStopSec=5
 
 [Install]
 WantedBy=default.target
 """
+        tunnel_content = f"""[Unit]
+Description=LemonCrow MCP shared tunnel
+After=network-online.target {SHARED_GATEWAY_SYSTEMD_UNIT}
+Wants=network-online.target {SHARED_GATEWAY_SYSTEMD_UNIT}
 
+[Service]
+Type=simple
+ExecStart={shlex.join(tunnel_command)}
+Restart=always
+RestartSec=5
+TimeoutStopSec=5
 
-def _launchd_plist_content(*, label: str, workspace: Path, command: list[str], root: Path, log_path: Path) -> str:
-    args = "\n".join(f"        <string>{_xml_escape(arg)}</string>" for arg in command)
-    return f"""<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>{_xml_escape(label)}</string>
-    <key>ProgramArguments</key>
-    <array>
-{args}
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>WorkingDirectory</key>
-    <string>{_xml_escape(str(workspace))}</string>
-    <key>StandardOutPath</key>
-    <string>{_xml_escape(str(log_path))}</string>
-    <key>StandardErrorPath</key>
-    <string>{_xml_escape(str(log_path))}</string>
-    <key>EnvironmentVariables</key>
-    <dict>
-        <key>LEMONCROW_ROOT</key>
-        <string>{_xml_escape(str(root))}</string>
-        <key>PYTHONUNBUFFERED</key>
-        <string>1</string>
-        <key>{SUPERVISED_ENV}</key>
-        <string>1</string>
-        <key>PATH</key>
-        <string>{_xml_escape(os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"))}</string>
-    </dict>
-</dict>
-</plist>
+[Install]
+WantedBy=default.target
 """
-
-
-def register_persistent_service(
-    *,
-    hostname: str,
-    slug: str,
-    workspace: Path,
-    serve_args: list[str],
-    root: Path,
-    narrate: Callable[[str], None],
-) -> str:
-    """Install + (re)start the boot-persistent unit for ``hostname``.
-
-    ``serve_args`` is the ``lc``-relative argv tail (``["mcp", "serve", ...]``)
-    the unit should run; the caller is responsible for including
-    ``--foreground`` so the supervised process serves instead of recursing
-    back into registration. Returns the unit name / launchd label so the
-    caller can print the management commands. Re-registering is idempotent:
-    the unit is rewritten and restarted, which is also how a moved workspace
-    or a changed binary path gets picked up.
-    """
-    kind = supervisor_kind()
-    command = [lemoncrow_binary(), *serve_args]
-    if kind == "systemd":
-        SYSTEMD_USER_DIR.mkdir(parents=True, exist_ok=True)
-        unit = unit_name(slug)
-        (SYSTEMD_USER_DIR / unit).write_text(
-            _systemd_unit_content(hostname=hostname, workspace=workspace, command=command, root=root),
-            encoding="utf-8",
-        )
-        narrate(f"Installed {SYSTEMD_USER_DIR / unit}")
-        reload_result = _run(["systemctl", "--user", "daemon-reload"])
-        if reload_result.returncode != 0:
-            output = _subprocess_output(reload_result)
-            if _systemd_user_bus_unavailable(output):
-                raise ServiceError(
-                    "systemd user bus is unavailable, so the unit was written but not started. "
-                    "Re-run this command from a login session, or start the server with --foreground."
-                )
-            raise ServiceError(
-                "systemctl --user daemon-reload failed" + (f": {output.strip()}" if output.strip() else "")
-            )
-        for args in (["enable", unit], ["restart", unit]):
-            result = _run(["systemctl", "--user", *args])
+        gateway_changed = not gateway_path.exists() or gateway_path.read_text(encoding="utf-8") != gateway_content
+        tunnel_changed = not tunnel_path.exists() or tunnel_path.read_text(encoding="utf-8") != tunnel_content
+        if gateway_changed:
+            gateway_path.write_text(gateway_content, encoding="utf-8")
+            narrate(f"Installed {gateway_path}")
+        if tunnel_changed:
+            tunnel_path.write_text(tunnel_content, encoding="utf-8")
+            narrate(f"Installed {tunnel_path}")
+        if gateway_changed or tunnel_changed:
+            result = _run(["systemctl", "--user", "daemon-reload"])
             if result.returncode != 0:
-                raise ServiceError(f"systemctl --user {' '.join(args)} failed: {_subprocess_output(result).strip()}")
+                output = _subprocess_output(result)
+                if _systemd_user_bus_unavailable(output):
+                    raise ServiceError("systemd user bus is unavailable; run with --foreground from a login session")
+                raise ServiceError(f"systemctl --user daemon-reload failed: {output.strip()}")
+        for unit in (SHARED_GATEWAY_SYSTEMD_UNIT, SHARED_SYSTEMD_UNIT):
+            result = _run(["systemctl", "--user", "enable", unit])
+            if result.returncode != 0:
+                raise ServiceError(f"systemctl --user enable {unit} failed: {_subprocess_output(result).strip()}")
+        for unit, changed in ((SHARED_GATEWAY_SYSTEMD_UNIT, gateway_changed), (SHARED_SYSTEMD_UNIT, tunnel_changed)):
+            active = _run(["systemctl", "--user", "is-active", "--quiet", unit])
+            if changed or active.returncode != 0:
+                result = _run(["systemctl", "--user", "restart", unit])
+                if result.returncode != 0:
+                    raise ServiceError(f"systemctl --user restart {unit} failed: {_subprocess_output(result).strip()}")
         _enable_linger(narrate)
-        return unit
+        return SHARED_SYSTEMD_UNIT
 
     if kind == "launchd":
         LAUNCHD_USER_DIR.mkdir(parents=True, exist_ok=True)
-        label = launchd_label(slug)
-        plist = LAUNCHD_USER_DIR / f"{label}.plist"
-        log_path = root / "mcp" / f"{slug}.log"
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        plist.write_text(
-            _launchd_plist_content(label=label, workspace=workspace, command=command, root=root, log_path=log_path),
-            encoding="utf-8",
-        )
-        narrate(f"Installed {plist}")
-        # unload-then-load, so a re-register replaces the running job rather
-        # than failing with "service already loaded".
-        _run(["launchctl", "unload", str(plist)])
-        result = _run(["launchctl", "load", str(plist)])
-        if result.returncode != 0:
-            raise ServiceError(f"launchctl load failed: {_subprocess_output(result).strip()}")
-        return label
+        log_dir = root / "mcp"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        gateway_plist = LAUNCHD_USER_DIR / f"{SHARED_GATEWAY_LAUNCHD_LABEL}.plist"
+        tunnel_plist = LAUNCHD_USER_DIR / f"{SHARED_LAUNCHD_LABEL}.plist"
+        for plist, label, command, log_name in (
+            (gateway_plist, SHARED_GATEWAY_LAUNCHD_LABEL, gateway_command, "gateway.log"),
+            (tunnel_plist, SHARED_LAUNCHD_LABEL, tunnel_command, "tunnel.log"),
+        ):
+            with plist.open("wb") as handle:
+                plistlib.dump(
+                    {
+                        "Label": label,
+                        "ProgramArguments": command,
+                        "RunAtLoad": True,
+                        "KeepAlive": True,
+                        "StandardOutPath": str(log_dir / log_name),
+                        "StandardErrorPath": str(log_dir / log_name),
+                    },
+                    handle,
+                )
+            _run(["launchctl", "unload", str(plist)])
+            result = _run(["launchctl", "load", str(plist)])
+            if result.returncode != 0:
+                raise ServiceError(f"launchctl load failed for {label}: {_subprocess_output(result).strip()}")
+            narrate(f"Installed {plist}")
+        return SHARED_LAUNCHD_LABEL
 
     raise ServiceError("no systemd/launchd user session available")
 
 
-@dataclass(frozen=True)
-class ServiceInfo:
-    """One installed per-hostname MCP service, as the CLI shows it."""
+def repair_shared_tunnel_service(*, narrate: Callable[[str], None]) -> str | None:
+    """Recreate the shared tunnel service from durable local state.
 
-    name: str  # systemd unit name, or launchd label
-    slug: str
-    hostname: str
-    workspace: str
-    state: str  # active / inactive / failed / loaded / unknown
-    enabled: str  # enabled / disabled / n-a
-    pid: int | None = None  # main process, when running
+    Source and bundle installs replace the LemonCrow tool environment and the
+    local server unit. Connector bindings, named-tunnel state, and Cloudflare
+    credentials deliberately survive those installs. Reconcile the service
+    from those durable files so reinstall cannot leave configured connectors
+    offline merely because the supervisor unit disappeared.
 
-    @property
-    def is_systemd(self) -> bool:
-        return self.name.endswith(".service")
-
-
-def _hostname_from_command(command: list[str]) -> str:
-    """Pull ``--hostname X`` back out of a registered ExecStart/ProgramArguments.
-
-    The hostname is the identity of the service (its tunnel, OAuth store and
-    pairing code all key off it), and re-deriving it from the recorded command
-    keeps the unit file the single source of truth — no parallel registry to
-    drift out of sync with what systemd actually runs.
+    This never provisions Cloudflare resources or changes DNS.
     """
-    for index, arg in enumerate(command):
-        if arg == "--hostname" and index + 1 < len(command):
-            return command[index + 1]
-        if arg.startswith("--hostname="):
-            return arg.split("=", 1)[1]
-    return ""
+    from lemoncrow.core.foundation.paths import default_store_root
+    from lemoncrow.gateway.cli.commands._persistent_tunnel import load_shared_tunnel_state
+    from lemoncrow.gateway.cli.commands.mcp_serve import (
+        _persistent_backend_port,
+        _persistent_origin_port,
+        _resolve_cloudflared,
+    )
+    from lemoncrow.gateway.mcp_connectors import load_all_connectors
 
-
-def _describe_systemd(unit: str) -> ServiceInfo:
-    path = SYSTEMD_USER_DIR / unit
-    command: list[str] = []
-    workspace = ""
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.startswith("ExecStart="):
-            command = shlex.split(line.split("=", 1)[1])
-        elif line.startswith("WorkingDirectory="):
-            workspace = line.split("=", 1)[1].strip()
-    show = _run(["systemctl", "--user", "show", unit, "-p", "ActiveState", "-p", "UnitFileState", "-p", "MainPID"])
-    props: dict[str, str] = {}
-    for line in show.stdout.splitlines():
-        key, sep, value = line.partition("=")
-        if sep:
-            props[key] = value.strip()
-    main_pid = props.get("MainPID", "0")
-    return ServiceInfo(
-        name=unit,
-        slug=unit[len(_UNIT_PREFIX) : -len(".service")],
-        hostname=_hostname_from_command(command),
-        workspace=workspace,
-        state=props.get("ActiveState", "unknown"),
-        enabled=props.get("UnitFileState", "unknown"),
-        pid=int(main_pid) if main_pid.isdigit() and main_pid != "0" else None,
+    if not load_all_connectors():
+        return None
+    state = load_shared_tunnel_state()
+    if state is None:
+        raise ServiceError("persistent MCP connectors exist but shared tunnel state is missing")
+    credentials = Path(state.credentials_path).expanduser()
+    if not credentials.is_file():
+        raise ServiceError(f"shared tunnel credentials are missing: {credentials}")
+    binary = _resolve_cloudflared()
+    if binary is None:
+        raise ServiceError("cloudflared is required to repair the persistent MCP tunnel")
+    return register_shared_tunnel_service(
+        binary=binary,
+        tunnel_ref=state.tunnel_id,
+        credentials_path=str(credentials.resolve()),
+        origin_port=_persistent_origin_port(),
+        backend_port=_persistent_backend_port(),
+        root=default_store_root(),
+        narrate=narrate,
     )
 
 
-def _describe_launchd(label: str) -> ServiceInfo:
-    plist_path = LAUNCHD_USER_DIR / f"{label}.plist"
-    try:
-        with plist_path.open("rb") as handle:
-            data = plistlib.load(handle)
-    except (OSError, plistlib.InvalidFileException):
-        data = {}
-    command = [str(arg) for arg in data.get("ProgramArguments", [])]
-    listed = _run(["launchctl", "list", label])
-    # `launchctl list <label>` prints a plist-ish block including `"PID" = N;`
-    # only while the job is actually running.
-    pid: int | None = None
-    for line in listed.stdout.splitlines():
-        if '"PID"' in line:
-            digits = "".join(char for char in line if char.isdigit())
-            pid = int(digits) if digits else None
-    return ServiceInfo(
-        name=label,
-        slug=label[len(f"{MCP_LABEL}.") :],
-        hostname=_hostname_from_command(command),
-        workspace=str(data.get("WorkingDirectory", "")),
-        state="active" if listed.returncode == 0 else "inactive",
-        enabled="enabled" if plist_path.exists() else "disabled",
-        pid=pid,
-    )
+def installed_units() -> list[str]:
+    return [unit for unit in (SHARED_GATEWAY_SYSTEMD_UNIT, SHARED_SYSTEMD_UNIT) if (SYSTEMD_USER_DIR / unit).exists()]
 
 
-def describe_services() -> list[ServiceInfo]:
-    """Every installed MCP service on this machine, with live run state."""
-    return [_describe_systemd(unit) for unit in installed_units()] + [
-        _describe_launchd(label) for label in installed_labels()
+def installed_labels() -> list[str]:
+    return [
+        label
+        for label in (SHARED_GATEWAY_LAUNCHD_LABEL, SHARED_LAUNCHD_LABEL)
+        if (LAUNCHD_USER_DIR / f"{label}.plist").exists()
     ]
 
 
-def resolve_service(selector: str | None) -> ServiceInfo:
-    """Find one service by hostname, slug, or unit/label name.
+def shared_tunnel_service_state() -> tuple[str, str, int | None]:
+    if _is_linux():
+        if not (SYSTEMD_USER_DIR / SHARED_SYSTEMD_UNIT).exists():
+            return "inactive", "disabled", None
+        show = _run(
+            [
+                "systemctl",
+                "--user",
+                "show",
+                SHARED_SYSTEMD_UNIT,
+                "-p",
+                "ActiveState",
+                "-p",
+                "UnitFileState",
+                "-p",
+                "MainPID",
+            ]
+        )
+        props: dict[str, str] = {}
+        for line in show.stdout.splitlines():
+            key, sep, value = line.partition("=")
+            if sep:
+                props[key] = value.strip()
+        raw_pid = props.get("MainPID", "0")
+        pid = int(raw_pid) if raw_pid.isdigit() and raw_pid != "0" else None
+        return props.get("ActiveState", "unknown"), props.get("UnitFileState", "unknown"), pid
+    plist = LAUNCHD_USER_DIR / f"{SHARED_LAUNCHD_LABEL}.plist"
+    if not plist.exists():
+        return "inactive", "disabled", None
+    listed = _run(["launchctl", "list", SHARED_LAUNCHD_LABEL])
+    return ("active" if listed.returncode == 0 else "inactive", "enabled", None)
 
-    ``None`` is allowed only while exactly one service exists — same rule as
-    ``--hostname`` on ``serve``: silently picking one of several would act on
-    the wrong project.
-    """
-    services = describe_services()
-    if not services:
-        raise ServiceError("no MCP services installed — run `lc mcp serve --persistent --hostname <host>` first")
-    if selector is None:
-        if len(services) > 1:
-            raise ServiceError(
-                "several MCP services are installed — name one: "
-                + ", ".join(service.hostname or service.name for service in services)
-            )
-        return services[0]
-    needle = selector.strip().lower()
-    for service in services:
-        if needle in {service.hostname.lower(), service.slug.lower(), service.name.lower()}:
-            return service
-    raise ServiceError(
-        f"no MCP service for {selector!r} — installed: "
-        + ", ".join(service.hostname or service.name for service in services)
+
+def describe_services() -> list[ServiceInfo]:
+    """Project each connector onto the one shared runtime for status UIs."""
+    from lemoncrow.gateway.mcp_connectors import connector_slug, load_all_connectors
+
+    connectors = load_all_connectors()
+    state, enabled, pid = shared_tunnel_service_state()
+    name = SHARED_SYSTEMD_UNIT if _is_linux() else SHARED_LAUNCHD_LABEL
+    return [
+        ServiceInfo(
+            name=name,
+            slug=connector_slug(binding.hostname),
+            hostname=binding.hostname,
+            workspace=binding.workspace,
+            state=state,
+            enabled=enabled,
+            pid=pid,
+        )
+        for binding in connectors
+    ]
+
+
+def control_shared_tunnel_service(action: str) -> None:
+    if _is_linux():
+        units = (
+            (SHARED_SYSTEMD_UNIT, SHARED_GATEWAY_SYSTEMD_UNIT)
+            if action == "stop"
+            else (SHARED_GATEWAY_SYSTEMD_UNIT, SHARED_SYSTEMD_UNIT)
+        )
+        for unit in units:
+            result = _run(["systemctl", "--user", action, unit])
+            if result.returncode != 0:
+                raise ServiceError(f"systemctl --user {action} {unit} failed: {_subprocess_output(result).strip()}")
+        return
+    labels = (
+        (SHARED_LAUNCHD_LABEL, SHARED_GATEWAY_LAUNCHD_LABEL)
+        if action == "stop"
+        else (SHARED_GATEWAY_LAUNCHD_LABEL, SHARED_LAUNCHD_LABEL)
     )
+    for label in labels:
+        plist = LAUNCHD_USER_DIR / f"{label}.plist"
+        if action in {"stop", "restart"}:
+            _run(["launchctl", "unload", str(plist)])
+        if action in {"start", "restart"}:
+            result = _run(["launchctl", "load", str(plist)])
+            if result.returncode != 0:
+                raise ServiceError(f"launchctl load failed for {label}: {_subprocess_output(result).strip()}")
 
 
-def control_service(service: ServiceInfo, action: str) -> None:
-    """``start`` / ``stop`` / ``restart`` one installed service."""
-    if service.is_systemd:
-        result = _run(["systemctl", "--user", action, service.name])
-        if result.returncode != 0:
-            raise ServiceError(f"systemctl --user {action} {service.name} failed: {_subprocess_output(result).strip()}")
-        return
-    plist = LAUNCHD_USER_DIR / f"{service.name}.plist"
-    if action in ("stop", "restart"):
-        _run(["launchctl", "unload", str(plist)])
-    if action in ("start", "restart"):
-        result = _run(["launchctl", "load", str(plist)])
-        if result.returncode != 0:
-            raise ServiceError(f"launchctl load failed: {_subprocess_output(result).strip()}")
-
-
-def remove_service(service: ServiceInfo) -> None:
-    """Stop and delete one service's unit/plist (leaves tunnel + OAuth state)."""
-    if service.is_systemd:
-        _run(["systemctl", "--user", "disable", "--now", service.name])
-        with_path = SYSTEMD_USER_DIR / service.name
-        if with_path.exists():
-            with_path.unlink()
+def remove_shared_tunnel_service() -> bool:
+    removed = False
+    for unit in (SHARED_SYSTEMD_UNIT, SHARED_GATEWAY_SYSTEMD_UNIT):
+        path = SYSTEMD_USER_DIR / unit
+        if path.exists():
+            _run(["systemctl", "--user", "disable", "--now", unit])
+            path.unlink(missing_ok=True)
+            removed = True
+    if removed:
         _run(["systemctl", "--user", "daemon-reload"])
-        return
-    plist = LAUNCHD_USER_DIR / f"{service.name}.plist"
-    _run(["launchctl", "unload", str(plist)])
-    if plist.exists():
-        plist.unlink()
+    for label in (SHARED_LAUNCHD_LABEL, SHARED_GATEWAY_LAUNCHD_LABEL):
+        plist = LAUNCHD_USER_DIR / f"{label}.plist"
+        if plist.exists():
+            _run(["launchctl", "unload", str(plist)])
+            plist.unlink(missing_ok=True)
+            removed = True
+    return removed
 
 
-def log_command(service: ServiceInfo, *, lines: int, follow: bool) -> list[str]:
-    """The command that tails this service's logs (journald, or its log file)."""
-    if service.is_systemd:
-        cmd = ["journalctl", "--user", "-u", service.name, f"-n{lines}"]
+def remove_legacy_connector_services(*, narrate: Callable[[str], None] | None = None) -> list[str]:
+    """Stop/delete pre-shared-topology per-host LemonCrow wrapper services."""
+    removed: list[str] = []
+    if SYSTEMD_USER_DIR.is_dir():
+        for path in sorted(SYSTEMD_USER_DIR.glob(_LEGACY_UNIT_GLOB)):
+            if path.name in {SHARED_SYSTEMD_UNIT, SHARED_GATEWAY_SYSTEMD_UNIT}:
+                continue
+            _run(["systemctl", "--user", "disable", "--now", path.name])
+            path.unlink(missing_ok=True)
+            removed.append(path.name)
+        if removed:
+            _run(["systemctl", "--user", "daemon-reload"])
+    if LAUNCHD_USER_DIR.is_dir():
+        for path in sorted(LAUNCHD_USER_DIR.glob(f"{MCP_LABEL}.*.plist")):
+            if path.stem in {SHARED_LAUNCHD_LABEL, SHARED_GATEWAY_LAUNCHD_LABEL}:
+                continue
+            _run(["launchctl", "unload", str(path)])
+            path.unlink(missing_ok=True)
+            removed.append(path.stem)
+    if narrate is not None:
+        for name in removed:
+            narrate(f"Removed obsolete connector service {name}")
+    return removed
+
+
+def shared_log_command(*, lines: int, follow: bool) -> list[str]:
+    if _is_linux():
+        command = ["journalctl", "--user", "-u", SHARED_SYSTEMD_UNIT, f"-n{lines}"]
         if follow:
-            cmd.append("-f")
-        return cmd
+            command.append("-f")
+        return command
     from lemoncrow.core.foundation.paths import default_store_root
 
-    log_path = default_store_root() / "mcp" / f"{service.slug}.log"
-    follow_flag = ["-f"] if follow else []
-    return ["tail", *follow_flag, "-n", str(lines), str(log_path)]
+    path = default_store_root() / "mcp" / "tunnel.log"
+    return ["tail", *(["-f"] if follow else []), "-n", str(lines), str(path)]
 
 
 def management_hints(unit_or_label: str) -> list[str]:
-    """Copy-pasteable status/logs/stop commands for the registered service."""
     if unit_or_label.endswith(".service"):
         return [
-            f"systemctl --user status {unit_or_label}",
-            f"journalctl --user -u {unit_or_label} -f",
-            f"systemctl --user stop {unit_or_label}   # disable: systemctl --user disable --now {unit_or_label}",
+            f"systemctl --user status {SHARED_GATEWAY_SYSTEMD_UNIT} {SHARED_SYSTEMD_UNIT}",
+            f"journalctl --user -u {SHARED_GATEWAY_SYSTEMD_UNIT} -u {SHARED_SYSTEMD_UNIT} -f",
+            f"systemctl --user stop {SHARED_SYSTEMD_UNIT} {SHARED_GATEWAY_SYSTEMD_UNIT}",
         ]
     return [
         f"launchctl list {unit_or_label}",

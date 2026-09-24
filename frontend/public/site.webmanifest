@@ -1,0 +1,17 @@
+{
+  "name": "LemonCrow",
+  "short_name": "LemonCrow",
+  "description": "Review agent-written code with impact, provenance, verification evidence, and durable review state.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#111216",
+  "theme_color": "#111216",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

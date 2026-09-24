@@ -106,6 +106,22 @@ def test_codex_hook_bridges_session_id_for_mcp_server(tmp_path: Path, monkeypatc
     assert mcp_server._get_mcp_model() == "gpt-5.6-terra"
 
 
+def test_request_scoped_model_wins_over_workspace_bridge(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LEMONCROW_AGENT", "codex")
+    payload = {"session_id": "bridge-sid", "cwd": str(tmp_path)}
+    plugin_runtime._write_codex_session_state(
+        tmp_path,
+        payload,
+        {"session_id": "bridge-sid", "host": "codex", "model": "stale-model"},
+    )
+
+    prior = mcp_server._set_request_session("caller-sid", "codex", "gpt-5.6-sol")
+    try:
+        assert mcp_server._get_mcp_model() == "gpt-5.6-sol"
+    finally:
+        mcp_server._clear_request_session(prior)
+
+
 def test_no_bridge_file_resolves_empty(tmp_path: Path) -> None:
     assert mcp_server._resolved_host_session() == ("", "")
     assert mcp_server._workspace_bridge_session_id() == ""

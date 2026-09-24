@@ -12,9 +12,10 @@ What it composes, and what it deliberately does not:
   it; they never invent a second opinion. The frontier is recomputed on every
   read (``revisions.compute_frontier``) precisely so it cannot drift from the
   marks it is derived from.
-* Diff *rendering* is the browser's job (``@pierre/diffs``). What crosses the
-  wire is the unified patch text git already produced, re-serialised from the
-  stored packet -- header lines we already know plus each hunk's recorded body.
+* Diff *rendering* is the browser's job. Source review receives the unified
+  patch text git already produced, re-serialised from the stored packet. For
+  Markdown, the same route may additionally return the exact old/new document
+  texts pinned to the stored revision so the browser can render a rich preview.
   No diff is computed here and none is parsed.
 * Every ranked row carries the sentences that ranked it. A score with no reason
   is a number the reader cannot argue with, which is the same as one they
@@ -37,10 +38,20 @@ repository:
 
 from __future__ import annotations
 
+import contextlib
+import difflib
+import hashlib
+import json
+import mimetypes
+import os
+import posixpath
+import re
 import secrets
+import tempfile
 from collections.abc import Mapping
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
+from urllib.parse import unquote, urlsplit
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.responses import JSONResponse, Response
@@ -50,6 +61,7 @@ from lemoncrow.pro.capabilities.review.session_models import (
     EXACT_ANCHOR_METHODS,
     REVIEW_EVIDENCE_KINDS,
     REVIEW_EVIDENCE_SOURCES,
+    ReviewChangeProposal,
     ReviewEvidence,
     anchor_symbol_claim,
 )
@@ -61,6 +73,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from lemoncrow.pro.capabilities.review.session_models import (
         Annotation,
         FrontierEntry,
+        ReviewMark,
         ReviewRevision,
         ReviewSession,
         ReviewSessionStatus,
@@ -70,8 +83,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from lemoncrow.pro.capabilities.review.store import ReviewStore
     from lemoncrow.pro.capabilities.review.targets import ReviewTarget
 
-HEALTHZ_PATH = "/healthz"
-API_PREFIX = "/api"
 HEALTHZ_PATH = "/healthz"
 API_PREFIX = "/api"
 
@@ -84,9 +95,8 @@ API_PREFIX = "/api"
 CONTENT_SECURITY_POLICY = (
     "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self'; "
-    "frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+    "frame-src http://127.0.0.1:*; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 )
-
 SECURITY_HEADERS: dict[str, str] = {
     "Content-Security-Policy": CONTENT_SECURITY_POLICY,
     "X-Frame-Options": "DENY",
@@ -187,6 +197,239 @@ PATCH_REFUSALS: tuple[str, ...] = (
     "packet_unavailable",
     "file_not_in_packet",
 )
+
+
+def _is_markdown_path(path: str) -> bool:
+    """True for Markdown files the browser can render as documents."""
+
+    return path.lower().endswith((".md", ".markdown", ".mdc"))
+
+
+_MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))")
+_HTML_IMAGE_RE = re.compile(r"<img\b[^>]*\bsrc\s*=\s*(['\"])(.*?)\1", flags=re.IGNORECASE | re.DOTALL)
+
+
+def _markdown_image_sources(text: str) -> frozenset[str]:
+    """Image sources explicitly present in one Markdown document.
+
+    This is a security boundary for the authenticated preview-image route, not a
+    Markdown renderer. False negatives merely leave an image unresolved; false
+    positives would turn that route into an arbitrary repository/network fetch.
+    """
+
+    sources: set[str] = set()
+    for match in _MARKDOWN_IMAGE_RE.finditer(text):
+        source = (match.group(1) or match.group(2) or "").strip()
+        if source:
+            sources.add(source)
+    for match in _HTML_IMAGE_RE.finditer(text):
+        source = (match.group(2) or "").strip()
+        if source:
+            sources.add(source)
+    return frozenset(sources)
+
+
+def _markdown_asset_repo_path(document_path: str, source: str) -> str | None:
+    """Resolve a relative Markdown image source to a confined repo-relative path."""
+
+    parsed = urlsplit(source)
+    if parsed.scheme or parsed.netloc:
+        return None
+    raw_path = unquote(parsed.path).replace("\\", "/")
+    if not raw_path or raw_path.startswith("#"):
+        return None
+    if raw_path.startswith("/"):
+        candidate = posixpath.normpath(raw_path.lstrip("/"))
+    else:
+        candidate = posixpath.normpath(posixpath.join(posixpath.dirname(document_path), raw_path))
+    if candidate in {"", ".", ".."} or candidate.startswith("../"):
+        return None
+    return candidate
+
+
+def _markdown_preview_payload(
+    store: ReviewStore,
+    review_id: str,
+    revision: ReviewRevision,
+    repo_root: Path,
+    entry: Mapping[str, Any],
+) -> dict[str, str] | None:
+    """Return exact old/new Markdown texts for the stored review revision.
+
+    New-side text comes from LemonCrow's immutable blob artifact, never today's
+    worktree. Old-side text is read from the revision's recorded base tree. If
+    either side cannot be proved, the browser falls back to the source diff.
+    """
+
+    path = str(entry.get("path") or "")
+    if not _is_markdown_path(path) or bool(entry.get("is_binary")):
+        return None
+
+    file_status = str(entry.get("status") or "modified")
+    old_path = str(entry.get("old_path") or "") or path
+
+    if file_status == "deleted":
+        new_text = ""
+    else:
+        blobs = store.read_blob_artifact(review_id, revision.id)
+        if blobs is None or path not in blobs:
+            return None
+        new_text = blobs[path]
+
+    if file_status == "added":
+        old_text = ""
+    else:
+        if not revision.base_sha:
+            return None
+        from lemoncrow.pro.capabilities.review.gitdiff import _blob_from_tree, _decode, _open_repo, _tree_for_sha
+
+        try:
+            repo = _open_repo(repo_root)
+            tree = _tree_for_sha(repo, revision.base_sha)
+            payload, reason = _blob_from_tree(repo, tree, old_path)
+        except (OSError, ValueError):
+            return None
+        if reason:
+            return None
+        old_text = _decode(payload)
+
+    return {"kind": "markdown", "old_content": old_text, "new_content": new_text}
+
+
+def _web_preview_payload(
+    store: ReviewStore,
+    revision: ReviewRevision,
+    repo_root: Path,
+    entry: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Describe revision-pinned routes affected by one frontend source file."""
+
+    path = str(entry.get("path") or "")
+    from lemoncrow.pro.capabilities.review.web_preview import infer_web_preview_descriptor
+
+    try:
+        descriptor = infer_web_preview_descriptor(repo_root, revision, path, store_root=store.root, store=store)
+    except (OSError, ValueError):
+        return None
+    return descriptor.to_payload() if descriptor is not None else None
+
+
+def _frozen_nested_web_preview_payload(
+    store: ReviewStore,
+    revision: ReviewRevision,
+    repo_root: Path,
+    path: str,
+) -> dict[str, Any] | None:
+    """Preview metadata for a file frozen inside a dirty submodule snapshot."""
+
+    from lemoncrow.pro.capabilities.review.snapshot import frozen_submodule_changed_paths
+    from lemoncrow.pro.capabilities.review.web_preview import infer_web_preview_descriptor
+
+    if path not in set(frozen_submodule_changed_paths(store.root, revision)):
+        return None
+    try:
+        descriptor = infer_web_preview_descriptor(repo_root, revision, path, store_root=store.root, store=store)
+    except (OSError, ValueError):
+        return None
+    return descriptor.to_payload() if descriptor is not None else None
+
+
+def _media_preview_payload(entry: Mapping[str, Any]) -> dict[str, str] | None:
+    """Describe browser-renderable media without hiding meaningful textual source."""
+
+    path = str(entry.get("path") or "")
+    media_type = mimetypes.guess_type(path)[0] or ""
+    is_binary = bool(entry.get("is_binary"))
+
+    # SVG is often honest, useful source text. Keep it on the normal diff path
+    # when Git can read it as text. PDFs, on the other hand, may happen to contain
+    # only ASCII bytes while still being a rendered document rather than source a
+    # reviewer should inspect line-by-line.
+    if media_type == "image/svg+xml" and not is_binary:
+        return None
+    if media_type.startswith("image/"):
+        media_kind = "image"
+    elif media_type.startswith("video/"):
+        media_kind = "video"
+    elif media_type.startswith("audio/"):
+        media_kind = "audio"
+    elif media_type == "application/pdf":
+        media_kind = "pdf"
+    else:
+        return None
+    return {"kind": "media", "media_type": media_type, "media_kind": media_kind}
+
+
+def _asset_entry(packet: Mapping[str, Any] | None, path: str, *, side: str) -> Mapping[str, Any] | None:
+    direct = _files_by_path(packet).get(path)
+    if direct is not None:
+        return direct
+    if side == "old" and packet is not None:
+        for raw in packet.get("files") or ():
+            if isinstance(raw, Mapping) and str(raw.get("old_path") or "") == path:
+                return raw
+    return None
+
+
+def _revision_asset_bytes(
+    store: ReviewStore,
+    review_id: str,
+    revision: ReviewRevision,
+    repo_root: Path,
+    packet: Mapping[str, Any] | None,
+    path: str,
+    *,
+    side: str,
+) -> tuple[bytes | None, str]:
+    """Read exact old/new asset bytes without consulting today's mutable file."""
+
+    from lemoncrow.pro.capabilities.review.gitdiff import (
+        MAX_REVIEW_MEDIA_BYTES,
+        _blob_from_tree,
+        _open_repo,
+        _tree_for_sha,
+    )
+
+    entry = _asset_entry(packet, path, side=side)
+    if entry is not None:
+        status_name = str(entry.get("status") or "modified")
+        new_path = str(entry.get("path") or path)
+        old_path = str(entry.get("old_path") or "") or new_path
+        if side == "old" and status_name == "added":
+            return None, "asset did not exist before this revision"
+        if side == "new" and status_name == "deleted":
+            return None, "asset was deleted in this revision"
+
+        if side == "new" and revision.range_mode != "commit_range":
+            if bool(entry.get("is_binary")):
+                frozen_media = store.read_media_artifact(review_id, revision.id) or {}
+                payload = frozen_media.get(new_path)
+                if payload is None:
+                    return None, "the reviewed revision did not preserve exact media bytes"
+                return payload, ""
+            frozen_text = store.read_blob_artifact(review_id, revision.id) or {}
+            text = frozen_text.get(new_path)
+            if text is None:
+                return None, "the reviewed revision did not preserve exact file bytes"
+            return text.encode("utf-8"), ""
+
+        tree_path = old_path if side == "old" else new_path
+    else:
+        tree_path = path
+
+    sha = (
+        revision.base_sha
+        if side == "old"
+        else (revision.head_sha if revision.range_mode == "commit_range" else revision.base_sha)
+    )
+    if not sha:
+        return None, "reviewed asset tree is unavailable"
+    try:
+        repo = _open_repo(repo_root)
+        tree = _tree_for_sha(repo, sha)
+        return _blob_from_tree(repo, tree, tree_path, max_bytes=MAX_REVIEW_MEDIA_BYTES)
+    except (OSError, ValueError):
+        return None, "asset is unreadable"
 
 
 def synthesize_file_patch(entry: Mapping[str, Any]) -> tuple[str, str, str]:
@@ -465,6 +708,7 @@ def _reason_lines(entry: FrontierEntry, group: str) -> list[str]:
 def _session_payload(session: ReviewSession) -> dict[str, Any]:
     return {
         "id": session.id,
+        "ref": f"r/{session.id}",
         "title": session.title,
         "subject_type": session.subject_type,
         "range_mode": session.range_mode,
@@ -481,14 +725,12 @@ def _session_payload(session: ReviewSession) -> dict[str, Any]:
 def _revision_payload(revision: ReviewRevision) -> dict[str, Any]:
     return {
         "id": revision.id,
+        "ref": f"rr/{revision.id}",
         "revision_number": revision.revision_number,
         "range_mode": revision.range_mode,
         "base_sha": revision.base_sha,
         "head_sha": revision.head_sha,
         "dirty": revision.dirty,
-        # No `tree_fingerprint`: it is the store's idempotency key, it was
-        # rendered by no pane, and a field the browser carries but never shows
-        # is a contract nobody is keeping.
         "packet_schema_version": revision.packet_schema_version,
         "degraded": list(revision.degraded),
         "provenance_host": revision.provenance_host,
@@ -660,8 +902,10 @@ def build_groups(
                 "is_binary": bool(item.get("is_binary")) if item is not None else False,
                 "language": (item.get("language") if item is not None else None) or "",
                 "renderable": item is not None
-                and not item.get("is_binary")
-                and bool(item.get("hunks") or item.get("submodule_pointer")),
+                and (
+                    _media_preview_payload(item) is not None
+                    or (not item.get("is_binary") and bool(item.get("hunks") or item.get("submodule_pointer")))
+                ),
             }
         )
 
@@ -822,6 +1066,69 @@ def _annotation_payload(annotation: Annotation) -> dict[str, Any]:
     }
 
 
+def _activity_payload(event: Any) -> dict[str, Any]:
+    try:
+        detail = json.loads(event.detail_json) if event.detail_json else {}
+    except (TypeError, ValueError):
+        detail = {}
+    if not isinstance(detail, dict):
+        detail = {}
+    return {
+        "id": event.id,
+        "review_id": event.review_id,
+        "revision_id": event.revision_id,
+        "kind": event.kind,
+        "actor_id": event.actor_id,
+        "actor_type": event.actor_type,
+        "subject_type": event.subject_type,
+        "subject_id": event.subject_id,
+        "summary": event.summary,
+        "detail": detail,
+        "created_at": event.created_at,
+    }
+
+
+def _mark_event_payload(event: Any) -> dict[str, Any]:
+    return {
+        "id": event.id,
+        "review_id": event.review_id,
+        "reviewer_id": event.reviewer_id,
+        "unit_key": event.unit_key,
+        "revision_id": event.revision_id,
+        "reviewed_revision_id": event.reviewed_revision_id,
+        "event_kind": event.event_kind,
+        "from_state": event.from_state,
+        "to_state": event.to_state,
+        "content_fingerprint": event.content_fingerprint,
+        "previous_unit_key": event.previous_unit_key,
+        "actor_type": event.actor_type,
+        "note": event.note,
+        "reason": event.reason,
+        "created_at": event.created_at,
+    }
+
+
+def _annotation_version_payload(version: Any) -> dict[str, Any]:
+    return {
+        "id": version.id,
+        "annotation_id": version.annotation_id,
+        "review_id": version.review_id,
+        "revision_id": version.revision_id,
+        "version_number": version.version_number,
+        "body": version.body,
+        "kind": version.kind,
+        "state": version.state,
+        "author_response": version.author_response,
+        "author_response_source_id": version.author_response_source_id,
+        "author_response_at": version.author_response_at,
+        "resolved_revision_id": version.resolved_revision_id,
+        "changed_by": version.changed_by,
+        "changed_by_actor": version.changed_by_actor,
+        "change_kind": version.change_kind,
+        "created_at": version.created_at,
+    }
+
+
 def _int_field(source: Mapping[str, Any], names: Sequence[str]) -> int:
     """The first of *names* present in *source*, as an int; ``0`` when none is.
 
@@ -971,23 +1278,51 @@ def register_review_api(
     auth_dependency: Callable[..., Any],
     repo_root: Path,
     port: int,
+    session_repo_identity: str | None = None,
+    enforce_origin_guard: bool = True,
+    surface_workspace_root: Path | None = None,
+    dependency_repo_root: Path | None = None,
+    source_repo_root: Path | None = None,
+    source_store_root: Path | None = None,
+    source_refresh_enabled: bool = True,
+    runner_registry: Any | None = None,
 ) -> None:
-    """Add the review routes and the browser-facing guards to *app*.
+    """Add the review routes and browser-facing guards to *app*.
 
-    *port* is required rather than inferred: the ``Origin``/``Host`` check has
-    to know which origin is *this* workspace, and a guard that accepts any
-    loopback port accepts every other local page as well.
+    ``repo_root`` is the filesystem/runtime root used for local source context
+    and previews. ``session_repo_identity`` is the durable ReviewSession
+    identity expected in this store; it defaults to the resolved repository
+    path for the historical per-repo workspace, while the central server passes
+    its tenant/repository identity instead.
 
-    Route registration only. This function never binds a socket, never mints a
-    token and never starts a server.
+    ``enforce_origin_guard`` stays on for a directly-bound workspace. The main
+    LemonCrow server disables the inner guard because the Reader app is invoked
+    in-process behind that server's listener, authentication and authorization.
+
+    ``source_repo_root`` is the trusted mutable checkout used only for source
+    change detection and explicit Review refresh. Central/hosted compositions
+    must disable ``source_refresh_enabled`` unless they have such a binding.
+    ``source_store_root`` supplies the normal LemonCrow trace/session store so a
+    UI-triggered refresh preserves the provenance/evidence semantics of the CLI
+    capture path instead of rebuilding against the Review database itself.
     """
 
     from fastapi import APIRouter
 
     from lemoncrow.core.foundation.paths import confine_to_root
+    from lemoncrow.pro.capabilities.review.change_proposals import (
+        replace_line_range,
+        selected_line_text,
+        text_sha256,
+        unified_proposal_patch,
+    )
     from lemoncrow.pro.capabilities.review.feedback import build_bundle, render_markdown
-    from lemoncrow.pro.capabilities.review.revisions import compute_frontier
-    from lemoncrow.pro.capabilities.review.session_models import ANNOTATION_STATES
+    from lemoncrow.pro.capabilities.review.revisions import compare_revision_units, compute_frontier, group_frontier
+    from lemoncrow.pro.capabilities.review.session_models import (
+        ANNOTATION_STATES,
+        REVIEW_OUTCOME_KINDS,
+        ReviewActivityEvent,
+    )
     from lemoncrow.pro.capabilities.review.sources.local import (
         annotate,
         annotation_counts,
@@ -1000,28 +1335,173 @@ def register_review_api(
         resolve_mark_units,
         revision_new_side_text,
         set_review_status,
+        unseen_units,
     )
+    from lemoncrow.pro.capabilities.review.store import utc_now
 
     resolved_repo = repo_root.expanduser().resolve()
+    resolved_dependency_repo = dependency_repo_root.expanduser().resolve() if dependency_repo_root is not None else None
+    resolved_source_repo = source_repo_root.expanduser().resolve() if source_repo_root is not None else resolved_repo
+    resolved_source_store = source_store_root.expanduser().resolve() if source_store_root is not None else store.root
+    expected_session_repo = session_repo_identity if session_repo_identity is not None else str(resolved_repo)
 
-    @app.middleware("http")
-    async def _guard(request: Request, call_next: Any) -> Any:
-        refusal = origin_refusal(
-            host=request.headers.get("host", ""),
-            origin=request.headers.get("origin", ""),
-            referer=request.headers.get("referer", ""),
-            port=port,
+    def _proposal_target_ids(proposal: ReviewChangeProposal, targets: Sequence[ReviewTarget]) -> list[str]:
+        matched: list[str] = []
+        for target in targets:
+            if target.path != proposal.path:
+                continue
+            same_unit = bool(proposal.target_unit_key and target.unit_key == proposal.target_unit_key)
+            overlaps = target.start_line <= proposal.end_line and target.end_line >= proposal.start_line
+            if same_unit or overlaps:
+                matched.append(target.target_id)
+        return matched
+
+    def _proposal_payload(
+        proposal: ReviewChangeProposal,
+        *,
+        current_targets: Sequence[ReviewTarget] = (),
+    ) -> dict[str, Any]:
+        base_revision = store.get_revision(proposal.base_revision_id)
+        current_revision = store.latest_revision(proposal.review_id)
+        result_targets = (
+            _proposal_target_ids(proposal, current_targets) if proposal.result_revision_id and current_targets else []
         )
-        if refusal:
-            # A refusal is a Response, not an exception: middleware sits outside
-            # FastAPI's exception handlers, so raising here would surface as a
-            # 500 and hide the reason from both the caller and the test.
-            response: Any = JSONResponse({"detail": refusal}, status_code=status.HTTP_403_FORBIDDEN)
-        else:
-            response = await call_next(request)
-        for name, value in SECURITY_HEADERS.items():
-            response.headers[name] = value
-        return response
+        return {
+            "id": proposal.id,
+            "review_id": proposal.review_id,
+            "base_revision_id": proposal.base_revision_id,
+            "base_revision_number": base_revision.revision_number if base_revision is not None else 0,
+            "path": proposal.path,
+            "start_line": proposal.start_line,
+            "end_line": proposal.end_line,
+            "original_text": proposal.original_text,
+            "replacement_text": proposal.replacement_text,
+            "patch": proposal.patch_text,
+            "state": proposal.state,
+            "target_unit_key": proposal.target_unit_key,
+            "annotation_id": proposal.annotation_id,
+            "intent": proposal.intent,
+            "conflict_reason": proposal.conflict_reason,
+            "created_by": proposal.created_by,
+            "created_at": proposal.created_at,
+            "updated_at": proposal.updated_at,
+            "applied_at": proposal.applied_at,
+            "result_revision_id": proposal.result_revision_id,
+            "result_target_ids": result_targets,
+            "can_apply": (
+                source_refresh_enabled
+                and proposal.state == "proposed"
+                and current_revision is not None
+                and current_revision.id == proposal.base_revision_id
+            ),
+        }
+
+    def _atomic_write_source(path: Path, text: str) -> None:
+        mode = path.stat().st_mode
+        fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.lc-proposal-", dir=str(path.parent))
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(text.encode("utf-8"))
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(temp_name, mode)
+            os.replace(temp_name, path)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(temp_name)
+            raise
+
+    def _feedback_annotation_version(annotation_id: str) -> int:
+        """Latest reviewer-owned semantic version of one root feedback thread.
+
+        Author ``addressed`` claims are append-only annotation versions too, but
+        they must not make already-published human text look new again. Delivery
+        therefore binds to the latest non-author-response version.
+        """
+
+        versions = store.list_annotation_versions(annotation_id)
+        for version in reversed(versions):
+            if version.change_kind != "author_response":
+                return int(version.version_number)
+        return 0
+
+    def _feedback_partition(
+        revision_id: str,
+        annotations: Sequence[Annotation],
+    ) -> tuple[dict[str, int], frozenset[str], dict[str, int]]:
+        """Classify current root human feedback for one review revision.
+
+        A comment version is publishable until that exact version is either in
+        flight or sent for this revision. Reviewer edits create a newer version
+        and become publishable again. An author ``addressed`` claim belongs to
+        re-review instead of another automatic send.
+        """
+
+        unpublished: set[str] = set()
+        versions: dict[str, int] = {}
+        published = 0
+        in_flight = 0
+        addressed = 0
+        open_total = 0
+        for annotation in annotations:
+            if annotation.source != "human" or annotation.parent_id:
+                continue
+            if annotation.state in {"resolved", "obsolete"}:
+                continue
+            open_total += 1
+            version = _feedback_annotation_version(annotation.id)
+            versions[annotation.id] = version
+            if annotation.author_response == "addressed":
+                addressed += 1
+                continue
+            matching = tuple(
+                item
+                for item in store.list_deliveries(annotation.id)
+                if item.revision_id == revision_id and item.annotation_version == version
+            )
+            states = {item.state for item in matching}
+            unsafe_to_resend = any(
+                item.state in {"dispatching", "queued", "uncertain"}
+                or (item.state in {"blocked", "failed"} and bool(item.remote_ref))
+                for item in matching
+            )
+            if "sent" in states:
+                published += 1
+            elif unsafe_to_resend:
+                # Keep active or ambiguous attempts out of the resendable bucket.
+                # Only a proven not-dispatched failure becomes unpublished again.
+                in_flight += 1
+            else:
+                unpublished.add(annotation.id)
+        status_payload = {
+            "open_total": open_total,
+            "unpublished": len(unpublished),
+            "published": published,
+            "in_flight": in_flight,
+            "addressed": addressed,
+        }
+        return status_payload, frozenset(unpublished), versions
+
+    if enforce_origin_guard:
+
+        @app.middleware("http")
+        async def _guard(request: Request, call_next: Any) -> Any:
+            refusal = origin_refusal(
+                host=request.headers.get("host", ""),
+                origin=request.headers.get("origin", ""),
+                referer=request.headers.get("referer", ""),
+                port=port,
+            )
+            if refusal:
+                # A refusal is a Response, not an exception: middleware sits outside
+                # FastAPI's exception handlers, so raising here would surface as a
+                # 500 and hide the reason from both the caller and the test.
+                response: Any = JSONResponse({"detail": refusal}, status_code=status.HTTP_403_FORBIDDEN)
+            else:
+                response = await call_next(request)
+            for name, value in SECURITY_HEADERS.items():
+                response.headers[name] = value
+            return response
 
     @app.get(HEALTHZ_PATH)
     async def _healthz() -> dict[str, Any]:
@@ -1037,12 +1517,14 @@ def register_review_api(
     router = APIRouter(prefix=API_PREFIX, dependencies=[Depends(auth_dependency)])
 
     def _session(review_id: str) -> ReviewSession:
-        session = store.get_session(review_id)
-        if session is None or session.repo_root != str(resolved_repo):
+        try:
+            session = store.resolve_session(review_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        if session is None or session.repo_root != expected_session_repo:
             # A session for another repository is *not found* here rather than
-            # forbidden: this workspace serves exactly one repo_root, and saying
-            # "exists elsewhere" would leak that another checkout is under
-            # review on this machine.
+            # forbidden: this Reader surface is repository-scoped, and saying
+            # "exists elsewhere" would leak a Review in another repository.
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such review")
         return session
 
@@ -1068,6 +1550,198 @@ def register_review_api(
         if revision is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="this review has no revision yet")
         return revision
+
+    def _requested_revision(session: ReviewSession, revision_id: str) -> ReviewRevision:
+        """Resolve an explicitly requested stored revision, or the latest when omitted."""
+
+        if not revision_id:
+            return _latest(session)
+        try:
+            revision = store.resolve_revision(revision_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        if revision is None or revision.review_id != session.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such revision in this review")
+        return revision
+
+    def _revision(reference: str) -> tuple[ReviewSession, ReviewRevision]:
+        try:
+            revision = store.resolve_revision(reference)
+        except LookupError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        if revision is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such review revision")
+        session = _session(revision.review_id)
+        return session, revision
+
+    def _revision_number(session: ReviewSession, revision_number: int) -> ReviewRevision:
+        if revision_number < 1:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such review revision")
+        revision = next(
+            (item for item in store.list_revisions(session.id) if item.revision_number == revision_number),
+            None,
+        )
+        if revision is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such review revision")
+        return revision
+
+    def _marks_visible_at(session: ReviewSession, revision: ReviewRevision) -> tuple[ReviewMark, ...]:
+        """Historical mark projection from H2 events, with a legacy-store fallback."""
+
+        if store.list_mark_events(session.id, reviewer_id=session.reviewer_id):
+            return store.marks_at_revision(session.id, revision.id, reviewer_id=session.reviewer_id)
+        # Stores created before H2 have no transition log to replay. Under-report
+        # rather than projecting a later mutable verdict backwards.
+        numbers = {item.id: item.revision_number for item in store.list_revisions(session.id)}
+        return tuple(
+            mark
+            for mark in store.list_marks(session.id, reviewer_id=session.reviewer_id)
+            if numbers.get(mark.reviewed_revision_id, revision.revision_number + 1) <= revision.revision_number
+        )
+
+    def _suggested_compare_from(session: ReviewSession, target: ReviewRevision) -> int:
+        """Latest revision this reviewer actually judged before *target*.
+
+        If the reviewer has no older judgment, adjacent snapshots are the least
+        surprising fallback. A single-revision review compares to itself.
+        """
+
+        revisions = {item.id: item.revision_number for item in store.list_revisions(session.id)}
+        judged = [
+            revisions[event.revision_id]
+            for event in store.list_mark_events(session.id, reviewer_id=session.reviewer_id)
+            if event.event_kind == "judgment"
+            and event.revision_id in revisions
+            and revisions[event.revision_id] < target.revision_number
+        ]
+        if judged:
+            return max(judged)
+        return max(1, target.revision_number - 1)
+
+    def _revision_compare_payload(
+        session: ReviewSession,
+        *,
+        from_revision_number: int,
+        to_revision_number: int,
+    ) -> dict[str, Any]:
+        target = _latest(session) if to_revision_number < 1 else _revision_number(session, to_revision_number)
+        source_number = from_revision_number if from_revision_number > 0 else _suggested_compare_from(session, target)
+        source = _revision_number(session, source_number)
+        comparison = compare_revision_units(
+            store.list_units(source.id),
+            store.list_units(target.id),
+            previous_marks=_marks_visible_at(session, source),
+            next_marks=_marks_visible_at(session, target),
+        )
+        source_blob_artifact = store.read_blob_artifact(session.id, source.id)
+        target_blob_artifact = store.read_blob_artifact(session.id, target.id)
+        code_available = source_blob_artifact is not None and target_blob_artifact is not None
+        source_blobs = source_blob_artifact or {}
+        target_blobs = target_blob_artifact or {}
+        code_files: list[dict[str, Any]] = []
+        for path in sorted(set(source_blobs) | set(target_blobs)) if code_available else ():
+            before = source_blobs.get(path)
+            after = target_blobs.get(path)
+            if before == after:
+                continue
+            status_name = "added" if before is None else "removed" if after is None else "changed"
+            before_text = before or ""
+            after_text = after or ""
+            patch = "".join(
+                difflib.unified_diff(
+                    before_text.splitlines(keepends=True),
+                    after_text.splitlines(keepends=True),
+                    fromfile=f"rev-{source.revision_number}/{path}",
+                    tofile=f"rev-{target.revision_number}/{path}",
+                    n=3,
+                )
+            )
+            added_lines = sum(1 for line in patch.splitlines() if line.startswith("+") and not line.startswith("+++"))
+            removed_lines = sum(1 for line in patch.splitlines() if line.startswith("-") and not line.startswith("---"))
+            code_files.append(
+                {
+                    "path": path,
+                    "status": status_name,
+                    "added_lines": added_lines,
+                    "removed_lines": removed_lines,
+                    "patch": patch,
+                }
+            )
+        return {
+            "review_id": session.id,
+            "reviewer_id": session.reviewer_id,
+            "from_revision": _revision_payload(source),
+            "to_revision": _revision_payload(target),
+            "suggested_from_revision_number": _suggested_compare_from(session, target),
+            "summary": {
+                "added": comparison.added,
+                "changed": comparison.changed,
+                "removed": comparison.removed,
+                "unchanged": comparison.unchanged,
+            },
+            "files": [
+                {
+                    "path": item.path,
+                    "status": item.status,
+                    "added": item.added,
+                    "changed": item.changed,
+                    "removed": item.removed,
+                    "reviewed_before": item.reviewed_before,
+                    "reviewed_after": item.reviewed_after,
+                    "changed_since_review_after": item.changed_since_review_after,
+                    "needs_changes_after": item.needs_changes_after,
+                }
+                for item in comparison.files
+            ],
+            "code_available": code_available,
+            "code_unavailable_reason": (
+                ""
+                if code_available
+                else "one or both revisions predate persisted source snapshots; semantic target comparison remains available"
+            ),
+            "code_summary": {
+                "files": len(code_files),
+                "added_lines": sum(item["added_lines"] for item in code_files),
+                "removed_lines": sum(item["removed_lines"] for item in code_files),
+            },
+            "code_files": code_files,
+            "units": [
+                {
+                    "unit_key": item.unit_key,
+                    "path": item.path,
+                    "kind": item.kind,
+                    "symbol": item.symbol,
+                    "status": item.status,
+                    "from_state": item.from_state,
+                    "to_state": item.to_state,
+                    "from_start_line": item.from_start_line,
+                    "to_start_line": item.to_start_line,
+                }
+                for item in comparison.units
+            ],
+        }
+
+    def _annotations_at(
+        session: ReviewSession, revision: ReviewRevision, *, historical: bool
+    ) -> tuple[Annotation, ...]:
+        return (
+            store.list_annotations_at_revision(session.id, revision.id)
+            if historical
+            else store.list_annotations(session.id)
+        )
+
+    def _evidence_at(
+        session: ReviewSession, revision: ReviewRevision, *, historical: bool
+    ) -> tuple[ReviewEvidence, ...]:
+        artifacts = store.list_evidence(session.id)
+        if not historical:
+            return artifacts
+        numbers = {item.id: item.revision_number for item in store.list_revisions(session.id)}
+        return tuple(
+            item
+            for item in artifacts
+            if numbers.get(item.revision_id, revision.revision_number + 1) <= revision.revision_number
+        )
 
     def _same_reviewed_code(left: ReviewRevision, right: ReviewRevision) -> bool:
         if left.id == right.id:
@@ -1170,12 +1844,21 @@ def register_review_api(
             )
         ]
 
-    def _overview(session: ReviewSession) -> dict[str, Any]:
-        revision = _latest(session)
+    def _overview(
+        session: ReviewSession,
+        revision: ReviewRevision | None = None,
+        *,
+        historical: bool = False,
+    ) -> dict[str, Any]:
+        revision = revision or _latest(session)
         units = store.list_units(revision.id)
-        marks = store.list_marks(session.id)
+        marks = (
+            _marks_visible_at(session, revision)
+            if historical
+            else store.list_marks(session.id, reviewer_id=session.reviewer_id)
+        )
         packet = read_packet_json(store, revision)
-        annotations = store.list_annotations(session.id)
+        annotations = _annotations_at(session, revision, historical=historical)
         frontier = compute_frontier(
             session.id,
             session.reviewer_id,
@@ -1208,7 +1891,7 @@ def register_review_api(
         )
         degraded = sorted(set(revision.degraded) | ({"packet_unavailable"} if packet is None else set()))
         stats = packet.get("stats") if packet is not None and isinstance(packet.get("stats"), dict) else {}
-        artifacts = store.list_evidence(session.id)
+        artifacts = _evidence_at(session, revision, historical=historical)
         current_artifacts = tuple(item for item in artifacts if _evidence_is_current(item, revision))
         stale_artifact_count = len(artifacts) - len(current_artifacts)
         from lemoncrow.pro.capabilities.review.preparation import build_review_brief
@@ -1231,6 +1914,14 @@ def register_review_api(
             "session": _session_payload(session),
             "revision": _revision_payload(revision),
             "revision_count": len(store.list_revisions(session.id)),
+            "historical": historical,
+            "latest_revision_number": _latest(session).revision_number,
+            "latest_revision": _revision_payload(_latest(session)),
+            "historical_judgment_complete": (
+                not historical
+                or bool(store.list_mark_events(session.id, reviewer_id=session.reviewer_id))
+                or not store.list_marks(session.id, reviewer_id=session.reviewer_id)
+            ),
             "packet_available": packet is not None,
             "stats": stats,
             "title": (packet.get("title") if packet is not None else "") or session.title,
@@ -1253,29 +1944,425 @@ def register_review_api(
             "mark_count": len(marks),
             # On the overview rather than only on a refresh response: a reviewer
             # who reloaded the page has not un-destroyed their verdict.
-            "discarded": _discarded_payload(session, revision),
+            "discarded": (
+                [
+                    {
+                        "unit_key": record.unit_key,
+                        "kind": record.kind,
+                        "state": record.state,
+                        "label": unit_label(record) or record.unit_key,
+                        "reason": record.reason,
+                    }
+                    for record in store.discarded_marks_on(revision.id, reviewer_id=session.reviewer_id)
+                ]
+                if historical
+                else _discarded_payload(session, revision)
+            ),
         }
 
     @router.get("/reviews")
-    async def _list_reviews() -> dict[str, Any]:
+    async def _list_reviews(status_filter: str = "open") -> dict[str, Any]:
+        """List durable reviews for this repository without advancing any review.
+
+        ``all`` is explicit rather than the default because the local Reader historically
+        exposed only active work.  Hosted Review will project the same records into an
+        organization inbox, while this loopback workspace remains repository-confined.
+        """
+
+        if status_filter not in {"open", "finished", "archived", "all"}:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="status_filter must be open, finished, archived, or all",
+            )
         rows: list[dict[str, Any]] = []
-        for session in store.list_sessions(status="open"):
+        sessions = store.list_sessions(status="" if status_filter == "all" else status_filter, limit=500)
+        for session in sessions:
             if session.repo_root != str(resolved_repo):
                 continue
             revision = store.latest_revision(session.id)
+            annotations = store.list_annotations(session.id)
             payload = _session_payload(session)
             payload["revision_number"] = revision.revision_number if revision is not None else 0
+            payload["revision_id"] = revision.id if revision is not None else ""
+            payload["comment_count"] = len(annotations)
+            payload["open_comment_count"] = sum(
+                1 for item in annotations if item.state in {"open", "orphaned"} and not item.parent_id
+            )
             rows.append(payload)
-        return {"reviews": rows, "repo_root": str(resolved_repo)}
+        return {"reviews": rows, "repo_root": str(resolved_repo), "status_filter": status_filter}
+
+    @router.get("/reviews/{review_id}/preparation")
+    async def _get_review_preparation(review_id: str, preparation_id: str) -> dict[str, Any]:
+        """Cheap startup status for a Reader opened before packet capture completes."""
+
+        session = _session(review_id)
+        from lemoncrow.pro.capabilities.review.workspace import read_review_preparation
+
+        row = read_review_preparation(store.root, session.id, preparation_id)
+        if row is None:
+            return {"state": "ready", "detail": ""}
+        return {
+            "state": str(row.get("stage") or "preparing"),
+            "detail": str(row.get("detail") or ""),
+        }
+
+    @router.get("/revisions/{revision_id}")
+    async def _get_revision_locator(revision_id: str) -> dict[str, Any]:
+        session, revision = _revision(revision_id)
+        return {
+            "review": _session_payload(session),
+            "revision": _revision_payload(revision),
+        }
 
     @router.get("/reviews/{review_id}")
     async def _get_review(review_id: str) -> dict[str, Any]:
         return _overview(_session(review_id))
 
+    @router.get("/reviews/{review_id}/revisions/{revision_number}")
+    async def _get_historical_review(review_id: str, revision_number: int) -> dict[str, Any]:
+        session = _session(review_id)
+        revision = _revision_number(session, revision_number)
+        return _overview(session, revision, historical=True)
+
     @router.get("/reviews/{review_id}/revisions")
     async def _get_revisions(review_id: str) -> dict[str, Any]:
         session = _session(review_id)
         return {"revisions": [_revision_payload(item) for item in store.list_revisions(session.id)]}
+
+    @router.get("/reviews/{review_id}/compare")
+    async def _compare_revisions(
+        review_id: str,
+        from_revision: int = 0,
+        to_revision: int = 0,
+    ) -> dict[str, Any]:
+        session = _session(review_id)
+        return _revision_compare_payload(
+            session,
+            from_revision_number=from_revision,
+            to_revision_number=to_revision,
+        )
+
+    @router.get("/compare")
+    async def _compare_sources(from_ref: str, to_ref: str) -> dict[str, Any]:
+        """Compare two explicitly named source snapshots without creating a Review.
+
+        The URL-facing comparison surface is intentionally source-oriented, not
+        Review-oriented. Review revisions are one source kind alongside Git
+        commits/refs and the current index/worktree.
+        """
+
+        from lemoncrow.pro.capabilities.review.gitdiff import RevRange, collect_diff, resolve_rev_range
+
+        def review_revision(spec: str) -> tuple[ReviewSession, ReviewRevision] | None:
+            if spec.startswith("rr/"):
+                if len(spec) <= 3:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="empty Review revision source"
+                    )
+                return _revision(spec)
+            if spec.startswith("r/"):
+                if len(spec) <= 2:
+                    raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="empty Review source")
+                session = _session(spec)
+                return session, _latest(session)
+            return None
+
+        def git_spec(spec: str) -> str | None:
+            if not spec.startswith("git/"):
+                return None
+            value = spec[4:]
+            if not value:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="empty Git revision source"
+                )
+            return value
+
+        def text_map_files(
+            left_blobs: Mapping[str, str | None],
+            right_blobs: Mapping[str, str | None],
+        ) -> list[dict[str, Any]]:
+            rows: list[dict[str, Any]] = []
+            for path in sorted(set(left_blobs) | set(right_blobs)):
+                before = left_blobs.get(path)
+                after = right_blobs.get(path)
+                if before == after:
+                    continue
+                file_status = "added" if before is None else "deleted" if after is None else "modified"
+                patch = "".join(
+                    difflib.unified_diff(
+                        (before or "").splitlines(keepends=True),
+                        (after or "").splitlines(keepends=True),
+                        fromfile=f"a/{path}",
+                        tofile=f"b/{path}",
+                        n=3,
+                    )
+                )
+                rows.append(
+                    {
+                        "path": path,
+                        "old_path": path,
+                        "status": file_status,
+                        "additions": sum(
+                            1 for line in patch.splitlines() if line.startswith("+") and not line.startswith("+++")
+                        ),
+                        "deletions": sum(
+                            1 for line in patch.splitlines() if line.startswith("-") and not line.startswith("---")
+                        ),
+                        "patch": patch,
+                        "renderable": True,
+                        "refusal": "",
+                        "detail": "",
+                    }
+                )
+            return rows
+
+        def revision_snapshot(
+            revision: ReviewRevision,
+            paths: set[str],
+        ) -> dict[str, str | None]:
+            blobs = store.read_blob_artifact(revision.review_id, revision.id)
+            if blobs is None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="the Review revision predates persisted source snapshots",
+                )
+            packet = read_packet_json(store, revision) or {}
+            raw_file_rows = packet.get("files")
+            file_rows: list[Any] = raw_file_rows if isinstance(raw_file_rows, list) else []
+            deleted = {
+                str(item.get("path") or "")
+                for item in file_rows
+                if isinstance(item, dict) and str(item.get("status") or "") == "deleted"
+            }
+            from lemoncrow.pro.capabilities.review.gitdiff import _blob_from_tree, _decode, _open_repo, _tree_for_sha
+
+            # Hosted Review persists a full immutable source-tree manifest whose
+            # content digests are pinned by the artifact backend. Prefer that
+            # durable snapshot over reopening a transient materialized checkout.
+            source_tree = store.read_source_tree_artifact(revision.review_id, revision.id, side="new")
+            repo = None
+            base_tree = None
+            base_tree_loaded = False
+            snapshot: dict[str, str | None] = {}
+            for path in paths:
+                if path in deleted:
+                    snapshot[path] = None
+                    continue
+                if path in blobs:
+                    snapshot[path] = blobs[path]
+                    continue
+                if source_tree is not None:
+                    entry = source_tree.get(path)
+                    if entry is None:
+                        snapshot[path] = None
+                        continue
+                    digest = str(entry.get("content_digest") or "")
+                    payload = store.read_source_content(digest) if digest else None
+                    if payload is None:
+                        raise HTTPException(
+                            status_code=status.HTTP_409_CONFLICT,
+                            detail=f"frozen source content is unavailable for {path}",
+                        )
+                    snapshot[path] = _decode(payload)
+                    continue
+                if not base_tree_loaded:
+                    base_tree_loaded = True
+                    if revision.base_sha:
+                        repo = _open_repo(resolved_source_repo)
+                        base_tree = _tree_for_sha(repo, revision.base_sha)
+                if base_tree is None or repo is None:
+                    snapshot[path] = None
+                    continue
+                payload, _ = _blob_from_tree(repo, base_tree, path)
+                snapshot[path] = None if payload is None else _decode(payload)
+            return snapshot
+
+        left_revision = review_revision(from_ref)
+        right_revision = review_revision(to_ref)
+        files: list[dict[str, Any]]
+        from_label = from_ref
+        to_label = to_ref
+        from_kind = "review_revision" if left_revision is not None else ""
+        to_kind = "review_revision" if right_revision is not None else ""
+
+        if left_revision is not None and right_revision is not None:
+            left_session, left = left_revision
+            right_session, right = right_revision
+            if left_session.repo_root != right_session.repo_root:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT, detail="Review revisions belong to different repositories"
+                )
+            left_blob_artifact = store.read_blob_artifact(left.review_id, left.id)
+            right_blob_artifact = store.read_blob_artifact(right.review_id, right.id)
+            if left_blob_artifact is None or right_blob_artifact is None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="one or both Review revisions predate persisted source snapshots",
+                )
+            compare_paths = set(left_blob_artifact) | set(right_blob_artifact)
+            files = text_map_files(
+                revision_snapshot(left, compare_paths),
+                revision_snapshot(right, compare_paths),
+            )
+            from_label = f"rev {left.revision_number} · rr/{left.id}"
+            to_label = f"rev {right.revision_number} · rr/{right.id}"
+        elif left_revision is not None and to_ref in {"worktree", "index"}:
+            left_session, left = left_revision
+            left_blobs = store.read_blob_artifact(left.review_id, left.id)
+            if left_blobs is None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="the Review revision predates persisted source snapshots",
+                )
+            if not left.base_sha:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="the Review revision has no Git base for live-source comparison",
+                )
+            live_mode: Literal["working_tree", "staged"] = "working_tree" if to_ref == "worktree" else "staged"
+            rng = RevRange(
+                mode=live_mode,
+                base_rev=left.base_sha,
+                head_rev="WORKDIR" if live_mode == "working_tree" else "INDEX",
+                base_sha=left.base_sha,
+                head_sha="",
+                dirty=True,
+                title=f"rev {left.revision_number} → {to_ref}",
+            )
+            from lemoncrow.pro.capabilities.review.gitdiff import load_blobs
+
+            diff = collect_diff(resolved_source_repo, rng, with_patch_text=True)
+            current = load_blobs(resolved_source_repo, rng, diff.files)
+            current_paths = {item.path for item in diff.files}
+            compare_paths = set(left_blobs) | current_paths
+            current_snapshot: dict[str, str | None] = {}
+            current_new = dict(current.new)
+            base_snapshot = revision_snapshot(left, compare_paths)
+            deleted_current = {item.path for item in diff.files if item.status == "deleted"}
+            for path in compare_paths:
+                if path in deleted_current:
+                    current_snapshot[path] = None
+                elif path in current_new:
+                    current_snapshot[path] = current_new[path]
+                else:
+                    current_snapshot[path] = base_snapshot.get(path)
+            files = text_map_files(
+                revision_snapshot(left, compare_paths),
+                current_snapshot,
+            )
+            from_kind, to_kind = "review_revision", to_ref
+            from_label = f"rev {left.revision_number} · rr/{left.id}"
+            to_label = to_ref
+        else:
+            left_git = git_spec(from_ref)
+            right_git = git_spec(to_ref)
+            if left_git is None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="left source must be r/<review>, rr/<revision>, or git/<ref>",
+                )
+            if right_git is not None:
+                try:
+                    rng = resolve_rev_range(resolved_source_repo, base=left_git, head=right_git)
+                except ValueError as exc:
+                    raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+                from_kind = to_kind = "git"
+                from_label, to_label = left_git, right_git
+            elif to_ref in {"worktree", "index"}:
+                try:
+                    base_rng = resolve_rev_range(resolved_source_repo, base=left_git, head=left_git)
+                except ValueError as exc:
+                    raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+                target_mode: Literal["working_tree", "staged"] = "working_tree" if to_ref == "worktree" else "staged"
+                rng = RevRange(
+                    mode=target_mode,
+                    base_rev=left_git,
+                    head_rev="WORKDIR" if target_mode == "working_tree" else "INDEX",
+                    base_sha=base_rng.base_sha,
+                    head_sha="",
+                    dirty=True,
+                    title=f"{left_git} → {to_ref}",
+                )
+                from_kind, to_kind = "git", to_ref
+                from_label, to_label = left_git, to_ref
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="right source must be r/<review>, rr/<revision>, git/<ref>, worktree, or index",
+                )
+
+            diff = collect_diff(resolved_source_repo, rng, with_patch_text=True)
+            files = []
+            for item in diff.files:
+                entry = {
+                    "path": item.path,
+                    "old_path": item.old_path,
+                    "status": item.status,
+                    "is_binary": item.is_binary,
+                    "submodule_pointer": item.submodule_pointer,
+                    "hunks": [{"header": hunk.header, "patch": hunk.patch} for hunk in item.hunks],
+                }
+                patch, refusal, detail = synthesize_file_patch(entry)
+                files.append(
+                    {
+                        "path": item.path,
+                        "old_path": item.old_path or item.path,
+                        "status": item.status,
+                        "additions": item.additions,
+                        "deletions": item.deletions,
+                        "patch": patch,
+                        "renderable": not refusal,
+                        "refusal": refusal,
+                        "detail": detail,
+                    }
+                )
+
+        return {
+            "from": {"spec": from_ref, "label": from_label, "kind": from_kind},
+            "to": {"spec": to_ref, "label": to_label, "kind": to_kind},
+            "summary": {
+                "files": len(files),
+                "additions": sum(int(item["additions"]) for item in files),
+                "deletions": sum(int(item["deletions"]) for item in files),
+            },
+            "files": files,
+        }
+
+    @router.get("/reviews/{review_id}/activity")
+    async def _get_review_activity(review_id: str, limit: int = 500) -> dict[str, Any]:
+        session = _session(review_id)
+        events = store.list_activity_events(session.id, limit=limit)
+        return {"review_id": session.id, "events": [_activity_payload(item) for item in events]}
+
+    @router.get("/reviews/{review_id}/targets/{unit_key:path}/history")
+    async def _get_target_history(review_id: str, unit_key: str) -> dict[str, Any]:
+        session = _session(review_id)
+        events = store.list_mark_events(session.id, reviewer_id=session.reviewer_id, unit_key=unit_key)
+        known = any(
+            unit.unit_key == unit_key
+            for revision in store.list_revisions(session.id)
+            for unit in store.list_units(revision.id)
+        )
+        if not events and not known:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such review target in this review")
+        return {
+            "review_id": session.id,
+            "reviewer_id": session.reviewer_id,
+            "unit_key": unit_key,
+            "events": [_mark_event_payload(item) for item in events],
+        }
+
+    @router.get("/annotations/{annotation_id}/versions")
+    async def _get_annotation_versions(annotation_id: str) -> dict[str, Any]:
+        annotation = store.get_annotation(annotation_id)
+        if annotation is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such comment")
+        _session(annotation.review_id)
+        versions = store.list_annotation_versions(annotation.id)
+        return {
+            "annotation_id": annotation.id,
+            "versions": [_annotation_version_payload(item) for item in versions],
+        }
 
     @router.get("/reviews/{review_id}/source-state")
     async def _get_source_state(review_id: str) -> dict[str, Any]:
@@ -1288,6 +2375,15 @@ def register_review_api(
 
         session = _session(review_id)
         revision = _latest(session)
+        if not source_refresh_enabled:
+            return {
+                "supported": False,
+                "changed": False,
+                "fingerprint": revision.source_fingerprint,
+                "path_count": 0,
+                "paths": [],
+                "reason": "this Review has no trusted mutable source bound to the server; run lc review to publish a new revision",
+            }
         if session.range_mode not in ("working_tree", "staged"):
             return {
                 "supported": False,
@@ -1295,7 +2391,7 @@ def register_review_api(
                 "fingerprint": revision.source_fingerprint,
                 "path_count": 0,
                 "paths": [],
-                "reason": "automatic change detection currently applies to working-tree and staged reviews",
+                "reason": "source change detection currently applies to working-tree and staged reviews",
             }
         if not revision.source_fingerprint:
             return {
@@ -1311,7 +2407,7 @@ def register_review_api(
         from lemoncrow.pro.capabilities.review.sources.local import range_for_session
 
         try:
-            current = source_state(resolved_repo, range_for_session(resolved_repo, session))
+            current = source_state(resolved_source_repo, range_for_session(resolved_source_repo, session))
         except (OSError, RuntimeError, ValueError) as exc:
             return {
                 "supported": False,
@@ -1330,20 +2426,25 @@ def register_review_api(
             "reason": "",
         }
 
-    @router.get("/reviews/{review_id}/targets")
-    async def _get_targets(review_id: str, order: str = "recommended") -> dict[str, Any]:
-        """Reader metadata: one non-overlapping judgment target per changed span."""
-
+    def _targets_payload(
+        session: ReviewSession,
+        revision: ReviewRevision,
+        *,
+        order: str,
+        historical: bool,
+    ) -> dict[str, Any]:
         if order not in {"recommended", "file"}:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="order must be 'recommended' or 'file' in the R20 reader projection",
             )
-        session = _session(review_id)
-        revision = _latest(session)
         units = store.list_units(revision.id)
-        marks = store.list_marks(session.id)
-        annotations = store.list_annotations(session.id)
+        marks = (
+            _marks_visible_at(session, revision)
+            if historical
+            else store.list_marks(session.id, reviewer_id=session.reviewer_id)
+        )
+        annotations = _annotations_at(session, revision, historical=historical)
         packet = read_packet_json(store, revision)
         frontier = compute_frontier(
             session.id,
@@ -1368,18 +2469,217 @@ def register_review_api(
         outline = build_review_outline(targets)
         return {
             "revision_id": revision.id,
+            "historical": historical,
             "order": order,
             "targets": [target_payload(target) for target in targets],
             "progress": progress_payload(progress),
             "outline": [outline_payload(item) for item in outline],
         }
 
+    @router.get("/reviews/{review_id}/targets")
+    async def _get_targets(review_id: str, order: str = "recommended") -> dict[str, Any]:
+        """Reader metadata: one non-overlapping judgment target per changed span."""
+
+        session = _session(review_id)
+        return _targets_payload(session, _latest(session), order=order, historical=False)
+
+    @router.get("/reviews/{review_id}/revisions/{revision_number}/targets")
+    async def _get_historical_targets(
+        review_id: str, revision_number: int, order: str = "recommended"
+    ) -> dict[str, Any]:
+        session = _session(review_id)
+        return _targets_payload(
+            session,
+            _revision_number(session, revision_number),
+            order=order,
+            historical=True,
+        )
+
+    @router.get("/reviews/{review_id}/frontier")
+    async def _get_frontier(review_id: str) -> dict[str, Any]:
+        """Current reviewer-owned "since my review" projection.
+
+        The baseline is the durable reviewer frontier, never the latest captured
+        revision. ``new`` is further filtered by attested content fingerprints,
+        so an undo that restores code the reviewer already saw is not presented
+        as brand-new work.
+        """
+
+        session = _session(review_id)
+        revision = _latest(session)
+        units = store.list_units(revision.id)
+        marks = store.list_marks(session.id, reviewer_id=session.reviewer_id)
+        annotations = store.list_annotations(session.id)
+        frontier = compute_frontier(
+            session.id,
+            session.reviewer_id,
+            revision,
+            units,
+            marks,
+            annotations=annotations,
+        )
+        baseline = baseline_revision(
+            store,
+            session.id,
+            marks=marks,
+            reviewer_id=session.reviewer_id,
+        )
+        baseline_units = store.list_units(baseline.id) if baseline is not None else ()
+        baseline_keys = {unit.unit_key for unit in baseline_units}
+        added = tuple(unit.unit_key for unit in units if unit.unit_key not in baseline_keys)
+        unseen = unseen_units(
+            store,
+            session.id,
+            units,
+            added,
+            reviewer_id=session.reviewer_id,
+        )
+        groups = group_frontier(frontier, unseen)
+        ambiguous = ambiguous_symbols(units)
+
+        def row(entry: FrontierEntry) -> dict[str, Any]:
+            return {
+                "unit_key": entry.unit_key,
+                "kind": entry.kind,
+                "path": entry.path,
+                "symbol": entry.symbol,
+                "state": entry.state,
+                "label": unit_label(entry, ambiguous=(entry.path, entry.symbol) in ambiguous) or entry.unit_key,
+                "attention_rank": entry.attention_rank,
+                "changed_since_mark": entry.changed_since_mark,
+                "reviewed_revision_id": entry.reviewed_revision_id,
+            }
+
+        current_keys = {unit.unit_key for unit in units}
+        discarded = _discarded_payload(session, revision)
+        discarded_by_key = {str(item.get("unit_key") or ""): item for item in discarded}
+        removed_units = [
+            {
+                "unit_key": unit.unit_key,
+                "kind": unit.kind,
+                "path": unit.path,
+                "symbol": unit.symbol,
+                "label": unit_label(unit, ambiguous=(unit.path, unit.symbol) in ambiguous) or unit.unit_key,
+                "discarded_state": str(discarded_by_key.get(unit.unit_key, {}).get("state") or ""),
+            }
+            for unit in baseline_units
+            if unit.unit_key not in current_keys
+        ]
+        return {
+            "previous_revision_number": baseline.revision_number if baseline is not None else 0,
+            "changed_since_review": [row(entry) for entry in groups.changed_since_review],
+            "new": [row(entry) for entry in groups.new],
+            "unresolved": [row(entry) for entry in groups.unresolved],
+            "unchanged_reviewed": [row(entry) for entry in groups.unchanged_reviewed],
+            "not_yet_reviewed": len(groups.not_yet_reviewed),
+            "removed_units": removed_units,
+            "discarded_verdicts": discarded,
+            "notes": [],
+            "open_annotations": len(frontier.unresolved_annotation_ids),
+            "orphaned_annotations": len(frontier.orphaned_annotation_ids),
+            "annotation_moves": [
+                {
+                    "annotation_id": move.annotation_id,
+                    "path": move.path,
+                    "status": move.status,
+                    "method": move.method,
+                    "method_label": ANCHOR_METHOD_LABELS.get(move.method, move.method),
+                    "detail": move.detail,
+                    "from_line": move.from_line,
+                    "to_line": move.to_line,
+                }
+                for move in store.anchor_moves_on(revision.id)
+            ],
+        }
+
+    def _surface_runtime(review_id: str) -> tuple[Any, Any, Any, Any]:
+        session = _session(review_id)
+        revision = _latest(session)
+        packet = read_packet_json(store, revision)
+        raw_files = packet.get("files", ()) if isinstance(packet, Mapping) else ()
+        changed_paths = tuple(
+            str(item.get("path") or "")
+            for item in raw_files
+            if isinstance(item, Mapping) and str(item.get("path") or "")
+        )
+        from lemoncrow.pro.capabilities.review.runtimes import built_in_runner_registry
+        from lemoncrow.pro.capabilities.review.snapshot import _read_source_tree_artifact, materialize_review_side
+        from lemoncrow.pro.capabilities.review.surfaces import (
+            SurfaceContext,
+            built_in_registry,
+            load_review_surface_config,
+        )
+
+        surface_repo = resolved_repo
+        if _read_source_tree_artifact(store, session.id, revision.id, side="new") is not None:
+            scratch_root = surface_workspace_root or (store.root / "review" / "surface-context")
+            surface_repo = scratch_root / session.id / revision.id / "workspace"
+            materialize_review_side(
+                store.root,
+                resolved_repo,
+                revision,
+                side="new",
+                target=surface_repo,
+                store=store,
+            )
+        config = load_review_surface_config(surface_repo)
+        registry = built_in_registry()
+        runners = runner_registry if runner_registry is not None else built_in_runner_registry()
+        context = SurfaceContext(
+            repo_root=surface_repo,
+            store_root=store.root,
+            revision=revision,
+            changed_paths=changed_paths,
+            config=config,
+            store=store,
+            scratch_root=surface_workspace_root,
+            dependency_root=resolved_dependency_repo,
+        )
+        return revision, registry, runners, context
+
+    @router.get("/reviews/{review_id}/surfaces")
+    async def _get_surfaces(review_id: str) -> dict[str, Any]:
+        """Discover revision-pinned product surfaces through provider plugins."""
+
+        try:
+            revision, registry, _runners, context = _surface_runtime(review_id)
+            surfaces = registry.discover(context)
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=f"review surface discovery failed: {exc}"
+            ) from exc
+        return {
+            "revision_id": revision.id,
+            "surfaces": [surface.to_payload() for surface in surfaces],
+        }
+
+    @router.post("/reviews/{review_id}/surface-run")
+    def _run_surface(review_id: str, provider: str, surface_id: str, side: str = "new") -> dict[str, Any]:
+        """Execute a surface through the runtime runner it is bound to."""
+
+        try:
+            revision, registry, runners, context = _surface_runtime(review_id)
+            surface = next(
+                (item for item in registry.discover(context) if item.provider == provider and item.id == surface_id),
+                None,
+            )
+            if surface is None:
+                raise ValueError(f"review surface not found: {provider}:{surface_id}")
+            result = runners.run(context, surface, side=side)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        except (OSError, RuntimeError, TypeError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=f"review surface execution failed: {exc}"
+            ) from exc
+        return {"revision_id": revision.id, "result": result.to_payload()}
+
     @router.get("/reviews/{review_id}/units")
     async def _get_units(review_id: str) -> dict[str, Any]:
         session = _session(review_id)
         revision = _latest(session)
         units = store.list_units(revision.id)
-        marks = {mark.unit_key: mark for mark in store.list_marks(session.id)}
+        marks = {mark.unit_key: mark for mark in store.list_marks(session.id, reviewer_id=session.reviewer_id)}
 
         def _order(unit: ReviewUnit) -> tuple[int, int, str, int, str]:
             kinds = {"file": 0, "document_section": 1, "symbol": 2, "hunk": 3}
@@ -1401,18 +2701,20 @@ def register_review_api(
             rows.append(payload)
         return {"revision_id": revision.id, "units": rows}
 
-    @router.get("/reviews/{review_id}/files/{path:path}/patch")
-    async def _get_patch(review_id: str, path: str) -> dict[str, Any]:
-        session = _session(review_id)
-        revision = _latest(session)
+    def _patch_payload(
+        session: ReviewSession,
+        revision: ReviewRevision,
+        path: str,
+        *,
+        historical: bool,
+    ) -> dict[str, Any]:
         units = store.list_units(revision.id)
 
         # Two independent gates, and the order matters. Confinement first, so a
         # traversal never reaches the membership lookup; membership second, so a
         # path that is genuinely inside the repository but is not part of this
-        # change is still a 404. Neither gate opens the file: the patch comes
-        # from the stored packet artifact, so there is no filesystem read to
-        # confine in the first place -- the check is belt and braces.
+        # change is still a 404. The payload itself always comes from the frozen
+        # revision artifact, never from today's worktree.
         try:
             confine_to_root(resolved_repo / path, resolved_repo)
         except (ValueError, OSError):
@@ -1421,11 +2723,16 @@ def register_review_api(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such file in this review")
 
         packet = read_packet_json(store, revision)
-        artifacts = tuple(item for item in store.list_evidence(session.id) if _evidence_is_current(item, revision))
+        artifacts = tuple(
+            item
+            for item in _evidence_at(session, revision, historical=historical)
+            if _evidence_is_current(item, revision)
+        )
         entry = _files_by_path(packet).get(path)
         if entry is None:
             return {
                 "path": path,
+                "revision_id": revision.id,
                 "patch": "",
                 "renderable": False,
                 "refusal": "packet_unavailable" if packet is None else "file_not_in_packet",
@@ -1434,38 +2741,323 @@ def register_review_api(
                     if packet is None
                     else "this revision's packet has no entry for that path"
                 ),
+                "historical": historical,
                 "degraded": [{"name": name, "note": degraded_note(name)} for name in sorted(set(revision.degraded))],
             }
         text, refusal, detail = synthesize_file_patch(entry)
+        preview = (
+            _markdown_preview_payload(store, session.id, revision, resolved_repo, entry)
+            or _media_preview_payload(entry)
+            or _web_preview_payload(store, revision, resolved_repo, entry)
+        )
+        media_renderable = isinstance(preview, Mapping) and preview.get("kind") == "media"
         return {
             "path": path,
+            "revision_id": revision.id,
             "old_path": entry.get("old_path") or "",
             "status": str(entry.get("status") or "modified"),
             "language": entry.get("language") or "",
             "additions": int(entry.get("additions") or 0),
             "deletions": int(entry.get("deletions") or 0),
             "patch": text,
-            "renderable": not refusal,
-            "refusal": refusal,
-            "detail": detail,
-            "impact": _impact_for(packet, path),
+            "renderable": media_renderable or not refusal,
+            "refusal": "" if media_renderable else refusal,
+            "detail": "" if media_renderable else detail,
+            "preview": preview,
             "symbols": _symbols_for(packet, path),
             "provenance": _provenance_for(packet, path),
             "evidence": _evidence(packet, artifacts, path=path),
+            "historical": historical,
             "degraded": [{"name": name, "note": degraded_note(name)} for name in sorted(set(revision.degraded))],
         }
 
-    @router.get("/reviews/{review_id}/related/{path:path}")
-    async def _get_related_source(review_id: str, path: str, line: int = 1) -> dict[str, Any]:
-        """Read an impact target at the reviewed revision without leaving LemonCrow.
+    def _review_patch_response(session: ReviewSession, revision: ReviewRevision) -> Response:
+        packet = read_packet_json(store, revision)
+        raw_files = packet.get("files") if isinstance(packet, Mapping) else None
+        if not isinstance(raw_files, list):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="this Review revision has no recorded patch artifact",
+            )
 
-        This is deliberately *not* a repository browser. The path must already
-        appear in this revision's impact evidence, and it is read from the
-        reviewed git tree rather than from the current worktree.
+        chunks: list[str] = []
+        refused: list[str] = []
+        for raw_entry in raw_files:
+            if not isinstance(raw_entry, Mapping):
+                continue
+            text, refusal, detail = synthesize_file_patch(raw_entry)
+            if refusal:
+                path = str(raw_entry.get("path") or "<unknown>")
+                refused.append(f"{path}: {detail or refusal}")
+                continue
+            if text:
+                chunks.append(text)
+
+        if refused:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="cannot export a complete git-apply patch: " + "; ".join(refused),
+            )
+        if not chunks:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="this Review revision contains no textual patch hunks",
+            )
+
+        filename = f"lemoncrow-review-rev-{revision.revision_number}.patch"
+        return Response(
+            content="".join(chunks),
+            media_type="text/x-diff",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    @router.get("/reviews/{review_id}/patch")
+    async def _get_review_patch(review_id: str) -> Response:
+        session = _session(review_id)
+        return _review_patch_response(session, _latest(session))
+
+    @router.get("/reviews/{review_id}/revisions/{revision_number}/patch")
+    async def _get_historical_review_patch(review_id: str, revision_number: int) -> Response:
+        session = _session(review_id)
+        return _review_patch_response(session, _revision_number(session, revision_number))
+
+    @router.get("/reviews/{review_id}/files/{path:path}/patch")
+    async def _get_patch(review_id: str, path: str) -> dict[str, Any]:
+        session = _session(review_id)
+        return _patch_payload(session, _latest(session), path, historical=False)
+
+    @router.get("/reviews/{review_id}/revisions/{revision_number}/files/{path:path}/patch")
+    async def _get_historical_patch(review_id: str, revision_number: int, path: str) -> dict[str, Any]:
+        session = _session(review_id)
+        return _patch_payload(
+            session,
+            _revision_number(session, revision_number),
+            path,
+            historical=True,
+        )
+
+    @router.get("/reviews/{review_id}/web-preview")
+    async def _get_web_preview(
+        review_id: str,
+        document_path: str,
+        side: str,
+        route: str,
+        revision_id: str = "",
+        width: int = 1440,
+        height: int = 5000,
+    ) -> Response:
+        """Render one revision-pinned frontend route as a frozen PNG."""
+
+        if side not in {"old", "new"}:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="side must be old or new")
+        if width < 320 or width > 2560 or height < 480 or height > 8000:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="unsupported preview viewport")
+        session = _session(review_id)
+        revision = _requested_revision(session, revision_id)
+        packet = read_packet_json(store, revision)
+        entry = _files_by_path(packet).get(document_path)
+        preview = (
+            _web_preview_payload(store, revision, resolved_repo, entry)
+            if entry is not None
+            else _frozen_nested_web_preview_payload(store, revision, resolved_repo, document_path)
+        )
+        if preview is None or route not in preview.get("routes", ()):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="web preview is unavailable for this route"
+            )
+
+        from starlette.concurrency import run_in_threadpool
+
+        from lemoncrow.pro.capabilities.review.web_preview import WebPreviewUnavailable, render_web_preview
+
+        try:
+            image_path = await run_in_threadpool(
+                render_web_preview,
+                store.root,
+                resolved_repo,
+                revision,
+                path=document_path,
+                route=route,
+                side=side,
+                width=width,
+                height=height,
+                store=store,
+                dependency_root=resolved_dependency_repo,
+            )
+            payload = image_path.read_bytes()
+        except WebPreviewUnavailable as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY, detail="preview artifact is unreadable"
+            ) from exc
+        return Response(content=payload, media_type="image/png")
+
+    @router.get("/reviews/{review_id}/web-live-preview")
+    async def _get_web_live_preview(
+        review_id: str,
+        document_path: str,
+        side: str,
+        route: str,
+        revision_id: str = "",
+    ) -> dict[str, str]:
+        """Return an isolated live URL for one exact revision-pinned static route."""
+
+        if side not in {"old", "new"}:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="side must be old or new")
+        session = _session(review_id)
+        revision = _requested_revision(session, revision_id)
+        packet = read_packet_json(store, revision)
+        entry = _files_by_path(packet).get(document_path)
+        preview = (
+            _web_preview_payload(store, revision, resolved_repo, entry)
+            if entry is not None
+            else _frozen_nested_web_preview_payload(store, revision, resolved_repo, document_path)
+        )
+        if preview is None or route not in preview.get("routes", ()):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="web preview is unavailable for this route"
+            )
+
+        from starlette.concurrency import run_in_threadpool
+
+        from lemoncrow.pro.capabilities.review.web_preview import WebPreviewUnavailable, ensure_live_web_preview
+
+        try:
+            url = await run_in_threadpool(
+                ensure_live_web_preview,
+                store.root,
+                resolved_repo,
+                revision,
+                path=document_path,
+                route=route,
+                side=side,
+                store=store,
+                dependency_root=resolved_dependency_repo,
+            )
+        except WebPreviewUnavailable as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        return {"url": url}
+
+    @router.get("/reviews/{review_id}/markdown-image")
+    async def _get_markdown_image(
+        review_id: str,
+        document_path: str,
+        side: str,
+        src: str,
+        revision_id: str = "",
+    ) -> Response:
+        """Serve one image explicitly referenced by a Markdown preview.
+
+        Repository images are read from the reviewed revision, never by following
+        a worktree path. Remote images are fetched server-side through the shared
+        SSRF guard so the browser never receives arbitrary remote origins in its
+        CSP and the workspace token never appears in an image URL.
         """
 
+        if side not in {"old", "new"}:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="side must be old or new")
         session = _session(review_id)
-        revision = _latest(session)
+        revision = _requested_revision(session, revision_id)
+        packet = read_packet_json(store, revision)
+        entry = _files_by_path(packet).get(document_path)
+        if entry is None or not _is_markdown_path(document_path):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="no such Markdown document in this review"
+            )
+        preview = _markdown_preview_payload(store, session.id, revision, resolved_repo, entry)
+        if preview is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Markdown preview is unavailable")
+        content = preview["old_content" if side == "old" else "new_content"]
+        if src not in _markdown_image_sources(content):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="image is not referenced by this document"
+            )
+
+        parsed = urlsplit(src)
+        if parsed.scheme:
+            if parsed.scheme.lower() not in {"http", "https"}:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="unsupported image source")
+            from lemoncrow.core.capabilities.web_fetch import async_fetch_image
+
+            try:
+                remote_body, media_type = await async_fetch_image(src)
+            except (RuntimeError, ValueError) as exc:
+                raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+            return Response(content=remote_body, media_type=media_type)
+
+        asset_path = _markdown_asset_repo_path(document_path, src)
+        if asset_path is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="invalid repository image path")
+        try:
+            confine_to_root(resolved_repo / asset_path, resolved_repo)
+        except (ValueError, OSError):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="invalid repository image path") from None
+
+        media_type = mimetypes.guess_type(asset_path)[0] or ""
+        if not media_type.startswith("image/"):
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="referenced asset is not an image"
+            )
+
+        body, reason = _revision_asset_bytes(
+            store,
+            session.id,
+            revision,
+            resolved_repo,
+            packet,
+            asset_path,
+            side=side,
+        )
+        if body is None:
+            code = (
+                status.HTTP_409_CONFLICT
+                if "did not preserve" in reason or "tree is unavailable" in reason
+                else status.HTTP_404_NOT_FOUND
+            )
+            raise HTTPException(status_code=code, detail=reason or "image is unavailable")
+        return Response(content=body, media_type=media_type)
+
+    @router.get("/reviews/{review_id}/media-file")
+    async def _get_media_file(review_id: str, path: str, side: str, revision_id: str = "") -> Response:
+        """Serve one changed media file from the immutable reviewed revision."""
+
+        if side not in {"old", "new"}:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="side must be old or new")
+        session = _session(review_id)
+        revision = _requested_revision(session, revision_id)
+        packet = read_packet_json(store, revision)
+        entry = _files_by_path(packet).get(path)
+        if entry is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such media file in this review")
+        preview = _media_preview_payload(entry)
+        if preview is None:
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="file is not browser-previewable media"
+            )
+        try:
+            confine_to_root(resolved_repo / path, resolved_repo)
+        except (ValueError, OSError):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="invalid media path") from None
+        body, reason = _revision_asset_bytes(
+            store,
+            session.id,
+            revision,
+            resolved_repo,
+            packet,
+            path,
+            side=side,
+        )
+        if body is None:
+            code = (
+                status.HTTP_409_CONFLICT
+                if "did not preserve" in reason or "tree is unavailable" in reason
+                else status.HTTP_404_NOT_FOUND
+            )
+            raise HTTPException(status_code=code, detail=reason or "media is unavailable")
+        return Response(content=body, media_type=preview["media_type"])
+
+    def _related_payload(session: ReviewSession, revision: ReviewRevision, path: str, line: int) -> dict[str, Any]:
         try:
             confine_to_root(resolved_repo / path, resolved_repo)
         except (ValueError, OSError):
@@ -1479,7 +3071,7 @@ def register_review_api(
         }
         if path not in impact_paths:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="path is not impact evidence for this review"
+                status_code=status.HTTP_404_NOT_FOUND, detail="path is not impact evidence for this review revision"
             )
 
         text, refusal = _related_source_text(revision, path)
@@ -1487,17 +3079,29 @@ def register_review_api(
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=refusal)
         lines = text.splitlines()
         focus = min(max(1, int(line or 1)), max(1, len(lines)))
-        start = max(1, focus - 35)
-        end = min(len(lines), focus + 35)
+        start_line = max(1, focus - 35)
+        end_line = min(len(lines), focus + 35)
         suffix = path.rsplit(".", 1)[-1] if "." in path else ""
         return {
             "path": path,
             "language": suffix,
-            "start_line": start,
-            "end_line": end,
+            "start_line": start_line,
+            "end_line": end_line,
             "focus_line": focus,
-            "text": "\n".join(lines[start - 1 : end]),
+            "text": "\n".join(lines[start_line - 1 : end_line]),
         }
+
+    @router.get("/reviews/{review_id}/related/{path:path}")
+    async def _get_related_source(review_id: str, path: str, line: int = 1) -> dict[str, Any]:
+        session = _session(review_id)
+        return _related_payload(session, _latest(session), path, line)
+
+    @router.get("/reviews/{review_id}/revisions/{revision_number}/related/{path:path}")
+    async def _get_historical_related_source(
+        review_id: str, revision_number: int, path: str, line: int = 1
+    ) -> dict[str, Any]:
+        session = _session(review_id)
+        return _related_payload(session, _revision_number(session, revision_number), path, line)
 
     @router.post("/reviews/{review_id}/marks")
     async def _post_mark(review_id: str, request: Request) -> dict[str, Any]:
@@ -1525,7 +3129,7 @@ def register_review_api(
                 session.reviewer_id,
                 revision,
                 units,
-                store.list_marks(session.id),
+                store.list_marks(session.id, reviewer_id=session.reviewer_id),
                 annotations=annotations,
             )
             return _derive_targets(session, revision, units, frontier.entries, packet, annotations)
@@ -1545,7 +3149,7 @@ def register_review_api(
 
         marks: list[dict[str, Any]] = []
         for unit in resolution.units:
-            recorded = mark_unit(store, session, revision, unit, state=requested)
+            recorded = mark_unit(store, session, revision, unit, state=requested, reviewer_id=session.reviewer_id)
             note = mark_downgrade_note(unit, requested, recorded.state)
             marks.append(
                 {
@@ -1628,7 +3232,7 @@ def register_review_api(
 
         all_units = {unit.unit_key: unit for unit in store.list_units(revision.id)}
         annotations = store.list_annotations(session.id)
-        marks = store.list_marks(session.id)
+        marks = store.list_marks(session.id, reviewer_id=session.reviewer_id)
         packet = read_packet_json(store, revision)
         frontier = compute_frontier(
             session.id,
@@ -1737,7 +3341,7 @@ def register_review_api(
                 )
                 continue
 
-            recorded = mark_unit(store, session, revision, unit, state="reviewed")
+            recorded = mark_unit(store, session, revision, unit, state="reviewed", reviewer_id=session.reviewer_id)
             if recorded.state != "reviewed":
                 skipped.append(
                     {
@@ -1898,13 +3502,274 @@ def register_review_api(
         store.delete_evidence(evidence_id)
         return {"deleted": evidence_id}
 
+    @router.get("/reviews/{review_id}/proposal-selection")
+    async def _get_proposal_selection(
+        review_id: str,
+        path: str,
+        start_line: int,
+        end_line: int,
+        side: str = "additions",
+    ) -> dict[str, Any]:
+        session = _session(review_id)
+        revision = _latest(session)
+        if side not in {"additions", "new"}:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="source proposals currently target only the current/new side",
+            )
+        try:
+            confine_to_root(resolved_repo / path, resolved_repo)
+        except (ValueError, OSError):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such file in this review") from None
+        if not any(unit.kind == "file" and unit.path == path for unit in store.list_units(revision.id)):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such file in this review")
+        base_text = revision_new_side_text(store, resolved_repo, session, revision, path)
+        if base_text is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="the exact reviewed source is unavailable for this proposal",
+            )
+        try:
+            selected = selected_line_text(base_text, start_line, end_line)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        return {
+            "revision_id": revision.id,
+            "path": path,
+            "start_line": start_line,
+            "end_line": end_line,
+            "side": "additions",
+            "text": selected,
+        }
+
+    @router.get("/reviews/{review_id}/proposals")
+    async def _get_change_proposals(review_id: str) -> dict[str, Any]:
+        session = _session(review_id)
+        revision = _latest(session)
+        return {
+            "revision_id": revision.id,
+            "proposals": [_proposal_payload(item) for item in store.list_change_proposals(session.id)],
+            "source_mutation_supported": source_refresh_enabled,
+        }
+
+    @router.post("/reviews/{review_id}/proposals", status_code=status.HTTP_201_CREATED)
+    async def _post_change_proposal(review_id: str, request: Request) -> dict[str, Any]:
+        session = _mutable_session(review_id)
+        revision = _latest(session)
+        body = await _json_object(request)
+        expected_revision_id = str(body.get("expected_revision_id") or "")
+        if expected_revision_id and expected_revision_id != revision.id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="the Review advanced while this proposal was being prepared; select the current source again",
+            )
+        path = str(body.get("path") or "")
+        if not path:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="path is required")
+        side = str(body.get("side") or "additions")
+        if side not in {"additions", "new"}:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="the first proposal flow only edits the current/new side of a text diff",
+            )
+        start_line = _int_field(body, ("start_line", "start"))
+        end_line = _int_field(body, ("end_line", "end")) or start_line
+        if start_line < 1 or end_line < start_line:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="a valid selected line range is required"
+            )
+        target_unit_key = str(body.get("target_unit_key") or "")
+        if target_unit_key:
+            unit = next((item for item in store.list_units(revision.id) if item.unit_key == target_unit_key), None)
+            if unit is None or unit.path != path:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="proposal target is not a current ReviewTarget on this file",
+                )
+        base_text = revision_new_side_text(store, resolved_repo, session, revision, path)
+        if base_text is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="the exact reviewed source is unavailable for this proposal",
+            )
+        try:
+            original_text = selected_line_text(base_text, start_line, end_line)
+            replacement_text = str(body.get("replacement_text") if body.get("replacement_text") is not None else "")
+            _, patch_text = unified_proposal_patch(path, base_text, start_line, end_line, replacement_text)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        if not patch_text:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="proposal does not change the selected source"
+            )
+        proposal = store.add_change_proposal(
+            ReviewChangeProposal(
+                id="",
+                review_id=session.id,
+                base_revision_id=revision.id,
+                path=path,
+                start_line=start_line,
+                end_line=end_line,
+                original_text=original_text,
+                replacement_text=replacement_text,
+                patch_text=patch_text,
+                base_file_sha256=text_sha256(base_text),
+                target_unit_key=target_unit_key,
+                annotation_id=str(body.get("annotation_id") or ""),
+                intent=str(body.get("intent") or "").strip()[:16_384],
+                created_by=session.reviewer_id,
+            )
+        )
+        store.record_activity(
+            ReviewActivityEvent(
+                id="",
+                review_id=session.id,
+                revision_id=revision.id,
+                kind="proposal.created",
+                actor_id=session.reviewer_id,
+                actor_type="human",
+                subject_type="change_proposal",
+                subject_id=proposal.id,
+                summary=f"Proposed source edit in {proposal.path}",
+                detail_json=json.dumps(
+                    {"path": proposal.path, "start_line": proposal.start_line, "end_line": proposal.end_line},
+                    sort_keys=True,
+                ),
+            )
+        )
+        return {"proposal": _proposal_payload(proposal)}
+
+    @router.post("/proposals/{proposal_id}/apply")
+    async def _apply_change_proposal(proposal_id: str) -> dict[str, Any]:
+        proposal = store.get_change_proposal(proposal_id)
+        if proposal is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such change proposal")
+        session = _mutable_session(proposal.review_id)
+        revision = _latest(session)
+        if proposal.state != "proposed":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"proposal is {proposal.state} and cannot be applied again",
+            )
+        if not source_refresh_enabled:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="this Review has no trusted mutable source bound to the server; apply the proposal in the source host instead",
+            )
+
+        def conflict(reason: str) -> None:
+            updated = store.update_change_proposal(proposal.id, state="conflicted", conflict_reason=reason)
+            store.record_activity(
+                ReviewActivityEvent(
+                    id="",
+                    review_id=session.id,
+                    revision_id=revision.id,
+                    kind="proposal.conflicted",
+                    actor_id=session.reviewer_id,
+                    actor_type="human",
+                    subject_type="change_proposal",
+                    subject_id=proposal.id,
+                    summary=f"Proposal conflicted in {proposal.path}",
+                    detail_json=json.dumps({"reason": reason}, sort_keys=True),
+                )
+            )
+            if updated is None:  # pragma: no cover - loaded immediately above
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such change proposal")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=reason)
+
+        if revision.id != proposal.base_revision_id:
+            conflict("the Review advanced after this proposal was created; recreate it against the current revision")
+        try:
+            target = confine_to_root(resolved_source_repo / proposal.path, resolved_source_repo)
+        except (ValueError, OSError):
+            conflict("proposal path is no longer inside the trusted source checkout")
+        if not target.is_file():
+            conflict("proposal source file no longer exists in the trusted checkout")
+        try:
+            current_text = target.read_bytes().decode("utf-8")
+        except (OSError, UnicodeError):
+            conflict("proposal source file can no longer be read as text")
+        if text_sha256(current_text) != proposal.base_file_sha256:
+            conflict(
+                "source changed since this proposal was prepared; inspect the current file and recreate or rebase the proposal"
+            )
+        try:
+            if selected_line_text(current_text, proposal.start_line, proposal.end_line) != proposal.original_text:
+                conflict("the selected source no longer matches the proposal base")
+            next_text = replace_line_range(
+                current_text,
+                proposal.start_line,
+                proposal.end_line,
+                proposal.replacement_text,
+            )
+            _atomic_write_source(target, next_text)
+            from lemoncrow.pro.capabilities.review.gitdiff import source_state
+            from lemoncrow.pro.capabilities.review.sources.local import range_for_session
+
+            state = source_state(resolved_source_repo, range_for_session(resolved_source_repo, session))
+        except HTTPException:
+            raise
+        except (OSError, RuntimeError, ValueError) as exc:
+            conflict(f"could not apply proposal safely: {exc}")
+        applied_at = utc_now()
+        updated = store.update_change_proposal(
+            proposal.id,
+            state="applied",
+            conflict_reason="",
+            applied_at=applied_at,
+            applied_source_fingerprint=state.fingerprint,
+        )
+        if updated is None:  # pragma: no cover - loaded immediately above
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such change proposal")
+        store.record_activity(
+            ReviewActivityEvent(
+                id="",
+                review_id=session.id,
+                revision_id=revision.id,
+                kind="proposal.applied",
+                actor_id=session.reviewer_id,
+                actor_type="human",
+                subject_type="change_proposal",
+                subject_id=proposal.id,
+                summary=f"Applied source proposal in {proposal.path}",
+                detail_json=json.dumps({"source_fingerprint": state.fingerprint}, sort_keys=True),
+            )
+        )
+        return {
+            "proposal": _proposal_payload(updated),
+            "source_state": {
+                "supported": True,
+                "changed": state.fingerprint != revision.source_fingerprint,
+                "fingerprint": state.fingerprint,
+                "path_count": len(state.paths),
+                "paths": list(state.paths),
+                "reason": "",
+            },
+        }
+
     @router.get("/reviews/{review_id}/annotations")
     async def _get_annotations(review_id: str) -> dict[str, Any]:
         session = _session(review_id)
         revision = _latest(session)
         annotations = store.list_annotations(session.id)
+        feedback_status, _, _ = _feedback_partition(revision.id, annotations)
         return {
             "revision_id": revision.id,
+            "historical": False,
+            "annotations": [_annotation_payload(item) for item in annotations],
+            "counts": annotation_counts(annotations),
+            "feedback": feedback_status,
+            "delivery": _delivery_capability(revision),
+        }
+
+    @router.get("/reviews/{review_id}/revisions/{revision_number}/annotations")
+    async def _get_historical_annotations(review_id: str, revision_number: int) -> dict[str, Any]:
+        session = _session(review_id)
+        revision = _revision_number(session, revision_number)
+        annotations = store.list_annotations_at_revision(session.id, revision.id)
+        return {
+            "revision_id": revision.id,
+            "historical": True,
             "annotations": [_annotation_payload(item) for item in annotations],
             "counts": annotation_counts(annotations),
         }
@@ -1956,7 +3821,7 @@ def register_review_api(
         if target_key:
             units = store.list_units(revision.id)
             existing_annotations = store.list_annotations(session.id)
-            marks = store.list_marks(session.id)
+            marks = store.list_marks(session.id, reviewer_id=session.reviewer_id)
             packet = read_packet_json(store, revision)
             frontier = compute_frontier(
                 session.id,
@@ -2018,7 +3883,14 @@ def register_review_api(
         outline_updates: list[dict[str, Any]] = []
         if target_unit is not None:
             if mark_target:
-                mark_unit(store, session, revision, target_unit, state="needs_changes")
+                mark_unit(
+                    store,
+                    session,
+                    revision,
+                    target_unit,
+                    state="needs_changes",
+                    reviewer_id=session.reviewer_id,
+                )
             overview = _overview(session)
             progress = overview["progress"]
             outline_updates = [item for item in overview["outline"] if item.get("path") == target_unit.path]
@@ -2026,7 +3898,7 @@ def register_review_api(
             from lemoncrow.pro.capabilities.review.targets import target_payload
 
             latest_annotations = store.list_annotations(session.id)
-            latest_marks = store.list_marks(session.id)
+            latest_marks = store.list_marks(session.id, reviewer_id=session.reviewer_id)
             units = store.list_units(revision.id)
             packet = read_packet_json(store, revision)
             frontier = compute_frontier(
@@ -2062,7 +3934,8 @@ def register_review_api(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such comment")
         # Load the session through the same gate every other route uses, so a
         # comment belonging to another checkout's review is a 404 here too.
-        _mutable_session(annotation.review_id)
+        session = _mutable_session(annotation.review_id)
+        revision = _latest(session)
 
         body = await _json_object(request)
         fields: dict[str, object] = {}
@@ -2087,101 +3960,279 @@ def register_review_api(
         if not fields:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="nothing to change")
 
-        updated = store.update_annotation(annotation_id, **fields)
+        request_changed = ("body" in fields and fields["body"] != annotation.body) or (
+            "kind" in fields and fields["kind"] != annotation.kind
+        )
+        if request_changed and annotation.author_response != "none":
+            # An author response belongs to the request version the author saw.
+            # Editing the request cannot carry that claim forward.
+            fields["author_response"] = "none"
+            fields["author_response_source_id"] = ""
+            fields["author_response_at"] = ""
+
+        from lemoncrow.pro.capabilities.review.store import AnnotationHistoryContext
+
+        updated = store.update_annotation(
+            annotation_id,
+            AnnotationHistoryContext(
+                revision_id=revision.id,
+                changed_by=session.reviewer_id,
+                changed_by_actor="human",
+            ),
+            **fields,
+        )
         if updated is None:  # pragma: no cover - the row was loaded a moment ago
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="no such comment")
         return {"annotation": _annotation_payload(updated)}
 
-    @router.post("/reviews/{review_id}/feedback/export")
-    async def _post_feedback_export(review_id: str) -> dict[str, Any]:
-        """Render the review's comments as Markdown. Renders; never delivers.
-
-        Delivery is PR-R6's job and a separate decision: handing an agent a
-        bundle is an action with consequences, and an export route that also
-        sent it would make the two indistinguishable.
-        """
-
-        session = _session(review_id)
-        revision = _latest(session)
+    def _feedback_snapshot(session: ReviewSession, revision: ReviewRevision) -> dict[str, Any]:
         packet = read_packet_json(store, revision)
-        bundle = build_bundle(
+        annotations = store.list_annotations(session.id)
+        full_bundle = build_bundle(
             session,
             revision,
-            store.list_annotations(session.id),
+            annotations,
             store.list_units(revision.id),
             context=_feedback_context(packet),
             title=(packet.get("title") if packet is not None else "") or session.title,
         )
+        feedback_status, unpublished_ids, versions = _feedback_partition(revision.id, annotations)
+        bundle = replace(
+            full_bundle,
+            items=tuple(item for item in full_bundle.items if item.annotation_id in unpublished_ids),
+            orphaned=tuple(item for item in full_bundle.orphaned if item.annotation_id in unpublished_ids),
+            resolved=(),
+        )
+        markdown = render_markdown(bundle)
+        annotation_ids = tuple(item.annotation_id for item in (*bundle.items, *bundle.orphaned))
+        selected_versions = {annotation_id: versions.get(annotation_id, 0) for annotation_id in annotation_ids}
+        digest = hashlib.sha256(markdown.encode("utf-8")).hexdigest()
         return {
-            "markdown": render_markdown(bundle),
-            "open": len(bundle.items),
-            "orphaned": len(bundle.orphaned),
-            "resolved": len(bundle.resolved),
+            "bundle": bundle,
+            "markdown": markdown,
+            "annotation_ids": annotation_ids,
+            "annotation_versions": selected_versions,
+            "feedback_hash": digest,
+            "feedback_status": feedback_status,
+            "resolved_total": len(full_bundle.resolved),
         }
 
-    @router.post("/reviews/{review_id}/feedback/claude")
-    async def _post_feedback_claude(review_id: str) -> dict[str, Any]:
-        """Deliver human feedback to one exact inactive Claude session.
+    def _delivery_capability(revision: ReviewRevision) -> dict[str, Any]:
+        from lemoncrow.pro.capabilities.review.delivery import direct_delivery_supported
 
-        Exact provenance is a hard precondition. The adapter also refuses an
-        already-running target because Claude may otherwise fork a copy; a
-        review tool must not call that "sent to the author".
+        exact = (
+            revision.provenance_certainty == "exact"
+            and bool(revision.provenance_host)
+            and bool(revision.provenance_session_id)
+        )
+        host = revision.provenance_host if exact else ""
+        supported = exact and direct_delivery_supported(host)
+        if not exact:
+            reason = "exact author-session provenance is unavailable"
+        elif not supported:
+            reason = f"direct feedback delivery is not configured for {host}"
+        else:
+            reason = ""
+        return {
+            "supported": supported,
+            "host": host,
+            "session_id": revision.provenance_session_id if exact else "",
+            "target_ref": f"{host}:{revision.provenance_session_id}" if exact else "",
+            "label": host.capitalize() if host else "",
+            "reason": reason,
+        }
+
+    @router.post("/reviews/{review_id}/feedback/export")
+    async def _post_feedback_export(review_id: str) -> dict[str, Any]:
+        """Prepare an immutable feedback preview. Rendering never delivers."""
+
+        session = _session(review_id)
+        revision = _latest(session)
+        snapshot = _feedback_snapshot(session, revision)
+        bundle = snapshot["bundle"]
+        return {
+            "markdown": snapshot["markdown"],
+            "open": len(bundle.items),
+            "orphaned": len(bundle.orphaned),
+            "resolved": snapshot["resolved_total"],
+            "revision_id": revision.id,
+            "feedback_hash": snapshot["feedback_hash"],
+            "operation_id": f"fop-{secrets.token_hex(16)}",
+            "annotation_versions": snapshot["annotation_versions"],
+            "delivery": _delivery_capability(revision),
+            "status": snapshot["feedback_status"],
+        }
+
+    async def _deliver_feedback(
+        review_id: str,
+        request: Request,
+        *,
+        required_host: str = "",
+        allow_implicit_preview: bool = False,
+    ) -> dict[str, Any]:
+        """Deliver exactly one immutable feedback snapshot, once per operation id.
+
+        The general delivery route is preview-bound: the caller must send the
+        operation/revision/hash it reviewed. The legacy Claude route may omit a
+        body; in that compatibility case LemonCrow snapshots the current
+        unpublished bundle itself and derives a deterministic operation id so a
+        network retry still cannot dispatch the same correction twice.
         """
 
         session = _mutable_session(review_id)
         revision = _latest(session)
-        if (
-            revision.provenance_host != "claude"
-            or revision.provenance_certainty != "exact"
-            or not revision.provenance_session_id
-        ):
+        raw_body = await request.body()
+        body = await _json_object(request) if raw_body.strip() else {}
+        operation_id = str(body.get("operation_id") or "").strip()
+        expected_revision_id = str(body.get("expected_revision_id") or "").strip()
+        expected_feedback_hash = str(body.get("expected_feedback_hash") or "").strip()
+        if not operation_id or not expected_revision_id or not expected_feedback_hash:
+            if allow_implicit_preview and not body:
+                implicit = _feedback_snapshot(session, revision)
+                expected_revision_id = revision.id
+                expected_feedback_hash = str(implicit["feedback_hash"])
+                operation_id = (
+                    "fop-compat-"
+                    + hashlib.sha256(
+                        f"{session.id}\0{expected_revision_id}\0{expected_feedback_hash}".encode()
+                    ).hexdigest()[:32]
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "delivery requires operation_id, expected_revision_id, and "
+                        "expected_feedback_hash from a prepared preview"
+                    ),
+                )
+
+        existing = store.list_delivery_operation(operation_id)
+        if existing:
+            existing_annotations = [store.get_annotation(item.annotation_id) for item in existing]
+            if (
+                any(item is None or item.review_id != session.id for item in existing_annotations)
+                or any(item.revision_id != expected_revision_id for item in existing)
+                or any(item.feedback_hash != expected_feedback_hash for item in existing)
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="delivery operation identity does not match this prepared feedback",
+                )
+            safely_retryable = all(item.state in {"blocked", "failed"} and not item.remote_ref for item in existing)
+            if not safely_retryable:
+                first = existing[0]
+                replay_state = "uncertain" if first.state == "dispatching" else first.state
+                replay_message = first.last_error or (
+                    "feedback already sent"
+                    if first.state == "sent"
+                    else (
+                        "delivery may already be in progress; inspect its state before retrying"
+                        if first.state == "dispatching"
+                        else "delivery already recorded"
+                    )
+                )
+                return {
+                    "state": replay_state,
+                    "target_ref": first.target_ref,
+                    "remote_ref": first.remote_ref,
+                    "message": replay_message,
+                    "annotation_count": len(existing),
+                    "operation_id": operation_id,
+                }
+
+        if revision.id != expected_revision_id:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail="direct Claude delivery requires exact Claude-session provenance for this revision",
+                detail="review revision changed since feedback preview; prepare the updated feedback before sending",
+            )
+        capability = _delivery_capability(revision)
+        if not capability["supported"]:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=capability["reason"])
+        if required_host and capability["host"] != required_host:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"this compatibility route requires exact {required_host} provenance",
             )
 
-        packet = read_packet_json(store, revision)
-        bundle = build_bundle(
-            session,
-            revision,
-            store.list_annotations(session.id),
-            store.list_units(revision.id),
-            context=_feedback_context(packet),
-            title=(packet.get("title") if packet is not None else "") or session.title,
-        )
-        annotation_ids = tuple(item.annotation_id for item in (*bundle.items, *bundle.orphaned))
+        snapshot = _feedback_snapshot(session, revision)
+        if snapshot["feedback_hash"] != expected_feedback_hash:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="feedback changed since preview; review the updated feedback before sending",
+            )
+        annotation_ids = snapshot["annotation_ids"]
         if not annotation_ids:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="there is no open human feedback to send")
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="there is no unpublished human feedback to send"
+            )
 
-        from lemoncrow.pro.capabilities.review.delivery import deliver_to_claude_session
+        from lemoncrow.pro.capabilities.review.delivery import deliver_to_agent_session
         from lemoncrow.pro.capabilities.review.session_models import DeliveryRecord
 
-        result = deliver_to_claude_session(
-            revision.provenance_session_id,
-            resolved_repo,
-            render_markdown(bundle),
-        )
-        for annotation_id in annotation_ids:
-            store.record_delivery(
-                DeliveryRecord(
-                    id="",
-                    annotation_id=annotation_id,
-                    target_type="agent_session",
-                    target_ref=result.target_ref,
-                    state=result.state,
-                    remote_ref=result.remote_ref,
-                    last_error="" if result.sent else result.message,
-                )
+        target_ref = capability["target_ref"]
+        pending = tuple(
+            DeliveryRecord(
+                id="",
+                annotation_id=annotation_id,
+                target_type="agent_session",
+                target_ref=target_ref,
+                state="dispatching",
+                operation_id=operation_id,
+                revision_id=revision.id,
+                feedback_hash=snapshot["feedback_hash"],
+                annotation_version=int(snapshot["annotation_versions"].get(annotation_id) or 0),
             )
-        if not result.sent:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=result.message)
-        return {
+            for annotation_id in annotation_ids
+        )
+        operation, created = store.begin_delivery_operation(pending)
+        if not created:
+            first = operation[0]
+            return {
+                "state": first.state,
+                "target_ref": first.target_ref,
+                "remote_ref": first.remote_ref,
+                "message": first.last_error or "delivery already in progress",
+                "annotation_count": len(operation),
+                "operation_id": operation_id,
+            }
+
+        result = deliver_to_agent_session(
+            capability["host"],
+            capability["session_id"],
+            resolved_repo,
+            snapshot["markdown"],
+        )
+        operation = store.update_delivery_operation(
+            operation_id,
+            state=result.state,
+            remote_ref=result.remote_ref,
+            last_error="" if result.accepted else result.message,
+        )
+        payload = {
             "state": result.state,
-            "target_ref": result.target_ref,
+            "target_ref": result.target_ref or target_ref,
             "remote_ref": result.remote_ref,
             "message": result.message,
-            "annotation_count": len(annotation_ids),
+            "annotation_count": len(operation),
+            "operation_id": operation_id,
         }
+        if result.state in {"blocked", "failed"}:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=result.message)
+        return payload
+
+    @router.post("/reviews/{review_id}/feedback/deliver")
+    async def _post_feedback_delivery(review_id: str, request: Request) -> dict[str, Any]:
+        return await _deliver_feedback(review_id, request)
+
+    @router.post("/reviews/{review_id}/feedback/claude")
+    async def _post_feedback_claude(review_id: str, request: Request) -> dict[str, Any]:
+        """Backward-compatible Claude route; empty-body callers get a safe implicit preview."""
+        return await _deliver_feedback(
+            review_id,
+            request,
+            required_host="claude",
+            allow_implicit_preview=True,
+        )
 
     def _finish_payload(session: ReviewSession, chosen: ReviewSessionStatus) -> dict[str, Any]:
         """Target-based completion snapshot shared by preview and mutation."""
@@ -2191,7 +4242,13 @@ def register_review_api(
         # `set_review_status` had already committed FINISHED, so the client saw a
         # 404 while the durable review silently changed state.
         overview = _overview(session)
-        closure = set_review_status(store, session, store.latest_revision(session.id), status=chosen)
+        closure = set_review_status(
+            store,
+            session,
+            store.latest_revision(session.id),
+            status=chosen,
+            reviewer_id=session.reviewer_id,
+        )
         brief_raw = overview.get("brief")
         brief: Mapping[str, Any] = brief_raw if isinstance(brief_raw, Mapping) else {}
         verification_raw = brief.get("verification")
@@ -2214,6 +4271,66 @@ def register_review_api(
             "previous_revision_evidence": int(artifacts.get("stale") or 0),
             "discarded_verdicts": len(overview.get("discarded") or ()),
         }
+
+    def _outcome_payload(session: ReviewSession) -> dict[str, Any]:
+        revision = _latest(session)
+        current = store.latest_outcome(session.id, session.reviewer_id)
+        return {
+            "review_id": session.id,
+            "revision_id": revision.id,
+            "reviewer_id": session.reviewer_id,
+            "current": (
+                None
+                if current is None
+                else {
+                    "id": current.id,
+                    "review_id": current.review_id,
+                    "revision_id": current.revision_id,
+                    "reviewer_id": current.reviewer_id,
+                    "outcome": current.outcome,
+                    "summary": current.summary,
+                    "created_at": current.created_at,
+                    "stale": current.revision_id != revision.id,
+                }
+            ),
+            "history": [
+                {
+                    "id": item.id,
+                    "review_id": item.review_id,
+                    "revision_id": item.revision_id,
+                    "reviewer_id": item.reviewer_id,
+                    "outcome": item.outcome,
+                    "summary": item.summary,
+                    "created_at": item.created_at,
+                    "stale": item.revision_id != revision.id,
+                }
+                for item in store.list_outcomes(session.id, reviewer_id=session.reviewer_id)
+            ],
+        }
+
+    @router.get("/reviews/{review_id}/outcome")
+    async def _get_outcome(review_id: str) -> dict[str, Any]:
+        return _outcome_payload(_session(review_id))
+
+    @router.post("/reviews/{review_id}/outcome")
+    async def _post_outcome(review_id: str, request: Request) -> dict[str, Any]:
+        session = _mutable_session(review_id)
+        revision = _latest(session)
+        body = await _json_object(request)
+        outcome = str(body.get("outcome") or "").strip().lower()
+        if outcome not in REVIEW_OUTCOME_KINDS:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="outcome must be comment, lgtm, or changes_requested",
+            )
+        store.record_outcome(
+            session.id,
+            revision.id,
+            session.reviewer_id,
+            outcome=outcome,  # type: ignore[arg-type]
+            summary=str(body.get("summary") or ""),
+        )
+        return _outcome_payload(session)
 
     @router.get("/reviews/{review_id}/finish")
     async def _get_finish_preview(review_id: str) -> dict[str, Any]:
@@ -2255,16 +4372,35 @@ def register_review_api(
         """Re-snapshot the tree, reconcile marks, and name the human target delta."""
 
         session = _mutable_session(review_id)
+        if not source_refresh_enabled:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="this Review has no trusted mutable source bound to the server; run lc review to publish a new revision",
+            )
+        # File-cache invalidation is relative to the revision the browser is
+        # actually showing, which is the latest frozen revision before this
+        # refresh. That is deliberately different from the reviewer's mark
+        # baseline: a human can refresh several times without recording a new
+        # verdict, while the browser still only needs N -> N+1 file changes.
+        previous_latest = _latest(session)
+        previous_latest_units = store.list_units(previous_latest.id)
         # Snapshot the reviewer's left-hand side before reconciliation mutates
         # mark rows and relocates annotations. R25 must describe the actual
         # transition, not reconstruct an approximation afterwards.
-        before_marks = store.list_marks(session.id)
+        before_marks = store.list_marks(session.id, reviewer_id=session.reviewer_id)
         before_annotations = store.list_annotations(session.id)
 
         from lemoncrow.pro.capabilities.review.sources.local import refresh
 
         try:
-            result = refresh(store, session, resolved_repo, store_root=store.root, limit=5000)
+            result = refresh(
+                store,
+                session,
+                resolved_source_repo,
+                store_root=resolved_source_store,
+                limit=5000,
+                reviewer_id=session.reviewer_id,
+            )
         except (ValueError, OSError) as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -2294,13 +4430,14 @@ def register_review_api(
             )
 
         current_units = store.list_units(result.revision.id)
+        current_packet = read_packet_json(store, result.revision)
         current_annotations = store.list_annotations(session.id)
         current_frontier = compute_frontier(
             session.id,
             session.reviewer_id,
             result.revision,
             current_units,
-            store.list_marks(session.id),
+            store.list_marks(session.id, reviewer_id=session.reviewer_id),
             annotations=current_annotations,
         )
         current_targets = _derive_targets(
@@ -2308,7 +4445,7 @@ def register_review_api(
             result.revision,
             current_units,
             current_frontier.entries,
-            read_packet_json(store, result.revision),
+            current_packet,
             current_annotations,
         )
         target_delta = revision_target_delta(
@@ -2316,8 +4453,36 @@ def register_review_api(
             current_targets,
             aliases=result.reconciliation.aliases,
         )
+        linked_proposals = store.link_applied_change_proposals(
+            session.id,
+            source_fingerprint=result.revision.source_fingerprint,
+            result_revision_id=result.revision.id,
+        )
         # Named out of the revision the reviewer last saw: it is the last one
         # that still contained the units this refresh took away.
+        from lemoncrow.pro.capabilities.review.revisions import file_revision_delta
+
+        rename_pairs: list[tuple[str, str]] = []
+        if current_packet is not None:
+            for row in current_packet.get("files") or ():
+                if not isinstance(row, Mapping) or str(row.get("status") or "") != "renamed":
+                    continue
+                old_path = str(row.get("old_path") or "")
+                new_path = str(row.get("path") or "")
+                if old_path and new_path:
+                    rename_pairs.append((old_path, new_path))
+        same_diff_base = (
+            previous_latest.range_mode == result.revision.range_mode
+            and previous_latest.base_sha == result.revision.base_sha
+            and previous_latest.merge_base_sha == result.revision.merge_base_sha
+        )
+        file_delta = file_revision_delta(
+            previous_latest_units,
+            current_units,
+            renames=rename_pairs,
+            same_diff_base=same_diff_base,
+        )
+
         previous = result.previous_revision
         gone = {
             unit.unit_key: unit_label(unit) for unit in (store.list_units(previous.id) if previous is not None else ())
@@ -2339,6 +4504,14 @@ def register_review_api(
             "discarded": _discarded_payload(session, result.revision),
             "notes": list(result.reconciliation.notes),
             "target_delta": revision_delta_payload(target_delta),
+            "changed_paths": list(file_delta.changed),
+            "added_paths": list(file_delta.added),
+            "removed_paths": list(file_delta.removed),
+            "renamed_paths": [{"old_path": old_path, "path": new_path} for old_path, new_path in file_delta.renamed],
+            "preserved_paths": list(file_delta.preserved),
+            "applied_proposals": [
+                _proposal_payload(item, current_targets=current_targets) for item in linked_proposals
+            ],
         }
         return payload
 

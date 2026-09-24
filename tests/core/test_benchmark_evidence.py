@@ -40,7 +40,17 @@ def test_build_codebench_evidence_summarizes_results_and_judge_fields(tmp_path: 
     run_dir = tmp_path / "codebench"
     run_dir.mkdir()
     manifest_path = run_dir / "benchmark-manifest.json"
-    manifest_path.write_text("{}", encoding="utf-8")
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "runtime_attribution": {
+                    "qualification_state": "shadow_only",
+                    "arms": {"lemoncrow": {"role": "standard"}},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
     results = [
         {
             "task": "task1",
@@ -95,3 +105,89 @@ def test_build_codebench_evidence_summarizes_results_and_judge_fields(tmp_path: 
         "judge_reason",
     ]
     assert evidence["artifacts"]["flow_paths"] == ["baseline.flow", "lemoncrow.flow"]
+    assert evidence["runtime_attribution"]["qualification_state"] == "shadow_only"
+
+
+def test_codebench_evidence_carries_runtime_attribution(tmp_path: Path) -> None:
+    run_dir = tmp_path / "attributed"
+    run_dir.mkdir()
+    attribution = {
+        "schema_version": 1,
+        "qualification_state": "shadow_only",
+        "arms": {"control": {"role": "A1"}, "shadow": {"role": "A2"}},
+    }
+    manifest_path = run_dir / "benchmark-manifest.json"
+    manifest_path.write_text(json.dumps({"runtime_attribution": attribution}), encoding="utf-8")
+    (run_dir / "results.jsonl").write_text("", encoding="utf-8")
+
+    evidence = build_codebench_evidence(
+        run_dir=run_dir,
+        manifest_path=manifest_path,
+        repo_state={"commit": "abc", "dirty": False},
+    )
+
+    assert evidence["runtime_attribution"] == attribution
+
+
+def test_codebench_evidence_summarizes_observed_runtime_policy_execution(tmp_path: Path) -> None:
+    run_dir = tmp_path / "runtime-observed"
+    run_dir.mkdir()
+    manifest_path = run_dir / "benchmark-manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "runtime_attribution": {
+                    "qualification_state": "candidate_experiment",
+                    "arms": {
+                        "lemoncrow-control": {"role": "A1"},
+                        "lemoncrow-candidate": {"role": "A3"},
+                    },
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    policy_path = run_dir / "t1_lemoncrow-candidate_rep0.runtime-policy.jsonl"
+    policy_path.write_text(
+        json.dumps({"policy": "bounded-evidence-resolution"}) + "\n",
+        encoding="utf-8",
+    )
+    rows = [
+        {
+            "task": "t1",
+            "rep": 0,
+            "arm": "lemoncrow-control",
+            "runtime_policy_events": 1,
+            "runtime_policy_experiment_events": 0,
+            "runtime_policy_expansions": 0,
+            "runtime_policy_stats_path": "",
+        },
+        {
+            "task": "t1",
+            "rep": 0,
+            "arm": "lemoncrow-candidate",
+            "runtime_policy_events": 2,
+            "runtime_policy_experiment_events": 2,
+            "runtime_policy_expansions": 1,
+            "runtime_policy_stats_path": str(policy_path),
+        },
+    ]
+    (run_dir / "results.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+    evidence = build_codebench_evidence(
+        run_dir=run_dir,
+        manifest_path=manifest_path,
+        repo_state={"commit": "abc", "dirty": False},
+    )
+
+    execution = evidence["runtime_execution"]
+    assert execution["observed_runs"] == 2
+    assert execution["policy_events"] == 3
+    assert execution["experiment_events"] == 2
+    assert execution["expansions"] == 1
+    assert execution["by_arm"]["lemoncrow-control"]["expansions"] == 0
+    assert execution["by_arm"]["lemoncrow-candidate"]["experiment_runs"] == 1
+    assert evidence["artifacts"]["runtime_policy_paths"] == [str(policy_path)]

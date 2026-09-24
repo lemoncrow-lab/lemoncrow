@@ -155,106 +155,15 @@ def test_window_table_carries_spend_so_the_headline_is_one_of_its_rows() -> None
     assert "$10.00" in table  # ...and the headline saved
 
 
-def _with_sub(sub: dict[str, Any]) -> str:
+def test_legacy_subscription_blob_is_ignored() -> None:
     payload = _payload(lifetime_saved=14.2, saved_30d=14.2, spend_30d=20.0)
-    payload["subscription"] = sub
-    return render_savings_summary(payload)
-
-
-def test_cap_line_free_under_cap() -> None:
-    out = _with_sub(
-        {
-            "plan": "free",
-            "monthlySavingsCapInUsd": 20.0,
-            "monthlySavingsInUsd": 14.2,
-            "savingsRemainingUsd": 5.8,
-            "savingsCapFraction": 0.71,
-            "savingsOverCap": False,
-            "windowDays": 30,
-        }
-    )
-    assert "Cap   $14.20 of $20.00 (30d)" in out
-    assert "71.0% used, $5.80 left" in out
-    assert "[local est.]" in out
+    payload["subscription"] = {
+        "plan": "free",
+        "monthlySavingsCapInUsd": 20.0,
+        "monthlySavingsInUsd": 22.9,
+        "savingsOverCap": True,
+    }
+    out = render_savings_summary(payload)
+    assert "Plan" not in out
     assert "CAP REACHED" not in out
-
-
-def test_cap_line_over_cap_shows_dormant_and_server_source() -> None:
-    out = _with_sub(
-        {
-            "plan": "free",
-            "monthlySavingsCapInUsd": 20.0,
-            "monthlySavingsInUsd": 22.9,
-            "savingsOverCap": True,
-            "windowDays": 30,
-            "savingsMeterSource": "server",
-        }
-    )
-    assert "CAP REACHED · LemonCrow dormant" in out
-    assert "[server]" in out
-
-
-def test_cap_line_legacy_lite_cap_still_renders() -> None:
-    out = _with_sub(
-        {
-            "plan": "lite",
-            "monthlySavingsCapInUsd": 200.0,
-            "monthlySavingsInUsd": 40.0,
-            "savingsRemainingUsd": 160.0,
-            "savingsOverCap": False,
-            "windowDays": 30,
-        }
-    )
-    assert "of $200.00" in out  # old cached Lite blobs remain readable
-    assert "$160.00 left" in out
-
-
-def test_cap_line_pro_is_uncapped() -> None:
-    out = _with_sub({"plan": "pro", "monthlySavingsCapInUsd": None, "savingsMeterSource": "server"})
-    assert "Cap   uncapped" in out
-    assert "CAP REACHED" not in out
-
-
-GREEN = "\033[1;38;2;72;199;116m"
-RED = "\033[1;38;2;255;99;71m"
-
-
-def test_cap_line_green_when_under_cap(monkeypatch: Any) -> None:
-    monkeypatch.delenv("NO_COLOR", raising=False)
-    monkeypatch.delenv("LEMONCROW_NO_COLOR", raising=False)
-    out = _with_sub(
-        {"plan": "free", "monthlySavingsCapInUsd": 20.0, "monthlySavingsInUsd": 14.2, "savingsOverCap": False}
-    )
-    assert f"{GREEN}  Cap" in out  # cap line is green
-    assert RED not in out
-
-
-def test_cap_line_red_when_over_cap(monkeypatch: Any) -> None:
-    monkeypatch.delenv("NO_COLOR", raising=False)
-    monkeypatch.delenv("LEMONCROW_NO_COLOR", raising=False)
-    out = _with_sub(
-        {"plan": "free", "monthlySavingsCapInUsd": 20.0, "monthlySavingsInUsd": 559.71, "savingsOverCap": True}
-    )
-    assert f"{RED}  Cap" in out  # cap line is red
-    assert GREEN not in out.split("  Cap")[1]  # nothing green in the cap line
-
-
-def test_cap_colour_boundary_at_exactly_cap(monkeypatch: Any) -> None:
-    # savings == cap: the dormancy flag is >= (savingsOverCap True), so the line
-    # must render RED, matching the machine actually going dormant at the boundary.
-    monkeypatch.delenv("NO_COLOR", raising=False)
-    monkeypatch.delenv("LEMONCROW_NO_COLOR", raising=False)
-    out = _with_sub(
-        {"plan": "free", "monthlySavingsCapInUsd": 20.0, "monthlySavingsInUsd": 20.0, "savingsOverCap": True}
-    )
-    assert f"{RED}  Cap" in out
-    assert "CAP REACHED" in out
-
-
-def test_cap_no_colour_env_strips_ansi(monkeypatch: Any) -> None:
-    monkeypatch.setenv("NO_COLOR", "1")
-    out = _with_sub(
-        {"plan": "free", "monthlySavingsCapInUsd": 20.0, "monthlySavingsInUsd": 14.2, "savingsOverCap": False}
-    )
-    assert "\033[" not in out  # no ANSI at all
-    assert "Cap   $14.20 of $20.00" in out  # text still present
+    assert "dormant" not in out

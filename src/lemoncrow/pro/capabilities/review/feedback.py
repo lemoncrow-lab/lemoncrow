@@ -240,13 +240,27 @@ def build_bundle(
         if annotation.parent_id:
             children.setdefault(annotation.parent_id, []).append(annotation)
 
+    def thread_replies(root_id: str) -> tuple[Annotation, ...]:
+        ordered: list[Annotation] = []
+
+        def visit(parent_id: str) -> None:
+            for reply in sorted(
+                children.get(parent_id, ()),
+                key=lambda item: (item.created_at, item.id),
+            ):
+                ordered.append(reply)
+                visit(reply.id)
+
+        visit(root_id)
+        return tuple(ordered)
+
     open_items: list[FeedbackItem] = []
     orphaned: list[FeedbackItem] = []
     resolved: list[FeedbackItem] = []
     for annotation in human_annotations:
         if annotation.parent_id:
             continue
-        item = _item_for(annotation, ranks, symbols, children.get(annotation.id, ()))
+        item = _item_for(annotation, ranks, symbols, thread_replies(annotation.id))
         if annotation.state in ("orphaned", "obsolete"):
             orphaned.append(item)
         elif annotation.state in _OPEN_STATES:

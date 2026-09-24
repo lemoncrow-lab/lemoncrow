@@ -153,7 +153,7 @@ def test_mcp_tools_hidden_bench_off(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_mcp_tools_visible_bench_on(monkeypatch: pytest.MonkeyPatch) -> None:
-    """bench-on restores the normal hidden/public policy for MCP tools."""
+    """bench-on restores the normal explicit allowlist policy for MCP tools."""
     monkeypatch.setenv("LEMONCROW_BENCH_MODE", "on")
     from lemoncrow.core.environment import mcp_tool_visible_to_llm
 

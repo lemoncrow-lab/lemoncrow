@@ -9,18 +9,42 @@ set +e
 LABEL="${1:-image}"
 fail(){ echo "RESULT:$LABEL:FAIL:$1"; exit 1; }
 
-i=0; while :; do apt-get update -qq && apt-get install -y -qq git curl ca-certificates gnupg && break; i=$((i+1)); [ $i -ge 3 ] && fail apt; sleep 3; done
+if grep -q '^VERSION_CODENAME=bullseye$' /etc/os-release 2>/dev/null; then
+  cat >/etc/apt/sources.list <<'EOF'
+deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260831T235959Z/ bullseye main
+deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20260831T235959Z/ bullseye-security main
+EOF
+  rm -rf /etc/apt/sources.list.d/* /var/lib/apt/lists/*
+fi
+i=0; while :; do apt-get -o Acquire::Check-Valid-Until=false update -qq && apt-get install -y -qq git curl ca-certificates gnupg && break; i=$((i+1)); [ $i -ge 3 ] && fail apt; sleep 3; done
 
 i=0; while :; do curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y -qq nodejs && break; i=$((i+1)); [ $i -ge 3 ] && fail node; sleep 3; done
 node -v | grep -qE 'v(1[89]|[2-9][0-9])' || fail "node_$(node -v 2>&1)"
 
 tar -C /opt -xzf /lemoncrow-bundle.tar.gz || fail bundle_extract
-chmod -R a+rX /opt/lemoncrow-venv /opt/uvpy
+chmod -R a+rX /opt/lemoncrow-venv /opt/headroom-venv /opt/uvpy
 ln -sf /opt/lemoncrow-venv/bin/lemoncrow /usr/local/bin/lemoncrow
-/opt/lemoncrow-venv/bin/python -c 'import lemoncrow' || fail import_lemoncrow
+/opt/lemoncrow-venv/bin/python -c 'import lemoncrow, lemoncrow_client' || fail import_lemoncrow_runtime
+/opt/headroom-venv/bin/python -c 'import headroom' || fail import_headroom
 
 i=0; while :; do npm install -g @anthropic-ai/claude-code >/dev/null 2>&1 && break; i=$((i+1)); [ $i -ge 3 ] && fail npm_claude; sleep 3; done
 command -v claude >/dev/null || fail claude_bin
+
+# Zero-provider-call Headroom proxy health check. The benchmark's Headroom arm
+# points Claude at this local Anthropic-compatible proxy, so prove the isolated
+# venv can actually start on the task image before spending any model credits.
+HEADROOM_CCR_BACKEND=memory /opt/headroom-venv/bin/headroom proxy \
+  --host 127.0.0.1 --port 18787 --mode cache --no-cache --no-rate-limit --stateless \
+  >/tmp/headroom-preflight.log 2>&1 &
+HRPID=$!
+HRREADY=0
+for _ in $(seq 1 60); do
+  curl -fsS http://127.0.0.1:18787/health >/dev/null 2>&1 && { HRREADY=1; break; }
+  sleep 0.25
+done
+kill "$HRPID" 2>/dev/null || true
+wait "$HRPID" 2>/dev/null || true
+[ "$HRREADY" -eq 1 ] || fail "headroom_proxy:$(tail -c 200 /tmp/headroom-preflight.log)"
 
 # Optional: rtk external compactor (github.com/rtk-ai/rtk). LemonCrow's bash tool
 # soft-detects it on PATH at run time (external_compactors.py); absence is
@@ -78,17 +102,26 @@ printf 'from a import alpha\ndef beta():\n    return alpha()\n' > "$IDXG/b.py"
 (cd "$IDXG" && /opt/lemoncrow-venv/bin/lemoncrow code index --reindex --json) >/tmp/idxg.json 2>/tmp/idxg.err || fail "code_index_git:$(tail -c 200 /tmp/idxg.err)"
 [ "$(idx_files /tmp/idxg.json)" -ge 1 ] 2>/dev/null || fail "index_git_zero:$(head -c 200 /tmp/idxg.json)"
 
-# (b) NON-git dir with files -> still indexes (FTS does not need git), exit 0
+# (b) NON-git dir with files -> explicit workspace registration first, then
+# indexing. New workspace isolation deliberately rejects arbitrary non-git cwd
+# until `lc init` creates the local marker; Harbor mirrors that production rule.
 IDXN=/tmp/idxnogit
 mkdir -p "$IDXN"
 printf 'def gamma():\n    return 2\n' > "$IDXN/c.py"
-(cd "$IDXN" && /opt/lemoncrow-venv/bin/lemoncrow code index --reindex --json) >/tmp/idxn.json 2>/tmp/idxn.err || fail "code_index_nogit:$(tail -c 200 /tmp/idxn.err)"
+(cd "$IDXN" && LEMONCROW_ROOT=/root/.lemoncrow /opt/lemoncrow-venv/bin/lemoncrow init --no-login) >/tmp/idxn-init.log 2>&1 \
+  || fail "init_nogit:$(tail -c 200 /tmp/idxn-init.log)"
+[ -d "$IDXN/.lemoncrow" ] || fail init_nogit_marker_missing
+(cd "$IDXN" && LEMONCROW_ROOT=/root/.lemoncrow /opt/lemoncrow-venv/bin/lemoncrow code index --reindex --json) >/tmp/idxn.json 2>/tmp/idxn.err \
+  || fail "code_index_nogit:$(tail -c 200 /tmp/idxn.err)"
 [ "$(idx_files /tmp/idxn.json)" -ge 1 ] 2>/dev/null || fail "index_nogit_zero:$(head -c 200 /tmp/idxn.json)"
 
-# (c) empty dir -> must not abort (exit 0); no real crash (segfault) allowed
+# (c) empty non-git dir -> register first, then index must still exit 0;
+# no real crash (segfault) allowed.
 IDXE=/tmp/idxempty
 mkdir -p "$IDXE"
-(cd "$IDXE" && /opt/lemoncrow-venv/bin/lemoncrow code index --reindex --no-stats) >/dev/null 2>/tmp/idxe.err
+(cd "$IDXE" && LEMONCROW_ROOT=/root/.lemoncrow /opt/lemoncrow-venv/bin/lemoncrow init --no-login) >/tmp/idxe-init.log 2>&1 \
+  || fail "init_empty:$(tail -c 200 /tmp/idxe-init.log)"
+(cd "$IDXE" && LEMONCROW_ROOT=/root/.lemoncrow /opt/lemoncrow-venv/bin/lemoncrow code index --reindex --no-stats) >/dev/null 2>/tmp/idxe.err
 EMPTYRC=$?
 [ "$EMPTYRC" -eq 0 ] || fail "code_index_empty_rc$EMPTYRC:$(tail -c 200 /tmp/idxe.err)"
 grep -qiE 'Segmentation|core dumped' /tmp/idxe.err && fail code_index_empty_segfault
@@ -100,4 +133,4 @@ mkdir -p /logs/agent && chmod 777 /logs/agent
 bash -c 'echo "{}" >/logs/agent/claude-run.json && echo ok >/logs/agent/lemoncrow-index.log' \
   || fail logs_agent_unwritable
 
-echo "RESULT:$LABEL:PASS node=$(node -v) cmdprobe=$CMDPROBE idx_git=$(idx_files /tmp/idxg.json) idx_nogit=$(idx_files /tmp/idxn.json) emptyrc=$EMPTYRC logs_agent=ok rtk=$RTK_STATUS"
+echo "RESULT:$LABEL:PASS node=$(node -v) cmdprobe=$CMDPROBE headroom=ok idx_git=$(idx_files /tmp/idxg.json) idx_nogit=$(idx_files /tmp/idxn.json) emptyrc=$EMPTYRC logs_agent=ok rtk=$RTK_STATUS"

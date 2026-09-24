@@ -104,21 +104,9 @@ def tools_list_cmd(ctx: click.Context, as_json: bool) -> None:
     """List tools visible through MCP tools/list."""
     restore = _prepare_mcp_cli(ctx, dev=False)
     try:
-        from lemoncrow.gateway.adapters.mcp_server import (
-            TOOLS,
-            _tool_description,
-            _tool_visible_to_llm,
-        )
+        from lemoncrow.gateway.tools.registry import advertised_tools
 
-        tools = [
-            {
-                "name": name,
-                "description": _tool_description(spec),
-                "inputSchema": spec.get("inputSchema", {}),
-            }
-            for name, spec in TOOLS.items()
-            if _tool_visible_to_llm(name, spec)
-        ]
+        tools = advertised_tools()
         if as_json:
             _emit({"tools": tools}, as_json=True)
             return
@@ -154,7 +142,7 @@ def tools_call_cmd(
     try:
         args = _mcp_cli_args(args_json)
         if name == "memory" and isinstance(args, dict):
-            from lemoncrow.core.foundation.redaction import redact
+            from lemoncrow_client.kit.redaction import redact
 
             op = str(args.get("op") or "")
             if op == "block_upsert" and "value" in args:
@@ -163,50 +151,20 @@ def tools_call_cmd(
                     args["description"] = redact(str(args.get("description") or ""))
             elif op == "archive" and "text" in args:
                 args["text"] = redact(str(args.get("text") or ""))
-        from lemoncrow.gateway.adapters.mcp_server import _Deferred, _handle
+        from lemoncrow.gateway.tools.registry import call_registered_tool
+        from lemoncrow.gateway.tools.rendering import render_tool_result_text
 
-        response = _handle(
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "tools/call",
-                "params": {"name": name, "arguments": args},
-            }
-        )
-        if response is None:
-            raise click.ClickException("tool call returned no response")
-        if isinstance(response, _Deferred):
-            # Deferral is only armed on the stdio server worker path
-            # (_handle_and_write); the in-process CLI never sets that context, so a
-            # deferred marker is unreachable here. Guard for type safety.
-            raise click.ClickException("tool call returned a deferred result outside the server")
-        if "error" in response:
-            raise click.ClickException(str(response["error"].get("message") or response["error"]))
-        result_payload = response.get("result", {})
-        if result_payload.get("isError"):
-            content = result_payload.get("content", [])
-            text = str(content[0].get("text", "")) if content else "tool execution failed"
-            raise click.ClickException(text)
-        structured = result_payload.get("structuredContent")
-        if structured is not None:
-            payload = structured
-        else:
-            content = result_payload.get("content", [])
-            text = str(content[0].get("text", "")) if content else ""
-            try:
-                payload = json.loads(text)
-            except json.JSONDecodeError:
-                payload = text
-        if as_json and not isinstance(payload, (dict, list)):
-            # Tools whose host-facing content is rendered text (read, grep, search,
-            # shell, ...) leave only a string here. For --json, recover the full
-            # structured result the dispatcher stashed in-process so the caller gets
-            # the real dict. CLI-side only -- the MCP host's main model never receives it.
-            from lemoncrow.gateway.adapters.mcp_server import _tool_call_raw_result
+        try:
+            payload = call_registered_tool(name, args)
+        except KeyError:
+            raise click.ClickException(f"unknown tool: {name}") from None
+        except Exception as exc:
+            raise click.ClickException(str(exc)) from exc
 
-            raw = getattr(_tool_call_raw_result, "value", None)
-            if isinstance(raw, (dict, list)):
-                payload = raw
+        if not as_json:
+            rendered = render_tool_result_text(name, payload)
+            if rendered is not None:
+                payload = rendered
         if as_json:
             _emit(payload, as_json=True)
             return

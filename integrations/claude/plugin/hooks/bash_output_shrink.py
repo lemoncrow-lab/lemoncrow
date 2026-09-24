@@ -84,15 +84,12 @@ def _run(payload: dict[str, Any]) -> int:
 
     if result.spill_hint:
         # Already the canonical footer -- bash_exec composed it via
-        # tool_output_spill.spill_notice against its own internal char
-        # accounting.
+        # spill_notice against its own internal char accounting.
         footer = result.spill_hint
     else:
-        from lemoncrow.pro.capabilities.tool_supervision import tool_output_spill
+        from lemoncrow_client.kit.notices import spill_notice
 
-        footer = tool_output_spill.spill_notice(
-            verb="shrunk", original_chars=original_chars, kept_chars=compact_chars, path=None
-        )
+        footer = spill_notice(verb="shrunk", original_chars=original_chars, kept_chars=compact_chars, path=None)
     updated = dict(tool_response)
     updated["stdout"] = f"{result.stdout}\n\n{footer}" if result.stdout else footer
     updated["stderr"] = result.stderr

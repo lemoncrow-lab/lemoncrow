@@ -425,13 +425,9 @@ def test_codex_stop_hook_reads_status_style_token_fields(tmp_path: Path) -> None
     assert "est. cost: ~$20.46" in message
 
 
-def test_codex_stop_hook_folds_current_dynamic_status_line(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Codex emits only the statusline frame selected for the Stop event."""
+def test_codex_stop_hook_has_no_account_login_dynamic_status(tmp_path: Path) -> None:
     root = tmp_path / ".lemoncrow"
     root.mkdir()
-    monkeypatch.delenv("LEMONCROW_AUTH_TOKEN", raising=False)
-    # Suppress the status tip so the login nudge is the sole dynamic frame.
-    (root / "auth.json").write_text(json.dumps({"authenticated": True}))
     (root / "plugin_settings.json").write_text(json.dumps({"lemoncrow": {"statusLineTips": False}}))
     (root / "statusline_frame_state.json").write_text(json.dumps({"counter": 3, "ts": 9_000_000_000}))
 
@@ -442,12 +438,8 @@ def test_codex_stop_hook_folds_current_dynamic_status_line(tmp_path: Path, monke
         "tokens": {"input": "1000", "output": "10"},
     }
     message = plugin_runtime.build_codex_stop_output(root, payload)["systemMessage"]
-    assert message.count("not signed in -- /lemoncrow account login to unlock Pro") == 1
-
-    # Signed in: the selected dynamic frame disappears from the Stop summary.
-    (root / "auth_token").write_text("tok")
-    message = plugin_runtime.build_codex_stop_output(root, payload)["systemMessage"]
-    assert "/lemoncrow account login" not in message
+    assert "account login" not in message.lower()
+    assert "unlock pro" not in message.lower()
 
 
 def test_codex_stop_hook_uses_native_statusline_snapshot_without_session_id(tmp_path: Path) -> None:

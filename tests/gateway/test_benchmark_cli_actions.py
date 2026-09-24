@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 import shutil
 import subprocess
@@ -136,13 +137,126 @@ def test_benchmark_harbor_fresh_run_maps_attempts_to_n_attempts(monkeypatch, tmp
 
     assert result.exit_code == 0, result.output
     assert len(calls) == 1
-    cmd, _ = calls[0]
+    cmd, env = calls[0]
     assert "run" in cmd
+    assert env is not None
+    assert env["LEMONCROW_BENCH_COMMIT"]
     # attempts -> -k/--n-attempts, concurrency -> --n-concurrent (distinct values).
     assert cmd[cmd.index("-k") + 1] == "5"
     assert cmd[cmd.index("--n-concurrent") + 1] == "8"
     # harbor's -n is concurrency: it must never carry the attempts value.
     assert "-n" not in cmd
+
+
+def test_benchmark_harbor_context_arm_is_recorded_in_agent_kwargs(monkeypatch, tmp_path: Path) -> None:
+    runner = CliRunner()
+    root = tmp_path / ".lemoncrow"
+    out_dir = tmp_path / "harbor-out"
+    bundle = tmp_path / "bundle.tar.gz"
+    bundle.write_bytes(b"bundle")
+    calls: list[tuple[list[str], dict[str, str] | None]] = []
+
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "fake-oauth-token")
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/uv" if name == "uv" else None)
+
+    def _fake_call(cmd, env=None):
+        calls.append((cmd, env))
+        return 0
+
+    monkeypatch.setattr(subprocess, "call", _fake_call)
+
+    result = runner.invoke(
+        cli,
+        [
+            "--root",
+            str(root),
+            "benchmark",
+            "harbor",
+            "--agent",
+            "lemoncrow-claude-code",
+            "--context-arm",
+            "lemoncrow-headroom",
+            "--no-rebuild-bundle",
+            "--bundle",
+            str(bundle),
+            "--attempts",
+            "1",
+            "--concurrent",
+            "1",
+            "--output",
+            str(out_dir),
+            "-y",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(calls) == 1
+    cmd, _ = calls[0]
+    pairs = list(itertools.pairwise(cmd))
+    assert ("--ak", "context_arm=lemoncrow-headroom") in pairs
+    assert "arm              : lemoncrow-headroom" in result.output
+
+
+def test_benchmark_harbor_baseline_alias_maps_to_raw_context_arm(monkeypatch, tmp_path: Path) -> None:
+    runner = CliRunner()
+    root = tmp_path / ".lemoncrow"
+    bundle = tmp_path / "bundle.tar.gz"
+    bundle.write_bytes(b"bundle")
+    calls: list[list[str]] = []
+
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "fake-oauth-token")
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/uv" if name == "uv" else None)
+    monkeypatch.setattr(subprocess, "call", lambda cmd, env=None: calls.append(cmd) or 0)
+
+    result = runner.invoke(
+        cli,
+        [
+            "--root",
+            str(root),
+            "benchmark",
+            "harbor",
+            "--agent",
+            "lemoncrow-claude-code",
+            "--baseline",
+            "--no-rebuild-bundle",
+            "--bundle",
+            str(bundle),
+            "--attempts",
+            "1",
+            "--concurrent",
+            "1",
+            "-y",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    pairs = list(itertools.pairwise(calls[0]))
+    assert ("--ak", "context_arm=raw") in pairs
+    assert "bench_mode=off" not in calls[0]
+
+
+def test_benchmark_harbor_rejects_context_arm_for_non_claude_agent(monkeypatch, tmp_path: Path) -> None:
+    runner = CliRunner()
+    root = tmp_path / ".lemoncrow"
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/uv" if name == "uv" else None)
+
+    result = runner.invoke(
+        cli,
+        [
+            "--root",
+            str(root),
+            "benchmark",
+            "harbor",
+            "--agent",
+            "lemoncrow",
+            "--context-arm",
+            "rtk",
+            "-y",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "--context-arm is only supported" in result.output
 
 
 def test_benchmark_codebench_wraps_runner(monkeypatch, tmp_path: Path) -> None:
@@ -215,6 +329,9 @@ def test_benchmark_codebench_wraps_runner(monkeypatch, tmp_path: Path) -> None:
     gate = json.loads((tmp_path / "codebench" / "benchmark-gate.json").read_text("utf-8"))
     assert gate["suite"] == "codebench"
     assert gate["passed"] is False
+    comparison = json.loads((tmp_path / "codebench" / "benchmark-comparison-gates.json").read_text("utf-8"))
+    assert comparison["baseline_arm"] == "baseline"
+    assert comparison["candidate_arms"] == ["lemoncrow"]
 
 
 def test_benchmark_codebench_accepts_eval_arm_and_api_options(monkeypatch, tmp_path: Path) -> None:
@@ -763,3 +880,287 @@ def test_benchmark_swe_accepts_swe_pro_suite(monkeypatch, tmp_path: Path) -> Non
     assert cmd[cmd.index("--suite") + 1] == "swe-pro"
     assert "--dataset" not in cmd
     assert "--instances" not in cmd
+
+
+def test_benchmark_codebench_forwards_external_comparator(monkeypatch, tmp_path: Path) -> None:
+    runner = CliRunner()
+    root = tmp_path / ".lemoncrow"
+    calls: list[tuple[list[str], str, dict[str, str] | None]] = []
+    codebench_tasks_dir = tmp_path / "codebench-tasks"
+    codebench_tasks_dir.mkdir()
+    competitor = tmp_path / "other-tool.json"
+    competitor.write_text(
+        json.dumps(
+            {
+                "name": "other-tool",
+                "repo": "https://example.invalid/other-tool.git",
+                "ref": "v1",
+                "mcp": {"command": "other-tool", "args": ["serve"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.chdir(REPO_ROOT)
+    monkeypatch.setattr(benchmark_cmds, "_python_cmd", lambda _repo_root: ["python"])
+    monkeypatch.setattr(benchmark_cmds, "_codebench_run_dir", lambda repo_root: tmp_path / "codebench")
+    monkeypatch.setattr(
+        benchmark_cmds,
+        "_ensure_codebench_tasks_dir",
+        lambda repo_root, path: codebench_tasks_dir,
+    )
+
+    def _fake_run(cmd, cwd, label, env=None, check=True):
+        calls.append((cmd, label, env))
+        return 0
+
+    monkeypatch.setattr(benchmark_cmds, "_run", _fake_run)
+
+    result = runner.invoke(
+        cli,
+        [
+            "--root",
+            str(root),
+            "benchmark",
+            "codebench",
+            "--competitor",
+            str(competitor),
+            "--task-source-dir",
+            str(codebench_tasks_dir),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    cmd, _, _ = calls[0]
+    assert cmd[cmd.index("--competitor") + 1] == str(competitor.resolve())
+    manifest = json.loads((tmp_path / "codebench" / "benchmark-manifest.json").read_text("utf-8"))
+    assert manifest["protocol"]["treatment_arms"] == ["lemoncrow", "other-tool"]
+    external = manifest["runtime_attribution"]["arms"]["other-tool"]
+    assert external["role"] == "external"
+    assert external["manifest_fingerprint"]
+    assert external["manifest_sha256"]
+    assert (tmp_path / "codebench" / "benchmark-comparison-gates.json").exists()
+
+
+def test_benchmark_protocol_validates_frozen_runtime_matrix_without_running_agents(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    root = tmp_path / ".lemoncrow"
+    protocol = REPO_ROOT / "benchmarks" / "codebench" / "protocols" / "intelligent-runtime-v1.json"
+
+    monkeypatch.chdir(REPO_ROOT)
+
+    def _must_not_run(*args, **kwargs):
+        raise AssertionError("protocol validation must not launch benchmark subprocesses")
+
+    monkeypatch.setattr(benchmark_cmds, "_run", _must_not_run)
+    result = runner.invoke(
+        cli,
+        [
+            "--root",
+            str(root),
+            "benchmark",
+            "protocol",
+            "--file",
+            str(protocol),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["id"] == "intelligent-runtime-v1"
+    assert payload["total_agent_rows"] == 308
+    assert payload["pairwise_judge_comparisons"] == 273
+    assert len(payload["fingerprint"]) == 64
+    assert [run["id"] for run in payload["runs"]] == [
+        "claude-policy-qualification",
+        "codex-policy-generalization",
+        "claude-codegraph-external",
+    ]
+    assert payload["runs"][2]["competitors"][0]["name"] == "codegraph"
+    assert len(payload["commands"]) == 3
+
+
+def test_benchmark_protocol_output_root_and_verify_all_write_publication_artifact(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    root = tmp_path / ".lemoncrow"
+    bundle = tmp_path / "bundle"
+    protocol = REPO_ROOT / "benchmarks" / "codebench" / "protocols" / "intelligent-runtime-v1.json"
+    run_ids = [
+        "claude-policy-qualification",
+        "codex-policy-generalization",
+        "claude-codegraph-external",
+    ]
+    for run_id in run_ids:
+        (bundle / run_id).mkdir(parents=True)
+
+    monkeypatch.chdir(REPO_ROOT)
+    fingerprint = "f" * 64
+    publication = {
+        "protocol_id": "intelligent-runtime-v1",
+        "protocol_fingerprint": fingerprint,
+        "run_root": str(bundle.resolve()),
+        "passed": True,
+        "reasons": [],
+        "host_preflight": {"passed": True, "reasons": [], "checks": [], "current_versions": {}},
+        "runs": {
+            run_id: {
+                "protocol_id": "intelligent-runtime-v1",
+                "protocol_fingerprint": fingerprint,
+                "run_id": run_id,
+                "passed": True,
+                "reasons": [],
+                "details": {"commit_under_test": {"commit": "same", "dirty": False}},
+            }
+            for run_id in run_ids
+        },
+        "commit_under_test": "same",
+    }
+    monkeypatch.setattr(benchmark_cmds, "verify_codebench_publication", lambda *args, **kwargs: publication)
+
+    result = runner.invoke(
+        cli,
+        [
+            "--root",
+            str(root),
+            "benchmark",
+            "protocol",
+            "--file",
+            str(protocol),
+            "--output-root",
+            str(bundle),
+            "--verify-all",
+            str(bundle),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["publication_verification"]["passed"] is True
+    for command in payload["commands"]:
+        argv = command["argv"]
+        assert argv[argv.index("--out") + 1] == str((bundle / command["run_id"]).resolve())
+    publication_path = bundle / "publication-readiness.json"
+    assert publication_path.exists()
+    assert json.loads(publication_path.read_text(encoding="utf-8"))["passed"] is True
+    for run_id in run_ids:
+        assert (bundle / run_id / "protocol-verification.json").exists()
+
+
+def test_benchmark_protocol_verify_all_incomplete_bundle_writes_failed_readiness(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    root = tmp_path / ".lemoncrow"
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    protocol = REPO_ROOT / "benchmarks" / "codebench" / "protocols" / "intelligent-runtime-v1.json"
+
+    monkeypatch.chdir(REPO_ROOT)
+    versions = {
+        "claude": "2.1.197 (Claude Code)",
+        "codex": "codex-cli 0.155.1",
+    }
+    monkeypatch.setattr(benchmark_cmds, "_benchmark_command_version", lambda command: versions.get(command, ""))
+
+    result = runner.invoke(
+        cli,
+        [
+            "--root",
+            str(root),
+            "benchmark",
+            "protocol",
+            "--file",
+            str(protocol),
+            "--verify-all",
+            str(bundle),
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert payload["publication_verification"]["passed"] is False
+    assert (bundle / "publication-readiness.json").exists()
+    for run_id in (
+        "claude-policy-qualification",
+        "codex-policy-generalization",
+        "claude-codegraph-external",
+    ):
+        assert (bundle / run_id / "protocol-verification.json").exists()
+
+
+def test_benchmark_protocol_host_preflight_matches_frozen_versions(monkeypatch, tmp_path: Path) -> None:
+    runner = CliRunner()
+    root = tmp_path / ".lemoncrow"
+    protocol = REPO_ROOT / "benchmarks" / "codebench" / "protocols" / "intelligent-runtime-v1.json"
+
+    monkeypatch.chdir(REPO_ROOT)
+    versions = {
+        "claude": "2.1.197 (Claude Code)",
+        "codex": "codex-cli 0.155.1",
+    }
+    monkeypatch.setattr(benchmark_cmds, "_benchmark_command_version", lambda command: versions.get(command, ""))
+
+    result = runner.invoke(
+        cli,
+        [
+            "--root",
+            str(root),
+            "benchmark",
+            "protocol",
+            "--file",
+            str(protocol),
+            "--check-hosts",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["host_preflight"]["passed"] is True
+    assert payload["runs"][1]["model"] == "gpt-6-astra"
+
+
+def test_benchmark_protocol_json_verify_run_exits_nonzero_on_failed_publication_check(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    root = tmp_path / ".lemoncrow"
+    protocol = REPO_ROOT / "benchmarks" / "codebench" / "protocols" / "intelligent-runtime-v1.json"
+    empty_run = tmp_path / "incomplete-run"
+    empty_run.mkdir()
+
+    monkeypatch.chdir(REPO_ROOT)
+    result = runner.invoke(
+        cli,
+        [
+            "--root",
+            str(root),
+            "benchmark",
+            "protocol",
+            "--file",
+            str(protocol),
+            "--verify-run",
+            f"claude-policy-qualification={empty_run}",
+            "--json",
+        ],
+    )
+
+    assert result.exit_code == 1
+    payload = json.loads(result.output)
+    assert payload["verifications"][0]["passed"] is False
+    assert any("missing benchmark manifest" in reason for reason in payload["verifications"][0]["reasons"])
+    verification_path = empty_run / "protocol-verification.json"
+    assert verification_path.exists()
+    written = json.loads(verification_path.read_text(encoding="utf-8"))
+    assert written["passed"] is False

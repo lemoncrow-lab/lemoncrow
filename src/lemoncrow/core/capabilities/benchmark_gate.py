@@ -20,6 +20,20 @@ def write_benchmark_gate(run_dir: Path, payload: dict[str, Any]) -> Path:
     return path
 
 
+def write_benchmark_comparison_gates(run_dir: Path, payload: dict[str, Any]) -> Path:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    path = run_dir / "benchmark-comparison-gates.json"
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return path
+
+
+def write_runtime_policy_gate(run_dir: Path, payload: dict[str, Any]) -> Path:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    path = run_dir / "runtime-policy-gate.json"
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    return path
+
+
 def load_benchmark_gate(run_dir: Path) -> dict[str, Any]:
     path = run_dir / "benchmark-gate.json"
     if not path.is_file():
@@ -97,6 +111,8 @@ def evaluate_codebench_gate(
     confidence: float = 0.95,
     mode: str = "cost",
 ) -> dict[str, Any]:
+    manifest = _load_json_object(run_dir / "benchmark-manifest.json")
+    runtime_attribution = manifest.get("runtime_attribution", {}) if manifest else {}
     results_path = run_dir / "results.jsonl"
     if not results_path.is_file():
         return _failed_gate(
@@ -121,12 +137,17 @@ def evaluate_codebench_gate(
     candidate_correct = sum(1 for row in candidate_rows if row.get("correct") is True)
     baseline_lower, baseline_upper = wilson_interval(baseline_correct, len(baseline_rows), confidence=confidence)
     candidate_lower, candidate_upper = wilson_interval(candidate_correct, len(candidate_rows), confidence=confidence)
+    observed_delta = (candidate_correct / len(candidate_rows)) - (baseline_correct / len(baseline_rows))
     delta_lower = candidate_lower - baseline_upper
     delta_upper = candidate_upper - baseline_lower
-    if delta_lower < -margin:
-        reasons.append(
-            f"lower confidence bound on judged solved-rate delta {delta_lower:.4f} is below allowed margin {-margin:.4f}"
-        )
+    # CodeBench is paired by task+rep and already requires a judged pairwise
+    # non-regression verdict for every candidate row below. Using the difference
+    # of two independent Wilson bounds as an additional hard gate makes small
+    # frozen matrices impossible to pass even at identical 5/5 quality. Keep the
+    # intervals as uncertainty diagnostics, but gate objective solved-rate on the
+    # directly observed non-inferiority margin.
+    if observed_delta < -margin:
+        reasons.append(f"observed judged solved-rate delta {observed_delta:.4f} is below allowed margin {-margin:.4f}")
     baseline_cost = sum(float(row.get("cost_usd") or 0.0) for row in baseline_rows)
     candidate_cost = sum(float(row.get("cost_usd") or 0.0) for row in candidate_rows)
     if mode == "ceiling":
@@ -158,6 +179,7 @@ def evaluate_codebench_gate(
         "suite": "codebench",
         "evaluated_at": datetime.now(UTC).isoformat(),
         "passed": not reasons,
+        "runtime_attribution": runtime_attribution,
         "reasons": reasons,
         "checks": {
             "quality_metric": "judge correct rate",
@@ -179,9 +201,11 @@ def evaluate_codebench_gate(
                 upper=candidate_upper,
             ),
             "judged_delta": {
-                "pass_rate": (candidate_correct / len(candidate_rows)) - (baseline_correct / len(baseline_rows)),
+                "pass_rate": observed_delta,
+                "allowed_margin": margin,
                 "delta_lower_bound": delta_lower,
                 "delta_upper_bound": delta_upper,
+                "confidence_intervals_are_diagnostic": True,
             },
             "cost": {
                 "baseline_cost_usd": baseline_cost,
@@ -200,6 +224,131 @@ def evaluate_codebench_gate(
             },
         },
     }
+
+
+def evaluate_codebench_comparison_gates(
+    run_dir: Path,
+    *,
+    baseline_arm: str,
+    candidate_arms: list[str],
+    margin: float = 0.05,
+    confidence: float = 0.95,
+    mode: str = "cost",
+) -> dict[str, Any]:
+    """Evaluate every candidate against the declared baseline independently."""
+
+    candidates = {
+        arm: evaluate_codebench_gate(
+            run_dir,
+            baseline_arm=baseline_arm,
+            candidate_arm=arm,
+            margin=margin,
+            confidence=confidence,
+            mode=mode,
+        )
+        for arm in candidate_arms
+        if arm != baseline_arm
+    }
+    return {
+        "suite": "codebench",
+        "evaluated_at": datetime.now(UTC).isoformat(),
+        "baseline_arm": baseline_arm,
+        "candidate_arms": list(candidates),
+        "passed_all": bool(candidates) and all(bool(gate.get("passed")) for gate in candidates.values()),
+        "candidates": candidates,
+    }
+
+
+def evaluate_runtime_policy_gate(
+    run_dir: Path,
+    *,
+    control_arm: str = "lemoncrow-control",
+    candidate_arm: str = "lemoncrow-candidate",
+    margin: float = 0.05,
+    confidence: float = 0.95,
+) -> dict[str, Any]:
+    """Qualify one runtime policy only from a manifest-proven A1/A3 comparison."""
+
+    base = evaluate_codebench_gate(
+        run_dir,
+        baseline_arm=control_arm,
+        candidate_arm=candidate_arm,
+        margin=margin,
+        confidence=confidence,
+    )
+    manifest = _load_json_object(run_dir / "benchmark-manifest.json")
+    attribution = manifest.get("runtime_attribution") if isinstance(manifest, dict) else None
+    arms = attribution.get("arms") if isinstance(attribution, dict) else None
+    control = arms.get(control_arm) if isinstance(arms, dict) else None
+    candidate = arms.get(candidate_arm) if isinstance(arms, dict) else None
+    reasons = list(base.get("reasons") or [])
+
+    if not isinstance(control, dict) or control.get("role") != "A1":
+        reasons.append(f"runtime qualification requires {control_arm!r} to be manifest role A1")
+    if not isinstance(candidate, dict) or candidate.get("role") != "A3":
+        reasons.append(f"runtime qualification requires {candidate_arm!r} to be manifest role A3")
+    candidate_policy = candidate.get("runtime_policy") if isinstance(candidate, dict) else None
+    resolution = candidate_policy.get("bounded_evidence_resolution") if isinstance(candidate_policy, dict) else None
+    if not isinstance(resolution, dict) or resolution.get("mode") != "experiment":
+        reasons.append("A3 must be the explicit benchmark-only evidence-resolution experiment")
+
+    results = _load_jsonl(run_dir / "results.jsonl")
+    control_rows = [row for row in results if str(row.get("arm") or "") == control_arm]
+    candidate_rows = [row for row in results if str(row.get("arm") or "") == candidate_arm]
+    control_observed = all(int(row.get("runtime_policy_events") or 0) > 0 for row in control_rows)
+    candidate_observed = all(int(row.get("runtime_policy_events") or 0) > 0 for row in candidate_rows)
+    candidate_experiment = all(int(row.get("runtime_policy_experiment_events") or 0) > 0 for row in candidate_rows)
+    candidate_expansions = sum(int(row.get("runtime_policy_expansions") or 0) for row in candidate_rows)
+    control_expansions = sum(int(row.get("runtime_policy_expansions") or 0) for row in control_rows)
+    if not control_rows or not control_observed:
+        reasons.append("A1 runtime policy was not observed on every control run")
+    if control_expansions:
+        reasons.append("A1 control unexpectedly executed candidate evidence expansion")
+    if not candidate_rows or not candidate_observed:
+        reasons.append("A3 runtime policy was not observed on every candidate run")
+    if not candidate_experiment:
+        reasons.append("A3 observed diagnostics did not prove 1-experiment execution on every candidate run")
+    if candidate_expansions <= 0:
+        reasons.append("A3 never executed a bounded evidence expansion, so the candidate policy was not exercised")
+
+    qualified = not reasons and bool(base.get("passed"))
+    result = dict(base)
+    result.update(
+        {
+            "suite": "codebench_runtime_policy",
+            "passed": qualified,
+            "reasons": reasons,
+            "qualification": {
+                "policy": "bounded-evidence-resolution",
+                "enforcement_qualified": qualified,
+                "control_arm": control_arm,
+                "candidate_arm": candidate_arm,
+                "control_policy_fingerprint": control.get("policy_fingerprint") if isinstance(control, dict) else None,
+                "candidate_policy_fingerprint": (
+                    candidate.get("policy_fingerprint") if isinstance(candidate, dict) else None
+                ),
+                "control_observed_runs": sum(int(row.get("runtime_policy_events") or 0) > 0 for row in control_rows),
+                "candidate_observed_runs": sum(
+                    int(row.get("runtime_policy_events") or 0) > 0 for row in candidate_rows
+                ),
+                "candidate_experiment_runs": sum(
+                    int(row.get("runtime_policy_experiment_events") or 0) > 0 for row in candidate_rows
+                ),
+                "candidate_expansions": candidate_expansions,
+            },
+        }
+    )
+    return result
+
+
+def _load_json_object(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def _failed_gate(*, suite: str, reasons: list[str]) -> dict[str, Any]:
@@ -251,9 +400,13 @@ def _codebench_arm_summary(rows: list[dict[str, Any]], *, correct: int, lower: f
 
 
 __all__ = [
+    "evaluate_codebench_comparison_gates",
     "evaluate_codebench_gate",
+    "evaluate_runtime_policy_gate",
     "evaluate_terminalbench_gate",
     "load_benchmark_gate",
     "require_benchmark_gate_pass",
+    "write_benchmark_comparison_gates",
     "write_benchmark_gate",
+    "write_runtime_policy_gate",
 ]

@@ -368,7 +368,7 @@ def test_a_tie_is_reported_in_degraded(tmp_path: Path) -> None:
         repo,
         _PACKET_PATHS,
         head_sha="",
-        head_commit_time=None,
+        head_commit_time=_ANCHOR,
     )
 
     assert "provenance_ambiguous" in degraded
@@ -390,7 +390,7 @@ def test_a_matched_host_that_records_no_reads_is_named_in_degraded(tmp_path: Pat
         repo,
         _PACKET_PATHS,
         head_sha="",
-        head_commit_time=None,
+        head_commit_time=_ANCHOR,
     )
 
     assert record.status == "matched"

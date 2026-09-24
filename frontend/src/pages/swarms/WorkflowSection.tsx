@@ -8,7 +8,6 @@ import {
   CopyButton,
   FieldLabel,
   Input,
-  PageHero,
   SnippetCard,
   cx,
 } from "../../components/WorkbenchUI";
@@ -27,7 +26,7 @@ function snippet(value: unknown): string {
 
 // Workspace-local `workflow` runtime snapshot, folded into Runs as a
 // collapsed section (see pages/Swarms.tsx). Not a historical run ledger.
-export function WorkflowSection() {
+export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
   const [detail, setDetail] = useState<WorkflowCurrentDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState<"pause" | "stop" | null>(null);
@@ -37,7 +36,7 @@ export function WorkflowSection() {
   const loadCurrent = async () => {
     setLoading(true);
     try {
-      const payload = await api.workflowCurrent();
+      const payload = await api.workflowCurrent(projectRoot);
       setDetail(payload);
       setError(null);
     } catch (err) {
@@ -52,14 +51,14 @@ export function WorkflowSection() {
 
   useEffect(() => {
     void loadCurrent();
-  }, []);
+  }, [projectRoot]);
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
       void loadCurrent();
     }, 15000);
     return () => window.clearInterval(intervalId);
-  }, []);
+  }, [projectRoot]);
 
   const summary = detail?.summary;
   const hasSnapshot = Boolean(summary?.run_id);
@@ -77,7 +76,8 @@ export function WorkflowSection() {
     setActing("pause");
     try {
       const payload = await api.pauseWorkflowCurrent(
-        actionReason.trim() || undefined
+        actionReason.trim() || undefined,
+        projectRoot
       );
       setDetail(payload);
       setError(null);
@@ -94,7 +94,8 @@ export function WorkflowSection() {
     setActing("stop");
     try {
       const payload = await api.stopWorkflowCurrent(
-        actionReason.trim() || undefined
+        actionReason.trim() || undefined,
+        projectRoot
       );
       setDetail(payload);
       setError(null);
@@ -108,20 +109,13 @@ export function WorkflowSection() {
   };
 
   return (
-    <div className="space-y-5">
-      <PageHero
-        eyebrow="Workflow"
-        title="Workflow"
-        description="Workspace-local workflow snapshot for the advanced `workflow` runtime. This section shows the current persisted state, not a historical run ledger."
-        tone="purple"
-      >
-        <div className="flex justify-end">
-          <Button variant="ghost" onClick={() => void loadCurrent()}>
-            <RefreshCw className="h-4 w-4" />
-            Refresh
-          </Button>
-        </div>
-      </PageHero>
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <Button variant="ghost" onClick={() => void loadCurrent()}>
+          <RefreshCw className="h-4 w-4" />
+          Refresh
+        </Button>
+      </div>
 
       {error ? (
         <Card className="border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-100">

@@ -1,0 +1,1196 @@
+{
+ "generated_from": "lemoncrow.gateway.adapters.mcp_server.TOOLS",
+ "tools": {
+  "agent": {
+   "description": "Spawn an LemonCrow-owned sub-agent, return its result.\n\nRuns on LemonCrow's owned-execution runtime: picks provider + model from\ncredentials already configured (provider API key when present, else the\ninstalled host CLI), executes the prompt, shares a prompt-cache scope with\nsibling spawns when ``cache_policy='inherit'``. Prefer over the host\n``Agent`` tool when LemonCrow should control the sub-agent's model, cost,\nand cache affinity.",
+   "inputSchema": {
+    "properties": {
+     "prompt": {
+      "description": "Full task/instruction for the sub-agent.",
+      "type": "string"
+     },
+     "budget": {
+      "default": "balanced",
+      "description": "Cost/quality tier: 'cheap' | 'balanced' | 'best'. Default 'balanced'.",
+      "type": "string"
+     },
+     "provider": {
+      "default": "",
+      "description": "Force a provider (e.g. 'anthropic'); empty = auto-select from configured vendors.",
+      "type": "string"
+     },
+     "model": {
+      "default": "",
+      "description": "Force a model id; empty = auto-pick by budget.",
+      "type": "string"
+     },
+     "cache_policy": {
+      "default": "inherit",
+      "description": "'inherit' = share the prompt-cache scope with prior owned spawns (cheaper); 'fresh' = new scope.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "prompt"
+    ],
+    "type": "object"
+   },
+   "visibleToLlm": false,
+   "core": false
+  },
+  "bash": {
+   "description": "Execute git/build/test/install commands; use indexed tools for code reads/search. cd doesn't persist → set cwd or use absolute paths. timeout budgets the command wait; long MCP waits return a durable id early. Servers → bg=true; REPLs → interactive=true. Batch checks with command=[...].",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "project_id": {
+      "type": "string",
+      "description": "Optional registered project id; runs this command in that project's workspace."
+     },
+     "command": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       }
+      ],
+      "description": "Command, or array run sequentially — own subshell each, all run even if one fails, `## lc:cmd i/n` headers."
+     },
+     "cwd": {
+      "type": "string",
+      "description": "Working directory; cd never persists."
+     },
+     "timeout": {
+      "type": "integer",
+      "default": 120,
+      "description": "Command wait budget. Long MCP waits may return the same durable run id earlier to stay inside the host orchestration window; the command continues. Long builds → 21600."
+     },
+     "bg": {
+      "type": "boolean",
+      "default": false,
+      "description": "Detached, returns id now; only mode outliving this MCP session."
+     },
+     "id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "array",
+        "items": {
+         "type": "string"
+        }
+       }
+      ],
+      "description": "Session id; bash(id=X) blocks till done — never sleep-poll. Array = several per call."
+     },
+     "action": {
+      "type": "string",
+      "enum": [
+       "poll",
+       "status",
+       "kill",
+       "update",
+       "send"
+      ],
+      "description": "poll = wait (default); status = peek; kill = terminate; update = new deadline via timeout=; send = write input, return output."
+     },
+     "interactive": {
+      "type": "boolean",
+      "default": false,
+      "description": "stdin open as a REPL; drive with action=send + input. Dies after 300s idle."
+     },
+     "input": {
+      "type": "string",
+      "description": "Text for action=send; newline appended. Empty = drain only."
+     }
+    },
+    "additionalProperties": false
+   },
+   "visibleToLlm": true,
+   "core": true
+  },
+  "blame": {
+   "description": "Git blame / churn summary for a symbol or file (internal/admin).",
+   "inputSchema": {
+    "properties": {
+     "query": {
+      "type": "string"
+     },
+     "symbol_id": {
+      "type": "string"
+     },
+     "qualified_name": {
+      "type": "string"
+     },
+     "symbol_name": {
+      "type": "string"
+     },
+     "path": {
+      "type": "string"
+     },
+     "include_churn": {
+      "default": true,
+      "type": "boolean"
+     },
+     "budget_tokens": {
+      "default": 4000,
+      "type": "integer"
+     },
+     "repo_root": {
+      "type": "string"
+     },
+     "render_compact": {
+      "default": false,
+      "type": "boolean"
+     }
+    },
+    "type": "object"
+   },
+   "visibleToLlm": false,
+   "core": false
+  },
+  "cache": {
+   "description": "Code-intel cache admin (internal/admin).\n\nop='status' (default) reports cache hit/miss counters; op='invalidate'\nclears caches, optionally scoped to one `cache_tool`. Folds the former\ncache_status / cache_invalidate tools into one hidden admin face.",
+   "inputSchema": {
+    "properties": {
+     "op": {
+      "default": "status",
+      "enum": [
+       "status",
+       "invalidate"
+      ],
+      "type": "string"
+     },
+     "cache_tool": {
+      "type": "string"
+     },
+     "budget_tokens": {
+      "default": 4000,
+      "type": "integer"
+     },
+     "repo_root": {
+      "type": "string"
+     },
+     "render_compact": {
+      "default": false,
+      "type": "boolean"
+     }
+    },
+    "type": "object"
+   },
+   "visibleToLlm": false,
+   "core": false
+  },
+  "code_search": {
+   "description": "Search the indexed codebase. One call returns top matches' source inline (bounded), lower-ranked or oversized ones as precise path:Lx-Ly pointers (`read` exactly that range), a related-symbols map (path:Lx-Ly kind name), and candidate_files. Use instead of grep/find. Inline source = already read. One broad query beats several narrow rephrasings — combine every term into a single call; re-querying rarely surfaces anything new.",
+   "inputSchema": {
+    "properties": {
+     "query": {
+      "description": "Question, symbol/file names, code terms, or regex.",
+      "type": "string"
+     },
+     "paths": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       }
+      ],
+      "description": "Optional file or directory scope."
+     },
+     "project_id": {
+      "description": "Optional registered project id; routes this call to that project's isolated index.",
+      "type": "string"
+     },
+     "limit": {
+      "description": "Cap candidate_files entries (default 8, or 5 when one file dominates).",
+      "maximum": 32,
+      "minimum": 1,
+      "type": "integer"
+     },
+     "force": {
+      "default": false,
+      "description": "Return full source even if this result was already shown in this session.",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "query"
+    ],
+    "type": "object"
+   },
+   "visibleToLlm": true,
+   "core": true
+  },
+  "codemod": {
+   "description": "AST-shape search and rewrite via ast-grep. Matches structure, not text (formatting-safe; ignores strings/comments). `$X` = one node, `$$$` = list; e.g. pattern `$X == None`, rewrite `$X is None`. Scope with `language`/`glob`. `dry_run=true` (default) previews a diff, false applies. Returns matches (snippet, path, line); with rewrite: diff + files_changed.",
+   "inputSchema": {
+    "properties": {
+     "pattern": {
+      "type": "string"
+     },
+     "language": {
+      "type": "string"
+     },
+     "glob": {
+      "type": "string"
+     },
+     "rewrite": {
+      "type": "string"
+     },
+     "limit": {
+      "default": 20,
+      "type": "integer"
+     },
+     "dry_run": {
+      "default": true,
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "pattern"
+    ],
+    "type": "object"
+   },
+   "visibleToLlm": false,
+   "core": false
+  },
+  "compact": {
+   "description": "Compress the full run ledger into a compact session-state block.",
+   "inputSchema": {
+    "properties": {
+     "op": {
+      "default": "compact",
+      "description": "\"compact\" (default) = compress the run ledger into a compact session-state block. \"consolidate\" (T6) = distill recent findings + prune stale history, same compaction entrypoint — autonomous lever when context is heavy.",
+      "type": "string"
+     },
+     "session_id": {
+      "description": "Optional run-ledger session ID override. Usually omit.",
+      "type": "string"
+     }
+    },
+    "type": "object"
+   },
+   "visibleToLlm": false,
+   "core": false
+  },
+  "context": {
+   "description": "Record task context and retrieve relevant Playbooks for the task.\n\nCall at task start to seed context with prior procedures, repo bootstrap\nknowledge, and per-agent memory. mode=\"symbols\" returns the most relevant\ncode symbols/files from the code index instead; mode=\"pull\" returns scoped\nsubtask context (files/keywords/excluded_paths scope it).\n\nArgs: task (required) drives ranking; domain narrows retrieval; files boost\nrelated blocks; tools/errors rank matching procedure and rescue blocks;\nmax_blocks (default 5); token_budget (default 2000, None = unlimited);\ndedup; agent_id loads per-agent memory; recall=False skips memory recall.",
+   "inputSchema": {
+    "properties": {
+     "task": {
+      "type": "string"
+     },
+     "domain": {
+      "type": "string"
+     },
+     "files": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "keywords": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "excluded_paths": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "tools": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "errors": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "max_blocks": {
+      "default": 5,
+      "type": "integer"
+     },
+     "token_budget": {
+      "default": 2000,
+      "type": "integer"
+     },
+     "dedup": {
+      "default": true,
+      "type": "boolean"
+     },
+     "agent_id": {
+      "type": "string"
+     },
+     "recall": {
+      "default": true,
+      "type": "boolean"
+     },
+     "mode": {
+      "default": "procedures",
+      "enum": [
+       "procedures",
+       "symbols",
+       "pull"
+      ],
+      "type": "string"
+     }
+    },
+    "required": [
+     "task"
+    ],
+    "type": "object"
+   },
+   "visibleToLlm": false,
+   "core": false
+  },
+  "edit": {
+   "description": "Batch file edits: edits=[{path: 'f.py:L10-L14', new}, ...] — many hunks per call, even same-file (ranges use the original snapshot). {path, old, new} only without a fresh range. Whole or brand-new file: {path, new, replace:true}. Minified-view line numbers → add :minified ('f.py:minified:L10-L14'). No re-read after success.",
+   "inputSchema": {
+    "type": "object",
+    "required": [
+     "edits"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "project_id": {
+      "type": "string",
+      "description": "Optional registered project id; routes edits to that project's isolated workspace."
+     },
+     "edits": {
+      "type": "array",
+      "minItems": 1,
+      "description": "File edits to apply in one batch.",
+      "items": {
+       "type": "object",
+       "required": [
+        "path"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "path": {
+         "type": "string",
+         "description": "File path, optionally suffixed with :Lx or :Lx-Ly."
+        },
+        "old": {
+         "type": "string",
+         "description": "Exact text to replace."
+        },
+        "new": {
+         "type": "string",
+         "description": "Replacement or new file content."
+        },
+        "replace": {
+         "type": "boolean",
+         "description": "Create or replace the whole file."
+        }
+       }
+      }
+     }
+    }
+   },
+   "visibleToLlm": true,
+   "core": true
+  },
+  "graph": {
+   "description": "Repo graph analytics + code health & history: blast radius, dead code, cycles,\ncoupling, centrality, doc/code drift, PR risk, commit provenance, design-doc recall.\n\nkind:\n  - blast_radius (default): reverse-dependency closure + affected tests + risk tier for `path`.\n  - dead_code: files with no inbound importers (likely removable), ranked by complexity.\n  - cycles: import cycles (strongly-connected components, size >= 2).\n  - coupling: per-file afferent/efferent coupling + Martin instability.\n  - centrality: top symbols by call-graph centrality (degree + eigenvector).\n  - design_gaps (G15): doc-referenced symbols absent from the index (stale/aspirational refs).\n  - verify_design (G15): doc-referenced symbols with drifted signatures.\n  - pr_risk (G16): blast-radius + complexity + churn + test-gap → 0..1 risk score + tier\n    for the changed `paths` (or `path`).\n  - commit_provenance (G16): heuristic bugfix/refactor/feature/perf/rename/revert/docs/test\n    classification of commits touching `path` (or repo), tagged confidence.\n  - index_docs (N17): opt-in heading-tree indexing of Markdown design docs into a SEPARATE\n    retrieval store (`enable=true` or LEMONCROW_DOC_INDEXING=1; off by default).\n  - recall_docs (N17): design-doc chunks for `query` from the separate doc store.\n`paths` = fold files into the index first (dead_code/cycles/coupling/pr_risk); for\ndesign_gaps/verify_design/index_docs it selects the docs/dirs to scan.\n`synthesize=true` (with `paths`, kind=centrality) → heuristic route/event edges as a\nSEPARATE `synthesized_edges` list (never merged into the static call graph).",
+   "inputSchema": {
+    "properties": {
+     "kind": {
+      "default": "blast_radius",
+      "type": "string"
+     },
+     "path": {
+      "type": "string"
+     },
+     "paths": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "limit": {
+      "default": 50,
+      "type": "integer"
+     },
+     "synthesize": {
+      "default": false,
+      "type": "boolean"
+     },
+     "query": {
+      "type": "string"
+     },
+     "enable": {
+      "type": "boolean"
+     }
+    },
+    "type": "object"
+   },
+   "visibleToLlm": false,
+   "core": false
+  },
+  "grep": {
+   "description": "Search code by regex/glob/type. mode='with_content' (default) = discover AND read matched context in one step. Match on a symbol definition → its caller/callee/usage counts ride along inline; expand the lists via `relations`.",
+   "inputSchema": {
+    "properties": {
+     "path": {
+      "default": ".",
+      "description": "Workspace path; single file may carry ':Lx-Ly' (e.g. 'store.py:L60-L100') to scope.",
+      "type": "string"
+     },
+     "regex": {
+      "description": "Regex to match contents; for relation mode this is the symbol when `symbol` is omitted.",
+      "type": "string"
+     },
+     "glob": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       }
+      ],
+      "description": "Globs constraining candidate files (e.g. `src/**/*.py`). List or bare string."
+     },
+     "mode": {
+      "default": "with_content",
+      "description": "with_content = matched lines+context (default). ranked_map = ranked file pointers. paths_only = paths. count_only = path + match count. Old aliases (file_paths_with_content, ...) accepted.",
+      "type": "string"
+     },
+     "before": {
+      "default": 0,
+      "description": "Lines before match.",
+      "type": "integer"
+     },
+     "after": {
+      "default": 0,
+      "description": "Lines after match.",
+      "type": "integer"
+     },
+     "i": {
+      "default": false,
+      "description": "Case-insensitive.",
+      "type": "boolean"
+     },
+     "type": {
+      "description": "File-type filter, e.g. `python`.",
+      "type": "string"
+     },
+     "multiline": {
+      "default": false,
+      "description": "Regex spans newlines.",
+      "type": "boolean"
+     },
+     "summary": {
+      "description": "Omit: auto-summarize large code. `true`: signatures-only. `false`: raw lines.",
+      "type": "boolean"
+     }
+    },
+    "type": "object"
+   },
+   "visibleToLlm": false,
+   "core": false
+  },
+  "index": {
+   "description": "Build or refresh the code index for the repo (internal/admin).",
+   "inputSchema": {
+    "properties": {
+     "include_globs": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "exclude_globs": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "force": {
+      "default": false,
+      "type": "boolean"
+     },
+     "budget_tokens": {
+      "default": 4000,
+      "type": "integer"
+     },
+     "repo_root": {
+      "type": "string"
+     },
+     "render_compact": {
+      "default": false,
+      "type": "boolean"
+     }
+    },
+    "type": "object"
+   },
+   "visibleToLlm": false,
+   "core": false
+  },
+  "mcp": {
+   "description": "Proxy: discover + call tools on OTHER configured stdio MCP servers (never LemonCrow's own).\n\n``mcp(op=\"list\")`` first — the configured servers/tools (reads the same\n`.mcp.json` / `.claude/mcp.json` the host uses) — then\n``mcp(server=..., tool=..., params={...})``. Servers spawn on first use,\nreused after. Oversized proxied results compact/spill like\n`bash`/`code_search`; the canonical footer names the recovery path —\nnothing silently lost.",
+   "inputSchema": {
+    "properties": {
+     "op": {
+      "default": "call",
+      "description": "'list' = catalog of OTHER configured stdio MCP servers + their tools (name, one-line description, required/optional params). 'call' (default) = invoke one.",
+      "enum": [
+       "call",
+       "list"
+      ],
+      "type": "string"
+     },
+     "server": {
+      "description": "Server name from `mcp(op='list')`. Required for op='call'.",
+      "type": "string"
+     },
+     "tool": {
+      "description": "Tool name on that server. Required for op='call'.",
+      "type": "string"
+     },
+     "params": {
+      "description": "Args passed through to the proxied tool.",
+      "additionalProperties": true,
+      "type": "object"
+     },
+     "refresh": {
+      "default": false,
+      "description": "op='list': re-discover configs + re-query tool lists, skip the cache.",
+      "type": "boolean"
+     }
+    },
+    "type": "object"
+   },
+   "visibleToLlm": false,
+   "core": false
+  },
+  "memory": {
+   "description": "Memory op-dispatch for fact storage/voting and recall.",
+   "inputSchema": {
+    "properties": {
+     "op": {
+      "description": "recall/recall_symbol need query; store_fact needs subject+fact+citations+reason+scope; vote_fact needs fact+direction+reason.",
+      "enum": [
+       "recall",
+       "recall_symbol",
+       "store_fact",
+       "vote_fact"
+      ],
+      "type": "string"
+     },
+     "agent": {
+      "description": "Memory namespace; defaults to shared.",
+      "type": "string"
+     },
+     "query": {
+      "description": "Search query used by recall.",
+      "type": "string"
+     },
+     "k": {
+      "default": 5,
+      "description": "Max results to return for recall.",
+      "type": "integer"
+     },
+     "subject": {
+      "description": "Fact subject for store_fact (for example: testing, workflow preference).",
+      "type": "string"
+     },
+     "fact": {
+      "description": "Exact fact text for store_fact and vote_fact.",
+      "type": "string"
+     },
+     "citations": {
+      "description": "Source citations for store_fact.",
+      "type": "string"
+     },
+     "reason": {
+      "description": "Detailed rationale for store_fact and vote_fact.",
+      "type": "string"
+     },
+     "scope": {
+      "description": "Fact scope for store_fact/vote_fact.",
+      "enum": [
+       "repository",
+       "user"
+      ],
+      "type": "string"
+     },
+     "direction": {
+      "description": "Vote direction for vote_fact.",
+      "enum": [
+       "upvote",
+       "downvote"
+      ],
+      "type": "string"
+     }
+    },
+    "required": [
+     "op"
+    ],
+    "type": "object"
+   },
+   "visibleToLlm": false,
+   "core": false
+  },
+  "orient": {
+   "description": "Return LemonCrow's tool-usage playbook on demand (N8).",
+   "inputSchema": {
+    "properties": {
+     "topic": {
+      "type": "string"
+     }
+    },
+    "type": "object"
+   },
+   "visibleToLlm": false,
+   "core": false
+  },
+  "read": {
+   "description": "Read files or exact symbols. Batch the paths/ranges you ALREADY need into ONE call: files=['a.py', 'b.py:L10-L20', 'c.py:full', 'd.py:head=50', 'e.py:tail=20', 'f.py:summary', 'g.py:outline']. Need, not might-need — a speculative :full costs more than the turn it saves. :Lx-Ly exact range; :full full source; :summary gist; :outline structure at any size (mutually exclusive). Whole file → ONE :full or wide range, never successive narrow ones. One function/test → symbol='name' or ['a','b'], not a whole-file read. Default line numbers are disk-accurate for editing; :full is for exact formatting only. Images (png/jpg/gif/webp/bmp ≤4MB) come back viewable — read to SEE them, don't write OCR/pixel code.",
+   "inputSchema": {
+    "properties": {
+     "files": {
+      "description": "Entries: path string or {path, range?, full?, ...} dict.",
+      "items": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "additionalProperties": true,
+         "type": "object"
+        }
+       ]
+      },
+      "type": "array"
+     },
+     "symbol": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       }
+      ],
+      "description": "Exact symbol name or names."
+     },
+     "project_id": {
+      "description": "Optional registered project id returned by multi-project search.",
+      "type": "string"
+     }
+    },
+    "type": "object"
+   },
+   "visibleToLlm": true,
+   "core": true
+  },
+  "relations": {
+   "description": "Expand one symbol's call-graph relation into the actual list: kind=callers|callees|usages|self. use this only to see WHICH callers/callees/usages when worth drilling into.",
+   "inputSchema": {
+    "properties": {
+     "symbol": {
+      "type": "string"
+     },
+     "kind": {
+      "default": "usages",
+      "type": "string"
+     },
+     "depth": {
+      "default": 1,
+      "type": "integer"
+     },
+     "limit": {
+      "default": 20,
+      "type": "integer"
+     }
+    },
+    "required": [
+     "symbol"
+    ],
+    "type": "object"
+   },
+   "visibleToLlm": false,
+   "core": false
+  },
+  "rescue": {
+   "description": "Suggest a rescue procedure for a repeated failure (call after the same approach fails twice).\n\nReturns: {cluster_id, domain, rescue_type, procedure: [{step, rationale}], rationale, analysis?}.",
+   "inputSchema": {
+    "properties": {
+     "task": {
+      "type": "string"
+     },
+     "error": {
+      "type": "string"
+     },
+     "domain": {
+      "type": "string"
+     },
+     "files": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "recent_actions": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     }
+    },
+    "required": [
+     "task",
+     "error"
+    ],
+    "type": "object"
+   },
+   "visibleToLlm": false,
+   "core": false
+  },
+  "review_evidence": {
+   "description": "Capture author-produced proof without creating or advancing a review.",
+   "inputSchema": {
+    "properties": {
+     "entries": {
+      "description": "Outcome evidence produced while implementing. One call after verification; each item has exactly one of {file, url}, plus optional {title, path, kind, capture}. Use path to associate proof with a changed source file. For a loopback preview URL, set capture=true and LemonCrow captures a screenshot itself. Verification artifacts may additionally include status=PASS|FAIL|NOT_RUN|UNKNOWN and detail. Supported kinds: screenshot, video, playwright_trace, document, live_preview.",
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array"
+     }
+    },
+    "required": [
+     "entries"
+    ],
+    "type": "object"
+   },
+   "visibleToLlm": false,
+   "core": false
+  },
+  "review_feedback_addressed": {
+   "description": "Let the exact authoring agent session say which delivered comments it addressed.",
+   "inputSchema": {
+    "properties": {
+     "annotation_ids": {
+      "description": "LemonCrow annotation IDs from human feedback that you actually addressed. Call only after making the changes and running relevant verification. This records an author claim for re-review; it never resolves human comments.",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     }
+    },
+    "required": [
+     "annotation_ids"
+    ],
+    "type": "object"
+   },
+   "visibleToLlm": false,
+   "core": false
+  },
+  "review_rationale": {
+   "description": "Record the author's own rationale for later human review.",
+   "inputSchema": {
+    "properties": {
+     "entries": {
+      "description": "Compact author rationale for non-obvious code decisions. One call after the code is final; each item: {path, body, optional title, symbol, line, end_line, evidence[]}. This records intent only — never correctness or approval.",
+      "items": {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      "type": "array"
+     }
+    },
+    "required": [
+     "entries"
+    ],
+    "type": "object"
+   },
+   "visibleToLlm": false,
+   "core": false
+  },
+  "scan": {
+   "description": "Security scan (SAST, first iteration) over the repo or a sub-path.\n\nRuns a small bundled pack of high-signal OWASP/CWE ast-grep rules plus a\nbounded intra-procedural Python taint check. This is intentionally a first\niteration, not an exhaustive SAST engine.",
+   "inputSchema": {
+    "properties": {
+     "path": {
+      "type": "string"
+     },
+     "include_taint": {
+      "default": true,
+      "type": "boolean"
+     },
+     "include_rules": {
+      "default": true,
+      "type": "boolean"
+     },
+     "repo_root": {
+      "type": "string"
+     }
+    },
+    "type": "object"
+   },
+   "visibleToLlm": false,
+   "core": false
+  },
+  "search": {
+   "description": "Semantic/embedding code search: relevance-ranked snippets for a natural-language query. Hidden until an embedding backend is configured; deterministic regex/glob/symbol/map search lives on `grep`.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "query": {
+      "type": "string",
+      "description": "Natural-language ranked search query."
+     },
+     "path": {
+      "type": "string",
+      "default": ".",
+      "description": "Workspace-relative file or directory; a single file may carry ':Lx-Ly' to scope results."
+     },
+     "limit": {
+      "type": "integer",
+      "default": 10,
+      "description": "Maximum number of ranked files to return."
+     }
+    },
+    "required": [
+     "query"
+    ]
+   },
+   "visibleToLlm": false,
+   "core": false
+  },
+  "sql": {
+   "description": "SQL op-dispatch: schema introspection (connect/tables/schema/table/relationships/search), lint, bounded query execution (single `sql` or `queries[]` batch). Pass connection (DSN); auto-discovery from DATABASE_URL/.env requires LEMONCROW_SQL_AUTODISCOVER=1. Live introspection/queries = SQLite; other dialects → driver-required note.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "action": {
+      "type": "string",
+      "enum": [
+       "connect",
+       "tables",
+       "schema",
+       "table",
+       "relationships",
+       "search",
+       "lint",
+       "query"
+      ],
+      "description": "table/search need name; lint/query need sql or queries[]."
+     },
+     "name": {
+      "type": "string",
+      "description": "Target table for action=table, or keyword for action=search."
+     },
+     "sql": {
+      "type": "string",
+      "description": "SQL string for action=lint or action=query."
+     },
+     "queries": {
+      "type": "array",
+      "description": "Batch for action=query: [{name, sql}, ...]. Prefer over repeated calls.",
+      "items": {
+       "type": "object",
+       "required": [
+        "sql"
+       ],
+       "properties": {
+        "name": {
+         "type": "string"
+        },
+        "sql": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "connection": {
+      "type": "string",
+      "description": "DSN (sqlite:///path, postgresql://...). If omitted, auto-discovery from DATABASE_URL/.env requires LEMONCROW_SQL_AUTODISCOVER=1."
+     },
+     "write": {
+      "type": "boolean",
+      "default": false,
+      "description": "Permit INSERT/UPDATE/DELETE/DDL on action=query/lint. Off by default; reads always allowed."
+     }
+    },
+    "required": [
+     "action"
+    ],
+    "additionalProperties": false
+   },
+   "visibleToLlm": false,
+   "core": false
+  },
+  "statusline_segment": {
+   "description": "Savings surface for the active session.",
+   "inputSchema": {
+    "properties": {
+     "format": {
+      "default": "segment",
+      "type": "string"
+     }
+    },
+    "type": "object"
+   },
+   "visibleToLlm": false,
+   "core": false
+  },
+  "trace": {
+   "description": "Record an observable trace of an agent run (status, diffs, tools, validations, learnings) to the run ledger.\n\nCall once when a task is done so outcomes and lessons persist for later recall.\n\nReturns: {trace_id, event_recorded}.",
+   "inputSchema": {
+    "properties": {
+     "agent": {
+      "type": "string"
+     },
+     "domain": {
+      "type": "string"
+     },
+     "task": {
+      "type": "string"
+     },
+     "status": {
+      "enum": [
+       "success",
+       "failed",
+       "partial"
+      ],
+      "type": "string"
+     },
+     "errors_seen": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "diff_summary": {
+      "default": "",
+      "type": "string"
+     },
+     "output_summary": {
+      "default": "",
+      "type": "string"
+     },
+     "tools_called": {
+      "items": {},
+      "type": "array"
+     },
+     "validation_results": {
+      "items": {},
+      "type": "array"
+     },
+     "run_id": {
+      "type": "string"
+     },
+     "session_id": {
+      "type": "string"
+     },
+     "host": {
+      "type": "string"
+     },
+     "trace_confidence": {
+      "type": "string"
+     },
+     "capture_sources": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "missing_surfaces": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "event_type": {
+      "type": "string"
+     },
+     "event_payload": {
+      "additionalProperties": true,
+      "type": "object"
+     },
+     "capture_files": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "learnings": {
+      "items": {},
+      "type": "array"
+     }
+    },
+    "required": [
+     "agent",
+     "domain",
+     "task",
+     "status"
+    ],
+    "type": "object"
+   },
+   "visibleToLlm": false,
+   "core": false
+  },
+  "verify": {
+   "description": "Evaluate agent results against a domain rubric. Returns pass|warn|fail with per-check detail.",
+   "inputSchema": {
+    "properties": {
+     "rubric_id": {
+      "type": "string"
+     },
+     "checks": {
+      "additionalProperties": true,
+      "type": "object"
+     }
+    },
+    "required": [
+     "rubric_id",
+     "checks"
+    ],
+    "type": "object"
+   },
+   "visibleToLlm": false,
+   "core": false
+  },
+  "web_fetch": {
+   "description": "Fetch a public HTTP/HTTPS page for research. Requests Markdown when available, converts HTML to clean Markdown by default, blocks private/local URLs, caches 5 minutes.",
+   "inputSchema": {
+    "properties": {
+     "url": {
+      "description": "Public HTTP/HTTPS URL to fetch.",
+      "type": "string"
+     },
+     "type": {
+      "default": "auto",
+      "description": "Return format; auto prefers Markdown and converts HTML to it.",
+      "enum": [
+       "auto",
+       "markdown",
+       "text",
+       "html"
+      ],
+      "type": "string"
+     },
+     "query": {
+      "description": "Search term. Long page → keep the most relevant sections/table-rows (embedding rank if a local embedder is configured, else keyword coverage) instead of a blind head cut. Omit = head truncation.",
+      "type": "string"
+     },
+     "summary": {
+      "default": false,
+      "description": "Bounded gist instead of the rendered page (LLM summary if configured, else extractive). Full page spilled first; the footer names the path — recover via `read`. Ignored when `query` or `type='html'` is set.",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "url"
+    ],
+    "type": "object"
+   },
+   "visibleToLlm": true,
+   "core": true
+  },
+  "workflow": {
+   "description": "Run or inspect LemonCrow's durable workflow runtime.\n\nOps:\n  run     — execute a workflow synchronously from fresh runtime state\n  status  — persisted runtime state for this workspace\n  inspect — spawn/cache receipts for the persisted runtime\n  pause   — mark persisted runtime paused (live synchronous call not cancelled)\n  resume  — continue persisted runtime with its stored workflow + route\n  stop    — mark persisted runtime stopped (live synchronous call not cancelled)",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "op": {
+      "type": "string",
+      "enum": [
+       "run",
+       "status",
+       "inspect",
+       "pause",
+       "resume",
+       "stop"
+      ]
+     },
+     "workflow": {
+      "type": "object"
+     },
+     "run_id": {
+      "type": "string"
+     },
+     "route": {
+      "type": "object",
+      "properties": {
+       "mode": {
+        "type": "string",
+        "enum": [
+         "native",
+         "auto",
+         "explicit"
+        ]
+       },
+       "provider": {
+        "type": "string"
+       },
+       "model": {
+        "type": "string"
+       },
+       "runner": {
+        "type": "string"
+       }
+      },
+      "additionalProperties": false
+     },
+     "plan_review": {
+      "type": "object",
+      "properties": {
+       "decision": {
+        "type": "string",
+        "enum": [
+         "approve",
+         "revise",
+         "rerun"
+        ]
+       }
+      },
+      "additionalProperties": false
+     },
+     "pause_reason": {
+      "type": "string"
+     },
+     "stop_reason": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "op"
+    ],
+    "additionalProperties": false
+   },
+   "visibleToLlm": false,
+   "core": false
+  }
+ }
+}

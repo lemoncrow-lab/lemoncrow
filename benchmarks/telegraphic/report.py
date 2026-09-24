@@ -1,14 +1,8 @@
-"""Render the telegraphic savings table -- baseline vs full LemonCrow runtime,
-or caveman's own skill alone.
+"""Render the reply-style benchmark table.
 
-Reads ``results.jsonl`` (one row per (prompt, arm, rep), ``ArmResult``-shaped
-for codebench arms, ``extra_arms.run_extra_arm``-shaped for the isolated
-system-prompt-only arms -- same field names either way) and reports real
-per-prompt output-token counts per arm, plus each non-baseline arm's percent
-delta vs baseline, from ``output_tokens`` -- Claude's actual reported usage,
-not a tokenizer approximation. Ad-hoc tasks are named ``local1``..``localN``
-in run order, matching ``benchmarks.codebench.local.build_local_tasks`` --
-``_prompt_index`` maps that back to this suite's ``prompts.json`` order.
+Reads ``results.jsonl`` and reports real per-prompt output-token counts for
+vanilla/full-runtime/style variants. Counts come from Claude's reported usage,
+not a tokenizer approximation.
 """
 
 from __future__ import annotations
@@ -21,8 +15,9 @@ from pathlib import Path
 _TASK_RE = re.compile(r"^local(\d+)$")
 
 _ARM_LABELS = {
-    "baseline": "Baseline",
-    "lemoncrow": "LemonCrow (full runtime)",
+    "baseline": "Vanilla Claude",
+    "lemoncrow": "LemonCrow (ultra)",
+    "lemoncrow-readable": "Readable (lite)",
     "caveman": "Caveman",
 }
 

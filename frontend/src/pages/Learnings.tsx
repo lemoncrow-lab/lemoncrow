@@ -18,6 +18,7 @@ import { api, type Playbook, type PlanRecord, type Cluster } from "../api";
 import {
   Chip,
   MetricCard,
+  PageFrame,
   SectionHeader,
   ToggleGroup,
 } from "../components/WorkbenchUI";
@@ -58,30 +59,15 @@ export default function Learnings() {
     navigate(`/knowledge/${s}`, { replace: true });
 
   return (
-    <div className="space-y-6">
-      <section className="grid grid-cols-2 gap-3">
-        <MetricCard
-          label="Surfaces"
-          value={String(SECTIONS.length)}
-          detail="Blocks, memory, failures, plans, and rubrics."
-          tone="amber"
-        />
-        <MetricCard
-          label="Current view"
-          value={SECTIONS.find((item) => item.id === active)?.label ?? "Blocks"}
-          detail="Switch tabs to move from procedures to constraints."
-          tone="neutral"
-        />
-      </section>
-
+    <PageFrame className="space-y-4">
       <ToggleGroup
         variant="underline"
-        size="sm"
+        size="xs"
         options={SECTIONS.map((s) => ({
           value: s.id,
           label: (
             <span className="flex items-center gap-1.5">
-              <s.icon size={14} />
+              <s.icon size={12} />
               <span>{s.label}</span>
             </span>
           ),
@@ -96,7 +82,7 @@ export default function Learnings() {
       {active === "failures" && <FailuresSection />}
       {active === "plans" && <PlansSection />}
       {active === "rubrics" && <Rubrics />}
-    </div>
+    </PageFrame>
   );
 }
 
@@ -271,8 +257,8 @@ function FailuresSection() {
 
   if (items.length === 0)
     return (
-      <div className="text-neutral-400 text-center py-12">
-        <Check size={48} className="mx-auto mb-4 text-emerald-300" />
+      <div className="py-8 text-center text-neutral-400">
+        <Check size={32} className="mx-auto mb-3 text-emerald-300" />
         <p>No failure clusters detected — agents running smoothly.</p>
       </div>
     );
@@ -404,8 +390,8 @@ function PlansSection() {
 
   if (items.length === 0)
     return (
-      <div className="text-neutral-400 text-center py-12">
-        <ClipboardList size={48} className="mx-auto mb-4" />
+      <div className="py-8 text-center text-neutral-400">
+        <ClipboardList size={32} className="mx-auto mb-3" />
         <p>No plan validation results yet.</p>
       </div>
     );

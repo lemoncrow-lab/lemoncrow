@@ -68,7 +68,7 @@ The global config directory is `~/.config/lemoncode` and global data lives in
 The installer merges:
 
 1. `mcp.lc` for `lc mcp --host lemoncode`
-2. `provider.lc` for OpenAI-compatible chat completions (`http://127.0.0.1:8787/v1`)
+2. `provider.lc` for OpenAI-compatible chat completions (`http://127.0.0.1:8787/v1`; override with `LEMONCROW_GATEWAY_URL`)
 3. A local `chat.message` plugin that injects LemonCrow guidance before a user prompt is sent
 
 MCP entry:

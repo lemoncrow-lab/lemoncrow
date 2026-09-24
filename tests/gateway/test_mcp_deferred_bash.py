@@ -21,6 +21,7 @@ import pytest
 
 import lemoncrow.pro.capabilities.tool_supervision.bash_exec as bx
 from lemoncrow.gateway.adapters import mcp_server
+from lemoncrow.gateway.adapters.mcp import bash as mcp_bash
 from tests.helpers import init_store_at
 
 
@@ -148,6 +149,35 @@ def test_deferred_response_written_by_watcher_continuation(bash_env: Path, monke
     assert "exit_code" not in text  # exit 0 renders without an exit_code line
 
 
+def test_full_mcp_foreground_call_releases_before_host_window(
+    bash_env: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(mcp_bash, "_MCP_BASH_RESPONSE_WINDOW_S", 0.05)
+    captured: list[dict[str, Any]] = []
+    monkeypatch.setattr(mcp_server, "_write_jsonrpc", lambda msg: captured.append(msg))
+
+    started = time.monotonic()
+    mcp_server._handle_and_write(_bash_request(43, "sleep 0.3; echo done", timeout=30))
+    assert _wait_for(lambda: bool(captured), 1.0)
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 0.25
+    text = captured[0]["result"]["content"][0]["text"]
+    assert "returned early to keep the tool call reliable" in text
+    assert "don't rerun it" in text
+    sid = text.split("id=", 1)[1].split(";", 1)[0]
+    with bx._MANAGED_COMMANDS_LOCK:
+        managed = bx._MANAGED_COMMANDS.get(sid)
+    assert managed is not None
+    assert managed.proc.poll() is None
+
+    managed.proc.wait(timeout=2)
+    terminal = bx.poll_managed_command(sid)
+    assert terminal["stdout"] == "done"
+    assert terminal["exit_code"] == 0
+
+
 def test_deferred_already_complete_race_writes_exactly_once(bash_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Force the already-complete race: refuse to arm, but only after the command
     # has finished so collect() yields the terminal result.
@@ -241,6 +271,70 @@ def test_deferred_soft_deadline_returns_running_without_killing(bash_env: Path) 
     # Cleanup: let it finish and reap so no thread/temp file leaks past the test.
     managed.proc.wait(timeout=5)
     bx.poll_managed_command(sid)
+
+
+def test_deferred_mcp_response_window_returns_durable_handle_before_command_budget(
+    bash_env: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(mcp_bash, "_MCP_BASH_RESPONSE_WINDOW_S", 0.05)
+    mcp_server._deferral_context.active = True
+    sid = ""
+    try:
+        started = time.monotonic()
+        deferred = mcp_server._run_bash_tool("sleep 0.3; echo done", timeout=30)
+        assert isinstance(deferred, mcp_server._DeferredResult)
+        ready = threading.Event()
+        assert deferred.register(ready.set) is True
+        assert ready.wait(1.0)
+        result = deferred.collect()
+        elapsed = time.monotonic() - started
+
+        assert elapsed < 0.25
+        assert result["status"] == "running"
+        assert result["orchestration_return"] is True
+        assert result["over_budget"] is False
+        sid = str(result["session_id"])
+        rendered = mcp_server._render_bash_text(result)
+        assert f"bash(id={sid}) waits for this same run" in rendered
+        assert "don't rerun it" in rendered
+    finally:
+        mcp_server._deferral_context.active = False
+
+    assert sid
+    finished = mcp_server._run_bash_tool(session_id=sid, action="poll", timeout=2)
+    assert isinstance(finished, dict)
+    assert finished["stdout"] == "done"
+    assert finished["exit_code"] == 0
+
+
+def test_existing_shell_poll_is_sliced_to_mcp_response_window(
+    bash_env: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(mcp_bash, "_MCP_BASH_RESPONSE_WINDOW_S", 0.05)
+    started = mcp_server._run_bash_tool("sleep 0.3; echo done", timeout=30, background=True)
+    assert isinstance(started, dict)
+    sid = str(started["session_id"])
+
+    mcp_server._deferral_context.active = True
+    try:
+        before = time.monotonic()
+        running = mcp_server._run_bash_tool(session_id=sid, action="poll")
+        elapsed = time.monotonic() - before
+    finally:
+        mcp_server._deferral_context.active = False
+
+    assert isinstance(running, dict)
+    assert elapsed < 0.25
+    assert running["status"] == "running"
+    assert running["session_id"] == sid
+    assert running["orchestration_return"] is True
+
+    finished = mcp_server._run_bash_tool(session_id=sid, action="poll", timeout=2)
+    assert isinstance(finished, dict)
+    assert finished["stdout"] == "done"
+    assert finished["exit_code"] == 0
 
 
 def test_deferred_result_dict_matches_synchronous(

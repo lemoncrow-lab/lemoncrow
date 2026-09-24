@@ -371,7 +371,7 @@ def load_current_policy(root: Path) -> Policy:
     # The savings engine (compaction, routing, prefix-cache, budget) is Pro.
     # Free installs run unoptimized regardless of any on-disk policy -- which can
     # only be written by a Pro `optimize apply` anyway.
-    from lemoncrow.core.capabilities import licensing
+    from lemoncrow.core.capabilities import feature_access as licensing
 
     if not licensing.has_feature("optimizer"):
         return _free_baseline_policy()

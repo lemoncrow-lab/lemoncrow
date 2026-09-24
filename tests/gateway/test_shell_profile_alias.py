@@ -64,6 +64,28 @@ def test_the_alias_can_be_declined(tmp_path: Path) -> None:
     assert "export PATH=" in profile  # the rest of the block still lands
 
 
+def test_installer_reports_exact_path_directories(tmp_path: Path) -> None:
+    (tmp_path / ".lemoncrow" / "node" / "bin").mkdir(parents=True)
+    env = os.environ.copy()
+    env.update({"HOME": str(tmp_path), "SHELL": "/bin/bash"})
+
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            _HARNESS.format(common=COMMON).replace(
+                "_ensure_path_persistence >/dev/null 2>&1", "_ensure_path_persistence"
+            ),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert f"Added {tmp_path}/.lemoncrow to PATHs in {tmp_path}/.bashrc" in result.stdout
+
+
 def test_uninstall_takes_the_alias_away_with_the_block(tmp_path: Path) -> None:
     home = tmp_path
     _persist(home, shell="/bin/bash")

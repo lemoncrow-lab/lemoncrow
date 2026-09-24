@@ -9,7 +9,10 @@ from pathlib import Path
 from typing import Any
 
 from lemoncrow.core.capabilities.tool_supervision_contract import SymbolEditError as SymbolEditError
+from lemoncrow.gateway.adapters.mcp.ledger import _get_ledger
 from lemoncrow.pro.capabilities.code_context import CodeContextEngine
+from lemoncrow.pro.capabilities.memory.redaction import redact_memory_input
+from lemoncrow.pro.capabilities.memory.runtime import memory_service
 
 
 @dataclass(frozen=True)
@@ -97,10 +100,8 @@ def resolve_symbol_edit(edit: dict[str, Any], *, repo_root: str | Path | None = 
 
 def record_symbol_edit_memory(resolved: ResolvedSymbolEdit) -> None:
     """Persist a small memory block linking the symbol edit to the current trace."""
-    from lemoncrow.gateway.adapters.mcp_server import _get_ledger, _memory_upsert_block
-
     trace_id = _get_ledger().session_id
-    _memory_upsert_block(
+    memory_service().upsert_editable_block(
         agent_id="shared",
         label=f"edits/{resolved.symbol_id}",
         value=trace_id,
@@ -110,6 +111,7 @@ def record_symbol_edit_memory(resolved: ResolvedSymbolEdit) -> None:
             "mode": resolved.mode,
             "trace_id": trace_id,
         },
+        field_redactor=redact_memory_input,
     )
 
 

@@ -1,32 +1,20 @@
 import { useEffect, useState, useMemo } from "react";
-import { Search } from "lucide-react";
 import {
   api,
   type GranularToolUsage,
   type AnalyticsDashboard,
-  type AnalyticsSummary,
-  type DashboardExternalLatest,
-  type DashboardTool,
-  type DashboardHostModelOverview,
 } from "../api";
 import { EmptyState, MetricCard } from "../components/WorkbenchUI";
 import { fmtPct, fmtTok, fmtUsd } from "../lib/format";
 import { useTimeRange } from "../lib/TimeRangeContext";
 
-const TABS = [
-  "Overview",
-  "Timeline",
-  "Domains",
-  "Tool Breakdown",
-  "Details",
-] as const;
 const TIMELINE_BREAKDOWN_OPTIONS = [
   { value: "daily", label: "Daily" },
   { value: "hourly", label: "Hourly" },
 ] as const;
-type Tab = (typeof TABS)[number];
 type TimelineBreakdownValue =
   (typeof TIMELINE_BREAKDOWN_OPTIONS)[number]["value"];
+type TimelineBucket = AnalyticsDashboard["daily"][number];
 
 // ---- Shared helpers --------------------------------------------------------
 
@@ -34,43 +22,6 @@ function defaultdict_int() {
   return new Proxy({} as Record<string, number>, {
     get: (target, name: string) => (name in target ? target[name] : 0),
   });
-}
-
-const EMPTY_SUMMARY: AnalyticsSummary = {
-  total_cost: 0,
-  estimated_monthly_cost: 0,
-  top_cost_driver: "—",
-  user_input_tokens: 0,
-  model_thinking_tokens: 0,
-  llm_output_tokens: 0,
-  tool_output_tokens: 0,
-  cached_prompt_tokens: 0,
-  tool_calls: 0,
-  unique_tools: 0,
-  total_output_tokens: 0,
-  row_count: 0,
-};
-
-// ---- Mini bar chart --------------------------------------------------------
-
-function MiniBar({
-  value,
-  max,
-  color = "bg-emerald-500/50",
-}: {
-  value: number;
-  max: number;
-  color?: string;
-}) {
-  const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
-  return (
-    <div className="w-24 h-1.5 bg-neutral-800 rounded-full overflow-hidden">
-      <div
-        className={`h-full ${color} rounded-full`}
-        style={{ width: `${pct}%` }}
-      />
-    </div>
-  );
 }
 
 type CompactLeaderboardRow = {
@@ -170,198 +121,6 @@ function CompactLeaderboard({
   );
 }
 
-function ExternalSnapshotCard({
-  snapshot,
-  internalCost,
-}: {
-  snapshot: DashboardExternalLatest | null;
-  internalCost: number;
-}) {
-  const externalCost =
-    snapshot?.summary.highlights.find((item) => item.key === "cost_usd")
-      ?.value ?? null;
-  const externalCalls =
-    snapshot?.summary.highlights.find((item) => item.key === "calls")?.value ??
-    null;
-  const externalSessions =
-    snapshot?.summary.highlights.find((item) => item.key === "sessions")
-      ?.value ?? null;
-  const delta = externalCost != null ? externalCost - internalCost : null;
-
-  return (
-    <section className="border border-neutral-800 bg-neutral-950/40 p-4 space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-[10px] uppercase tracking-widest text-neutral-400 font-bold">
-          External Reference
-        </div>
-        <div className="text-[10px] font-mono text-neutral-400">
-          {snapshot?.tool ?? "No snapshot"}
-        </div>
-      </div>
-
-      {snapshot ? (
-        <div className="space-y-3 text-xs text-neutral-300">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="border border-neutral-900 bg-black/20 p-3">
-              <div className="text-[10px] uppercase tracking-widest text-neutral-400">
-                LemonCrow
-              </div>
-              <div className="mt-1 font-mono text-emerald-300">
-                {fmtUsd(internalCost)}
-              </div>
-            </div>
-            <div className="border border-neutral-900 bg-black/20 p-3">
-              <div className="text-[10px] uppercase tracking-widest text-neutral-400">
-                CodeBurn
-              </div>
-              <div className="mt-1 font-mono text-cyan-300">
-                {externalCost == null ? "—" : fmtUsd(externalCost)}
-              </div>
-            </div>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div>
-              <div className="text-[10px] uppercase tracking-widest text-neutral-400">
-                Delta
-              </div>
-              <div className="mt-1 font-mono text-amber-300">
-                {delta == null ? "—" : fmtUsd(delta)}
-              </div>
-            </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-widest text-neutral-400">
-                Calls
-              </div>
-              <div className="mt-1 font-mono text-neutral-200">
-                {externalCalls == null ? "—" : externalCalls.toLocaleString()}
-              </div>
-            </div>
-            <div>
-              <div className="text-[10px] uppercase tracking-widest text-neutral-400">
-                Sessions
-              </div>
-              <div className="mt-1 font-mono text-neutral-200">
-                {externalSessions == null
-                  ? "—"
-                  : externalSessions.toLocaleString()}
-              </div>
-            </div>
-          </div>
-          <div className="border-t border-neutral-800 pt-3 text-[10px] text-neutral-400">
-            Snapshot period: {snapshot.period} · collected{" "}
-            {new Date(snapshot.collected_at).toLocaleString()}
-          </div>
-        </div>
-      ) : (
-        <div className="text-neutral-400 italic text-xs">
-          No external snapshot available.
-        </div>
-      )}
-    </section>
-  );
-}
-
-function OverviewHostModelSpotlight({
-  rows,
-  emptyMessage = "No data.",
-}: {
-  rows: DashboardHostModelOverview[];
-  emptyMessage?: string;
-}) {
-  const spotlight = rows.slice(0, 4);
-  const maxCost = Math.max(...spotlight.map((row) => row.cost), 0.0001);
-
-  return (
-    <section className="border border-neutral-800 bg-neutral-950/40 p-5 space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-[10px] uppercase tracking-widest text-neutral-400 font-bold">
-          Heavy Host / Model Pairs
-        </div>
-        <div className="text-[10px] font-mono text-neutral-400">
-          Top {spotlight.length}
-        </div>
-      </div>
-
-      {spotlight.length ? (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {spotlight.map((row, index) => (
-            <article
-              key={`${row.host}:${row.model}:${index}`}
-              className="border border-neutral-900 bg-black/20 p-4 space-y-3"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="text-[10px] uppercase tracking-widest text-cyan-300 font-bold">
-                    {row.host}
-                  </div>
-                  <div className="mt-1 text-sm font-semibold text-neutral-100 break-words">
-                    {row.model || "—"}
-                  </div>
-                </div>
-                <div className="text-[10px] font-mono text-neutral-400">
-                  #{index + 1}
-                </div>
-              </div>
-
-              <OverviewBar
-                value={row.cost}
-                max={maxCost}
-                color="bg-violet-500/60"
-              />
-
-              <div className="grid grid-cols-2 gap-3 text-[10px]">
-                <div>
-                  <div className="uppercase tracking-widest text-neutral-400">
-                    Cost
-                  </div>
-                  <div className="mt-1 font-mono text-emerald-300">
-                    {fmtUsd(row.cost)}
-                  </div>
-                </div>
-                <div>
-                  <div className="uppercase tracking-widest text-neutral-400">
-                    Sessions
-                  </div>
-                  <div className="mt-1 font-mono text-neutral-200">
-                    {row.sessions.toLocaleString()}
-                  </div>
-                </div>
-                <div>
-                  <div className="uppercase tracking-widest text-neutral-400">
-                    Tool Calls
-                  </div>
-                  <div className="mt-1 font-mono text-neutral-200">
-                    {row.tool_calls.toLocaleString()}
-                  </div>
-                </div>
-                <div>
-                  <div className="uppercase tracking-widest text-neutral-400">
-                    Billable Out
-                  </div>
-                  <div className="mt-1 font-mono text-neutral-200">
-                    {(row.billable_output_tokens / 1_000_000).toFixed(1)}M
-                  </div>
-                </div>
-              </div>
-
-              <div className="text-[10px] text-neutral-400">
-                {(row.base_context_tokens / 1_000_000).toFixed(1)}M base context
-                · {(row.tool_output_tokens / 1_000_000).toFixed(1)}M tool out
-              </div>
-            </article>
-          ))}
-        </div>
-      ) : (
-        <div className="text-neutral-400 italic text-xs">{emptyMessage}</div>
-      )}
-    </section>
-  );
-}
-
-// ---- Timeline activity chart ----------------------------------------------
-
-type TimelineBucket = AnalyticsDashboard["daily"][number];
-
 function utcDateKey(date: Date) {
   return date.toISOString().slice(0, 10);
 }
@@ -395,22 +154,21 @@ function timelineBucketLabel(date: string, breakdown: TimelineBreakdownValue) {
   return date.slice(5);
 }
 
-function timelineEndDate(daily: AnalyticsDashboard["daily"]) {
-  const lastDate = daily
-    .map((bucket) => bucket.date)
-    .filter(Boolean)
-    .sort()
-    .at(-1);
-  return lastDate ? new Date(`${lastDate}T00:00:00Z`) : new Date();
+function localDayAnchor(date = new Date()) {
+  return new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
 }
 
-function fillDailyBuckets(
+export function fillDailyBuckets(
   daily: AnalyticsDashboard["daily"],
-  days: number
+  days: number,
+  now = new Date()
 ): TimelineBucket[] {
   const byDate = new Map(daily.map((bucket) => [bucket.date, bucket]));
   const totalDays = Math.min(Math.max(days, 1), 365);
-  const end = timelineEndDate(daily);
+  // A selected window always ends today. Anchoring to the newest returned row
+  // hid ingestion gaps by sliding "Last 7 days" backwards when recent data was
+  // missing (for example Sep 17-23 rendered as Sep 12-18).
+  const end = localDayAnchor(now);
   const start = addUtcDays(end, -(totalDays - 1));
 
   return Array.from({ length: totalDays }, (_, index) => {
@@ -427,20 +185,14 @@ function fillDailyBuckets(
   });
 }
 
-function fillHourlyBuckets(
+export function fillHourlyBuckets(
   hourly: AnalyticsDashboard["hourly"],
-  daily: AnalyticsDashboard["daily"],
-  days: number
+  days: number,
+  now = new Date()
 ): TimelineBucket[] {
   const byHour = new Map(hourly.map((bucket) => [bucket.date, bucket]));
-  const lastHour = hourly
-    .map((bucket) => bucket.date)
-    .filter(Boolean)
-    .sort()
-    .at(-1);
-  const end = lastHour
-    ? new Date(`${lastHour.replace(" ", "T")}:00Z`)
-    : addUtcHours(timelineEndDate(daily), 23);
+  const end = new Date(now);
+  end.setUTCMinutes(0, 0, 0);
   const totalHours = Math.min(Math.max(days, 1), 365) * 24;
   const start = addUtcHours(end, -(totalHours - 1));
 
@@ -471,9 +223,8 @@ function SpendTimelineChart({
 }) {
   const buckets =
     breakdown === "hourly"
-      ? fillHourlyBuckets(dashboard.hourly ?? [], dashboard.daily, days)
+      ? fillHourlyBuckets(dashboard.hourly ?? [], days)
       : fillDailyBuckets(dashboard.daily, days);
-
   if (!buckets.length)
     return (
       <div className="text-neutral-400 italic text-xs p-4">
@@ -586,349 +337,16 @@ function SpendTimelineChart({
   );
 }
 
-// ---- By Host table ---------------------------------------------------------
-
-function ByHostTable({ byHost }: { byHost: AnalyticsDashboard["by_host"] }) {
-  const maxCost = Math.max(...byHost.map((r) => r.cost), 0.0001);
-  return (
-    <section className="border border-neutral-800 bg-neutral-950/40">
-      <div className="bg-neutral-900/80 border-b border-neutral-800 p-3">
-        <div className="text-[10px] uppercase tracking-widest text-neutral-400 font-bold">
-          Agent Host Breakdown
-        </div>
-      </div>
-      <table className="w-full text-xs border-collapse">
-        <thead>
-          <tr className="border-b border-neutral-800 text-[10px] uppercase text-neutral-400 bg-neutral-900/50">
-            <th className="px-4 py-2 text-left">Host</th>
-            <th className="px-4 py-2 text-right">Sessions</th>
-            <th className="px-4 py-2 text-right">Cost</th>
-            <th className="px-4 py-2 text-right">Cache %</th>
-            <th className="px-4 py-2">Rel. Cost</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-neutral-900">
-          {byHost.map((r, i) => (
-            <tr key={i} className="hover:bg-neutral-800/20">
-              <td className="px-4 py-2 font-mono text-cyan-300 capitalize">
-                {r.host}
-              </td>
-              <td className="px-4 py-2 text-right font-mono text-neutral-400">
-                {r.sessions}
-              </td>
-              <td className="px-4 py-2 text-right font-mono text-emerald-300">
-                {fmtUsd(r.cost)}
-              </td>
-              <td className="px-4 py-2 text-right font-mono text-amber-300">
-                {fmtPct(r.cache_pct)}
-              </td>
-              <td className="px-4 py-2">
-                <MiniBar value={r.cost} max={maxCost} color="bg-cyan-500/50" />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </section>
-  );
-}
-
-// ---- By Model table --------------------------------------------------------
-
-function ByModelTable({
-  byModel,
+export default function Analytics({
+  onInspectSavings,
 }: {
-  byModel: AnalyticsDashboard["by_model"];
-}) {
-  const maxCost = Math.max(...byModel.map((r) => r.cost), 0.0001);
-  return (
-    <section className="border border-neutral-800 bg-neutral-950/40">
-      <div className="bg-neutral-900/80 border-b border-neutral-800 p-3">
-        <div className="text-[10px] uppercase tracking-widest text-neutral-400 font-bold">
-          By Model
-        </div>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs border-collapse">
-          <thead>
-            <tr className="border-b border-neutral-800 text-[10px] uppercase text-neutral-400 bg-neutral-900/50">
-              <th className="px-4 py-2 text-left">Model</th>
-              <th className="px-4 py-2 text-right">Sessions</th>
-              <th className="px-4 py-2 text-right">Input (M)</th>
-              <th className="px-4 py-2 text-right">Output (M)</th>
-              <th className="px-4 py-2 text-right">Cache %</th>
-              <th className="px-4 py-2 text-right">Cost</th>
-              <th className="px-4 py-2">Rel. Cost</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-neutral-900">
-            {byModel.map((r, i) => (
-              <tr key={i} className="hover:bg-neutral-800/20">
-                <td className="px-4 py-2 font-mono text-neutral-300 text-[10px]">
-                  {r.model || "—"}
-                </td>
-                <td className="px-4 py-2 text-right font-mono text-neutral-400">
-                  {r.sessions}
-                </td>
-                <td className="px-4 py-2 text-right font-mono text-neutral-400">
-                  {(r.input_tokens / 1_000_000).toFixed(2)}
-                </td>
-                <td className="px-4 py-2 text-right font-mono text-neutral-400">
-                  {(r.output_tokens / 1_000_000).toFixed(2)}
-                </td>
-                <td className="px-4 py-2 text-right">
-                  <span
-                    className={`font-mono text-[10px] ${
-                      r.cache_pct > 60
-                        ? "text-emerald-300"
-                        : r.cache_pct > 30
-                          ? "text-amber-300"
-                          : "text-red-300"
-                    }`}
-                  >
-                    {fmtPct(r.cache_pct)}
-                  </span>
-                </td>
-                <td className="px-4 py-2 text-right font-mono text-emerald-300">
-                  {fmtUsd(r.cost)}
-                </td>
-                <td className="px-4 py-2">
-                  <MiniBar value={r.cost} max={maxCost} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-// ---- By Project ------------------------------------------------------------
-
-function ByProjectTable({
-  domains,
-}: {
-  domains: AnalyticsDashboard["by_domain"];
-}) {
-  const maxCost = Math.max(...domains.map((d) => d.cost), 0.0001);
-  return (
-    <section className="border border-neutral-800 bg-neutral-950/40">
-      <div className="bg-neutral-900/80 border-b border-neutral-800 p-3">
-        <div className="text-[10px] uppercase tracking-widest text-neutral-400 font-bold">
-          Domain Spend
-        </div>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs border-collapse">
-          <thead>
-            <tr className="border-b border-neutral-800 text-[10px] uppercase text-neutral-400 bg-neutral-900/50">
-              <th className="px-4 py-2 text-left">Project</th>
-              <th className="px-4 py-2 text-right">Sessions</th>
-              <th className="px-4 py-2 text-right">Total Cost</th>
-              <th className="px-4 py-2 text-right">Avg / Session</th>
-              <th className="px-4 py-2">Rel. Cost</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-neutral-900">
-            {domains.map((d, i) => (
-              <tr key={i} className="hover:bg-neutral-800/20">
-                <td
-                  className="px-4 py-2 text-neutral-300 font-medium max-w-[200px] truncate"
-                  title={d.domain}
-                >
-                  {d.domain}
-                </td>
-                <td className="px-4 py-2 text-right font-mono text-neutral-400">
-                  {d.sessions}
-                </td>
-                <td className="px-4 py-2 text-right font-mono text-emerald-300">
-                  {fmtUsd(d.cost)}
-                </td>
-                <td className="px-4 py-2 text-right font-mono text-neutral-400">
-                  {fmtUsd(d.avg_cost)}
-                </td>
-                <td className="px-4 py-2">
-                  <MiniBar
-                    value={d.cost}
-                    max={maxCost}
-                    color="bg-violet-500/50"
-                  />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-// ---- Tool breakdown section ------------------------------------------------
-
-function ToolTable({
-  title,
-  tools,
-  color = "bg-brand-500/50",
-}: {
-  title: string;
-  tools: DashboardTool[];
-  color?: string;
-}) {
-  const maxCalls = Math.max(...tools.map((t) => t.calls), 1);
-  if (!tools.length)
-    return (
-      <section className="border border-neutral-800 bg-neutral-950/40 p-4">
-        <div className="text-[10px] uppercase tracking-widest text-neutral-400 font-bold mb-2">
-          {title}
-        </div>
-        <div className="text-neutral-400 italic text-xs">No data.</div>
-      </section>
-    );
-  return (
-    <section className="border border-neutral-800 bg-neutral-950/40">
-      <div className="bg-neutral-900/80 border-b border-neutral-800 p-3">
-        <div className="text-[10px] uppercase tracking-widest text-neutral-400 font-bold">
-          {title}
-        </div>
-      </div>
-      <table className="w-full text-xs border-collapse">
-        <thead>
-          <tr className="border-b border-neutral-800 text-[10px] uppercase text-neutral-400 bg-neutral-900/50">
-            <th className="px-4 py-2 text-left">Tool</th>
-            <th className="px-4 py-2 text-right">Calls</th>
-            <th className="px-4 py-2 text-right">Out Tokens</th>
-            <th className="px-4 py-2">Usage</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-neutral-900">
-          {tools.map((t, i) => (
-            <tr key={i} className="hover:bg-neutral-800/20">
-              <td className="px-4 py-2 font-mono text-neutral-300">{t.name}</td>
-              <td className="px-4 py-2 text-right font-mono text-neutral-400">
-                {t.calls.toLocaleString()}
-              </td>
-              <td className="px-4 py-2 text-right font-mono text-neutral-400">
-                {fmtTok(t.output_tokens)}
-              </td>
-              <td className="px-4 py-2">
-                <MiniBar value={t.calls} max={maxCalls} color={color} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </section>
-  );
-}
-
-// ---- Cost Drivers Chart ----------------------------------------------------
-
-function CostDriversChart({
-  stats,
-}: {
-  stats: {
-    userInputTokens: number;
-    modelThinkingTokens: number;
-    llmOutputTokens: number;
-    toolOutputTokens: number;
-  };
-}) {
-  const breakdown = [
-    {
-      label: "User Input",
-      tokens: stats.userInputTokens,
-      color: "bg-emerald-500/60",
-      accent: "text-emerald-300",
-    },
-    {
-      label: "Thinking",
-      tokens: stats.modelThinkingTokens,
-      color: "bg-cyan-500/60",
-      accent: "text-cyan-300",
-    },
-    {
-      label: "Tool Output",
-      tokens: stats.toolOutputTokens,
-      color: "bg-amber-500/60",
-      accent: "text-amber-300",
-    },
-    {
-      label: "Output",
-      tokens: stats.llmOutputTokens,
-      color: "bg-violet-500/60",
-      accent: "text-violet-300",
-    },
-  ].filter((item) => item.tokens > 0);
-
-  const totalTrackedTokens =
-    breakdown.reduce((sum, item) => sum + item.tokens, 0) || 1;
-
-  if (!breakdown.length) {
-    return (
-      <section className="border border-neutral-800 bg-neutral-950/70 p-5 space-y-4">
-        <div className="text-[11px] uppercase tracking-widest text-neutral-400 font-bold">
-          Token Flow
-        </div>
-        <div className="text-xs text-neutral-400 italic">
-          No input or output token activity found for the current filters.
-        </div>
-      </section>
-    );
-  }
-
-  return (
-    <section className="border border-neutral-800 bg-neutral-950/70 p-5 space-y-4">
-      <div className="text-[11px] uppercase tracking-widest text-neutral-400 font-bold">
-        Token Flow
-      </div>
-      <div className="space-y-3">
-        {breakdown.map((item) => {
-          const share = (item.tokens / totalTrackedTokens) * 100;
-          return (
-            <div key={item.label} className="space-y-1">
-              <div className="flex justify-between text-[10px] gap-4">
-                <span className="text-neutral-300">{item.label}</span>
-                <span className={`font-mono ${item.accent}`}>
-                  {fmtTok(item.tokens)} tokens · {share.toFixed(1)}%
-                </span>
-              </div>
-              <div className="h-2 bg-neutral-900 overflow-hidden rounded">
-                <div
-                  className={`h-full ${item.color}`}
-                  style={{ width: `${share}%` }}
-                />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className="text-[10px] text-neutral-400 pt-2 border-t border-neutral-800 space-y-1">
-        <p>
-          Output is model-generated text, including assistant responses plus
-          tool call arguments. Tool output stays separate.
-        </p>
-      </div>
-    </section>
-  );
-}
-
-// ---- Main component --------------------------------------------------------
-
-export default function Analytics() {
+  onInspectSavings?: () => void;
+} = {}) {
   const [data, setData] = useState<GranularToolUsage[]>([]);
   const [dashboard, setDashboard] = useState<AnalyticsDashboard | null>(null);
-  const [summary, setSummary] = useState<AnalyticsSummary>(EMPTY_SUMMARY);
   const [loading, setLoading] = useState(true);
   const [dashLoading, setDashLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>("Overview");
-
-  // Filters
-  const [agentFilter, setAgentFilter] = useState("all");
-  const [modelFilter, setModelFilter] = useState("all");
-  const [categoryFilter, setCategoryFilter] = useState("all");
-  const [search, setSearch] = useState("");
   const { days, range } = useTimeRange();
   const [timelineBreakdown, setTimelineBreakdown] =
     useState<TimelineBreakdownValue>("daily");
@@ -953,87 +371,11 @@ export default function Analytics() {
       .finally(() => setDashLoading(false));
   }, [days]);
 
-  useEffect(() => {
-    let active = true;
-
-    api
-      .analyticsSummary(
-        agentFilter !== "all" ? agentFilter : undefined,
-        modelFilter !== "all" ? modelFilter : undefined,
-        categoryFilter !== "all" ? categoryFilter : undefined,
-        search || undefined,
-        5000,
-        days
-      )
-      .then((nextSummary) => {
-        if (active) setSummary(nextSummary);
-      })
-      .catch(() => {
-        if (active) setSummary(EMPTY_SUMMARY);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [days, agentFilter, modelFilter, categoryFilter, search]);
-
-  const filteredData = useMemo(() => {
-    const agentMatch = agentFilter.toLowerCase();
-    const modelMatch = modelFilter.toLowerCase();
-    return data.filter((item) => {
-      const itemAgent = (item.agent || "").toLowerCase();
-      const itemModel = (item.model || "").toLowerCase();
-      if (agentFilter !== "all" && itemAgent !== agentMatch) return false;
-      if (modelFilter !== "all" && itemModel !== modelMatch) return false;
-      if (categoryFilter !== "all" && item.category !== categoryFilter)
-        return false;
-      if (search) {
-        const s = search.toLowerCase();
-        return (
-          item.tool_name.toLowerCase().includes(s) ||
-          (item.sub_command?.toLowerCase() || "").includes(s)
-        );
-      }
-      return true;
-    });
-  }, [data, agentFilter, modelFilter, categoryFilter, search]);
-
-  const models = useMemo(() => {
-    const set = new Set<string>();
-    data.forEach((d) => {
-      if (d.model) set.add(d.model);
-    });
-    return Array.from(set).sort();
-  }, [data]);
-
-  const agents = useMemo(() => {
-    // Options must be drawn from `agent` — that's the field both the client
-    // filter (item.agent) and the server param (analyticsSummary agent=) match
-    // against. Populating from `host` produced options that matched no row.
-    const set = new Set<string>();
-    data.forEach((d) => {
-      if (d.agent) set.add(d.agent);
-    });
-    return Array.from(set).sort();
-  }, [data]);
-
-  const categories = useMemo(() => {
-    const set = new Set<string>();
-    data.forEach((d) => {
-      if (d.category) set.add(d.category);
-    });
-    return Array.from(set).sort();
-  }, [data]);
-
-  const stats = summary;
-
-  const hostModelStats = dashboard?.host_model_overview ?? [];
-
   const costDriversData = useMemo(() => {
     const toolCosts = defaultdict_int();
     const toolCalls = defaultdict_int();
     const toolTokens = defaultdict_int();
-    filteredData
+    data
       .filter((d) => d.event_type === "tool_call")
       .forEach((d) => {
         toolCosts[d.tool_name] += d.cost || 0;
@@ -1050,72 +392,7 @@ export default function Analytics() {
       }))
       .sort((a, b) => b.cost - a.cost)
       .slice(0, 10);
-  }, [filteredData]);
-
-  const tableData = useMemo(() => {
-    return filteredData
-      .map((item) => {
-        const cost = item.cost || 0;
-        const calls = item.call_count || 1;
-        return {
-          ...item,
-          outPerCall: item.output_tokens / calls,
-          cost,
-          costPerCall: cost / calls,
-          pctOfTotal:
-            (item.output_tokens / (stats.total_output_tokens || 1)) * 100,
-        };
-      })
-      .sort((a, b) => b.cost - a.cost);
-  }, [filteredData, stats.total_output_tokens]);
-
-  const overviewCards = useMemo(() => {
-    const topHost = dashboard?.by_host[0];
-    const topModel = dashboard?.by_model[0];
-    const topDomain = dashboard?.by_domain[0];
-    const topTool = costDriversData[0];
-
-    return [
-      {
-        label: "Top Host",
-        value: topHost?.host || "—",
-        detail: topHost
-          ? `${fmtUsd(topHost.cost)} over ${topHost.sessions.toLocaleString()} sessions · ${fmtPct(topHost.cache_pct)} cache`
-          : dashLoading
-            ? "Loading dashboard..."
-            : "No host data.",
-        tone: "cyan" as const,
-      },
-      {
-        label: "Top Model",
-        value: topModel?.model || "—",
-        detail: topModel
-          ? `${fmtUsd(topModel.cost)} over ${topModel.sessions.toLocaleString()} sessions · ${fmtPct(topModel.cache_pct)} cache`
-          : dashLoading
-            ? "Loading dashboard..."
-            : "No model data.",
-        tone: "emerald" as const,
-      },
-      {
-        label: "Top Domain",
-        value: topDomain?.domain || "—",
-        detail: topDomain
-          ? `${fmtUsd(topDomain.cost)} total · ${fmtUsd(topDomain.avg_cost)}/session`
-          : dashLoading
-            ? "Loading dashboard..."
-            : "No domain data.",
-        tone: "violet" as const,
-      },
-      {
-        label: "Top Tool Driver",
-        value: topTool?.tool || "—",
-        detail: topTool
-          ? `${fmtUsd(topTool.cost)} · ${topTool.calls.toLocaleString()} calls · ${fmtTok(topTool.tokens)} out`
-          : "No tool usage found.",
-        tone: "amber" as const,
-      },
-    ];
-  }, [costDriversData, dashboard, dashLoading]);
+  }, [data]);
 
   const topHostRows = useMemo<CompactLeaderboardRow[]>(() => {
     return (dashboard?.by_host ?? []).slice(0, 5).map((row) => ({
@@ -1157,161 +434,90 @@ export default function Analytics() {
     }));
   }, [costDriversData]);
 
-  const codeburnSnapshot = useMemo(() => {
-    return (
-      dashboard?.external?.latest?.find((item) => item.tool === "codeburn") ??
-      null
-    );
-  }, [dashboard]);
-
-  const externalProviderRows = useMemo<CompactLeaderboardRow[]>(() => {
-    return (dashboard?.external?.by_provider ?? []).slice(0, 5).map((row) => ({
-      label: row.providerDisplayName || row.provider,
-      sublabel: `${row.calls.toLocaleString()} calls · ${row.models.toLocaleString()} models`,
-      value: fmtUsd(row.costUSD),
-      detail: `${(row.inputTokens / 1_000_000).toFixed(2)}M in · ${(row.outputTokens / 1_000_000).toFixed(2)}M out`,
-      barValue: row.costUSD,
-    }));
-  }, [dashboard]);
-
   if (err) return <div className="text-red-300 p-6">Error: {err}</div>;
   if (loading && data.length === 0)
     return <EmptyState title="Loading analytics…" className="m-6" />;
 
   return (
-    <div className="p-6 mx-auto space-y-6 text-neutral-200 font-sans">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-neutral-800 pb-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-neutral-100">
-            Cost & Efficiency
-          </h1>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase font-bold text-neutral-400">
-              Agent
-            </span>
-            <select
-              aria-label="Filter by agent"
-              value={agentFilter}
-              onChange={(e) => {
-                setAgentFilter(e.target.value);
-                setModelFilter("all");
-              }}
-              className="bg-neutral-900 border border-neutral-700 px-2 py-1 text-xs text-neutral-300 focus:outline-none"
-            >
-              <option value="all">All Agents</option>
-              {agents.map((a) => (
-                <option key={a} value={a}>
-                  {a}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase font-bold text-neutral-400">
-              Model
-            </span>
-            <select
-              aria-label="Filter by model"
-              value={modelFilter}
-              onChange={(e) => setModelFilter(e.target.value)}
-              className="bg-neutral-900 border border-neutral-700 px-2 py-1 text-xs text-neutral-300 focus:outline-none max-w-[150px]"
-            >
-              <option value="all">All Models</option>
-              {models.map((m) => (
-                <option key={m} value={m.toLowerCase()}>
-                  {m}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase font-bold text-neutral-400">
-              Category
-            </span>
-            <select
-              aria-label="Filter by category"
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              className="bg-neutral-900 border border-neutral-700 px-2 py-1 text-xs text-neutral-300 focus:outline-none"
-            >
-              <option value="all">All Categories</option>
-              {categories.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Tab navigation */}
-      <div className="flex gap-1 border-b border-neutral-800">
-        {TABS.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 text-[11px] uppercase tracking-wider font-semibold transition-colors ${
-              activeTab === tab
-                ? "text-emerald-300 border-b-2 border-emerald-500 -mb-px"
-                : "text-neutral-400 hover:text-neutral-300"
-            }`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
-
-      {/* Overview tab */}
-      {activeTab === "Overview" && (
-        <div className="space-y-6">
+    <div className="space-y-4 text-neutral-200">
+      <div className="space-y-6">
           {/* Summary metrics */}
-          <section className="grid gap-4 md:grid-cols-3 xl:grid-cols-5">
-            <MetricCard
-              label="Total Estimated Cost"
-              value={`$${stats.total_cost.toFixed(2)}`}
-              tone="amber"
-            />
-            <MetricCard
-              label="Projected Month-End"
-              value={`$${stats.estimated_monthly_cost.toFixed(2)}`}
-              tone="amber"
-            />
-            <MetricCard
-              label="Total Tool Calls"
-              value={stats.tool_calls.toLocaleString()}
-              tone="cyan"
-            />
-            <MetricCard
-              label="Unique Tools"
-              value={stats.unique_tools.toString()}
-              tone="cyan"
-            />
-          </section>
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {overviewCards.map((card) => (
+            <MetricCard
+              label="Sessions"
+              value={dashboard ? dashboard.summary.total_sessions.toLocaleString() : "—"}
+              tone="cyan"
+            />
+            <MetricCard
+              label="Cost"
+              value={dashboard ? fmtUsd(dashboard.summary.total_cost) : "—"}
+              tone="amber"
+            />
+            <button
+              type="button"
+              onClick={onInspectSavings}
+              disabled={!onInspectSavings}
+              className="min-w-0 text-left disabled:cursor-default"
+              aria-label={onInspectSavings ? "Open savings evidence" : undefined}
+            >
               <MetricCard
-                key={card.label}
-                label={card.label}
-                value={card.value}
-                detail={card.detail}
-                tone={card.tone}
+                label="Saved"
+                value={
+                  dashboard
+                    ? fmtUsd(dashboard.summary.total_lemoncrow_savings_usd ?? 0)
+                    : "—"
+                }
+                detail={onInspectSavings ? "View evidence →" : undefined}
+                tone="emerald"
               />
-            ))}
+            </button>
+            <button
+              type="button"
+              onClick={onInspectSavings}
+              disabled={!onInspectSavings}
+              className="min-w-0 text-left disabled:cursor-default"
+              aria-label={onInspectSavings ? "Open reduction evidence" : undefined}
+            >
+              <MetricCard
+                label="Reduction"
+                value={
+                  dashboard
+                    ? (() => {
+                        const cost = dashboard.summary.total_cost;
+                        const saved =
+                          dashboard.summary.total_lemoncrow_savings_usd ?? 0;
+                        const wouldHaveCost = cost + saved;
+                        return wouldHaveCost > 0
+                          ? `${((saved / wouldHaveCost) * 100).toFixed(1)}%`
+                          : "0.0%";
+                      })()
+                    : "—"
+                }
+                detail={onInspectSavings ? "How this is measured →" : undefined}
+                tone="violet"
+              />
+            </button>
           </section>
 
-          <CostDriversChart
-            stats={{
-              userInputTokens: stats.user_input_tokens,
-              modelThinkingTokens: stats.model_thinking_tokens,
-              llmOutputTokens: stats.llm_output_tokens,
-              toolOutputTokens: stats.tool_output_tokens,
-            }}
-          />
-
+          {/* Timeline */}
+          <div className="space-y-6">
+              {dashLoading ? (
+                <EmptyState title="Loading…" className="p-4" />
+              ) : dashboard ? (
+                <>
+                  <SpendTimelineChart
+                    dashboard={dashboard}
+                    breakdown={timelineBreakdown}
+                    days={days}
+                    onBreakdownChange={setTimelineBreakdown}
+                  />
+                </>
+              ) : (
+                <div className="text-neutral-400 italic text-sm">
+                  Data unavailable.
+                </div>
+              )}
+          </div>
           <div className="grid gap-6 xl:grid-cols-2">
             <CompactLeaderboard
               title="Top Hosts"
@@ -1335,7 +541,7 @@ export default function Analytics() {
             <CompactLeaderboard
               title="Top Domains"
               rows={topDomainRows}
-              color="bg-violet-500/60"
+              color="bg-neutral-500/60"
               emptyMessage={
                 dashLoading ? "Loading dashboard..." : "No domain data."
               }
@@ -1348,414 +554,10 @@ export default function Analytics() {
             />
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-2">
-            <CompactLeaderboard
-              title="CodeBurn Providers"
-              rows={externalProviderRows}
-              color="bg-fuchsia-500/60"
-              emptyMessage={
-                dashLoading
-                  ? "Loading external snapshot..."
-                  : "No provider breakdown available."
-              }
-            />
-            <ExternalSnapshotCard
-              snapshot={codeburnSnapshot}
-              internalCost={stats.total_cost}
-            />
-          </div>
+      </div>
 
-          <OverviewHostModelSpotlight
-            rows={hostModelStats}
-            emptyMessage={
-              dashLoading ? "Loading dashboard..." : "No host/model data."
-            }
-          />
-        </div>
-      )}
 
-      {/* Timeline tab */}
-      {activeTab === "Timeline" && (
-        <div className="space-y-6">
-          {dashLoading ? (
-            <EmptyState title="Loading…" className="p-4" />
-          ) : dashboard ? (
-            <>
-              <SpendTimelineChart
-                dashboard={dashboard}
-                breakdown={timelineBreakdown}
-                days={days}
-                onBreakdownChange={setTimelineBreakdown}
-              />
-              <div className="grid md:grid-cols-2 gap-6">
-                <ByHostTable byHost={dashboard.by_host} />
-                <ByModelTable byModel={dashboard.by_model} />
-              </div>
-            </>
-          ) : (
-            <div className="text-neutral-400 italic text-sm">
-              Data unavailable.
-            </div>
-          )}
-        </div>
-      )}
 
-      {/* Domains tab */}
-      {activeTab === "Domains" && (
-        <div className="space-y-6">
-          {dashLoading ? (
-            <EmptyState title="Loading…" className="p-4" />
-          ) : dashboard ? (
-            <ByProjectTable domains={dashboard.by_domain} />
-          ) : (
-            <div className="text-neutral-400 italic text-sm">
-              Data unavailable.
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Tool Breakdown tab */}
-      {activeTab === "Tool Breakdown" && (
-        <div className="space-y-6">
-          {dashLoading ? (
-            <EmptyState title="Loading…" className="p-4" />
-          ) : dashboard ? (
-            <>
-              <ToolTable
-                title="File & Search Tools"
-                tools={dashboard.tools.core}
-                color="bg-blue-500/50"
-              />
-              <ToolTable
-                title="Bash & Exec Usage"
-                tools={dashboard.tools.shell}
-                color="bg-yellow-500/50"
-              />
-              <ToolTable
-                title="MCP Tool Usage"
-                tools={dashboard.tools.mcp}
-                color="bg-brand-500/50"
-              />
-            </>
-          ) : (
-            <div className="text-neutral-400 italic text-sm">
-              Data unavailable.
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Details tab */}
-      {activeTab === "Details" && (
-        <div className="space-y-6">
-          <section className="border border-neutral-800 bg-neutral-950/40 p-4 text-sm leading-relaxed text-neutral-400">
-            Granular tables live here so the Overview tab stays readable. Use
-            the filters above plus search to inspect host/model groups, tool
-            rankings, and individual raw rows.
-          </section>
-
-          <section className="border border-neutral-800 bg-neutral-950/40 overflow-hidden">
-            <div className="bg-neutral-900/80 border-b border-neutral-800 p-4 flex items-center justify-between">
-              <div className="text-[10px] uppercase tracking-widest text-neutral-400 font-bold">
-                Host / Model Overview
-              </div>
-              <div className="text-[10px] text-neutral-400 font-mono">
-                {hostModelStats.length} host/model groups
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-neutral-800 text-[10px] uppercase tracking-widest text-neutral-400 font-mono bg-neutral-900/50">
-                    <th className="px-4 py-3">Host</th>
-                    <th className="px-4 py-3">Model</th>
-                    <th className="px-4 py-3 text-right">Sessions</th>
-                    <th className="px-4 py-3 text-right">User Typed (k)</th>
-                    <th className="px-4 py-3 text-right">Base Context (M)</th>
-                    <th className="px-4 py-3 text-right">Cached (M)</th>
-                    <th className="px-4 py-3 text-right">Cache Write (M)</th>
-                    <th className="px-4 py-3 text-right">Billable Out (M)</th>
-                    <th className="px-4 py-3 text-right">Tool Out (M)</th>
-                    <th className="px-4 py-3 text-right">Thinking (M)</th>
-                    <th className="px-4 py-3 text-right">Calls</th>
-                    <th className="px-4 py-3 text-right">Cost</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-neutral-900">
-                  {hostModelStats.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={12}
-                        className="px-4 py-8 text-center text-neutral-400 italic"
-                      >
-                        {dashLoading ? "Loading dashboard..." : "No data."}
-                      </td>
-                    </tr>
-                  ) : (
-                    hostModelStats.map(
-                      (row: DashboardHostModelOverview, idx) => (
-                        <tr
-                          key={idx}
-                          className="hover:bg-neutral-800/20 transition-colors"
-                        >
-                          <td className="px-4 py-2 font-mono text-cyan-300">
-                            {row.host}
-                          </td>
-                          <td className="px-4 py-2 font-mono text-neutral-400">
-                            {row.model}
-                          </td>
-                          <td className="px-4 py-2 text-right font-mono text-neutral-400">
-                            {row.sessions.toLocaleString()}
-                          </td>
-                          <td className="px-4 py-2 text-right font-mono text-emerald-300">
-                            {(row.user_typed_tokens / 1000).toFixed(1)}
-                          </td>
-                          <td className="px-4 py-2 text-right font-mono text-emerald-300">
-                            {(row.base_context_tokens / 1_000_000).toFixed(1)}
-                          </td>
-                          <td className="px-4 py-2 text-right font-mono text-red-300">
-                            {(row.cached_prompt_tokens / 1_000_000).toFixed(1)}
-                          </td>
-                          <td className="px-4 py-2 text-right font-mono text-brand-400/80">
-                            {(row.cache_write_tokens / 1_000_000).toFixed(1)}
-                          </td>
-                          <td className="px-4 py-2 text-right font-mono text-violet-300">
-                            {(row.billable_output_tokens / 1_000_000).toFixed(
-                              1
-                            )}
-                          </td>
-                          <td className="px-4 py-2 text-right font-mono text-amber-300">
-                            {(row.tool_output_tokens / 1_000_000).toFixed(1)}
-                          </td>
-                          <td className="px-4 py-2 text-right font-mono text-cyan-300">
-                            {(row.thinking_tokens / 1_000_000).toFixed(1)}
-                          </td>
-                          <td className="px-4 py-2 text-right font-mono text-neutral-400">
-                            {row.tool_calls.toLocaleString()}
-                          </td>
-                          <td className="px-4 py-2 text-right font-mono text-emerald-300 font-bold">
-                            ${row.cost.toFixed(2)}
-                          </td>
-                        </tr>
-                      )
-                    )
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          <section className="border border-neutral-800 bg-neutral-950/40">
-            <div className="bg-neutral-900/80 border-b border-neutral-800 p-4">
-              <div className="text-[10px] uppercase tracking-widest text-neutral-400 font-bold">
-                Cost Drivers Ranking
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-neutral-800 text-[10px] uppercase tracking-widest text-neutral-400 font-mono bg-neutral-900/50">
-                    <th className="px-4 py-3">Rank</th>
-                    <th className="px-4 py-3">Tool</th>
-                    <th className="px-4 py-3 text-right">Calls</th>
-                    <th className="px-4 py-3 text-right">Output (M)</th>
-                    <th className="px-4 py-3 text-right">Out/Call</th>
-                    <th className="px-4 py-3 text-right">Est. Cost</th>
-                    <th className="px-4 py-3 text-right">Cost/Call</th>
-                    <th className="px-4 py-3 text-right">% Total</th>
-                    <th className="px-4 py-3">Hint</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-neutral-900">
-                  {costDriversData.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={9}
-                        className="px-4 py-8 text-center text-neutral-400 italic"
-                      >
-                        No tool usage found.
-                      </td>
-                    </tr>
-                  ) : (
-                    costDriversData.map((item, i) => (
-                      <tr
-                        key={i}
-                        className="hover:bg-neutral-800/20 transition-colors"
-                      >
-                        <td className="px-4 py-3 font-mono text-neutral-400">
-                          {i + 1}
-                        </td>
-                        <td className="px-4 py-3 font-medium text-neutral-300">
-                          {item.tool}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono text-neutral-400">
-                          {(item.calls || 0).toLocaleString()}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono text-neutral-400">
-                          {(item.tokens / 1_000_000).toFixed(1)}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono text-neutral-400">
-                          {item.tokens / (item.calls || 1) > 10_000
-                            ? `${(item.tokens / (item.calls || 1) / 1000).toFixed(0)}k`
-                            : (item.tokens / (item.calls || 1)).toFixed(0)}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono text-amber-300">
-                          ${item.cost.toFixed(2)}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono text-amber-300">
-                          ${item.costPerCall.toFixed(4)}
-                        </td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <span className="font-mono text-[10px] text-neutral-400">
-                              {(
-                                (item.tokens /
-                                  (stats.tool_output_tokens || 1)) *
-                                100
-                              ).toFixed(1)}
-                              %
-                            </span>
-                            <div className="w-12 h-1 bg-neutral-900 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-amber-500/50"
-                                style={{
-                                  width: `${(item.tokens / (stats.tool_output_tokens || 1)) * 100}%`,
-                                }}
-                              />
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-[10px] text-neutral-400 italic">
-                          Review output size
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          <section className="border border-neutral-800 bg-neutral-950/40">
-            <div className="bg-neutral-900/80 border-b border-neutral-800 p-4 flex items-center justify-between">
-              <div className="text-[10px] uppercase tracking-widest text-neutral-400 font-bold">
-                Full Data Table
-              </div>
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="Search Tool / Sub-command"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="bg-neutral-900 border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 focus:outline-none focus:border-emerald-500 w-64 pl-8"
-                />
-                <Search
-                  size={14}
-                  className="absolute left-2.5 top-2 text-neutral-400"
-                />
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-neutral-800 text-[10px] uppercase tracking-widest text-neutral-400 font-mono bg-neutral-900/50">
-                    <th className="px-4 py-3">Agent</th>
-                    <th className="px-4 py-3">Model</th>
-                    <th className="px-4 py-3">Category</th>
-                    <th className="px-4 py-3">Tool</th>
-                    <th className="px-4 py-3">Sub-command</th>
-                    <th className="px-4 py-3 text-right">Calls</th>
-                    <th className="px-4 py-3 text-right">In (M)</th>
-                    <th className="px-4 py-3 text-right">Out (M)</th>
-                    <th className="px-4 py-3 text-right">Out/Call</th>
-                    <th className="px-4 py-3 text-right">Est. Cost</th>
-                    <th className="px-4 py-3 text-right">Cost/Call</th>
-                    <th className="px-4 py-3 text-right">% Total</th>
-                    <th className="px-4 py-3">Date Range</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-neutral-900">
-                  {tableData.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={13}
-                        className="px-4 py-8 text-center text-neutral-400 italic"
-                      >
-                        No records found.
-                      </td>
-                    </tr>
-                  ) : (
-                    tableData.map((item, i) => {
-                      const dr =
-                        item.first_seen && item.last_seen
-                          ? `${new Date(item.first_seen).toLocaleDateString("en-GB")} – ${new Date(item.last_seen).toLocaleDateString("en-GB")}`
-                          : "—";
-                      return (
-                        <tr
-                          key={i}
-                          className="hover:bg-neutral-800/20 transition-colors"
-                        >
-                          <td className="px-4 py-2 font-mono text-neutral-400">
-                            {item.agent}
-                          </td>
-                          <td className="px-4 py-2 font-mono text-neutral-400 text-[10px]">
-                            {item.model || "—"}
-                          </td>
-                          <td className="px-4 py-2">
-                            <span
-                              className={`text-[10px] px-1.5 py-0.5 border ${
-                                item.category.includes("Optimized")
-                                  ? "border-emerald-900/50 text-emerald-300 bg-emerald-950/20"
-                                  : "border-neutral-800 text-neutral-400 bg-neutral-900/20"
-                              }`}
-                            >
-                              {item.category}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2 font-medium text-neutral-300">
-                            {item.tool_name}
-                          </td>
-                          <td className="px-4 py-2 text-neutral-400 font-mono italic">
-                            {item.sub_command || "—"}
-                          </td>
-                          <td className="px-4 py-2 text-right font-mono text-neutral-400">
-                            {(item.call_count ?? 1).toLocaleString()}
-                          </td>
-                          <td className="px-4 py-2 text-right font-mono text-neutral-400">
-                            {(item.input_tokens / 1_000_000).toFixed(1)}
-                          </td>
-                          <td className="px-4 py-2 text-right font-mono text-neutral-400">
-                            {(item.output_tokens / 1_000_000).toFixed(1)}
-                          </td>
-                          <td className="px-4 py-2 text-right font-mono text-neutral-400">
-                            {(item.outPerCall / 1000).toFixed(0)}k
-                          </td>
-                          <td className="px-4 py-2 text-right font-mono text-emerald-300">
-                            ${(item.cost || 0).toFixed(2)}
-                          </td>
-                          <td className="px-4 py-2 text-right font-mono text-neutral-400">
-                            $
-                            {(
-                              (item.cost || 0) / (item.call_count || 1)
-                            ).toFixed(4)}
-                          </td>
-                          <td className="px-4 py-2 text-right font-mono text-neutral-400">
-                            {item.pctOfTotal.toFixed(1)}%
-                          </td>
-                          <td className="px-4 py-2 text-neutral-400 text-[10px]">
-                            {dr}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </div>
-      )}
     </div>
   );
 }

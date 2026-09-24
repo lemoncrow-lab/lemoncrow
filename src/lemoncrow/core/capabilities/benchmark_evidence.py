@@ -26,6 +26,7 @@ def build_terminalbench_evidence(
     manifest_path: Path,
     repo_state: dict[str, Any],
 ) -> dict[str, Any]:
+    manifest = _load_json(manifest_path) or {}
     summary_path = run_dir / "summary.json"
     runs_path = run_dir / "runs.jsonl"
     transcript_paths = sorted(path.name for path in run_dir.glob("*__*__rep*.json"))
@@ -34,6 +35,7 @@ def build_terminalbench_evidence(
         "captured_at": datetime.now(UTC).isoformat(),
         "commit_under_test": repo_state,
         "manifest_path": str(manifest_path),
+        "runtime_attribution": manifest.get("runtime_attribution", {}),
         "artifacts": {
             "runs_jsonl": _artifact_record(runs_path),
             "summary_json": _artifact_record(summary_path),
@@ -54,6 +56,7 @@ def build_codebench_evidence(
     manifest_path: Path,
     repo_state: dict[str, Any],
 ) -> dict[str, Any]:
+    manifest = _load_json(manifest_path) or {}
     results_path = run_dir / "results.jsonl"
     summary_csv_path = run_dir / "summary.csv"
     results_csv_path = run_dir / "results.csv"
@@ -71,11 +74,21 @@ def build_codebench_evidence(
             if isinstance(item.get("flow_path"), str) and str(item.get("flow_path") or "")
         }
     )
+    runtime_policy_paths = sorted(
+        {
+            str(item.get("runtime_policy_stats_path") or "")
+            for item in results
+            if isinstance(item.get("runtime_policy_stats_path"), str)
+            and str(item.get("runtime_policy_stats_path") or "")
+        }
+    )
     return {
         "suite": "codebench",
         "captured_at": datetime.now(UTC).isoformat(),
         "commit_under_test": repo_state,
         "manifest_path": str(manifest_path),
+        "runtime_attribution": manifest.get("runtime_attribution", {}),
+        "runtime_execution": _summarize_runtime_policy_execution(results),
         "artifacts": {
             "results_jsonl": _artifact_record(results_path),
             "results_csv": _artifact_record(results_csv_path),
@@ -87,6 +100,7 @@ def build_codebench_evidence(
             "quality_adjusted_summary_csv": _artifact_record(quality_adjusted_summary_csv_path),
             "report_txt": _artifact_record(report_path),
             "flow_paths": flow_paths,
+            "runtime_policy_paths": runtime_policy_paths,
         },
         "judge_outputs": {
             "kind": "embedded-jsonl",
@@ -141,6 +155,28 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
         if isinstance(payload, dict):
             rows.append(payload)
     return rows
+
+
+def _summarize_runtime_policy_execution(results: list[dict[str, Any]]) -> dict[str, Any]:
+    arms = sorted({str(result.get("arm") or "") for result in results if result.get("arm")})
+    by_arm: dict[str, dict[str, int]] = {}
+    for arm in arms:
+        rows = [result for result in results if str(result.get("arm") or "") == arm]
+        by_arm[arm] = {
+            "runs": len(rows),
+            "observed_runs": sum(int(row.get("runtime_policy_events") or 0) > 0 for row in rows),
+            "policy_events": sum(int(row.get("runtime_policy_events") or 0) for row in rows),
+            "experiment_runs": sum(int(row.get("runtime_policy_experiment_events") or 0) > 0 for row in rows),
+            "experiment_events": sum(int(row.get("runtime_policy_experiment_events") or 0) for row in rows),
+            "expansions": sum(int(row.get("runtime_policy_expansions") or 0) for row in rows),
+        }
+    return {
+        "observed_runs": sum(values["observed_runs"] for values in by_arm.values()),
+        "policy_events": sum(values["policy_events"] for values in by_arm.values()),
+        "experiment_events": sum(values["experiment_events"] for values in by_arm.values()),
+        "expansions": sum(values["expansions"] for values in by_arm.values()),
+        "by_arm": by_arm,
+    }
 
 
 def _summarize_codebench_results(results: list[dict[str, Any]]) -> dict[str, Any]:

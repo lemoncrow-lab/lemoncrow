@@ -6,7 +6,6 @@ import shutil
 import sqlite3
 import subprocess
 import sys
-from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from importlib import resources
 from pathlib import Path
@@ -48,87 +47,9 @@ from lemoncrow.gateway.cli.commands._shared import (
 )
 from lemoncrow.gateway.integrations.openmemory_lifecycle import project_root as _project_root
 
-
-def _bootstrap_cap_verdict(root: Path) -> bool:
-    """Best-effort first signed cap-verdict token for an identity transition.
-
-    Call this after ANY event that changes which identity `store.load_auth_token()`
-    resolves to (login -- anonymous, token, or OAuth -- and logout): the signed
-    verdict is bound to (account_id, device_id, plan), so switching identity
-    always starts with zero verdict for the new one. Without this, the account
-    stays fail-closed dormant (licensing_gate.resolve_cap_verdict) until the
-    background `lc servicectl` reconciler's next tick -- up to 30 minutes, and
-    only if that service happens to be running.
-
-    Forced: an explicit transition must mint NOW, bypassing both the 30-minute
-    reporting throttle and the unchanged-totals short-circuit -- a logout right
-    after a report, or a re-login with unchanged savings, would otherwise skip
-    the mint and leave the fresh identity dormant.
-    """
-
-    # Open-source runtime: no savings cap, no signed verdict, no usage report.
-    # Identity transitions never need to mint anything and never touch the
-    # network. Retained as a no-op so login/logout/init call sites stay valid.
-    return True
-
-
-def _sync_dormant_agent_override(root: Path) -> None:
-    """Mirror EVERY host's Layer-2 dormant-agent surface right now, instead of
-    waiting for that host's next SessionStart hook to do it.
-
-    SessionStart-driven sync (session_start_bootstrap/apply_session_start_files,
-    reset_host_agents_for_dormancy, reset_lemoncrow_global_dormancy -- all in
-    plugin_runtime.py) is inherently one session behind: it only runs when a
-    NEW session starts, so an identity transition mid-session (login/logout)
-    would otherwise leave a stale agent selection in place until the user
-    starts yet another session, for every host, not just Claude. Every call
-    below reuses the SAME guarded/idempotent primitives those hooks call --
-    best-effort, never raises, never touches a user's own custom (non-
-    `lemoncrow:*`) agent, and a safe no-op for any host that isn't installed
-    (Codex/OpenCode's global- and workspace-scope helpers both no-op cleanly
-    when their target directories don't exist).
-
-    Claude: pops/restores the `agent` key in both the global and any
-    workspace-local settings.json. Codex/OpenCode: stashes/restores the
-    `lemoncrow.*` agent files, both workspace-scoped (cwd) and global-mode
-    ($CODEX_HOME/$OPENCODE_CONFIG_HOME).
-    """
-    try:
-        from lemoncrow.pro.capabilities.licensing_gate import cap_exhausted
-
-        dormant = cap_exhausted(root)
-    except Exception:
-        return
-
-    workspace = os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.getcwd()
-    for host in ("codex", "opencode", "lemoncode"):
-        with suppress(Exception):
-            from lemoncrow.core.capabilities.plugin_runtime import reset_host_agents_for_dormancy
-
-            reset_host_agents_for_dormancy(host, workspace, dormant=dormant)
-        with suppress(Exception):
-            from lemoncrow.core.capabilities.plugin_runtime import reset_lemoncrow_global_dormancy
-
-            reset_lemoncrow_global_dormancy(host, dormant=dormant)
-
-    try:
-        from lemoncrow.core.capabilities.plugin_runtime import clear_dormant_agent_override
-
-        config_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR") or (Path.home() / ".claude"))
-        global_settings = config_dir / "settings.json"
-        clear_dormant_agent_override(global_settings, dormant=dormant)
-        project_settings = Path(os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.getcwd()) / ".claude" / "settings.json"
-        if project_settings.resolve() != global_settings.resolve():
-            clear_dormant_agent_override(project_settings, dormant=dormant)
-    except Exception:
-        pass
-
-
 _RUNTIME_ROLE_PROMPT_ORDER = ("code", "execute", "solve", "general", "explore", "plan", "research", "review")
 _HOST_ROLE_PROMPT_ORDER = ("code", "execute", "solve", "explore", "plan", "research", "review")
 _CUSTOM_MODEL_OPTION = "Others (Enter model)"
-# Matches C_PURPLE in scripts/lib/common.sh, so the interactive selectors in
-# this file and the shell installer read as one consistent accent color.
 _PURPLE = (155, 117, 217)
 
 
@@ -338,6 +259,11 @@ def _confirm_optional(prompt: str, *, default: bool, yes_label: str, no_label: s
     return click.confirm(prompt, default=default)
 
 
+def _counted(count: int, noun: str) -> str:
+    """``"1 Codex agent"`` / ``"3 Codex agents"`` — never "1 ... agents"."""
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
 def _detected_workspace_hosts(workspace_root: Path) -> tuple[str, ...]:
     checks: tuple[tuple[str, bool], ...] = (
         (
@@ -448,22 +374,22 @@ def _apply_workspace_model_config(
     results["model_settings"] = [f"wrote {settings_path}"]
     if "copilot" in detected:
         copilot_agents = write_workspace_copilot_agents(workspace_root)
-        results["copilot"] = [f"updated {len(copilot_agents)} workspace-local Copilot files"]
+        results["copilot"] = [f"updated {_counted(len(copilot_agents), 'workspace-local Copilot file')}"]
     if "claude" in detected:
         claude_paths = write_workspace_claude_overrides(workspace_root)
-        results["claude"] = [f"updated {len(claude_paths)} workspace-local Claude files"]
+        results["claude"] = [f"updated {_counted(len(claude_paths), 'workspace-local Claude file')}"]
     if "opencode" in detected:
         opencode_agents = write_workspace_opencode_agents(workspace_root)
-        results["opencode"] = [f"updated {len(opencode_agents)} workspace-local OpenCode agents"]
+        results["opencode"] = [f"updated {_counted(len(opencode_agents), 'workspace-local OpenCode agent')}"]
     if "lemoncode" in detected:
         lemoncode_agents = write_workspace_lemoncode_agents(workspace_root)
-        results["lemoncode"] = [f"updated {len(lemoncode_agents)} workspace-local LemonCode agents"]
+        results["lemoncode"] = [f"updated {_counted(len(lemoncode_agents), 'workspace-local LemonCode agent')}"]
     if "codex" in detected:
         codex_agents = write_workspace_codex_agents(workspace_root)
-        results["codex"] = [f"updated {len(codex_agents)} workspace-local Codex agents"]
+        results["codex"] = [f"updated {_counted(len(codex_agents), 'workspace-local Codex agent')}"]
     if "cursor" in detected:
         cursor_rules = write_workspace_cursor_rules(workspace_root)
-        results["cursor"] = [f"updated {len(cursor_rules)} workspace-local Cursor rule files"]
+        results["cursor"] = [f"updated {_counted(len(cursor_rules), 'workspace-local Cursor rule file')}"]
     return results
 
 
@@ -590,7 +516,7 @@ def _project_init_setup(git_root: Path) -> dict[str, list[str]]:
         codex_agents = write_workspace_codex_agents(git_root)
         codex_config = write_workspace_codex_agent_config(git_root)
         results["codex"] = [
-            f"updated {len(codex_agents)} workspace-local Codex agents",
+            f"updated {_counted(len(codex_agents), 'workspace-local Codex agent')}",
             f"updated {codex_config.relative_to(git_root)}",
         ]
 
@@ -700,13 +626,6 @@ def _parse_since_arg(value: str) -> datetime:
     default=None,
     help="Prompt for project-local role/host model settings when running inside a git repo.",
 )
-@click.option(
-    "--login/--no-login",
-    default=False,
-    help="Optional: link a hosted LemonCrow account via an interactive browser login "
-    "(default: off). LemonCrow runs fully locally without an account; this only links "
-    "an optional hosted service and never gates any feature.",
-)
 @click.pass_context
 def init(
     ctx: click.Context,
@@ -714,26 +633,8 @@ def init(
     index: bool,
     force: bool,
     configure_models: bool | None,
-    login: bool,
 ) -> None:
-    """Initialize the local runtime store at --root.
-
-    Runs fully locally — no account, no network, no login prompt. Pass --login
-    only if you want to link an optional hosted account (it gates nothing).
-    """
-    if login:
-        # Explicit opt-in only: link an OPTIONAL hosted account. Never required,
-        # never gates a feature; any failure is non-fatal and local setup
-        # continues regardless.
-        from lemoncrow.core.capabilities.licensing.store import load_auth_token
-
-        if not load_auth_token():
-            if not _is_interactive_terminal():
-                click.echo("Skipping optional account login (no interactive terminal).")
-            else:
-                click.echo("Linking optional LemonCrow account — starting login...")
-                with suppress(KeyboardInterrupt, click.Abort):
-                    _oauth_login(ctx.obj["root"], as_json=False)
+    """Initialize the fully local runtime store at --root."""
 
     root: Path = ctx.obj["root"]
     # A non-git, never-registered cwd must be marked BEFORE `create_store`:
@@ -824,6 +725,7 @@ def init(
     git_root = _detect_git_root(Path.cwd())
     if git_root is not None:
         results = _project_init_setup(git_root)
+        registered_root = git_root
         for section, messages in results.items():
             for msg in messages:
                 click.echo(
@@ -831,7 +733,13 @@ def init(
                 )
     else:
         _ensure_gitignore(Path.cwd())
+        registered_root = Path.cwd().resolve()
         click.echo(f"registered {Path.cwd()} as an LemonCrow workspace (no git repository detected)")
+    # lc init is the durable registration point used by the one-daemon,
+    # many-project request router. Indexes remain project-local.
+    from lemoncrow.core.service.project_registry import register_project
+
+    register_project(registered_root)
     # Hidden for now (needs more work) — no longer auto-prompts on a bare
     # `lc init`; only runs when explicitly requested via --configure-models.
     should_offer_model_config = bool(git_root is not None and _is_interactive_terminal())
@@ -861,7 +769,7 @@ def doctor_cmd(ctx: click.Context, as_json: bool) -> None:
     Sections:
       Core              python, lemoncrow version, git repo, store
       Code intelligence code index, zoekt search backend
-      Services          servicectl, stack (backend + frontend), backend API
+      Services          local loopback server
       MCP               active LemonCrow MCP server processes (see also: lc mcp list)
       Integrations      letta, openmemory, langfuse, external compactors
       Environment       host CLIs, external tools, optional python packages, core libraries
@@ -944,73 +852,23 @@ def doctor_cmd(ctx: click.Context, as_json: bool) -> None:
 
     # ── Services ────────────────────────────────────────────────────────
     try:
-        from lemoncrow.infra.runtime.servicectl_lifecycle import _servicectl_status_payload
+        from lemoncrow.infra.runtime.dashboard_url import DEFAULT_LOOPBACK_URL, discover_dashboard_url
 
-        sc = _servicectl_status_payload(root)
-        qh = sc.get("job_queue_health") or {}
-        add(
-            "Services",
-            "servicectl",
-            {
-                "ok": True,
-                "optional": True,
-                "installed": bool(sc["running"]),
-                "pid": sc["pid"],
-                "last_tick_at": sc.get("last_tick_at"),
-                "job_queue": qh or None,
-                "hint": None if sc["running"] else "not running — start: lc servicectl start",
-            },
-        )
-    except Exception as exc:
-        add("Services", "servicectl", {"ok": True, "optional": True, "installed": False, "hint": str(exc)})
-
-    service_url = None
-    try:
-        from lemoncrow.infra.runtime.stack_lifecycle import _stack_status_payload
-
-        st = _stack_status_payload(root)
-        service_url = st.get("service_url")
-        add(
-            "Services",
-            "stack_backend",
-            {
-                "ok": True,
-                "optional": True,
-                "installed": bool(st["service_running"]),
-                "pid": st["service_pid"],
-                "url": st.get("service_url"),
-                "hint": None if st["service_running"] else "not running — start: lc stack start",
-            },
-        )
-        from lemoncrow.infra.runtime.dashboard_url import discover_dashboard_url
-
+        loopback_url = (os.environ.get("LEMONCROW_URL") or DEFAULT_LOOPBACK_URL).rstrip("/")
         frontend_url = discover_dashboard_url(root)
         add(
             "Services",
-            "stack_frontend",
+            "loopback_server",
             {
-                "ok": True,
-                "optional": True,
+                "ok": frontend_url is not None,
+                "optional": False,
                 "installed": frontend_url is not None,
-                "pid": st["frontend_pid"],
-                "url": frontend_url,
-                "hint": None if frontend_url else "not running — start: lc stack start",
+                "url": loopback_url,
+                "hint": None if frontend_url else "not running — restart the local loopback server",
             },
         )
     except Exception as exc:
-        add("Services", "stack_backend", {"ok": True, "optional": True, "installed": False, "hint": str(exc)})
-
-    api_info: dict[str, Any] = {"ok": True, "optional": True, "installed": False}
-    if service_url:
-        import urllib.request as _urllib_request
-
-        try:
-            with _urllib_request.urlopen(f"{service_url.rstrip('/')}/health", timeout=1.5) as resp:
-                api_info["installed"] = resp.status == 200
-                api_info["url"] = f"{service_url.rstrip('/')}/health"
-        except Exception:
-            api_info["hint"] = f"no response from {service_url}/health"
-    add("Services", "backend_api", api_info)
+        add("Services", "loopback_server", {"ok": False, "optional": False, "installed": False, "hint": str(exc)})
 
     # ── MCP ─────────────────────────────────────────────────────────────
     try:
@@ -1354,376 +1212,6 @@ def quarantine(ctx: click.Context, block_id: str) -> None:
     click.echo(f"quarantined {block_id}")
 
 
-def _load_oauth_account() -> tuple[str | None, dict[str, object] | None]:
-    """Fetch the current OAuth account, falling back to its disk cache."""
-    from lemoncrow.core.capabilities.licensing.store import (
-        load_auth_base,
-        load_auth_token,
-        load_auth_user,
-        save_auth_user,
-    )
-
-    auth_token = load_auth_token()
-    cached: dict[str, object] | None = None
-    if auth_token:
-        import json as _json
-        import urllib.request
-
-        from lemoncrow.core.capabilities.licensing.entitlements import USER_AGENT
-
-        _base_url = load_auth_base()
-        try:
-            req = urllib.request.Request(
-                f"{_base_url}/api/auth/me",
-                headers={"Authorization": f"Bearer {auth_token}", "User-Agent": USER_AGENT},
-            )
-            with urllib.request.urlopen(req, timeout=5) as resp:
-                cached = _json.loads(resp.read())
-            save_auth_user({**cached, "_base": _base_url})
-        except Exception:
-            cached = load_auth_user()  # fall back to disk if offline
-    return auth_token, cached
-
-
-def _auth_status(root: Path, as_json: bool) -> None:
-    """Show auth/subscription status: email, plan, and device slots."""
-    auth_token, cached = _load_oauth_account()
-
-    if auth_token and cached:
-        # OAuth session — show cached user info
-        email = str(cached.get("email") or "")
-        plan = str(cached.get("plan") or "free")
-        device_id = str(cached.get("device_id") or auth_token[:8])
-        cli_count = int(cached.get("cli_device_count") or 0)  # type: ignore[call-overload]
-        cli_limit = int(cached.get("cli_device_limit") or 3)  # type: ignore[call-overload]
-        if as_json:
-            _emit(
-                {
-                    "authenticated": True,
-                    "email": email,
-                    "plan": plan,
-                    "device_id": device_id,
-                    "cli_devices": f"{cli_count}/{cli_limit}",
-                    "mode": "oauth",
-                },
-                as_json=True,
-            )
-            return
-        click.secho(f"✓ {email}", fg="green", bold=True)
-        click.echo(f"  plan:    {plan}")
-        click.echo(f"  device:  {device_id}")
-        click.echo(f"  devices: {cli_count} of {cli_limit} used")
-    elif auth_token and not cached:
-        # fetch failed and no disk fallback
-        if as_json:
-            _emit({"mode": "oauth", "status": "unreachable"}, as_json=True)
-            return
-        click.secho("⚠ Could not reach auth server", fg="yellow")
-    else:
-        # No OAuth token — check any plugin-runtime auth state at root/auth.json
-        # (distinct from the global licensing store; e.g. an anonymous trial).
-        import json as _json2
-
-        from lemoncrow.core.capabilities.plugin_runtime import auth_state_path as _auth_state_path
-
-        _plugin_auth: dict[str, Any] | None = None
-        try:
-            _plugin_auth_path = _auth_state_path(root)
-            if _plugin_auth_path.exists():
-                _plugin_auth = _json2.loads(_plugin_auth_path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-
-        if isinstance(_plugin_auth, dict) and _plugin_auth.get("authenticated") and _plugin_auth.get("email"):
-            email = str(_plugin_auth["email"])
-            if as_json:
-                _emit({"authenticated": True, "email": email, "mode": "token"}, as_json=True)
-                return
-            click.secho(f"✓ {email}", fg="green", bold=True)
-        else:
-            if as_json:
-                _emit({"mode": "none", "status": "not logged in"}, as_json=True)
-                return
-            click.secho("✗ Not logged in — run: lc account login", fg="red")
-
-
-@click.group("account", invoke_without_command=True)
-@click.pass_context
-def account_group(ctx: click.Context) -> None:
-    """Optional hosted-account link (not required for any feature).
-
-    LemonCrow runs fully locally with every feature available and no account.
-    These commands only link an optional hosted account; they gate nothing and
-    are never required. See docs/maintenance-mode-transition.md.
-    """
-    if ctx.invoked_subcommand is None:
-        ctx.invoke(account_status_cmd, as_json=False)
-
-
-@account_group.command("login")
-@click.option("--anonymous", "anonymous", is_flag=True, help="Start a local anonymous trial.")
-@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
-@click.option("--dev", "dev_mode", is_flag=True, help="Login against local dev server (http://localhost:4321).")
-@click.pass_context
-def login_cmd(ctx: click.Context, anonymous: bool, as_json: bool, dev_mode: bool) -> None:
-    """Create local LemonCrow auth state for plugin operations.
-
-    Interactive OAuth is the only real login path (``--anonymous`` starts a
-    local trial). The former ``--token`` flow persisted credentials to a file
-    the identity resolver never read, so it silently logged in as anonymous;
-    removed rather than half-fixed.
-    """
-    from lemoncrow.core.capabilities.plugin_runtime import claim_anonymous_trial
-
-    if anonymous:
-        payload = {"auth": claim_anonymous_trial(ctx.obj["root"]), "mode": "anonymous"}
-        _bootstrap_cap_verdict(ctx.obj["root"])
-        if as_json:
-            _emit(payload, as_json=True)
-            return
-        auth_payload = payload.get("auth")
-        auth = auth_payload if isinstance(auth_payload, dict) else {}
-        label = "anonymous trial" if auth.get("isAnonymous") else auth.get("email") or auth.get("userId")
-        click.echo(f"logged in: {label}")
-    else:
-        _oauth_login(ctx.obj["root"], as_json, dev_mode=dev_mode)
-
-
-def _oauth_login(root: Path, as_json: bool, dev_mode: bool = False) -> None:
-    """Run the OAuth browser flow and persist the returned session token."""
-    from lemoncrow.core.capabilities.licensing.oauth_flow import run_oauth_login
-
-    result = run_oauth_login(dev_mode=dev_mode, notify=lambda msg: click.echo(f"  {msg}"))
-
-    if result is None:
-        click.secho("✗ Login timed out or was cancelled.", fg="red", err=True)
-        click.echo("  Retry: lc account login (re-opens the browser sign-in).", err=True)
-        raise SystemExit(1)
-
-    # Logging in opts you into syncing your cumulative savings to your account
-    # so you can view them online. Best-effort and non-blocking: a failed push
-    # (offline / server unreachable) never fails the login. Log out to stop.
-    with suppress(Exception):
-        from lemoncrow.core.capabilities.licensing.usage_report import report_usage_once
-
-        report_usage_once(root, force=True)
-    if as_json:
-        _emit(
-            {
-                "email": result.email,
-                "device_id": result.device_id,
-                "mode": "oauth",
-            },
-            as_json=True,
-        )
-        return
-    click.secho(f"✓ Linked account {result.email}", fg="green")
-    click.echo("  All features are available locally without an account. Your savings now sync")
-    click.echo("  to your account so you can view them online — run `lc account logout` to stop.")
-
-
-@account_group.command("logout")
-@click.option("--no-trial", is_flag=True, help="Do not create a local anonymous trial after logout.")
-@click.option("--json", "as_json", is_flag=True)
-@click.pass_context
-def logout_cmd(ctx: click.Context, no_trial: bool, as_json: bool) -> None:
-    """Remove local auth and optionally activate an anonymous trial."""
-    from lemoncrow.core.capabilities.licensing.store import delete_auth_base, delete_auth_token, delete_auth_user
-    from lemoncrow.core.capabilities.plugin_runtime import logout_local
-
-    delete_auth_token()
-    delete_auth_user()
-    delete_auth_base()
-    payload = logout_local(ctx.obj["root"], claim_trial=not no_trial)
-    verdict_verified = True
-    if not no_trial:
-        # Best-effort: mints a fresh signed anonymous cap-verdict token so tools
-        # stay usable post-logout. If this fails (offline, server unreachable),
-        # MCP tools stay hidden until the background reconciler retries or the
-        # user logs back in -- surface that instead of a silent "✓ Logged out".
-        verdict_verified = _bootstrap_cap_verdict(ctx.obj["root"])
-    if as_json:
-        payload["anonymous_verdict_verified"] = verdict_verified
-        _emit(payload, as_json=True)
-        return
-    click.secho("✓ Logged out", fg="green")
-    if not no_trial and not verdict_verified:
-        click.secho(
-            "  Warning: couldn't verify a new anonymous session (offline or server "
-            "unreachable) — LemonCrow tools will stay disabled until this succeeds.",
-            fg="yellow",
-        )
-
-
-def _account_subscription(root: Path) -> dict[str, Any]:
-    """Return display-safe, metered subscription state for the active account."""
-    from lemoncrow.core.capabilities.plugin_runtime import auth_status, compute_usage_meter
-
-    raw: object = None
-    auth_token, user = _load_oauth_account()
-    if auth_token and isinstance(user, dict):
-        nested = user.get("subscriptionStatus") or user.get("subscription_status")
-        raw = dict(nested) if isinstance(nested, dict) else {}
-        if not raw and user.get("plan"):
-            raw = {"plan": user["plan"]}
-        # /api/auth/me returns these "since" anchors top-level (never nested
-        # under subscriptionStatus) -- carry them through so `lc account cap`
-        # can show the real billing-cycle/account-creation period instead of
-        # falling back to the generic rolling-window label.
-        if isinstance(raw, dict):
-            for key in ("accountCreatedAt", "planPeriodStart", "planPeriodEnd"):
-                if key in user:
-                    raw[key] = user[key]
-    if not isinstance(raw, dict) or not raw:
-        account = auth_status(root)
-        raw = account.get("subscription")
-    subscription = compute_usage_meter(root, subscription=raw if isinstance(raw, dict) else {})
-    return {key: value for key, value in subscription.items() if "token" not in key.lower()}
-
-
-@account_group.command("status")
-@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
-@click.pass_context
-def account_status_cmd(ctx: click.Context, as_json: bool) -> None:
-    """Show the current account and authentication status."""
-    _auth_status(ctx.obj["root"], as_json)
-
-
-@account_group.command("subscription")
-@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
-@click.pass_context
-def account_subscription_cmd(ctx: click.Context, as_json: bool) -> None:
-    """Show subscription details."""
-    subscription = _account_subscription(ctx.obj["root"])
-    if as_json:
-        _emit(subscription, as_json=True)
-        return
-    click.echo(f"plan: {subscription.get('plan') or subscription.get('status') or 'free'}")
-    if subscription.get("message"):
-        click.echo(f"status: {subscription['message']}")
-
-
-def _format_period_date(value: Any) -> str | None:
-    """Best-effort YYYY-MM-DD from a unix-seconds int/float or an ISO string."""
-    if isinstance(value, int | float) and not isinstance(value, bool):
-        try:
-            from datetime import UTC, datetime
-
-            return datetime.fromtimestamp(value, UTC).date().isoformat()
-        except (OverflowError, OSError, ValueError):
-            return None
-    if isinstance(value, str) and len(value) >= 10:
-        return value[:10]
-    return None
-
-
-def _account_cap_period_line(subscription: dict[str, Any], window_days: Any) -> str | None:
-    """The `lc account cap` "period"/"since" line: a real per-plan identity
-    anchor when the account/server has one, else the rolling-window fallback.
-
-    A paid plan's Stripe billing cycle and a free account's creation date are
-    purely informational (those plans are uncapped -- ``monthlySavingsCapInUsd``
-    is ``None`` -- so there is no reset semantic to report). The anonymous/local
-    device's first-seen date doubles as its cap cycle's anchor: see
-    ``_account_cap_mechanics`` for the actual reset boundary that pairs with it.
-
-    Requires BOTH ``planPeriodStart`` and ``planPeriodEnd`` before calling it a
-    "billing cycle": a genuine Stripe-sourced snapshot always carries both,
-    populated atomically from the same subscription object
-    (``subscriptionSnapshot`` in stripe-events.ts). ``planPeriodEnd`` alone
-    (no start) means this plan came from something other than a live Stripe
-    subscription -- a manually granted or lifetime/promo row, whose
-    ``current_period_end`` is often a far-future sentinel (e.g. year 2100) that
-    would misleadingly print as a "billing cycle" -- so it falls through to the
-    account-creation anchor instead.
-    """
-    plan = str(subscription.get("plan") or "").lower()
-    period_start = _format_period_date(subscription.get("planPeriodStart"))
-    period_end = _format_period_date(subscription.get("planPeriodEnd"))
-    if period_start and period_end:
-        return f"period: {period_start} - {period_end} (billing cycle)"
-    if plan in {"local", "anonymous"}:
-        registered = _format_period_date(subscription.get("registeredAt"))
-        if registered:
-            return f"since: device registered {registered}"
-    else:
-        created = _format_period_date(subscription.get("accountCreatedAt"))
-        if created:
-            return f"since: account created {created}"
-    if window_days is not None:
-        return f"period: trailing {int(window_days)}-day window"
-    return None
-
-
-def _account_cap_mechanics(subscription: dict[str, Any], window_days: Any) -> tuple[str, str | None]:
-    """(cap-line suffix, optional "resets: ..." line) describing HOW the cap
-    resets -- distinct from ``_account_cap_period_line``'s identity anchor.
-
-    The anonymous cap has two different real mechanisms depending on whether a
-    verified server verdict backs it: a server-confirmed anon identity
-    (``capVerdictReason == "signed_anonymous"``) uses a FIXED calendar cycle
-    that hard-resets at ``cycleResetsAt`` (see ``cycleSavings`` in
-    landing/functions/api/usage.ts); everything else showing a $ cap (offline,
-    unverified, or the local dev fallback) is still the client's rolling
-    ``window_days``-day estimate (``compute_usage_meter`` / ``windowSavings``).
-    Reporting the wrong one here would mislead the one case (anon) where the
-    cap actually blocks tool access.
-    """
-    if subscription.get("capVerdictReason") == "signed_anonymous":
-        resets = _format_period_date(subscription.get("cycleResetsAt"))
-        return "30-day cycle", (f"resets: {resets}" if resets else None)
-    days = int(window_days) if window_days is not None else 30
-    return f"rolling {days}-day window", None
-
-
-@account_group.command("cap")
-@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
-@click.pass_context
-def account_cap_cmd(ctx: click.Context, as_json: bool) -> None:
-    """Show monthly savings-cap usage."""
-    subscription = _account_subscription(ctx.obj["root"])
-    payload = {
-        "cap_usd": subscription.get("monthlySavingsCapInUsd"),
-        "over_cap": bool(subscription.get("savingsOverCap")),
-        "remaining_usd": subscription.get("savingsRemainingUsd"),
-        "saved_usd": subscription.get("monthlySavingsInUsd", 0.0),
-        # capVerdictVerified/Reason come from the same signed-verdict
-        # resolution the MCP server enforces (licensing_gate.resolve_cap_verdict
-        # via compute_usage_meter) -- this over_cap can never disagree with
-        # which tools are actually visible in the session.
-        "verified": subscription.get("capVerdictVerified"),
-        "reason": subscription.get("capVerdictReason"),
-        # A verified anon identity (reason=="signed_anonymous") is a FIXED
-        # calendar cycle that hard-resets at cycle_resets_at; every other cap
-        # shown here is the client's rolling window_days estimate (see
-        # _account_cap_mechanics). period_start/end/account_created_at/
-        # device_registered_at are separate, display-only identity anchors
-        # (Stripe billing cycle / account creation / device first-seen).
-        "period_days": subscription.get("windowDays"),
-        "period_start": subscription.get("planPeriodStart"),
-        "period_end": subscription.get("planPeriodEnd"),
-        "account_created_at": subscription.get("accountCreatedAt"),
-        "device_registered_at": subscription.get("registeredAt"),
-        "cycle_resets_at": subscription.get("cycleResetsAt"),
-    }
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    cap = payload["cap_usd"]
-    cap_suffix, resets_line = _account_cap_mechanics(subscription, payload["period_days"])
-    click.echo("cap: uncapped" if cap is None else f"cap: ${float(cap):.2f} ({cap_suffix})")
-    click.echo(f"saved: ${float(payload['saved_usd'] or 0.0):.2f}")
-    if payload["remaining_usd"] is not None:
-        click.echo(f"remaining: ${float(payload['remaining_usd']):.2f}")
-    period_line = _account_cap_period_line(subscription, payload["period_days"])
-    if period_line:
-        click.echo(period_line)
-    if cap is not None and resets_line:
-        click.echo(resets_line)
-    # Open-source runtime: uncapped, never dormant.
-    click.echo("status: active")
-
-
 @click.command("status")
 @click.option("--json", "as_json", is_flag=True, help="Emit raw JSON of runs data.")
 @click.option("--line", "line_mode", is_flag=True, help="One-liner mode (good for status bars).")
@@ -1748,7 +1236,7 @@ def status_cmd(
 
     Default view: runs dashboard (overview of recent runs, totals, savings).
 
-    Use --index for index stats; `lc account status` for account status.
+    Use --index for index stats.
     """
     root: Path = ctx.obj["root"]
 
@@ -1786,12 +1274,9 @@ def status_cmd(
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def share_cmd(ctx: click.Context, as_json: bool) -> None:
-    """Render local referral/share text."""
-    from lemoncrow.core.capabilities.plugin_runtime import share_referral
-
-    payload = share_referral(ctx.obj["root"])
-    if payload.get("is_error"):
-        raise click.ClickException(str(payload["message"]))
+    """Render a local LemonCrow project share link."""
+    del ctx
+    payload = {"url": "https://lemoncrow.com", "text": "LemonCrow: https://lemoncrow.com"}
     if as_json:
         _emit(payload, as_json=True)
         return
@@ -1900,217 +1385,9 @@ def tool_report_cmd(ctx: click.Context, as_json: bool) -> None:
             click.echo(f"  - {r}")
 
 
-@click.group("team")
-def team_group() -> None:
-    """Manage local team workspace state."""
-
-
-@team_group.command("init")
-@click.option("--name", required=True, help="Workspace display name.")
-@click.option("--admin-email", default="admin@local", show_default=True)
-@click.option("--json", "as_json", is_flag=True, default=False)
-@click.pass_context
-def team_init_cmd(ctx: click.Context, name: str, admin_email: str, as_json: bool) -> None:
-    from lemoncrow.pro.capabilities.team import TeamWorkspaceManager
-
-    workspace = TeamWorkspaceManager(ctx.obj["root"]).init_workspace(name=name, admin_email=admin_email)
-    payload = workspace.model_dump(mode="json")
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    click.echo(f"initialized workspace {workspace.name} ({workspace.id})")
-
-
-@team_group.command("invite")
-@click.argument("emails", nargs=-1)
-@click.option("--role", type=click.Choice(["member", "viewer", "admin"]), default="member", show_default=True)
-@click.option("--json", "as_json", is_flag=True, default=False)
-@click.pass_context
-def team_invite_cmd(ctx: click.Context, emails: tuple[str, ...], role: str, as_json: bool) -> None:
-    from lemoncrow.pro.capabilities.team import TeamWorkspaceManager
-
-    if not emails:
-        raise click.ClickException("provide at least one email")
-    invites = TeamWorkspaceManager(ctx.obj["root"]).invite_members(list(emails), role=role)  # type: ignore[arg-type]
-    payload = [invite.model_dump(mode="json") for invite in invites]
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    for invite in invites:
-        click.echo(f"{invite.email}\t{invite.role}\t{invite.code}")
-
-
-@team_group.command("join")
-@click.argument("invite_code")
-@click.option("--user-id", default=None, help="Override the invite email as the local user id.")
-@click.option("--json", "as_json", is_flag=True, default=False)
-@click.pass_context
-def team_join_cmd(ctx: click.Context, invite_code: str, user_id: str | None, as_json: bool) -> None:
-    from lemoncrow.pro.capabilities.team import TeamWorkspaceManager
-
-    member = TeamWorkspaceManager(ctx.obj["root"]).join_workspace(invite_code, user_id=user_id)
-    payload = member.model_dump(mode="json")
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    click.echo(f"joined workspace as {member.user_id} ({member.role})")
-
-
-@team_group.command("role")
-@click.argument("user_id")
-@click.argument("role", type=click.Choice(["admin", "member", "viewer"]))
-@click.option("--json", "as_json", is_flag=True, default=False)
-@click.pass_context
-def team_role_cmd(ctx: click.Context, user_id: str, role: str, as_json: bool) -> None:
-    from lemoncrow.pro.capabilities.team import TeamWorkspaceManager
-
-    member = TeamWorkspaceManager(ctx.obj["root"]).set_role(user_id, role)  # type: ignore[arg-type]
-    payload = member.model_dump(mode="json")
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    click.echo(f"{member.user_id}\t{member.role}")
-
-
-@team_group.command("usage")
-@click.option("--since", default="30d", show_default=True, help="Time window like 30d, 24h, or 2026-05-01.")
-@click.option("--json", "as_json", is_flag=True, default=False)
-@click.pass_context
-def team_usage_cmd(ctx: click.Context, since: str, as_json: bool) -> None:
-    from lemoncrow.pro.capabilities.team import TeamWorkspaceManager, summarize_workspace_usage
-
-    manager = TeamWorkspaceManager(ctx.obj["root"])
-    manager.require_admin()
-    payload = summarize_workspace_usage(ctx.obj["root"], manager=manager, since=_parse_since_arg(since))
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    click.echo(f"workspace: {payload['workspace_id']}")
-    click.echo(f"sessions: {payload['session_count']}")
-    click.echo(f"total cost usd: {payload['total_cost_usd']:.6f}")
-    for row in payload["users"]:
-        click.echo(f"{row['user_id']}\t{row['role']}\t{row['session_count']}\t{row['total_cost_usd']:.6f}")
-
-
-@team_group.command("audit")
-@click.option("--since", default="30d", show_default=True, help="Time window like 30d, 24h, or 2026-05-01.")
-@click.option("--json", "as_json", is_flag=True, default=False)
-@click.pass_context
-def team_audit_cmd(ctx: click.Context, since: str, as_json: bool) -> None:
-    from lemoncrow.pro.capabilities.team import TeamWorkspaceManager
-
-    manager = TeamWorkspaceManager(ctx.obj["root"])
-    manager.require_admin()
-    events = manager.list_audit_events(since=_parse_since_arg(since))
-    payload = [event.model_dump(mode="json") for event in events]
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    if not events:
-        click.echo("(no team audit events)")
-        return
-    for event in events:
-        click.echo(f"{event.at.isoformat()}\t{event.action}\t{event.actor_user_id}")
-
-
-@click.group("governance")
-def governance_group() -> None:
-    """Inspect and apply workspace governance policy."""
-
-
-@governance_group.command("show")
-@click.option("--json", "as_json", is_flag=True, default=False)
-@click.pass_context
-def governance_show_cmd(ctx: click.Context, as_json: bool) -> None:
-    from lemoncrow.core.capabilities.governance import load_policy
-
-    policy = load_policy(ctx.obj["root"])
-    payload = policy.model_dump(mode="json")
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    click.echo(yaml.safe_dump(payload, sort_keys=True).rstrip())
-
-
-@governance_group.command("apply")
-@click.option(
-    "--file",
-    "file_path",
-    required=True,
-    type=click.Path(exists=True, dir_okay=False, path_type=Path),
-)
-@click.option("--json", "as_json", is_flag=True, default=False)
-@click.pass_context
-def governance_apply_cmd(ctx: click.Context, file_path: Path, as_json: bool) -> None:
-    from lemoncrow.core.capabilities.governance import GovernancePolicy, save_policy
-    from lemoncrow.pro.capabilities.team import TeamAuditEvent, TeamWorkspaceManager
-
-    manager = TeamWorkspaceManager(ctx.obj["root"])
-    member = manager.require_admin()
-    loaded = yaml.safe_load(file_path.read_text(encoding="utf-8")) or {}
-    policy = GovernancePolicy.model_validate(loaded)
-    saved = save_policy(ctx.obj["root"], policy)
-    manager.append_audit_event(
-        TeamAuditEvent(
-            action="governance.apply",
-            actor_user_id=member.user_id,
-            details={"source": str(file_path)},
-        )
-    )
-    payload = saved.model_dump(mode="json")
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    click.echo(f"applied governance policy from {file_path}")
-
-
 @click.group("audit")
 def audit_group() -> None:
-    """Export and verify workspace audit bundles."""
-
-
-@audit_group.command("export")
-@click.option("--since", default="30d", show_default=True, help="Time window like 30d, 24h, or 2026-05-01.")
-@click.option("--out", "out_dir", required=True, type=click.Path(path_type=Path))
-@click.option("--json", "as_json", is_flag=True, default=False)
-@click.pass_context
-def audit_export_cmd(ctx: click.Context, since: str, out_dir: Path, as_json: bool) -> None:
-    from lemoncrow.core.capabilities.audit_export import export_audit_bundle
-    from lemoncrow.pro.capabilities.team import TeamAuditEvent, TeamWorkspaceManager
-
-    manager = TeamWorkspaceManager(ctx.obj["root"])
-    member = manager.require_admin()
-    payload = export_audit_bundle(ctx.obj["root"], out_dir=out_dir, since=_parse_since_arg(since))
-    manager.append_audit_event(
-        TeamAuditEvent(
-            action="audit.export",
-            actor_user_id=member.user_id,
-            details={"bundle_dir": payload["bundle_dir"]},
-        )
-    )
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    click.echo(payload["bundle_dir"])
-
-
-@audit_group.command("verify")
-@click.argument("bundle_dir", type=click.Path(exists=True, file_okay=False, path_type=Path))
-@click.option("--json", "as_json", is_flag=True, default=False)
-@click.pass_context
-def audit_verify_cmd(ctx: click.Context, bundle_dir: Path, as_json: bool) -> None:
-    from lemoncrow.core.capabilities.audit_export import verify_audit_bundle
-
-    payload = verify_audit_bundle(ctx.obj["root"], bundle_dir=bundle_dir)
-    if as_json:
-        _emit(payload, as_json=True)
-        return
-    if payload["valid"]:
-        click.echo(f"verified {bundle_dir}")
-        return
-    raise click.ClickException(
-        f"bundle verification failed: {', '.join(payload['tampered_files']) or 'signature mismatch'}"
-    )
+    """Audit local developer context and shell usage."""
 
 
 @click.command("insights")
@@ -2206,22 +1483,17 @@ def insights_cmd(
 
 __all__ = [
     "_project_root",
-    "account_group",
     "audit_group",
     "deprecate",
     "doctor_cmd",
     "env_group",
-    "governance_group",
     "init",
     "insights_cmd",
-    "login_cmd",
-    "logout_cmd",
     "plugin_settings_group",
     "quarantine",
     "reset_cmd",
     "share_cmd",
     "status_cmd",
-    "team_group",
     "tool_report_cmd",
     "uninstall",
 ]

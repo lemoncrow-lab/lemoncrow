@@ -12,6 +12,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from lemoncrow_client.kit.redaction import escape_jsonl_line_breaks, redact, redact_jsonl
+
 from lemoncrow.core.capabilities.pricing import is_placeholder_model, usage_cost_usd
 from lemoncrow.core.foundation.models import (
     CommandRecord,
@@ -22,7 +24,6 @@ from lemoncrow.core.foundation.models import (
     Trace,
     UsageEntry,
 )
-from lemoncrow.core.foundation.redaction import escape_jsonl_line_breaks, redact, redact_jsonl
 from lemoncrow.infra.storage.bundle import StoreBundle
 from lemoncrow.pro.capabilities.prompt_compilation.tokens import approx_tokens
 

@@ -1,7 +1,6 @@
-import { useEffect, useState, type ElementType } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
 import {
-  Activity,
   Archive,
   Bot,
   Brain,
@@ -12,17 +11,12 @@ import {
   ChevronRight,
   ChevronUp,
   Command,
-  Flag,
   HardDrive,
   Heart,
-  HeartPulse,
-  Hexagon,
-  Layers,
   Microscope,
   Minus,
   Plus,
   Search,
-  Sparkles,
   Terminal,
   Wrench,
 } from "lucide-react";
@@ -42,8 +36,7 @@ import {
   EmptyState,
   FieldLabel,
   MetricCard,
-  SectionHeader,
-  ToggleGroup,
+  PageFrame,
 } from "../components/WorkbenchUI";
 import { fmtDate } from "../lib/format";
 import Telemetry from "./Telemetry";
@@ -878,7 +871,7 @@ function HealthSection() {
 // MCP → Telemetry → Watchdogs → Projection
 // ---------------------------------------------------------------------------
 
-type Section =
+export type Section =
   | "health"
   | "hosts"
   | "agents"
@@ -888,49 +881,12 @@ type Section =
   | "watchdogs"
   | "projection";
 
-const SECTIONS: { id: Section; label: string; icon: ElementType }[] = [
-  { id: "health", label: "Health", icon: HeartPulse },
-  { id: "hosts", label: "Hosts", icon: Hexagon },
-  { id: "agents", label: "Agents", icon: Bot },
-  { id: "skills", label: "Skills", icon: Sparkles },
-  { id: "mcp", label: "MCP", icon: Command },
-  { id: "telemetry", label: "Telemetry", icon: Activity },
-  { id: "watchdogs", label: "Watchdogs", icon: Flag },
-  { id: "projection", label: "Projection", icon: Layers },
-];
-
-export default function System() {
+export default function System({ forcedSection }: { forcedSection?: Section }) {
   const { section } = useParams<{ section?: string }>();
-  const navigate = useNavigate();
-  const active = (section as Section) || "health";
-
-  const setSection = (s: Section) =>
-    navigate(`/system/${s}`, { replace: true });
+  const active = forcedSection ?? (section as Section) ?? "health";
 
   return (
-    <div className="space-y-8 p-6 text-sm">
-      <SectionHeader
-        eyebrow="System"
-        title="Runtime & host system"
-        description="Daemon health, host adapters, agents, skills, MCP tools, telemetry, watchdogs, and the projection inspector."
-      />
-
-      <ToggleGroup
-        variant="underline"
-        size="sm"
-        options={SECTIONS.map((s) => ({
-          value: s.id,
-          label: (
-            <span className="flex items-center gap-1.5">
-              <s.icon size={14} />
-              <span>{s.label}</span>
-            </span>
-          ),
-        }))}
-        value={active}
-        onChange={(value) => setSection(value as Section)}
-      />
-
+    <PageFrame className="space-y-4 text-sm">
       {active === "health" && <HealthSection />}
       {active === "hosts" && <HostsSection />}
       {active === "agents" && <AgentsSection />}
@@ -939,6 +895,6 @@ export default function System() {
       {active === "telemetry" && <Telemetry />}
       {active === "watchdogs" && <Watchdogs />}
       {active === "projection" && <ProjectionInspector />}
-    </div>
+    </PageFrame>
   );
 }

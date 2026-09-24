@@ -44,11 +44,19 @@ SKILL_LESS_HOSTS: frozenset[str] = frozenset({"opencode", "lemoncode"})
 
 INSTALLABLE_ROLE_IDS: tuple[str, ...] = tuple(r for r in SURFACED_ROLE_IDS if r not in DEFAULT_ROLE_IDS)
 
-# The 6 public skills (integrations/skills/<name>/SKILL.md). Hardcoded rather
+# Public skills (integrations/skills/<name>/SKILL.md). Hardcoded rather
 # than derived from environment.HIDDEN_SKILLS (currently empty -- see that
 # module's docstring) so a hidden dev-only skill can never become installable
 # here even if that frozenset drifts.
-PUBLIC_SKILL_NAMES: tuple[str, ...] = ("benchmark", "orchestrate", "perf-review", "recall", "swarm", "ux-review")
+PUBLIC_SKILL_NAMES: tuple[str, ...] = (
+    "benchmark",
+    "orchestrate",
+    "perf-review",
+    "recall",
+    "review-setup",
+    "swarm",
+    "ux-review",
+)
 
 
 def _repo_root() -> Path:

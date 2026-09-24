@@ -43,6 +43,7 @@ def _write_session_state(session_id: str, cwd: str | None = None, model: str = "
 
 
 def main() -> int:
+    messages: list[str] = []
     try:
         payload = json.loads(sys.stdin.read() or "{}")
         if payload and payload.get("hook_event_name") not in {None, "SessionStart"}:
@@ -83,17 +84,26 @@ def main() -> int:
                 prev_ver = update_data["previous_version"]
                 cur_ver = update_data["current_version"]
                 method = update_data.get("method", "auto")
-                msg = (
+                messages.append(
                     f"lc updated from {prev_ver} → {cur_ver} (via {method}). "
                     "Release notes: https://github.com/lemoncrow-lab/lemoncrow/releases"
                 )
-                sys.stdout.write(json.dumps({"systemMessage": msg}) + "\n")
-                sys.stdout.flush()
                 # Mark as notified
                 update_data["notified"] = True
                 state_path.write_text(json.dumps(update_data, indent=2), encoding="utf-8")
     except (ImportError, json.JSONDecodeError, KeyError, TypeError, ValueError, OSError):
         pass
+    # Once-a-day "update available" line (opt-in). One JSON object on stdout.
+    try:
+        from lemoncrow.core.foundation.update_notice import notice_for
+
+        if notice := notice_for("hook"):
+            messages.append(notice)
+    except Exception:
+        pass
+    if messages:
+        sys.stdout.write(json.dumps({"systemMessage": " | ".join(messages)}) + "\n")
+        sys.stdout.flush()
     return 0
 
 

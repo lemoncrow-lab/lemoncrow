@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from lemoncrow_client.kit.redaction import output_redaction_enabled, redact_tool_output
 
-from lemoncrow.core.foundation.redaction import output_redaction_enabled, redact_tool_output
 from lemoncrow.pro.capabilities.tool_supervision.bash_exec import _compact_result
 from lemoncrow.pro.capabilities.tool_supervision.native_search import search_workspace
 

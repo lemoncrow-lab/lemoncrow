@@ -13,6 +13,7 @@ returns.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
@@ -24,7 +25,9 @@ from click.testing import CliRunner
 
 from lemoncrow.gateway.adapters.mcp_oauth import (
     default_pairing_path,
+    default_state_path,
     load_or_create_pairing_code,
+    migrate_legacy_state,
     reset_pairing_code,
 )
 from lemoncrow.gateway.cli.commands.mcp_serve import mcp_serve_cmd
@@ -49,9 +52,42 @@ def _isolated_store(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 # ── store helpers ─────────────────────────────────────────────────────────
 def test_pairing_file_is_scoped_like_the_oauth_store(tmp_path: Path) -> None:
-    base = tmp_path / ".lemoncrow" / "chatgpt"
+    base = tmp_path / ".lemoncrow" / "mcp"
+    assert default_state_path() == base / "oauth.json"
+    assert default_state_path("mcp-example-com") == base / "oauth-mcp-example-com.json"
     assert default_pairing_path() == base / "pairing.json"
     assert default_pairing_path("mcp-example-com") == base / "pairing-mcp-example-com.json"
+
+
+def test_legacy_chatgpt_state_moves_without_changing_credentials(tmp_path: Path) -> None:
+    legacy = tmp_path / ".lemoncrow" / "chatgpt"
+    legacy.mkdir(parents=True)
+    oauth = {"clients": {"old-client": {}}, "access_tokens": {}, "refresh_tokens": {}}
+    pairing = {"pairing_code": "old-pairing-code"}
+    (legacy / "oauth-mcp-example-com.json").write_text(json.dumps(oauth), encoding="utf-8")
+    (legacy / "pairing-mcp-example-com.json").write_text(json.dumps(pairing), encoding="utf-8")
+
+    migrate_legacy_state("mcp-example-com")
+
+    assert json.loads(default_state_path("mcp-example-com").read_text(encoding="utf-8")) == oauth
+    assert json.loads(default_pairing_path("mcp-example-com").read_text(encoding="utf-8")) == pairing
+    assert not (legacy / "oauth-mcp-example-com.json").exists()
+    assert not (legacy / "pairing-mcp-example-com.json").exists()
+
+
+def test_existing_mcp_state_is_never_overwritten_by_legacy_state(tmp_path: Path) -> None:
+    target = default_state_path("mcp-example-com")
+    target.parent.mkdir(parents=True)
+    target.write_text('{"current": true}', encoding="utf-8")
+    legacy = tmp_path / ".lemoncrow" / "chatgpt"
+    legacy.mkdir(parents=True)
+    old = legacy / "oauth-mcp-example-com.json"
+    old.write_text('{"current": false}', encoding="utf-8")
+
+    migrate_legacy_state("mcp-example-com")
+
+    assert json.loads(target.read_text(encoding="utf-8")) == {"current": True}
+    assert old.exists()
 
 
 def test_load_or_create_is_idempotent_and_0600(tmp_path: Path) -> None:

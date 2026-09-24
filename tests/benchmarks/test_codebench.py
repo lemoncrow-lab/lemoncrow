@@ -93,17 +93,49 @@ def test_parse_cursor_result_reads_model_from_system_init(tmp_path: Path) -> Non
 
 def test_arm_specs_resolve_persona_by_capability() -> None:
     specs = CODEBENCH.ARM_SPECS
-    # baseline runs the vanilla Claude default for the only capability (code).
     assert specs["baseline"].persona_by_capability == {"code": None}
-    # lemoncrow runs the generated plugin's autonomous (auto) persona.
     assert specs["lemoncrow"].plugin is True
     assert specs["lemoncrow"].strip_mcp is False
     assert specs["lemoncrow"].persona_by_capability["code"] == "lemoncrow:solve"
-    # execute / solve are code-only coding personas (no built-in twin).
+    assert specs["lemoncrow"].reply_register_level is None
+    assert specs["lemoncrow"].runtime_env == {"LEMONCROW_EVIDENCE_RESOLUTION_MODE": "shadow"}
+    assert specs["lemoncrow-control"].runtime_env == {"LEMONCROW_EVIDENCE_RESOLUTION_MODE": "off"}
+    assert specs["lemoncrow-shadow"].runtime_env == {"LEMONCROW_EVIDENCE_RESOLUTION_MODE": "shadow"}
+    assert specs["lemoncrow-candidate"].runtime_env == {
+        "LEMONCROW_EVIDENCE_RESOLUTION_MODE": "experiment",
+        "LEMONCROW_EVIDENCE_RESOLUTION_EXPERIMENT": "benchmark",
+    }
+    runtime_arms = [specs[name] for name in ("lemoncrow-control", "lemoncrow-shadow", "lemoncrow-candidate")]
+    assert {spec.persona_by_capability["code"] for spec in runtime_arms} == {"lemoncrow:solve"}
+    assert {spec.plugin for spec in runtime_arms} == {True}
+    assert {spec.strip_mcp for spec in runtime_arms} == {False}
+    assert {spec.heavy for spec in runtime_arms} == {True}
+    assert {spec.reply_register_level for spec in runtime_arms} == {None}
+    assert specs["lemoncrow-readable"].persona_by_capability["code"] == "lemoncrow:solve"
+    assert specs["lemoncrow-readable"].reply_register_level == "lite"
     assert set(specs["execute"].persona_by_capability) == {"code"}
     assert set(specs["solve"].persona_by_capability) == {"code"}
-    assert CODEBENCH.VALID_ARMS == ("baseline", "lemoncrow", "execute", "solve", "auto")
-    assert CODEBENCH.HEAVY_ARMS == ("lemoncrow", "execute", "solve", "auto")
+    assert CODEBENCH.VALID_ARMS == (
+        "baseline",
+        "lemoncrow",
+        "lemoncrow-control",
+        "lemoncrow-shadow",
+        "lemoncrow-candidate",
+        "lemoncrow-readable",
+        "execute",
+        "solve",
+        "auto",
+    )
+    assert CODEBENCH.HEAVY_ARMS == (
+        "lemoncrow",
+        "lemoncrow-control",
+        "lemoncrow-shadow",
+        "lemoncrow-candidate",
+        "lemoncrow-readable",
+        "execute",
+        "solve",
+        "auto",
+    )
 
 
 def test_lemoncrow_mcp_is_written_to_isolated_user_config(tmp_path: Path) -> None:
@@ -206,12 +238,96 @@ def test_prepare_workspace_rejects_descendant_for_non_git_source(tmp_path: Path)
         CODEBENCH.prepare_workspace(task, workspace)
 
 
+def test_cg_tasks_are_comparator_neutral() -> None:
+    cg_tasks = [task for task in TASKS.TASKS if task.id.startswith("cg_")]
+    assert cg_tasks
+    assert all("lemoncrow code index" not in command for task in cg_tasks for command in task.setup_cmds)
+    assert all("codegraph" not in command.lower() for task in cg_tasks for command in task.setup_cmds)
+
+
 def test_swe_entrypoint_fails_closed_on_mcp_preflight() -> None:
     entrypoint = (ROOT / "benchmarks" / "codebench" / "incontainer_entry.sh").read_text()
+    assert "LEMONCROW_URL=http://127.0.0.1:7420" in entrypoint
+    assert "lemoncrow init --no-index --no-configure-models" in entrypoint
+    assert "--no-login" not in entrypoint
+    assert "LEMONCROW_STARTUP_BUDGET_S=300" in entrypoint
+    assert "LEMONCROW_REQUEST_TIMEOUT_S=300" in entrypoint
+    assert 'mcp --host "$HOST" check --timeout 300' in entrypoint
+    assert "lemoncrow-server up" in entrypoint
+    assert "--ephemeral" in entrypoint
     assert 'lemoncrow mcp --host "$HOST" check' in entrypoint
+    assert 'idx_json="$(lemoncrow code index' not in entrypoint
     assert '"alwaysLoad":true' in entrypoint
     assert "exit 6" in entrypoint
     assert "--mcp-config" not in entrypoint.split('if [ "$ARM" = "lemoncrow" ]; then', 2)[-1].split("else", 1)[0]
+
+
+def test_swe_overlay_mounts_live_thin_client() -> None:
+    source = (ROOT / "benchmarks" / "codebench" / "incontainer.py").read_text()
+    assert "/client/src/lemoncrow_client:" in source
+
+
+def test_codebench_headroom_mode_defaults_to_apply_and_validates(monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.delenv("CODEBENCH_HEADROOM_MODE", raising=False)
+    assert CODEBENCH._codebench_headroom_mode() == "apply"
+    monkeypatch.setenv("CODEBENCH_HEADROOM_MODE", "shadow")
+    assert CODEBENCH._codebench_headroom_mode() == "shadow"
+    monkeypatch.setenv("CODEBENCH_HEADROOM_MODE", "off")
+    assert CODEBENCH._codebench_headroom_mode() == "off"
+    monkeypatch.setenv("CODEBENCH_HEADROOM_MODE", "bogus")
+    with pytest.raises(ValueError, match="CODEBENCH_HEADROOM_MODE"):
+        CODEBENCH._codebench_headroom_mode()
+
+
+def test_headroom_stats_summary_counts_only_applied_rewrites(tmp_path: Path) -> None:
+    path = tmp_path / "stats.jsonl"
+    path.write_text(
+        "\n".join(
+            [
+                json.dumps({"decision": "applied", "tokens_saved": 1200}),
+                json.dumps({"decision": "foreign_applied", "tokens_saved": 800}),
+                json.dumps({"decision": "apply_rejected", "tokens_saved": 5000}),
+                json.dumps({"decision": "shadow_worthwhile", "tokens_saved": 9000}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    assert CODEBENCH._headroom_stats_summary(path) == (4, 2, 2000)
+
+
+def test_swe_overlay_installs_and_exports_headroom_apply(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    source = (ROOT / "benchmarks" / "codebench" / "incontainer.py").read_text()
+    assert 'LEMONCROW_OVERLAY_REVISION = "headroom-v1"' in source
+    assert '--with "headroom-ai==0.37.0"' in source
+
+    stats = tmp_path / "task.headroom.jsonl"
+    stats.touch()
+    prompt = tmp_path / "prompt.txt"
+    prompt.write_text("fix it", encoding="utf-8")
+    cert = tmp_path / "mitm.pem"
+    cert.write_text("cert", encoding="utf-8")
+    monkeypatch.setattr(INCONTAINER, "CA_CERT", cert)
+    monkeypatch.setenv("CODEBENCH_HEADROOM_MODE", "apply")
+    instance = types.SimpleNamespace(
+        instance_id="demo", image="demo:image", problem_statement="fix it", repo_dir="/testbed"
+    )
+    cmd = INCONTAINER._docker_run_cmd(
+        instance,
+        "lemoncrow",
+        driver="claude",
+        overlay="overlay:test",
+        model="claude-opus-4-8",
+        max_turns=10,
+        proxy_port=12345,
+        prompt_path=prompt,
+        agent_env={},
+        headroom_stats_path=stats,
+    )
+    joined = " ".join(cmd)
+    assert f"{stats.resolve()}:/mnt/headroom-stats.jsonl" in joined
+    assert "LEMONCROW_HEADROOM_MCP_TAIL_MODE=apply" in cmd
+    assert "LEMONCROW_HEADROOM_TAIL_STATS=/mnt/headroom-stats.jsonl" in cmd
 
 
 def test_rate_limiter_does_not_block_proxy_event_loop(monkeypatch: MonkeyPatch) -> None:
@@ -463,6 +579,184 @@ def test_pairwise_quality_judge_counts_only_non_regressed_savings(monkeypatch: M
     assert rows[0].quality_adjusted_saved_usd == 0.6
     assert adjusted[0]["quality_passed_pairs"] == 1
     assert adjusted[0]["quality_adjusted_saved_usd"] == 0.6
+
+
+def test_competitor_workspace_setup_uses_pinned_command_and_workspace(
+    monkeypatch: MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    task = TASKS.Task("probe", "python", ("empty",), 1, "probe")
+    seen: dict[str, Any] = {}
+
+    def fake_run(command, **kwargs):  # type: ignore[no-untyped-def]
+        seen["command"] = command
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(CODEBENCH.subprocess, "run", fake_run)
+    spec = CODEBENCH.ArmSpec(
+        {"code": None},
+        competitor_env={"PINNED": "1"},
+        competitor_workspace_setup=("/pinned/tool init",),
+    )
+
+    CODEBENCH._run_competitor_workspace_setup(task, "rival", workspace, spec)
+
+    assert seen["command"] == "/pinned/tool init"
+    assert seen["cwd"] == str(workspace)
+    assert seen["env"]["PINNED"] == "1"
+    assert seen["shell"] is True
+
+
+def test_competitor_workspace_setup_fails_closed(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    task = TASKS.Task("probe", "python", ("empty",), 1, "probe")
+
+    monkeypatch.setattr(
+        CODEBENCH.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 7, stdout="", stderr="index failed"),
+    )
+    spec = CODEBENCH.ArmSpec(
+        {"code": None},
+        competitor_workspace_setup=("/pinned/tool init",),
+    )
+
+    with pytest.raises(RuntimeError, match="competitor workspace setup failed"):
+        CODEBENCH._run_competitor_workspace_setup(task, "rival", workspace, spec)
+
+
+def test_runtime_policy_pairwise_adds_only_control_to_candidate() -> None:
+    results = [
+        CODEBENCH.ArmResult(
+            "pair_probe",
+            "baseline",
+            0,
+            True,
+            1.0,
+            10,
+            9,
+            1,
+            100,
+            0,
+            0,
+            10,
+            ["sonnet"],
+            False,
+            "baseline",
+            "",
+            correct=True,
+            score=0.8,
+        ),
+        CODEBENCH.ArmResult(
+            "pair_probe",
+            "lemoncrow-control",
+            0,
+            True,
+            0.8,
+            10,
+            9,
+            1,
+            80,
+            0,
+            0,
+            8,
+            ["sonnet"],
+            False,
+            "control",
+            "",
+            correct=True,
+            score=0.8,
+        ),
+        CODEBENCH.ArmResult(
+            "pair_probe",
+            "lemoncrow-candidate",
+            0,
+            True,
+            0.7,
+            10,
+            9,
+            1,
+            70,
+            0,
+            0,
+            7,
+            ["sonnet"],
+            False,
+            "candidate",
+            "",
+            correct=True,
+            score=0.8,
+        ),
+    ]
+
+    rows = CODEBENCH.runtime_policy_pairwise_quality_rows(
+        results,
+        primary_baseline_arm="baseline",
+        run_judge=False,
+        judge_model="claude-opus-4-8",
+        judge_agent_command="claude",
+        timeout=30,
+    )
+
+    assert len(rows) == 1
+    assert rows[0].baseline_arm == "lemoncrow-control"
+    assert rows[0].candidate_arm == "lemoncrow-candidate"
+
+
+def test_runtime_policy_pairwise_does_not_duplicate_when_control_is_primary() -> None:
+    results = [
+        CODEBENCH.ArmResult(
+            "pair_probe",
+            "lemoncrow-control",
+            0,
+            True,
+            0.8,
+            10,
+            9,
+            1,
+            80,
+            0,
+            0,
+            8,
+            ["sonnet"],
+            False,
+            "control",
+            "",
+        ),
+        CODEBENCH.ArmResult(
+            "pair_probe",
+            "lemoncrow-candidate",
+            0,
+            True,
+            0.7,
+            10,
+            9,
+            1,
+            70,
+            0,
+            0,
+            7,
+            ["sonnet"],
+            False,
+            "candidate",
+            "",
+        ),
+    ]
+
+    rows = CODEBENCH.runtime_policy_pairwise_quality_rows(
+        results,
+        primary_baseline_arm="lemoncrow-control",
+        run_judge=False,
+        judge_model="claude-opus-4-8",
+        judge_agent_command="claude",
+        timeout=30,
+    )
+
+    assert rows == []
 
 
 def test_task_prompt_prefers_variant_prompt_when_prompt_md_missing(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
@@ -1098,3 +1392,55 @@ def test_ceiling_mode_aborts_when_no_task_is_marked(tmp_path: Path, monkeypatch:
 
     assert CODEBENCH.main() == 1
     assert calls == []
+
+
+def test_runtime_policy_stats_summary_counts_only_allowlisted_policy_rows(tmp_path: Path) -> None:
+    path = tmp_path / "policy.jsonl"
+    path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "policy": "bounded-evidence-resolution",
+                        "policy_version": "1-shadow",
+                        "mode": "off",
+                        "actual_action": "STOP",
+                        "rounds": 0,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "policy": "bounded-evidence-resolution",
+                        "policy_version": "1-experiment",
+                        "mode": "experiment",
+                        "actual_action": "EXPAND_RELATIONS",
+                        "rounds": 1,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "policy": "other-policy",
+                        "mode": "experiment",
+                        "actual_action": "EXPAND_RELATIONS",
+                        "rounds": 1,
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert CODEBENCH._runtime_policy_stats_summary(path) == (2, 1, 1)
+
+
+def test_attach_runtime_policy_stats_marks_missing_artifact_as_unobserved(tmp_path: Path) -> None:
+    result = _result("lemoncrow-candidate", 1.0)
+    missing = tmp_path / "missing.runtime-policy.jsonl"
+
+    CODEBENCH._attach_runtime_policy_stats(result, missing)
+
+    assert result.runtime_policy_events == 0
+    assert result.runtime_policy_experiment_events == 0
+    assert result.runtime_policy_expansions == 0
+    assert result.runtime_policy_stats_path == ""

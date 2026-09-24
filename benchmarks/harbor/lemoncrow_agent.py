@@ -43,67 +43,6 @@ _LEMONCROW_VERSION = os.environ.get("LEMONCROW_BENCH_VERSION", "latest")
 _DEFAULT_MODEL = os.environ.get("LEMONCROW_BENCH_MODEL", "claude-opus-4-8")
 
 
-def _host_lemoncrow_auth_token() -> str:
-    """No-op: benchmarks run fully unlocked with no LemonCrow account.
-
-    LemonCrow is account-free now -- ``lemoncrow init`` succeeds locally with no
-    login and every tool is available without a token. Nothing is forwarded.
-    """
-    return ""
-
-
-def _lemoncrow_credential_env() -> dict[str, str]:
-    """No-op: benchmarks no longer forward any LemonCrow account credentials.
-
-    The host account token and device id used to be forwarded into containers so
-    the old savings-cap gate resolved to "pro/active" instead of dormant. That
-    gate is gone -- every tool is available unlocked -- so nothing is forwarded
-    (no LEMONCROW_AUTH_TOKEN, no LEMONCROW_DEVICE_ID). See
-    docs/maintenance-mode-transition.md.
-    """
-    return {}
-
-
-# Mirrors benchmarks/codebench/incontainer.py's _HOST_AUTH_FILES.
-_HOST_AUTH_FILES: tuple[str, ...] = ("auth_token", "auth_user.json", "auth.json")
-
-
-def _auth_file_env_key(fname: str) -> str:
-    """Deterministic env var name an auth file's base64 payload travels
-    under -- keeps _lemoncrow_auth_files_write_cmd's command string free of
-    literal secrets (see that function's docstring for why).
-    """
-    return "LEMONCROW_AUTH_FILE_" + fname.upper().replace(".", "_").replace("-", "_")
-
-
-def _lemoncrow_auth_files_env() -> dict[str, str]:
-    """Base64 payloads of the host's cached LemonCrow auth files, keyed by
-    _auth_file_env_key -- pass this as the ``env=`` for the exec that runs
-    _lemoncrow_auth_files_write_cmd's command.
-
-    Split out from the command builder so the secrets travel only through
-    exec's env= dict, never the command string: harbor's
-    BaseInstalledAgent._exec logs command= verbatim into trial.log/job.log,
-    which `harbor upload` makes public, while the env dict is only attached
-    as logging `extra`, which the default log formatter drops. Mirrors the
-    CLAUDE_CODE_OAUTH_TOKEN handling in run().
-    """
-    # No-op: benchmarks run unlocked; no host auth files are forwarded.
-    return {}
-
-
-def _lemoncrow_auth_files_write_cmd(root_dir: str) -> str:
-    """Shell command that ensures the container's LemonCrow store dir exists.
-
-    Account-free: no host auth files are copied in. LemonCrow runs fully
-    unlocked without an account, so ``lemoncrow init --no-login`` needs no
-    seeded credentials. See docs/maintenance-mode-transition.md.
-    """
-    # Only ensure the store dir exists; no host account files are copied in
-    # (benchmarks run fully unlocked with no account).
-    return f"mkdir -p {shlex.quote(root_dir)}"
-
-
 # Reasoning effort passed to `claude --effort`. Anthropic's official Opus 4.8
 # Terminal-Bench 2.1 runs use "high" effort (Opus 4.8 System Card, sec 8.3);
 # overridable via LEMONCROW_BENCH_EFFORT. Kept as a fallback default for
@@ -166,43 +105,19 @@ _EXCLUDE_DYNAMIC_SYSTEM_PROMPT_SECTIONS = os.environ.get(
 # scrape_baseline_trajectories.py's tool-name tally against a fresh LemonCrow
 # run before ever removing an entry from this list.
 #
-# Web is OFF by default. Corrects an earlier claim here that it matched an
-# "official Terminal-Bench baseline (web-on)" -- checking the actual baseline
-# Harbor job's own init event shows `"tools":["Bash","Edit","Read"]`, zero web
-# tools registered at all, and a full scrape of every tool_use call across all
-# 445 real baseline trials confirms zero WebSearch/WebFetch calls, ever (see
-# results/baseline/tbench_opus48_claudecode_2.1.205_turns.csv). WebSearch is
-# stripped here (a Claude Code built-in); web_fetch is an `lc` MCP tool, so it
-# is hidden at the MCP surface instead, via _HIDDEN_MCP_TOOLS below -- see that
-# constant for why disallowing it here alone was previously a no-op. Some
-# tasks (e.g. mteb-leaderboard) are DESIGNED to be solved by reading a live
-# web resource -- if re-enabling web for a specific comparison run, add the
-# Terminal-Bench integrity guard back too (never access tbench.ai,
-# github.com/harbor-framework/*, github.com/laude-institute/*, or any
-# terminal-bench leaderboard/dataset page -- reward hacking is scored 0
-# retroactively: https://www.tbench.ai/news/leaderboard-integrity-update).
-# Re-enable via: LEMONCROW_BENCH_DISALLOWED_TOOLS (drop WebSearch from the
-# default below) and LEMONCROW_BENCH_HIDDEN_MCP_TOOLS=sql,memory (drop
-# web_fetch from the default in _HIDDEN_MCP_TOOLS).
+# Claude Code's built-in WebSearch is OFF by default for the historical Harbor
+# comparison. LemonCrow's MCP surface itself is never benchmark-mutated: it uses
+# the same explicit production allowlist as a real release, including web_fetch.
+# Some tasks (e.g. mteb-leaderboard) are designed to read a live web resource;
+# the Terminal-Bench integrity guard below still forbids benchmark/solution
+# lookup regardless of whether general network access is available.
 #
 # The rest of this list (Cron*/DesignSync/EnterWorktree/ExitWorktree/Monitor/
 # NotebookEdit/PushNotification/RemoteTrigger/ReportFindings/SendMessage/
 # Skill/Task*/ToolSearch) is data-backed, not speculative: the same 445-trial
-# scrape showed these built-in Claude Code tools were invoked ZERO times --
-# none of them apply to a disposable single-task terminal container (no cron
-# jobs, no worktrees, no push notifications, no remote triggers, no
-# multi-agent task queue, and with everything else on this list already gone
-# there is nothing left for ToolSearch to discover). They still cost real
-# tokens every turn: registered tools sit in the cached system-prompt prefix
-# and get re-read on every one of a trial's ~18 turns regardless of use. This
-# was the single largest measured driver of LemonCrow's higher per-turn
-# cache-read vs. baseline's Bash/Edit/Read-only tool set (~26,192 vs ~19,008
-# cache tokens/turn). Combined with _HIDDEN_MCP_TOOLS below, the LemonCrow arm
-# now registers exactly 4 tools (mcp__lc__bash/edit/read/code_search) --
-# matching baseline's 3 (Bash/Edit/Read) as closely as it can while still
-# using its own MCP tools instead of Claude Code's built-ins. Re-verify by
-# rerunning scrape_baseline_trajectories.py's tool-name tally against a fresh
-# LemonCrow run before ever removing an entry from this list.
+# scrape showed these built-in Claude Code tools were invoked ZERO times. These
+# are Claude host tools only; LemonCrow MCP visibility is the production
+# allowlist and is never benchmark-mutated.
 _DISALLOWED_TOOLS = os.environ.get(
     "LEMONCROW_BENCH_DISALLOWED_TOOLS",
     "AskUserQuestion EnterPlanMode ExitPlanMode Workflow ScheduleWakeup "
@@ -212,26 +127,28 @@ _DISALLOWED_TOOLS = os.environ.get(
     "WebSearch ToolSearch",
 )
 
-# MCP-side tool hiding (LEMONCROW_HIDE_TOOLS, comma-separated bare names, read
-# by lemoncrow.core.environment._extra_hidden_tools): hides a tool from the
-# `lc` MCP server's advertised surface entirely -- its schema is never sent to
-# Claude Code at all, unlike --disallowedTools above which still requires
-# Claude Code to register the tool first and then filter it. web_fetch is an
-# `lc` MCP tool (not a Claude Code built-in), so _DISALLOWED_TOOLS can't touch
-# it -- an earlier version of this file claimed "WebFetch is in
-# _DISALLOWED_TOOLS above" and treated hiding it here as moot, which was
-# simply wrong: mcp__lc__web_fetch was never in that list under any spelling,
-# and the 445-trial scrape confirms it, showing 35 real calls to it. This
-# mirrors benchmarks/codebench/incontainer.py's identical `sql,memory,
-# web_fetch` hide.
-_HIDDEN_MCP_TOOLS = os.environ.get("LEMONCROW_BENCH_HIDDEN_MCP_TOOLS", "sql,memory,web_fetch")
-
 # Path inside the container where LemonCrow writes its run log
 _CONTAINER_LOG = "/logs/lemoncrow-run.jsonl"
 
 # Pin the rtk external-compactor binary version for reproducible benchmark
 # runs (mirrors LEMONCROW_BENCH_CLAUDE_CODE_VERSION below); unset -> latest.
 _RTK_VERSION = os.environ.get("LEMONCROW_BENCH_RTK_VERSION", "")
+
+_CONTEXT_ARMS = frozenset({"raw", "rtk", "lemoncrow", "lemoncrow-headroom"})
+
+
+def _normalize_context_arm(context_arm: str | None, bench_mode: str) -> str:
+    """Resolve the explicit four-way context benchmark arm.
+
+    bench_mode is retained for old Harbor job configs and resume scripts:
+    off maps to raw and every other value maps to the historical lemoncrow
+    arm. An explicit context arm always wins so new jobs record the exact
+    experiment they ran.
+    """
+    arm = (context_arm or ("raw" if bench_mode == "off" else "lemoncrow")).strip().lower()
+    if arm not in _CONTEXT_ARMS:
+        raise ValueError(f"unknown context_arm={arm!r}; expected one of {sorted(_CONTEXT_ARMS)}")
+    return arm
 
 
 async def _install_rtk(agent: BaseInstalledAgent, environment: BaseEnvironment) -> None:
@@ -261,51 +178,23 @@ async def _install_rtk(agent: BaseInstalledAgent, environment: BaseEnvironment) 
 
 
 def _web_access_line() -> str:
-    """Describe actual web-tool availability -- must track _DISALLOWED_TOOLS
-    and _HIDDEN_MCP_TOOLS, not assume a fixed state, so the instruction never
-    contradicts the real tool list the model was actually given. web_fetch is
-    controlled via _HIDDEN_MCP_TOOLS (MCP-side hide), not _DISALLOWED_TOOLS
-    (Claude Code built-ins only) -- checking the wrong one here is exactly how
-    an earlier version silently kept web_fetch enabled while claiming it was
-    off (see _HIDDEN_MCP_TOOLS's docstring).
+    """Describe web availability without mutating LemonCrow MCP visibility.
 
-    Disabling web_fetch/WebSearch (to match baseline's tool surface) is a
-    separate axis from container network reachability: some tasks set
-    allow_internet=true in task.toml and their own reference solution shells
-    out to git/curl directly (e.g. mteb-leaderboard's solve.sh clones a
-    pinned results repo). A prior version of the disabled-branch line here
-    told the model outright that solving must come from local files only,
-    which is false whenever the container network is actually up -- it took
-    that claim at face value instead of testing reachability itself and fell
-    back to a memorized guess (see benchmarks/harbor/README.md). Both
-    branches must therefore route through the same integrity-policy tail
-    below rather than imply network access is impossible.
+    ``web_fetch`` follows the production allowlist. Claude Code built-ins such
+    as WebSearch may still be disabled by the benchmark host configuration.
+    Container network reachability remains a separate axis.
     """
     disallowed = _DISALLOWED_TOOLS.split()
-    hidden_mcp = {t.strip() for t in _HIDDEN_MCP_TOOLS.split(",") if t.strip()}
-    fetch_on = "web_fetch" not in hidden_mcp and "mcp__lc__web_fetch" not in disallowed
     search_on = "WebSearch" not in disallowed
     # NOTE: no apostrophes/contractions here. This text goes through nested
-    # shlex.quote() layers (task text quoted, then the whole bash -c wrapper
-    # quoted again); an apostrophe triggers repeated re-escaping across those
-    # layers and mangles the command silently (0-cost, no-exception trials --
-    # claude never actually runs). Keep this apostrophe-free.
+    # shlex.quote() layers and apostrophes can mangle the wrapped command.
     integrity_policy = (
         "Per the Terminal-Bench integrity policy: never access tbench.ai, "
         "github.com/harbor-framework/*, or github.com/laude-institute/* (the "
         "terminal-bench/harbor repos), or any terminal-bench leaderboard/dataset page "
         "-- and do not fetch or search for the solution to this task online.\n"
     )
-    if not fetch_on and not search_on:
-        return (
-            "- The web_fetch and WebSearch tools are unavailable. This does not mean "
-            "the network itself is unreachable -- some tasks allow outbound access at "
-            "the container level; test reachability with bash (curl, git, python) if a "
-            "command needs it, do not assume it is blocked either way. " + integrity_policy
-        )
-    have = []
-    if fetch_on:
-        have.append("a URL-fetch tool (web_fetch)")
+    have = ["a URL-fetch tool (web_fetch)"]
     if search_on:
         have.append("web search")
     return f"- You have {' and '.join(have)} available. " + integrity_policy
@@ -463,6 +352,7 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
     def __init__(
         self,
         bench_mode: str = "on",
+        context_arm: str | None = None,
         model: str | None = None,
         logs_dir: Path | None = None,
         **kwargs: Any,
@@ -472,12 +362,29 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
         if logs_dir is None:
             logs_dir = _Path("/tmp/lemoncrow-harbor-logs")
         super().__init__(logs_dir=logs_dir, **kwargs)
-        self._bench_mode = bench_mode
+        self._context_arm = _normalize_context_arm(context_arm, bench_mode)
+        self._bench_mode = "off" if self._context_arm in {"raw", "rtk"} else "on"
         # Operational model: explicit kwarg > harbor's -m (provider/model form,
         # parsed by BaseAgent) > env default. Passing -m keeps harbor's recorded
         # agent_info.model consistent with the model actually run (a leaderboard
         # validation requirement).
         self._model = model or self._parsed_model_name or _DEFAULT_MODEL
+
+    @property
+    def _lemoncrow_enabled(self) -> bool:
+        return self._context_arm in {"lemoncrow", "lemoncrow-headroom"}
+
+    @property
+    def _rtk_hook_enabled(self) -> bool:
+        return self._context_arm == "rtk"
+
+    @property
+    def _uses_rtk(self) -> bool:
+        return self._context_arm in {"rtk", "lemoncrow", "lemoncrow-headroom"}
+
+    @property
+    def _headroom_tail_enabled(self) -> bool:
+        return self._context_arm == "lemoncrow-headroom"
 
     @classmethod
     def name(cls) -> str:
@@ -496,6 +403,7 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
         """Minimal env forwarded into the container (security: explicit allowlist)."""
         env: dict[str, str] = {
             "LEMONCROW_BENCH_MODE": self._bench_mode,
+            "LEMONCROW_BENCH_CONTEXT_ARM": self._context_arm,
             "LEMONCROW_ROOT": "/home/agent/.lemoncrow",
             "PYTHONUNBUFFERED": "1",
         }
@@ -504,9 +412,6 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
             val = os.environ.get(key, "")
             if val:
                 env[key] = val
-        # Account-free: no LemonCrow account credentials are forwarded
-        # (_lemoncrow_credential_env is a no-op). `lemoncrow init` runs unlocked.
-        env.update(_lemoncrow_credential_env())
         return env
 
     # ── Lifecycle ────────────────────────────────────────────────────────────────────────
@@ -530,19 +435,11 @@ class LemonCrowHarborAgent(BaseInstalledAgent):
                 environment,
                 command=f"pip install --quiet --break-system-packages 'lemoncrow=={_LEMONCROW_VERSION}'",
             )
-        # Ensure the container store dir exists before init. Account-free: no
-        # host auth files are seeded (the runtime is unlocked without an account).
+        # Initialise the fully local runtime store. Local LemonCrow has no
+        # account/login phase and needs no LemonCrow credentials in the container.
         await self.exec_as_agent(
             environment,
-            command=_lemoncrow_auth_files_write_cmd("/home/agent/.lemoncrow"),
-            env=_lemoncrow_auth_files_env(),
-        )
-        # Initialise the runtime store (creates ~/.lemoncrow/ layout). --no-login
-        # keeps it non-interactive; the runtime is account-free and unlocked, so
-        # no login is ever needed.
-        await self.exec_as_agent(
-            environment,
-            command="lemoncrow init --no-login",
+            command="lemoncrow init",
             env=self._agent_env,
         )
         await _install_rtk(self, environment)
@@ -675,6 +572,7 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
         """Forward subscription token; skip ANTHROPIC_API_KEY (unused by claude CLI)."""
         env: dict[str, str] = {
             "LEMONCROW_BENCH_MODE": self._bench_mode,
+            "LEMONCROW_BENCH_CONTEXT_ARM": self._context_arm,
             "LEMONCROW_ROOT": "/root/.lemoncrow",
             "LEMONCROW_PYTHON": "/opt/lemoncrow-venv/bin/python",
             "PYTHONUNBUFFERED": "1",
@@ -684,10 +582,6 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
             "LEMONCROW_BASH_SOFT_TIMEOUT": "60",
             # Isolated config dir: no pre-installed plugins/hooks/MCP.
             "CLAUDE_CONFIG_DIR": "/root/.claude-bench",
-            # See _HIDDEN_MCP_TOOLS's docstring above for why web_fetch is
-            # included here (it wasn't, previously -- a real gap, not a
-            # no-op).
-            "LEMONCROW_HIDE_TOOLS": _HIDDEN_MCP_TOOLS,
             # Autonomous, no human in the loop to notice a wrong guess -- fire the
             # required-argument nudge (post_tool_use_failure.py / plugin_runtime.py)
             # on the FIRST occurrence instead of its normal default-3 threshold,
@@ -706,14 +600,32 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
             # getuid()===0 && !IS_SANDBOX -> exit 1).
             "IS_SANDBOX": "1",
         }
+        if self._lemoncrow_enabled:
+            env.update(
+                {
+                    "LEMONCROW_URL": "http://127.0.0.1:7420",
+                    "LEMONCROW_TOKEN_FILE": "/tmp/harbor-lemoncrow-token",
+                    "LEMONCROW_LOCAL_FS": "1",
+                    "LEMONCROW_STARTUP_BUDGET_S": "300",
+                    "LEMONCROW_REQUEST_TIMEOUT_S": "300",
+                    "NO_PROXY": "127.0.0.1,localhost",
+                    "no_proxy": "127.0.0.1,localhost",
+                }
+            )
+        if self._headroom_tail_enabled:
+            env.update(
+                {
+                    "LEMONCROW_HEADROOM_MCP_TAIL_MODE": "apply",
+                    "LEMONCROW_HEADROOM_SITE_PACKAGES": "/opt/headroom-venv/lib/python3.13/site-packages",
+                    "LEMONCROW_HEADROOM_TAIL_STATS": "/logs/agent/headroom-tail-stats.jsonl",
+                    "LEMONCROW_HEADROOM_MODEL": self._model,
+                }
+            )
         if _DEFAULT_MAX_OUTPUT_TOKENS:
             env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = _DEFAULT_MAX_OUTPUT_TOKENS
         token = self._oauth_token or os.environ.get("CLAUDE_CODE_OAUTH_TOKEN", "")
         if token:
             env["CLAUDE_CODE_OAUTH_TOKEN"] = token
-        # Account-free: no LemonCrow account credentials are forwarded
-        # (_lemoncrow_credential_env is a no-op). `lemoncrow init` runs unlocked.
-        env.update(_lemoncrow_credential_env())
         return env
 
     async def install(self, environment: BaseEnvironment) -> None:
@@ -722,7 +634,13 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
         await self.exec_as_root(
             environment,
             command=(
-                "i=0; while :; do apt-get update -qq && "
+                "if grep -q '^VERSION_CODENAME=bullseye$' /etc/os-release 2>/dev/null; then "
+                "printf '%s\n' "
+                "'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20260831T235959Z/ bullseye main' "
+                "'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20260831T235959Z/ bullseye-security main' "
+                "> /etc/apt/sources.list; "
+                "rm -rf /etc/apt/sources.list.d/* /var/lib/apt/lists/*; fi; "
+                "i=0; while :; do apt-get -o Acquire::Check-Valid-Until=false update -qq && "
                 "apt-get install -y -qq git curl ca-certificates gnupg && break; "
                 "i=$((i+1)); [ $i -ge 4 ] && { echo apt_install_failed_after_$i; exit 1; }; "
                 "echo apt_retry_$i; sleep $((i*5)); done"
@@ -761,9 +679,10 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
             environment,
             command=(
                 "tar -C /opt -xzf /lemoncrow-bundle.tar.gz && "
-                "chmod -R a+rX /opt/lemoncrow-venv /opt/uvpy && "
+                "chmod -R a+rX /opt/lemoncrow-venv /opt/headroom-venv /opt/uvpy && "
                 "ln -sf /opt/lemoncrow-venv/bin/lemoncrow /usr/local/bin/lemoncrow && "
-                "/opt/lemoncrow-venv/bin/python -c 'import lemoncrow'"
+                "ln -sf /opt/lemoncrow-venv/bin/lemoncrow-server /usr/local/bin/lemoncrow-server && "
+                "/opt/lemoncrow-venv/bin/python -c 'import lemoncrow, lemoncrow_server_core'"
             ),
         )
         # Isolated CLAUDE_CONFIG_DIR: no ambient plugins/hooks/MCP. The LemonCrow
@@ -784,7 +703,7 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
                     }
                 }
             }
-            if self._bench_mode != "off"
+            if self._lemoncrow_enabled
             else {}
         )
         await self.exec_as_root(
@@ -794,34 +713,50 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
                 f"{shlex.quote(json.dumps(mcp_config))} > /root/.claude-bench/.claude.json"
             ),
         )
-        # Seed the host's cached auth files BEFORE init -- see the base class's
-        # install() for why the bare env token forward alone isn't enough.
-        await self.exec_as_root(
-            environment,
-            command=_lemoncrow_auth_files_write_cmd("/root/.lemoncrow"),
-            env=_lemoncrow_auth_files_env(),
-        )
-        # Init the LemonCrow store under a root-owned LEMONCROW_ROOT (the agent and
-        # its MCP server both run as root). /app is already root-owned, so the
-        # agent writes deliverables there and the (root) verifier reads them --
-        # no chown / user juggling needed.
+        # Init the fully local LemonCrow store under a root-owned LEMONCROW_ROOT
+        # (the agent and its MCP server both run as root). No LemonCrow account
+        # credentials or login flags exist in the benchmark path.
         await self.exec_as_root(
             environment,
             command=(
                 "cd /root && LEMONCROW_ROOT=/root/.lemoncrow LEMONCROW_WORKSPACE_ROOT=/root "
-                "/opt/lemoncrow-venv/bin/lemoncrow init --no-login"
+                "/opt/lemoncrow-venv/bin/lemoncrow init"
             ),
-            env=_lemoncrow_credential_env(),
         )
-        if self._bench_mode != "off":
+        if self._lemoncrow_enabled:
+            loopback_env = {
+                "LEMONCROW_ROOT": "/root/.lemoncrow",
+                "LEMONCROW_WORKSPACE_ROOT": "/root",
+                "LEMONCROW_URL": "http://127.0.0.1:7420",
+                "LEMONCROW_TOKEN_FILE": "/tmp/harbor-lemoncrow-token",
+                "LEMONCROW_LOCAL_FS": "1",
+                "LEMONCROW_STARTUP_BUDGET_S": "300",
+                "LEMONCROW_REQUEST_TIMEOUT_S": "300",
+                "NO_PROXY": "127.0.0.1,localhost",
+                "no_proxy": "127.0.0.1,localhost",
+            }
             await self.exec_as_root(
                 environment,
-                command="lemoncrow mcp --host claude check",
-                env={
-                    "LEMONCROW_ROOT": "/root/.lemoncrow",
-                    "LEMONCROW_WORKSPACE_ROOT": "/root",
-                    **_lemoncrow_credential_env(),
-                },
+                command=(
+                    "mkdir -p /tmp/harbor-lemoncrow-server; "
+                    "printf '%s\n' 'lc_harbor_isolated_token_2026' > /tmp/harbor-lemoncrow-token; "
+                    "chmod 600 /tmp/harbor-lemoncrow-token; "
+                    "nohup lemoncrow-server up --directory /tmp/harbor-lemoncrow-server "
+                    "--port 7420 --token-file /tmp/harbor-lemoncrow-token --allow-local-fs "
+                    ">/logs/agent/lemoncrow-server.log 2>&1 </dev/null & "
+                    "echo $! >/tmp/harbor-lemoncrow-server.pid; "
+                    "ready=0; for i in $(seq 1 100); do "
+                    "if curl -fsS http://127.0.0.1:7420/healthz >/dev/null 2>&1; then ready=1; break; fi; "
+                    "if ! kill -0 $(cat /tmp/harbor-lemoncrow-server.pid) 2>/dev/null; then break; fi; "
+                    "sleep 0.1; done; "
+                    "if [ $ready -ne 1 ]; then cat /logs/agent/lemoncrow-server.log >&2; exit 71; fi"
+                ),
+                env=loopback_env,
+            )
+            await self.exec_as_root(
+                environment,
+                command="lemoncrow mcp --host claude check --timeout 300",
+                env=loopback_env,
             )
         # Bench-lean copy of the plugin: keep only the persona this arm runs
         # (solve) and drop skills/ entirely -- mounting/reading the raw plugin
@@ -847,7 +782,35 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
                 "rm -rf /opt/lemoncrow-plugin-lean/skills"
             ),
         )
-        await _install_rtk(self, environment)
+        if self._uses_rtk:
+            await _install_rtk(self, environment)
+        if self._rtk_hook_enabled:
+            rtk_hook_settings = {
+                "hooks": {
+                    "PreToolUse": [
+                        {
+                            "matcher": "Bash",
+                            "hooks": [{"type": "command", "command": "rtk hook claude"}],
+                        }
+                    ]
+                }
+            }
+            await self.exec_as_root(
+                environment,
+                command=(
+                    "mkdir -p /root/.claude-bench && printf '%s' "
+                    f"{shlex.quote(json.dumps(rtk_hook_settings))} > /root/.claude-bench/settings.json"
+                ),
+            )
+        if self._headroom_tail_enabled:
+            await self.exec_as_root(
+                environment,
+                command=(
+                    "PYTHONPATH=/opt/headroom-venv/lib/python3.13/site-packages "
+                    "/opt/lemoncrow-venv/bin/python -c "
+                    "'import headroom; from headroom.transforms.content_detector import detect_content_type; from headroom.transforms.log_compressor import LogCompressor; from headroom.integrations.mcp import HeadroomMCPCompressor'"
+                ),
+            )
         # Reward-hacking compliance (TB leaderboard rule): block the agent from
         # reaching the Terminal-Bench website/leaderboard so it cannot look up
         # task solutions. github.com stays open (pip/npm/git tooling needs it).
@@ -864,7 +827,7 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
         context: AgentContext,
     ) -> None:
         """Run claude CLI with LemonCrow plugin on the task instruction."""
-        task_text = instruction if self._bench_mode == "off" else _bench_task_preamble() + instruction
+        task_text = instruction if not self._lemoncrow_enabled else _bench_task_preamble() + instruction
         escaped = shlex.quote(task_text)
         model_flag = f"--model {shlex.quote(self._model)}" if self._model else ""
         # Reasoning effort -- Anthropic's official Opus 4.8 TB-2.1 config is "high".
@@ -889,11 +852,11 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
         # command verbatim ("Running command: ...") into trial.log/job.log,
         # which `harbor upload` makes public. The env dict is only attached as
         # logging `extra`, which harbor's default log formatter drops.
-        # bench_mode="off" -> vanilla claude-code baseline (no LemonCrow plugin),
-        # making the plugin the ONLY variable vs the "on" arm. Select the
-        # baseline at run time with `--ak bench_mode=off`.
+        # The explicit context arm controls the host surface. raw and rtk use
+        # vanilla Claude Code; lemoncrow and lemoncrow-headroom load the same
+        # LemonCrow plugin/MCP surface so Headroom is the only extra variable.
         plugin_flags = (
-            "" if self._bench_mode == "off" else "--plugin-dir /opt/lemoncrow-plugin-lean --agent lemoncrow:solve "
+            "" if not self._lemoncrow_enabled else "--plugin-dir /opt/lemoncrow-plugin-lean --agent lemoncrow:solve "
         )
         # LemonCrow arm only: build the code index BEFORE claude starts so the first
         # MCP grep hits a ready FTS index instead of racing a lazy/incremental
@@ -917,14 +880,22 @@ class LemonCrowClaudeCodeHarborAgent(LemonCrowHarborAgent):
         # agent's graceful fallbacks apply.
         prewarm = (
             ""
-            if self._bench_mode == "off"
+            if not self._lemoncrow_enabled
             else (
                 'export LEMONCROW_WORKSPACE_ROOT="$PWD" CLAUDE_WORKSPACE_ROOT="$PWD" '
                 'LEMONCROW_INDEX_LOCK_TIMEOUT_S="${LEMONCROW_INDEX_LOCK_TIMEOUT_S:-300}"; '
-                "lemoncrow code index --reindex --no-stats >/logs/agent/lemoncrow-index.log 2>&1 "
-                '|| echo "LEMONCROW_PREWARM_INDEX_FAILED rc=$? (see agent/lemoncrow-index.log)"; '
+                "if ! git rev-parse --show-toplevel >/dev/null 2>&1; then "
+                "lemoncrow init --no-login --no-index >/logs/agent/lemoncrow-workspace-init.log 2>&1 "
+                '|| echo "LEMONCROW_WORKSPACE_INIT_FAILED rc=$? (see agent/lemoncrow-workspace-init.log)"; '
+                "fi; "
+                "lemoncrow mcp --host claude check --timeout 300 >/logs/agent/lemoncrow-mcp-prewarm.log 2>&1 "
+                '|| echo "LEMONCROW_PREWARM_MCP_FAILED rc=$? (see agent/lemoncrow-mcp-prewarm.log)"; '
             )
         )
+        # Headroom is deliberately NOT an Anthropic proxy in this arm. The
+        # request path remains Claude -> Anthropic exactly as in the LemonCrow
+        # arm. Only newly-produced LemonCrow MCP results are eligible for the
+        # plugin's PostToolUse live-zone compressor before Claude records them.
         inner = (
             prewarm + f"claude -p {escaped} {model_flag} {effort_flag} {cache_reuse_flag}"
             # stream-json (requires --verbose) captures the full turn-by-turn

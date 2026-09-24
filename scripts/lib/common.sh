@@ -18,16 +18,15 @@
 #   LEMONCROW_BIN_DIR    Global bin dir for console scripts (default: ~/.local/bin)
 #   LEMONCROW_TOOL_DIR   uv tool environment dir (default: ~/.local/share/uv/tools)
 #   LEMONCROW_NO_HOSTS   If set to 1, skip agent-host integration install scripts
-#   LEMONCROW_NO_SERVICECTL If set to 1, skip starting the background service controller
-#   LEMONCROW_SERVICECTL_INTERVAL_SECONDS Poll interval for servicectl (default: 60)
-#   LEMONCROW_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS Periodic maintenance interval (default: 86400)
 #   LEMONCROW_DRY_RUN    If set to 1, print planned actions and exit
-#   LEMONCROW_NO_STACK   If set to 1, skip starting the visualization stack (service + frontend)
 #   LEMONCROW_ADVANCED   If set to 1, enable Docker sidecar install (requires --memory)
 #   LEMONCROW_MEMORY_BACKEND  Memory sidecar to install: letta | openmemory (default: none)
 #   LEMONCROW_ZOEKT      Install the persistent Zoekt code-search sidecar (default: 0; set 1 to opt in)
 #   LEMONCROW_INSTALL_RTK 1 = install rtk (command compactor) without prompting; 0 = never offer
 #                      (default: interactive y/N prompt when cargo exists and rtk is absent)
+#   LEMONCROW_UPDATE_CHECK 1 = once a day, check GitHub for a newer LemonCrow and tell the user;
+#                      0 = never (default: unset/off; the interactive install asks one question)
+#   LEMONCROW_AUTO_UPDATE  1 = also install updates automatically (implies the check); 0 = never auto-install
 #   LEMONCROW_VERBOSE    If set to 1, show verbose installation logs (default: 0)
 #   LEMONCROW_STRICT     If set to 1, treat selected post-install degradations as errors
 #   LEMONCROW_NON_INTERACTIVE If set to 1, disable all interactive prompts
@@ -111,7 +110,6 @@ LEMONCROW_NODE_DIR="${LEMONCROW_NODE_DIR:-${HOME}/.lemoncrow/node}"
 LEMONCROW_TOOL_DIR="${LEMONCROW_TOOL_DIR:-${HOME}/.lemoncrow/uv-tools}"
 LEMONCROW_INSTALL_RECORD="${LEMONCROW_INSTALL_RECORD:-${HOME}/.lemoncrow/install_dir}"
 LEMONCROW_NO_HOSTS="${LEMONCROW_NO_HOSTS:-0}"
-LEMONCROW_NO_SERVICECTL="${LEMONCROW_NO_SERVICECTL:-0}"
 LEMONCROW_DRY_RUN="${LEMONCROW_DRY_RUN:-0}"
 
 # ---- install forensics -------------------------------------------------------
@@ -249,10 +247,6 @@ persist_install_record() {
     printf '%s\n' "$LEMONCROW_INSTALL_DIR" > "$LEMONCROW_INSTALL_RECORD"
 }
 
-LEMONCROW_SERVICECTL_INTERVAL_SECONDS="${LEMONCROW_SERVICECTL_INTERVAL_SECONDS:-60}"
-LEMONCROW_SERVICECTL_INTERVAL_SECONDS="${LEMONCROW_SERVICECTL_INTERVAL_SECONDS:-60}"
-LEMONCROW_SERVICECTL_INTERVAL_SECONDS="${LEMONCROW_SERVICECTL_INTERVAL_SECONDS:-60}"
-LEMONCROW_NO_STACK="${LEMONCROW_NO_STACK:-0}"
 LEMONCROW_ADVANCED="${LEMONCROW_ADVANCED:-0}"
 LEMONCROW_MEMORY_BACKEND="${LEMONCROW_MEMORY_BACKEND:-}"   # letta | openmemory | (empty = none)
 LEMONCROW_TELEGRAPHIC="${LEMONCROW_TELEGRAPHIC:-}"         # ultra | lite | off (empty = prompt, default ultra)
@@ -275,7 +269,14 @@ LEMONCROW_ZOEKT="${LEMONCROW_ZOEKT:-0}"                    # default off; 1 = in
 # Pinned rtk release (external command compactor). Reproducible installs: bump
 # deliberately at LemonCrow release time. Explicitly-empty LEMONCROW_RTK_TAG=""
 # means unpinned default-branch HEAD (":-" would swallow the empty override).
-LEMONCROW_RTK_TAG="${LEMONCROW_RTK_TAG-v0.43.0}"
+LEMONCROW_RTK_TAG="${LEMONCROW_RTK_TAG-v0.49.0}"
+# Pinned tool versions. A tool already installed at an OLDER version is upgraded
+# to its pin on the next install (never downgraded). Keep in sync with:
+#   ASTGREP -> src/lemoncrow/infra/code_intel/astgrep/binaries.py (_MANAGED_VERSION)
+#   RTK     -> install_hint in src/lemoncrow/pro/capabilities/tool_supervision/external_compactors.py
+# (tests/gateway/test_agent_cli_install_artifacts.py enforces both.)
+LEMONCROW_ASTGREP_VERSION="0.45.3"
+LEMONCROW_JJ_VERSION="0.45.1"
 OS_NAME="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
 BINARY_SUFFIX="${OS_NAME}-${ARCH}"
@@ -290,7 +291,6 @@ LEMONCROW_ZOEKT_AUTO_INSTALL="${LEMONCROW_ZOEKT_AUTO_INSTALL:-1}"
 LEMONCROW_INSTALL_LOG_FILE="${LEMONCROW_INSTALL_LOG_FILE:-}"
 INSTALL_ZOEKT_LOCAL=0
 INSTALL_RTK=0
-STACK_STARTED=0
 
 # Companion-binary version pins for this release (Node/Go/Zoekt). Kept in a
 # sibling file so a release bump is a single edit; the reconcile in
@@ -996,17 +996,6 @@ prompt_memory_selection() {
     return 0
 }
 
-prompt_auto_optimize_selection() {
-    if [[ "$LEMONCROW_NO_SERVICECTL" == "1" ]]; then
-        LEMONCROW_AUTO_OPTIMIZE=0
-        return 0
-    fi
-    case "${LEMONCROW_AUTO_OPTIMIZE}" in
-        0|1) ;;
-        *) LEMONCROW_AUTO_OPTIMIZE=1 ;;
-    esac
-}
-
 prompt_telegraphic_selection() {
     # Reply-register level baked into installed agent personas.
     # Flag/env wins; otherwise interactive selector; default ultra.
@@ -1025,8 +1014,8 @@ prompt_telegraphic_selection() {
         "Agent reply style (change later: /lemoncrow set telegraphic <level>)?" \
         tg_idx \
         0 \
-        "Ultra – maximal output compression" \
-        "Lite – concise, lighter register" \
+        "Ultra – maximal readable compression (recommended)" \
+        "Lite – concise, fuller prose" \
         "Off – no reply-style instruction"
     case "$tg_idx" in
         1) LEMONCROW_TELEGRAPHIC="lite" ;;
@@ -1034,7 +1023,6 @@ prompt_telegraphic_selection() {
         *) LEMONCROW_TELEGRAPHIC="ultra" ;;
     esac
 }
-
 persist_telegraphic_selection() {
     # Persist as the cli.telegraphic setting (<root>/plugin_settings.json —
     # same store as `lc settings set`) BEFORE host wiring so staged agent
@@ -1059,6 +1047,88 @@ try:
 except Exception:
     data = {}
 data["cli.telegraphic"] = os.environ["LEMONCROW_RR_LEVEL"]
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+PYEOF
+}
+
+# --- Update notice / auto-update opt-in --------------------------------------
+# Both default OFF (the runtime contacts GitHub only when the user opted in).
+# Precedence: env var > value already saved by a previous install or
+# `lc settings set` (never re-asked) > interactive question. Non-interactive runs
+# (including `lc update`) leave it unset, so an update never flips a saved choice.
+_plugin_setting_value() {  # $1=key -> prints true|false, or nothing when unset
+    LEMONCROW_PS_KEY="$1" python3 - <<'PYEOF' 2>/dev/null || true
+import json
+import os
+from pathlib import Path
+
+root = Path(os.environ.get("LEMONCROW_ROOT", "").strip() or (Path.home() / ".lemoncrow"))
+try:
+    value = json.loads((root / "plugin_settings.json").read_text(encoding="utf-8")).get(os.environ["LEMONCROW_PS_KEY"])
+except Exception:
+    value = None
+if isinstance(value, bool):
+    print("true" if value else "false")
+PYEOF
+}
+
+# One question with an explicit privacy-preserving opt-out. Checking GitHub is
+# disabled unless the user chooses auto-update or notify-only.
+prompt_update_selection() {
+    # Already decided (env, or a saved answer from an earlier install / `lc settings`)?
+    [[ -z "${LEMONCROW_AUTO_UPDATE:-}" && -z "${LEMONCROW_UPDATE_CHECK:-}" ]] || return 0
+    local saved_auto saved_check
+    saved_auto="$(_plugin_setting_value cli.auto_update)"
+    saved_check="$(_plugin_setting_value cli.update_check)"
+    [[ -z "$saved_auto" && -z "$saved_check" ]] || return 0
+    [[ "$LEMONCROW_NON_INTERACTIVE" == "1" ]] && return 0
+    has_interactive_input || return 0
+    supports_interactive_selector || return 0
+    local up_idx=2
+    interactive_single_select \
+        "How should LemonCrow handle updates?" \
+        up_idx \
+        2 \
+        "Auto-update – check GitHub daily and install new releases in the background" \
+        "Notify only – check GitHub daily and nudge me; I'll run 'lc update'" \
+        "Don't check automatically – I'll run 'lc update' when I want to check"
+    if [[ "$up_idx" == "0" ]]; then
+        LEMONCROW_UPDATE_CHECK=1
+        LEMONCROW_AUTO_UPDATE=1
+    elif [[ "$up_idx" == "1" ]]; then
+        LEMONCROW_UPDATE_CHECK=1
+        LEMONCROW_AUTO_UPDATE=0
+    else
+        LEMONCROW_UPDATE_CHECK=0
+        LEMONCROW_AUTO_UPDATE=0
+    fi
+}
+
+persist_update_selection() {
+    [[ -n "${LEMONCROW_UPDATE_CHECK:-}${LEMONCROW_AUTO_UPDATE:-}" ]] || return 0
+    if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
+        echo "[dry-run] persist cli.update_check='${LEMONCROW_UPDATE_CHECK:-}' cli.auto_update='${LEMONCROW_AUTO_UPDATE:-}' → plugin_settings.json"
+        return 0
+    fi
+    LEMONCROW_UC="${LEMONCROW_UPDATE_CHECK:-}" LEMONCROW_AU="${LEMONCROW_AUTO_UPDATE:-}" python3 - <<'PYEOF' || true
+import json
+import os
+from pathlib import Path
+
+root = Path(os.environ.get("LEMONCROW_ROOT", "").strip() or (Path.home() / ".lemoncrow"))
+path = root / "plugin_settings.json"
+try:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert isinstance(data, dict)
+except Exception:
+    data = {}
+for env, key in (("LEMONCROW_UC", "cli.update_check"), ("LEMONCROW_AU", "cli.auto_update")):
+    raw = os.environ.get(env, "").strip().lower()
+    if raw in ("1", "true", "yes", "on"):
+        data[key] = True
+    elif raw in ("0", "false", "no", "off"):
+        data[key] = False
 path.parent.mkdir(parents=True, exist_ok=True)
 path.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
 PYEOF
@@ -1943,46 +2013,6 @@ _install_node() {
     command -v npm >/dev/null 2>&1
 }
 
-install_node_if_needed() {
-    local node_user_bin="${LEMONCROW_NODE_DIR}/bin"
-    if [[ -x "${node_user_bin}/node" && ":$PATH:" != *":${node_user_bin}:"* ]]; then
-        export PATH="${node_user_bin}:${PATH}"
-    fi
-
-    if command -v npm >/dev/null 2>&1; then
-        # Reconcile only an LemonCrow-managed Node (under LEMONCROW_NODE_DIR) to the
-        # release-pinned version when the pin changed from what we recorded. A
-        # user/system Node is left untouched.
-        local _node_path
-        _node_path="$(command -v node 2>/dev/null || true)"
-        if [[ -n "$_node_path" && "$_node_path" == "${LEMONCROW_NODE_DIR}/"* \
-              && "$(_companion_recorded_version node)" != "${LEMONCROW_PIN_NODE:-v20.12.2}" \
-              && "$LEMONCROW_DRY_RUN" != "1" ]]; then
-            spin "Updating Node.js to ${LEMONCROW_PIN_NODE:-v20.12.2}" _install_node \
-                && _companion_record_version node "${LEMONCROW_PIN_NODE:-v20.12.2}" || true
-        fi
-        verbose "Found npm: $(npm --version 2>/dev/null || echo unknown)"
-        return
-    fi
-
-    if [[ "$LEMONCROW_NO_STACK" == "1" ]]; then
-        return
-    fi
-
-    need_cmd curl
-    verbose "npm not found — attempting local Node.js installation..."
-    if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-        echo "[dry-run] install node ${LEMONCROW_PIN_NODE:-v20.12.2}"
-    else
-        spin "Installing Node.js" _install_node \
-            && _companion_record_version node "${LEMONCROW_PIN_NODE:-v20.12.2}" || true
-    fi
-    
-    if [[ -x "${node_user_bin}/node" && ":$PATH:" != *":${node_user_bin}:"* ]]; then
-        export PATH="${node_user_bin}:${PATH}"
-    fi
-}
-
 # Install Go to ~/.local/go via official tarball (self-contained, no sudo)
 _install_go() {
     local go_ver arch os_low tarball pin="${LEMONCROW_PIN_GO:-latest}"
@@ -2071,12 +2101,50 @@ install_local_zoekt_if_selected() {
     info "Zoekt: building binaries and index in the background"
 }
 
+# First x.y.z in stdin ("jj 0.44.0" -> 0.44.0); empty when there is none.
+_semver() { grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true; }
+
+# True when version $1 is strictly older than $2. Empty/unparseable $1 is never
+# "older": an unknown version is left alone rather than reinstalled every run.
+_ver_lt() {
+    [[ -n "$1" && -n "$2" && "$1" != "$2" ]] || return 1
+    [[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" == "$1" ]]
+}
+
+# True when $1 resolves under ~/.cargo/bin, i.e. `cargo install` owns it, so a
+# cargo upgrade replaces that binary instead of shadowing another install.
+_is_cargo_bin() {
+    [[ "$(command -v "$1" 2>/dev/null)" == "${CARGO_HOME:-$HOME/.cargo}/bin/"* ]]
+}
+
+# Upgrade an outdated jj with the package manager that owns it. Returns 1 when
+# it cannot (unmanaged binary or the upgrade failed) so the caller can warn.
+_upgrade_jj() {
+    if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
+        echo "[dry-run] upgrade jj to ${LEMONCROW_JJ_VERSION}"
+        return 0
+    fi
+    if _is_cargo_bin jj && command -v cargo >/dev/null 2>&1; then
+        spin_tail "Upgrading jj (Jujutsu) to ${LEMONCROW_JJ_VERSION}" \
+            cargo install --locked --force jj-cli --version "${LEMONCROW_JJ_VERSION}"
+    elif command -v brew >/dev/null 2>&1 && brew list --versions jj >/dev/null 2>&1; then
+        spin_tail "Upgrading jj (Jujutsu)" brew upgrade jj
+    else
+        return 1
+    fi
+}
+
 # Install jj (Jujutsu VCS). Best-effort: a failed install only warns — LemonCrow
-# works without jj.
+# works without jj. An install older than LEMONCROW_JJ_VERSION is upgraded.
 install_jj_if_needed() {
     if command -v jj >/dev/null 2>&1; then
-        local jj_ver
+        local jj_ver jj_have
         jj_ver="$(jj --version 2>/dev/null || echo "present")"
+        jj_have="$(_semver <<<"$jj_ver")"
+        if _ver_lt "$jj_have" "$LEMONCROW_JJ_VERSION"; then
+            _upgrade_jj && return 0
+            warn "jj ${jj_have} is older than ${LEMONCROW_JJ_VERSION} and could not be upgraded automatically — upgrade it with the package manager you installed it with"
+        fi
         _SPINNER_MSG="jj already installed (${jj_ver})"
         _spinner_stop ok
         return 0
@@ -2091,7 +2159,7 @@ install_jj_if_needed() {
                 spin_tail "Installing jj (Jujutsu)" brew install jj \
                     || warn "jj install failed — continuing without it"
             elif command -v cargo >/dev/null 2>&1; then
-                spin_tail "Installing jj (Jujutsu)" cargo install --locked jj-cli \
+                spin_tail "Installing jj (Jujutsu)" cargo install --locked jj-cli --version "${LEMONCROW_JJ_VERSION}" \
                     || warn "jj install failed — continuing without it"
             else
                 warn "Neither Homebrew nor cargo found. Install jj manually: https://martinvonz.github.io/jj/latest/install-and-setup"
@@ -2099,7 +2167,7 @@ install_jj_if_needed() {
             ;;
         linux)
             if command -v cargo >/dev/null 2>&1; then
-                spin_tail "Installing jj (Jujutsu)" cargo install --locked jj-cli \
+                spin_tail "Installing jj (Jujutsu)" cargo install --locked jj-cli --version "${LEMONCROW_JJ_VERSION}" \
                     || warn "jj install failed — continuing without it"
             elif command -v brew >/dev/null 2>&1; then
                 spin_tail "Installing jj (Jujutsu)" brew install jj \
@@ -2130,8 +2198,24 @@ install_rtk_if_selected() {
     local rtk_ref=()
     [[ -n "${LEMONCROW_RTK_TAG}" ]] && rtk_ref=(--tag "${LEMONCROW_RTK_TAG}")
     if command -v rtk >/dev/null 2>&1; then
-        local ver
+        local ver have want="${LEMONCROW_RTK_TAG#v}"
         ver="$(rtk --version 2>/dev/null || echo "present")"
+        have="$(_semver <<<"$ver")"
+        # Upgrade (never downgrade) to the pinned tag; an empty pin means unpinned.
+        if _ver_lt "$have" "$want"; then
+            if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
+                echo "[dry-run] cargo install --force --git https://github.com/rtk-ai/rtk --tag ${LEMONCROW_RTK_TAG}"
+                return 0
+            fi
+            if _is_cargo_bin rtk && command -v cargo >/dev/null 2>&1; then
+                spin_tail "Upgrading rtk ${have} to ${LEMONCROW_RTK_TAG}" \
+                    cargo install --force --git https://github.com/rtk-ai/rtk "${rtk_ref[@]}" \
+                    && return 0
+                warn "rtk upgrade failed — keeping ${have} (soft integration)"
+            else
+                warn "rtk ${have} is older than ${want} and was not installed with cargo — upgrade it with the package manager you installed it with"
+            fi
+        fi
         _SPINNER_MSG="rtk already installed (${ver})"
         _spinner_stop ok
         return 0
@@ -2183,17 +2267,17 @@ ARCH = {'amd64': 'x86_64', 'x64': 'x86_64', 'arm64': 'aarch64'}.get(
     platform.machine().lower(), platform.machine().lower())
 ASSETS = {
     'x86_64': (
-        'https://github.com/ast-grep/ast-grep/releases/download/0.42.2/app-x86_64-unknown-linux-gnu.zip',
-        '52aef3ed330a5fb1d9f399b83285bfcf47d92401249803f62711573e83cb47ae'),
+        'https://github.com/ast-grep/ast-grep/releases/download/0.45.3/app-x86_64-unknown-linux-gnu.zip',
+        'f8ac830881339d1edee6b2652f54798c0f4da5a827f2db38a08ee31117783ce8'),
     'aarch64': (
-        'https://github.com/ast-grep/ast-grep/releases/download/0.42.2/app-aarch64-unknown-linux-gnu.zip',
-        'a68d7645d49dbd97b423cc8a64f7839fe5541eedf0b4bb4ab79f4ba5d53f0376'),
+        'https://github.com/ast-grep/ast-grep/releases/download/0.45.3/app-aarch64-unknown-linux-gnu.zip',
+        'b39cfbc58da4b869a88b8a4bc57bd5deb0d24541e704cf7c257da7b53ec81c8f'),
     'Darwin-x86_64': (
-        'https://github.com/ast-grep/ast-grep/releases/download/0.42.2/app-x86_64-apple-darwin.zip',
-        '6652401a9b98f7c8c528f969d34e2a42d2cb60f29fc4dc569209d16c29702d9c'),
+        'https://github.com/ast-grep/ast-grep/releases/download/0.45.3/app-x86_64-apple-darwin.zip',
+        'b2ffd26f42810340326a9e8a084bdc3647a8795c1a3f21fc06bd7bef3c7c5b2c'),
     'Darwin-aarch64': (
-        'https://github.com/ast-grep/ast-grep/releases/download/0.42.2/app-aarch64-apple-darwin.zip',
-        '9f1522db1f7174ab0cba5a6d1df1861f9b92803fac407988177c28f744bd0f94'),
+        'https://github.com/ast-grep/ast-grep/releases/download/0.45.3/app-aarch64-apple-darwin.zip',
+        '6d2279dea5bea2ad79c66ea93f5fe54ba926e398a8a26de76c56db68fe59eac6'),
 }
 os_prefix = 'Darwin-' if platform.system() == 'Darwin' else ''
 key = os_prefix + ARCH
@@ -2311,11 +2395,20 @@ install_code_tools() {
     #   src/lemoncrow/infra/code_intel/astgrep/binaries.py (_MANAGED_VERSION + _MANAGED_ASSETS)
     if command -v python3 >/dev/null 2>&1; then
         local astgrep_dest="${LEMONCROW_INSTALL_DIR}/.lemoncrow/ast-grep"
+        local astgrep_ver=""
+        local astgrep_have=""
+        if [[ -x "${astgrep_dest}" ]]; then
+            astgrep_ver="$("${astgrep_dest}" --version 2>/dev/null || echo "present")"
+            astgrep_have="$(_semver <<<"${astgrep_ver}")"
+        fi
         if [[ ! -x "${astgrep_dest}" ]]; then
             spin "Installing ast-grep" _install_astgrep_binary "${astgrep_dest}" \
                 || warn "ast-grep bootstrap failed -- codemod tool will lazy-install on first use"
+        elif _ver_lt "${astgrep_have}" "${LEMONCROW_ASTGREP_VERSION}"; then
+            spin "Upgrading ast-grep ${astgrep_have} to ${LEMONCROW_ASTGREP_VERSION}" _install_astgrep_binary "${astgrep_dest}" \
+                || warn "ast-grep upgrade failed -- keeping ${astgrep_have}"
         else
-            _SPINNER_MSG="ast-grep already installed"
+            _SPINNER_MSG="ast-grep already installed (${astgrep_ver})"
             _spinner_stop ok
         fi
     fi
@@ -2354,7 +2447,7 @@ _detect_shell_profile() {
 # Write sentinel-guarded PATH exports to the user's shell profile.
 # Replaces on re-install instead of duplicating.
 _ensure_path_persistence() {
-    local profile_file sentinel_start sentinel_end node_user_bin
+    local profile_file sentinel_start sentinel_end node_user_bin lemoncrow_dir
     local tmp_input tmp_output in_block line
 
     profile_file="$(_detect_shell_profile)"
@@ -2409,7 +2502,8 @@ _ensure_path_persistence() {
 
     rm -f "$tmp_input" "$tmp_output"
 
-    printf "%b│%b  %b✓%b  %s\n" "$C_FRAME" "$C_RESET" "$C_GREEN" "$C_RESET" "Added LemonCrow directories to PATH in ${profile_file/#$HOME/~}"
+    lemoncrow_dir="${LEMONCROW_BIN_DIR%/bin}"
+    printf "%b│%b  %b✓%b  %s\n" "$C_FRAME" "$C_RESET" "$C_GREEN" "$C_RESET" "Added ${lemoncrow_dir} to PATHs in ${profile_file/#$HOME/~}"
 }
 
 # _capture_install_previous_version — preserve the executable version before
@@ -2662,22 +2756,13 @@ _filter_csv_against_set() {
 
 run_setup() {
     persist_telegraphic_selection
+    persist_update_selection
 
-    local stack_available=0
-    if [[ "$LEMONCROW_NO_STACK" != "1" ]] && command -v npm >/dev/null 2>&1; then
-        stack_available=1
-    elif [[ "$LEMONCROW_NO_STACK" != "1" ]]; then
-        warn "npm is required to run the optional visualization stack; skipping stack setup"
+    if [[ "${LEMONCROW_CODE_TOOLS_INSTALLED:-0}" != "1" ]]; then
+        step_start "Installing tools"
+        install_code_tools
+        step_done
     fi
-
-    local stack_expected=0
-    if [[ "$LEMONCROW_NO_SERVICECTL" != "1" && "$stack_available" == "1" ]] && { command -v systemctl >/dev/null 2>&1 || [[ "$(uname -s)" == "Darwin" ]]; }; then
-        stack_expected=1
-    fi
-
-    step_start "Installing tools"
-    install_code_tools
-    step_done
 
     local selected_memory=""
     if [[ "$LEMONCROW_ADVANCED" == "1" ]]; then
@@ -2745,7 +2830,9 @@ run_setup() {
     fi
 
     local node_user_bin="${LEMONCROW_NODE_DIR}/bin"
-    _ensure_path_persistence
+    if [[ "${LEMONCROW_PATH_PERSISTED:-0}" != "1" ]]; then
+        _ensure_path_persistence
+    fi
     # Re-export for this session too
     if [[ ":$PATH:" != *":$LEMONCROW_BIN_DIR:"* ]]; then
         export PATH="${LEMONCROW_BIN_DIR}:${PATH}"
@@ -2949,8 +3036,9 @@ run_setup() {
             fi
         fi
         # Persist host detection results for the local service/UI surfaces
+        # (~5s: probes every agent CLI, so it gets a spinner rather than a silent pause)
         if [[ "$LEMONCROW_DRY_RUN" != "1" && -f "$LEMONCROW_SCRIPTS_DIR/status.sh" ]]; then
-            bash "$LEMONCROW_SCRIPTS_DIR/status.sh" --write >>"$LEMONCROW_INSTALL_LOG_FILE" 2>&1 \
+            spin "Detecting installed agents" bash "$LEMONCROW_SCRIPTS_DIR/status.sh" --write \
                 || degrade "Failed to persist host detection status"
         fi
         step_done
@@ -2959,7 +3047,7 @@ run_setup() {
         info "Skipped (LEMONCROW_NO_HOSTS=1)"
         # Still persist current detection state even when skipping install
         if [[ "$LEMONCROW_DRY_RUN" != "1" && -f "$LEMONCROW_SCRIPTS_DIR/status.sh" ]]; then
-            bash "$LEMONCROW_SCRIPTS_DIR/status.sh" --write >>"$LEMONCROW_INSTALL_LOG_FILE" 2>&1 \
+            spin "Detecting installed agents" bash "$LEMONCROW_SCRIPTS_DIR/status.sh" --write \
                 || degrade "Failed to persist host detection status"
         fi
         step_done
@@ -2971,70 +3059,30 @@ run_setup() {
         index_target="$repo_root"
     fi
 
-    step_start "Initializing"
-
-    if [[ "$LEMONCROW_NO_SERVICECTL" != "1" ]]; then
-        if command -v systemctl >/dev/null 2>&1 || [[ "$(uname -s)" == "Darwin" ]]; then
-            local background_args=()
-            if [[ "$stack_available" == "1" ]]; then
-                background_args+=("--with-stack")
-            fi
-            case "$selected_memory" in
-                letta) background_args+=("--with-letta") ;;
-                openmemory) background_args+=("--with-openmemory") ;;
-            esac
-            if [[ "$selected_zoekt" == "1" ]]; then
-                background_args+=("--with-zoekt")
-            fi
-
-            if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-                echo "[dry-run] $LEMONCROW_BIN_DIR/lemoncrow background install ${background_args[*]}"
-            else
-                "$LEMONCROW_BIN_DIR/lemoncrow" background install "${background_args[@]}" >>"$LEMONCROW_INSTALL_LOG_FILE" 2>&1
-            fi
-            printf "%b│%b  ✓  Background service controller registered (systemd)\n" "$C_FRAME" "$C_RESET"
-            if [[ "$stack_available" == "1" ]]; then
-                printf "%b│%b  ✓  HTTP visualization service registered (systemd)\n" "$C_FRAME" "$C_RESET"
-            fi
-            case "$selected_memory" in
-                letta) printf "%b│%b  ✓  Letta memory service registered (systemd)\n" "$C_FRAME" "$C_RESET" ;;
-                openmemory) printf "%b│%b  ✓  OpenMemory service registered (systemd)\n" "$C_FRAME" "$C_RESET" ;;
-            esac
-            if [[ "$selected_zoekt" == "1" ]]; then
-                printf "%b│%b  ✓  Zoekt code search service registered (systemd)\n" "$C_FRAME" "$C_RESET"
-            fi
-        else
-            if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-                echo "[dry-run] $LEMONCROW_BIN_DIR/lemoncrow servicectl start --interval-seconds $LEMONCROW_SERVICECTL_INTERVAL_SECONDS --maintenance-interval-seconds $LEMONCROW_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS"
-            else
-                "$LEMONCROW_BIN_DIR/lemoncrow" servicectl start \
-                    --interval-seconds "$LEMONCROW_SERVICECTL_INTERVAL_SECONDS" \
-                    --maintenance-interval-seconds "$LEMONCROW_SERVICECTL_MAINTENANCE_INTERVAL_SECONDS" >>"$LEMONCROW_INSTALL_LOG_FILE" 2>&1
-            fi
-            printf "%b│%b  ✓  Background service controller started\n" "$C_FRAME" "$C_RESET"
-
-            if [[ "$stack_available" == "1" ]]; then
-                if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-                    echo "[dry-run] $LEMONCROW_BIN_DIR/lcd start"
-                else
-                    "$LEMONCROW_BIN_DIR/lcd" start &
-                    STACK_STARTED=1
-                fi
-                printf "%b│%b  ✓  HTTP visualization service started\n" "$C_FRAME" "$C_RESET"
-            fi
-        fi
-    else
-        printf "%b│%b  ○  Background services skipped (LEMONCROW_NO_SERVICECTL=1)\n" "$C_FRAME" "$C_RESET"
-    fi
-
+    local init_step=0
     if [[ "$LEMONCROW_RECALL_PRESET" == "1" ]]; then
+        init_step=1
+        step_start "Finishing up"
         configure_recall_if_selected
         printf "%b│%b  ✓  Recall configured\n" "$C_FRAME" "$C_RESET"
     fi
-    step_done
+    # Persistent connector state is durable across reinstalls, while the user
+    # service is generated. Reconcile that generated unit after replacing the
+    # package so `make dev`/`make prod` cannot leave an old topology or command
+    # line running. The repair command is a no-op when no connectors exist and
+    # never provisions Cloudflare resources or changes DNS.
+    if [[ "${LEMONCROW_INSTALL_MODE:-legacy}" == "local" ]]; then
+        if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
+            echo "[dry-run] $LEMONCROW_BIN_DIR/lemoncrow mcp service repair"
+        elif [[ -x "$LEMONCROW_BIN_DIR/lemoncrow" ]]; then
+            "$LEMONCROW_BIN_DIR/lemoncrow" mcp service repair >>"$LEMONCROW_INSTALL_LOG_FILE" 2>&1 \
+                || degrade "Could not reconcile the persistent MCP tunnel; run '$LEMONCROW_BIN_DIR/lemoncrow mcp service repair'."
+        fi
+    fi
+    [[ "$init_step" != "1" ]] || step_done
 
     # Knowledge extraction from .lessons prints its own named step box (only
-    # when selected) -- kept outside "Initializing" rather than folded in, so
+    # when selected) -- kept outside "Finishing up" rather than folded in, so
     # it stays a separately-titled, independently-ticked step.
     run_knowledge_extraction_if_selected
     _write_install_update_state
@@ -3058,12 +3106,6 @@ run_setup() {
     printf "  %b│  %s │%b\n" "$C_PURPLE" "$completion_title_line" "$C_RESET"
     printf "  %b└─────────────────────────────────────────────────────────┘%b\n\n" "$C_PURPLE" "$C_RESET"
 
-    if [[ "$STACK_STARTED" == "1" || "$stack_expected" == "1" ]]; then
-        printf "%b📊 Visualization stack:%b\n" "$C_PURPLE" "$C_RESET"
-        printf "  frontend: %bhttp://localhost:${LEMONCROW_FRONTEND_PORT:-3125}%b\n" "$C_PURPLE" "$C_RESET"
-        printf "  service:  %bhttp://localhost:${LEMONCROW_SERVICE_PORT:-8787}%b\n\n" "$C_PURPLE" "$C_RESET"
-    fi
-    
     # `lemoncrow init` registers this project locally. It runs fully offline with
     # no account and no login prompt, so it is safe to run non-interactively.
     # (stdout/stderr reconnect to fd 7 — the real terminal saved before the
@@ -3071,13 +3113,23 @@ run_setup() {
     local cli="lemoncrow"
     [[ "${LC_ALIAS_AVAILABLE:-0}" == "1" ]] && cli="lc"
     if [[ -n "$index_target" ]]; then
-        printf "%bInitializing this project:%b\n\n" "$C_PURPLE" "$C_RESET"
-        if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-            echo "[dry-run] $lemoncrow_cli init"
-        else
-            "$lemoncrow_cli" init >&7 2>&7 || true
-        fi
-        printf "\n"
+        case "${LEMONCROW_INSTALL_MODE:-legacy}" in
+            local|hosted)
+                # Nothing to print: the thin client opens the repo view at
+                # SessionStart. Running the legacy `lc init` here would build the
+                # retired local index and, in hosted mode, violate the
+                # no-local-daemon contract.
+                ;;
+            *)
+                printf "%bInitializing this project:%b\n\n" "$C_PURPLE" "$C_RESET"
+                if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
+                    echo "[dry-run] $lemoncrow_cli init"
+                else
+                    "$lemoncrow_cli" init >&7 2>&7 || true
+                fi
+                printf "\n"
+                ;;
+        esac
     fi
 
     local code_display="${LEMONCROW_BIN_DIR}/lemoncrow"
@@ -3086,22 +3138,68 @@ run_setup() {
     printf "   LemonCrow dir:   %s\n" "~/.lemoncrow"
     printf "   Binary:        %s\n\n" "$code_display"    
     printf "%b─────────────────────────────────────────────────────────%b\n\n" "$C_PURPLE" "$C_RESET"
-    printf "%b🚀 Commands:%b\n\n" "$C_PURPLE" "$C_RESET"
-    printf "   %b%s%b init                Initialize LemonCrow for a new project\n" "$C_PURPLE" "$cli" "$C_RESET"
-    printf "   %b%s%b status              View active runs\n" "$C_PURPLE" "$cli" "$C_RESET"
-    printf "   %b%s%b import              Import past agent sessions\n" "$C_PURPLE" "$cli" "$C_RESET"
-    printf "   %b%s%b memory recall       Search memory\n" "$C_PURPLE" "$cli" "$C_RESET"
-    printf "   %b%s%b code index          Index current repository\n" "$C_PURPLE" "$cli" "$C_RESET"
-    printf "   %b%s%b review              Review a diff or PR\n" "$C_PURPLE" "$cli" "$C_RESET"
-    printf "   %b%s%b doctor              Check service status\n\n" "$C_PURPLE" "$cli" "$C_RESET"
+    if [[ "${LEMONCROW_INSTALL_MODE:-legacy}" == "local" || "${LEMONCROW_INSTALL_MODE:-legacy}" == "hosted" ]]; then
+        printf "%b🚀 Get started:%b open your coding agent in a repository, then try:\n\n" "$C_PURPLE" "$C_RESET"
+        # "Heading" entries (no '|') print as group labels; others are "command|description".
+        local -a cmd_rows=(
+            "mcp check|Verify the agent <-> server connection"
+            "review|Review a diff or PR in the browser"
+            "doctor|Diagnose install, services, MCP servers"
+            ""
+            "Track & recall"
+            "dashboard|Spend & savings (dashboard open: web UI)"
+            "usage|Usage by host, model, project"
+            "session stats|Per-session cost and savings"
+            "session recall|Search past sessions"
+            ""
+            "Work"
+            "code|Run a coding CLI over LemonCrow"
+            "swarm|Parallel attempts in git worktrees"
+            "model|Bring your own model"
+            "skill / agent|Install skills and agent roles"
+            ""
+            "Remote MCP (ChatGPT, Claude web, Cursor)"
+            "mcp serve|Public MCP URL (--persistent --hostname H: stable)"
+            "mcp service|Persistent tunnels: list, restart, logs"
+            ""
+            "Manage"
+            "settings|Local settings"
+            "update|Check for updates"
+        )
+        local row
+        for row in "${cmd_rows[@]}"; do
+            if [[ -z "$row" ]]; then
+                printf "\n"
+            elif [[ "$row" != *"|"* ]]; then
+                printf "   %s\n" "$row"
+            else
+                printf "   %b%s %-*s%b %s\n" "$C_PURPLE" "$cli" 16 "${row%%|*}" "$C_RESET" "${row#*|}"
+            fi
+        done
+        printf "\n"
+    else
+        printf "%b🚀 Commands:%b\n\n" "$C_PURPLE" "$C_RESET"
+        printf "   %b%s%b init                Initialize LemonCrow for a new project\n" "$C_PURPLE" "$cli" "$C_RESET"
+        printf "   %b%s%b status              View active runs\n" "$C_PURPLE" "$cli" "$C_RESET"
+        printf "   %b%s%b import              Import past agent sessions\n" "$C_PURPLE" "$cli" "$C_RESET"
+        printf "   %b%s%b memory recall       Search memory\n" "$C_PURPLE" "$cli" "$C_RESET"
+        printf "   %b%s%b code index          Index current repository\n" "$C_PURPLE" "$cli" "$C_RESET"
+        printf "   %b%s%b review              Review a diff or PR\n" "$C_PURPLE" "$cli" "$C_RESET"
+        printf "   %b%s%b doctor              Check service status\n\n" "$C_PURPLE" "$cli" "$C_RESET"
+    fi
     if [[ ${#WARNINGS[@]} -gt 0 || ${#ERRORS[@]} -gt 0 ]]; then
         printf "   installer log: %s\n\n" "$LEMONCROW_INSTALL_LOG_FILE"
     fi
     printf "%b─────────────────────────────────────────────────────────%b\n\n" "$C_PURPLE" "$C_RESET"
 
     # Open-source runtime: no account, no savings cap, and no login prompt.
-    # Local savings are tracked and shown regardless (see `lc session stats`).
-    printf "%b💰 Savings tracking:%b all local. '%b%s account login%b' to opt in to see savings online.\n\n" "$C_PURPLE" "$C_RESET" "$C_BOLD" "$cli" "$C_RESET"
+    # Every local feature works without login; the account only adds hosted
+    # extras (see FREE_FEATURES/PRO_FEATURES in licensing/features.py).
+    printf "%b☁  Optional:%b %b%s account login%b  (everything above works without it)\n" "$C_PURPLE" "$C_RESET" "$C_BOLD" "$cli" "$C_RESET"
+    printf "   Adds hosted extras:\n"
+    printf "     • Online savings dashboard\n"
+    printf "     • Shared team context across repositories\n"
+    printf "     • Governance: SSO, audit export, retention\n\n"
 
     return "$FINAL_EXIT_CODE"
 }

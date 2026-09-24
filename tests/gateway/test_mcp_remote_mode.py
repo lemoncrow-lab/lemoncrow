@@ -22,7 +22,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lemoncrow.core.environment import HIDDEN_LLM_TOOLS
+from lemoncrow.core.environment import LLM_VISIBLE_TOOLS
 from lemoncrow.gateway.adapters.mcp_server import _REMOTE_TOOLS, _handle
 from lemoncrow.infra.storage.bundle import build_sqlite_store_bundle
 from tests.helpers import init_store_at
@@ -152,7 +152,7 @@ def test_tools_list_returns_all_tools(service_mode: None, monkeypatch: pytest.Mo
     resp = _handle(req)
     assert resp is not None
     tools = {t["name"] for t in resp["result"]["tools"]}
-    for remote_tool in _REMOTE_TOOLS - HIDDEN_LLM_TOOLS:
+    for remote_tool in _REMOTE_TOOLS & LLM_VISIBLE_TOOLS:
         assert remote_tool in tools
     assert "read" in tools
     assert "reasoning" not in tools
@@ -175,8 +175,7 @@ def test_remote_context_same_shape(service_mode: None, monkeypatch: pytest.Monke
 
     resp = _call_tool("context", {"task": "publish product"})
     assert "result" in resp
-    payload = json.loads(resp["result"]["content"][0]["text"])
-    assert payload["context"] == "Here are the relevant procedures."
+    assert resp["result"]["content"][0]["text"] == "Here are the relevant procedures."
 
 
 def test_remote_record_trace_same_shape(service_mode: None, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -254,8 +253,9 @@ def test_remote_mode_live_service_round_trip(
         monkeypatch.setenv("LEMONCROW_SERVICE_URL", base_url)
 
         context = _call_tool("context", {"task": "deploy the app"})
-        context_payload = json.loads(context["result"]["content"][0]["text"])
-        assert "context" in context_payload
+        context_text = context["result"]["content"][0]["text"]
+        assert isinstance(context_text, str)
+        assert context_text
 
         memory = _call_tool(
             "memory",
@@ -273,8 +273,8 @@ def test_remote_mode_live_service_round_trip(
         assert memory_payload["id"]
 
         rescue = _call_tool("rescue", {"task": "deploy", "error": "connection refused"})
-        rescue_payload = json.loads(rescue["result"]["content"][0]["text"])
-        assert "rescue" in rescue_payload
+        rescue_text = rescue["result"]["content"][0]["text"]
+        assert rescue_text.startswith("rescue\n")
 
         verify = _call_tool(
             "verify",
@@ -290,8 +290,8 @@ def test_remote_mode_live_service_round_trip(
                 },
             },
         )
-        verify_payload = json.loads(verify["result"]["content"][0]["text"])
-        assert verify_payload["status"] == "pass"
+        verify_text = verify["result"]["content"][0]["text"]
+        assert "status=pass" in verify_text
 
         trace = _call_tool(
             "trace",
@@ -320,10 +320,10 @@ def test_remote_service_unavailable_returns_structured_error(
         raise URLError("Connection refused")
 
     import lemoncrow.gateway.adapters.mcp_server as m
-    import lemoncrow.gateway.adapters.remote_client as rc
+    import lemoncrow.gateway.transports.service as service_transport
 
     # Create a real RemoteClient whose underlying urlopen will fail.
-    real_client = rc.RemoteClient(base_url="http://127.0.0.1:1")  # port 1 is always closed
+    real_client = service_transport.ServiceTransport(base_url="http://127.0.0.1:1")  # port 1 is always closed
     m._remote_client = real_client
 
     # Monkeypatch urlopen to raise immediately.
@@ -351,9 +351,9 @@ def test_remote_client_routes_correctly() -> None:
     """RemoteClient methods call the right paths."""
     from unittest.mock import patch as _patch
 
-    from lemoncrow.gateway.adapters.remote_client import RemoteClient
+    from lemoncrow.gateway.transports.service import ServiceTransport
 
-    client = RemoteClient(base_url="http://localhost:8787", api_key="key")
+    client = ServiceTransport(base_url="http://localhost:8787", api_key="key")
 
     captured: list[tuple[str, str]] = []
 
@@ -361,7 +361,7 @@ def test_remote_client_routes_correctly() -> None:
         captured.append((method, path))
         return {"ok": True}
 
-    with _patch.object(RemoteClient, "_request", _fake_request):
+    with _patch.object(ServiceTransport, "_request", _fake_request):
         client.get_context({"task": "t"})
         client.rescue_failure({"task": "t", "error": "e"})
         client.run_rubric_gate({"rubric_id": "r", "checks": {}})
@@ -374,3 +374,38 @@ def test_remote_client_routes_correctly() -> None:
     assert "/v1/rubrics/run" in paths
     assert "/v1/traces" in paths
     assert any(path.startswith("/v1/memory/blocks?") for path in paths)
+
+
+def test_remote_context_uses_same_compact_renderer(service_mode: None) -> None:
+    client = _mock_client(
+        {
+            "get_context": {
+                "context": "Here are the relevant procedures.",
+                "recalled_passages": [{"text": "duplicate", "source_ref": "s1"}],
+                "tokens_breakdown": {"total": 20},
+                "bootstrap": {"status": "warm", "repo_id": "repo"},
+            }
+        }
+    )
+    import lemoncrow.gateway.adapters.mcp_server as m
+
+    m._remote_client = client
+    resp = _call_tool("context", {"task": "publish product"})
+    assert resp["result"]["content"][0]["text"] == "Here are the relevant procedures."
+
+
+def test_remote_verify_uses_same_compact_renderer(service_mode: None) -> None:
+    client = _mock_client(
+        {
+            "run_rubric_gate": {
+                "rubric_id": "r1",
+                "status": "pass",
+                "outcomes": [{"name": "state", "status": "pass", "detail": ""}],
+            }
+        }
+    )
+    import lemoncrow.gateway.adapters.mcp_server as m
+
+    m._remote_client = client
+    resp = _call_tool("verify", {"rubric_id": "r1", "checks": {"state": True}})
+    assert resp["result"]["content"][0]["text"] == "### verify rubric=r1 status=pass\n- pass state"

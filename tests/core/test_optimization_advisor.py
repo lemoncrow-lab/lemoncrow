@@ -63,7 +63,7 @@ def test_complexity_scores_risky_migration_above_explanation() -> None:
 def _entitle_savings_engine(monkeypatch: pytest.MonkeyPatch) -> None:
     # This module exercises the Pro savings engine; treat the install as licensed
     # so load_current_policy returns the configured policy, not the Free baseline.
-    monkeypatch.setattr("lemoncrow.core.capabilities.licensing.has_feature", lambda *a, **k: True)
+    monkeypatch.setattr("lemoncrow.core.capabilities.feature_access.has_feature", lambda *a, **k: True)
 
 
 def test_policy_roundtrip_preserves_preset(tmp_path: Path) -> None:

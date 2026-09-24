@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Command, Search } from "lucide-react";
 
+import "./reviewUi.css";
 import { trapModalTab } from "./focusTrap";
 
 export interface ReviewPaletteAction {
@@ -23,7 +25,7 @@ const SHORTCUT_GROUPS = [
     rows: [
       ["j / k", "Next / previous review target"],
       ["J / K", "Next / previous file"],
-      ["] / [", "Next / previous high-attention target"],
+      ["] / [", "Next / previous attention target"],
       ["/", "Search review"],
     ],
   },
@@ -42,6 +44,7 @@ const SHORTCUT_GROUPS = [
       ["e", "Toggle Context"],
       ["f", "Toggle focus mode"],
       ["s", "Split / unified diff"],
+      ["w", "Wrap / one-line code"],
       ["p", "Review actions"],
       ["?", "Keyboard shortcuts"],
       ["Esc", "Close transient UI"],
@@ -82,7 +85,7 @@ export default function ReviewCommandPalette({ mode, actions, onClose }: ReviewC
 
   return (
     <div
-      className="absolute inset-0 z-[90] flex items-start justify-center bg-black/55 px-4 pt-[12vh]"
+      className="review-sheet-backdrop absolute z-[90] items-start justify-center px-4 pt-[12vh]"
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
@@ -111,25 +114,30 @@ export default function ReviewCommandPalette({ mode, actions, onClose }: ReviewC
         role="dialog"
         aria-modal="true"
         aria-labelledby="review-command-title"
-        className="w-full max-w-[560px] border border-neutral-700 bg-neutral-950 shadow-2xl"
+        className="review-sheet w-full max-w-[580px] rounded-[7px]"
       >
-        <div className="flex items-center gap-3 border-b border-neutral-800 px-3 py-2.5">
+        <div className="flex items-center gap-3 border-b border-neutral-800/80 px-3.5 py-3">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-neutral-800 bg-neutral-900/60 text-neutral-400">
+            <Command size={13} aria-hidden="true" />
+          </div>
           <div className="min-w-0 flex-1">
-            <h2 id="review-command-title" className="text-[12px] font-medium text-neutral-100">
+            <h2 id="review-command-title" className="text-[12px] font-semibold text-neutral-100">
               {mode === "actions" ? "Review actions" : "Keyboard shortcuts"}
             </h2>
-            <div className="mt-0.5 text-[9px] text-neutral-600">
+            <div className="mt-0.5 text-[10px] text-neutral-600">
               {mode === "actions" ? "Type to filter · ↑↓ move · Enter run" : "Keyboard-first controls for the continuous reader"}
             </div>
           </div>
-          <button ref={closeRef} type="button" onClick={onClose} aria-label="Close review commands" className="text-[10px] text-neutral-500 hover:text-neutral-200">
+          <button ref={closeRef} type="button" onClick={onClose} aria-label="Close review commands" className="review-toolbar-button h-7 px-2 font-mono text-[10px]">
             Esc
           </button>
         </div>
 
         {mode === "actions" ? (
           <>
-            <div className="border-b border-neutral-900 p-2">
+            <div className="border-b border-neutral-800/70 p-2.5">
+              <div className="relative flex items-center">
+                <Search size={13} className="pointer-events-none absolute left-2.5 text-neutral-600" />
               <input
                 ref={inputRef}
                 value={query}
@@ -139,8 +147,9 @@ export default function ReviewCommandPalette({ mode, actions, onClose }: ReviewC
                 }}
                 aria-label="Filter review actions"
                 placeholder="Search actions…"
-                className="w-full border border-neutral-800 bg-neutral-950 px-2.5 py-2 text-[11px] text-neutral-200 outline-none placeholder:text-neutral-700 focus:border-sky-800"
+                className="review-field w-full pl-8"
               />
+              </div>
             </div>
             <div className="max-h-[52vh] overflow-y-auto p-1.5">
               {filtered.length === 0 ? (
@@ -152,13 +161,13 @@ export default function ReviewCommandPalette({ mode, actions, onClose }: ReviewC
                   disabled={action.disabled}
                   onMouseEnter={() => setSelected(index)}
                   onClick={() => run(action)}
-                  className={`flex w-full items-center gap-3 px-2.5 py-2 text-left disabled:opacity-35 ${index === selected ? "bg-neutral-900" : "hover:bg-neutral-900/70"}`}
+                  className={`flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors disabled:opacity-35 ${index === selected ? "bg-neutral-900 text-neutral-100" : "hover:bg-neutral-900/60"}`}
                 >
                   <div className="min-w-0 flex-1">
                     <div className="text-[11px] text-neutral-200">{action.label}</div>
-                    {action.detail && <div className="mt-0.5 truncate text-[9px] text-neutral-600">{action.detail}</div>}
+                    {action.detail && <div className="mt-0.5 truncate text-[10px] text-neutral-600">{action.detail}</div>}
                   </div>
-                  {action.shortcut && <kbd className="shrink-0 border border-neutral-800 px-1.5 py-0.5 font-mono text-[9px] text-neutral-500">{action.shortcut}</kbd>}
+                  {action.shortcut && <kbd className="shrink-0 border border-neutral-800 px-1.5 py-0.5 font-mono text-[10px] text-neutral-500">{action.shortcut}</kbd>}
                 </button>
               ))}
             </div>
@@ -167,7 +176,7 @@ export default function ReviewCommandPalette({ mode, actions, onClose }: ReviewC
           <div className="grid max-h-[60vh] gap-5 overflow-y-auto p-4 sm:grid-cols-3">
             {SHORTCUT_GROUPS.map((group) => (
               <div key={group.title}>
-                <div className="mb-2 text-[9px] font-medium uppercase tracking-[0.14em] text-neutral-500">{group.title}</div>
+                <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.14em] text-neutral-500">{group.title}</div>
                 <div className="space-y-2">
                   {group.rows.map(([keys, label]) => (
                     <div key={keys} className="flex items-start gap-2 text-[10px]">

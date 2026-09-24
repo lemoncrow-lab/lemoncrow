@@ -68,44 +68,22 @@ LEMONCROW_MCP_TOOL_PROFILE=full to advertise every schema eagerly; managed
 | `lc init`           | Initialize the runtime store under `--root`. Fully local; no login or account required. |
 | `lc uninstall`      | Remove LemonCrow-managed host integrations and wrappers.         |
 | `lc status`         | Show local plugin and runtime status.                          |
-| `lc stack ...`      | Start, stop, inspect, or log the optional native UI/API stack. |
-| `lc service ...`    | Manage the HTTP/API service surface.                           |
-| `lc background ...` | Manage OS-level background services and auto-updates.          |
-| `lc worker ...`     | Inspect, enqueue, and run worker jobs.                         |
+| `lc service ...`    | Explicit standalone HTTP/API service; not part of the default local runtime. |
+| `lc worker ...`     | Inspect, enqueue, and run worker jobs explicitly.             |
 
 Common examples:
 
 ```bash
 lc init
-lc background status
-lc background restart
-lc background logs controller
+lc mcp --host claude check --json
+lc worker list
 ```
 
-## Background Services & Auto-Update
+## Local Loopback Runtime
 
-Manage background components via your OS-native manager (systemd/launchd).
+The default local runtime is a single `lemoncrow-server` bound to `127.0.0.1:7420`. `lc mcp` is a thin client of that server. Source checkouts use `make start`, `make stop`, and `make restart` for lifecycle control.
 
-| Subcommand                      | Purpose                                                    |
-| ------------------------------- | ---------------------------------------------------------- |
-| `lc background install`    | Register services with systemd (Linux) or launchd (macOS). |
-| `lc background uninstall`  | Unregister and stop background services.                   |
-| `lc background status`     | Show service health and auto-update state.                 |
-| `lc background restart`    | Trigger a clean restart of the entire environment.         |
-| `lc background logs [svc]` | Stream logs for `controller` or `stack`.                   |
-
-### Auto-Update Mechanism
-
-The background controller automatically checks for git updates every hour (default).
-If updates are found, it pulls the code, syncs dependencies, and restarts the
-managed background services.
-
-To configure the loop manually (not recommended for general use):
-
-```bash
-# Start the internal loop with custom auto-update settings
-lc servicectl run --auto-update --auto-update-interval-seconds 3600
-```
+`lc code` is LemonCrow's coding agent. Its OpenAI/Anthropic-compatible gateway is ephemeral and scoped to an `lc code` session; it is distinct from the persistent loopback server.
 
 ## Traces, Ledgers, and Operational State
 
@@ -904,26 +882,25 @@ no custom endpoints registered.
 Self-hosted models have no public rate card, so their usage is reported as
 unpriced — `local` in `lc usage`, never `$0.00`.
 
-## Configuration and Optional Account
+## Configuration and Hosted Authentication
 
-The `lc account` commands are an **optional** convenience for linking a hosted
-account. They gate nothing — LemonCrow is fully local and every feature works
-without them; they are never required and never prompted. Anonymous remote
-telemetry is **on by default**; turn it off with `lc telemetry remote off` (see
-[Privacy & network behavior](../setup/privacy.md)).
+Local LemonCrow requires no account. `lc auth` is only for a CLI configured to
+use a hosted LemonCrow server; it does not unlock or alter local capabilities.
+Anonymous remote telemetry is **on by default**; turn it off with
+`lc telemetry remote off` (see [Privacy & network behavior](../setup/privacy.md)).
 
-| Command             | Purpose                                                            |
-| ------------------- | ----------------------------------------------------------------- |
-| `lc settings ...`   | Manage local plugin settings.                                     |
-| `lc telemetry ...`  | Inspect or toggle telemetry; remote telemetry is on by default.   |
-| `lc account login`  | Optional: link a hosted account. Gates nothing; never required.   |
-| `lc account logout` | Remove the optional local account link.                           |
-| `lc account status` | Show whether an optional account link is present.                 |
-| `lc share`          | Render referral or share text.                                    |
-| `lc domain ...`     | Manage internal domain bundles.                                   |
-| `lc letta ...`      | Manage the self-hosted Letta sidecar.                             |
+| Command | Purpose |
+| --- | --- |
+| `lc settings ...` | Manage local plugin settings. |
+| `lc telemetry ...` | Inspect or toggle telemetry; remote telemetry is on by default. |
+| `lc auth login` | Sign in to the configured hosted LemonCrow server. |
+| `lc auth status` | Show hosted-session status. Local mode reports that no login is required. |
+| `lc auth logout` | Revoke/remove the managed hosted session. |
+| `lc share` | Render local share text. |
+| `lc domain ...` | Manage internal domain bundles. |
+| `lc letta ...` | Manage the self-hosted Letta sidecar. |
 
-Inspect or change any of them with `lc settings`:
+Inspect or change local settings with `lc settings`:
 
 ```bash
 lc settings show --category mcp

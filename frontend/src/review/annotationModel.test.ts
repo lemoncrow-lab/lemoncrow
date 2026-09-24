@@ -150,14 +150,23 @@ describe("markers", () => {
     expect(markers.map((item) => item.metadata.key).sort()).toEqual(["additions:10", "deletions:10"]);
   });
 
-  it("adds a marker for a draft that has no comment yet", () => {
+  it("adds a marker for a draft below the last selected line", () => {
     const markers = markerLines([], "src/app.py", {
       path: "src/app.py",
       startLine: 4,
       endLine: 6,
       side: "additions",
     });
-    expect(markers).toEqual([{ side: "additions", lineNumber: 4, metadata: { key: "additions:4" } }]);
+    expect(markers).toEqual([{ side: "additions", lineNumber: 6, metadata: { key: "additions:6" } }]);
+  });
+
+  it("draws a range comment under its last line so it never splits the range", () => {
+    const ranged = annotation({ start_line: 3, end_line: 5 });
+    expect(markerLines([ranged], "src/app.py", null)).toEqual([
+      { side: "additions", lineNumber: 5, metadata: { key: "additions:5" } },
+    ]);
+    expect(commentsAt([ranged], "src/app.py", "additions:5")).toHaveLength(1);
+    expect(commentsAt([ranged], "src/app.py", "additions:3")).toHaveLength(0);
   });
 
   it("does not add a second marker when the draft lands on an existing comment", () => {
@@ -182,7 +191,7 @@ describe("markers", () => {
 
   it("orders markers by line so the viewer never receives them backwards", () => {
     const markers = markerLines(
-      [annotation({ id: "a", start_line: 40 }), annotation({ id: "b", start_line: 4 })],
+      [annotation({ id: "a", start_line: 40, end_line: 40 }), annotation({ id: "b", start_line: 4, end_line: 4 })],
       "src/app.py",
       null,
     );

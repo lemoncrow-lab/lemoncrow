@@ -1,0 +1,19 @@
+{
+  "name": "codegraph",
+  "repo": "https://github.com/colbymchenry/codegraph.git",
+  "ref": "ba3c21e50d9129d2f5f3843ec3728868ae6d47a1",
+  "install": [
+    "npm ci",
+    "npm run build"
+  ],
+  "workspace_setup": [
+    "${CLONE}/dist/bin/codegraph.js init"
+  ],
+  "mcp": {
+    "command": "${CLONE}/dist/bin/codegraph.js",
+    "args": [
+      "serve",
+      "--mcp"
+    ]
+  }
+}

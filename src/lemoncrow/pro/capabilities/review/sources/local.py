@@ -35,7 +35,7 @@ from lemoncrow.pro.capabilities.review.anchors import AnchorResolution, blob_sha
 from lemoncrow.pro.capabilities.review.gitdiff import RevRange, source_state
 from lemoncrow.pro.capabilities.review.models import ChangedFile, ImpactSite, ReviewPacket
 from lemoncrow.pro.capabilities.review.packet import PacketBuild, attach_impact, build_review_packet_with_blobs
-from lemoncrow.pro.capabilities.review.revisions import Reconciliation, compute_frontier, reconcile
+from lemoncrow.pro.capabilities.review.revisions import Reconciliation, compute_frontier, file_revision_delta, reconcile
 from lemoncrow.pro.capabilities.review.session_models import (
     ANCHOR_SIDES,
     ANNOTATION_KINDS,
@@ -52,6 +52,7 @@ from lemoncrow.pro.capabilities.review.session_models import (
     AnnotationState,
     DiscardedMark,
     MarkState,
+    ReviewActivityEvent,
     ReviewFrontier,
     ReviewMark,
     ReviewRevision,
@@ -59,15 +60,10 @@ from lemoncrow.pro.capabilities.review.session_models import (
     ReviewSessionStatus,
     ReviewSubjectType,
     ReviewUnit,
+    ThreadTurnOwnerKind,
 )
-from lemoncrow.pro.capabilities.review.store import ReviewStore, new_revision_id
-from lemoncrow.pro.capabilities.review.units import (
-    derive_units,
-    file_fingerprint,
-    tree_fingerprint,
-    unit_key,
-    unknown_file_fingerprint,
-)
+from lemoncrow.pro.capabilities.review.store import AnnotationHistoryContext, ReviewStore, new_revision_id
+from lemoncrow.pro.capabilities.review.units import derive_units, tree_fingerprint, unit_key
 
 if TYPE_CHECKING:  # `from __future__ import annotations` keeps this import out of the runtime path.
     from lemoncrow.pro.capabilities.review.targets import ReviewTarget
@@ -559,7 +555,10 @@ def mark_unit(
             reviewer_id=reviewer_id,
             actor_type=actor_type,
             note=note,
-        )
+        ),
+        event_kind="judgment",
+        event_revision_id=revision.id,
+        event_reason=note,
     )
     store.record_frontier(session.id, reviewer_id, revision.id)
     return recorded
@@ -756,6 +755,8 @@ def annotate(
     title: str = "",
     evidence: Sequence[str] = (),
     confidence: float | None = None,
+    turn_owner_kind: ThreadTurnOwnerKind = "none",
+    turn_owner_id: str = "",
     new_text: str | None = None,
     repo_root: Path | None = None,
 ) -> Annotation:
@@ -863,6 +864,8 @@ def annotate(
             title=title,
             evidence=tuple(str(item) for item in evidence if str(item)),
             confidence=confidence,
+            turn_owner_kind=turn_owner_kind,
+            turn_owner_id=turn_owner_id,
             anchor_method=method,
             anchor_detail=detail,
         )
@@ -911,6 +914,19 @@ def set_review_status(
 
     if session.status != status:
         store.update_session(session.id, status=status)
+        store.record_activity(
+            ReviewActivityEvent(
+                id="",
+                review_id=session.id,
+                revision_id=revision.id if revision is not None else "",
+                kind="review.status_changed",
+                actor_id=reviewer_id,
+                actor_type="human",
+                subject_type="review",
+                subject_id=session.id,
+                summary=f"Review status: {session.status} → {status}",
+            )
+        )
     units = store.list_units(revision.id) if revision is not None else ()
     marks = store.list_marks(session.id, reviewer_id=reviewer_id)
     annotations = store.list_annotations(session.id)
@@ -1213,7 +1229,15 @@ def _persist_anchor(
         # Leaving it orphaned would bury a live objection in the list of things
         # the reviewer was told to ignore.
         fields["state"] = "open"
-    store.update_annotation(annotation.id, **fields)
+    store.update_annotation(
+        annotation.id,
+        AnnotationHistoryContext(
+            revision_id=revision.id,
+            changed_by="lemoncrow",
+            changed_by_actor="unknown",
+        ),
+        **fields,
+    )
     return AnchorMove(
         annotation_id=annotation.id,
         path=resolution.anchor.path,
@@ -1422,27 +1446,26 @@ def _incremental_impact_reuse(
     if not previous_paths or not previous_paths <= current_paths:
         return None
 
-    previous_units = {unit.path: unit for unit in store.list_units(previous.id) if unit.kind == "file"}
+    previous_units = tuple(unit for unit in store.list_units(previous.id) if unit.kind == "file")
+    current_units = derive_units(current.packet, current.blobs.new)
+    transition = file_revision_delta(previous_units, current_units, renames=_renames(current.packet))
+    exact_preserved = set(transition.preserved)
+
+    # FileRevisionDelta is now the shared exact-content gate used by both the
+    # Reader cache and semantic reuse. Detector reuse adds two stricter metadata
+    # checks because equal bytes reached through a different delta status or old
+    # path can change what a contract detector is allowed to infer.
     reusable: set[str] = set()
     for item in current.packet.files:
         old_row = previous_files.get(item.path)
-        old_unit = previous_units.get(item.path)
-        if old_row is None or old_unit is None or item.is_binary:
+        if item.path not in exact_preserved or old_row is None or item.is_binary:
             continue
         if str(old_row.get("status") or "") != item.status:
             continue
         old_old_path = old_row.get("old_path")
         if (str(old_old_path) if old_old_path is not None else None) != item.old_path:
             continue
-        if item.status == "deleted":
-            current_fingerprint = unknown_file_fingerprint(item.path, item.status)
-        else:
-            text = current.blobs.new.get(item.path)
-            if text is None or old_unit.fingerprint_method != "blob_sha256":
-                continue
-            current_fingerprint = file_fingerprint(item.path, text)
-        if current_fingerprint == old_unit.content_fingerprint:
-            reusable.add(item.path)
+        reusable.add(item.path)
     if not reusable:
         return None
 
@@ -1491,6 +1514,8 @@ def record_revision(
     limit: int = 40,
     build: PacketBuild | None = None,
     reviewer_id: str = "local",
+    project_annotations: bool = True,
+    source_fingerprint_override: str = "",
 ) -> RevisionRecording:
     """Persist the current state of *rng* **and** reconcile it. One operation.
 
@@ -1584,15 +1609,38 @@ def record_revision(
             build = attach_impact(repo_root, rng, base_build, limit=limit, reuse=reuse)
     packet = build.packet
     blobs = build.blobs
+    nested_snapshot_payload: bytes | None = None
+    nested_snapshot_fingerprint = ""
+    nested_snapshot_degraded: set[str] = set()
+    if rng.mode == "working_tree" and not source_fingerprint_override:
+        from lemoncrow.pro.capabilities.review.snapshot import (
+            ReviewSnapshotUnavailable,
+            capture_dirty_submodule_snapshots,
+        )
+
+        try:
+            nested_snapshot_payload, nested_snapshot_fingerprint, _nested_paths = capture_dirty_submodule_snapshots(
+                repo_root
+            )
+        except ReviewSnapshotUnavailable:
+            nested_snapshot_degraded.add("submodule_snapshot_unavailable")
+
     units = derive_units(packet, blobs.new)
     fingerprint = tree_fingerprint(units)
-    try:
-        watch_fingerprint = source_state(repo_root, rng).fingerprint
-    except (OSError, RuntimeError, ValueError):
-        # Change detection is advisory. A source we cannot fingerprint still
-        # gets a fully reviewable revision; the workspace simply cannot offer
-        # automatic refresh for that row.
-        watch_fingerprint = ""
+    if nested_snapshot_fingerprint:
+        fingerprint = hashlib.sha256(f"{fingerprint}\0submodules\0{nested_snapshot_fingerprint}".encode()).hexdigest()
+    if source_fingerprint_override:
+        # Hosted Review has an exact source identity already: the committed
+        # enterprise View revision/manifest it verified the packet against.
+        watch_fingerprint = source_fingerprint_override
+    else:
+        try:
+            watch_fingerprint = source_state(repo_root, rng).fingerprint
+        except (OSError, RuntimeError, ValueError):
+            # Change detection is advisory. A source we cannot fingerprint still
+            # gets a fully reviewable revision; the workspace simply cannot offer
+            # automatic refresh for that row.
+            watch_fingerprint = ""
     # A file unit can only use a placeholder fingerprint for deleted, binary,
     # oversized or unreadable content. In that case the file-only tree digest is
     # not a content identity and cannot satisfy the review store's UNIQUE tree
@@ -1601,7 +1649,7 @@ def record_revision(
     # large/binary source states can no longer collapse onto one revision row.
     has_unknown_file = any(unit.kind == "file" and unit.fingerprint_method == "unknown" for unit in units)
     if has_unknown_file and watch_fingerprint:
-        payload = f"{fingerprint}\0source\0{watch_fingerprint}".encode("utf-8")
+        payload = f"{fingerprint}\0source\0{watch_fingerprint}".encode()
         fingerprint = hashlib.sha256(payload).hexdigest()
 
     # Read before write: after ``add_revision`` these are no longer "previous".
@@ -1626,17 +1674,53 @@ def record_revision(
             updated = store.set_revision_source_fingerprint(record.id, watch_fingerprint)
             if updated is not None:
                 record = updated
+
+        stored_units = store.list_units(record.id)
+        stored_packet = read_packet_json(store, record)
+        stored_files = stored_packet.get("files") if isinstance(stored_packet, dict) else None
+        if packet.files and isinstance(stored_packet, dict) and isinstance(stored_files, list) and not stored_files:
+            # Early hosted captures could persist the durable target rows but a
+            # packet artifact with no file entries. Re-capturing the same exact
+            # source is the one safe repair point: keep the revision's existing
+            # analysis/provenance projection, restore only its source-file rows,
+            # and let update_revision_projection refresh the packet hash/size.
+            repaired_packet = dict(stored_packet)
+            repaired_packet["files"] = packet.to_dict()["files"]
+            repaired_payload = gzip.compress(
+                json.dumps(repaired_packet, ensure_ascii=False, default=str).encode("utf-8"),
+                mtime=0,
+            )
+            record = store.update_revision_projection(
+                record.id,
+                packet_payload=repaired_payload,
+                packet_schema_version=record.packet_schema_version,
+                degraded=record.degraded,
+                provenance_host=record.provenance_host,
+                provenance_model=record.provenance_model,
+                provenance_session_id=record.provenance_session_id,
+                provenance_certainty=record.provenance_certainty,
+                units=stored_units,
+            )
+
         # Reopening an older revision is also our chance to backfill the exact
         # text snapshot introduced after that revision was first recorded. Exact
         # tree or source identity proves these are the same reviewed bytes.
         if store.read_blob_artifact(session.id, record.id) is None:
             store.write_blob_artifact(session.id, record.id, blobs.new)
+        if blobs.binary_new and store.read_media_artifact(session.id, record.id) is None:
+            store.write_media_artifact(session.id, record.id, blobs.binary_new)
+        if nested_snapshot_payload is not None and store.read_submodule_artifact(session.id, record.id) is None:
+            store.write_submodule_artifact(session.id, record.id, nested_snapshot_payload)
         created = False
         stored_units = store.list_units(record.id)
     else:
         revision_id = new_revision_id()
         rel_path, sha256, size = store.write_packet_artifact(session.id, revision_id, encode_packet(packet))
         store.write_blob_artifact(session.id, revision_id, blobs.new)
+        if blobs.binary_new:
+            store.write_media_artifact(session.id, revision_id, blobs.binary_new)
+        if nested_snapshot_payload is not None:
+            store.write_submodule_artifact(session.id, revision_id, nested_snapshot_payload)
         record = store.add_revision(
             ReviewRevision(
                 id=revision_id,
@@ -1652,7 +1736,7 @@ def record_revision(
                 packet_path=rel_path,
                 packet_sha256=sha256,
                 packet_bytes=size,
-                degraded=tuple(sorted(set(packet.degraded) | set(blobs.degraded))),
+                degraded=tuple(sorted(set(packet.degraded) | set(blobs.degraded) | nested_snapshot_degraded)),
                 provenance_host=packet.provenance.host or "",
                 provenance_model=packet.provenance.model or "",
                 provenance_session_id=packet.provenance.session_id or "",
@@ -1682,8 +1766,20 @@ def record_revision(
     # Writes before deletes: a renamed unit's mark is inserted under its new key
     # and only then removed from the old one, so a crash between the two leaves
     # a duplicate verdict rather than no verdict at all.
+    previous_key_by_current = {new: old for old, new in result.aliases}
     for mark in result.reopened:
-        store.set_mark(mark)
+        prior_key = previous_key_by_current.get(mark.unit_key, "")
+        store.set_mark(
+            mark,
+            event_kind="reconciled",
+            event_revision_id=record.id,
+            event_reason=(
+                "unit identity migrated across rename and its judgment was reconciled"
+                if prior_key
+                else "revision reconciliation changed the judgment state"
+            ),
+            previous_unit_key=prior_key,
+        )
     # The evidence before the deletion, for the same reason. A discarded verdict
     # is the one thing in this system that looking again cannot recover, so it
     # is written down before the row that proves it goes -- and the rename
@@ -1716,7 +1812,19 @@ def record_revision(
             )
         )
     for mark in result.dropped:
-        store.clear_mark(session.id, mark.reviewer_id, mark.unit_key)
+        moved = mark.unit_key in migrated
+        store.clear_mark(
+            session.id,
+            mark.reviewer_id,
+            mark.unit_key,
+            event_kind="migrated" if moved else "discarded",
+            event_revision_id=record.id,
+            event_reason=(
+                "old unit key cleared after rename migration"
+                if moved
+                else "the unit it attested to is not in this revision"
+            ),
+        )
 
     # Author rationale is captured out-of-band by the authoring agent and bound
     # to exact file bytes. Import it only *after* this revision exists: capture
@@ -1756,18 +1864,19 @@ def record_revision(
     # These annotations explain *why LemonCrow ranked a file*, never whether the
     # change is correct.  They are content-bound and idempotent, so re-opening
     # the same revision does not manufacture a second queue of things to read.
-    try:
-        from lemoncrow.pro.capabilities.review.preparation import project_lemoncrow_annotations
+    if project_annotations:
+        try:
+            from lemoncrow.pro.capabilities.review.preparation import project_lemoncrow_annotations
 
-        project_lemoncrow_annotations(
-            store,
-            session,
-            record,
-            packet,
-            new_blobs=blobs.new,
-        )
-    except (OSError, ValueError, RuntimeError):
-        pass
+            project_lemoncrow_annotations(
+                store,
+                session,
+                record,
+                packet,
+                new_blobs=blobs.new,
+            )
+        except (OSError, ValueError, RuntimeError):
+            pass
 
     # Annotations whose stored geometry was *derived from this revision* -- not
     # merely ones that happen to own an event on it. The two differ exactly
@@ -1806,6 +1915,12 @@ def record_revision(
             continue
         _persist_anchor(store, annotation, record, reanchor_annotation(annotation, packet, blobs.new))
 
+    # History is append-only, but current source state is not monotonic. An undo
+    # can reactivate a previously stored revision; publish that pointer only
+    # after marks and anchors have reconciled successfully so Reader projections
+    # can never observe half-transitioned state.
+    store.set_current_revision(session.id, record.id)
+
     # Read back rather than collected from the writes above: the block a
     # reviewer sees has to describe this revision, not this process. Whichever
     # command first recorded the revision did the relocating, and a
@@ -1823,6 +1938,33 @@ def record_revision(
     )
 
 
+def enrich_revision_projection(
+    store: ReviewStore,
+    session: ReviewSession,
+    revision: ReviewRevision,
+    build: PacketBuild,
+) -> ReviewRevision:
+    """Attach expensive evidence to an already-visible revision, identity-safe."""
+
+    packet = build.packet
+    units = derive_units(packet, build.blobs.new)
+    record = store.update_revision_projection(
+        revision.id,
+        packet_payload=encode_packet(packet),
+        packet_schema_version=packet.schema_version,
+        degraded=tuple(sorted(set(packet.degraded) | set(build.blobs.degraded))),
+        provenance_host=packet.provenance.host or "",
+        provenance_model=packet.provenance.model or "",
+        provenance_session_id=packet.provenance.session_id or "",
+        provenance_certainty=packet.provenance.certainty,
+        units=units,
+    )
+    actor = _actor_for(packet.provenance.host, session.actor_type)
+    if actor != session.actor_type:
+        store.update_session(session.id, actor_type=actor)
+    return record
+
+
 def refresh(
     store: ReviewStore,
     session: ReviewSession,
@@ -1834,6 +1976,7 @@ def refresh(
     limit: int = 40,
     reviewer_id: str = "local",
     build: PacketBuild | None = None,
+    project_annotations: bool = True,
 ) -> RefreshResult:
     """Record the current state and project the reviewer's marks onto it.
 
@@ -1856,6 +1999,7 @@ def refresh(
         limit=limit,
         build=build,
         reviewer_id=reviewer_id,
+        project_annotations=project_annotations,
     )
     revision = recording.revision
 
@@ -1892,6 +2036,7 @@ __all__ = [
     "coerce_mark_state",
     "effective_mark_state",
     "encode_packet",
+    "enrich_revision_projection",
     "mark_downgrade_note",
     "mark_unit",
     "new_side_text",

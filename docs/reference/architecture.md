@@ -63,7 +63,7 @@ flowchart TB
         Dedup["Run-and-dedup delta layer"]
     end
 
-    Daemon["lcd<br/>FastAPI + Uvicorn"]
+    Service["optional HTTP API<br/>FastAPI + Uvicorn"]
 
     subgraph Storage["Storage"]
         SQLite[("SQLite index + FTS")]
@@ -174,7 +174,7 @@ flowchart TB
 
 | Technology                | What it is              | Why LemonCrow uses it                                                |
 | --------------------------- | ------------------------- | -------------------------------------------------------------------- |
-| **FastAPI** + **Uvicorn** | ASGI framework + server | The`lcd` daemon, local HTTP API, and badge/insights endpoints |
+| **FastAPI** + **Uvicorn** | ASGI framework + server | The optional standalone HTTP API and badge/insights endpoints |
 
 ### Reliability & supervision
 
