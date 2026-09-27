@@ -32,6 +32,21 @@ from lemoncrow.pro.capabilities.review.provenance import split_files_touched
 # ----- path selectors ------------------------------------------------------ #
 
 
+def test_undecorate_strips_every_selector_a_path_can_carry() -> None:
+    assert _undecorate_lc_path("src/app.py") == "src/app.py"
+    assert _undecorate_lc_path("src/app.py:L10-L14") == "src/app.py"
+    assert _undecorate_lc_path("src/app.py:L10") == "src/app.py"
+    assert _undecorate_lc_path("src/app.py:full") == "src/app.py"
+    assert _undecorate_lc_path("src/app.py:outline") == "src/app.py"
+    assert _undecorate_lc_path("src/app.py:head=50") == "src/app.py"
+    # They stack.
+    assert _undecorate_lc_path("src/app.py:minified:L10-L14") == "src/app.py"
+
+
+def test_undecorate_leaves_a_colon_that_is_part_of_the_name() -> None:
+    assert _undecorate_lc_path("src/weird:name.py") == "src/weird:name.py"
+
+
 # ----- edit projection ----------------------------------------------------- #
 
 
@@ -50,7 +65,36 @@ def test_a_batched_edit_yields_one_record_per_path() -> None:
     assert "whole file" in records[1].diff
 
 
+def test_an_edit_with_no_content_still_records_the_path() -> None:
+    # A structured edit this importer does not model is still a recorded edit;
+    # demoting it to a read would understate authorship.
+    records = _mcp_edit_records({"edits": [{"path": "src/a.py", "symbol": "foo"}]})
+    assert [record.path for record in records] == ["src/a.py"]
+    assert records[0].diff
+
+
+def test_a_malformed_edit_call_yields_nothing_rather_than_raising() -> None:
+    assert _mcp_edit_records({}) == []
+    assert _mcp_edit_records({"edits": "not a list"}) == []
+    assert _mcp_edit_records({"edits": [None, 7, {"path": ""}]}) == []
+
+
+def test_the_diff_is_capped() -> None:
+    records = _mcp_edit_records({"edits": [{"path": "a.py", "new": "x" * 20_000}]})
+    assert len(records[0].diff) <= 4096
+
+
 # ----- read projection ----------------------------------------------------- #
+
+
+def test_reads_are_recorded_as_reads_not_edits() -> None:
+    paths = _mcp_read_paths({"files": ["src/a.py:full", {"path": "src/b.py", "range": "L1-L2"}, 7]})
+    assert paths == ["src/a.py", "src/b.py"]
+
+
+def test_a_malformed_read_call_yields_nothing() -> None:
+    assert _mcp_read_paths({}) == []
+    assert _mcp_read_paths({"files": "src/a.py"}) == []
 
 
 # ----- through the importer ------------------------------------------------ #
@@ -110,34 +154,3 @@ def test_the_correlator_sees_those_edits_on_the_edit_side(store: StoreBundle, tm
 
     assert edits == ("/repo/src/router.py", "/repo/src/service.py")
     assert reads == ("/repo/docs/notes.md",)
-
-
-def test_mcp_path_selector_contract() -> None:
-    for value in [
-        "src/app.py",
-        "src/app.py:L10-L14",
-        "src/app.py:L10",
-        "src/app.py:full",
-        "src/app.py:outline",
-        "src/app.py:head=50",
-        "src/app.py:minified:L10-L14",
-    ]:
-        assert _undecorate_lc_path(value) == "src/app.py"
-    assert _undecorate_lc_path("src/weird:name.py") == "src/weird:name.py"
-
-
-def test_mcp_edit_projection_edge_contract() -> None:
-    records = _mcp_edit_records({"edits": [{"path": "src/a.py", "symbol": "foo"}]})
-    assert [record.path for record in records] == ["src/a.py"] and records[0].diff
-    for malformed in [{}, {"edits": "not a list"}, {"edits": [None, 7, {"path": ""}]}]:
-        assert _mcp_edit_records(malformed) == []
-    capped = _mcp_edit_records({"edits": [{"path": "a.py", "new": "x" * 20_000}]})
-    assert len(capped[0].diff) <= 4096
-
-
-def test_mcp_read_projection_contract() -> None:
-    assert _mcp_read_paths({"files": ["src/a.py:full", {"path": "src/b.py", "range": "L1-L2"}, 7]}) == [
-        "src/a.py",
-        "src/b.py",
-    ]
-    assert _mcp_read_paths({}) == [] and _mcp_read_paths({"files": "src/a.py"}) == []

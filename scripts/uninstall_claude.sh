@@ -44,8 +44,8 @@ CLAUDE_SETTINGS="${CLAUDE_SETTINGS_DIR}/settings.json"
 CLAUDE_LOCAL_SETTINGS="${CLAUDE_SETTINGS_DIR}/settings.local.json"
 CLAUDE_STAGING_DIR="${HOME}/.lemoncrow/claude-plugin"
 
-info()  { echo "[lc:uninstall:claude] $*"; }
-warn()  { echo "[lc:uninstall:claude] WARN: $*" >&2; }
+info()  { echo "[lemoncrow:uninstall:claude] $*"; }
+warn()  { echo "[lemoncrow:uninstall:claude] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 
 # ---- workspace MCP entry ----------------------------------------------------
@@ -119,7 +119,7 @@ else:
 if not hooks:
     data.pop("hooks", None)
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-print("[lc:uninstall:claude] Removed LemonCrow PreToolUse hook from $CLAUDE_SETTINGS")
+print("[lemoncrow:uninstall:claude] Removed LemonCrow PreToolUse hook from $CLAUDE_SETTINGS")
 PYEOF
     fi
 fi
@@ -161,7 +161,7 @@ if removed:
     if not perms:
         data.pop("permissions", None)
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    print(f"[lc:uninstall:claude] Removed {removed} LemonCrow permission entries")
+    print(f"[lemoncrow:uninstall:claude] Removed {removed} LemonCrow permission entries")
 PYEOF
     fi
 fi
@@ -204,10 +204,10 @@ for key in ("statusLine", "subagentStatusLine"):
     first = cmd.split()[0] if cmd else ""
     if isinstance(sl, dict) and (first in ("lc", "lemoncrow") or "lemoncrow" in cmd):
         data.pop(key, None)
-        print(f"[lc:uninstall:claude] Removed LemonCrow {key} from ${CLAUDE_SETTINGS}")
+        print(f"[lemoncrow:uninstall:claude] Removed LemonCrow {key} from ${CLAUDE_SETTINGS}")
 if data.get("agent") == "lemoncrow:code":
     data.pop("agent", None)
-    print("[lc:uninstall:claude] Removed lemoncrow-code default agent from ${CLAUDE_SETTINGS}")
+    print("[lemoncrow:uninstall:claude] Removed lemoncrow-code default agent from ${CLAUDE_SETTINGS}")
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 PYEOF2
     fi

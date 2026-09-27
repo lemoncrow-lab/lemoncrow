@@ -178,7 +178,7 @@ render_host_bundle() {
         cp "$skill_dir/SKILL.md" "$dest_dir/$skill_name/SKILL.md"
     done < <(find "$SKILLS_SRC" -mindepth 1 -maxdepth 1 -type d | sort)
 
-    echo "[lc:skills] generated ${host} bundle -> ${dest_dir}"
+    echo "[lemoncrow:skills] generated ${host} bundle -> ${dest_dir}"
 }
 
 if [[ "$HOST" == "all" ]]; then

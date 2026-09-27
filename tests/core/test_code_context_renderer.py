@@ -3,8 +3,7 @@ from __future__ import annotations
 from lemoncrow.pro.capabilities.code_context.renderer import render_code_payload
 
 
-def test_code_context_search_render_contract() -> None:
-    """case: test_render_search_compact_is_location_only_and_omits_source_fields"""
+def test_render_search_compact_is_location_only_and_omits_source_fields() -> None:
     rendered = render_code_payload(
         "search",
         {
@@ -29,25 +28,44 @@ def test_code_context_search_render_contract() -> None:
             ]
         },
     )
+
     assert rendered is not None
+    # Results are grouped by file: the path is emitted once as a header, then
+    # one indented line per hit (line + symbol, or symbol-only when line == 0).
     assert "- src/pkg/worker.py" in rendered
     assert "  - 12 — pkg.run_command [function]" in rendered
     assert "  - pkg.Worker [class]" in rendered
+    # The full path appears exactly once despite two hits in the same file.
     assert rendered.count("src/pkg/worker.py") == 1
     assert "def run_command(cmd: str)" not in rendered
     assert "class Worker:\n" not in rendered
-    "case: test_render_relations_omit_redundant_target_echo"
+
+
+def test_render_relations_omit_redundant_target_echo() -> None:
     rendered = render_code_payload(
         "callers",
         {
-            "target": {"qualified_name": "orders.export_audit_bundle", "file_path": "src/orders.py", "start_line": 18},
-            "related": [{"qualified_name": "api.create_app", "file_path": "src/api.py", "start_line": 42}],
+            "target": {
+                "qualified_name": "orders.export_audit_bundle",
+                "file_path": "src/orders.py",
+                "start_line": 18,
+            },
+            "related": [
+                {
+                    "qualified_name": "api.create_app",
+                    "file_path": "src/api.py",
+                    "start_line": 42,
+                }
+            ],
         },
     )
+
     assert rendered is not None
     assert "- target:" not in rendered
     assert rendered == "callers\n→ src/api.py:L42 · api.create_app"
-    "case: test_render_symbol_compact_summary_excludes_source_body"
+
+
+def test_render_symbol_compact_summary_excludes_source_body() -> None:
     rendered = render_code_payload(
         "symbol",
         {
@@ -62,6 +80,7 @@ def test_code_context_search_render_contract() -> None:
             "source": "def calculate_total(self, items):\n    total = sum(items)\n    return total\n",
         },
     )
+
     assert rendered is not None
     assert "- id: sym-1" in rendered
     assert "src/orders.py:L20-L32" in rendered
@@ -69,8 +88,7 @@ def test_code_context_search_render_contract() -> None:
     assert "total = sum(items)" not in rendered
 
 
-def test_code_context_full_render_contract() -> None:
-    """case: test_render_context_includes_deterministic_sections_and_caps"""
+def test_render_context_includes_deterministic_sections_and_caps() -> None:
     rendered = render_code_payload(
         "context",
         {
@@ -130,18 +148,22 @@ def test_code_context_full_render_contract() -> None:
             ],
         },
     )
+
     assert rendered is not None
     assert rendered.startswith("## src/auth.py:L10-L14 · Auth.issue_access_token")
     assert "\nentry\n" in rendered
     assert "\nrelated\n" in rendered
     assert "Auth.import_helper" not in rendered
+    # The inlined source symbol is not repeated in the entry navigation tail.
     assert rendered.count("Auth.issue_access_token") == 1
     assert "→ src/auth.py:L20 · Auth.issue_access_log" in rendered
     assert "→ src/auth.py:L30 · Auth.issue_refresh_token" in rendered
     assert "Session.revoke_access_token" in rendered
     assert "[function]" not in rendered
     assert "```python" in rendered
-    "case: test_render_context_deduplicates_inline_symbol_from_navigation"
+
+
+def test_render_context_deduplicates_inline_symbol_from_navigation() -> None:
     payload = {
         "entry_points": [
             {"qualified_name": "svc.run", "file_path": "svc.py", "start_line": 10, "kind": "function"},
@@ -164,9 +186,15 @@ def test_code_context_full_render_contract() -> None:
     assert rendered.count("svc.run") == 1
     assert "→ svc.py:L30 · svc.stop" in rendered
     assert "→ api.py:L8 · api.call" in rendered
-    legacy = "#### entry_points\n- svc.py:L10 — svc.run [function]\n- svc.py:L30 — svc.stop [function]\n#### related_symbols\n- api.py:L8 — api.call [function]\n#### code_blocks\n- svc.run (svc.py:L10-L18)\n```python\ndef run():\n    return 1\n```"
+    legacy = (
+        "#### entry_points\n- svc.py:L10 — svc.run [function]\n- svc.py:L30 — svc.stop [function]\n"
+        "#### related_symbols\n- api.py:L8 — api.call [function]\n"
+        "#### code_blocks\n- svc.run (svc.py:L10-L18)\n```python\ndef run():\n    return 1\n```"
+    )
     assert len(rendered) < len(legacy) * 0.75
-    "case: test_render_index_and_cache_status_compact_summaries"
+
+
+def test_render_index_and_cache_status_compact_summaries() -> None:
     index_rendered = render_code_payload(
         "index",
         {
@@ -192,13 +220,16 @@ def test_code_context_full_render_contract() -> None:
             "last_hit_at": "2026-01-01T00:00:00Z",
         },
     )
+
     assert index_rendered is not None
     assert "counts: files=560, symbols=6200, imports=1400" in index_rendered
     assert "/workspace/hidden" not in index_rendered
     assert cache_rendered is not None
     assert "- tools: code.search=2, code.symbol=1" in cache_rendered
     assert "last_hit_at" not in cache_rendered
-    "case: test_render_blame_compact_summary_and_hunks"
+
+
+def test_render_blame_compact_summary_and_hunks() -> None:
     rendered = render_code_payload(
         "blame",
         {
@@ -227,18 +258,19 @@ def test_code_context_full_render_contract() -> None:
             "provenance": "blame",
         },
     )
+
     assert rendered is not None
     assert "- target: OrderService.calculate_total (src/orders.py:12-20)" in rendered
     assert "- last: abcdef1234 dev@example.com — add total" in rendered
     assert "- hunks (1):" in rendered
     assert "  - 12-16 abcdef1234 dev@example.com" in rendered
     assert "commits=3" in rendered
+    # full 40-char sha and per-hunk key noise are dropped
     assert "abcdef1234567890" not in rendered
     assert "commit_time" not in rendered
 
 
-def test_code_context_navigation_render_contract() -> None:
-    """case: test_render_outline_groups_symbols_and_drops_signature"""
+def test_render_outline_groups_symbols_and_drops_signature() -> None:
     rendered = render_code_payload(
         "outline",
         {
@@ -265,13 +297,17 @@ def test_code_context_navigation_render_contract() -> None:
             },
         },
     )
+
     assert rendered is not None
     assert "- outline: 2 symbols" in rendered
     assert "- src/orders.py" in rendered
     assert "  - 1-10: OrderService [class]" in rendered
     assert "  - 2-5: OrderService.calculate_total [method]" in rendered
+    # signatures are dropped from the outline projection
     assert "def calculate_total" not in rendered
-    "case: test_render_relations_use_compact_pointer_grammar"
+
+
+def test_render_relations_use_compact_pointer_grammar() -> None:
     rendered = render_code_payload(
         "callers",
         {
@@ -283,12 +319,16 @@ def test_code_context_navigation_render_contract() -> None:
             "truncated": True,
         },
     )
-    assert rendered == "callers\n→ jobs/sync.py:L12 · jobs.sync\n→ src/api.py:L42 · api.create; L81 · api.update\n+more"
+    assert rendered == (
+        "callers\n" "→ jobs/sync.py:L12 · jobs.sync\n" "→ src/api.py:L42 · api.create; L81 · api.update\n" "+more"
+    )
     legacy_equivalent = (
-        "- jobs/sync.py\n  - 12 — jobs.sync\n- src/api.py\n  - 42 — api.create\n  - 81 — api.update\n- truncated"
+        "- jobs/sync.py\n  - 12 — jobs.sync\n" "- src/api.py\n  - 42 — api.create\n  - 81 — api.update\n- truncated"
     )
     assert len(rendered) < len(legacy_equivalent)
-    "case: test_render_usages_single_reference_is_one_pointer"
+
+
+def test_render_usages_single_reference_is_one_pointer() -> None:
     rendered = render_code_payload(
         "usages",
         {

@@ -47,7 +47,7 @@ def unified_proposal_patch(
     """Return ``(proposed_text, unified_diff)`` for one exact line replacement."""
 
     proposed = replace_line_range(base_text, start_line, end_line, replacement_text)
-    diff_lines = list(
+    patch = "".join(
         difflib.unified_diff(
             base_text.splitlines(keepends=True),
             proposed.splitlines(keepends=True),
@@ -56,9 +56,4 @@ def unified_proposal_patch(
             n=3,
         )
     )
-    # Lead with a `diff --git` header so @pierre/diffs (the frontend's patch
-    # parser) resolves the real path instead of keeping the a/ b/ prefix in
-    # the parsed filename, which breaks path-keyed annotations and language
-    # detection. Every other patch in the app already carries this header.
-    patch = f"diff --git a/{path} b/{path}\n" + "".join(diff_lines) if diff_lines else ""
     return proposed, patch

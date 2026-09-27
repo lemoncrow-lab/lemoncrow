@@ -18,10 +18,7 @@ fills it in the same turn." Two properties matter and both are enforced here:
 2. **Exactly one retry.** The identical call gets one ``need`` answer. If it
    comes back with the same paths still missing, the client did not fill them
    and a second ``need`` would be an unbounded ping-pong, so the second attempt
-   refuses with a typed, non-retryable ``blob_missing``. The budget belongs to
-   that one miss: once the retry proceeds or is refused, the same call finding
-   content missing later (after another edit, say) earns a fresh ``need``
-   rather than a refusal left over from the earlier miss.
+   refuses with a typed, non-retryable ``blob_missing``.
 
 The replay budget is keyed by ``(session, view, tool, canonical arguments)``,
 which is what "the same turn" means operationally: a different call, or the
@@ -64,7 +61,7 @@ _PATH_ARGS: Final[Mapping[str, tuple[str, ...]]] = {
 #: is deliberately wider than ``_PATH_ARGS``: a path a tool merely reads as
 #: scope or context still resolves on the server's filesystem, so it must be
 #: contained even when no upload could ever satisfy it. Drift is caught by
-#: ``test_registry_dispatch.test_every_path_shaped_argument_is_contained`` (hosted server tests).
+#: ``test_registry_dispatch.test_every_path_shaped_argument_is_contained``.
 _CONTAINMENT_ARGS: Final[Mapping[str, tuple[str, ...]]] = {
     "read": ("files",),
     "code_search": ("paths", "path"),
@@ -320,24 +317,11 @@ class BlobMissGuard:
         reject_unaddressable_paths(invocation.tool, invocation.arguments)
         missing = self.missing_paths(invocation)
         if not missing:
-            with self._lock:
-                pending = bool(self._seen)
-            if pending:
-                # The fill, if there was one, worked. The next time this same
-                # call finds content missing is a new miss and earns its own
-                # ``need`` -- not a refusal left over from this one.
-                key = (invocation.tenant.session_id, call_key(invocation))
-                with self._lock:
-                    self._seen.pop(key, None)
             return None
         key = (invocation.tenant.session_id, call_key(invocation))
         with self._lock:
-            # One ``need`` per miss: the retry that follows it either proceeds
-            # or is refused, and either way the slot is freed for the next miss.
             already = key in self._seen
-            if already:
-                del self._seen[key]
-            else:
+            if not already:
                 self._seen[key] = None
                 while len(self._seen) > _MAX_TRACKED_KEYS:
                     self._seen.popitem(last=False)

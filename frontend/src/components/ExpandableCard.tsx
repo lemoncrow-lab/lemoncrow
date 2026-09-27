@@ -1,4 +1,3 @@
-import { Button as UiButton } from "./ui/button";
 interface ExpandableCardProps {
   id: string;
   icon: string;
@@ -28,37 +27,37 @@ export function ExpandableCard({
 }: ExpandableCardProps) {
   return (
     <div
-      className="border border-border bg-muted/50 overflow-hidden transition-all duration-200"
+      className="border border-neutral-800 bg-neutral-900/50 overflow-hidden transition-all duration-200"
       style={{
         borderRadius: 0,
       }}
     >
       {/* Header */}
-      <UiButton unstyled
+      <button
         onClick={() => onToggle?.(id)}
-        className="w-full px-5 py-4 text-left hover:bg-accent/50 transition-colors flex items-start justify-between group"
+        className="w-full px-5 py-4 text-left hover:bg-neutral-800/50 transition-colors flex items-start justify-between group"
       >
         <div className="flex-1 flex items-start gap-4 min-w-0">
           {/* Icon */}
-          <div className="text-h3 flex-shrink-0 mt-0.5">{icon}</div>
+          <div className="text-2xl flex-shrink-0 mt-0.5">{icon}</div>
 
           {/* Title & Subtitle */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3 mb-1">
               {/* Expandable indicator */}
               <span
-                className={`text-amber-300 font-mono text-body transition-transform ${
+                className={`text-amber-300 font-mono text-xs transition-transform ${
                   isExpanded ? "rotate-90" : ""
                 }`}
               >
                 ❯
               </span>
-              <h3 className="font-semibold text-foreground text-heading">
+              <h3 className="font-mono font-bold text-neutral-200 text-sm">
                 {title}
               </h3>
               {status && (
                 <span
-                  className={`text-caption px-2 py-0.5 font-mono font-semibold uppercase tracking-wide ${
+                  className={`text-[10px] px-2 py-0.5 font-mono font-bold uppercase tracking-wide ${
                     statusColors[status]
                   }`}
                 >
@@ -67,18 +66,18 @@ export function ExpandableCard({
               )}
             </div>
             {subtitle && (
-              <p className="font-mono text-label text-muted-foreground truncate">
+              <p className="font-mono text-[11px] text-neutral-400 truncate">
                 {subtitle}
               </p>
             )}
           </div>
         </div>
-      </UiButton>
+      </button>
 
       {/* Expanded Content */}
       {isExpanded && (
-        <div className="border-t border-border bg-background/50 px-5 py-4">
-          <div className="space-y-4 font-mono text-heading text-subtle">
+        <div className="border-t border-neutral-800 bg-neutral-950/50 px-5 py-4">
+          <div className="space-y-4 font-mono text-sm text-neutral-300">
             {children}
           </div>
         </div>

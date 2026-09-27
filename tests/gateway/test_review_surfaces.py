@@ -1,16 +1,12 @@
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
-import threading
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from lemoncrow.pro.capabilities.review import runtimes as review_runtimes
 from lemoncrow.pro.capabilities.review import sandbox_limits
 from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range
 from lemoncrow.pro.capabilities.review.packet import build_review_packet_with_blobs
@@ -170,7 +166,7 @@ def test_setup_ignores_generated_and_archived_web_projects(tmp_path: Path) -> No
     real = tmp_path / "frontend"
     real.mkdir()
     (real / "package.json").write_text(json.dumps({"dependencies": {"next": "16"}}))
-    for ignored in ("deleted", "archive", ".next-review", ".claude", ".lc-worktrees", ".lemoncrow"):
+    for ignored in ("deleted", "archive", ".next-review", ".lc-worktrees", ".lemoncrow"):
         generated = tmp_path / ignored / "nested"
         generated.mkdir(parents=True)
         (generated / "package.json").write_text(json.dumps({"dependencies": {"next": "16"}}))
@@ -181,10 +177,9 @@ def test_setup_ignores_generated_and_archived_web_projects(tmp_path: Path) -> No
 
 def test_setup_ignores_internal_worktrees_for_runtime_detection(tmp_path: Path) -> None:
     (tmp_path / "compose.yml").write_text("services:\n  app:\n    image: fixture\n")
-    for internal in (".lc-worktrees", ".claude/worktrees"):
-        hidden = tmp_path / internal / "other"
-        hidden.mkdir(parents=True)
-        (hidden / "compose.yml").write_text("services:\n  duplicate:\n    image: fixture\n")
+    hidden = tmp_path / ".lc-worktrees" / "other"
+    hidden.mkdir(parents=True)
+    (hidden / "compose.yml").write_text("services:\n  duplicate:\n    image: fixture\n")
 
     candidates = DockerComposeRunner().setup_candidates(tmp_path)
     assert len(candidates) == 1
@@ -477,11 +472,10 @@ def test_docker_compose_runner_validates_frozen_runtime_without_starting_service
         calls.append(command)
         return subprocess.CompletedProcess(command, 0, stdout="app\n")
 
-    monkeypatch.setattr("sys.platform", "linux")
     monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.materialize_review_side", materialize)
     monkeypatch.setattr(
         "lemoncrow.pro.capabilities.review.runtimes.shutil.which",
-        lambda name: {"docker-compose": "/usr/bin/docker-compose", "bwrap": "/usr/bin/bwrap"}.get(name),
+        lambda name: "/usr/bin/docker-compose" if name == "docker-compose" else None,
     )
     monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.subprocess.run", run)
 
@@ -501,78 +495,12 @@ def test_docker_compose_runner_validates_frozen_runtime_without_starting_service
 
     assert materialized == ["new", "new"]
     assert len(calls) == 2
-    assert all(call[0] == "/usr/bin/bwrap" and "--unshare-all" in call for call in calls)
-    assert all("/usr/bin/docker-compose" in call for call in calls)
+    assert all(call[0] == "/usr/bin/docker-compose" for call in calls)
     assert all(call[-2:] == ["config", "--services"] for call in calls)
     assert all("up" not in call for call in calls)
 
 
-def test_docker_compose_validation_refuses_to_run_without_a_sandbox(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("sys.platform", "linux")
-    monkeypatch.setattr(
-        "lemoncrow.pro.capabilities.review.runtimes.shutil.which",
-        lambda name: "/usr/bin/docker-compose" if name == "docker-compose" else None,
-    )
-
-    def run(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        raise AssertionError("reviewed compose files must never be parsed unsandboxed")
-
-    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.subprocess.run", run)
-    context = SimpleNamespace(repo_root=tmp_path, store_root=tmp_path / "store", source_root=None, store=None)
-    runtime = review_runtimes.RuntimeConfigEntry("stack", "docker-compose", {"compose": ["compose.yml"]})
-    surface = SimpleNamespace(id="app", provider="service", kind="service", metadata={"service": "app"})
-
-    result = DockerComposeRunner().run(context, runtime, surface, side="new")  # type: ignore[arg-type]
-
-    assert result.status == "unavailable"
-    assert "bubblewrap" in result.summary
-
-
-@pytest.mark.skipif(
-    not (shutil.which("docker") or shutil.which("docker-compose")) or not shutil.which("bwrap"),
-    reason="requires Docker Compose and bubblewrap",
-)
-def test_docker_compose_validation_cannot_read_host_files_outside_the_snapshot(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The reviewed compose file is parsed sandboxed: an ``include`` of a host path fails."""
-
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    (outside / "compose.yaml").write_text("services:\n  leaked:\n    image: fixture\n")
-    context = SimpleNamespace(
-        repo_root=tmp_path / "repo",
-        store_root=tmp_path / "store",
-        source_root=None,
-        store=None,
-        revision=SimpleNamespace(review_id="review", id="revision"),
-    )
-
-    def materialize(*_args: object, target: Path, **_kwargs: object) -> str:
-        target.mkdir(parents=True, exist_ok=True)
-        (target / "compose.yml").write_text(
-            f"include:\n  - path: {outside / 'compose.yaml'}\nservices:\n  app:\n    image: fixture\n"
-        )
-        (target / "ok.yml").write_text("services:\n  app:\n    image: fixture\n")
-        return "identity"
-
-    monkeypatch.setattr(review_runtimes, "materialize_review_side", materialize)
-    surface = SimpleNamespace(id="app", provider="service", kind="service", metadata={"service": "app"})
-
-    escaping = review_runtimes.RuntimeConfigEntry("stack", "docker-compose", {"compose": ["compose.yml"]})
-    result = DockerComposeRunner().run(context, escaping, surface, side="new")  # type: ignore[arg-type]
-    assert "leaked" not in result.data.get("services", ())
-    assert result.status == "failed", result.summary
-
-    plain = review_runtimes.RuntimeConfigEntry("plain", "docker-compose", {"compose": ["ok.yml"]})
-    result = DockerComposeRunner().run(context, plain, surface, side="new")  # type: ignore[arg-type]
-    assert result.status == "passed", result.output or result.summary
-
-
 def test_command_runner_refuses_to_execute_without_sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("sys.platform", "linux")
     (tmp_path / ".lemoncrow").mkdir()
     (tmp_path / ".lemoncrow" / "review.yaml").write_text(
         "version: 1\n"
@@ -593,7 +521,6 @@ def test_command_runner_refuses_to_execute_without_sandbox(tmp_path: Path, monke
 def test_command_runner_uses_frozen_snapshot_and_networkless_bubblewrap(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("sys.platform", "linux")
     (tmp_path / ".lemoncrow").mkdir()
     (tmp_path / ".lemoncrow" / "review.yaml").write_text(
         "version: 1\n"
@@ -664,24 +591,11 @@ def test_command_runner_uses_frozen_snapshot_and_networkless_bubblewrap(
     ]
     assert "/workspace/backend" in command
     assert command[-4:] == ["python", "-m", "pytest", "-q"]
-    # Trust T3 item 1: the probe read before dispatch for this command names the executor
-    # environment this run recorded (what actually ran), and the local registry carries that probe.
-    from lemoncrow.pro.capabilities.review.execution import ExecutionResult
-    from lemoncrow.pro.capabilities.review.runtimes import built_in_runner_registry, command_environment
-
-    fingerprint = ExecutionResult.from_wire(result.data["execution"]).fingerprint
-    recorded = fingerprint.executor_digest
-    assert recorded.startswith("envx:sha256:") and command_environment(["python", "-m", "pytest", "-q"]) == recorded
-    assert fingerprint.executables[0].name == "python" and fingerprint.executables[0].path.startswith("/usr/")
-    assert fingerprint.kernel and fingerprint.version == 2
-    assert built_in_runner_registry(include_entrypoints=False).environment_probe is command_environment
-    assert RunnerRegistry((CommandRunner(),)).environment_probe is None
 
 
 def test_http_service_runner_executes_api_surface_inside_isolated_loopback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("sys.platform", "linux")
     (tmp_path / ".lemoncrow").mkdir()
     (tmp_path / ".lemoncrow" / "review.yaml").write_text(
         "version: 1\n"
@@ -766,160 +680,3 @@ def test_http_service_runner_executes_api_surface_inside_isolated_loopback(
     ]
     assert "{{baseUrl}}" not in " ".join(command)
     assert "/api/hello?name=Ada" in " ".join(command)
-
-
-def test_concurrent_runs_of_one_runtime_side_never_replace_each_others_workspace(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # The Reader runs an API surface and, a moment later, the impact ranking
-    # runs the same runtime, surface and side. Each run re-materializes one
-    # fixed workspace (rmtree + write): the second deleted the tree the first
-    # service was starting from ("service exited before health check").
-    monkeypatch.setattr("sys.platform", "linux")
-    (tmp_path / ".lemoncrow").mkdir()
-    (tmp_path / ".lemoncrow" / "review.yaml").write_text(
-        "version: 1\n"
-        "runtimes:\n"
-        "  - id: api-runtime\n"
-        "    runner: http-service\n"
-        "    root: backend\n"
-        "    command: [python3, app.py]\n"
-        "surfaces:\n"
-        "  - id: api\n"
-        "    provider: bruno\n"
-        "    collection: bruno\n"
-        "    runtime: api-runtime\n"
-        "    watch: [backend/**]\n"
-    )
-    (tmp_path / "bruno").mkdir()
-    (tmp_path / "bruno" / "Hello.bru").write_text("meta {\n  name: Hello\n}\nget {\n  url: {{baseUrl}}/api/hello\n}\n")
-    context = SurfaceContext(
-        tmp_path,
-        tmp_path / "store",
-        _revision(),
-        ("bruno/Hello.bru", "backend/app.py"),
-        load_review_surface_config(tmp_path),
-    )
-    surface = BrunoSurfaceProvider().discover(context)[0]
-
-    def materialize(_store: Path, _repo: Path, _revision: object, *, target: Path, **_kwargs: object) -> str:
-        # What the real one does: replace the target tree.
-        if target.exists():
-            shutil.rmtree(target)
-        (target / "backend").mkdir(parents=True)
-        (target / "backend" / "app.py").write_text("print('fixture')\n")
-        return "new"
-
-    running = 0
-    overlapped: list[bool] = []
-    lock = threading.Lock()
-    second_lock_attempt = threading.Event()
-    lock_attempts = [0]
-    original_run_file_lock = review_runtimes.RunFileLock
-
-    class ObservedRunFileLock:
-        def __init__(self, path: Path) -> None:
-            self._inner = original_run_file_lock(path)
-
-        def __enter__(self) -> object:
-            with lock:
-                lock_attempts[0] += 1
-                if lock_attempts[0] == 2:
-                    second_lock_attempt.set()
-            return self._inner.__enter__()
-
-        def __exit__(self, exc_type: object, exc: object, tb: object) -> object:
-            return self._inner.__exit__(exc_type, exc, tb)
-
-    def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        nonlocal running
-        with lock:
-            ordinal = len(overlapped)
-            running += 1
-            overlapped.append(running > 1)
-        if ordinal == 0:
-            assert second_lock_attempt.wait(timeout=5), "second run never attempted the workspace lock"
-        app = Path(str(kwargs["cwd"])) / "backend" / "app.py"
-        present = app.is_file()
-        with lock:
-            running -= 1
-        body = '{"status_code":200,"headers":{},"body":"ok","truncated":false,"duration_ms":1}\n'
-        return subprocess.CompletedProcess(
-            command, 0 if present else 2, stdout=body if present else "server.py missing"
-        )
-
-    monkeypatch.setattr(review_runtimes, "RunFileLock", ObservedRunFileLock)
-    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.materialize_review_side", materialize)
-    monkeypatch.setattr(
-        "lemoncrow.pro.capabilities.review.runtimes.shutil.which",
-        lambda name: "/usr/bin/bwrap" if name == "bwrap" else None,
-    )
-    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.subprocess.run", run)
-
-    registry = RunnerRegistry((HttpServiceRunner(),))
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(lambda _: registry.run(context, surface, side="new"), range(2)))
-
-    assert [result.status for result in results] == ["passed", "passed"]
-    assert overlapped == [False, False]
-
-
-def test_runner_materializes_a_side_without_frozen_tree_from_the_source_checkout(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("sys.platform", "linux")
-    # A Snapshot with no frozen tree (captured in the server, or before its
-    # capture finished) is discovered from a materialized side, which is not a
-    # git checkout. The runner must build its old side from the checkout, not
-    # from that tree ("not a git repository").
-    source = tmp_path / "source"
-    (source / "backend").mkdir(parents=True)
-    subprocess.run(["git", "init", "-b", "main"], cwd=source, check=True, capture_output=True)
-    subprocess.run(["git", "config", "user.name", "Fixture Tester"], cwd=source, check=True)
-    subprocess.run(["git", "config", "user.email", "fixture@example.invalid"], cwd=source, check=True)
-    (source / ".lemoncrow").mkdir()
-    (source / ".lemoncrow" / "review.yaml").write_text(
-        "version: 1\n"
-        "runtimes:\n  - id: checks\n    runner: command\n    root: backend\n    command: [python3, check.py]\n"
-        "surfaces:\n  - id: checks\n    provider: service\n    runtime: checks\n    services: [tests]\n"
-    )
-    (source / "backend" / "check.py").write_text("print('before')\n")
-    subprocess.run(["git", "add", "."], cwd=source, check=True)
-    subprocess.run(["git", "commit", "-m", "baseline"], cwd=source, check=True, capture_output=True)
-    (source / "backend" / "check.py").write_text("print('after')\n")
-    subprocess.run(["git", "commit", "-am", "change"], cwd=source, check=True, capture_output=True)
-
-    store = ReviewStore(tmp_path / "store")
-    rng = resolve_rev_range(source, base="HEAD~1", head="HEAD")
-    session = open_or_create_session(store, source, rng)
-    build = build_review_packet_with_blobs(source, rng, store_root=store.root, with_impact=False, with_provenance=False)
-    revision = record_revision(store, session, source, rng, store_root=store.root, build=build).revision
-    assert store.read_source_tree_artifact(session.id, revision.id, side="old") is None
-    discovered = tmp_path / "materialized-old"
-    materialize_review_side(store.root, source, revision, side="old", target=discovered, store=store)
-    context = SurfaceContext(
-        repo_root=discovered,
-        store_root=store.root,
-        revision=revision,
-        changed_paths=("backend/check.py",),
-        config=load_review_surface_config(discovered),
-        store=store,
-        source_root=source,
-    )
-    surface = ServiceSurfaceProvider().discover(context)[0]
-    ran: list[str] = []
-
-    def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        ran.append((Path(str(kwargs["cwd"])) / "backend" / "check.py").read_text())
-        return subprocess.CompletedProcess(command, 0, stdout="before\n")
-
-    monkeypatch.setattr(
-        "lemoncrow.pro.capabilities.review.runtimes.shutil.which",
-        lambda name: "/usr/bin/bwrap" if name == "bwrap" else None,
-    )
-    monkeypatch.setattr("lemoncrow.pro.capabilities.review.runtimes.subprocess.run", run)
-
-    result = RunnerRegistry((CommandRunner(),)).run(context, surface, side="old")
-
-    assert result.status == "passed", result.summary
-    assert ran == ["print('before')\n"]

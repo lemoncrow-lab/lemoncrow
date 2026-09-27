@@ -39,7 +39,7 @@ def test_frontend_watchdog_profile_config_returns_runtime_payload(tmp_path: Path
     payload = frontend_watchdog_profile_config(root)
 
     assert payload["active_profile"] == "coding"
-    assert payload["runtime_wired"] is False
+    assert payload["runtime_wired"] is True
     assert payload["profiles"]
     assert payload["library"]
     assert active_watchdog_weights(root)["repeated_command_failure"] > 0

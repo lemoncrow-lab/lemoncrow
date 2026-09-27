@@ -26,30 +26,6 @@ _MAX_BODY_BYTES = 4 * 1024 * 1024
 _DEFAULT_TIMEOUT = 30
 
 
-class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
-    """urllib copies ``Authorization`` onto any redirect target, even another host."""
-
-    def redirect_request(self, *_args: Any, **_kwargs: Any) -> None:
-        return None  # surfaces the 3xx as an HTTPError instead of following it
-
-
-def _local_service_key(base_url: str) -> str | None:
-    """The key ``lc service start`` minted, only for a loopback service URL."""
-
-    host = (urllib.parse.urlsplit(base_url).hostname or "").lower()
-    if host not in {"127.0.0.1", "localhost", "::1"}:
-        return None  # never send the local key to another machine
-    try:
-        from lemoncrow.core.service.config import service_token_path
-
-        path = service_token_path()
-        if path.lstat().st_mode & 0o077:
-            return None
-        return path.read_text(encoding="utf-8").strip() or None
-    except (ImportError, OSError, UnicodeError):
-        return None
-
-
 class ServiceTransport:
     """Synchronous HTTP transport for the LemonCrow service API.
 
@@ -69,13 +45,9 @@ class ServiceTransport:
         base = base_url or os.environ.get("LEMONCROW_SERVICE_URL") or "http://localhost:8787"
         self._base = base.rstrip("/")
         # Never log or expose the key.
-        self._api_key: str | None = api_key or os.environ.get("LEMONCROW_API_KEY") or _local_service_key(self._base)
+        self._api_key: str | None = api_key or os.environ.get("LEMONCROW_API_KEY") or None
         self._timeout = timeout
         self._ssl_ctx = ssl.create_default_context()
-        self._opener = urllib.request.build_opener(
-            urllib.request.HTTPSHandler(context=self._ssl_ctx),
-            _RefuseRedirects(),
-        )
 
     # ------------------------------------------------------------------ #
     # Internal helpers                                                    #
@@ -95,7 +67,7 @@ class ServiceTransport:
 
         req = urllib.request.Request(url, data=data, headers=headers, method=method)
         try:
-            with self._opener.open(req, timeout=self._timeout) as resp:
+            with urllib.request.urlopen(req, timeout=self._timeout, context=self._ssl_ctx) as resp:
                 raw = resp.read(_MAX_BODY_BYTES)
                 return json.loads(raw)
         except urllib.error.HTTPError as exc:

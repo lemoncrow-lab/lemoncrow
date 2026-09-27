@@ -9,16 +9,16 @@ export const LONG_OUTPUT_THRESHOLD = 400; // chars
 // --- Host detection ---
 
 export const HOST_COLORS: Record<string, string> = {
-  lc: "bg-muted/40 text-subtle border-border/50",
+  lc: "bg-brand-900/40 text-brand-300 border-brand-700/50",
   claude: "bg-violet-900/40 text-violet-300 border-violet-700/50",
-  gemini: "bg-cyan-900/40 text-cyan-300 border-cyan-700/50",
-  copilot: "bg-cyan-900/40 text-cyan-300 border-cyan-700/50",
-  codex: "bg-emerald-900/40 text-emerald-300 border-emerald-700/50",
-  opencode: "bg-violet-900/40 text-violet-300 border-violet-700/50",
-  lemoncode: "bg-amber-900/40 text-amber-300 border-amber-700/50",
+  gemini: "bg-blue-900/40 text-blue-300 border-blue-700/50",
+  copilot: "bg-sky-900/40 text-sky-300 border-sky-700/50",
+  codex: "bg-teal-900/40 text-teal-300 border-teal-700/50",
+  opencode: "bg-indigo-900/40 text-indigo-300 border-indigo-700/50",
+  lemoncode: "bg-yellow-900/40 text-yellow-300 border-yellow-700/50",
 };
 
-export function extractHost(trace: Pick<Trace, "agent" | "host" | "id"> | string): string {
+export function extractHost(trace: Trace | string): string {
   const agent = typeof trace === "string" ? trace : trace.agent;
   const host = typeof trace === "string" ? null : trace.host;
   const id = typeof trace === "string" ? "" : trace.id;

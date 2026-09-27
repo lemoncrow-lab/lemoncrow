@@ -312,9 +312,7 @@ def _model_weights(models_used: dict[str, int], started_model: str | None) -> li
     return sorted(usable.items(), key=lambda item: (-item[1], item[0]))
 
 
-def rows_from_run_file(
-    run_path: Path, root: Path, *, snapshot: dict[str, Any] | None = None, since: datetime | None = None
-) -> list[UsageRow]:
+def rows_from_run_file(run_path: Path, root: Path) -> list[UsageRow]:
     """Return every row recorded by one ``run.json``, or ``[]`` if unreadable.
 
     A session that used more than one model yields one row per model with the
@@ -324,34 +322,14 @@ def rows_from_run_file(
     by measured tokens, which the ledger does not record per model.
     """
 
-    from lemoncrow.infra.runtime.session_report import _parse_dt, build_report
+    from lemoncrow.infra.runtime.session_report import build_report
 
-    if snapshot is None:
-        try:
-            snapshot = json.loads(run_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError, ValueError):
-            return []
+    try:
+        snapshot: dict[str, Any] = json.loads(run_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return []
     if not isinstance(snapshot, dict):
         return []
-    if since is not None:
-        # Price only in-window calls, including resumed sessions. Legacy calls
-        # without a timestamp retain their session's creation timestamp.
-        calls = (snapshot.get("cost") or {}).get("calls") or []
-        kept = [
-            call
-            for call in calls
-            if (_parse_dt(call.get("at") or snapshot.get("created_at")) or UNKNOWN_STARTED_AT) >= since
-        ]
-        if calls and not kept:
-            return []
-        snapshot = dict(snapshot)
-        snapshot["cost"] = dict(snapshot.get("cost") or {})
-        snapshot["cost"]["calls"] = kept
-        if calls:
-            snapshot["cost"]["total_cost_usd"] = sum(float(call.get("cost_usd") or 0) for call in kept)
-            times = [str(call.get("at") or snapshot.get("created_at") or "") for call in kept]
-            snapshot["created_at"] = min(times)
-            snapshot["events"] = []
     try:
         # include_carry_credit=False is not a default to inherit: True costs a
         # per-session transcript scan, and this runs once per session on disk.
@@ -359,7 +337,7 @@ def rows_from_run_file(
     except Exception:
         return []
 
-    session_id = report.session_id or run_path.parent.name
+    session_id = run_path.parent.name or report.session_id
     if not session_id:
         return []
     host = host_from_run_path(run_path)
@@ -718,21 +696,19 @@ def collect_usage_rows(
     after sorting, so it always returns the newest N.
     """
 
-    from lemoncrow.infra.runtime.session_report import list_run_snapshots
+    from lemoncrow.infra.runtime.session_report import list_run_files
 
     root = Path(root)
     since_utc = normalize_utc(since)
 
     by_key: dict[tuple[str, str], UsageRow] = {}
     try:
-        run_files = list_run_snapshots(root, since=since_utc)
+        run_files = list_run_files(root, since=since_utc)
     except OSError:
         run_files = []
-    for run_path, snapshot in run_files:
-        for row in rows_from_run_file(run_path, root, snapshot=snapshot, since=since_utc):
-            # Empty hook scaffolding must not suppress a trace with real usage.
-            if row.total_tokens > 0 or (row.cost_usd is not None and row.cost_usd > 0):
-                by_key.setdefault((row.session_id, row.model), row)
+    for run_path in run_files:
+        for row in rows_from_run_file(run_path, root):
+            by_key.setdefault((row.session_id, row.model), row)
 
     detail = load_trace_facts(root, since=since_utc)
     ledger_sessions = {session_id for session_id, _model in by_key}
@@ -768,11 +744,12 @@ def collect_usage_rows(
 def collect_rows_for_session(root: Path, session_id: str) -> list[UsageRow]:
     """Return canonical usage rows for exactly one session.
 
-    Date partitions are merged before pricing. Trace fallback is filtered by
-    session id so usage from another session cannot be attributed here.
+    The ledger lookup stays O(1) by session id. When there is no ledger, the
+    SQLite token projection is filtered by session id so every trace in that
+    session is included without walking unrelated session directories.
     """
 
-    from lemoncrow.infra.runtime.session_report import list_run_snapshots
+    from lemoncrow.core.foundation.paths import find_session_dir, flat_session_dir
 
     root = Path(root)
     wanted = str(session_id).strip()
@@ -780,9 +757,11 @@ def collect_rows_for_session(root: Path, session_id: str) -> list[UsageRow]:
         return []
 
     rows: list[UsageRow] = []
-    for run_path, snapshot in list_run_snapshots(root, session_id=wanted):
-        rows = rows_from_run_file(run_path, root, snapshot=snapshot)
-        break
+    session_root = find_session_dir(root, wanted) or flat_session_dir(root, wanted)
+    if session_root is not None:
+        run_path = session_root / "run.json"
+        if run_path.exists():
+            rows = rows_from_run_file(run_path, root)
 
     detail = load_trace_facts(root)
     facts = detail.get(wanted)

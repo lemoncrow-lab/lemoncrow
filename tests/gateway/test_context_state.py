@@ -12,6 +12,14 @@ import pytest
 from lemoncrow.gateway.hosts import context_state as cs
 
 
+def test_unknown_host_returns_zero() -> None:
+    assert cs.host_context_state("mystery-host", "s1") == (0, "")
+
+
+def test_empty_session_id_returns_zero() -> None:
+    assert cs.host_context_state("claude", "") == (0, "")
+
+
 def test_claude_dispatches_to_core_probe(monkeypatch: pytest.MonkeyPatch) -> None:
     from lemoncrow.core.capabilities import savings_summary as ss
 
@@ -242,8 +250,3 @@ def test_copilot_probe_output_only_session_returns_unknown(tmp_path: Path) -> No
         [{"type": "assistant.message", "data": {"outputTokens": 50}}],
     )
     assert cs._copilot_probe("cop-3", root=tmp_path) == (0, "")
-
-
-def test_invalid_context_probe_inputs_return_unknown() -> None:
-    assert cs.host_context_state("mystery-host", "s1") == (0, "")
-    assert cs.host_context_state("claude", "") == (0, "")

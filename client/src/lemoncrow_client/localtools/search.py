@@ -38,10 +38,6 @@ _MAX_READ_LINES: Final[int] = 4_000
 
 #: The read tool's range token (``L10-L20``, ``10-20``, ``L10``, ``L10-``).
 _RANGE_RE: Final[re.Pattern[str]] = re.compile(r"^L?(?P<start>\d+)(?:-L?(?P<end>\d*))?$", re.IGNORECASE)
-#: Near-miss spellings agents send for ``L10-L20``: ``10:20``, ``10..20``, ``L10, 20``.
-_LOOSE_RANGE_RE: Final[re.Pattern[str]] = re.compile(
-    r"^L?(?P<start>\d+)\s*(?:(?:-|:|,|\.\.)\s*L?(?P<end>\d+))?$", re.IGNORECASE
-)
 
 _TRUE: Final[frozenset[str]] = frozenset({"1", "true", "yes", "on"})
 _FALSE: Final[frozenset[str]] = frozenset({"0", "false", "no", "off", ""})
@@ -63,7 +59,7 @@ def run_grep(context: LocalContext, arguments: Mapping[str, Any]) -> LocalResult
 
     args = remap_aliases(arguments, GREP_PARAM_ALIASES)
     regex = _optional_text(args.get("regex"))
-    hooks = SearchHooks(universe=_universe(context.repo_root), spill=_spill_to())
+    hooks = SearchHooks(universe=_universe(context.repo_root), spill=_spill_to(context.config.state_dir))
     try:
         payload = search_workspace(
             path=_optional_text(args.get("path")) or ".",
@@ -126,12 +122,12 @@ def _universe(repo_root: Path) -> Callable[[Path], frozenset[Path]]:
     return build
 
 
-def _spill_to() -> Callable[[dict[str, Any]], Path | None]:
+def _spill_to(state_dir: Path) -> Callable[[dict[str, Any]], Path | None]:
     def spill(payload: dict[str, Any]) -> Path | None:
         from .shell import spill_text
 
         text = json.dumps(payload, ensure_ascii=False, indent=2)
-        return spill_text(text, kind="search", suffix=".json")
+        return spill_text(text, state_dir, kind="search", suffix=".json")
 
     return spill
 
@@ -202,41 +198,17 @@ def _read_searchable(path: Path) -> str | None:
 # --------------------------------------------------------------------------- #
 
 
-def _range_spelling(raw: object) -> str | None:
-    """A ``range`` value as ``L10-L20``, accepting the unambiguous near misses.
-
-    ``[10, 20]``, ``10`` and ``"10:20"`` name exactly one span, so they are
-    read as it rather than refused. Anything else passes through unchanged for
-    :func:`_slice` to refuse with the canonical spelling.
-    """
-    if raw is None or raw == "":
-        return None
-    if isinstance(raw, int) and not isinstance(raw, bool):
-        return f"L{raw}"
-    if isinstance(raw, (list, tuple)) and 1 <= len(raw) <= 2:
-        bounds = [_optional_int(value, None) for value in raw]
-        if all(bound is not None for bound in bounds):
-            return f"L{bounds[0]}" if len(bounds) == 1 else f"L{bounds[0]}-L{bounds[1]}"
-    spelled = str(raw).strip()
-    if _RANGE_RE.match(spelled):
-        return spelled
-    loose = _LOOSE_RANGE_RE.match(spelled)
-    if loose is not None:
-        end = loose.group("end")
-        return f"L{loose.group('start')}-L{end}" if end else f"L{loose.group('start')}"
-    return spelled
-
-
 def _entry_spec(raw: object) -> tuple[str, str | None, int | None, int | None]:
     """``(path, range, head, tail)`` for one ``files[]`` entry, in the read tool's grammar."""
     from ..kit.read_path import split_file_opts
 
     if isinstance(raw, Mapping):
         path = str(raw.get("path") or raw.get("file_path") or raw.get("filePath") or "")
+        spelled_range = raw.get("range")
         head = raw.get("lines", raw.get("max_lines"))
         return (
             path,
-            _range_spelling(raw.get("range")),
+            str(spelled_range) if spelled_range not in (None, "") else None,
             _optional_int(head, None),
             _optional_int(raw.get("tail"), None),
         )
@@ -291,9 +263,7 @@ def read_from_disk(context: LocalContext, arguments: Mapping[str, Any]) -> Local
             action=AgentAction.RETRY_LATER,
         )
     raw_files = arguments.get("files")
-    if raw_files is None and any(k in arguments for k in ("path", "file_path", "filePath")):
-        raw_files = [dict(arguments)]
-    elif isinstance(raw_files, (str, Mapping)):
+    if isinstance(raw_files, (str, Mapping)):
         raw_files = [raw_files]
     if not isinstance(raw_files, Sequence) or not raw_files:
         raise ClientError(
@@ -320,7 +290,7 @@ def read_from_disk(context: LocalContext, arguments: Mapping[str, Any]) -> Local
         blocks.append(f"## {label}\n{numbered}")
     return LocalResult(
         content=({"type": "text", "text": "\n\n".join(blocks)},),
-        degraded=False,
-        degraded_reason="",
+        degraded=True,
+        degraded_reason="server_unreachable:read_from_disk",
         structured={"files": len(blocks), "source": "disk"},
     )

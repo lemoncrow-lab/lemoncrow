@@ -1,5 +1,4 @@
-import { act, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import ReviewAskDrawer from "./ReviewAskDrawer";
@@ -7,11 +6,9 @@ import * as api from "./reviewApi";
 import type { ReviewAskMessage } from "./types";
 
 vi.mock("./reviewApi", () => ({
-  createReviewAskConversation: vi.fn(),
   fetchReviewAsk: vi.fn(),
   streamReviewAsk: vi.fn(),
   sendReviewAskHandoff: vi.fn(),
-  uploadReviewEvidence: vi.fn(),
 }));
 
 function message(overrides: Partial<ReviewAskMessage> = {}): ReviewAskMessage {
@@ -114,10 +111,8 @@ describe("ReviewAskDrawer", () => {
       side: "new",
       start_line: 84,
       end_line: 131,
-    }, expect.any(Function), expect.any(AbortSignal)));
+    }, expect.any(Function)));
     expect(await screen.findByText(/coordinator keeps live runtime state/i)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Copy prompt" })).toBeTruthy();
-    expect(screen.queryByText("Enter to send · Shift+Enter for newline")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Authenticator · lines 84–131" }));
     expect(onOpenReference).toHaveBeenCalledWith(expect.objectContaining({
@@ -126,64 +121,6 @@ describe("ReviewAskDrawer", () => {
       end_line: 131,
     }));
     expect(screen.queryByRole("button", { name: /Send change/i })).toBeNull();
-  });
-
-  it("opens recent Ask conversations in place and starts a clean conversation", async () => {
-    const firstHuman = message({
-      id: "first-human", role: "human", body: "Why does this token refresh twice?", conversation_id: "conv-1",
-      created_at: "2026-10-05T16:00:00+00:00",
-    });
-    const firstAnswer = message({ id: "first-answer", body: "Because both paths call refresh.", conversation_id: "conv-1" });
-    const secondHuman = message({
-      id: "second-human", role: "human", body: "Could this cache race?", conversation_id: "conv-2",
-      created_at: "2026-10-05T17:00:00+00:00",
-    });
-    const secondAnswer = message({ id: "second-answer", body: "Yes, under concurrent replacement.", conversation_id: "conv-2" });
-    const conversations = [
-      {
-        id: "conv-2", title: "Could this cache race?", origin: { kind: "selection", path: "src/cache.ts", start_line: 81, end_line: 113 },
-        created_at: "2026-10-05T17:00:00+00:00", updated_at: "2026-10-05T17:01:00+00:00", message_count: 2,
-      },
-      {
-        id: "conv-1", title: "Why does this token refresh twice?", origin: { kind: "selection", path: "src/auth.ts", start_line: 120, end_line: 164 },
-        created_at: "2026-10-05T16:00:00+00:00", updated_at: "2026-10-05T16:01:00+00:00", message_count: 2,
-      },
-    ];
-    vi.mocked(api.fetchReviewAsk)
-      .mockResolvedValueOnce({ review_id: "review-1", latest_revision_number: 5, messages: [firstHuman, firstAnswer], conversations, active_conversation_id: "conv-1" })
-      .mockResolvedValueOnce({ review_id: "review-1", latest_revision_number: 5, messages: [secondHuman, secondAnswer], conversations, active_conversation_id: "conv-2" });
-    vi.mocked(api.createReviewAskConversation).mockResolvedValue({
-      id: "conv-new", title: "New conversation", origin: { kind: "review", revision_number: 5 },
-      created_at: "2026-10-05T18:00:00+00:00", updated_at: "2026-10-05T18:00:00+00:00", message_count: 0,
-    });
-
-    render(
-      <ReviewAskDrawer
-        reviewId="review-1"
-        revisionNumber={5}
-        latestRevisionNumber={5}
-        onClearScope={vi.fn()}
-        onClose={vi.fn()}
-        onSwitchLatest={vi.fn()}
-        onOpenReference={vi.fn()}
-      />,
-    );
-
-    expect(await screen.findByText("Because both paths call refresh.")).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "Ask history" }));
-    expect(screen.getByLabelText("Recent Ask conversations")).toBeTruthy();
-    expect(screen.getByText("src/cache.ts · lines 81–113")).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "Open conversation: Could this cache race?" }));
-    await waitFor(() => expect(api.fetchReviewAsk).toHaveBeenCalledWith("review-1", "conv-2"));
-    expect(await screen.findByText("Yes, under concurrent replacement.")).toBeTruthy();
-    expect(screen.queryByText("Because both paths call refresh.")).toBeNull();
-
-    await userEvent.click(screen.getByRole("button", { name: "New Ask conversation" }));
-    await waitFor(() => expect(api.createReviewAskConversation).toHaveBeenCalledWith(
-      "review-1", expect.objectContaining({ kind: "review", revision_number: 5 }),
-    ));
-    expect(await screen.findByText("Ask, challenge, or request a change")).toBeTruthy();
-    expect(screen.queryByText("Yes, under concurrent replacement.")).toBeNull();
   });
 
   it("selects the Ask driver and model from the composer and sends both with the question", async () => {
@@ -219,8 +156,8 @@ describe("ReviewAskDrawer", () => {
     await waitFor(() => expect(screen.getByLabelText("Ask AI driver").textContent).toContain("LiteLLM"));
     expect(screen.getByLabelText("Ask AI model").textContent).toContain("anthropic/claude-sonnet-4-5");
 
-    await userEvent.click(screen.getByLabelText("Ask AI model"));
-    await userEvent.click(screen.getByRole("menuitemradio", { name: "openai/gpt-5.6" }));
+    fireEvent.click(screen.getByLabelText("Ask AI model"));
+    fireEvent.click(screen.getByRole("button", { name: "openai/gpt-5.6" }));
     fireEvent.change(screen.getByLabelText("Ask Review"), { target: { value: "Explain this." } });
     fireEvent.click(screen.getByRole("button", { name: "Send Ask question" }));
 
@@ -229,52 +166,7 @@ describe("ReviewAskDrawer", () => {
       body: "Explain this.",
       driver: "litellm",
       model: "openai/gpt-5.6",
-    }, expect.any(Function), expect.any(AbortSignal)));
-  });
-
-  it("offers only the drivers the server runs and drops a saved agent CLI choice the server refuses", async () => {
-    window.localStorage.setItem("lemoncrow.review.ask.driver", "claude");
-    vi.mocked(api.fetchReviewAsk).mockResolvedValue({
-      review_id: "review-1",
-      latest_revision_number: 5,
-      messages: [],
-      ai: {
-        driver: "configured",
-        model: "",
-        models: ["ollama/qwen3"],
-        drivers: ["configured", "ollama", "openai", "litellm"],
-        models_by_driver: { ollama: ["ollama/qwen3"], openai: [], litellm: ["ollama/qwen3"] },
-      },
-    });
-    vi.mocked(api.streamReviewAsk).mockResolvedValue({
-      review_id: "review-1",
-      latest_revision_number: 5,
-      human: message({ id: "ram-human-hosted", role: "human", body: "Explain this." }),
-      assistant: message({ id: "ram-hosted-answer", body: "Here is the explanation." }),
-    });
-
-    render(
-      <ReviewAskDrawer
-        reviewId="review-1"
-        revisionNumber={5}
-        latestRevisionNumber={5}
-        onClearScope={vi.fn()}
-        onClose={vi.fn()}
-        onSwitchLatest={vi.fn()}
-        onOpenReference={vi.fn()}
-      />,
-    );
-
-    await waitFor(() => expect(screen.getByLabelText("Ask AI driver").textContent).toContain("Default"));
-    await userEvent.click(screen.getByLabelText("Ask AI driver"));
-    const offered = screen.getAllByRole("menuitemradio").map((item) => item.textContent);
-    expect(offered).toEqual(["Default", "Ollama", "OpenAI", "LiteLLM"]);
-    await userEvent.keyboard("{Escape}");
-
-    fireEvent.change(screen.getByLabelText("Ask Review"), { target: { value: "Explain this." } });
-    fireEvent.click(screen.getByRole("button", { name: "Send Ask question" }));
-    await waitFor(() => expect(api.streamReviewAsk).toHaveBeenCalled());
-    expect(vi.mocked(api.streamReviewAsk).mock.calls[0][1]).not.toHaveProperty("driver");
+    }, expect.any(Function)));
   });
 
   it("renders an optimistic chat turn and live working feedback before the answer arrives", async () => {
@@ -322,10 +214,6 @@ describe("ReviewAskDrawer", () => {
     expect(screen.getByText("Working on this snapshot…")).toBeTruthy();
     expect(screen.getByText("3s")).toBeTruthy();
 
-    act(() => emit?.({ type: "delta", text: "Partial streamed answer." }));
-    expect(screen.getByText(/Partial streamed answer/)).toBeTruthy();
-    expect(screen.queryByText("Working on this snapshot…")).toBeNull();
-
     await act(async () => {
       resolveResult?.({
         review_id: "review-1",
@@ -336,287 +224,6 @@ describe("ReviewAskDrawer", () => {
     });
     expect(await screen.findByText(/Collapse the two wrappers/)).toBeTruthy();
     expect(screen.queryByText("Working on this snapshot…")).toBeNull();
-  });
-
-  it("opens @ file suggestions immediately and dismisses them on space, Escape, or outside click", async () => {
-    render(
-      <ReviewAskDrawer
-        reviewId="review-1"
-        revisionNumber={5}
-        latestRevisionNumber={5}
-        filePaths={["src/session.py", "src/api/routes.py"]}
-        onClearScope={vi.fn()}
-        onClose={vi.fn()}
-        onSwitchLatest={vi.fn()}
-        onOpenReference={vi.fn()}
-      />,
-    );
-
-    const composer = await screen.findByLabelText("Ask Review") as HTMLTextAreaElement;
-
-    fireEvent.change(composer, { target: { value: "@", selectionStart: 1 } });
-    expect(screen.getByText("Files in this change")).toBeTruthy();
-    expect(screen.getByRole("option", { name: /session\.py/i })).toBeTruthy();
-    expect(screen.getByRole("option", { name: /routes\.py/i })).toBeTruthy();
-
-    fireEvent.keyDown(composer, { key: " " });
-    expect(screen.queryByRole("listbox", { name: "Changed files" })).toBeNull();
-
-    fireEvent.change(composer, { target: { value: "@sess", selectionStart: 5 } });
-    expect(screen.getByRole("listbox", { name: "Changed files" })).toBeTruthy();
-    fireEvent.change(composer, { target: { value: "@sess ", selectionStart: 6 } });
-    expect(screen.queryByRole("listbox", { name: "Changed files" })).toBeNull();
-
-    fireEvent.change(composer, { target: { value: "@", selectionStart: 1 } });
-    fireEvent.keyDown(composer, { key: "Escape" });
-    expect(screen.queryByRole("listbox", { name: "Changed files" })).toBeNull();
-
-    fireEvent.click(composer);
-    expect(screen.getByRole("listbox", { name: "Changed files" })).toBeTruthy();
-    fireEvent.pointerDown(document.body);
-    expect(screen.queryByRole("listbox", { name: "Changed files" })).toBeNull();
-  });
-
-  it("attaches an external text file with + and sends its evidence id", async () => {
-    const externalFile = new File(["# External notes\nCheck the timeout."], "notes.md", { type: "text/markdown" });
-    vi.mocked(api.uploadReviewEvidence).mockResolvedValue({
-      evidence: {
-        id: "evd-notes",
-        review_id: "review-1",
-        revision_id: "revision-5",
-        revision_number: 5,
-        kind: "document",
-        title: "notes.md",
-        path: "",
-        url: "",
-        content_hash: "abc",
-        mime_type: "text/markdown",
-        bytes: externalFile.size,
-        source: "human",
-        source_ref: "notes.md",
-        verification_status: "",
-        detail: "",
-        created_at: "2026-09-28T00:00:00+00:00",
-        status: "current",
-        content_url: "/api/evidence/evd-notes/content",
-      },
-    });
-    vi.mocked(api.streamReviewAsk).mockResolvedValue({
-      review_id: "review-1",
-      latest_revision_number: 5,
-      human: message({
-        id: "ram-external-human",
-        role: "human",
-        body: "Use the attached notes.",
-        references: [{ kind: "attachment", evidence_id: "evd-notes", label: "notes.md", exactness: "snapshot" }],
-      }),
-      assistant: message({ id: "ram-external-answer", body: "The notes call out the timeout." }),
-    });
-
-    render(
-      <ReviewAskDrawer
-        reviewId="review-1"
-        revisionNumber={5}
-        revisionId="revision-5"
-        latestRevisionNumber={5}
-        onClearScope={vi.fn()}
-        onClose={vi.fn()}
-        onSwitchLatest={vi.fn()}
-        onOpenReference={vi.fn()}
-      />,
-    );
-
-    fireEvent.change(await screen.findByLabelText("External file picker"), { target: { files: [externalFile] } });
-    await waitFor(() => expect(api.uploadReviewEvidence).toHaveBeenCalledWith(
-      "review-1",
-      externalFile,
-      "",
-      "",
-      "revision-5",
-    ));
-    expect(await screen.findByText("notes.md")).toBeTruthy();
-
-    fireEvent.change(screen.getByLabelText("Ask Review"), { target: { value: "Use the attached notes." } });
-    fireEvent.click(screen.getByRole("button", { name: "Send Ask question" }));
-
-    await waitFor(() => expect(api.streamReviewAsk).toHaveBeenCalledWith("review-1", {
-      revision_number: 5,
-      body: "Use the attached notes.",
-      evidence_ids: ["evd-notes"],
-    }, expect.any(Function), expect.any(AbortSignal)));
-  });
-
-  it("auto-uploads pasted files, dropped files, and large pasted text", async () => {
-    let evidenceCounter = 0;
-    vi.mocked(api.uploadReviewEvidence).mockImplementation(async (_reviewId, file) => {
-      evidenceCounter += 1;
-      return {
-        evidence: {
-          id: `evd-auto-${evidenceCounter}`,
-          review_id: "review-1",
-          revision_id: "revision-5",
-          revision_number: 5,
-          kind: "document",
-          title: file.name,
-          path: "",
-          url: "",
-          content_hash: `hash-${evidenceCounter}`,
-          mime_type: file.type || "text/plain",
-          bytes: file.size,
-          source: "human",
-          source_ref: file.name,
-          verification_status: "",
-          detail: "",
-          created_at: "2026-09-28T00:00:00+00:00",
-          status: "current",
-          content_url: `/api/evidence/evd-auto-${evidenceCounter}/content`,
-        },
-      };
-    });
-
-    render(
-      <ReviewAskDrawer
-        reviewId="review-1"
-        revisionNumber={5}
-        revisionId="revision-5"
-        latestRevisionNumber={5}
-        onClearScope={vi.fn()}
-        onClose={vi.fn()}
-        onSwitchLatest={vi.fn()}
-        onOpenReference={vi.fn()}
-      />,
-    );
-
-    const composer = await screen.findByLabelText("Ask Review") as HTMLTextAreaElement;
-    const pastedFile = new File(["paste contents"], "clipboard.md", { type: "text/markdown" });
-    fireEvent.paste(composer, {
-      clipboardData: {
-        files: [pastedFile],
-        getData: () => "",
-      },
-    });
-    await waitFor(() => expect(api.uploadReviewEvidence).toHaveBeenCalledWith(
-      "review-1",
-      pastedFile,
-      "",
-      "",
-      "revision-5",
-    ));
-    expect(await screen.findByText("clipboard.md")).toBeTruthy();
-
-    const droppedFile = new File(["drop contents"], "dropped.txt", { type: "text/plain" });
-    const dataTransfer = { types: ["Files"], files: [droppedFile], dropEffect: "none" };
-    fireEvent.dragEnter(composer, { dataTransfer });
-    expect(screen.getByText("Drop to attach to this chat")).toBeTruthy();
-    fireEvent.drop(composer, { dataTransfer });
-    await waitFor(() => expect(api.uploadReviewEvidence).toHaveBeenCalledWith(
-      "review-1",
-      droppedFile,
-      "",
-      "",
-      "revision-5",
-    ));
-    expect(screen.queryByText("Drop to attach to this chat")).toBeNull();
-    expect(await screen.findByText("dropped.txt")).toBeTruthy();
-
-    const largePaste = "x".repeat(8_000);
-    fireEvent.paste(composer, {
-      clipboardData: {
-        files: [],
-        getData: (type: string) => type === "text/plain" ? largePaste : "",
-      },
-    });
-    await waitFor(() => expect(api.uploadReviewEvidence).toHaveBeenCalledTimes(3));
-    const pastedTextFile = vi.mocked(api.uploadReviewEvidence).mock.calls[2][1];
-    expect(pastedTextFile.name).toBe("pasted-text.txt");
-    expect(pastedTextFile.type).toBe("text/plain");
-    expect(pastedTextFile.size).toBe(8_000);
-    expect(composer.value).toBe("");
-    expect(await screen.findByText("pasted-text.txt")).toBeTruthy();
-  });
-
-  it("attaches changed files from @ suggestions and sends them as snapshot mentions", async () => {
-    vi.mocked(api.streamReviewAsk).mockResolvedValue({
-      review_id: "review-1",
-      latest_revision_number: 5,
-      human: message({
-        id: "ram-mentioned-human",
-        role: "human",
-        body: "Explain this file",
-        references: [{
-          kind: "source",
-          exactness: "snapshot",
-          path: "src/session.py",
-          side: "new",
-          start_line: 0,
-          end_line: 0,
-          target_unit_key: "",
-          symbol: "",
-        }],
-      }),
-      assistant: message({ id: "ram-mentioned-answer", body: "It updates the session behavior." }),
-    });
-
-    render(
-      <ReviewAskDrawer
-        reviewId="review-1"
-        revisionNumber={5}
-        latestRevisionNumber={5}
-        filePaths={["src/session.py", "src/api/routes.py"]}
-        onClearScope={vi.fn()}
-        onClose={vi.fn()}
-        onSwitchLatest={vi.fn()}
-        onOpenReference={vi.fn()}
-      />,
-    );
-
-    const composer = await screen.findByLabelText("Ask Review") as HTMLTextAreaElement;
-    fireEvent.change(composer, { target: { value: "Explain @sess", selectionStart: 13 } });
-    const option = await screen.findByRole("option", { name: /session\.py/i });
-    fireEvent.click(option);
-
-    expect(screen.getByTitle("src/session.py")).toBeTruthy();
-    fireEvent.change(composer, { target: { value: "Explain this file" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send Ask question" }));
-
-    await waitFor(() => expect(api.streamReviewAsk).toHaveBeenCalledWith("review-1", {
-      revision_number: 5,
-      body: "Explain this file",
-      mentioned_paths: ["src/session.py"],
-    }, expect.any(Function), expect.any(AbortSignal)));
-    expect(await screen.findByText(/updates the session behavior/i)).toBeTruthy();
-  });
-
-  it("shows copied feedback after copying a prompt", async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText },
-    });
-    vi.mocked(api.fetchReviewAsk).mockResolvedValue({
-      review_id: "review-1",
-      latest_revision_number: 5,
-      messages: [message({ id: "ram-copy", role: "human", body: "Check this carefully." })],
-    });
-
-    render(
-      <ReviewAskDrawer
-        reviewId="review-1"
-        revisionNumber={5}
-        latestRevisionNumber={5}
-        onClearScope={vi.fn()}
-        onClose={vi.fn()}
-        onSwitchLatest={vi.fn()}
-        onOpenReference={vi.fn()}
-      />,
-    );
-
-    const copy = await screen.findByRole("button", { name: "Copy prompt" });
-    fireEvent.click(copy);
-
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith("Check this carefully."));
-    expect(screen.getByRole("button", { name: "Copied prompt" })).toBeTruthy();
-    expect(screen.getByText("Copied")).toBeTruthy();
   });
 
   it("keeps native Claude models separate from provider-qualified gateway models", async () => {
@@ -650,15 +257,15 @@ describe("ReviewAskDrawer", () => {
     );
 
     await waitFor(() => expect(screen.getByLabelText("Ask AI driver").textContent).toContain("LiteLLM"));
-    await userEvent.click(screen.getByLabelText("Ask AI driver"));
-    await userEvent.click(screen.getByRole("menuitemradio", { name: "Claude" }));
-    await userEvent.click(screen.getByLabelText("Ask AI model"));
+    fireEvent.click(screen.getByLabelText("Ask AI driver"));
+    fireEvent.click(screen.getByRole("button", { name: "Claude" }));
+    fireEvent.click(screen.getByLabelText("Ask AI model"));
 
-    expect(screen.getByRole("menuitemradio", { name: "sonnet" })).toBeTruthy();
-    expect(screen.getByRole("menuitemradio", { name: "opus" })).toBeTruthy();
-    expect(screen.getByRole("menuitemradio", { name: "haiku" })).toBeTruthy();
-    expect(screen.queryByRole("menuitemradio", { name: "zen/claude-sonnet-4-6" })).toBeNull();
-    expect(screen.queryByRole("menuitemradio", { name: "anthropic/claude-sonnet-4-6" })).toBeNull();
+    expect(screen.getByRole("button", { name: "sonnet" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "opus" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "haiku" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "zen/claude-sonnet-4-6" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "anthropic/claude-sonnet-4-6" })).toBeNull();
   });
 
   it("repairs a persisted OpenCode model against the verified catalog on load", async () => {
@@ -830,7 +437,7 @@ describe("ReviewAskDrawer", () => {
       revision_number: 5,
       body: "What callers are affected?",
       context: selection,
-    }, expect.any(Function), expect.any(AbortSignal)));
+    }, expect.any(Function)));
     expect(await screen.findByText(/current graph shows handle_request/i)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Map · handle_request" }));
     expect(onOpenReference).toHaveBeenCalledWith(mapReference);
@@ -861,246 +468,5 @@ describe("ReviewAskDrawer", () => {
     fireEvent.click(screen.getByRole("button", { name: "Switch to latest" }));
     expect(onSwitchLatest).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Ask about Snapshot 5")).toBeNull();
-  });
-
-  describe("cancellation", () => {
-    function abortableStream(onSignal: (signal: AbortSignal) => void = () => {}) {
-      return (_id: string, _input: unknown, _onEvent: unknown, signal?: AbortSignal) => {
-        if (signal) onSignal(signal);
-        return new Promise<never>((_resolve, reject) => {
-          signal?.addEventListener("abort", () => reject(new DOMException("The operation was aborted.", "AbortError")));
-        });
-      };
-    }
-
-    function renderReviewAsk(onClose = vi.fn()) {
-      return render(
-        <ReviewAskDrawer
-          reviewId="review-1"
-          revisionNumber={5}
-          latestRevisionNumber={5}
-          onClearScope={vi.fn()}
-          onClose={onClose}
-          onSwitchLatest={vi.fn()}
-          onOpenReference={vi.fn()}
-        />,
-      );
-    }
-
-    async function askQuestion(text: string) {
-      fireEvent.change(await screen.findByLabelText("Ask Review"), { target: { value: text } });
-      fireEvent.click(screen.getByRole("button", { name: "Send Ask question" }));
-    }
-
-    it("stops an Ask that is still starting: the request is aborted and the question stays as a stopped turn, not a failure", async () => {
-      let signal: AbortSignal | undefined;
-      vi.mocked(api.streamReviewAsk).mockImplementation(abortableStream((value) => { signal = value; }));
-      renderReviewAsk();
-
-      await askQuestion("Is this retry safe?");
-      expect(await screen.findByText("Starting…")).toBeTruthy();
-      expect(screen.queryByRole("button", { name: "Send Ask question" })).toBeNull();
-
-      fireEvent.click(screen.getByRole("button", { name: "Stop Ask" }));
-
-      expect(signal?.aborted).toBe(true);
-      expect(await screen.findByText("Stopped before an answer arrived")).toBeTruthy();
-      expect(screen.getByText("Is this retry safe?")).toBeTruthy();
-      expect(screen.queryByText("Starting…")).toBeNull();
-      // Cancelled is not failed: no error text and no Retry.
-      expect(screen.queryByText(/aborted/i)).toBeNull();
-      expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
-      expect(screen.queryByRole("button", { name: "Stop Ask" })).toBeNull();
-      expect(screen.getByRole("button", { name: "Send Ask question" })).toBeTruthy();
-    });
-
-    it("stops mid-stream and keeps the streamed answer, ignoring anything that arrives after Stop", async () => {
-      let emit: ((event: api.ReviewAskStreamEvent) => void) | null = null;
-      let signal: AbortSignal | undefined;
-      let resolveResult: ((result: Awaited<ReturnType<typeof api.streamReviewAsk>>) => void) | null = null;
-      vi.mocked(api.streamReviewAsk).mockImplementation((_id, _input, onEvent, abortSignal) => {
-        emit = onEvent;
-        signal = abortSignal;
-        // A transport that ignores the signal: Stop must not depend on it settling.
-        return new Promise((resolve) => { resolveResult = resolve; });
-      });
-      renderReviewAsk();
-
-      await askQuestion("Explain the retry loop.");
-      act(() => emit?.({ type: "accepted", driver: "configured", model: "" }));
-      act(() => emit?.({ type: "delta", text: "The loop retries three times" }));
-      expect(screen.getByText(/The loop retries three times/)).toBeTruthy();
-
-      fireEvent.click(screen.getByRole("button", { name: "Stop Ask" }));
-      expect(signal?.aborted).toBe(true);
-      expect(screen.getByText("The loop retries three times")).toBeTruthy();
-      expect(screen.getByText("Stopped")).toBeTruthy();
-
-      act(() => emit?.({ type: "delta", text: " and then gives up." }));
-      await act(async () => {
-        resolveResult?.({
-          review_id: "review-1",
-          latest_revision_number: 5,
-          human: message({ id: "ram-late-human", role: "human", body: "Explain the retry loop." }),
-          assistant: message({ id: "ram-late-answer", body: "A late full answer." }),
-        });
-      });
-      expect(screen.queryByText(/gives up/)).toBeNull();
-      expect(screen.queryByText("A late full answer.")).toBeNull();
-      expect(screen.getAllByText("Explain the retry loop.")).toHaveLength(1);
-      expect(screen.getByRole("button", { name: "Send Ask question" })).toBeTruthy();
-    });
-
-    it("cancels the active Review Ask stream when the drawer is closed", async () => {
-      let signal: AbortSignal | undefined;
-      vi.mocked(api.streamReviewAsk).mockImplementation(abortableStream((value) => { signal = value; }));
-      const onClose = vi.fn();
-      const view = renderReviewAsk(onClose);
-
-      await askQuestion("What changed here?");
-      expect(await screen.findByText("Starting…")).toBeTruthy();
-      fireEvent.click(screen.getByRole("button", { name: "Close Ask" }));
-      expect(onClose).toHaveBeenCalledTimes(1);
-      expect(signal?.aborted).toBe(false);
-
-      // The Reader unmounts the drawer when Ask closes.
-      view.unmount();
-      expect(signal?.aborted).toBe(true);
-    });
-
-    it("starts a new Ask after a cancelled one and keeps the stopped turn above it", async () => {
-      const signals: AbortSignal[] = [];
-      vi.mocked(api.streamReviewAsk)
-        .mockImplementationOnce((id, input, onEvent, signal) => {
-          onEvent({ type: "delta", text: "Half an answer" });
-          return abortableStream((value) => { signals.push(value); })(id, input, onEvent, signal);
-        })
-        .mockImplementationOnce(async (_id, _input, _onEvent, signal) => {
-          if (signal) signals.push(signal);
-          return {
-            review_id: "review-1",
-            latest_revision_number: 5,
-            human: message({ id: "ram-second-human", role: "human", body: "Second question" }),
-            assistant: message({ id: "ram-second-answer", body: "Second answer." }),
-          };
-        });
-      renderReviewAsk();
-
-      await askQuestion("First question");
-      expect(await screen.findByText(/Half an answer/)).toBeTruthy();
-      fireEvent.click(screen.getByRole("button", { name: "Stop Ask" }));
-      expect(await screen.findByText("Stopped")).toBeTruthy();
-
-      fireEvent.change(screen.getByLabelText("Ask Review"), { target: { value: "Second question" } });
-      await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send Ask question" })); });
-      expect(await screen.findByText("Second answer.")).toBeTruthy();
-
-      expect(api.streamReviewAsk).toHaveBeenCalledTimes(2);
-      expect(signals.map((signal) => signal.aborted)).toEqual([true, false]);
-      const stopped = screen.getByText("Half an answer");
-      const second = screen.getByText("Second answer.");
-      expect(stopped.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      expect(screen.getByText("First question")).toBeTruthy();
-      expect(screen.getAllByText("Stopped")).toHaveLength(1);
-    });
-
-    it("lets Code chat stop its stream but leaves it running when the drawer closes, since only a finished stream saves the turn", async () => {
-      const signals: AbortSignal[] = [];
-      const transport = {
-        allowedDrivers: ["configured" as const],
-        load: vi.fn(async () => ({ review_id: "/repo", latest_revision_number: 0, messages: [] })),
-        stream: vi.fn((_input: unknown, _onEvent: unknown, signal?: AbortSignal) => {
-          if (signal) signals.push(signal);
-          return new Promise<never>(() => {});
-        }),
-      };
-      const view = render(
-        <ReviewAskDrawer
-          reviewId="/repo"
-          revisionNumber={0}
-          latestRevisionNumber={0}
-          scope={{ path: "src/app.ts" }}
-          onClearScope={vi.fn()}
-          onClose={vi.fn()}
-          onSwitchLatest={vi.fn()}
-          onOpenReference={vi.fn()}
-          transport={transport}
-        />,
-      );
-
-      fireEvent.change(await screen.findByLabelText("Ask Code"), { target: { value: "Explain this code" } });
-      fireEvent.click(screen.getByRole("button", { name: "Send Ask question" }));
-      fireEvent.click(await screen.findByRole("button", { name: "Stop Ask" }));
-      expect(signals[0]?.aborted).toBe(true);
-      expect(await screen.findByText("Stopped before an answer arrived")).toBeTruthy();
-
-      fireEvent.change(screen.getByLabelText("Ask Code"), { target: { value: "And this?" } });
-      fireEvent.click(screen.getByRole("button", { name: "Send Ask question" }));
-      await waitFor(() => expect(signals).toHaveLength(2));
-      view.unmount();
-      expect(signals[1].aborted).toBe(false);
-    });
-  });
-
-  it("clears the drop overlay when a file drag leaves, even after an element under the pointer was replaced mid-drag", async () => {
-    let resolveResult: ((result: Awaited<ReturnType<typeof api.streamReviewAsk>>) => void) | null = null;
-    vi.mocked(api.streamReviewAsk).mockImplementation(() => new Promise((resolve) => { resolveResult = resolve; }));
-    render(
-      <ReviewAskDrawer
-        reviewId="review-1"
-        revisionNumber={5}
-        revisionId="revision-5"
-        latestRevisionNumber={5}
-        onClearScope={vi.fn()}
-        onClose={vi.fn()}
-        onSwitchLatest={vi.fn()}
-        onOpenReference={vi.fn()}
-      />,
-    );
-    const composer = await screen.findByLabelText("Ask Review");
-    const dropZone = composer.parentElement as HTMLElement;
-    const dataTransfer = { types: ["Files"], files: [], dropEffect: "none" };
-    const overlay = () => screen.queryByText("Drop to attach to this chat");
-    // jsdom has no DragEvent, so relatedTarget is set by hand.
-    const leave = (from: Element, to: Element | null) => {
-      const event = createEvent.dragLeave(from, { dataTransfer });
-      Object.defineProperty(event, "relatedTarget", { value: to });
-      fireEvent(from, event);
-    };
-
-    fireEvent.change(composer, { target: { value: "Explain this." } });
-    fireEvent.click(screen.getByRole("button", { name: "Send Ask question" }));
-    const stopIcon = (await screen.findByRole("button", { name: "Stop Ask" })).querySelector("svg") as SVGElement;
-
-    // A file is dragged onto the Stop icon; the answer lands and Send's icon replaces it under the pointer.
-    fireEvent.dragEnter(stopIcon, { dataTransfer });
-    expect(overlay()).toBeTruthy();
-    await act(async () => {
-      resolveResult?.({
-        review_id: "review-1",
-        latest_revision_number: 5,
-        human: message({ id: "ram-drag-human", role: "human", body: "Explain this." }),
-        assistant: message({ id: "ram-drag-answer", body: "Done." }),
-      });
-    });
-    const sendIcon = screen.getByRole("button", { name: "Send Ask question" }).querySelector("svg") as SVGElement;
-    expect(sendIcon).not.toBe(stopIcon);
-    fireEvent.dragEnter(sendIcon, { dataTransfer });
-    leave(stopIcon, sendIcon); // detached: this dragleave never reaches the composer
-
-    // Moving between elements inside the composer keeps the overlay.
-    fireEvent.dragEnter(composer, { dataTransfer });
-    leave(sendIcon, composer);
-    expect(overlay()).toBeTruthy();
-
-    // Leaving the composer (and then dropping elsewhere) clears it.
-    leave(composer, document.body);
-    expect(overlay()).toBeNull();
-
-    // Escape, or leaving the window, reports no related target; that clears it too.
-    fireEvent.dragEnter(dropZone, { dataTransfer });
-    expect(overlay()).toBeTruthy();
-    leave(dropZone, null);
-    expect(overlay()).toBeNull();
   });
 });

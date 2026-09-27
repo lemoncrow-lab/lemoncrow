@@ -50,7 +50,7 @@ def test_mcp_auto_update_records_installed_version_before_pull(monkeypatch, tmp_
 
 
 def test_mcp_auto_update_skipped_for_dev_install(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """A source install writes <root>/.dev_mode; auto-update must skip before any git
+    """`make dev` writes <root>/.dev_mode; auto-update must skip before any git
     op so a live source checkout is never clobbered mid-refactor."""
     root = tmp_path / ".lemoncrow"
     root.mkdir()

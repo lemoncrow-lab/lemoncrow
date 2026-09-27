@@ -9,10 +9,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-_RUNTIME_ROOTS = ("src", "client/src", "server/src", "benchmarks/codebench")
-# Every first-party distribution on a PYTHONPATH override is fingerprinted,
-# including privately supplied ones, without the public code naming them.
-_PACKAGE_GLOB = "lemoncrow*"
+_RUNTIME_ROOTS = ("src", "client/src", "server/src", "enterprise/server/src", "benchmarks/codebench")
+_PACKAGES = ("lemoncrow", "lemoncrow_client", "lemoncrow_server_core", "lemoncrow_server")
 _SOURCE_SUFFIXES = {".py", ".sql", ".json", ".toml", ".yaml", ".yml"}
 _LOCK_FILES = ("uv.lock", "pyproject.toml", "client/pyproject.toml", "server/pyproject.toml")
 
@@ -25,7 +23,7 @@ def source_fingerprint(root: Path, env: Mapping[str, str]) -> str:
             base = Path(entry)
             if not base.is_absolute():
                 base = root / base
-            trees.update(package for package in base.glob(_PACKAGE_GLOB) if package.is_dir())
+            trees.update(base / package for package in _PACKAGES)
     files = {root / name for name in _LOCK_FILES}
     for tree in trees:
         if tree.is_dir():

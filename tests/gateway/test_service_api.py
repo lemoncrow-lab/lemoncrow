@@ -9,7 +9,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -94,8 +94,30 @@ def test_code_map_endpoints_are_bounded_and_use_the_selected_project(
     monkeypatch.setattr(code_map, "get_engine", lambda value: engine)
     monkeypatch.setattr(
         code_map,
+        "build_overview",
+        lambda selected_engine, root: {
+            "project": {"root": str(root), "label": root.name},
+            "index": {"symbols_indexed": 3},
+            "graph": {"focus": "root", "nodes": [], "edges": [], "truncated": False},
+        },
+    )
+    monkeypatch.setattr(
+        code_map,
+        "build_full_graph",
+        lambda selected_engine, root: {
+            "project": {"root": str(root), "label": root.name},
+            "total_symbols": 3,
+            "total_files": 1,
+            "groups": [],
+            "file_types": [],
+            "languages": [],
+            "graph": {"focus": "root", "nodes": [], "edges": [], "truncated": False},
+        },
+    )
+    monkeypatch.setattr(
+        code_map,
         "list_file_nodes",
-        lambda selected_engine, root, *, include_ignored=False: {
+        lambda selected_engine, root: {
             "project": {"root": str(root), "label": root.name},
             "total_files": 2,
             "files": [{"id": "file::one", "path": "src/one.py"}, {"id": "file::two", "path": "src/two.py"}],
@@ -139,12 +161,20 @@ def test_code_map_endpoints_are_bounded_and_use_the_selected_project(
             "truncated": False,
         },
     )
+    monkeypatch.setattr(
+        code_map,
+        "build_neighborhood",
+        lambda selected_engine, symbol_id, depth, limit: {
+            "focus": symbol_id,
+            "nodes": [{"id": symbol_id}],
+            "edges": [],
+            "depth": depth,
+            "truncated": False,
+        },
+    )
 
-    # The repository-scale graph and the seed-symbol overview are retired;
-    # nothing in /code downloads either.
-    full = app_no_auth.get("/v1/code-map/full", params={"project_root": str(project)})
     overview = app_no_auth.get("/v1/code-map/overview", params={"project_root": str(project)})
-    graph = app_no_auth.get("/v1/code-map/neighborhood", params={"project_root": str(project), "symbol_id": "root"})
+    full = app_no_auth.get("/v1/code-map/full", params={"project_root": str(project)})
     files = app_no_auth.get("/v1/code-map/files", params={"project_root": str(project)})
     file_symbols = app_no_auth.get(
         "/v1/code-map/file-symbols",
@@ -158,13 +188,15 @@ def test_code_map_endpoints_are_bounded_and_use_the_selected_project(
         "/v1/code-map/references",
         params={"project_root": str(project), "symbol_id": "root", "limit": 999},
     )
+    graph = app_no_auth.get(
+        "/v1/code-map/neighborhood",
+        params={"project_root": str(project), "symbol_id": "root", "depth": 9, "limit": 999},
+    )
 
-    assert full.status_code == 404
-    assert overview.status_code == 404
-    assert graph.status_code == 404
-    assert not hasattr(code_map, "build_overview")
-    # The legacy relationship provider still reads neighborhoods in-process.
-    assert "build_neighborhood" in code_map.__all__
+    assert overview.status_code == 200
+    assert overview.json()["project"]["root"] == str(project)
+    assert full.status_code == 200
+    assert full.json()["total_symbols"] == 3
     assert files.status_code == 200
     assert files.json()["total_files"] == 2
     assert file_symbols.status_code == 200
@@ -174,6 +206,8 @@ def test_code_map_endpoints_are_bounded_and_use_the_selected_project(
     assert search.json()["text_results"][0]["line"] == 8
     assert references.status_code == 200
     assert references.json()["reference_count"] == 1
+    assert graph.status_code == 200
+    assert graph.json()["depth"] == 2
 
 
 def test_code_map_editor_capability_and_open_are_repo_confined(
@@ -195,12 +229,10 @@ def test_code_map_editor_capability_and_open_are_repo_confined(
             "editors": [{"id": "cursor", "label": "Cursor"}],
         },
     )
-    opened: list[tuple[Path, int, int, Path, str | None]] = []
+    opened: list[tuple[Path, int, int, Path]] = []
 
-    def open_editor(
-        path: Path, *, line: int, column: int, repo_root: Path, editor_id: str | None = None
-    ) -> dict[str, object]:
-        opened.append((path, line, column, repo_root, editor_id))
+    def open_editor(path: Path, *, line: int, column: int, repo_root: Path) -> dict[str, object]:
+        opened.append((path, line, column, repo_root))
         return {
             "opened": True,
             "editor": "cursor",
@@ -220,7 +252,6 @@ def test_code_map_editor_capability_and_open_are_repo_confined(
             "path": "src/payment.py",
             "line": 12,
             "column": 3,
-            "editor": "cursor",
         },
     )
 
@@ -228,7 +259,7 @@ def test_code_map_editor_capability_and_open_are_repo_confined(
     assert capability.json()["preferred"] == {"id": "cursor", "label": "Cursor"}
     assert response.status_code == 200
     assert response.json()["editor"] == "cursor"
-    assert opened == [(source.resolve(), 12, 3, project, "cursor")]
+    assert opened == [(source.resolve(), 12, 3, project)]
 
     escaped = app_no_auth.post(
         "/v1/code-map/editor",
@@ -309,166 +340,6 @@ def test_code_map_review_uses_structured_server_capture(
     assert kwargs["with_provenance"] is True
     assert kwargs["advance_claimed_binding"] is True
     assert kwargs["limit"] == 40
-    assert kwargs["paths"] == ()
-    assert kwargs["review_scope"] == ""
-
-
-def test_code_map_review_can_be_scoped_to_one_agent_session(
-    app_no_auth: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    from lemoncrow_client import config as client_config
-
-    from lemoncrow.core.service import code_map, code_surface
-    from lemoncrow.pro.capabilities.review import gitdiff, hosted
-
-    project = tmp_path / "repo"
-    project.mkdir()
-    monkeypatch.setattr(code_map, "resolve_project_root", lambda value=None: project)
-    monkeypatch.setattr(gitdiff, "resolve_rev_range", lambda root: SimpleNamespace(mode="working_tree"))
-    monkeypatch.setattr(client_config, "load_config", lambda *, cwd: SimpleNamespace())
-    monkeypatch.setattr(
-        code_surface,
-        "changes_by_session",
-        lambda store_root, root: {
-            "sessions": [
-                {
-                    "id": "claude:abc",
-                    "host": "claude",
-                    "session_id": "abc",
-                    "title": "Tighten retries",
-                    "files": ["src/a.py", "src/shared.py"],
-                }
-            ],
-            "unattributed": ["notes.md"],
-            "files": [],
-        },
-    )
-    captured: dict[str, object] = {}
-
-    def capture(config, repo_root, review_range, **kwargs):
-        captured.update(kwargs)
-        return SimpleNamespace(
-            review_id="r-1",
-            review_url="",
-            response={"review": {"short_id": "r-1", "review_path": "/r/1"}, "revision": {}},
-        )
-
-    monkeypatch.setattr(hosted, "capture_server_review", capture)
-
-    scoped = app_no_auth.post("/v1/code-map/review", json={"project_root": "p", "session": "claude:abc"})
-    assert scoped.status_code == 200
-    assert captured["paths"] == ("src/a.py", "src/shared.py")
-    assert captured["review_scope"] == "session:claude:abc"
-    assert captured["session_id"] == "abc"
-    # A scoped Review never takes over the branch's Review.
-    assert captured["advance_claimed_binding"] is False
-    assert captured["title_override"] == "claude session: Tighten retries"
-
-    unknown = app_no_auth.post("/v1/code-map/review", json={"project_root": "p", "session": "codex:gone"})
-    assert unknown.status_code == 409
-
-    by_paths = app_no_auth.post("/v1/code-map/review", json={"project_root": "p", "paths": ["src/b.py", "src/a.py"]})
-    assert by_paths.status_code == 200
-    assert captured["paths"] == ("src/a.py", "src/b.py")
-    assert str(captured["review_scope"]).startswith("paths:")
-
-    escaped = app_no_auth.post("/v1/code-map/review", json={"project_root": "p", "paths": ["../outside.py"]})
-    assert escaped.status_code == 400
-
-
-def test_code_map_surface_endpoints_read_the_injected_provider(
-    app_no_auth: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    from lemoncrow.core.service import code_map, code_surface
-
-    project = tmp_path / "repo"
-    project.mkdir()
-    engine = object()
-    provider = object()
-    monkeypatch.setattr(code_map, "resolve_project_root", lambda value=None: project)
-    monkeypatch.setattr(code_map, "get_engine", lambda value: engine)
-    monkeypatch.setattr(
-        code_map,
-        "list_file_nodes",
-        lambda selected_engine, root: {"files": [{"path": "src/a.py"}, {"path": "src/b.py"}]},
-    )
-    monkeypatch.setattr(
-        code_map,
-        "symbol_row",
-        lambda selected_engine, symbol_id: {"id": symbol_id, "label": "run", "path": "src/a.py", "line": 3},
-    )
-    monkeypatch.setattr(code_surface, "uncommitted_files", lambda root: {"src/a.py": {"status": "M"}})
-    seen: list[tuple[str, object]] = []
-
-    def record(name: str):
-        def inner(*args: object, **kwargs: object) -> dict[str, object]:
-            seen.append((name, args[0]))
-            return {"name": name, "args": [repr(arg) for arg in args[1:]]}
-
-        return inner
-
-    for name in (
-        "file_relationships",
-        "symbol_relationships",
-        "modules_overview",
-        "module_focus",
-        "file_focus",
-        "symbol_focus",
-    ):
-        monkeypatch.setattr(code_surface, name, record(name))
-    monkeypatch.setattr(code_surface, "changes_by_session", lambda store_root, root: {"root": str(root)})
-    app_no_auth.app.state.code_intelligence_for_root = lambda root: provider  # type: ignore[attr-defined]
-    try:
-        params = {"project_root": str(project)}
-        assert app_no_auth.get("/v1/code-map/relationships", params={**params, "path": "src/a.py"}).json()["name"] == (
-            "file_relationships"
-        )
-        assert app_no_auth.get("/v1/code-map/relationships", params={**params, "symbol_id": "s1"}).json()["name"] == (
-            "symbol_relationships"
-        )
-        assert app_no_auth.get("/v1/code-map/relationships", params=params).status_code == 400
-        assert app_no_auth.get("/v1/code-map/modules", params=params).json()["name"] == "modules_overview"
-        focus = {
-            level: app_no_auth.get("/v1/code-map/focus", params={**params, "level": level, "id": ident}).json()["name"]
-            for level, ident in (("module", "src"), ("file", "src/a.py"), ("symbol", "s1"))
-        }
-        assert focus == {"module": "module_focus", "file": "file_focus", "symbol": "symbol_focus"}
-        escaped = app_no_auth.get("/v1/code-map/focus", params={**params, "level": "file", "id": "../x.py"})
-        assert escaped.status_code == 400
-        assert app_no_auth.get("/v1/code-map/changes", params=params).json() == {"root": str(project)}
-        monkeypatch.setattr(
-            code_surface,
-            "edit_hotspots",
-            lambda store_root, root, paths: {"root": str(root), "paths": list(paths)},
-        )
-        assert app_no_auth.get("/v1/code-map/hotspots", params=params).json() == {
-            "root": str(project),
-            "paths": ["src/a.py", "src/b.py"],
-        }
-        failures: dict[str, Exception] = {
-            "missing": LookupError("no such module"),
-            "off": code_surface.PurposeUnavailable("no model"),
-            "thin": ValueError("nothing to say"),
-        }
-
-        def purpose(selected_engine: object, root: Path, module: str, paths: list[str]) -> dict[str, object]:
-            if module in failures:
-                raise failures[module]
-            return {"module": module, "purpose": "Runs things.", "files": len(paths)}
-
-        monkeypatch.setattr(code_surface, "generate_module_purpose", purpose)
-
-        def describe(module: str) -> Any:
-            return app_no_auth.post(
-                "/v1/code-map/module-purpose", json={"project_root": str(project), "module": module}
-            )
-
-        assert describe("/src/").json() == {"module": "src", "purpose": "Runs things.", "files": 2}
-        assert [describe(name).status_code for name in ("missing", "off", "thin")] == [404, 503, 422]
-        # Every relationship read went through the one injected provider.
-        assert {provider_seen for _name, provider_seen in seen} == {provider}
-    finally:
-        del app_no_auth.app.state.code_intelligence_for_root  # type: ignore[attr-defined]
 
 
 def test_code_map_agent_handoff_targets_only_latest_project_session(
@@ -483,13 +354,6 @@ def test_code_map_agent_handoff_targets_only_latest_project_session(
     monkeypatch.setattr(code_map, "resolve_project_root", lambda value=None: project)
     monkeypatch.setattr(code_map, "get_engine", lambda value: engine)
     current_session = {"id": "session-1"}
-    monkeypatch.setattr(
-        code_map,
-        "activity_sessions",
-        lambda *args, **kwargs: [
-            {"id": f"codex:{current_session['id']}", "host": "codex", "session_id": current_session["id"]}
-        ],
-    )
     monkeypatch.setattr(
         code_map,
         "recent_activity",
@@ -652,7 +516,7 @@ def test_code_map_requires_auth_when_service_auth_is_enabled(
     project.mkdir()
     monkeypatch.setattr(code_map, "resolve_project_root", lambda value=None: project)
 
-    denied = app_with_auth.get("/v1/code-map/files", params={"project_root": str(project)})
+    denied = app_with_auth.get("/v1/code-map/overview", params={"project_root": str(project)})
 
     assert denied.status_code == 401
 
@@ -1422,41 +1286,6 @@ def test_analytics_summary_uses_backend_pricing(app_no_auth: TestClient, store: 
     assert summary["unique_tools"] == 1
 
 
-def test_grouped_analytics_reflects_an_in_place_trace_update(app_no_auth: TestClient, store: StoreBundle) -> None:
-    from lemoncrow.core.foundation.models import Trace
-
-    created_at = datetime.now(UTC)
-
-    def record(input_tokens: int) -> None:
-        store.history.record_trace(
-            Trace(
-                id="trace-analytics-updated",
-                agent="lemoncrow:code",
-                host="claude",
-                domain="coding",
-                task="analytics cache",
-                status="success",
-                model="claude-sonnet-4-5",
-                input_tokens=input_tokens,
-                output_tokens=40,
-                created_at=created_at,
-            ),
-            write_json=False,
-        )
-
-    def prompt_tokens() -> int:
-        resp = app_no_auth.get("/analytics?days=1&grouped=true")
-        assert resp.status_code == 200
-        return sum(row["input_tokens"] for row in resp.json() if row["event_type"] == "prompt")
-
-    record(120)
-    assert prompt_tokens() == 120
-    assert prompt_tokens() == 120
-    # Upserted in place with an equal-length payload: only its content changed.
-    record(130)
-    assert prompt_tokens() == 130
-
-
 def test_dashboard_splits_multi_model_usage_into_by_model_breakdown(
     app_no_auth: TestClient,
     store: StoreBundle,
@@ -1505,80 +1334,6 @@ def test_dashboard_splits_multi_model_usage_into_by_model_breakdown(
     assert by_model["gemini-3-flash-preview"]["cached_tokens"] == 20
     assert by_model["gemini-3.1-pro-preview"]["input_tokens"] == 75
     assert by_model["gemini-3.1-pro-preview"]["cached_tokens"] == 5
-
-
-# --------------------------------------------------------------------------- #
-# Product feedback                                                            #
-# --------------------------------------------------------------------------- #
-
-
-@pytest.fixture()
-def feedback_sink(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
-    """Point the wish sender at a fake sink and capture what it sends."""
-    from lemoncrow.core.service import feedback as feedback_mod
-
-    posts: list[dict[str, Any]] = []
-    monkeypatch.setenv(feedback_mod.OVERRIDE_ENV, "https://sink.test/api/feedback")
-
-    def fake_post_json(endpoint: str, payload: dict[str, Any], **_kwargs: Any) -> int:
-        posts.append({"endpoint": endpoint, "payload": payload})
-        return 200
-
-    monkeypatch.setattr(feedback_mod, "post_json", fake_post_json)
-    return posts
-
-
-def test_feedback_sends_a_wish_and_reports_delivery(
-    app_no_auth: TestClient, feedback_sink: list[dict[str, Any]]
-) -> None:
-    resp = app_no_auth.post("/feedback", json={"message": "Teach me the map view", "source": "review"})
-
-    assert resp.status_code == 200
-    assert resp.json() == {"ok": True, "delivered": "remote"}
-    assert feedback_sink[0]["payload"]["message"] == "Teach me the map view"
-
-
-def test_feedback_sends_even_with_telemetry_off(
-    app_no_auth: TestClient, monkeypatch: pytest.MonkeyPatch, feedback_sink: list[dict[str, Any]]
-) -> None:
-    # A wish is not telemetry: the opt-out must not swallow what the person
-    # explicitly asked to send.
-    monkeypatch.setenv("DO_NOT_TRACK", "1")
-
-    resp = app_no_auth.post("/feedback", json={"message": "Teach me the map view"})
-
-    assert resp.json() == {"ok": True, "delivered": "remote"}
-    assert len(feedback_sink) == 1
-
-
-def test_feedback_requires_auth_when_auth_is_on(app_with_auth: TestClient, feedback_sink: list[dict[str, Any]]) -> None:
-    assert app_with_auth.post("/feedback", json={"message": "hi"}).status_code == 401
-    resp = app_with_auth.post("/feedback", json={"message": "hi"}, headers=AUTH_HEADERS)
-    # Auth passed, so the request is judged on its content, not its credential:
-    # only the authorized attempt reached the sink.
-    assert resp.json() == {"ok": True, "delivered": "remote"}
-    assert [post["payload"]["message"] for post in feedback_sink] == ["hi"]
-
-
-def test_feedback_rejects_an_empty_wish(app_no_auth: TestClient, feedback_sink: list[dict[str, Any]]) -> None:
-    resp = app_no_auth.post("/feedback", json={"message": "   "})
-
-    assert resp.status_code == 400
-    assert "message is required" in resp.json()["detail"]
-    assert feedback_sink == []
-
-
-def test_feedback_answers_502_when_the_sink_refuses(
-    app_no_auth: TestClient, monkeypatch: pytest.MonkeyPatch, feedback_sink: list[dict[str, Any]]
-) -> None:
-    from lemoncrow.core.service import feedback as feedback_mod
-
-    monkeypatch.setattr(feedback_mod, "post_json", lambda *a, **k: 503)
-
-    resp = app_no_auth.post("/feedback", json={"message": "Teach me the map view"})
-
-    assert resp.status_code == 502
-    assert "sink_status_503" in resp.json()["detail"]
 
 
 # --------------------------------------------------------------------------- #
@@ -1864,7 +1619,7 @@ def test_file_projection_endpoint_returns_compact_projection_metadata(
     assert payload["projection_delta"]["saved_tokens"] > 0
 
 
-def test_file_projection_endpoint_defaults_range_for_range_view(
+def test_file_projection_endpoint_requires_range_for_range_view(
     app_no_auth: TestClient,
     tmp_path: Path,
 ) -> None:
@@ -1872,8 +1627,8 @@ def test_file_projection_endpoint_defaults_range_for_range_view(
     sample.write_text("hello\n", encoding="utf-8")
 
     resp = app_no_auth.get("/v1/files/projection", params={"path": str(sample), "view": "range"})
-    assert resp.status_code == 200
-    assert "range is required" not in resp.text
+    assert resp.status_code == 400
+    assert "range is required" in resp.json()["detail"]
 
 
 def test_compat_ledger_keeps_copilot_tool_result_content(
@@ -1969,7 +1724,7 @@ def test_cli_service_config_command(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setenv("LEMONCROW_REQUIRE_AUTH", "false")
     runner = CliRunner()
-    result = runner.invoke(cli, ["runtime", "service", "config"], obj={"root": Path(".")})
+    result = runner.invoke(cli, ["service", "config"], obj={"root": Path(".")})
     assert result.exit_code == 0
     import json
 

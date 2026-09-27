@@ -383,8 +383,6 @@ class ClaudeImporter:
         dropped_lines = 0
         model_seen = ""
         user_prompt_tokens = 0
-        host_reported_cost_usd: float | None = None
-        host_reported_model_usage: dict[str, object] = {}
 
         processed_msg_ids: set[str] = set()
         assistant_usage_entries: dict[str, Any] = {}
@@ -482,18 +480,7 @@ class ClaudeImporter:
                     if parsed_ts > updated_at:
                         updated_at = parsed_ts
 
-                if ev_type == "cost-state" and f_path == jsonl_path:
-                    # Claude Code emits cumulative host-owned cost snapshots in
-                    # the root transcript. Keep the latest complete snapshot;
-                    # never sum them (that would double/count cumulative totals).
-                    raw_total = ev.get("totalCostUSD")
-                    unknown = bool(ev.get("hasUnknownModelCost"))
-                    if not unknown and isinstance(raw_total, int | float) and not isinstance(raw_total, bool):
-                        host_reported_cost_usd = max(0.0, float(raw_total))
-                        raw_models = ev.get("modelUsage")
-                        if isinstance(raw_models, dict):
-                            host_reported_model_usage = dict(raw_models)
-                elif ev_type == "ai-title":
+                if ev_type == "ai-title":
                     t = ev.get("aiTitle") or ev.get("title", "")
                     if t:
                         title = redact(str(t))
@@ -670,21 +657,13 @@ class ClaudeImporter:
             fallback_model=model_seen,
         )
 
-        telemetry: dict[str, Any] = {
-            "usage_measurement_source": "host_transcript" if usage_summary["usage_entries"] else "unavailable",
-        }
+        telemetry: dict[str, Any] = {}
         if latencies:
             telemetry["avg_latency_ms"] = round(sum(latencies) / len(latencies), 1)
         if ttfts:
             telemetry["avg_ttft_ms"] = round(sum(ttfts) / len(ttfts), 1)
         if subagent_names:
             telemetry["subagent_names"] = subagent_names
-        if host_reported_cost_usd is not None:
-            telemetry["host_reported_cost_usd"] = round(host_reported_cost_usd, 6)
-            telemetry["actual_cost_usd"] = round(host_reported_cost_usd, 6)
-            telemetry["actual_cost_source"] = "host_reported"
-            if host_reported_model_usage:
-                telemetry["host_reported_model_usage"] = host_reported_model_usage
 
         if task == "untitled claude session" and title:
             task = title

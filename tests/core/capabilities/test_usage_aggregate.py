@@ -63,8 +63,7 @@ def _row(
     )
 
 
-def test_usage_aggregation_math_contract() -> None:
-    """case: test_aggregate_by_host_sums_tokens"""
+def test_aggregate_by_host_sums_tokens() -> None:
     rows = [
         _row(session_id="a", host="claude", input_tokens=100, output_tokens=10),
         _row(session_id="b", host="claude", input_tokens=200, output_tokens=20),
@@ -77,7 +76,9 @@ def test_usage_aggregation_math_contract() -> None:
     assert buckets["claude"].total_tokens == 330
     assert buckets["codex"].total_tokens == 55
     assert buckets["claude"].tool_calls == 4
-    "case: test_unpriced_rows_do_not_inflate_cost"
+
+
+def test_unpriced_rows_do_not_inflate_cost() -> None:
     rows = [
         _row(session_id="paid", cost_usd=5.0, cost_provenance="api_estimated"),
         _row(session_id="free", cost_usd=None, cost_provenance="self_hosted_unpriced"),
@@ -88,7 +89,9 @@ def test_usage_aggregation_math_contract() -> None:
     assert bucket.unpriced_rows == 1
     assert bucket.total_usd == 5.0
     assert bucket.rows == 2
-    "case: test_billed_and_estimated_are_separate_columns"
+
+
+def test_billed_and_estimated_are_separate_columns() -> None:
     rows = [
         _row(session_id="a", cost_usd=3.0, cost_provenance="provider_billed"),
         _row(session_id="b", cost_usd=1.5, cost_provenance="api_estimated"),
@@ -100,7 +103,9 @@ def test_usage_aggregation_math_contract() -> None:
     assert bucket.estimated_usd == 2.0
     assert bucket.unpriced_rows == 1
     assert bucket.total_usd == 5.0
-    "case: test_provenance_mix_is_sorted_and_complete"
+
+
+def test_provenance_mix_is_sorted_and_complete() -> None:
     rows = [
         _row(session_id=str(i), cost_provenance=value, cost_usd=None) for i, value in enumerate(COST_PROVENANCE_VALUES)
     ]
@@ -108,23 +113,28 @@ def test_usage_aggregation_math_contract() -> None:
     mix = provenance_mix(rows)
     assert [name for name, _count in mix] == sorted(COST_PROVENANCE_VALUES)
     assert dict(mix)["api_estimated"] == 2
-    assert sum((count for _name, count in mix)) == len(rows)
-    "case: test_aggregate_is_deterministic"
+    assert sum(count for _name, count in mix) == len(rows)
+
+
+def test_aggregate_is_deterministic() -> None:
     rows = [_row(session_id=f"s{i}", host=f"host{i % 3}", model=f"m{i % 4}", cost_usd=float(i % 5)) for i in range(40)]
     for dimension in GROUP_BY_VALUES:
-        by: GroupBy = dimension
+        by: GroupBy = dimension  # type: ignore[assignment]
         expected = aggregate(rows, by=by, limit=-1)
         for seed in (1, 2, 3):
             shuffled = list(rows)
             random.Random(seed).shuffle(shuffled)
             assert aggregate(shuffled, by=by, limit=-1) == expected
-    "case: test_all_unpriced_bucket_is_not_sunk_below_a_tiny_paid_one"
-    "Spend ranks first, but tokens break the tie so a big local bucket stays visible."
+
+
+def test_all_unpriced_bucket_is_not_sunk_below_a_tiny_paid_one() -> None:
+    """Spend ranks first, but tokens break the tie so a big local bucket stays visible."""
+
     rows = [
         _row(
             session_id="local",
             host="claude",
-            input_tokens=1000000,
+            input_tokens=1_000_000,
             cost_usd=None,
             cost_provenance="self_hosted_unpriced",
         ),
@@ -133,30 +143,34 @@ def test_usage_aggregation_math_contract() -> None:
     assert [bucket.key for bucket in aggregate(rows, by="host")] == ["claude", "codex"]
 
 
-def test_usage_grouping_contract() -> None:
-    """case: test_group_key_never_returns_empty"""
+def test_group_key_never_returns_empty() -> None:
     row = _row(host="", provider="", model="", project="", session_id="")
     for dimension in GROUP_BY_VALUES:
-        by: GroupBy = dimension
+        by: GroupBy = dimension  # type: ignore[assignment]
         assert group_key(row, by)
-    "case: test_day_key_uses_the_row_timestamp_not_the_directory"
+
+
+def test_day_key_uses_the_row_timestamp_not_the_directory() -> None:
     row = _row(started_at=datetime(2026, 9, 3, 23, 30, tzinfo=UTC))
     assert group_key(row, "day") == "2026-09-03"
-    "case: test_limit_caps_the_bucket_count"
+
+
+def test_limit_caps_the_bucket_count() -> None:
     rows = [_row(session_id=f"s{i}", model=f"m{i}", cost_usd=float(i)) for i in range(10)]
     assert len(aggregate(rows, by="model", limit=3)) == 3
     assert len(aggregate(rows, by="model", limit=-1)) == 10
 
 
-def test_usage_total_payload_contract() -> None:
-    """case: test_totals_key_is_reserved_and_payload_serialises"""
+def test_totals_key_is_reserved_and_payload_serialises() -> None:
     bucket = totals([_row(cost_usd=None, cost_provenance="self_hosted_unpriced")])
     assert bucket.key == TOTAL_KEY
     payload = json.loads(json.dumps(bucket.to_dict()))
     assert payload["unpriced_rows"] == 1
     assert payload["provenance_mix"] == [["self_hosted_unpriced", 1]]
     assert payload["total_usd"] == 0.0
-    "case: test_empty_rows_aggregate_to_nothing_without_raising"
+
+
+def test_empty_rows_aggregate_to_nothing_without_raising() -> None:
     assert aggregate([], by="host") == []
     empty = totals([])
     assert empty.rows == 0

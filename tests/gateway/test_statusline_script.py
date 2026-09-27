@@ -269,17 +269,25 @@ def test_statusline_ignores_lifetime_savings_files(tmp_path: Path) -> None:
     assert "calls saved" not in output
 
 
-def test_statusline_does_not_probe_unused_agents(tmp_path: Path) -> None:
+def test_statusline_shows_stale_agent_nudge_then_falls_back_to_generic_tip(tmp_path: Path) -> None:
+    """An installed OPTIONAL agent role that's never been used surfaces the
+    staleness nudge (name, "never used", token cost, /lemoncrow remove
+    <name>). Same-day re-render must not repeat it -- the once-a-day
+    marker-file cooldown falls through to the generic install tip instead,
+    exactly like the pre-existing update/install tip segments.
+    """
     home = tmp_path / "home"
     agent_dir = home / ".lemoncrow" / "claude-plugin" / "agents"
     agent_dir.mkdir(parents=True)
     (agent_dir / "explore.md").write_text("body", encoding="utf-8")
 
     output = _run_statusline(tmp_path, _payload(), env_extra={"HOME": str(home)})
-    assert "explore installed" not in output
-    assert "/lemoncrow remove explore" not in output
-    assert "more agents/skills: /lemoncrow install <name>" in output
-    assert not (tmp_path / "stale_nudge_shown_date").exists()
+    assert "explore installed, never used" in output
+    assert "/lemoncrow remove explore" in output
+
+    output2 = _run_statusline(tmp_path, _payload(), env_extra={"HOME": str(home)})
+    assert "explore installed" not in output2
+    assert "more agents/skills: /lemoncrow install <name>" in output2
 
 
 def test_statusline_empty_session_never_writes_shared_segment_cache(tmp_path: Path) -> None:

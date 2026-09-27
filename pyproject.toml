@@ -17,8 +17,8 @@ babel = { path = "vendor/babel-99.0.0-py3-none-any.whl" }
 
 [project]
 name = "lemoncrow"
-version = "0.8.1"
-description = "Add local code intelligence to Claude Code, Codex, OpenCode, and Cursor; use Pi through LemonCrow's managed coding runtime; review what changed since you last looked."
+version = "0.7.4"
+description = "Review what your coding agents changed: what it affects, what was tested, and what changed since you last looked."
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 license = { text = "Apache-2.0" }
@@ -29,7 +29,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "lemoncrow-client==0.8.1",
+    "lemoncrow-client==0.1.0",
     "pydantic>=2.6",
     "click>=8.1",
     "cryptography>=42",
@@ -55,12 +55,8 @@ dependencies = [
     "opentelemetry-api>=1.27",
     "opentelemetry-sdk>=1.27",
     "opentelemetry-exporter-otlp-proto-http>=1.27",
-    # 0.139.0/0.139.1 can transiently 404 valid included-router routes when
-    # multiple Reader worker threads hit a freshly built FastAPI app concurrently.
-    # 0.139.2 serializes the lazy included-router cache rebuild (FastAPI #15974/#16013).
-    "fastapi>=0.139.2",
+    "fastapi>=0.136.1",
     "uvicorn[standard]>=0.46.0",
-    "watchfiles>=1.1.1",
     "urllib3>=2.7.0",
     "beautifulsoup4>=4.12",
     "markdownify>=1.2.2",
@@ -68,15 +64,15 @@ dependencies = [
     "tree-sitter-language-pack>=1.8.1",
     "rapidfuzz>=3.14.5",
     "markdown-it-py>=3.0",
-    "yarl>=1.25.1,<2",
+    "yarl==1.24.2",
     "zipp==4.1.0",
     "trafilatura>=2.0.0",
     "pdfplumber>=0.11",
-    # OSV GHSA-php9-fj8v-98fj and related advisories fixed in 6.19.0.
-    "pypdf>=6.19.0",
+    "pypdf>=5.0",
     "babel>=2.16.0",
     "regex>=2026.5.9",
-    "aiohttp>=3.14.4",
+    "aiohttp>=3.14.1",
+    "sqliteai-vector>=1.0.0",
     # .gitignore filtering in the code-context engine. Reached dev-only via
     # black/mypy before this was declared, so prod installs silently indexed
     # ignored trees (node_modules, .venv).
@@ -96,15 +92,17 @@ vector = [
     "pgvector>=0.2",
     "numpy>=1.26",
 ]
-# Optional public semantic recall for Runtime Lite. The thin lemoncrow-client
-# remains dependency-free; these packages live only in the session helper.
-lite-semantic = [
-    "model2vec>=0.9,<1",
-    "numpy>=2.0",
+# Local code-embedding semantic search (BGE-Code-v1 via SentenceTransformers).
+# sentence-transformers 5.x regresses bge-code-v1 loading (AutoProcessor error) --
+# pin <5. Heavy (torch); opt-in only. accelerate + datasets back the per-repo
+# finetuner behind `lc code train --name=embedding`.
+semantic = [
+    "sentence-transformers>=3,<5",
+    "torch>=2.2",
+    "numpy>=1.26",
+    "accelerate>=1.1",
+    "datasets>=2.0",
 ]
-# LemonCrow's private semantic engines and embedder finetuner remain on the
-# enterprise runtime distribution. The public lite-semantic extra above is only
-# the bounded third-party static-model helper documented by Runtime Lite.
 parsers = [
     "tree-sitter-languages>=1.10; python_version < '3.13'",
 ]
@@ -125,12 +123,10 @@ dev = [
 [project.scripts]
 lemoncrow = "lemoncrow.gateway.cli:main"
 lc = "lemoncrow.gateway.cli:main"
-lcr = "lemoncrow.gateway.cli:main"
+lemoncode = "lemoncrow.gateway.cli:main"
 
 [build-system]
-# mypy is the mypyc compiler for release wheels: pinned to the uv.lock version that `make typecheck`
-# qualifies, so every release compiles with the same mypyc (tests/test_mypyc_compile_safety.py).
-requires = ["hatchling", "setuptools", "mypy==2.2.0"]
+requires = ["hatchling", "setuptools", "mypy>=1.10"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
@@ -138,6 +134,7 @@ packages = ["src/lemoncrow"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/lemoncrow/core/service/telemetry/frustration_lexicon.yaml" = "lemoncrow/core/service/telemetry/frustration_lexicon.yaml"
+"src/lemoncrow/pro/capabilities/code_context/explore_reranker_model.json" = "lemoncrow/pro/capabilities/code_context/explore_reranker_model.json"
 "integrations" = "lemoncrow/integrations"
 
 [tool.hatch.build.targets.wheel.hooks.custom]
@@ -167,7 +164,6 @@ pythonpath = ["src", "."]
 markers = [
     "slow: marks tests as slow",
     "ab: real A/B benchmark for MCP tool savings",
-    "private_engine: needs the private code-intelligence engine (enterprise/runtime); skipped when absent",
     ]
 
 [tool.mypy]
@@ -242,6 +238,7 @@ dev = [
     "types-PyYAML",
     "pyinstaller>=6.10.0",
     "vulture>=2.16",
+    "xgboost>=3.3.0",
     "litellm>=1.88.1",
     "harbor>=0.13.1",
 ]

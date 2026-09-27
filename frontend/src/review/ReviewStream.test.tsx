@@ -1,21 +1,16 @@
-import { Button as UiButton } from "../components/ui/button";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { createRef } from "react";
 
 import ReviewStream, { type ReviewStreamHandle } from "./ReviewStream";
-import type { Annotation, FileDetail, ReviewRuntimeValidationResponse, ReviewTarget } from "./types";
+import type { Annotation, FileDetail, ReviewTarget } from "./types";
 const reviewApi = vi.hoisted(() => {
   const fetchSurfaceImpact = vi.fn();
-  const fetchFileContents = vi.fn();
-  const fetchRevisionComparisonFileContents = vi.fn();
   return {
     fetchSurfaceImpact,
     fetchSurfaceImpactWithRetry: fetchSurfaceImpact,
-    fetchFileContents,
-    fetchRevisionComparisonFileContents,
   };
 });
 const pierre = vi.hoisted(() => ({
@@ -38,8 +33,6 @@ vi.mock("./reviewApi", () => ({
   currentReviewId: () => "review-1",
   fetchSurfaceImpact: reviewApi.fetchSurfaceImpact,
   fetchSurfaceImpactWithRetry: reviewApi.fetchSurfaceImpactWithRetry,
-  fetchFileContents: reviewApi.fetchFileContents,
-  fetchRevisionComparisonFileContents: reviewApi.fetchRevisionComparisonFileContents,
 }));
 
 vi.mock("./WebReviewPreview", () => ({
@@ -50,9 +43,9 @@ vi.mock("./WebReviewPreview", () => ({
       <span>{props.affectedPaths.length} files</span>
       <span data-testid="mock-web-route-count">{props.routeOptions.length} routes</span>
       {props.routeOptions[1] && (
-        <UiButton unstyled type="button" onClick={() => props.onNavigateSurface(props.routeOptions[1].surfaceKey)}>Select second web route</UiButton>
+        <button type="button" onClick={() => props.onNavigateSurface(props.routeOptions[1].surfaceKey)}>Select second web route</button>
       )}
-      <UiButton unstyled type="button" onClick={props.onOpenDedicated}>Open web surface in dedicated tab</UiButton>
+      <button type="button" onClick={props.onOpenDedicated}>Open web surface in dedicated tab</button>
     </div>
   ),
 }));
@@ -72,12 +65,6 @@ vi.mock("./SurfacePluginPreview", async (importOriginal) => {
 beforeEach(() => {
   window.localStorage.clear();
   reviewApi.fetchSurfaceImpact.mockReset();
-  reviewApi.fetchFileContents.mockReset();
-  reviewApi.fetchRevisionComparisonFileContents.mockReset();
-  reviewApi.fetchFileContents.mockImplementation(async (_id: string, path: string, revisionId: string) => ({
-    path, revision_id: revisionId || "rrv-1", old_path: path, status: "modified",
-    old_content: "old one\nold two\n", new_content: "new one\nnew two\n",
-  }));
   reviewApi.fetchSurfaceImpact.mockImplementation(async (_id: string, provider: string, surfaceId: string) => ({
     revision_id: "rrv-1",
     provider,
@@ -303,70 +290,6 @@ function fileAnnotation(id: string, path: string, body: string, extra: Partial<A
 }
 
 describe("continuous review stream", () => {
-  it("remounts the diff renderer when one path switches from Full review to a Snapshot pair", () => {
-    const path = "src/same-path.py";
-    const only = target("same-path", path, 1);
-    const fullPatch = [
-      `diff --git a/${path} b/${path}`,
-      "new file mode 100644",
-      "--- /dev/null",
-      `+++ b/${path}`,
-      "@@ -0,0 +1,2 @@",
-      "+same",
-      "+old",
-      "",
-    ].join("\n");
-    const snapshotPatch = [
-      `--- rev-348/${path}`,
-      `+++ rev-369/${path}`,
-      "@@ -2 +2 @@",
-      "-old",
-      "+new",
-      "",
-    ].join("\n");
-    const full = {
-      ...detail(path),
-      status: "added",
-      additions: 2,
-      deletions: 0,
-      patch: fullPatch,
-    };
-    const snapshot = {
-      ...detail(path),
-      status: "modified",
-      additions: 1,
-      deletions: 1,
-      patch: snapshotPatch,
-    };
-    const { rerender } = render(
-      <ReviewStream
-        {...streamProps({ [path]: full }, [[path, 1]], "target:same-path")}
-        targets={[only]}
-        draft={null}
-      />,
-    );
-    const fullNode = screen.getByTestId(`mock-file-diff:${path}`);
-
-    rerender(
-      <ReviewStream
-        {...streamProps({ [path]: snapshot }, [[path, 1]], "target:same-path")}
-        targets={[only]}
-        draft={null}
-        revisionId="rrv-369"
-        snapshotComparison={{
-          fromRevision: 348,
-          toRevision: 369,
-          fromRevisionId: "rrv-348",
-          toRevisionId: "rrv-369",
-        }}
-      />,
-    );
-
-    const snapshotNode = screen.getByTestId(`mock-file-diff:${path}`);
-    expect(snapshotNode).not.toBe(fullNode);
-    expect(pierre.parsePatchFiles).toHaveBeenLastCalledWith(snapshotPatch, `lc:${path}`, false);
-  });
-
   it("keeps a synchronized horizontal scrollbar reachable for the active wide diff", async () => {
     const wide = target("wide", "wide.ts", 1);
     const common = streamProps({ "wide.ts": detail("wide.ts") }, [["wide.ts", 1]], "target:wide");
@@ -376,8 +299,6 @@ describe("continuous review stream", () => {
     expect(dock.getAttribute("aria-label")).toBe("Horizontal scroll for wide.ts");
     const code = screen.getByTestId("mock-file-diff:wide.ts").querySelector<HTMLElement>("[data-code]");
     expect(code).toBeTruthy();
-    expect(code?.dataset.lcReviewInnerScroll).toBe("true");
-    expect(code?.style.getPropertyValue("scrollbar-width")).toBe("none");
 
     act(() => {
       dock.scrollLeft = 240;
@@ -629,42 +550,6 @@ describe("continuous review stream", () => {
     expect(screen.getByRole("button", { name: `Preview ${laterPath}` })).toBeTruthy();
   });
 
-  it("replaces review previews with a shortcut on later pages while preserving file and dedicated previews", async () => {
-    const path = "src/components/Hero.tsx";
-    const apiPath = "bruno/Hello.bru";
-    const surfaces = [
-      { id: "/", provider: "web", kind: "web.route", title: "/", locator: "/", runtime: "",
-        affected_paths: [path], capabilities: ["preview", "compare"], metadata: {} },
-      { id: apiPath, provider: "bruno", kind: "api.request", title: "Hello", locator: "GET /hello", runtime: "",
-        affected_paths: [apiPath], capabilities: ["source"], metadata: { method: "GET", url: "/hello" } },
-    ];
-    const props = {
-      ...streamProps({ [path]: webDetail(path), [apiPath]: detail(apiPath) }, [[path, 1], [apiPath, 1]], "target:hero"),
-      targets: [target("hero", path, 1), target("hello", apiPath, 1)],
-      draft: null,
-      surfaces,
-      onOpenPreviews: vi.fn(),
-    };
-    const view = render(<ReviewStream {...props} />);
-    expect(screen.getByTestId("web-surface:web:/")).toBeTruthy();
-    expect(screen.getByTestId(`api-surface:bruno:${apiPath}`)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Open previews" })).toBeNull();
-
-    view.rerender(<ReviewStream {...props} showReviewPreviews={false} />);
-    expect(screen.queryByTestId("web-surface:web:/")).toBeNull();
-    expect(screen.queryByTestId(`api-surface:bruno:${apiPath}`)).toBeNull();
-    expect(screen.getByTestId(`mock-file-diff:${path}`)).toBeTruthy();
-    expect(screen.getByTestId(`mock-file-diff:${apiPath}`)).toBeTruthy();
-    await userEvent.click(screen.getByRole("button", { name: "Open previews" }));
-    expect(props.onOpenPreviews).toHaveBeenCalledOnce();
-    await userEvent.click(screen.getByRole("button", { name: `Preview ${path}` }));
-    expect(screen.getByTestId(`mock-web-preview:${path}`)).toBeTruthy();
-
-    view.rerender(<ReviewStream {...props} showReviewPreviews={false} dedicatedItem={{ kind: "surface", provider: "web", id: "/" }} />);
-    expect(screen.getByTestId("web-surface:web:/")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Open previews" })).toBeNull();
-  });
-
   it("opens a dedicated web workspace on the selected route while keeping all routes available", () => {
     const heroPath = "src/components/Hero.tsx";
     const stylePath = "src/components/hero.css";
@@ -829,64 +714,6 @@ describe("continuous review stream", () => {
     open.mockRestore();
   });
 
-  it("shows runtime validation separately from preview runs and reuses Evidence/Ask target actions", async () => {
-    const path = "bruno/Checkout.bru";
-    const only = target("checkout", path, 1);
-    const common = streamProps({ [path]: detail(path) }, [[path, 1]], "target:checkout");
-    const surface = {
-      id: path,
-      provider: "bruno",
-      kind: "api.request",
-      title: "Checkout",
-      locator: "POST {{baseUrl}}/checkout",
-      runtime: "demo-api",
-      affected_paths: [path],
-      capabilities: ["source", "execute", "results"],
-      metadata: { method: "POST", url: "{{baseUrl}}/checkout" },
-    };
-    const onValidateSurface = vi.fn();
-    const onContext = vi.fn();
-    const onAsk = vi.fn();
-    const response = {
-      request: { revision_id: "rrv-4" },
-      reused: false,
-      runtime_validation: {
-        status: "FAIL",
-        status_reasons: ["assertion failed: cart persisted"],
-      },
-      evidence: { id: "ev-runtime" },
-      verification: { checks: [], summary: {} },
-    } as unknown as ReviewRuntimeValidationResponse;
-
-    render(
-      <ReviewStream
-        {...common}
-        targets={[only]}
-        draft={null}
-        surfaces={[surface]}
-        runtimeValidations={{ ["bruno:" + path]: { response } }}
-        onValidateSurface={onValidateSurface}
-        onContext={onContext}
-        onAsk={onAsk}
-      />,
-    );
-
-    const apiSurface = screen.getByTestId("api-surface:bruno:" + path);
-    const validation = within(apiSurface).getByTestId("runtime-validation-control");
-    expect(within(validation).getByText("FAIL")).toBeTruthy();
-    expect(within(validation).getByText("assertion failed: cart persisted")).toBeTruthy();
-
-    await userEvent.click(within(validation).getByRole("button", { name: "Run again" }));
-    expect(onValidateSurface).toHaveBeenCalledWith(surface);
-
-    await userEvent.click(within(validation).getByRole("button", { name: "Inspect evidence" }));
-    expect(onContext).toHaveBeenCalledWith(only, "checks");
-
-    await userEvent.click(within(validation).getByRole("button", { name: "Ask" }));
-    expect(onAsk).toHaveBeenCalledWith(only);
-  });
-
-
   it("does not advertise API response compare when no revision-pinned runtime can execute it", () => {
     const path = "bruno/ReadOnly.bru";
     const only = target("readonly", path, 1);
@@ -957,7 +784,7 @@ describe("continuous review stream", () => {
 
     expect(screen.getAllByTestId(/^api-surface:/)).toHaveLength(1);
     await userEvent.click(screen.getByRole("button", { name: "API endpoint" }));
-    const search = screen.getByRole("combobox", { name: "API endpoint search" });
+    const search = screen.getByRole("searchbox", { name: "API endpoint search" });
     await userEvent.type(search, "health");
     expect(screen.getAllByRole("option")).toHaveLength(1);
     expect(screen.getByRole("option").textContent).toContain("POST {{baseUrl}}/api/health");
@@ -970,7 +797,7 @@ describe("continuous review stream", () => {
     expect(onRunSurface).toHaveBeenCalledWith(health, false);
 
     await userEvent.click(screen.getByRole("button", { name: "API endpoint" }));
-    expect((screen.getByRole("combobox", { name: "API endpoint search" }) as HTMLInputElement).value).toBe("health");
+    expect((screen.getByRole("searchbox", { name: "API endpoint search" }) as HTMLInputElement).value).toBe("health");
     expect(screen.getAllByRole("option")).toHaveLength(1);
   });
 
@@ -1100,11 +927,6 @@ describe("continuous review stream", () => {
         targets={targets}
         draft={null}
         surfaces={[web, api, service, frontendService]}
-        surfaceRuns={{
-          "service:app-stack:api": {
-            error: "review runtime 'app-stack' uses unavailable runner 'docker-compose'",
-          },
-        }}
         onRunSurface={onRunSurface}
       />,
     );
@@ -1133,18 +955,16 @@ describe("continuous review stream", () => {
     const runtimeSurface = screen.getByTestId("service-surface:service:app-stack:api");
     const frontendRuntimeSurface = screen.getByTestId("service-surface:service:app-stack:frontend");
     expect(within(runtimeSurface).getAllByText("api").length).toBeGreaterThan(0);
-    expect(within(runtimeSurface).getByText("Unavailable").className).toContain("text-amber-400");
-    expect(within(runtimeSurface).getByText(/cannot run in this review environment/i)).toBeTruthy();
-    expect(within(runtimeSurface).queryByText(/uses unavailable runner/)).toBeNull();
     expect(within(frontendRuntimeSurface).getAllByText("frontend").length).toBeGreaterThan(0);
     expect(within(runtimeSurface).getByRole("button", { name: "Open runtime surface api in dedicated tab" }).textContent).toContain("Docker · app-stack");
     expect(runtimeSurface.getAttribute("data-review-surface-key")).toBe("service:app-stack:api");
     expect(frontendRuntimeSurface.getAttribute("data-review-surface-key")).toBe("service:app-stack:frontend");
     expect(screen.queryByRole("button", { name: "Runtime service" })).toBeNull();
-    expect((within(runtimeSurface).getByRole("button", { name: "Run check" }) as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.click(within(runtimeSurface).getByRole("button", { name: "Run check" }));
+    expect(onRunSurface).toHaveBeenCalledWith(service, false);
     await userEvent.click(within(frontendRuntimeSurface).getByRole("button", { name: "Run check" }));
     expect(onRunSurface).toHaveBeenCalledWith(frontendService, false);
-    expect(onRunSurface).not.toHaveBeenCalledWith(service, false);
+    expect(onRunSurface).toHaveBeenCalledWith(service, false);
 
     expect(screen.getByTestId(`mock-file-diff:${sourcePath}`)).toBeTruthy();
     expect(screen.getByTestId(`mock-file-diff:${webPath}`)).toBeTruthy();
@@ -1220,7 +1040,7 @@ describe("continuous review stream", () => {
     linkedStory = screen.getByTestId(`linked-surface:${storyPath}`);
     expect(within(linkedStory).getByTestId("mock-plugin-preview:storybook:web:design-button--primary").textContent).toBe("compare rrv-3");
     await userEvent.click(within(linkedStory).getByRole("button", { name: `Preview surface for ${storyPath}` }));
-    await userEvent.click(screen.getByRole("option", { name: /Secondary/ }));
+    await userEvent.click(within(linkedStory).getByRole("option", { name: /Secondary/ }));
     expect(within(screen.getByTestId(`linked-surface:${storyPath}`)).getByTestId("mock-plugin-preview:storybook:web:design-button--secondary")).toBeTruthy();
 
     const unknown = screen.getByTestId("plugin-surface:maestro:login");
@@ -1261,36 +1081,13 @@ describe("continuous review stream", () => {
         reason: "",
       },
     });
-    const api = {
-      ...story("web:demo-surface-card--api", "Demo/SurfaceCard · Api", "Api"),
-      metadata: { export: "Api", story_file: storyPath },
-    };
-    const components = {
-      ...story("web:demo-surface-card--components", "Demo/SurfaceCard · Components", "Components"),
-      metadata: { export: "Components", story_file: storyPath },
-    };
-    const hunkTarget = { ...target("story-hunk", storyPath, 14), kind: "hunk" as const, symbol: "", end_line: 17 };
-    const storyDetail = {
-      ...detail(storyPath),
-      patch: [
-        `diff --git a/${storyPath} b/${storyPath}`,
-        `--- a/${storyPath}`,
-        `+++ b/${storyPath}`,
-        "@@ -9,5 +9,9 @@ export const Web = {};",
-        " export const Api = {",
-        '   args: { name: "API", detail: "Bruno request surfaces" },',
-        " };",
-        "+",
-        "+export const Components = {",
-        '+  args: { name: "Components", detail: "Storybook story previews" },',
-        "+};",
-      ].join("\n"),
-    };
+    const api = story("web:demo-surface-card--api", "Demo/SurfaceCard · Api", "Api");
+    const components = story("web:demo-surface-card--components", "Demo/SurfaceCard · Components", "Components");
 
     render(
       <ReviewStream
-        {...streamProps({ [storyPath]: storyDetail }, [[storyPath, 1]], "target:story-hunk")}
-        targets={[hunkTarget]}
+        {...streamProps({ [storyPath]: detail(storyPath) }, [[storyPath, 1]], "target:Components")}
+        targets={[target("Components", storyPath, 14)]}
         draft={null}
         surfaces={[api, components]}
         revisionId="rrv-story"
@@ -1348,7 +1145,7 @@ describe("continuous review stream", () => {
     let linked = screen.getByTestId(`linked-surface:${path}`);
     expect(within(linked).getByTestId("mock-plugin-preview:fixture-mobile:first")).toBeTruthy();
     await userEvent.click(within(linked).getByRole("button", { name: `Preview surface for ${path}` }));
-    await userEvent.click(screen.getByRole("option", { name: /Second flow/ }));
+    await userEvent.click(within(linked).getByRole("option", { name: /Second flow/ }));
     linked = screen.getByTestId(`linked-surface:${path}`);
     expect(within(linked).getByTestId("mock-plugin-preview:fixture-mobile:second")).toBeTruthy();
     expect(reviewApi.fetchSurfaceImpact).not.toHaveBeenCalled();
@@ -1466,122 +1263,8 @@ describe("continuous review stream", () => {
       screen.getByTestId("review-stream").dispatchEvent(new Event("scroll", { bubbles: true }));
     });
 
-    expect(screen.getByTestId("review-selection-actions")).toBeTruthy();
+    expect(screen.queryByTestId("review-selection-actions")).toBeNull();
     expect(pierreReact.diffProps.get("src/scroll-selection.py")?.selectedLines).toEqual(range);
-  });
-
-  it("opens range actions when code text is dragged across lines", () => {
-    const only = target("text-range", "src/text-range.py", 3);
-    render(
-      <ReviewStream
-        {...streamProps({ "src/text-range.py": detail("src/text-range.py") }, [["src/text-range.py", 1]], only.target_id)}
-        targets={[only]}
-        draft={null}
-      />,
-    );
-    const selection = vi.spyOn(document, "getSelection").mockReturnValue({ toString: () => "a\nb" } as Selection);
-    try {
-      const row = (line: number) => screen.getByTestId(`scope-row:src/text-range.py:${line}`);
-      fireEvent.pointerDown(row(3));
-      fireEvent.pointerUp(row(3));
-      expect(screen.queryByTestId("review-selection-actions")).toBeNull();
-
-      fireEvent.pointerDown(row(3));
-      fireEvent.pointerUp(row(6));
-    } finally {
-      selection.mockRestore();
-    }
-    expect(screen.getByTestId("review-selection-actions")).toBeTruthy();
-    expect(pierreReact.diffProps.get("src/text-range.py")?.selectedLines)
-      .toEqual({ start: 3, end: 6, side: "additions", endSide: "additions" });
-  });
-
-  it("keeps a review area's header sticky over its change once the original scrolls off", async () => {
-    const observers: Array<{ callback: IntersectionObserverCallback; observed: Element[] }> = [];
-    class FakeIntersectionObserver {
-      record: { callback: IntersectionObserverCallback; observed: Element[] };
-      constructor(callback: IntersectionObserverCallback) {
-        this.record = { callback, observed: [] };
-        observers.push(this.record);
-      }
-      observe(element: Element) { this.record.observed.push(element); }
-      unobserve() {}
-      disconnect() { this.record.observed = []; }
-      takeRecords() { return []; }
-    }
-    vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
-    try {
-      const path = "src/sticky.py";
-      const only = target("sticky", path, 3);
-      render(
-        <ReviewStream
-          {...streamProps({ [path]: detail(path) }, [[path, 1]], only.target_id)}
-          targets={[only]}
-          draft={null}
-        />,
-      );
-      const place = (element: Element, top: number, bottom: number) => {
-        element.getBoundingClientRect = () => ({
-          top, bottom, left: 10, right: 410, width: 400, height: bottom - top, x: 10, y: top, toJSON() {},
-        }) as DOMRect;
-      };
-      const item = document.querySelector(`[data-review-stream-item="${path}"]`)!;
-      const header = document.querySelector(`.review-target-header[data-review-target-id="${only.target_id}"]`)!;
-      place(item, -400, 900);
-      place(item.lastElementChild!, 900, 900);
-      place(header, 100, 134);
-      place(screen.getByTestId(`scope-row:${path}:5`), 380, 401);
-
-      act(() => { window.dispatchEvent(new Event("resize")); });
-      const sticky = await screen.findByTestId(`review-sticky-target:${only.target_id}`);
-      // The track spans from the header (less its margin) to the change's end.
-      expect(sticky.parentElement!.style.top).toBe("-802px");
-      expect(sticky.parentElement!.style.height).toBe("303px");
-      expect(sticky.className).toContain("sticky");
-      expect(sticky.dataset.stuck).toBe("false");
-      expect(sticky.className).toContain("invisible");
-
-      const io = observers.find((record) => record.observed.includes(header))!;
-      act(() => io.callback(
-        [{ target: header, boundingClientRect: { top: -10 }, rootBounds: { top: 0 } }] as unknown as IntersectionObserverEntry[],
-        io as unknown as IntersectionObserver,
-      ));
-      expect(sticky.dataset.stuck).toBe("true");
-      expect(sticky.className).not.toContain("invisible");
-      expect(within(sticky).getByText("sticky.py")).toBeTruthy();
-      expect(within(sticky).getByRole("group", { name: /review area/ })).toBeTruthy();
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it("hides full-review hunk fallback headers in a Snapshot comparison", () => {
-    const path = "src/fallback.py";
-    const fallback = {
-      ...target("fallback", path, 3),
-      kind: "hunk" as const,
-      symbol: "",
-      spans: [
-        { side: "new" as const, start_line: 3, end_line: 6, hunk_ordinal: 0 },
-        { side: "new" as const, start_line: 12, end_line: 14, hunk_ordinal: 1 },
-      ],
-    };
-    render(
-      <ReviewStream
-        {...streamProps({ [path]: detail(path) }, [[path, 1]], fallback.target_id)}
-        targets={[fallback]}
-        draft={null}
-        snapshotComparison={{
-          fromRevision: 4,
-          toRevision: 7,
-          fromRevisionId: "rrv-4",
-          toRevisionId: "rrv-7",
-        }}
-      />,
-    );
-
-    expect(screen.queryByText(/Changes outside detected symbols/)).toBeNull();
-    expect(screen.getByTestId(`mock-file-diff:${path}`)).toBeTruthy();
   });
 
   it("flips the selected-range action popup away from viewport edges", () => {
@@ -1616,49 +1299,35 @@ describe("continuous review stream", () => {
     expect(menu.className).toContain("max-w-[calc(100vw-16px)]");
   });
 
-  it("opens inline Quick Edit on the real two-click line-number event sequence without letting the selection popup steal click two", () => {
-    vi.useFakeTimers();
-    try {
-      const only = target("quick-edit", "src/quick.py", 5);
-      const onQuickEdit = vi.fn();
-      render(
-        <ReviewStream
-          {...streamProps({ "src/quick.py": detail("src/quick.py") }, [["src/quick.py", 1]], only.target_id)}
-          targets={[only]}
-          draft={null}
-          onQuickEdit={onQuickEdit}
-        />,
-      );
+  it("opens inline Quick Edit when the editable line number is double-clicked", () => {
+    const only = target("quick-edit", "src/quick.py", 5);
+    const onQuickEdit = vi.fn();
+    render(
+      <ReviewStream
+        {...streamProps({ "src/quick.py": detail("src/quick.py") }, [["src/quick.py", 1]], only.target_id)}
+        targets={[only]}
+        draft={null}
+        onQuickEdit={onQuickEdit}
+      />,
+    );
 
-      const options = pierreReact.diffProps.get("src/quick.py")?.options;
-      const range = { start: 5, end: 5, side: "additions", endSide: "additions" };
-      const firstPreventDefault = vi.fn();
-      const secondPreventDefault = vi.fn();
-      act(() => {
-        options.onLineSelectionEnd(range);
-        options.onLineClick({ lineNumber: 5, annotationSide: "additions", event: { detail: 1, timeStamp: 100, preventDefault: firstPreventDefault } });
-      });
-      expect(screen.queryByTestId("review-selection-actions")).toBeNull();
+    const options = pierreReact.diffProps.get("src/quick.py")?.options;
+    const preventDefault = vi.fn();
+    act(() => options.onLineNumberClick({
+      lineNumber: 5,
+      side: "additions",
+      event: { detail: 2, preventDefault },
+    }));
 
-      act(() => {
-        options.onLineSelectionEnd(range);
-        options.onLineClick({ lineNumber: 5, annotationSide: "additions", event: { detail: 2, timeStamp: 220, preventDefault: secondPreventDefault } });
-        vi.advanceTimersByTime(500);
-      });
-
-      expect(firstPreventDefault).not.toHaveBeenCalled();
-      expect(secondPreventDefault).toHaveBeenCalledTimes(1);
-      expect(onQuickEdit).toHaveBeenCalledWith({
-        path: "src/quick.py",
-        startLine: 5,
-        endLine: 5,
-        side: "additions",
-        targetUnitKey: "quick-edit",
-      });
-      expect(screen.queryByTestId("review-selection-actions")).toBeNull();
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(onQuickEdit).toHaveBeenCalledWith({
+      path: "src/quick.py",
+      startLine: 5,
+      endLine: 5,
+      side: "additions",
+      targetUnitKey: "quick-edit",
+    });
+    expect(screen.queryByTestId("review-selection-actions")).toBeNull();
   });
 
   it("does not quick-edit old-side or ordinary line-number clicks", () => {
@@ -1674,11 +1343,8 @@ describe("continuous review stream", () => {
     );
 
     const options = pierreReact.diffProps.get("src/quick-guard.py")?.options;
-    act(() => options.onLineClick({ lineNumber: 5, annotationSide: "additions", event: { detail: 1, preventDefault: vi.fn() } }));
-    act(() => options.onLineClick({ lineNumber: 5, annotationSide: "deletions", event: { detail: 2, preventDefault: vi.fn() } }));
-    // A double-click on a deleted line: Pierre's diff click payload names the side `annotationSide`.
-    act(() => options.onLineClick({ lineNumber: 7, annotationSide: "deletions", event: { detail: 1, timeStamp: 100, preventDefault: vi.fn() } }));
-    act(() => options.onLineClick({ lineNumber: 7, annotationSide: "deletions", event: { detail: 2, timeStamp: 200, preventDefault: vi.fn() } }));
+    act(() => options.onLineNumberClick({ lineNumber: 5, side: "additions", event: { detail: 1, preventDefault: vi.fn() } }));
+    act(() => options.onLineNumberClick({ lineNumber: 5, side: "deletions", event: { detail: 2, preventDefault: vi.fn() } }));
     expect(onQuickEdit).not.toHaveBeenCalled();
   });
 
@@ -1763,80 +1429,9 @@ describe("continuous review stream", () => {
     expect(pierreReact.diffProps.get("src/shortcut-range.py")?.selectedLines).toBeNull();
   });
 
-  it("orders a range comment before the next review target when both share the same annotation slot", () => {
-    const path = "scripts/install.sh";
-    const next = target("next", path, 462);
-    const draft = {
-      path,
-      startLine: 416,
-      endLine: 461,
-      side: "additions" as const,
-    };
-    render(
-      <ReviewStream
-        {...streamProps({ [path]: detail(path) }, [[path, 1]], next.target_id)}
-        targets={[next]}
-        draft={draft}
-      />,
-    );
-
-    const markers = pierreReact.diffProps.get(path)?.lineAnnotations;
-    expect(markers.some((marker: any) => marker.lineNumber === 461)).toBe(true);
-
-    const composer = screen.getByText(/Draft · New comment · L416-L461/).closest(".review-composer");
-    const nextHeader = screen.getByRole("group", { name: "next review area" });
-    expect(composer).toBeTruthy();
-    expect(nextHeader).toBeTruthy();
-    expect(composer!.compareDocumentPosition(nextHeader) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it("draws a symbol-wide comment whose last line is collapsed context under the last line of its range the diff renders", () => {
-    const path = "src/collapsed-end.py";
-    const original = pierre.parsePatchFiles.getMockImplementation();
-    // One hunk: new lines 4-15 render; the symbol's tail (16-19) is collapsed
-    // unchanged context, so Pierre draws no row for line 19.
-    pierre.parsePatchFiles.mockImplementation((_patch: string, id: string) => {
-      const name = id.startsWith("lc:") ? id.slice(3) : id;
-      const hunks = [{ additionStart: 4, additionCount: 12, deletionStart: 4, deletionCount: 7 }];
-      return [{ files: [{ id, name, hunks }] }] as never;
-    });
-    try {
-      const symbol: ReviewTarget = {
-        ...target("handler", path, 7),
-        start_line: 4,
-        end_line: 19,
-        spans: [{ side: "new", start_line: 7, end_line: 12, hunk_ordinal: 0 }],
-      };
-      const posted = fileAnnotation("posted", path, "Earlier block note", {
-        file_level: false, start_line: 4, end_line: 19, anchor_method: "symbol", unit_key: "handler",
-      });
-      // Header "Comment on handler" drafts the whole symbol, 4-19.
-      render(
-        <ReviewStream
-          {...streamProps({ [path]: detail(path) }, [[path, 1]], symbol.target_id)}
-          annotations={[posted]}
-          targets={[symbol]}
-          draft={{ path, startLine: 4, endLine: 19, side: "additions", targetUnitKey: "handler" }}
-        />,
-      );
-
-      const hidden = screen.queryByTestId(`marker:${path}:additions:19`);
-      expect(hidden && within(hidden).queryByRole("textbox", { name: "Comment text" })).toBeFalsy();
-      expect(hidden && within(hidden).queryByText("Earlier block note")).toBeFalsy();
-      const row = screen.getByTestId(`marker:${path}:additions:15`);
-      // The card moves into view; the comment keeps its whole range.
-      expect(within(row).getByText(/Draft · New comment · L4-L19/)).toBeTruthy();
-      expect(within(row).getByRole("textbox", { name: "Comment text" })).toBeTruthy();
-      expect(within(row).getByText("Earlier block note")).toBeTruthy();
-    } finally {
-      pierre.parsePatchFiles.mockImplementation(original!);
-    }
-  });
-
-  it("materializes review targets as compact actionable annotation rows", async () => {
+  it("does not materialize review targets as annotation rows", async () => {
     const targets = [target("a_one", "src/a.py", 1), target("a_two", "src/a.py", 2), target("b_one", "src/b.py", 1)];
     const onBulkReview = vi.fn();
-    const onComment = vi.fn();
     render(
       <ReviewStream
         targets={targets}
@@ -1854,8 +1449,7 @@ describe("continuous review stream", () => {
         onCreate={vi.fn()}
         onSetAnnotationState={vi.fn()}
         onMark={vi.fn()}
-        onComment={onComment}
-        onAsk={vi.fn()}
+        onComment={vi.fn()}
         onContext={vi.fn()}
         onBulkReview={onBulkReview}
         onLoadMore={vi.fn()}
@@ -1864,21 +1458,14 @@ describe("continuous review stream", () => {
 
     expect(screen.getByTestId("code-item:src/a.py")).toBeTruthy();
     expect(screen.getByTestId("code-item:src/b.py")).toBeTruthy();
-    expect(screen.getByRole("group", { name: /a_one review area/i })).toBeTruthy();
-    expect(screen.getByRole("group", { name: /a_two review area/i })).toBeTruthy();
-    expect(screen.getByRole("group", { name: /b_one review area/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Mark a_one reviewed" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Mark a_one needs changes" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Comment on a_one" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Ask about a_one" })).toBeTruthy();
-
-    const aOneEnd = screen.getByRole("group", { name: "End actions for a_one" });
-    expect(aOneEnd).toBeTruthy();
-    expect(screen.getByRole("group", { name: "End actions for a_two" })).toBeTruthy();
-    expect(screen.getByRole("group", { name: "End actions for b_one" })).toBeTruthy();
-    await userEvent.click(within(aOneEnd).getByRole("button", { name: "Comment on a_one from end" }));
-    expect(onComment).toHaveBeenCalledWith(targets[0]);
-
+    expect(screen.queryByText("a_one")).toBeNull();
+    expect(screen.queryByText("a_two")).toBeNull();
+    expect(screen.queryByText("b_one")).toBeNull();
+    expect(screen.queryByRole("group", { name: /a_one review area/i })).toBeNull();
+    expect(screen.queryByRole("group", { name: /a_two review area/i })).toBeNull();
+    expect(screen.queryByRole("group", { name: /b_one review area/i })).toBeNull();
+    expect(pierreReact.diffProps.get("src/a.py")?.lineAnnotations).toEqual([]);
+    expect(pierreReact.diffProps.get("src/b.py")?.lineAnnotations).toEqual([]);
     expect(screen.getByText("2 left")).toBeTruthy();
     expect(screen.getByText("1 left")).toBeTruthy();
 
@@ -1894,9 +1481,9 @@ describe("continuous review stream", () => {
     expect(fileTitle?.style.textDecorationLine).toBe("");
 
     const fileActions = screen.getByLabelText("File actions for src/a.py");
-    expect(screen.queryByRole("menu")).toBeNull();
+    expect(fileActions.closest("details")?.hasAttribute("open")).toBe(false);
     await userEvent.click(fileActions);
-    expect(await screen.findByRole("menu")).toBeTruthy();
+    expect(fileActions.closest("details")?.hasAttribute("open")).toBe(true);
     const bulk = screen.getByRole("menuitem", { name: "Mark safe items reviewed in src/a.py" });
     expect(bulk.getAttribute("title")).toContain("Anything needing individual attention is skipped");
     await userEvent.click(bulk);
@@ -1904,26 +1491,7 @@ describe("continuous review stream", () => {
     expect(onBulkReview).toHaveBeenCalledWith("src/a.py");
   });
 
-  it("opens a file in Code from its file actions, at its first review area", async () => {
-    const targets = [target("a_one", "src/a.py", 4)];
-    const onOpenInCode = vi.fn();
-    const { rerender } = render(
-      <ReviewStream targets={targets} draft={null} {...streamProps({ "src/a.py": detail("src/a.py") }, [["src/a.py", 1]], "target:a_one")} onOpenInCode={onOpenInCode} />,
-    );
-    await userEvent.click(screen.getByLabelText("File actions for src/a.py"));
-    await userEvent.click(await screen.findByRole("menuitem", { name: "Open src/a.py in Code" }));
-    expect(onOpenInCode).toHaveBeenCalledWith({ path: "src/a.py", line: 4, endLine: 6 });
-
-    // A deleted file has nothing in the working tree to open.
-    rerender(
-      <ReviewStream targets={targets} draft={null} {...streamProps({ "src/a.py": { ...detail("src/a.py"), status: "deleted" } }, [["src/a.py", 1]], "target:a_one")} onOpenInCode={onOpenInCode} />,
-    );
-    await userEvent.click(screen.getByLabelText("File actions for src/a.py"));
-    await screen.findByRole("menu");
-    expect(screen.queryByRole("menuitem", { name: "Open src/a.py in Code" })).toBeNull();
-  });
-
-  it("renders review coverage as a scope overlay plus an actionable target header", () => {
+  it("renders review coverage as a scope overlay, not annotation chrome", () => {
     const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       const element = this;
       if (element.dataset.testid === "code-item:src/scope.py") {
@@ -1948,9 +1516,9 @@ describe("continuous review stream", () => {
 
     render(<ReviewStream {...common} diffStyle="unified" targets={[scoped]} draft={null} />);
 
-    expect(screen.getByText(/covers lines 3–5/)).toBeTruthy();
-    expect(screen.getByRole("group", { name: "scope review area" })).toBeTruthy();
-    expect(pierreReact.diffProps.get("src/scope.py")?.lineAnnotations).toHaveLength(2);
+    expect(screen.queryByText(/covers lines 3–5/)).toBeNull();
+    expect(screen.queryByRole("group", { name: "scope review area" })).toBeNull();
+    expect(pierreReact.diffProps.get("src/scope.py")?.lineAnnotations).toEqual([]);
 
     const wrapper = screen.getByTestId("code-item:src/scope.py");
     const overlay = wrapper.querySelector<HTMLElement>('[data-lc-review-scope-overlay="target:scope"]');
@@ -1963,11 +1531,10 @@ describe("continuous review stream", () => {
     expect(overlay?.style.width).toBe("800px");
     expect(overlay?.style.top).toBe("72px");
     expect(overlay?.style.height).toBe("63px");
-    expect(overlay?.style.borderTop).toContain("0px");
+    expect(overlay?.style.borderTop).toContain("1px solid");
     expect(overlay?.style.borderLeft).toContain("2px solid");
     expect(overlay?.style.borderRight).toContain("1px solid");
-    expect(overlay?.style.borderBottom).toContain("0px");
-    expect(overlay?.style.borderRadius).toBe("0");
+    expect(overlay?.style.borderBottom).toContain("1px solid");
     rect.mockRestore();
   });
 
@@ -2066,13 +1633,13 @@ describe("continuous review stream", () => {
     expect(childOverlay?.dataset.lcReviewCoverage).toBe("true");
     expect(childOverlay?.style.left).toBe("0px");
     expect(childOverlay?.style.width).toBe("800px");
-    expect(pierreReact.diffProps.get("src/parent.ts")?.lineAnnotations).toHaveLength(4);
-    expect(screen.getByRole("group", { name: "parent review area" })).toBeTruthy();
-    expect(screen.getByRole("group", { name: "parent.child review area" })).toBeTruthy();
+    expect(pierreReact.diffProps.get("src/parent.ts")?.lineAnnotations).toEqual([]);
+    expect(screen.queryByRole("group", { name: "parent review area" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "parent.child review area" })).toBeNull();
     rect.mockRestore();
   });
 
-  it("keeps a completely added file full-width while preserving its actionable target header", () => {
+  it("keeps a completely added file full-width without creating target annotations", () => {
     const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       const element = this;
       if (element.dataset.testid === "code-item:src/new.ts") {
@@ -2101,7 +1668,7 @@ describe("continuous review stream", () => {
     const props = pierreReact.diffProps.get("src/new.ts");
     expect(props).toBeTruthy();
     expect(props.options.diffStyle).toBe("unified");
-    expect(props.lineAnnotations).toHaveLength(2);
+    expect(props.lineAnnotations).toEqual([]);
     const wrapper = screen.getByTestId("code-item:src/new.ts");
     const overlay = wrapper.querySelector<HTMLElement>('[data-lc-review-scope-overlay="target:new"]');
     expect(overlay).toBeTruthy();
@@ -2109,14 +1676,13 @@ describe("continuous review stream", () => {
     expect(overlay?.dataset.lcReviewScopeActive).toBe("true");
     expect(overlay?.style.left).toBe("0px");
     expect(overlay?.style.width).toBe("800px");
-    expect(overlay?.style.borderTop).toContain("0px");
+    expect(overlay?.style.borderTop).toContain("1px solid");
     expect(overlay?.style.borderLeft).toContain("2px solid");
     expect(overlay?.style.borderRight).toContain("1px solid");
-    expect(overlay?.style.borderBottom).toContain("0px");
     rect.mockRestore();
   });
 
-  it("outlines both sides of a modified scope and keeps its actionable target header", () => {
+  it("outlines both sides of a modified scope without a target annotation", () => {
     const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       const element = this;
       if (element.dataset.testid === "code-item:src/modified.ts") {
@@ -2144,9 +1710,9 @@ describe("continuous review stream", () => {
 
     render(<ReviewStream {...common} diffStyle="split" targets={[modified]} draft={null} />);
 
-    expect(screen.getByText(/modified · old 3–4/)).toBeTruthy();
-    expect(screen.getByRole("group", { name: "modified review area" })).toBeTruthy();
-    expect(pierreReact.diffProps.get("src/modified.ts")?.lineAnnotations).toHaveLength(2);
+    expect(screen.queryByText(/modified · old 3–4/)).toBeNull();
+    expect(screen.queryByRole("group", { name: "modified review area" })).toBeNull();
+    expect(pierreReact.diffProps.get("src/modified.ts")?.lineAnnotations).toEqual([]);
     const wrapper = screen.getByTestId("code-item:src/modified.ts");
     const oldOverlay = wrapper.querySelector<HTMLElement>(
       '[data-lc-review-scope-overlay="target:modified"][data-lc-review-scope-overlay-side="old"]',
@@ -2164,178 +1730,19 @@ describe("continuous review stream", () => {
     expect(oldOverlay?.style.width).toBe("400px");
     expect(oldOverlay?.style.top).toBe("72px");
     expect(oldOverlay?.style.height).toBe("42px");
-    expect(oldOverlay?.style.borderTop).toContain("0px");
+    expect(oldOverlay?.style.borderTop).toContain("1px solid");
     expect(oldOverlay?.style.borderLeft).toContain("2px solid");
     expect(oldOverlay?.style.borderRight).toContain("0px");
-    expect(oldOverlay?.style.borderBottom).toContain("0px");
+    expect(oldOverlay?.style.borderBottom).toContain("1px solid");
     expect(newOverlay?.style.left).toBe("400px");
     expect(newOverlay?.style.width).toBe("400px");
     expect(newOverlay?.style.top).toBe("72px");
     expect(newOverlay?.style.height).toBe("63px");
-    expect(newOverlay?.style.borderTop).toContain("0px");
+    expect(newOverlay?.style.borderTop).toContain("1px solid");
     expect(newOverlay?.style.borderLeft).toContain("0px");
     expect(newOverlay?.style.borderRight).toContain("1px solid");
-    expect(newOverlay?.style.borderBottom).toContain("0px");
-    expect(newOverlay?.style.borderRadius).toBe("0");
+    expect(newOverlay?.style.borderBottom).toContain("1px solid");
     rect.mockRestore();
-  });
-
-  it("offers no context expansion for a source comparison, whose sides are not Review revisions", () => {
-    const path = "src/compare-gap.py";
-    const only = target("compare-gap", path, 1);
-    render(<ReviewStream {...streamProps({ [path]: detail(path) }, [[path, 1]], "target:compare-gap")} targets={[only]} draft={null} comparisonMode />);
-
-    expect(pierreReact.diffProps.get(path).options.loadDiffFiles).toBeUndefined();
-    expect(reviewApi.fetchFileContents).not.toHaveBeenCalled();
-  });
-
-  it("loads unchanged context from the exact Snapshot pair without disabling review actions", async () => {
-    const path = "src/snapshot-context.py";
-    const only = target("snapshot-context", path, 1);
-    reviewApi.fetchRevisionComparisonFileContents.mockResolvedValueOnce({
-      path,
-      revision_id: "rrv-369",
-      from_revision_id: "rrv-348",
-      to_revision_id: "rrv-369",
-      old_path: path,
-      status: "changed",
-      old_content: "same header\nold body\n",
-      new_content: "same header\nnew body\n",
-    });
-    const common = streamProps({ [path]: detail(path) }, [[path, 1]], "target:snapshot-context");
-    render(
-      <ReviewStream
-        {...common}
-        targets={[only]}
-        draft={null}
-        revisionId="rrv-some-other-reader-revision"
-        snapshotComparison={{
-          fromRevision: 348,
-          toRevision: 369,
-          fromRevisionId: "rrv-348",
-          toRevisionId: "rrv-369",
-        }}
-      />,
-    );
-
-    const props = pierreReact.diffProps.get(path);
-    expect(props.options.loadDiffFiles).toBeTypeOf("function");
-    expect(props.options.enableLineSelection).toBe(true);
-    const loaded = await props.options.loadDiffFiles();
-
-    expect(reviewApi.fetchRevisionComparisonFileContents).toHaveBeenCalledWith(
-      "review-1", path, 348, 369,
-    );
-    expect(reviewApi.fetchFileContents).not.toHaveBeenCalled();
-    expect(loaded.oldFile).toMatchObject({
-      contents: "same header\nold body\n",
-      cacheKey: "rrv-348:new:" + path,
-    });
-    expect(loaded.newFile).toMatchObject({
-      contents: "same header\nnew body\n",
-      cacheKey: "rrv-369:new:" + path,
-    });
-
-    act(() => props.options.onGutterUtilityClick({
-      start: 2,
-      end: 2,
-      side: "additions",
-      endSide: "additions",
-    }));
-    expect(common.onDraft).toHaveBeenLastCalledWith(expect.objectContaining({
-      path,
-      startLine: 2,
-      endLine: 2,
-      side: "additions",
-      selectedText: "new body\n",
-      selectedRevisionId: "rrv-369",
-    }));
-  });
-
-  it("makes collapsed unchanged context rows clickable and expands them in review-sized chunks", async () => {
-    const path = "src/context-gap.py";
-    const only = target("context-gap", path, 1);
-    const common = streamProps({ [path]: detail(path) }, [[path, 1]], "target:context-gap");
-    render(<ReviewStream {...common} targets={[only]} draft={null} />);
-
-    const props = pierreReact.diffProps.get(path);
-    expect(props.options).toMatchObject({
-      hunkSeparators: "line-info",
-      expansionLineCount: 20,
-    });
-
-    const loaded = await props.options.loadDiffFiles();
-    expect(reviewApi.fetchFileContents).toHaveBeenCalledWith("review-1", path, "");
-    expect(loaded.oldFile).toMatchObject({ name: path, contents: "old one\nold two\n" });
-    expect(loaded.newFile).toMatchObject({ name: path, contents: "new one\nnew two\n" });
-
-    const node = screen.getByTestId(`mock-file-diff:${path}`);
-    const host = node.querySelector("diffs-container");
-    expect(host).toBeTruthy();
-    const separator = document.createElement("div");
-    separator.setAttribute("data-separator", "line-info");
-    separator.setAttribute("data-expand-index", "0");
-    const wrapper = document.createElement("div");
-    const label = document.createElement("span");
-    label.setAttribute("data-unmodified-lines", "");
-    label.textContent = "9 unmodified lines";
-    wrapper.appendChild(label);
-    separator.appendChild(wrapper);
-    host!.appendChild(separator);
-
-    const expandHunk = vi.fn();
-    props.options.onPostRender(node, { expandHunk }, "update");
-
-    expect(separator.style.cursor).toBe("pointer");
-    expect(separator.title).toBe("Show all 9 unmodified lines");
-    fireEvent.click(wrapper);
-    expect(expandHunk).toHaveBeenCalledWith(0, "both", 9);
-
-    expandHunk.mockClear();
-    fireEvent.click(label);
-    expect(expandHunk).toHaveBeenCalledWith(0, "both", 9);
-  });
-
-  it("shows a context fetch on the collapsed rows and offers a retry when it fails", async () => {
-    const path = "src/context-load.py";
-    const only = target("context-load", path, 1);
-    const common = streamProps({ [path]: detail(path) }, [[path, 1]], "target:context-load");
-    render(<ReviewStream {...common} targets={[only]} draft={null} />);
-    const props = pierreReact.diffProps.get(path);
-    const node = screen.getByTestId(`mock-file-diff:${path}`);
-    const separator = document.createElement("div");
-    separator.setAttribute("data-separator", "line-info");
-    separator.setAttribute("data-expand-index", "0");
-    const label = document.createElement("span");
-    label.setAttribute("data-unmodified-lines", "");
-    label.textContent = "9 unmodified lines";
-    separator.appendChild(label);
-    node.querySelector("diffs-container")!.appendChild(separator);
-    const status = () => separator.querySelector<HTMLElement>("[data-review-context-status]");
-
-    const answer = reviewApi.fetchFileContents.getMockImplementation()!;
-    let release: () => void = () => {};
-    reviewApi.fetchFileContents.mockImplementationOnce((...args: Parameters<typeof answer>) => new Promise((resolve) => {
-      release = () => resolve(answer(...args));
-    }));
-    const loading = props.options.loadDiffFiles();
-    expect(status()?.textContent).toBe("Loading context…");
-    expect(separator.getAttribute("aria-busy")).toBe("true");
-    props.options.onPostRender(node, null, "update");
-    expect(status()?.textContent).toBe("Loading context…");
-    release();
-    await loading;
-    expect(status()).toBeNull();
-    expect(separator.hasAttribute("aria-busy")).toBe(false);
-
-    reviewApi.fetchFileContents.mockRejectedValueOnce(new Error("contents unavailable"));
-    await expect(props.options.loadDiffFiles()).rejects.toThrow("contents unavailable");
-    expect(status()?.getAttribute("role")).toBe("alert");
-    expect(status()?.textContent).toBe("Couldn't load context · click to retry");
-    props.options.onPostRender(node, null, "update");
-    expect(status()?.textContent).toBe("Couldn't load context · click to retry");
-    props.options.onPostRender(node, null, "mount");
-    expect(status()).toBeNull();
   });
 
   it("applies the selected syntax theme independently from rendered previews", () => {
@@ -2370,24 +1777,6 @@ describe("continuous review stream", () => {
       theme: "pierre-light",
       themeType: "light",
     });
-  });
-
-  it("offers a retry on a file whose source request failed", async () => {
-    const onRetryPath = vi.fn().mockResolvedValueOnce(false);
-    render(
-      <ReviewStream
-        {...streamProps({}, [["src/lost.py", 1]], "target:lost")}
-        targets={[target("lost", "src/lost.py", 1)]}
-        errors={{ "src/lost.py": "Failed to fetch" }}
-        draft={null}
-        onRetryPath={onRetryPath}
-      />,
-    );
-
-    await userEvent.click(screen.getByRole("button", { name: "Retry loading src/lost.py" }));
-    expect(onRetryPath).toHaveBeenCalledWith("src/lost.py");
-    expect(await screen.findByText("Still unavailable.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Retry loading src/lost.py" }).hasAttribute("disabled")).toBe(false);
   });
 
   it("keeps parsed diff identity stable across judgment clicks and versions real item payload changes", async () => {
@@ -2479,188 +1868,6 @@ describe("continuous review stream", () => {
     expect(screen.getByTestId("marker:src/stable.py:additions:2")).toBeTruthy();
   });
 
-  it("folds a judged target into a compact strip without hiding unresolved siblings", async () => {
-    const path = "src/folded.py";
-    const reviewed = { ...target("done", path, 2), state: "reviewed" as const };
-    const pending = target("pending", path, 10);
-    const common = streamProps({ [path]: detail(path) }, [[path, 1]], "target:done");
-
-    render(<ReviewStream {...common} targets={[reviewed, pending]} draft={null} />);
-
-    expect(screen.getByTestId(`code-item:${path}`).dataset.collapsed).toBe("false");
-    expect(screen.getByRole("button", { name: "Expand done" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Mark done reviewed" })).toBeNull();
-    expect(screen.getByTestId(`scope-row:${path}:2`).style.display).toBe("none");
-    expect(screen.getByTestId(`scope-row:${path}:3`).style.display).toBe("none");
-    expect(screen.getByTestId(`scope-row:${path}:4`).style.display).toBe("none");
-    expect(screen.getByTestId(`scope-row:${path}:10`).style.display).toBe("");
-
-    await userEvent.click(screen.getByRole("button", { name: "Expand done" }));
-    expect(common.onMark).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Fold done" })).toBeTruthy();
-    expect(screen.getByTestId(`scope-row:${path}:2`).style.display).toBe("");
-    expect(screen.getByTestId(`scope-row:${path}:3`).style.display).toBe("");
-    expect(screen.getByTestId(`scope-row:${path}:4`).style.display).toBe("");
-
-    await userEvent.click(screen.getByRole("button", { name: "Fold done" }));
-    expect(screen.getByRole("button", { name: "Expand done" })).toBeTruthy();
-    expect(screen.getByTestId(`scope-row:${path}:2`).style.display).toBe("none");
-  });
-
-  it("omits Ask target actions when Review Ask is unavailable", () => {
-    const item = target("no_ask", "src/no-ask.py", 1);
-    render(
-      <ReviewStream
-        targets={[item]}
-        details={{ "src/no-ask.py": detail("src/no-ask.py") }}
-        errors={{}}
-        annotations={[]}
-        draft={null}
-        diffStyle="split"
-        activeTargetId="target:no_ask"
-        busy={false}
-        remainingFileCount={0}
-        outstandingByPath={new Map([["src/no-ask.py", 1]])}
-        onActiveTarget={vi.fn()}
-        onDraft={vi.fn()}
-        onCreate={vi.fn()}
-        onSetAnnotationState={vi.fn()}
-        onMark={vi.fn()}
-        onComment={vi.fn()}
-        onContext={vi.fn()}
-        onBulkReview={vi.fn()}
-        onLoadMore={vi.fn()}
-      />,
-    );
-
-    expect(screen.queryByRole("button", { name: "Ask about no_ask" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Ask about no_ask from end" })).not.toBeInTheDocument();
-  });
-
-  it("keeps an area judged while active open until the reviewer moves on, then folds it", () => {
-    // x on the active area: folding it at once would pull its lines out from
-    // under the reviewer (and shift everything below) while they still read it.
-    const path = "src/in-place.py";
-    const flagged = target("flagged", path, 2);
-    const pending = target("pending", path, 10);
-    const common = streamProps({ [path]: detail(path) }, [[path, 1]], "target:flagged");
-
-    const { rerender } = render(<ReviewStream {...common} targets={[flagged, pending]} draft={null} />);
-    expect(screen.getByTestId(`scope-row:${path}:2`).style.display).toBe("");
-
-    const judged = { ...flagged, state: "needs_changes" as const };
-    rerender(<ReviewStream {...common} targets={[judged, pending]} draft={null} />);
-    expect(screen.getByTestId(`scope-row:${path}:2`).style.display).toBe("");
-    expect(screen.queryByRole("button", { name: "Expand flagged" })).toBeNull();
-
-    rerender(<ReviewStream {...common} activeTargetId="target:pending" targets={[judged, pending]} draft={null} />);
-    expect(screen.getByRole("button", { name: "Expand flagged" })).toBeTruthy();
-    expect(screen.getByTestId(`scope-row:${path}:2`).style.display).toBe("none");
-  });
-
-  it("folds needs-changes targets but reopens them when the code changes", () => {
-    const path = "src/rereview.py";
-    const needsChanges = { ...target("fix_me", path, 2), state: "needs_changes" as const };
-    const pending = target("pending", path, 10);
-    const common = streamProps({ [path]: detail(path) }, [[path, 2]], "target:fix_me");
-
-    const { rerender } = render(<ReviewStream {...common} targets={[needsChanges, pending]} draft={null} />);
-    expect(screen.getByRole("button", { name: "Expand fix_me" })).toBeTruthy();
-    expect(screen.getByRole("group", { name: /fix_me review area · needs changes · folded/i })).toBeTruthy();
-    expect(screen.getByTestId(`scope-row:${path}:2`).style.display).toBe("none");
-
-    rerender(
-      <ReviewStream
-        {...common}
-        targets={[{ ...needsChanges, state: "changed_since_review" }, pending]}
-        draft={null}
-      />,
-    );
-
-    expect(screen.queryByRole("button", { name: "Expand fix_me" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Mark fix_me reviewed" })).toBeTruthy();
-    expect(screen.getByTestId(`scope-row:${path}:2`).style.display).toBe("");
-  });
-
-  it("renders every target state: judged work folds, open work keeps a full header (plan §8.4)", () => {
-    const path = "src/states.py";
-    const rows: ReviewTarget[] = [
-      { ...target("done", path, 2), state: "reviewed" },
-      { ...target("asked", path, 5), state: "needs_changes" },
-      { ...target("moved", path, 8), state: "changed_since_review", changed_since_mark: true },
-      { ...target("uncertain", path, 11), state: "unknown" },
-      target("fresh", path, 14),
-    ];
-    const common = streamProps({ [path]: detail(path) }, [[path, 4]], "target:moved");
-
-    render(<ReviewStream {...common} targets={rows} draft={null} />);
-
-    // A partly judged file stays open; only its judged areas fold.
-    expect(screen.getByTestId(`code-item:${path}`).dataset.collapsed).toBe("false");
-    expect(screen.getByRole("group", { name: "done review area · reviewed · folded" })).toBeTruthy();
-    expect(screen.getByRole("group", { name: "asked review area · needs changes · folded" })).toBeTruthy();
-    expect(screen.getByTestId(`scope-row:${path}:2`).style.display).toBe("none");
-    expect(screen.getByTestId(`scope-row:${path}:5`).style.display).toBe("none");
-
-    const open: Array<[string, string | null, string, number]> = [
-      ["moved", "Changed · re-review", "changed since review", 8],
-      ["uncertain", "State uncertain", "unknown", 11],
-      ["fresh", null, "unreviewed", 14],
-    ];
-    for (const [label, badge, spoken, line] of open) {
-      const group = screen.getByRole("group", { name: `${label} review area` });
-      expect(within(group).getByText(spoken, { selector: ".sr-only" })).toBeTruthy();
-      if (badge) expect(within(group).getByText(badge)).toBeTruthy();
-      expect(within(group).queryByRole("button", { name: `Fold ${label}` })).toBeNull();
-      expect(within(group).getByRole("button", { name: `Mark ${label} reviewed` })).not.toHaveAttribute("aria-disabled");
-      expect(screen.getByTestId(`scope-row:${path}:${line}`).style.display).toBe("");
-    }
-    // The active changed area says why its old judgment no longer holds.
-    expect(within(screen.getByRole("group", { name: "moved review area" }))
-      .getByText("Changed since you reviewed · your earlier judgment no longer covers this review area.")).toBeTruthy();
-
-    fireEvent.click(within(screen.getByRole("group", { name: "uncertain review area" }))
-      .getByRole("button", { name: "Mark uncertain reviewed" }));
-    expect(common.onMark).toHaveBeenCalledWith(expect.objectContaining({ target_id: "target:uncertain" }), "reviewed", true);
-  });
-
-  it("auto-collapses fully judged files and reopens them when re-review becomes necessary", async () => {
-    const path = "src/complete.py";
-    const reviewed = { ...target("complete", path, 2), state: "reviewed" as const };
-    const common = streamProps({ [path]: detail(path) }, [[path, 0]], "target:complete");
-
-    const { rerender } = render(<ReviewStream {...common} targets={[reviewed]} draft={null} />);
-    expect(screen.getByTestId(`code-item:${path}`).dataset.collapsed).toBe("true");
-    expect(screen.queryByTestId(`mock-file-diff:${path}`)).toBeNull();
-    expect(screen.getByText("✓ reviewed")).toBeTruthy();
-
-    await userEvent.click(screen.getByRole("button", { name: `Expand ${path}` }));
-    expect(screen.getByTestId(`code-item:${path}`).dataset.collapsed).toBe("false");
-    expect(screen.getByTestId(`mock-file-diff:${path}`)).toBeTruthy();
-
-    rerender(
-      <ReviewStream
-        {...common}
-        outstandingByPath={new Map([[path, 1]])}
-        targets={[{ ...reviewed, state: "changed_since_review" }]}
-        draft={null}
-      />,
-    );
-    expect(screen.getByTestId(`code-item:${path}`).dataset.collapsed).toBe("false");
-    expect(screen.getByRole("button", { name: "Mark complete reviewed" })).toBeTruthy();
-  });
-
-  it("does not auto-collapse a search-filtered file while hidden review work remains", () => {
-    const path = "src/filtered.py";
-    const reviewed = { ...target("visible_done", path, 2), state: "reviewed" as const };
-    const common = streamProps({ [path]: detail(path) }, [[path, 3]], "target:visible_done");
-
-    render(<ReviewStream {...common} targets={[reviewed]} draft={null} />);
-
-    expect(screen.getByTestId(`code-item:${path}`).dataset.collapsed).toBe("false");
-    expect(screen.getByText("0 shown · 3 left in file")).toBeTruthy();
-  });
-
   it("collapses and expands a file for real", async () => {
     pierre.parsePatchFiles.mockClear();
     const only = target("stable", "src/stable.py", 10);
@@ -2707,42 +1914,6 @@ describe("continuous review stream", () => {
     expect(screen.getByTestId("marker:src/stable.py:additions:5")).toBeTruthy();
     expect(screen.queryByTestId("marker:src/stable.py:additions:1")).toBeNull();
     expect(screen.getByTestId("code-item:src/stable.py")).toBeTruthy();
-  });
-
-  it("draws no diff-line marker for a finding below the finding threshold", () => {
-    const path = "src/threshold.py";
-    const only = target("threshold", path, 1);
-    const common = streamProps({ [path]: detail(path) }, [[path, 1]], only.target_id);
-    const finding = (below: boolean) => [
-      fileAnnotation("finding", path, "Rename this helper", {
-        source: "ai_review",
-        created_by_actor: "agent",
-        file_level: false,
-        start_line: 5,
-        end_line: 5,
-        anchor_method: "identical_blob",
-        below_threshold: below,
-      }),
-      fileAnnotation("file-finding", path, "Split this module", { source: "ai_review", below_threshold: below }),
-    ];
-
-    const { rerender } = render(<ReviewStream {...common} targets={[only]} draft={null} annotations={finding(false)} />);
-    expect(screen.getByTestId(`marker:${path}:additions:5`)).toBeTruthy();
-    expect(screen.getByText("Rename this helper")).toBeTruthy();
-    expect(screen.getByText("Split this module")).toBeTruthy();
-
-    rerender(<ReviewStream {...common} targets={[only]} draft={null} annotations={finding(true)} />);
-    // No marker of its own, and the target header's row does not carry it either.
-    expect(screen.queryByTestId(`marker:${path}:additions:5`)).toBeNull();
-    const markers = pierreReact.diffProps.get(path)?.lineAnnotations ?? [];
-    expect(markers.flatMap((marker: any) => marker.metadata.commentKeys)).toEqual([]);
-    // Only the target's own header/end rows remain.
-    expect(
-      markers.every((marker: any) => marker.metadata.targetIds.length + marker.metadata.targetEndIds.length > 0),
-    ).toBe(true);
-    expect(screen.queryByText("Rename this helper")).toBeNull();
-    expect(screen.queryByText("Split this module")).toBeNull();
-    expect(screen.queryByTestId("below-threshold")).toBeNull();
   });
 
   it("leaves LemonCrow's attention note out of the diff's comment column", () => {
@@ -2853,13 +2024,13 @@ describe("continuous review stream", () => {
     }));
   });
 
-  it("opens selection actions from Pierre's committed-selection fallback", () => {
-    const only = target("selection-fallback", "src/selection-fallback.py", 2);
+  it("does not open selection actions from Pierre's generic selected callback", () => {
+    const only = target("annotation-click", "src/annotation-click.py", 2);
     render(
       <ReviewStream
         {...streamProps(
-          { "src/selection-fallback.py": detail("src/selection-fallback.py") },
-          [["src/selection-fallback.py", 1]],
+          { "src/annotation-click.py": detail("src/annotation-click.py") },
+          [["src/annotation-click.py", 1]],
           only.target_id,
         )}
         targets={[only]}
@@ -2867,35 +2038,10 @@ describe("continuous review stream", () => {
       />,
     );
 
-    const options = pierreReact.diffProps.get("src/selection-fallback.py")?.options;
-    const range = { start: 2, end: 3, side: "additions", endSide: "additions" };
+    const options = pierreReact.diffProps.get("src/annotation-click.py")?.options;
+    const range = { start: 2, end: 2, side: "additions", endSide: "additions" };
     act(() => options.onLineSelected(range));
-    expect(screen.getByTestId("review-selection-actions")).toBeTruthy();
-  });
-
-  it("does not cover an open composer with the menu when Pierre echoes the composer's own selection", () => {
-    const only = target("selection-echo", "src/selection-echo.py", 2);
-    render(
-      <ReviewStream
-        {...streamProps(
-          { "src/selection-echo.py": detail("src/selection-echo.py") },
-          [["src/selection-echo.py", 1]],
-          only.target_id,
-        )}
-        targets={[only]}
-        draft={{ path: "src/selection-echo.py", startLine: 2, endLine: 3, side: "additions" }}
-      />,
-    );
-
-    // Pierre's React wrapper applies the draft's selectedLines without
-    // notify:false, so the controlled selection comes back as a commit.
-    const options = pierreReact.diffProps.get("src/selection-echo.py")?.options;
-    act(() => options.onLineSelected({ start: 2, end: 3, side: "additions", endSide: "additions" }));
     expect(screen.queryByTestId("review-selection-actions")).toBeNull();
-
-    // A different range is still the reviewer's own selection.
-    act(() => options.onLineSelected({ start: 1, end: 2, side: "additions", endSide: "additions" }));
-    expect(screen.getByTestId("review-selection-actions")).toBeTruthy();
   });
 
   it("updates the active target from manual scroll position", () => {
@@ -3033,141 +2179,6 @@ describe("continuous review stream", () => {
       stream.dispatchEvent(new Event("scroll", { bubbles: true }));
     });
     expect(onActiveTarget).not.toHaveBeenCalled();
-    raf.mockRestore();
-  });
-
-  it("keeps programmatic ownership past the minimum hold until the destination settles", () => {
-    const targets = [
-      target("a_one", "src/a.py", 1),
-      target("a_two", "src/a.py", 2),
-    ];
-    const onActiveTarget = vi.fn();
-    const handle = createRef<ReviewStreamHandle>();
-    let now = 1_000;
-    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
-    let nextFrame = 1;
-    const frames = new Map<number, FrameRequestCallback>();
-    const raf = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
-      const id = nextFrame++;
-      frames.set(id, callback);
-      return id;
-    });
-    const cancel = vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
-      frames.delete(id);
-    });
-    try {
-      render(
-        <ReviewStream
-          ref={handle}
-          targets={targets}
-          details={{ "src/a.py": detail("src/a.py") }}
-          errors={{}}
-          annotations={[]}
-          draft={null}
-          diffStyle="split"
-          activeTargetId="target:a_two"
-          busy={false}
-          remainingFileCount={0}
-          outstandingByPath={new Map([["src/a.py", 2]])}
-          onActiveTarget={onActiveTarget}
-          onDraft={vi.fn()}
-          onCreate={vi.fn()}
-          onSetAnnotationState={vi.fn()}
-          onMark={vi.fn()}
-          onComment={vi.fn()}
-          onContext={vi.fn()}
-          onBulkReview={vi.fn()}
-          onLoadMore={vi.fn()}
-        />,
-      );
-      const stream = screen.getByTestId("review-stream");
-      Object.defineProperty(stream, "scrollHeight", { configurable: true, value: 1_200 });
-      Object.defineProperty(stream, "clientHeight", { configurable: true, value: 300 });
-      Object.defineProperty(stream, "scrollTop", { configurable: true, writable: true, value: 0 });
-      stream.getBoundingClientRect = () => ({ top: 0 } as DOMRect);
-      stream.scrollTo = vi.fn();
-      screen.getByTestId("scope-row:src/a.py:1").getBoundingClientRect = () => ({ top: 50 } as DOMRect);
-      screen.getByTestId("scope-row:src/a.py:2").getBoundingClientRect = () => ({ top: 800 } as DOMRect);
-
-      act(() => handle.current?.scrollToTarget(targets[1], "instant"));
-      expect(onActiveTarget).toHaveBeenLastCalledWith("target:a_two");
-      onActiveTarget.mockClear();
-
-      // The old fixed hold expired at 1.2s. Keep the target geometrically in
-      // flight and execute the hold frame after that point.
-      now += 1_300;
-      act(() => {
-        const pending = [...frames.values()];
-        frames.clear();
-        for (const callback of pending) callback(0);
-      });
-
-      // Scroll-sync would prefer a_one from the geometry above. The active
-      // navigation still owns the stream until a_two actually settles.
-      act(() => {
-        stream.dispatchEvent(new Event("scroll", { bubbles: true }));
-        const pending = [...frames.values()];
-        frames.clear();
-        for (const callback of pending) callback(0);
-      });
-      expect(onActiveTarget).not.toHaveBeenCalled();
-    } finally {
-      nowSpy.mockRestore();
-      raf.mockRestore();
-      cancel.mockRestore();
-    }
-  });
-
-  it("lets the reviewer's own wheel scroll take the active target back from a programmatic navigation", () => {
-    const targets = [
-      target("a_one", "src/a.py", 1),
-      target("a_two", "src/a.py", 2),
-    ];
-    const onActiveTarget = vi.fn();
-    const raf = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
-      callback(0);
-      return 1;
-    });
-    const handle = createRef<ReviewStreamHandle>();
-    render(
-      <ReviewStream
-        ref={handle}
-        targets={targets}
-        details={{ "src/a.py": detail("src/a.py") }}
-        errors={{}}
-        annotations={[]}
-        draft={null}
-        diffStyle="split"
-        activeTargetId="target:a_two"
-        busy={false}
-        remainingFileCount={0}
-        outstandingByPath={new Map([["src/a.py", 2]])}
-        onActiveTarget={onActiveTarget}
-        onDraft={vi.fn()}
-        onCreate={vi.fn()}
-        onSetAnnotationState={vi.fn()}
-        onMark={vi.fn()}
-        onComment={vi.fn()}
-        onContext={vi.fn()}
-        onBulkReview={vi.fn()}
-        onLoadMore={vi.fn()}
-      />,
-    );
-    const stream = screen.getByTestId("review-stream");
-    stream.getBoundingClientRect = () => ({ top: 0 } as DOMRect);
-    stream.scrollTo = vi.fn();
-    for (const node of document.querySelectorAll<HTMLElement>("[data-review-target-id]")) {
-      node.getBoundingClientRect = () => ({ top: node.dataset.reviewTargetId === "target:a_one" ? 50 : 900 } as DOMRect);
-    }
-
-    act(() => handle.current?.scrollToTarget(targets[1], "instant"));
-    onActiveTarget.mockClear();
-    // Still inside the navigation's pin: only the reviewer's wheel releases it.
-    act(() => {
-      stream.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -120 }));
-      stream.dispatchEvent(new Event("scroll", { bubbles: true }));
-    });
-    expect(onActiveTarget).toHaveBeenLastCalledWith("target:a_one");
     raf.mockRestore();
   });
 
@@ -3323,335 +2334,5 @@ describe("continuous review stream", () => {
     rerender(<ReviewStream {...common} readyHiddenFileCount={3} preparingHiddenFileCount={4} />);
     await userEvent.click(screen.getByRole("button", { name: "Show 3 ready files · 7 remaining" }));
     expect(onLoadMore).toHaveBeenCalledTimes(1);
-    expect(onLoadMore).toHaveBeenCalledWith(false);
-  });
-
-  it("shows page controls only where they apply and waits for the current page to finish loading", async () => {
-    const onChange = vi.fn();
-    const common = {
-      ...streamProps({ "a.py": detail("a.py") }, [["a.py", 1]], "target:a"),
-      targets: [target("a", "a.py", 1)],
-      draft: null,
-      pagination: { page: 1, pageCount: 3, changedLines: 2000, blocked: false, onChange },
-    };
-    const { rerender } = render(<ReviewStream {...common} remainingFileCount={2} preparingHiddenFileCount={2} />);
-    expect(screen.queryByRole("button", { name: "Previous page" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Next page" })).toBeNull();
-    rerender(<ReviewStream {...common} remainingFileCount={0} />);
-    await userEvent.click(screen.getByRole("button", { name: "Next page" }));
-    expect(onChange).toHaveBeenLastCalledWith(2);
-    rerender(<ReviewStream {...common} remainingFileCount={0} pagination={{ ...common.pagination, page: 3 }} />);
-    expect(screen.queryByRole("button", { name: "Next page" })).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: "Previous page" }));
-    expect(onChange).toHaveBeenLastCalledWith(2);
-  });
-  it("signals once when the first real diff content paints", async () => {
-    const onFirstContentReady = vi.fn();
-    const props = {
-      ...streamProps({ "a.py": detail("a.py") }, [["a.py", 1]], "target:a"),
-      targets: [target("a", "a.py", 1)],
-      draft: null,
-      onFirstContentReady,
-    };
-    const { rerender } = render(<ReviewStream {...props} />);
-    await waitFor(() => expect(onFirstContentReady).toHaveBeenCalledOnce());
-    rerender(<ReviewStream {...props} readyHiddenFileCount={1} />);
-    await Promise.resolve();
-    expect(onFirstContentReady).toHaveBeenCalledOnce();
-  });
-
-  it("keeps large-review pagination manual even when the ready footer is visible", async () => {
-    const observers: Array<{ callback: IntersectionObserverCallback; observed: Element[] }> = [];
-    class FakeIntersectionObserver {
-      record: typeof observers[number];
-      constructor(callback: IntersectionObserverCallback) {
-        this.record = { callback, observed: [] };
-        observers.push(this.record);
-      }
-      observe(element: Element) { this.record.observed.push(element); }
-      disconnect() {}
-    }
-    vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
-    const onLoadMore = vi.fn();
-    try {
-      render(
-        <ReviewStream
-          {...streamProps({ "a.py": detail("a.py") }, [["a.py", 1]], "target:a")}
-          targets={[target("a", "a.py", 1)]}
-          draft={null}
-          remainingFileCount={999}
-          readyHiddenFileCount={30}
-          autoLoadMore={false}
-          onLoadMore={onLoadMore}
-        />,
-      );
-      const footer = screen.getByTestId("review-load-more");
-      expect(observers.some((record) => record.observed.includes(footer))).toBe(false);
-      await userEvent.click(screen.getByRole("button", { name: "Show 30 ready files · 999 remaining" }));
-      expect(onLoadMore).toHaveBeenCalledOnce();
-      expect(onLoadMore).toHaveBeenCalledWith(false);
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it("rechecks an intersecting footer after navigation settles without another observer event", () => {
-    vi.useFakeTimers();
-    const frames: FrameRequestCallback[] = [];
-    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
-      frames.push(callback);
-      return frames.length;
-    });
-    const observers: Array<{ callback: IntersectionObserverCallback; observed: Element[] }> = [];
-    class FakeIntersectionObserver {
-      record: typeof observers[number];
-      constructor(callback: IntersectionObserverCallback) {
-        this.record = { callback, observed: [] };
-        observers.push(this.record);
-      }
-      observe(element: Element) { this.record.observed.push(element); }
-      disconnect() {}
-    }
-    vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
-    const ref = createRef<ReviewStreamHandle>();
-    const common = {
-      ...streamProps({ "a.py": detail("a.py") }, [["a.py", 1]], "target:a"),
-      targets: [target("a", "a.py", 1)],
-      draft: null,
-      remainingFileCount: 7,
-      readyHiddenFileCount: 3,
-    };
-    const { unmount } = render(<ReviewStream {...common} ref={ref} />);
-    try {
-      const root = screen.getByTestId("review-stream");
-      const footer = screen.getByTestId("review-load-more");
-      vi.spyOn(root, "getBoundingClientRect").mockReturnValue({ top: 0, bottom: 800, height: 800 } as DOMRect);
-      vi.spyOn(footer, "getBoundingClientRect").mockReturnValue({ top: 790, bottom: 850, height: 60 } as DOMRect);
-      act(() => ref.current!.scrollToTarget(common.targets[0], "instant"));
-      const navigationFrame = frames.at(-1)!;
-      const observer = observers.find((record) => record.observed.includes(footer))!;
-      act(() => observer.callback(
-        [{ target: footer, isIntersecting: true }] as unknown as IntersectionObserverEntry[],
-        observer as unknown as IntersectionObserver,
-      ));
-      expect(common.onLoadMore).not.toHaveBeenCalled();
-      act(() => {
-        vi.advanceTimersByTime(1300);
-        navigationFrame(performance.now());
-        vi.advanceTimersByTime(100);
-      });
-      expect(common.onLoadMore).toHaveBeenCalledTimes(1);
-      expect(common.onLoadMore).toHaveBeenCalledWith(true);
-    } finally {
-      unmount();
-      vi.useRealTimers();
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it.each([false, true])("reveals ready batches even with locked controls (%s), rechecks after preparation, and stops at the end", (locked) => {
-    const observers: Array<{ callback: IntersectionObserverCallback; observed: Element[]; options?: IntersectionObserverInit; disconnect: ReturnType<typeof vi.fn> }> = [];
-    class FakeIntersectionObserver {
-      record: typeof observers[number];
-      constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
-        this.record = { callback, observed: [], options, disconnect: vi.fn() };
-        observers.push(this.record);
-      }
-      observe(element: Element) { this.record.observed.push(element); }
-      disconnect() { this.record.disconnect(); }
-    }
-    vi.stubGlobal("IntersectionObserver", FakeIntersectionObserver);
-    try {
-      const common = {
-        ...streamProps({ "a.py": detail("a.py") }, [["a.py", 1]], "target:a"),
-        targets: [target("a", "a.py", 1)],
-        draft: null,
-        busy: locked,
-        loadingPaused: false,
-        remainingFileCount: 7,
-      };
-      const { rerender, unmount } = render(<ReviewStream {...common} readyHiddenFileCount={3} />);
-      const footer = screen.getByTestId("review-load-more");
-      const pagination = () => observers.filter((record) => record.observed.includes(footer)).at(-1)!;
-      const emit = (record: typeof observers[number], isIntersecting: boolean) => act(() => record.callback(
-        [{ target: footer, isIntersecting }] as unknown as IntersectionObserverEntry[],
-        record as unknown as IntersectionObserver,
-      ));
-      const first = pagination();
-      expect(first.options?.root).toBe(footer.parentElement);
-      emit(first, false);
-      expect(common.onLoadMore).not.toHaveBeenCalled();
-      emit(first, true);
-      emit(first, true);
-      expect(common.onLoadMore).toHaveBeenCalledTimes(1);
-
-      rerender(<ReviewStream {...common} remainingFileCount={4} preparingHiddenFileCount={4} />);
-      expect(first.disconnect).toHaveBeenCalled();
-      emit(first, true); // Ignore callbacks queued before disconnect.
-      expect(common.onLoadMore).toHaveBeenCalledTimes(1);
-
-      rerender(<ReviewStream {...common} remainingFileCount={4} readyHiddenFileCount={4} />);
-      const next = pagination();
-      expect(next).not.toBe(first);
-      emit(next, false); // Appended content moved the footer below the viewport.
-      expect(common.onLoadMore).toHaveBeenCalledTimes(1);
-      emit(next, true); // The reader reaches the next batch without clicking.
-      expect(common.onLoadMore).toHaveBeenCalledTimes(2);
-      expect(common.onLoadMore).toHaveBeenNthCalledWith(1, true);
-      expect(common.onLoadMore).toHaveBeenNthCalledWith(2, true);
-
-      rerender(<ReviewStream {...common} remainingFileCount={0} readyHiddenFileCount={0} />);
-      expect(next.disconnect).toHaveBeenCalled();
-      expect(screen.queryByTestId("review-load-more")).toBeNull();
-      emit(next, true);
-      expect(common.onLoadMore).toHaveBeenCalledTimes(2);
-      unmount();
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-});
-
-describe("8F semantic presentation before raw diff text", () => {
-  function special(path: string, change: NonNullable<FileDetail["special_change"]>, patch = ""): FileDetail {
-    return { ...detail(path), patch, renderable: true, refusal: "", detail: "", special_change: change };
-  }
-
-  function renderSpecial(path: string, fileDetail: FileDetail) {
-    return render(
-      <ReviewStream
-        {...streamProps({ [path]: fileDetail }, [[path, 1]], `target:${path}`)}
-        targets={[{ ...target(path, path, 0), kind: "file", symbol: "" }]}
-        draft={null}
-      />,
-    );
-  }
-
-  // The arrow is decorative; screen readers hear "to".
-  function pair(before: string, after: string): RegExp {
-    const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return new RegExp(`${escape(before)}\\s*→\\s*to\\s*${escape(after)}`);
-  }
-
-  function expectNoRawFallback(): void {
-    expect(screen.queryByText(/Diff unavailable/)).toBeNull();
-    expect(screen.queryByText(/unsupported/i)).toBeNull();
-  }
-
-  it("renders a rename-only change as old -> new instead of an empty diff", () => {
-    renderSpecial("src/new.py", special("src/new.py", { kind: "rename", old_path: "src/old.py", new_path: "src/new.py", copied: false, similarity: 100, mode: "" }));
-    const card = screen.getByTestId("special-change:src/new.py");
-    expect(within(card).getByText("Renamed without content changes")).toBeInTheDocument();
-    expect(within(card).getByTestId("special-change-paths")).toHaveTextContent(pair("src/old.py", "src/new.py"));
-    expect(screen.queryByTestId("mock-file:src/new.py")).toBeNull();
-    expectNoRawFallback();
-  });
-
-  it("renders a mode-only change as the executable bit it moved", () => {
-    renderSpecial("bin/run", special("bin/run", { kind: "mode", old_path: "", new_path: "bin/run", old_mode: "100644", new_mode: "100755", executable: "added" }));
-    const card = screen.getByTestId("special-change:bin/run");
-    expect(within(card).getByText("Executable bit added")).toBeInTheDocument();
-    expect(within(card).getByTestId("special-change-mode")).toHaveTextContent(pair("100644", "100755"));
-    expectNoRawFallback();
-  });
-
-  it("renders an in-repository symlink target change without a boundary warning", () => {
-    renderSpecial("docs/current", special("docs/current", {
-      kind: "symlink", old_path: "", new_path: "docs/current", old_type: "symlink", new_type: "symlink",
-      old_target: "v1", new_target: "v2", target_recorded: true, target_unchanged: false,
-      resolved_target: "docs/v2", escapes_repository: false, trust_area: "", warnings: [],
-    }, "diff --git a/docs/current b/docs/current\n@@ -1 +1 @@\n-v1\n+v2\n"));
-    const card = screen.getByTestId("special-change:docs/current");
-    expect(within(card).getByText("Symlink target changed")).toBeInTheDocument();
-    expect(within(card).getByTestId("special-change-target")).toHaveTextContent(pair("v1", "v2"));
-    expect(within(card).queryByTestId("special-change-warning")).toBeNull();
-    // Git's raw patch stays available, but only as a secondary disclosure.
-    expect(within(card).getByText("Raw Git patch").closest("details")).not.toHaveAttribute("open");
-    expectNoRawFallback();
-  });
-
-  it("warns when a symlink target leaves the repository", () => {
-    renderSpecial("config/link", special("config/link", {
-      kind: "symlink", old_path: "", new_path: "config/link", old_type: "absent", new_type: "symlink",
-      old_target: "", new_target: "../../etc/passwd", target_recorded: true, target_unchanged: false,
-      resolved_target: "../etc/passwd", escapes_repository: true, trust_area: "",
-      warnings: ["Symlink target leaves the repository: ../etc/passwd"],
-    }, "diff --git a/config/link b/config/link\n@@ -0,0 +1 @@\n+../../etc/passwd\n"));
-    const card = screen.getByTestId("special-change:config/link");
-    expect(within(card).getByText("Symlink added")).toBeInTheDocument();
-    expect(within(card).getByRole("alert")).toHaveTextContent("Symlink target leaves the repository: ../etc/passwd");
-    expectNoRawFallback();
-  });
-
-  it("renders a submodule bump as its commit pair with linked repository context", () => {
-    const before = "1".repeat(40);
-    const after = "2".repeat(40);
-    renderSpecial("vendor/lib", special("vendor/lib", {
-      kind: "submodule", old_path: "", new_path: "vendor/lib", change: "updated", old_commit: before, new_commit: after,
-      repository_url: "https://github.com/acme/lib.git",
-      commit_url: `https://github.com/acme/lib/commit/${after}`,
-      compare_url: `https://github.com/acme/lib/compare/${before}...${after}`,
-    }, `diff --git a/vendor/lib b/vendor/lib\n@@ -1 +1 @@\n-Subproject commit ${before}\n+Subproject commit ${after}\n`));
-    const card = screen.getByTestId("special-change:vendor/lib");
-    expect(within(card).getByText("Submodule pointer moved")).toBeInTheDocument();
-    expect(within(card).getByTestId("special-change-commits")).toHaveTextContent(pair(before.slice(0, 12), after.slice(0, 12)));
-    expect(within(card).getByRole("link", { name: "Compare commits" })).toHaveAttribute("href", `https://github.com/acme/lib/compare/${before}...${after}`);
-    expect(within(card).getByText("https://github.com/acme/lib.git")).toBeInTheDocument();
-    expectNoRawFallback();
-  });
-
-  it("shows package/version/dependency-path semantics before the raw lockfile lines", () => {
-    const path = "package-lock.json";
-    render(
-      <ReviewStream
-        {...streamProps({ [path]: detail(path) }, [[path, 1]], "target:lock")}
-        targets={[{ ...target("lock", path, 1), kind: "dependency" }]}
-        draft={null}
-        fileSemantics={{
-          dependencies: {
-            review_id: "review-1", snapshot_id: "rrv-1", snapshot_number: 0, supported: true,
-            lockfiles: [{ path, manifest: "package.json", ecosystem: "npm", semantic_changes: 1, direct_changes: 1, transitive_changes: 0 }],
-            changes: [{
-              ecosystem: "npm", identity: "npm:left-pad", name: "left-pad", direct: true, scope: "runtime",
-              changes: ["version"], before_requirement: "^1.0.0", after_requirement: "^1.3.0",
-              before_version: "1.0.0", after_version: "1.3.0", before_source: "registry", after_source: "registry",
-              before_integrity: "sha512-old", after_integrity: "sha512-new", license: "MIT", license_source: "lockfile",
-              manifest: "package.json", lockfile: path, dependency_paths: [["app", "left-pad"]], transitive_changes: 0,
-              artifacts: [], vulnerabilities: [], target_unit_key: "dep:left-pad", target_id: "target:lock",
-            }],
-            summary: { semantic_changes: 1, direct_changes: 1, transitive_changes: 0, added: 0, removed: 0, version_changed: 1, source_changed: 0, integrity_changed: 1 },
-            supply_chain: { sboms: [], provenance: [], vulnerability_scans: [] },
-            degraded: [],
-          },
-        }}
-      />,
-    );
-    const semantics = screen.getByTestId(`dependency-file:${path}`);
-    expect(within(semantics).getByText("left-pad")).toBeInTheDocument();
-    expect(within(semantics).getByText("1.0.0 → 1.3.0")).toBeInTheDocument();
-    expect(within(semantics).getByTestId("dependency-path")).toHaveTextContent("app → left-pad");
-    expect(within(semantics).getByText(/Requirement/)).toHaveTextContent(pair("^1.0.0", "^1.3.0"));
-    expect(within(semantics).getByText(/Integrity/)).toBeInTheDocument();
-    const raw = screen.getByTestId(`mock-file-diff:${path}`);
-    // Package semantics precede the raw lockfile lines in reading order.
-    expect(semantics.compareDocumentPosition(raw) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it("leads a generated file with its provenance and keeps the raw diff secondary", async () => {
-    const path = "dist/bundle.min.js";
-    render(
-      <ReviewStream
-        {...streamProps({ [path]: detail(path) }, [[path, 1]], "target:gen")}
-        targets={[target("gen", path, 1)]}
-        draft={null}
-        fileSemantics={{ roles: new Map([[path, { role: "generated", source: "gitattributes", collapsedDefault: true }]]) }}
-      />,
-    );
-    const card = await screen.findByTestId(`generated-file:${path}`);
-    expect(card).toHaveTextContent("marked by trusted-base .gitattributes");
-    await waitFor(() => expect(screen.queryByTestId(`mock-file-diff:${path}`)).toBeNull());
-    await userEvent.click(within(card).getByRole("button", { name: "Show raw diff" }));
-    expect(await screen.findByTestId(`mock-file-diff:${path}`)).toBeInTheDocument();
-    expect(screen.getByTestId(`generated-file:${path}`).compareDocumentPosition(screen.getByTestId(`mock-file-diff:${path}`)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

@@ -405,20 +405,6 @@ def _jj_snapshot_nudge() -> None:
         pass
 
 
-def _nudge_lemoncrow_view(path: str) -> None:
-    """Wake LemonCrow clients serving this checkout so the edit reaches the index now.
-
-    Freshness never depends on it -- every index call syncs the tree first --
-    this only takes that work off the next call. Fail-open and non-blocking.
-    """
-    try:
-        from lemoncrow_client.autosync import nudge_for_path
-
-        nudge_for_path(Path(path) if path else Path(os.getcwd()))
-    except Exception:  # a hook must never block the agent
-        pass
-
-
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
@@ -446,8 +432,6 @@ def main() -> int:
         return 0
     _jj_snapshot_nudge()
     tool_input: dict[str, Any] = payload.get("tool_input", {}) or {}
-    # LemonCrow's own ``edit`` pushes what it wrote; a host edit does not.
-    _nudge_lemoncrow_view(str(tool_input.get("file_path") or "") or str(payload.get("cwd") or ""))
     try:
         file_path, diff = _compute_diff(tool_name, tool_input)
         if not file_path or not diff:

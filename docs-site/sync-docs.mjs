@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Portable script to sync docs/ content into Docusaurus docs directory.
 // No external dependencies — pure Node.js.
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
 import { join, relative } from "path";
 
 const srcRoot = new URL("../docs", import.meta.url).pathname;
@@ -31,8 +31,5 @@ function walk(dir) {
 }
 
 console.log(`Syncing docs from ${srcRoot} → ${dstRoot}`);
-// The destination is a generated, gitignored copy. Start it empty so a page that
-// moved out of docs/ cannot survive as a stale copy and hide a broken sidebar entry.
-rmSync(dstRoot, { recursive: true, force: true });
 walk(srcRoot);
 console.log("Done.");

@@ -32,7 +32,6 @@ from .contracts import (
     ManifestEntry,
     RepoIdentityClaim,
     RepositoryGeneration,
-    SemanticUnit,
     SweepResult,
     SymbolDef,
     ViewOpenResult,
@@ -45,10 +44,10 @@ from .layers import (
     InMemoryLinkGraphStore,
     LayerSources,
     LinkLayer,
+    SemanticLayer,
 )
 from .manifest import manifest_root as canonical_manifest_root
 from .ops import IndexOpsMetrics
-from .semantic import create_semantic_index
 
 __all__ = [
     "DEFAULT_CONTENT_SIZE_CAP",
@@ -157,26 +156,21 @@ class InMemoryContentStore:
                         self._unreferenced[key] = now
             return len(self._unreferenced)
 
-    def sweep_marked(self, before: float, *, limit: int | None = None, dry_run: bool = False) -> SweepResult:
+    def sweep_marked(self, before: float) -> SweepResult:
         dropped: dict[str, list[str]] = {}
         reclaimed: dict[str, int] = {}
-        batch_limit = None if limit is None else max(0, int(limit))
         with self._lock:
-            candidates = [(key, at) for key, at in self._unreferenced.items() if at <= before]
-            candidates.sort(key=lambda row: row[0])
-            if batch_limit is not None:
-                candidates = candidates[:batch_limit]
-            for (org_id, digest), _marked_at in candidates:
+            for (org_id, digest), marked_at in list(self._unreferenced.items()):
+                if marked_at > before:
+                    continue
                 held = self._blobs.get(org_id)
                 if held is not None and digest in held:
                     reclaimed[org_id] = reclaimed.get(org_id, 0) + len(held[digest])
+                    del held[digest]
                     dropped.setdefault(org_id, []).append(digest)
-                    if not dry_run:
-                        del held[digest]
-                        if not held:
-                            del self._blobs[org_id]
-                if not dry_run:
-                    self._unreferenced.pop((org_id, digest), None)
+                    if not held:
+                        del self._blobs[org_id]
+                del self._unreferenced[(org_id, digest)]
         return SweepResult(
             dropped={org_id: tuple(sorted(digests)) for org_id, digests in dropped.items()},
             bytes_reclaimed=reclaimed,
@@ -189,7 +183,12 @@ class InMemoryContentStore:
 
 
 class InMemoryContentProvenance:
-    """Exact opaque possession scopes, keyed ``(partition, repo, scope)``."""
+    """Who demonstrated possession of what, keyed ``(org, repo, subject)``.
+
+    A set per scope rather than a row per digest: the two questions asked of it
+    are both "which of these digests", and a scope holds at most one
+    organization's working set.
+    """
 
     __slots__ = ("_held", "_lock")
 
@@ -198,7 +197,10 @@ class InMemoryContentProvenance:
         self._lock = threading.Lock()
 
     def record(self, org_id: str, repo_id: str, subject: str, digests: Sequence[str]) -> int:
-        if not repo_id or not digests:
+        if not repo_id or not subject or not digests:
+            # An unattributed row would be indistinguishable from the
+            # repository-wide scope on read, which is the one thing that must
+            # not be forgeable. Nothing is better than something unattributable.
             return 0
         with self._lock:
             scope = self._held.setdefault((org_id, repo_id, subject), set())
@@ -211,7 +213,13 @@ class InMemoryContentProvenance:
         if not wanted or not repo_id:
             return frozenset()
         with self._lock:
-            return frozenset(wanted & self._held.get((org_id, repo_id, subject), set()))
+            if subject:
+                return frozenset(wanted & self._held.get((org_id, repo_id, subject), set()))
+            found: set[str] = set()
+            for (owner, repo, _subject), scope in self._held.items():
+                if owner == org_id and repo == repo_id:
+                    found |= wanted & scope
+            return frozenset(found)
 
     def forget(self, org_id: str, digests: Sequence[str]) -> int:
         doomed = set(digests)
@@ -242,11 +250,10 @@ class InMemoryContentProvenance:
 class InMemoryAnalysisStore:
     """Layer 1 derived store, written exactly once per scoped key."""
 
-    __slots__ = ("_artifacts", "_derivations", "_lock", "_semantic_units")
+    __slots__ = ("_artifacts", "_derivations", "_lock")
 
     def __init__(self) -> None:
         self._artifacts: dict[tuple[str, str, str], AnalysisArtifact] = {}
-        self._semantic_units: dict[tuple[str, str, str, str], tuple[SemanticUnit, ...]] = {}
         self._derivations = 0
         self._lock = threading.Lock()
 
@@ -303,29 +310,6 @@ class InMemoryAnalysisStore:
         with self._lock:
             return sum(1 for key in self._artifacts if key[0] == org_id)
 
-    def stored_semantic_units(
-        self, org_id: str, keys: Sequence[tuple[str, str]], embedding_version: str
-    ) -> dict[tuple[str, str], tuple[SemanticUnit, ...]]:
-        with self._lock:
-            return {
-                key: units
-                for key in keys
-                if (units := self._semantic_units.get((org_id, key[0], key[1], embedding_version))) is not None
-            }
-
-    def store_semantic_units(
-        self,
-        org_id: str,
-        rows: Sequence[tuple[str, str, tuple[SemanticUnit, ...]]],
-        embedding_version: str,
-    ) -> None:
-        with self._lock:
-            for digest, parser_profile, units in rows:
-                if any(unit.embedding_version != embedding_version for unit in units):
-                    raise ValueError("semantic units must all carry the stored embedding version")
-                if (org_id, digest, parser_profile) in self._artifacts:
-                    self._semantic_units.setdefault((org_id, digest, parser_profile, embedding_version), units)
-
     def stored_bytes(self, org_id: str) -> int:
         """Approximate size of the derived rows, for the storage report."""
         with self._lock:
@@ -334,9 +318,6 @@ class InMemoryAnalysisStore:
                 if owner != org_id:
                     continue
                 total += self.storage_size(org_id, artifact)
-            for (owner, _digest, _profile, _version), units in self._semantic_units.items():
-                if owner == org_id:
-                    total += sum(32 + 8 * len(unit.embedding) for unit in units)
             return total
 
     def storage_size(self, org_id: str, artifact: AnalysisArtifact) -> int:
@@ -477,8 +458,6 @@ class InMemoryAnalysisStore:
             keys = [key for key in self._artifacts if key[0] == org_id and key[1] in doomed]
             for key in keys:
                 del self._artifacts[key]
-            for unit_key in [key for key in self._semantic_units if key[0] == org_id and key[1] in doomed]:
-                del self._semantic_units[unit_key]
             return len(keys)
 
 
@@ -792,9 +771,13 @@ class InMemoryViewStore:
                 # acknowledged-revision check while reading somebody else's
                 # overlay. Idempotent, not an error, never a second bump.
                 return replayed
-            # CAS failure takes precedence over an old client sequence:
-            # a competing replica may commit a higher sequence first, but
-            # the losing writer's actionable error is a stale revision.
+            if client_seq <= view.last_client_seq:
+                raise ServerError(
+                    ErrorCode.PAYLOAD_INVALID,
+                    "client_seq must increase monotonically within a view",
+                    details={"client_seq": client_seq, "last_client_seq": view.last_client_seq},
+                    action=AgentAction.FIX_REQUEST,
+                )
             if expected_view_revision != view.revision:
                 raise ServerError(
                     ErrorCode.VIEW_REVISION_CONFLICT,
@@ -805,28 +788,12 @@ class InMemoryViewStore:
                     },
                     action=AgentAction.REFRESH_VIEW_REVISION,
                 )
-            if client_seq <= view.last_client_seq:
-                raise ServerError(
-                    ErrorCode.PAYLOAD_INVALID,
-                    "client_seq must increase monotonically within a view",
-                    details={"client_seq": client_seq, "last_client_seq": view.last_client_seq},
-                    action=AgentAction.FIX_REQUEST,
-                )
-            root = self._roots.get((org_id, view.root))
-            complete = root is not None and root.complete
-            base = root.entries if complete and root is not None else {}
             for entry in entries:
-                if complete and base.get(entry.path) == entry:
-                    view.overlay.pop(entry.path, None)
-                else:
-                    view.overlay[entry.path] = entry
+                view.overlay[entry.path] = entry
                 view.tombstones.discard(entry.path)
             for path in removed_paths:
                 view.overlay.pop(path, None)
-                if not complete or path in base:
-                    view.tombstones.add(path)
-                else:
-                    view.tombstones.discard(path)
+                view.tombstones.add(path)
             view.revision += 1
             view.last_client_seq = client_seq
             state = self._state(view)
@@ -1038,10 +1005,6 @@ class InMemoryRepoIdentityService:
         self._ids: dict[tuple[str, str], str] = {}
         self._lock = threading.Lock()
 
-    def lookup_repo_id(self, org_id: str, claim: RepoIdentityClaim) -> str | None:
-        with self._lock:
-            return self._ids.get((org_id, claim.key()))
-
     def canonical_repo_id(self, org_id: str, claim: RepoIdentityClaim) -> str:
         key = (org_id, claim.key())
         with self._lock:
@@ -1077,7 +1040,7 @@ def build_memory_backend(
         analysis=analysis_store,
         views=views,
         links=LinkLayer(sources, InMemoryLinkGraphStore(), inline_rebuild_budget=inline_rebuild_budget),
-        semantic=create_semantic_index(sources, inline_rebuild_budget=inline_rebuild_budget),
+        semantic=SemanticLayer(sources, inline_rebuild_budget=inline_rebuild_budget),
         repos=InMemoryRepoIdentityService(),
         provenance=provenance,
         ops=ops,

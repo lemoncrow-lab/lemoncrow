@@ -32,64 +32,6 @@ def rpc(method: str, params: Mapping[str, object] | None = None, request_id: int
     return payload
 
 
-@pytest.fixture
-def broker_visible(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Exercise the broker only under an explicitly authorizing canonical policy."""
-    from lemoncrow_client import toolbroker
-
-    surface = dict(load_surface())
-    surface["tool"] = {"visibleToLlm": True}
-    monkeypatch.setattr(toolbroker, "load_surface", lambda: surface)
-
-
-@pytest.mark.parametrize("profile", ["core", "full"])
-@pytest.mark.parametrize("host", ["codex", "claude", ""])
-def test_broker_stays_hidden_from_the_standard_surface(
-    config: ClientConfig, monkeypatch: pytest.MonkeyPatch, profile: str, host: str
-) -> None:
-    monkeypatch.setenv("LEMONCROW_MCP_TOOL_PROFILE", profile)
-    monkeypatch.setenv("LEMONCROW_AGENT", host)
-    server = McpServer(config)
-    listed = server.handle(rpc("tools/list"))
-    assert listed is not None
-    assert {entry["name"] for entry in listed["result"]["tools"]} == {
-        "bash",
-        "code_search",
-        "edit",
-        "read",
-        "web_fetch",
-    }
-    server.close()
-
-
-@pytest.mark.parametrize("profile", ["core", "full"])
-def test_hidden_routed_tools_remain_callable_by_exact_name(
-    config: ClientConfig, monkeypatch: pytest.MonkeyPatch, profile: str
-) -> None:
-    from lemoncrow_client.dispatcher import Dispatcher, ToolOutcome
-
-    monkeypatch.setenv("LEMONCROW_MCP_TOOL_PROFILE", profile)
-    server = McpServer(config)
-    monkeypatch.setattr(McpServer, "_ensure_session", lambda *_args, **_kwargs: None)
-    seen = []
-
-    def call(_self, name, _arguments):
-        seen.append(name)
-        return ToolOutcome(content=({"type": "text", "text": name},))
-
-    monkeypatch.setattr(Dispatcher, "call", call)
-    listed = server.handle(rpc("tools/list"))
-    assert listed is not None
-    visible = {entry["name"] for entry in listed["result"]["tools"]}
-    hidden = set(ROUTES) - visible
-    for name in hidden:
-        answer = server.handle(rpc("tools/call", {"name": name, "arguments": {}}))
-        assert answer is not None
-        assert answer["result"]["isError"] is False, name
-    assert set(seen) == hidden
-    server.close()
-
-
 def test_initialize_bootstraps_the_one_remote_session(stub: StubServer, config: ClientConfig) -> None:
     server = McpServer(config)
     answer = server.handle(rpc("initialize"))
@@ -99,7 +41,6 @@ def test_initialize_bootstraps_the_one_remote_session(stub: StubServer, config: 
     assert result["protocolVersion"] == MCP_PROTOCOL_VERSION
     assert result["capabilities"] == {"tools": {}}
     assert "LemonCrow:" in result["instructions"]
-    server._ensure_session(retry=True)
     assert server.dispatcher.session.bootstrapped is True
     assert stub.state.session_id
     assert stub.state.view_id
@@ -135,8 +76,8 @@ def test_the_tool_broker_is_absent_from_tools_list_in_the_default_full_profile(c
     assert "tool" not in {entry["name"] for entry in answer["result"]["tools"]}
 
 
-def test_the_tool_broker_is_advertised_in_core_profile_only_when_canonically_visible(
-    config: ClientConfig, monkeypatch: pytest.MonkeyPatch, broker_visible: None
+def test_the_tool_broker_is_advertised_alongside_the_lean_surface_in_core_profile(
+    config: ClientConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("LEMONCROW_MCP_TOOL_PROFILE", "core")
     answer = McpServer(config).handle(rpc("tools/list"))
@@ -149,8 +90,8 @@ def test_the_tool_broker_is_advertised_in_core_profile_only_when_canonically_vis
     assert set(names) - {"tool"} == expected
 
 
-def test_the_tool_broker_discovers_hidden_routed_tools(
-    config: ClientConfig, monkeypatch: pytest.MonkeyPatch, broker_visible: None
+def test_the_tool_broker_never_discovers_baseline_hidden_tools(
+    config: ClientConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("LEMONCROW_MCP_TOOL_PROFILE", "core")
     answer = McpServer(config).handle(
@@ -159,18 +100,11 @@ def test_the_tool_broker_discovers_hidden_routed_tools(
     assert answer is not None
     assert answer["result"]["isError"] is False
     text = answer["result"]["content"][0]["text"]
-    assert "grep" in text
-
-    miss = McpServer(config).handle(
-        rpc("tools/call", {"name": "tool", "arguments": {"action": "search", "query": "nonexistent_search_query_xyz"}})
-    )
-    assert miss is not None
-    assert "no hidden tool matches" in miss["result"]["content"][0]["text"]
+    assert "grep" not in text
+    assert "no hidden tool matches" in text
 
 
-def test_the_tool_broker_executes_hidden_routed_tools(
-    config: ClientConfig, monkeypatch: pytest.MonkeyPatch, broker_visible: None
-) -> None:
+def test_the_tool_broker_refuses_baseline_hidden_tools(config: ClientConfig, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEMONCROW_MCP_TOOL_PROFILE", "core")
     server = McpServer(config)
     direct = server.handle(rpc("tools/call", {"name": "grep", "arguments": {"regex": "McpServer", "path": "."}}))
@@ -185,24 +119,12 @@ def test_the_tool_broker_executes_hidden_routed_tools(
     )
     assert direct is not None and via_broker is not None
     assert direct["result"]["isError"] is False
-    assert via_broker["result"]["isError"] is False
-
-    unknown = server.handle(
-        rpc(
-            "tools/call",
-            {
-                "name": "tool",
-                "arguments": {"action": "call", "name": "unknown_xyz", "arguments": {}},
-            },
-        )
-    )
-    assert unknown is not None
-    assert unknown["result"]["isError"] is True
-    assert "unknown or unavailable tool: unknown_xyz" in unknown["result"]["content"][0]["text"]
+    assert via_broker["result"]["isError"] is True
+    assert "unknown or unavailable tool: grep" in via_broker["result"]["content"][0]["text"]
 
 
 def test_the_tool_broker_refuses_to_call_a_tool_already_visible_in_tools_list(
-    config: ClientConfig, monkeypatch: pytest.MonkeyPatch, broker_visible: None
+    config: ClientConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("LEMONCROW_MCP_TOOL_PROFILE", "core")
     answer = McpServer(config).handle(
@@ -216,9 +138,7 @@ def test_the_tool_broker_refuses_to_call_a_tool_already_visible_in_tools_list(
     assert "already exposed" in answer["result"]["content"][0]["text"]
 
 
-def test_the_tool_broker_refuses_an_unknown_action(
-    config: ClientConfig, monkeypatch: pytest.MonkeyPatch, broker_visible: None
-) -> None:
+def test_the_tool_broker_refuses_an_unknown_action(config: ClientConfig, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEMONCROW_MCP_TOOL_PROFILE", "core")
     answer = McpServer(config).handle(rpc("tools/call", {"name": "tool", "arguments": {"action": "delete"}}))
     assert answer is not None
@@ -280,9 +200,7 @@ def test_a_failure_does_not_repeat_for_client_only_tools(stub: StubServer, unrea
     server = McpServer(unreachable)
     for _ in range(3):
         server.handle(rpc("tools/call", {"name": "bash", "arguments": {"command": "printf x"}}))
-    assert not server.dispatcher.session.state.reason
-    assert not server.dispatcher.session.state.session_id
-    server.close()
+    assert server.dispatcher.session.state.reason
 
 
 def test_a_server_tool_recovers_when_the_server_finishes_starting(stub: StubServer, config: ClientConfig) -> None:
@@ -290,7 +208,6 @@ def test_a_server_tool_recovers_when_the_server_finishes_starting(stub: StubServ
     server = McpServer(config)
     initialized = server.handle(rpc("initialize"))
     assert initialized is not None
-    server._ensure_session(retry=True)
     assert server.dispatcher.session.bootstrapped is False
 
     stub.state.dead = False
@@ -330,30 +247,6 @@ def test_serve_exits_when_stdin_closes_and_leaves_no_thread(stub: StubServer, co
     assert {thread for thread in threading.enumerate() if not thread.daemon} == before
 
 
-def test_a_long_bash_call_does_not_hold_the_requests_after_it(stub: StubServer, config: ClientConfig) -> None:
-    """One hung command used to stall every later call until the host timed
-    each out; now only the command itself waits."""
-    source = io.StringIO(
-        "\n".join(
-            [
-                json.dumps(rpc("initialize")),
-                json.dumps(rpc("tools/call", {"name": "bash", "arguments": {"command": "sleep 1; printf slow"}}, 2)),
-                json.dumps(rpc("tools/list", request_id=3)),
-                json.dumps(rpc("tools/call", {"name": "bash", "arguments": {"command": "printf fast"}}, 4)),
-            ]
-        )
-        + "\n"
-    )
-    sink = io.StringIO()
-    assert serve(stdin=source, stdout=sink, config=config) == 0
-    answers = [json.loads(line) for line in sink.getvalue().splitlines()]
-    order = [entry["id"] for entry in answers]
-    assert sorted(order) == [1, 2, 3, 4]
-    assert order[-1] == 2, order
-    slow = next(entry for entry in answers if entry["id"] == 2)
-    assert "slow" in slow["result"]["content"][0]["text"]
-
-
 def test_malformed_input_is_answered_rather_than_crashing(config: ClientConfig) -> None:
     sink = io.StringIO()
     assert serve(stdin=io.StringIO("not json\n[]\n"), stdout=sink, config=config) == 0
@@ -361,44 +254,19 @@ def test_malformed_input_is_answered_rather_than_crashing(config: ClientConfig) 
     assert [entry["error"]["code"] for entry in answers] == [-32700, -32600]
 
 
-def test_runtime_mcp_without_a_hosted_target_runs_as_runtime_lite(worktree: Path, state_dir: Path) -> None:
-    # Manifests written before Runtime Lite launch `runtime mcp`; with no
-    # hosted target that same process serves Runtime Lite, never a server.
-    environment = {
-        **{key: value for key, value in os.environ.items() if not key.startswith("LEMONCROW_")},
-        "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src"),
-        "LEMONCROW_HOME": str(state_dir),
-    }
-    completed = subprocess.run(
-        [sys.executable, "-m", "lemoncrow_client", "runtime", "mcp"],
-        input=json.dumps(rpc("initialize", {})) + "\n",
-        capture_output=True,
-        text=True,
-        cwd=str(worktree),
-        env=environment,
-        timeout=60,
-    )
-    assert completed.returncode == 0, completed.stderr
-    answer = json.loads(completed.stdout.splitlines()[0])
-    assert answer["result"]["serverInfo"]["name"] == "lemoncrow-runtime-lite"
-
-
 def test_the_installed_entry_point_runs_as_a_real_process(stub: StubServer, worktree: Path, state_dir: Path) -> None:
     """End to end through the console script the host actually launches."""
     from _stub import TOKEN
 
-    # The server-backed thin client is the hosted topology; Runtime on a
-    # loopback endpoint without a mode is Runtime Lite.
     environment = {
         **os.environ,
         "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src"),
         "LEMONCROW_URL": stub.url,
         "LEMONCROW_TOKEN": TOKEN,
         "LEMONCROW_HOME": str(state_dir),
-        "LEMONCROW_INSTALL_MODE": "hosted",
     }
     completed = subprocess.run(
-        [sys.executable, "-m", "lemoncrow_client", "runtime", "mcp"],
+        [sys.executable, "-m", "lemoncrow_client", "mcp"],
         input="\n".join([json.dumps(rpc("initialize")), json.dumps(rpc("tools/list", request_id=2))]) + "\n",
         capture_output=True,
         text=True,
@@ -458,7 +326,7 @@ def test_stdio_model_surface_never_emits_structured_content(
 
 
 def test_stdio_tool_broker_never_emits_structured_content(
-    config: ClientConfig, monkeypatch: pytest.MonkeyPatch, broker_visible: None
+    config: ClientConfig, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from lemoncrow_client import toolbroker
     from lemoncrow_client.dispatcher import ToolOutcome

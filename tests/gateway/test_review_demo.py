@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import sys
@@ -11,7 +10,6 @@ import pytest
 
 import lemoncrow.pro.capabilities.review.previews as previews_module
 import lemoncrow.pro.capabilities.review.surfaces as surfaces_module
-from lemoncrow.pro.capabilities.review.development import DevelopmentStore
 from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range
 from lemoncrow.pro.capabilities.review.packet import build_review_packet_with_blobs
 from lemoncrow.pro.capabilities.review.previews import (
@@ -20,7 +18,6 @@ from lemoncrow.pro.capabilities.review.previews import (
     render_surface_preview,
 )
 from lemoncrow.pro.capabilities.review.review_setup import inspect_review_setup
-from lemoncrow.pro.capabilities.review.session_comments import brief_agent_context
 from lemoncrow.pro.capabilities.review.sources.local import open_or_create_session, record_revision
 from lemoncrow.pro.capabilities.review.store import ReviewStore
 from lemoncrow.pro.capabilities.review.surfaces import SurfaceContext, built_in_registry, load_review_surface_config
@@ -144,9 +141,9 @@ def test_review_surface_demo_change_reaches_storybook_and_the_csv_plugin(
     assert all("auto_compare" in surface.capabilities for surface in surfaces if surface.provider in {"web", "bruno"})
     stories = [surface for surface in surfaces if surface.provider == "storybook"]
     assert sorted(surface.id for surface in stories) == [
-        "frontend:cloud-surfacecard--api",
-        "frontend:cloud-surfacecard--components",
-        "frontend:cloud-surfacecard--web",
+        "frontend:demo-surfacecard--api",
+        "frontend:demo-surfacecard--components",
+        "frontend:demo-surfacecard--web",
     ]
     assert {surface.preview.scope for surface in stories if surface.preview} == {"frontend"}
     table = next(surface for surface in surfaces if surface.provider == "csv-table")
@@ -160,103 +157,6 @@ def test_review_surface_demo_change_reaches_storybook_and_the_csv_plugin(
     old_html, new_html = old.path.read_text(encoding="utf-8"), new.path.read_text(encoding="utf-8")
     assert "<td>49</td>" in old_html and "Enterprise" not in old_html
     assert "<td>59</td>" in new_html and "<td>Enterprise</td>" in new_html
-
-
-def test_review_surface_demo_seeds_real_agent_activity(tmp_path: Path) -> None:
-    root = tmp_path / "demo"
-    shutil.copytree(
-        DEMO_ROOT, root, ignore=shutil.ignore_patterns("node_modules", "__pycache__", "dist", "storybook-static")
-    )
-    shutil.copytree(root / ".fixtures" / "media" / "before", root / "media")
-    _git(root, "init", "-b", "main")
-    _git(root, "config", "user.name", "Demo Tester")
-    _git(root, "config", "user.email", "demo@example.invalid")
-    _git(root, "add", "-A")
-    _git(root, "commit", "-m", "baseline")
-    subprocess.run([sys.executable, str(root / "scripts" / "apply-demo-change.py")], check=True, capture_output=True)
-
-    store_root = tmp_path / "store"
-    env = os.environ.copy()
-    env["LEMONCROW_ROOT"] = str(store_root)
-    seeded = subprocess.run(
-        [sys.executable, str(root / "scripts" / "seed-agent-activity.py"), str(root)],
-        cwd=Path(__file__).resolve().parents[2],
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert seeded.returncode == 0, seeded.stdout + seeded.stderr
-    assert "Seeded real LemonCrow Review activity" in seeded.stdout
-
-    seeded_again = subprocess.run(
-        [sys.executable, str(root / "scripts" / "seed-agent-activity.py"), str(root)],
-        cwd=Path(__file__).resolve().parents[2],
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert seeded_again.returncode == 0, seeded_again.stdout + seeded_again.stderr
-    assert "Pruned prior demo ledgers: 4" in seeded_again.stdout
-
-    store = ReviewStore(store_root)
-    session = next(item for item in store.list_sessions(status="", limit=None) if item.repo_root == str(root.resolve()))
-    revision = store.latest_revision(session.id)
-    assert revision is not None
-    annotations = store.list_annotations_at_revision(session.id, revision.id)
-    context = brief_agent_context(store, session, revision)
-    development = DevelopmentStore(store).list_sessions(session.id)
-    roles = {item.session_id: item.role for item in development}
-
-    assert {item.anchor.path for item in annotations} == {
-        "frontend/src/pages/PricingPage.jsx",
-        "backend/tests/test_app.py",
-        "backend/app.py",
-    }
-    assert not any(item.agent_role == "plan" for item in annotations)
-    assert {row["role"] for row in context} == {"plan", "code", "review"}
-    assert any(row["source"] == "author" for row in context)
-    assert "author" in roles.values()
-    assert "verifier" in roles.values()
-    assert all(item.status == "completed" for item in development if item.role in {"author", "verifier"})
-
-    # Exercise the bootstrap verification path against the same real store.
-    # The parent contains one ReviewStore partition, like the local server root.
-    env["LEMONCROW_SERVER_REVIEW_ROOT"] = str(tmp_path)
-    verified = subprocess.run(
-        [
-            sys.executable,
-            str(root / "scripts" / "seed-agent-activity.py"),
-            str(root),
-            "--server-review",
-            session.id,
-            "--verify-only",
-        ],
-        cwd=Path(__file__).resolve().parents[2],
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert verified.returncode == 0, verified.stdout + verified.stderr
-    assert "Verified seeded server Review" in verified.stdout
-
-
-def test_review_surface_demo_phased_change_wrapper_forwards_arguments(tmp_path: Path) -> None:
-    root = tmp_path / "demo"
-    shutil.copytree(
-        DEMO_ROOT, root, ignore=shutil.ignore_patterns("node_modules", "__pycache__", "dist", "storybook-static")
-    )
-    shutil.copytree(root / ".fixtures" / "media" / "before", root / "media")
-
-    subprocess.run(["bash", str(root / "scripts" / "apply-demo-change.sh"), "--phase", "initial"], check=True)
-    assert "used by LemonCrow Cloud" in (root / "README.md").read_text(encoding="utf-8")
-    assert "price: 49" in (root / "frontend/src/pages/PricingPage.jsx").read_text(encoding="utf-8")
-
-    subprocess.run(["bash", str(root / "scripts" / "apply-demo-change.sh"), "--phase", "final"], check=True)
-    assert "featured: true" in (root / "frontend/src/pages/PricingPage.jsx").read_text(encoding="utf-8")
-    assert '"stale_marks": 3' in (root / "backend/app.py").read_text(encoding="utf-8")
 
 
 def test_review_surface_demo_carries_distinct_before_after_media_fixtures() -> None:

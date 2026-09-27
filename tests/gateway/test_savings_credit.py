@@ -46,7 +46,7 @@ def _usage_line(msg_id: str, ts: str) -> dict[str, Any]:
 
 @pytest.mark.parametrize(
     ("model", "input_rate"),
-    (("gpt-5.6-sol", 4.00), ("gpt-5.6-terra", 2.00), ("gpt-5.6-luna", 0.20)),
+    (("gpt-5.6-sol", 5.00), ("gpt-5.6-terra", 2.50), ("gpt-5.6-luna", 1.00)),
 )
 def test_legacy_saved_tokens_reprice_with_gpt_5_6_models(model: str, input_rate: float) -> None:
     from lemoncrow.core.capabilities.savings_summary import _price_savings_row
@@ -101,7 +101,7 @@ def test_codex_unknown_model_savings_use_transcript_model(tmp_path: Path, monkey
     summary = compute_savings_summary(session_id, lemoncrow_root=tmp_path)
 
     assert summary.ctx_saved == 1_000_000
-    assert summary.saved_usd == pytest.approx(2.0)
+    assert summary.saved_usd == pytest.approx(2.5)
 
 
 def test_read_claude_session_savings_includes_calls_usd(tmp_path: Path) -> None:

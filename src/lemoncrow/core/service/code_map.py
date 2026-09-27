@@ -1,8 +1,7 @@
 """Read-only code-map queries for the local product UI.
 
-Listings expose indexed symbol metadata and tracked file metadata; file links
-count only uniquely resolved calls and parser-resolved imports. No
-repository-scale graph is ever returned. Exact source crosses the API boundary
+The full map exposes indexed symbol metadata, tracked file metadata, and only
+uniquely resolved call relationships. Exact source crosses the API boundary
 only when a user explicitly opens one symbol. Live activity is projected from
 the existing run ledger; raw tool output, diffs, stdout, and stderr stay local.
 """
@@ -15,10 +14,8 @@ import hashlib
 import json
 import os
 import re
-import select
 import sqlite3
 import subprocess
-import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -29,6 +26,22 @@ _MAX_SEARCH_RESULTS = 40
 _MAX_GRAPH_NODES = 160
 _MAX_GRAPH_DEPTH = 2
 _MAX_SOURCE_CHARS = 20_000
+_MAX_FULL_GRAPH_SYMBOLS = 50_000
+_MAX_FULL_GRAPH_FILES = 20_000
+_COMMUNITY_PALETTE = (
+    "#60a5fa",
+    "#f59e0b",
+    "#f87171",
+    "#67e8f9",
+    "#86efac",
+    "#fde047",
+    "#c084fc",
+    "#fb7185",
+    "#a78bfa",
+    "#2dd4bf",
+    "#f97316",
+    "#84cc16",
+)
 _FILE_TYPE_COLORS = {
     "source": "#67e8f9",
     "test": "#a78bfa",
@@ -83,6 +96,29 @@ _ASSET_SUFFIXES = {
     ".pdf",
     ".zip",
     ".gz",
+}
+_FULL_GRAPH_CACHE: dict[tuple[str, int, int, int, int], dict[str, Any]] = {}
+_COMMON_SEED_NAMES = {
+    "bool",
+    "dict",
+    "float",
+    "get",
+    "int",
+    "isinstance",
+    "len",
+    "list",
+    "max",
+    "min",
+    "open",
+    "print",
+    "query",
+    "read",
+    "run",
+    "set",
+    "str",
+    "super",
+    "tuple",
+    "write",
 }
 _VERIFY_COMMAND_RE = re.compile(
     r"(?:^|\s)(?:pytest|vitest|jest|ruff|mypy|pyright|eslint|cargo\s+test|go\s+test|npm\s+(?:run\s+)?(?:test|build|lint|typecheck)|pnpm\s+(?:test|build|lint|typecheck)|yarn\s+(?:test|build|lint|typecheck)|uv\s+run\s+pytest)(?:\s|$)",
@@ -167,8 +203,6 @@ def resolve_project_root(requested: str | Path | None = None) -> Path:
                 if configured:
                     with contextlib.suppress(OSError):
                         candidates.append(Path(configured).expanduser().resolve())
-                for root in tuple(candidates):
-                    candidates.extend(_git_worktrees(root))
                 match = next(
                     (path.resolve() for path in candidates if project_id_for_root(path) == raw_requested),
                     None,
@@ -222,27 +256,8 @@ def _is_user_project(path: Path) -> bool:
     return not _is_ephemeral(path) and not _is_internal_server_workspace(path)
 
 
-def _git_worktrees(root: Path) -> list[Path]:
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(root), "worktree", "list", "--porcelain", "-z"],
-            capture_output=True,
-            check=False,
-            timeout=3,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return []
-    if result.returncode != 0:
-        return []
-    return [
-        Path(_decode_path(record.removeprefix(b"worktree "))).resolve()
-        for record in result.stdout.split(b"\0")
-        if record.startswith(b"worktree ")
-    ]
-
-
 def list_projects() -> list[dict[str, Any]]:
-    """List active and registered projects with their available Git worktrees."""
+    """List active, non-ephemeral workspaces plus the configured workspace."""
 
     candidates: list[Path] = []
     configured = os.environ.get("LEMONCROW_WORKSPACE_ROOT", "").strip()
@@ -256,8 +271,6 @@ def list_projects() -> list[dict[str, Any]]:
     active_set = {path.resolve() for path in active_workspaces}
     candidates.extend(path for path in active_workspaces if _is_user_project(path))
     candidates.extend(project.root for project in registered_projects() if _is_user_project(project.root))
-    for candidate in tuple(candidates):
-        candidates.extend(root for root in _git_worktrees(candidate) if root.is_dir() and _is_user_project(root))
     if not candidates:
         with contextlib.suppress(ValueError):
             candidates.append(resolve_project_root())
@@ -289,45 +302,9 @@ def list_projects() -> list[dict[str, Any]]:
 def get_engine(project_root: str) -> Any:
     """Keep a small read-only engine set warm for the UI process."""
 
-    from lemoncrow.core.capabilities.code_intelligence_provider import (
-        create_code_intelligence_provider,
-    )
+    from lemoncrow.pro.capabilities.code_context.engine import CodeContextEngine
 
-    return create_code_intelligence_provider(project_root, autosync_enabled=False)
-
-
-def get_map_engine(project_root: str) -> Any:
-    """The engine `/code`'s deterministic views read.
-
-    The private code-intelligence engine when it is installed; otherwise the
-    open-source Runtime Lite index of the same worktree, whose relationships
-    are import-level and labelled so (:mod:`code_map_lite`).
-    """
-
-    from lemoncrow.core.capabilities.code_intelligence_provider import ProEngineUnavailable
-
-    try:
-        return get_engine(project_root)
-    except ProEngineUnavailable:
-        from lemoncrow.core.service.code_map_lite import lite_engine
-
-        return lite_engine(project_root)
-
-
-def list_map_projects() -> list[dict[str, Any]]:
-    """`/code`'s project list: ``indexed`` names the index the map will read."""
-
-    from lemoncrow.core.capabilities.code_intelligence_provider import private_code_intelligence_available
-
-    projects = list_projects()
-    if private_code_intelligence_available():
-        return projects
-    from lemoncrow.core.service.code_map_lite import LITE_BACKEND, lite_index_present
-
-    for project in projects:
-        project["index"] = LITE_BACKEND
-        project["indexed"] = lite_index_present(Path(str(project["root"])))
-    return projects
+    return CodeContextEngine(project_root, autosync_enabled=False)
 
 
 def _record_node(record: Any) -> dict[str, Any]:
@@ -363,9 +340,22 @@ def _file_node_id(path: str) -> str:
     return "file::" + hashlib.sha1(path.encode()).hexdigest()[:20]
 
 
-def _module_folder(path: str) -> str:
-    parent = Path(path).parent.as_posix()
-    return "" if parent == "." else parent
+def community_for_path(path: str) -> str:
+    """Stable repository-area partition used by every Code Map projection."""
+
+    parts = Path(path).parts
+    if len(parts) <= 1:
+        return "root"
+    if len(parts) >= 4 and parts[0] == "src" and parts[1] == "lemoncrow":
+        return "/".join(parts[:3])
+    if len(parts) >= 3 and parts[0] in {"tests", "frontend", "landing", "services", "integrations", "benchmarks"}:
+        return "/".join(parts[:2])
+    return parts[0]
+
+
+# Compatibility alias for the existing generic Code Map internals. Review Map
+# imports the public helper above rather than duplicating the partition rule.
+_community_for_path = community_for_path
 
 
 def _file_metadata(path: str) -> tuple[str, str]:
@@ -421,72 +411,7 @@ def _tracked_files(project_root: Path) -> list[str]:
     return sorted(paths)
 
 
-def _ignored_index_paths(project_root: Path, paths: list[str]) -> set[str]:
-    if not paths:
-        return set()
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(project_root), "check-ignore", "-z", "--stdin"],
-            input=b"\0".join(path.encode("utf-8", errors="surrogateescape") for path in paths) + b"\0",
-            capture_output=True,
-            check=False,
-            timeout=8,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return set()
-    return {_decode_path(raw) for raw in result.stdout.split(b"\0") if raw}
-
-
-def _decode_path(raw: bytes) -> str:
-    return raw.decode("utf-8", errors="surrogateescape")
-
-
-def _ignored_worktree_paths(project_root: Path, *, limit: int = 2000) -> tuple[set[str], bool]:
-    """Enumerate opt-in ignored files without reading unbounded Git output."""
-    try:
-        process = subprocess.Popen(
-            ["git", "-C", str(project_root), "ls-files", "-z", "--others", "--ignored", "--exclude-standard"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-        )
-    except OSError:
-        return set(), False
-    paths: set[str] = set()
-    pending = b""
-    truncated = False
-    complete = False
-    deadline = time.monotonic() + 8
-    try:
-        assert process.stdout is not None
-        while len(paths) <= limit and time.monotonic() < deadline:
-            ready, _, _ = select.select([process.stdout], [], [], max(0, deadline - time.monotonic()))
-            if not ready:
-                truncated = True
-                break
-            chunk = os.read(process.stdout.fileno(), 65_536)
-            if not chunk:
-                complete = True
-                break
-            *records, pending = (pending + chunk).split(b"\0")
-            for raw in records:
-                if raw:
-                    paths.add(_decode_path(raw))
-                if len(paths) > limit:
-                    truncated = True
-                    break
-        if len(paths) > limit:
-            truncated = True
-    finally:
-        if process.poll() is None:
-            truncated = truncated or not complete
-            process.kill()
-        process.wait()
-        if process.stdout is not None:
-            process.stdout.close()
-    return set(sorted(paths)[:limit]), truncated
-
-
-def list_file_nodes(engine: Any, project_root: Path, *, include_ignored: bool = False) -> dict[str, Any]:
+def list_file_nodes(engine: Any, project_root: Path) -> dict[str, Any]:
     """Return the complete repository file list for source browsing.
 
     The relationship graph is intentionally bounded for interactive rendering,
@@ -508,11 +433,7 @@ def list_file_nodes(engine: Any, project_root: Path, *, include_ignored: bool = 
             if path:
                 max_end_by_file[path] = max(1, int(row["end_line"] or 1))
 
-    indexed_ignored = _ignored_index_paths(project_root, list(max_end_by_file))
-    ignored_files, ignored_truncated = _ignored_worktree_paths(project_root) if include_ignored else (set(), False)
-    all_files = sorted(
-        (set(tracked_files) | set(max_end_by_file) | ignored_files) - (set() if include_ignored else indexed_ignored)
-    )
+    all_files = sorted(set(tracked_files) | set(max_end_by_file))
     files: list[dict[str, Any]] = []
     for path in all_files:
         file_type, language = _file_metadata(path)
@@ -525,11 +446,10 @@ def list_file_nodes(engine: Any, project_root: Path, *, include_ignored: bool = 
                 "kind": file_type,
                 "language": language,
                 "file_type": file_type,
-                "ignored": path in indexed_ignored or path in ignored_files,
                 "node_type": "file",
                 "line": 1,
                 "end_line": max_end_by_file.get(path, 1),
-                "module": _module_folder(path),
+                "community": _community_for_path(path),
                 "color": _FILE_TYPE_COLORS[file_type],
                 "degree": 0,
             }
@@ -538,7 +458,6 @@ def list_file_nodes(engine: Any, project_root: Path, *, include_ignored: bool = 
     return {
         "project": {"root": str(project_root), "label": project_root.name},
         "total_files": len(files),
-        "ignored_truncated": ignored_truncated,
         "files": files,
     }
 
@@ -569,7 +488,7 @@ def list_file_symbols(engine: Any, file_path: str, *, limit: int = 2000) -> dict
         (clean_path, bounded_limit),
     ).fetchall()
     file_type, inferred_language = _file_metadata(clean_path)
-    module = _module_folder(clean_path)
+    community = _community_for_path(clean_path)
     symbols = [
         {
             "id": str(row["symbol_id"]),
@@ -582,7 +501,7 @@ def list_file_symbols(engine: Any, file_path: str, *, limit: int = 2000) -> dict
             "node_type": "symbol",
             "line": int(row["start_line"]),
             "end_line": int(row["end_line"]),
-            "module": module,
+            "community": community,
             "degree": 0,
         }
         for row in rows
@@ -592,41 +511,6 @@ def list_file_symbols(engine: Any, file_path: str, *, limit: int = 2000) -> dict
         "total_symbols": total,
         "symbols": symbols,
         "truncated": total > len(symbols),
-    }
-
-
-def symbol_row(engine: Any, symbol_id: str) -> dict[str, Any]:
-    """One indexed symbol by id, as the Source outline lists it."""
-
-    from lemoncrow.core.service.code_map_lite import LiteCodeMapEngine
-
-    if isinstance(engine, LiteCodeMapEngine):
-        # Lite ids carry the indexed name and line; never scan for them.
-        return engine.lite_symbol_row(symbol_id)
-    row = (
-        engine.connection()
-        .execute(
-            """
-            SELECT symbol_id, file_path, language, symbol_name, qualified_name,
-                   kind, start_line, end_line
-            FROM symbols
-            WHERE symbol_id = ?
-            LIMIT 1
-            """,
-            (symbol_id,),
-        )
-        .fetchone()
-    )
-    if row is None:
-        raise LookupError(f"symbol not found: {symbol_id}")
-    return {
-        "id": str(row["symbol_id"]),
-        "label": str(row["symbol_name"]),
-        "qualified_name": str(row["qualified_name"]),
-        "path": str(row["file_path"]),
-        "kind": str(row["kind"]),
-        "line": int(row["start_line"]),
-        "end_line": int(row["end_line"]),
     }
 
 
@@ -786,90 +670,283 @@ def build_neighborhood(engine: Any, symbol_id: str, *, depth: int = 1, limit: in
     }
 
 
-_LEGACY_LINKS_CACHE: dict[tuple[str, int], list[dict[str, Any]]] = {}
+def build_full_graph(
+    engine: Any,
+    project_root: Path,
+    *,
+    max_symbols: int = _MAX_FULL_GRAPH_SYMBOLS,
+    max_files: int = _MAX_FULL_GRAPH_FILES,
+) -> dict[str, Any]:
+    """Build a full-repository metadata graph without returning source bodies."""
 
-
-def legacy_file_links(engine: Any) -> list[dict[str, Any]]:
-    """File-to-file links from the legacy index, aggregated by (source, target, kind).
-
-    Imports are path-resolved by the parser. Calls are resolved by name and
-    kept only when the name identifies exactly one definition, so an ambiguous
-    ``run()`` never becomes a link. Cached per index database write.
-    """
-
+    bounded_symbols = max(1, min(max_symbols, _MAX_FULL_GRAPH_SYMBOLS))
+    bounded_files = max(1, min(max_files, _MAX_FULL_GRAPH_FILES))
     db_path = Path(str(getattr(engine, "db_path", "")))
-    stamp = db_path.stat().st_mtime_ns if db_path.is_file() else 0
-    key = (str(db_path), stamp)
-    cached = _LEGACY_LINKS_CACHE.get(key)
+    db_stamp = db_path.stat().st_mtime_ns if db_path.is_file() else 0
+    tracked_files = _tracked_files(project_root)
+    tracked_stamp = hash("\0".join(tracked_files))
+    cache_key = (str(project_root.resolve()), db_stamp, tracked_stamp, bounded_symbols, bounded_files)
+    cached = _FULL_GRAPH_CACHE.get(cache_key)
     if cached is not None:
         return cached
 
-    aggregate: dict[tuple[str, str, str], dict[str, Any]] = {}
-
-    def add(source: str, target: str, kind: str, symbol: str = "") -> None:
-        if not source or not target or source == target:
-            return
-        row = aggregate.get((source, target, kind))
-        if row is None:
-            row = {"source_path": source, "target_path": target, "kind": kind, "weight": 0, "symbols": {}}
-            aggregate[(source, target, kind)] = row
-        row["weight"] += 1
-        if symbol:
-            row["symbols"][symbol] = int(row["symbols"].get(symbol, 0)) + 1
-
     conn = engine.connection()
-    with contextlib.suppress(sqlite3.Error):
-        for row in conn.execute(
-            "SELECT source_file, target_file FROM imports WHERE target_file IS NOT NULL AND target_file != ''"
-        ):
-            add(str(row["source_file"] or ""), str(row["target_file"] or ""), "imports")
+    total_symbols = int(conn.execute("SELECT COUNT(*) FROM symbols").fetchone()[0])
+    symbol_rows = conn.execute(
+        """
+        SELECT symbol_id, file_path, language, symbol_name, qualified_name,
+               kind, start_line, end_line
+        FROM symbols
+        ORDER BY file_path, start_line, end_line
+        LIMIT ?
+        """,
+        (bounded_symbols,),
+    ).fetchall()
+
+    indexed_paths = {str(row["file_path"]) for row in symbol_rows}
+    all_files = sorted(set(tracked_files) | indexed_paths)
+    total_files = len(all_files)
+    selected_files = all_files[:bounded_files]
+    selected_file_set = set(selected_files)
+    symbol_rows = [row for row in symbol_rows if str(row["file_path"]) in selected_file_set]
+
+    community_keys = sorted({_community_for_path(path) for path in selected_files})
+    community_colors = {
+        key: _COMMUNITY_PALETTE[index % len(_COMMUNITY_PALETTE)] for index, key in enumerate(community_keys)
+    }
+    nodes: dict[str, dict[str, Any]] = {}
+    file_type_counts: dict[str, int] = {}
+    language_counts: dict[str, int] = {}
+    max_end_by_file: dict[str, int] = {}
+    for row in symbol_rows:
+        path = str(row["file_path"])
+        max_end_by_file[path] = max(max_end_by_file.get(path, 1), int(row["end_line"] or 1))
+
+    for path in selected_files:
+        file_type, language = _file_metadata(path)
+        community = _community_for_path(path)
+        file_type_counts[file_type] = file_type_counts.get(file_type, 0) + 1
+        language_counts[language] = language_counts.get(language, 0) + 1
+        node_id = _file_node_id(path)
+        nodes[node_id] = {
+            "id": node_id,
+            "label": Path(path).name,
+            "qualified_name": path,
+            "path": path,
+            "kind": file_type,
+            "language": language,
+            "file_type": file_type,
+            "node_type": "file",
+            "line": 1,
+            "end_line": max_end_by_file.get(path, 1),
+            "community": community,
+            "color": _FILE_TYPE_COLORS[file_type],
+            "degree": 0,
+        }
+
+    symbols_by_id: dict[str, dict[str, Any]] = {}
+    by_location: dict[tuple[str, str, int], str] = {}
+    by_file_name: dict[tuple[str, str], list[str]] = {}
+    by_qualified: dict[str, list[str]] = {}
+    by_name: dict[str, list[str]] = {}
+    for row in symbol_rows:
+        node_id = str(row["symbol_id"])
+        path = str(row["file_path"])
+        file_type, inferred_language = _file_metadata(path)
+        community = _community_for_path(path)
+        node: dict[str, Any] = {
+            "id": node_id,
+            "label": str(row["symbol_name"]),
+            "qualified_name": str(row["qualified_name"]),
+            "path": path,
+            "kind": str(row["kind"]),
+            "language": str(inferred_language or row["language"] or "Other"),
+            "file_type": file_type,
+            "node_type": "symbol",
+            "line": int(row["start_line"]),
+            "end_line": int(row["end_line"]),
+            "community": community,
+            "color": community_colors[community],
+            "degree": 0,
+        }
+        nodes[node_id] = node
+        symbols_by_id[node_id] = node
+        by_location[(path, node["qualified_name"], node["line"])] = node_id
+        by_file_name.setdefault((path, node["label"]), []).append(node_id)
+        by_qualified.setdefault(node["qualified_name"], []).append(node_id)
+        by_name.setdefault(node["label"], []).append(node_id)
+
+    edges: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for node_id, node in symbols_by_id.items():
+        file_id = _file_node_id(node["path"])
+        if file_id in nodes:
+            edges[(file_id, node_id, "contains")] = {
+                "id": f"contains::{file_id}::{node_id}",
+                "source": file_id,
+                "target": node_id,
+                "kind": "contains",
+                "depth": 0,
+                "weight": 1,
+            }
+
+    def unique(candidates: list[str]) -> str | None:
+        distinct = list(dict.fromkeys(candidates))
+        return distinct[0] if len(distinct) == 1 else None
 
     with contextlib.suppress(sqlite3.Error):
-        by_qualified: dict[str, set[str]] = {}
-        by_name: dict[str, set[str]] = {}
-        by_file_name: set[tuple[str, str]] = set()
-        for row in conn.execute("SELECT file_path, symbol_name, qualified_name FROM symbols"):
-            path = str(row["file_path"] or "")
-            name = str(row["symbol_name"] or "")
-            by_qualified.setdefault(str(row["qualified_name"] or ""), set()).add(path)
-            by_name.setdefault(name, set()).add(path)
-            by_file_name.add((path, name))
-        for row in conn.execute("SELECT caller_file_path, callee_name, callee_short_name FROM call_edges"):
-            caller = str(row["caller_file_path"] or "")
-            callee = str(row["callee_name"] or "")
-            short = str(row["callee_short_name"] or callee.rsplit(".", 1)[-1])
-            if (caller, short) in by_file_name:
-                continue  # Resolves inside the caller's own file.
-            targets = by_qualified.get(callee) or set()
-            if len(targets) != 1:
-                targets = by_name.get(short) or set()
-            if len(targets) == 1:
-                add(caller, next(iter(targets)), "calls", short)
+        call_rows = conn.execute("""
+            SELECT caller_symbol_name, caller_qualified_name, caller_file_path,
+                   caller_start_line, callee_name, callee_short_name
+            FROM call_edges
+            ORDER BY caller_file_path, caller_start_line
+            """).fetchall()
+        for row in call_rows:
+            caller_path = str(row["caller_file_path"] or "")
+            caller_qualified = str(row["caller_qualified_name"] or "")
+            caller_name = str(row["caller_symbol_name"] or "")
+            caller_line = int(row["caller_start_line"] or 0)
+            source = by_location.get((caller_path, caller_qualified, caller_line))
+            if source is None:
+                source = unique(by_file_name.get((caller_path, caller_name), []))
+            if source is None:
+                continue
 
-    rows = list(aggregate.values())
-    for row in rows:
-        named = row["symbols"]
-        row["symbols"] = [
-            {"name": name, "count": count}
-            for name, count in sorted(named.items(), key=lambda item: (-item[1], item[0]))[:4]
-        ]
-    _LEGACY_LINKS_CACHE.clear()
-    _LEGACY_LINKS_CACHE[key] = rows
-    return rows
+            callee_name = str(row["callee_name"] or "")
+            callee_short = str(row["callee_short_name"] or callee_name.rsplit(".", 1)[-1])
+            target = unique(by_qualified.get(callee_name, []))
+            if target is None:
+                target = unique(by_file_name.get((caller_path, callee_short), []))
+            if target is None:
+                candidates = by_name.get(callee_short, [])
+                if len(candidates) > 1:
+                    source_community = symbols_by_id[source]["community"]
+                    candidates = [
+                        candidate
+                        for candidate in candidates
+                        if symbols_by_id[candidate]["community"] == source_community
+                    ]
+                target = unique(candidates)
+            if target is None:
+                continue
+
+            key = (source, target, "calls")
+            existing = edges.get(key)
+            if existing is not None:
+                existing["weight"] += 1
+                continue
+            edge_hash = hashlib.sha1(f"{source}:{target}".encode()).hexdigest()[:16]
+            edges[key] = {
+                "id": f"call::{edge_hash}",
+                "source": source,
+                "target": target,
+                "kind": "calls",
+                "depth": 1,
+                "weight": 1,
+            }
+
+    for edge in edges.values():
+        nodes[edge["source"]]["degree"] += 1
+        nodes[edge["target"]]["degree"] += 1
+    focus = max(symbols_by_id, key=lambda node_id: nodes[node_id]["degree"], default=None)
+
+    community_counts: dict[str, int] = {key: 0 for key in community_keys}
+    for node in nodes.values():
+        community_counts[node["community"]] += 1
+    status = engine.tool_status(auto_index=False, budget_tokens=4_000)
+    index = status.get("index") if isinstance(status.get("index"), dict) else {}
+    truncated = total_symbols > len(symbol_rows) or total_files > len(selected_files)
+    payload = {
+        "project": {"root": str(project_root), "label": project_root.name},
+        "index": index,
+        "total_symbols": total_symbols,
+        "total_files": total_files,
+        "truncated": truncated,
+        "groups": [
+            {
+                "id": key,
+                "label": key,
+                "color": community_colors[key],
+                "count": community_counts[key],
+            }
+            for key in community_keys
+        ],
+        "file_types": [
+            {"id": key, "label": key.title(), "color": _FILE_TYPE_COLORS[key], "count": count}
+            for key, count in sorted(file_type_counts.items(), key=lambda item: (-item[1], item[0]))
+        ],
+        "languages": [
+            {"id": key, "label": key, "count": count}
+            for key, count in sorted(language_counts.items(), key=lambda item: (-item[1], item[0]))
+        ],
+        "graph": {
+            "repo_id": str(getattr(engine, "repo_id", "")),
+            "focus": focus,
+            "nodes": list(nodes.values()),
+            "edges": list(edges.values()),
+            "truncated": truncated,
+            "depth": 0,
+        },
+    }
+    _FULL_GRAPH_CACHE.clear()
+    _FULL_GRAPH_CACHE[cache_key] = payload
+    return payload
 
 
-def indexed_content_hash(engine: Any, path: str) -> str:
-    """The content hash the legacy index recorded for *path*, or ``""``."""
+def _default_seed_symbol_id(engine: Any) -> str | None:
+    """Pick a connected, navigable symbol without returning a full graph."""
 
-    with contextlib.suppress(sqlite3.Error):
-        row = (
-            engine.connection()
-            .execute("SELECT content_hash FROM files WHERE file_path = ? LIMIT 1", (path,))
-            .fetchone()
+    try:
+        centrality = engine.call_graph_centrality(limit=200)
+        ranking = list(centrality.get("ranking", []))
+        # Eigenvector order is useful to ranking, but unresolved builtins and
+        # library helpers dominate its head.  For the first visual cluster,
+        # prefer a navigable symbol that both receives and makes calls, then
+        # rank by total degree.  This usually lands on the repository's main
+        # dispatcher/service boundary rather than ``str``/``len``/``read``.
+        connected = sorted(
+            (
+                row
+                for row in ranking
+                if int(row.get("out_degree") or 0) >= 2
+                and str(row.get("symbol") or "").rsplit(".", 1)[-1].lower() not in _COMMON_SEED_NAMES
+            ),
+            key=lambda row: int(row.get("in_degree") or 0) + int(row.get("out_degree") or 0),
+            reverse=True,
         )
-        if row is not None:
-            return str(row["content_hash"] or "")
-    return ""
+        for row in [*connected, *ranking]:
+            name = str(row.get("symbol") or "").rsplit(".", 1)[-1]
+            if not name or name.lower() in _COMMON_SEED_NAMES:
+                continue
+            matches = search_symbols(engine, name, limit=5)
+            exact = next((match for match in matches if match["label"] == name), None)
+            if exact:
+                return str(exact["id"])
+    except (OSError, LookupError, ValueError, sqlite3.Error):
+        pass
+    return None
+
+
+def build_overview(engine: Any, project_root: Path) -> dict[str, Any]:
+    status = engine.tool_status(auto_index=False, budget_tokens=4_000)
+    index = status.get("index") if isinstance(status.get("index"), dict) else {}
+    seed = _default_seed_symbol_id(engine) if int(index.get("symbols_indexed") or 0) else None
+    graph = (
+        build_neighborhood(engine, seed, depth=1, limit=80)
+        if seed
+        else {
+            "repo_id": str(getattr(engine, "repo_id", "")),
+            "focus": None,
+            "nodes": [],
+            "edges": [],
+            "truncated": False,
+            "depth": 1,
+        }
+    )
+    return {
+        "project": {"root": str(project_root), "label": project_root.name},
+        "index": index,
+        "graph": graph,
+    }
 
 
 def symbol_detail(engine: Any, symbol_id: str) -> dict[str, Any]:
@@ -1062,71 +1139,6 @@ def _attach_activity_targets(engine: Any, events: list[dict[str, Any]]) -> None:
             event["symbol_ids"] = list(dict.fromkeys(targets))[:6]
 
 
-_RUN_SUMMARY_CACHE: dict[tuple[str, int, int, str], dict[str, Any] | None] = {}
-_LIVE_WINDOW_S = 600
-
-
-def _run_summary(path: Path, project_root: Path) -> dict[str, Any] | None:
-    """Who a run ledger belongs to, if it relates to *project_root*.
-
-    Ledgers reach several MB and the activity feed polls every few seconds, so
-    the verdict is cached per file write; only a ledger that changed is parsed
-    again.
-    """
-
-    try:
-        stat = path.stat()
-    except OSError:
-        return None
-    key = (str(path), stat.st_mtime_ns, stat.st_size, str(project_root))
-    if key in _RUN_SUMMARY_CACHE:
-        return _RUN_SUMMARY_CACHE[key]
-    summary: dict[str, Any] | None = None
-    try:
-        candidate = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        candidate = None
-    if isinstance(candidate, dict) and _session_relates_to_project(candidate, project_root):
-        host = str(candidate.get("host") or path.parent.parent.name or candidate.get("agent") or "").strip().lower()
-        session_id = str(candidate.get("session_id") or path.parent.name)
-        summary = {
-            "id": f"{host}:{session_id}" if host else session_id,
-            "host": host,
-            "session_id": session_id,
-            "status": str(candidate.get("status") or "running"),
-            "last_at": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
-            "live": False,
-            "path": str(path),
-        }
-    if len(_RUN_SUMMARY_CACHE) > 400:
-        _RUN_SUMMARY_CACHE.clear()
-    _RUN_SUMMARY_CACHE[key] = summary
-    return summary
-
-
-def activity_sessions(runtime_root: Path, project_root: Path, *, limit: int = 8) -> list[dict[str, Any]]:
-    """Recent agent sessions that relate to *project_root*, newest first."""
-
-    run_files = sorted(
-        (runtime_root / "sessions").glob("*/*/*/*/*/run.json"),
-        key=lambda path: path.stat().st_mtime if path.exists() else 0,
-        reverse=True,
-    )
-    now = datetime.now(UTC)
-    out: list[dict[str, Any]] = []
-    for path in run_files[:40]:
-        summary = _run_summary(path, project_root)
-        if summary is None:
-            continue
-        row = dict(summary)
-        last = _parse_at(row["last_at"])
-        row["live"] = bool(last and (now - last).total_seconds() <= _LIVE_WINDOW_S and row["status"] != "completed")
-        out.append(row)
-        if len(out) >= limit:
-            break
-    return out
-
-
 def recent_activity(
     runtime_root: Path,
     project_root: Path,
@@ -1134,27 +1146,25 @@ def recent_activity(
     after: str | None = None,
     limit: int = 60,
     engine: Any | None = None,
-    session: str | None = None,
 ) -> dict[str, Any]:
-    """Return one relevant session's small map activity projection.
+    """Return the newest relevant session's small map activity projection."""
 
-    *session* (``host:session_id``) picks the session to follow; otherwise the
-    newest relevant one. ``sessions`` lists the recent relevant sessions.
-    """
-
-    sessions = activity_sessions(runtime_root, project_root)
-    chosen = next((row for row in sessions if session and row["id"] == session), None) or (
-        sessions[0] if sessions else None
+    run_files = sorted(
+        (runtime_root / "sessions").glob("*/*/*/*/*/run.json"),
+        key=lambda path: path.stat().st_mtime if path.exists() else 0,
+        reverse=True,
     )
     snapshot: dict[str, Any] | None = None
     snapshot_host = ""
-    if chosen is not None:
-        with contextlib.suppress(OSError, json.JSONDecodeError):
-            candidate = json.loads(Path(chosen["path"]).read_text(encoding="utf-8"))
-            if isinstance(candidate, dict):
-                snapshot = candidate
-                snapshot_host = str(chosen["host"])
-    public_sessions = [{key: value for key, value in row.items() if key != "path"} for row in sessions]
+    for path in run_files[:40]:
+        try:
+            candidate = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(candidate, dict) and _session_relates_to_project(candidate, project_root):
+            snapshot = candidate
+            snapshot_host = str(candidate.get("host") or path.parent.parent.name or candidate.get("agent") or "")
+            break
     if snapshot is None:
         return {
             "session_id": None,
@@ -1162,8 +1172,6 @@ def recent_activity(
             "status": "idle",
             "events": [],
             "cursor": after,
-            "sessions": public_sessions,
-            "selected_session": None,
         }
 
     session_id = str(snapshot.get("session_id") or "")
@@ -1194,18 +1202,15 @@ def recent_activity(
         "status": str(snapshot.get("status") or "running"),
         "events": events,
         "cursor": cursor,
-        "sessions": public_sessions,
-        "selected_session": chosen["id"] if chosen is not None else None,
     }
 
 
 __all__ = [
-    "activity_sessions",
+    "build_full_graph",
     "build_neighborhood",
+    "build_overview",
     "classify_activity_event",
     "get_engine",
-    "get_map_engine",
-    "list_map_projects",
     "list_projects",
     "recent_activity",
     "resolve_project_root",

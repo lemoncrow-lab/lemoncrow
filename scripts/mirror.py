@@ -17,9 +17,6 @@ Usage:
 
 Options:
     --dry-run           Print plan without pushing or updating watermark
-    --export-dir DIR    Materialize the filtered public tree of --source-ref into
-                        an empty DIR and exit (no push, no watermark, no token);
-                        used to validate a genuinely public checkout
     --source-ref REF    Branch to mirror (default: HEAD)
     --since DEV:PUB     Override watermark as dev_sha:pub_sha (both local)
     --public-remote URL Override public repo URL
@@ -41,12 +38,9 @@ Allowlist changes need --resync:
 from __future__ import annotations
 
 import argparse
-import io
 import os
-import re
 import subprocess
 import sys
-import tarfile
 import tempfile
 from pathlib import Path
 
@@ -63,25 +57,10 @@ DEV_REMOTE = "origin"  # lemoncrow-dev -- where the watermark refs live
 # standard workflow path in the public repo.
 PUBLIC_PATH_REWRITES = ((".github/public-workflows", ".github/workflows"),)
 
-# Public engine packages are explicitly allowlisted; the public repo builds the
-# local OSS product (Runtime Lite, local Review, local server, thin clients) from
-# source with no proprietary runtime dependency. Advanced code intelligence lives
-# under enterprise/ and is never mirrored. New source-package siblings are
-# private until deliberately added to scripts/public-paths.txt.
-
-# Submodule repositories that are themselves public. A gitlink is published only
-# when its path is allowlisted AND its configured URL is listed here, and the
-# public `.gitmodules` is regenerated to name exactly the published gitlinks. A
-# private repository (for example the marketing site) is therefore never named,
-# cloned or pinned by the public repository, whatever the source `.gitmodules`
-# contains.
-PUBLIC_SUBMODULE_URLS = frozenset({"https://github.com/lemoncrow-lab/lemoncode.git"})
-GITLINK_MODE = "160000"
-GITMODULES_PATH = ".gitmodules"
-
-
-class MirrorBoundaryError(RuntimeError):
-    """The filtered tree would publish something the boundary forbids."""
+# Public engine packages are explicitly allowlisted, including `lemoncrow.pro`;
+# the public repo builds the local product from source with no proprietary runtime
+# dependency. New source-package siblings are private until deliberately added
+# to scripts/public-paths.txt.
 
 
 # ---------------------------------------------------------------------------
@@ -90,8 +69,7 @@ class MirrorBoundaryError(RuntimeError):
 
 
 def _run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:  # type: ignore[type-arg]
-    kwargs.setdefault("text", True)
-    return subprocess.run(cmd, check=True, capture_output=True, cwd=REPO_ROOT, **kwargs)
+    return subprocess.run(cmd, check=True, text=True, capture_output=True, cwd=REPO_ROOT, **kwargs)
 
 
 def git(*args: str) -> str:
@@ -296,90 +274,6 @@ def _batch_lfs_oids(shas: list[str]) -> set[str]:
     return lfs_oids
 
 
-_SUBMODULE_HEADER = re.compile(r'^\s*\[submodule\s+"(?P<name>[^"]+)"\s*\]\s*$')
-_SUBMODULE_KEY = re.compile(r"^\s*(?P<key>[A-Za-z][A-Za-z0-9-]*)\s*=\s*(?P<value>.*?)\s*$")
-
-
-def parse_gitmodules(text: str) -> list[tuple[str, dict[str, str]]]:
-    """Minimal ``.gitmodules`` reader: ``[(name, {key: value})]`` in file order."""
-    sections: list[tuple[str, dict[str, str]]] = []
-    for line in text.splitlines():
-        header = _SUBMODULE_HEADER.match(line)
-        if header:
-            sections.append((header.group("name"), {}))
-            continue
-        key = _SUBMODULE_KEY.match(line)
-        if key and sections:
-            sections[-1][1][key.group("key")] = key.group("value")
-    return sections
-
-
-def public_gitmodules(text: str, published_gitlinks: set[str]) -> str:
-    """Render ``.gitmodules`` for exactly the published gitlinks.
-
-    Raises :class:`MirrorBoundaryError` when a published gitlink is undeclared or
-    points at a repository not in :data:`PUBLIC_SUBMODULE_URLS`.
-    """
-    declared = {fields.get("path", ""): (name, fields) for name, fields in parse_gitmodules(text)}
-    rendered: list[str] = []
-    for path in sorted(published_gitlinks):
-        if path not in declared:
-            raise MirrorBoundaryError(
-                f"public gitlink {path!r} has no .gitmodules entry "
-                "(after narrowing scripts/public-paths.txt, publish with --resync)"
-            )
-        name, fields = declared[path]
-        url = fields.get("url", "")
-        if url not in PUBLIC_SUBMODULE_URLS:
-            raise MirrorBoundaryError(
-                f"public gitlink {path!r} points at {url!r}, which is not a declared public repository "
-                "(after narrowing scripts/public-paths.txt, publish with --resync)"
-            )
-        rendered.append(f'[submodule "{name}"]')
-        rendered.extend(f"\t{key} = {value}" for key, value in fields.items())
-    return "\n".join(rendered) + ("\n" if rendered else "")
-
-
-def _index_gitlinks(index_path: Path) -> set[str]:
-    out = subprocess.run(
-        ["git", "ls-files", "--stage", "-z"],
-        capture_output=True,
-        text=True,
-        check=True,
-        cwd=REPO_ROOT,
-        env=_index_env(index_path),
-    ).stdout
-    gitlinks: set[str] = set()
-    for record in out.split("\0"):
-        meta, _, path = record.partition("\t")
-        if path and meta.split(" ", 1)[0] == GITLINK_MODE:
-            gitlinks.add(path)
-    return gitlinks
-
-
-def reconcile_gitmodules(index_path: Path, commit_sha: str) -> None:
-    """Replace the scratch index's ``.gitmodules`` with the public rendering.
-
-    The source ``.gitmodules`` may name private repositories; the public one
-    names only gitlinks that are actually published, each verified public.
-    """
-    gitlinks = _index_gitlinks(index_path)
-    source = git_ok("show", f"{commit_sha}:{GITMODULES_PATH}") or ""
-    rendered = public_gitmodules(source, gitlinks)
-    if not rendered:
-        _force_remove(index_path, [GITMODULES_PATH])
-        return
-    blob = subprocess.run(
-        ["git", "hash-object", "-w", "--stdin"],
-        input=rendered,
-        text=True,
-        capture_output=True,
-        check=True,
-        cwd=REPO_ROOT,
-    ).stdout.strip()
-    _update_index_info(index_path, [f"100644 {blob} 0\t{GITMODULES_PATH}"])
-
-
 def build_filtered_tree_full(commit_sha: str, public_prefixes: list[str], index_path: Path, lfs_oids: set[str]) -> str:
     """Full build: seed the scratch index from `commit_sha`'s tree, filtered to the
     public allowlist, then write it out.
@@ -405,7 +299,6 @@ def build_filtered_tree_full(commit_sha: str, public_prefixes: list[str], index_
             lines.append(f"{mode} {sha} 0\t{public_output_path(path)}")
     lfs_oids.update(_batch_lfs_oids(_shas_from_index_lines(lines)))
     _update_index_info(index_path, lines)
-    reconcile_gitmodules(index_path, commit_sha)
     return _write_tree(index_path)
 
 
@@ -481,20 +374,7 @@ def update_filtered_tree(
     lfs_oids.update(_batch_lfs_oids(_shas_from_index_lines(add_lines)))
     _force_remove(index_path, remove_paths)
     _update_index_info(index_path, add_lines)
-    reconcile_gitmodules(index_path, curr_dev_sha)
     return _write_tree(index_path)
-
-
-def export_tree(tree_sha: str, out_dir: Path) -> int:
-    """Write a filtered public tree to an empty directory; return the file count."""
-    out_dir.mkdir(parents=True, exist_ok=True)
-    if any(out_dir.iterdir()):
-        raise SystemExit(f"--export-dir must be empty: {out_dir}")
-    archive = _run(["git", "archive", "--format=tar", tree_sha], text=False).stdout
-    with tarfile.open(fileobj=io.BytesIO(archive)) as tf:
-        members = [member for member in tf.getmembers() if member.isfile() or member.issym()]
-        tf.extractall(out_dir, members=members, filter="data")
-    return len(members)
 
 
 # ---------------------------------------------------------------------------
@@ -686,24 +566,11 @@ def main() -> int:
     )
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--verbose", action="store_true")
-    parser.add_argument("--export-dir", type=Path, help="Write the filtered public tree of --source-ref here and exit")
     args = parser.parse_args()
 
     public_prefixes = load_public_prefixes()
-    dev_tip = git("rev-parse", args.source_ref)
-
-    if args.export_dir is not None:
-        index_path = Path(tempfile.mktemp(prefix="lemoncrow-mirror-index-"))
-        try:
-            tree = build_filtered_tree_full(dev_tip, public_prefixes, index_path, set())
-        finally:
-            if index_path.exists():
-                index_path.unlink()
-        count = export_tree(tree, args.export_dir)
-        print(f"Exported {count} public file(s) from {dev_tip[:12]} (tree {tree[:12]}) to {args.export_dir}")
-        return 0
-
     remote_url = build_remote_url(args.public_remote)
+    dev_tip = git("rev-parse", args.source_ref)
 
     # Determine watermark
     fresh = False

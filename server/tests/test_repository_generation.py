@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from lemoncrow_server_core.index.analysis import analyze_foreground
+import pytest
 from lemoncrow_server_core.index.contracts import (
     LinkBuildMode,
     ManifestEntry,
@@ -23,9 +23,9 @@ CAP = 1024**2
 ORG = "org_generation"
 
 
-def _entries(files: dict[str, bytes], profile: str = "python-1") -> tuple[ManifestEntry, ...]:
+def _entries(files: dict[str, bytes]) -> tuple[ManifestEntry, ...]:
     return tuple(
-        ManifestEntry(path, sha256_hex(data), profile, 0o100644, len(data)) for path, data in sorted(files.items())
+        ManifestEntry(path, sha256_hex(data), "python-1", 0o100644, len(data)) for path, data in sorted(files.items())
     )
 
 
@@ -36,11 +36,9 @@ def _open(
     subject: str = "alice",
     fingerprint: str = "generation-repo",
     base_revision: str = "a" * 40,
-    foreground: bool = False,
-    profile: str = "python-1",
 ) -> tuple[str, str]:
     repository = owner.backend.repos.canonical_repo_id(ORG, RepoIdentityClaim("", "", fingerprint))
-    entries = _entries(files, profile)
+    entries = _entries(files)
     chunks = chunk_manifest(entries)
     opened = owner.backend.views.open(
         org_id=ORG,
@@ -65,9 +63,7 @@ def _open(
     for data in files.values():
         digest = sha256_hex(data)
         leaf.content.put(ORG, digest, data)
-        # A foreground upload stores analysis without semantic units.
-        artifact = analyze_foreground(digest, profile, data) if foreground else None
-        leaf.analysis.ensure(ORG, digest, profile, data, artifact=artifact)
+        leaf.analysis.ensure(ORG, digest, "python-1", data)
         leaf.provenance.record(ORG, repository, subject, (digest,))
     return repository, view_id
 
@@ -287,5 +283,87 @@ def test_an_unchanged_generation_graph_is_not_saved_again(tmp_path: Path) -> Non
         graph = stored.load(ORG, dirty)
         assert graph is not None
         assert any(edge.src_path == "a.py" and edge.dst_path == "b.py" for edge in graph.edges)
+    finally:
+        owner.close()
+
+
+def test_a_generation_no_live_view_is_on_releases_its_semantic_index(tmp_path: Path) -> None:
+    # Every new generation built an in-memory ANN of all its embeddings and
+    # none was released, so the server grew with each commit Views moved onto.
+    owner = RepositoryIndex(tmp_path / "indexes", content_size_cap=CAP, inline_rebuild_budget=100)
+    try:
+        _repo, first = _open(owner, _base_files())
+        leaf = owner.backend.for_view(ORG, first)
+        assert leaf.semantic.refresh(ORG, first, budget=100, wait=True).ready
+        later_files = {**_base_files(), "e.py": b"def echo():\n    return 6\n"}
+        _same, second = _open(owner, later_files, base_revision="b" * 40)
+        assert owner.backend.views.get(ORG, second).generation_id != owner.backend.views.get(ORG, first).generation_id
+        assert owner.backend.for_view(ORG, second).semantic is leaf.semantic
+
+        # Both generations are live: both indexes stay.
+        assert leaf.semantic.refresh(ORG, second, budget=100, wait=True).ready
+        assert len(leaf.semantic._generation_indexes) == 2
+
+        # The first generation's last View closes; the next build releases it.
+        leaf.views.close(ORG, first)
+        _third_repo, third = _open(
+            owner, {**later_files, "f.py": b"def foxtrot():\n    return 7\n"}, base_revision="c" * 40
+        )
+        assert leaf.semantic.refresh(ORG, third, budget=100, wait=True).ready
+        kept = {key[1] for key in leaf.semantic._generation_indexes}
+        assert len(kept) == 2
+        assert all(_generation_key(owner, view) in kept for view in (second, third))
+    finally:
+        owner.close()
+
+
+def _generation_key(owner: RepositoryIndex, view_id: str) -> str:
+    from lemoncrow_server_core.index.contracts import repository_generation_scope_id
+
+    state = owner.backend.views.get(ORG, view_id)
+    return repository_generation_scope_id(state.generation_id, state.content_subject)
+
+
+def test_generations_share_the_units_and_signatures_of_unchanged_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Each generation re-read every file's units and recomputed every LSH
+    # signature in pure Python, holding its own copy: minutes of CPU and
+    # hundreds of MB per commit for files that did not change.
+    from lemoncrow_server_core.index import layers
+
+    computed: list[object] = []
+    real_signatures = layers.signatures
+
+    def counting(vector: Any) -> tuple[int, ...]:
+        computed.append(vector)
+        return real_signatures(vector)
+
+    monkeypatch.setattr(layers, "signatures", counting)
+    owner = RepositoryIndex(tmp_path / "indexes", content_size_cap=CAP, inline_rebuild_budget=100)
+    try:
+        _repo, first = _open(owner, _base_files())
+        semantic = owner.backend.for_view(ORG, first).semantic
+        assert semantic.refresh(ORG, first, budget=100, wait=True).ready
+        first_count = len(computed)
+        assert first_count
+
+        later_files = {**_base_files(), "e.py": b"def golf_hotel():\n    return india_juliet\n"}
+        _same, second = _open(owner, later_files, base_revision="b" * 40)
+        assert semantic.refresh(ORG, second, budget=100, wait=True).ready
+        assert 0 < len(computed) - first_count < first_count
+
+        old, new = (semantic._generation_indexes[(ORG, _generation_key(owner, view))] for view in (first, second))
+        old_units = {item.path: item.unit for item in old.items}
+        for item in new.items:
+            if item.path != "e.py":
+                assert item.unit is old_units[item.path]
+
+        # The first generation's last View closes; its only-file versions go.
+        owner.backend.for_view(ORG, first).views.close(ORG, first)
+        _third_repo, third = _open(owner, later_files, base_revision="c" * 40)
+        assert semantic.refresh(ORG, third, budget=100, wait=True).ready
+        old_echo = sha256_hex(_base_files()["e.py"])
+        assert all(key[1] != old_echo for key in semantic._unit_cache)
     finally:
         owner.close()

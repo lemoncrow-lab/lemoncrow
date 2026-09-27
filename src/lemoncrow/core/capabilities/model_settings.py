@@ -51,7 +51,7 @@ DEFAULT_RUNTIME_MODELS = {
 # fallback only -- see ``_discover_codex_mini_model`` below, which asks a
 # locally installed `codex` CLI for its actual current mini-tier model.
 DEFAULT_HOST_ROLE_MODELS: dict[str, dict[str, str]] = {
-    "claude": {"explore": "sonnet", "research": "sonnet"},
+    "claude": {"explore": "haiku", "research": "haiku"},
     "codex": {"explore": "gpt-5.4-mini", "research": "gpt-5.4-mini"},
     "opencode": {"code": "opencode/big-pickle"},
 }

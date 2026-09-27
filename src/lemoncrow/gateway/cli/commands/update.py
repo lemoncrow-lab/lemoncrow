@@ -31,16 +31,12 @@ import click
 from lemoncrow import __version__ as current_version
 from lemoncrow.core.foundation.update_notice import clear as clear_update_notice
 from lemoncrow.core.foundation.update_state import write_update_state
-from lemoncrow.gateway.cli import style
 
 # Single source of truth for the distribution channel. Keep these in lockstep
-# with scripts/install.sh, scripts/engine_install.sh and the release workflow.
+# with scripts/install.sh and .github/workflows/release.yml.
 _GH_REPO = "lemoncrow-lab/lemoncrow"
 _RELEASE_LATEST_URL = f"https://github.com/{_GH_REPO}/releases/latest/download"
-# The full local engine updates through its own bootstrap. The public
-# install.sh is the per-product installer; it only delegates here for older
-# clients that still download it with LEMONCROW_ENGINE_INSTALL=1.
-_INSTALLER_ASSET = "engine_install.sh"
+_INSTALLER_ASSET = "install.sh"
 
 # ---------------------------------------------------------------------------
 # Install-method detection
@@ -65,7 +61,7 @@ def _is_lemoncrow_checkout(candidate: Path) -> bool:
 
 def _git_project_root() -> Path | None:
     """Resolve the git project root, if installed from a git checkout."""
-    # 1. Check install record written by the full-engine installer
+    # 1. Check install record written by local.sh
     record = Path.home() / ".lemoncrow" / "install_dir"
     if record.exists():
         candidate = Path(record.read_text("utf-8").strip())
@@ -165,7 +161,7 @@ def _version_key(version: str) -> tuple[int, ...] | None:
 
 def _update_git(project_root: str) -> bool:
     """Update from git: fetch, pull, sync."""
-    click.echo(_step("◆", "Git checkout detected — pulling latest…"))
+    click.echo("  ◆ Git checkout detected — pulling latest...")
     try:
         subprocess.run(
             ["git", "fetch", "--quiet", "origin"],
@@ -183,10 +179,10 @@ def _update_git(project_root: str) -> bool:
         )
         behind = int(result.stdout.strip())
         if behind == 0:
-            click.echo(_done("Already up-to-date"))
+            click.echo("  ✓ Already up-to-date.")
             return False
 
-        click.echo(_step("◇", f"{style.plural(behind, 'new commit')} behind. Pulling…"))
+        click.echo(f"  ◇ {behind} new commits behind. Pulling...")
         subprocess.run(
             ["git", "pull", "--ff-only", "--quiet", "origin"],
             cwd=project_root,
@@ -196,7 +192,7 @@ def _update_git(project_root: str) -> bool:
 
         # Sync dependencies
         if shutil.which("uv"):
-            click.echo(_step("◇", "Syncing dependencies with uv…"))
+            click.echo("  ◇ Syncing dependencies with uv...")
             subprocess.run(
                 ["uv", "sync"],
                 cwd=project_root,
@@ -204,7 +200,7 @@ def _update_git(project_root: str) -> bool:
                 timeout=120,
             )
         else:
-            click.echo(_step("◇", "Reinstalling package…"))
+            click.echo("  ◇ Reinstalling package...")
             subprocess.run(
                 [sys.executable, "-m", "pip", "install", "-e", project_root],
                 cwd=project_root,
@@ -212,7 +208,7 @@ def _update_git(project_root: str) -> bool:
                 timeout=120,
             )
 
-        click.echo(_done("Update applied"))
+        click.echo("  ✓ Update applied successfully.")
         return True
     except subprocess.CalledProcessError as exc:
         raise click.ClickException(f"git update failed: {exc}") from exc
@@ -221,7 +217,7 @@ def _update_git(project_root: str) -> bool:
 
 
 def _update_via_release() -> bool:
-    """Re-run the published GitHub-release ``engine_install.sh`` for the latest release.
+    """Re-run the published GitHub-release ``install.sh`` for the latest release.
 
     This is the exact flow end users installed with, so the binary the MCP
     server runs is rebuilt from the same artifact — no channel drift, no stale
@@ -231,7 +227,7 @@ def _update_via_release() -> bool:
         raise click.ClickException("bash is required to apply the update.")
 
     installer_url = f"{_RELEASE_LATEST_URL}/{_INSTALLER_ASSET}"
-    click.echo(_step("◆", "Release install detected — re-running the published installer…"))
+    click.echo("  ◆ Release install detected — re-running the published installer...")
 
     tmp_path: str | None = None
     try:
@@ -251,7 +247,7 @@ def _update_via_release() -> bool:
         result = subprocess.run(["bash", tmp_path], env=env, timeout=1800)
         if result.returncode != 0:
             raise click.ClickException(f"Installer exited with status {result.returncode}.")
-        click.echo(_done("Update applied"))
+        click.echo("  ✓ Update applied successfully.")
         return True
     except subprocess.TimeoutExpired as exc:
         raise click.ClickException(f"Update timed out: {exc}") from exc
@@ -271,7 +267,7 @@ def _reconcile_companions(project_root: str) -> None:
     script = Path(project_root) / "scripts" / "reconcile.sh"
     if not script.is_file() or shutil.which("bash") is None:
         return
-    click.echo(_step("◇", "Reconciling companion binaries (Node/Go/Zoekt) to release pins…"))
+    click.echo("  ◇ Reconciling companion binaries (Node/Go/Zoekt) to release pins...")
     try:
         subprocess.run(
             ["bash", str(script)],
@@ -308,8 +304,8 @@ def update_cmd(ctx: click.Context, check_only: bool, force_update: bool, as_json
     # 1. Detect install method
     method, project_root = _detect_method()
     if not as_json:
-        click.echo(style.title("LemonCrow update"))
-        click.echo(style.row(None, "Installed", f"{current_version}{style.dim(f' · {method} install')}", width=10))
+        click.echo(f"  Current version: {current_version}")
+        click.echo(f"  Install method:  {method}")
 
     # 2. Check remote version
     if method == "git" and project_root:
@@ -321,7 +317,7 @@ def update_cmd(ctx: click.Context, check_only: bool, force_update: bool, as_json
         raise click.ClickException("Could not determine latest available version. Check your internet connection.")
 
     if not as_json:
-        click.echo(style.row(None, "Latest", remote_version, width=10))
+        click.echo(f"  Remote version:  {remote_version}")
 
     remote_key = _version_key(remote_version)
     if remote_key is None:
@@ -331,12 +327,6 @@ def update_cmd(ctx: click.Context, check_only: bool, force_update: bool, as_json
     # 3. Compare (ordered — a local checkout ahead of the remote is not an update)
     local_key = _version_key(current_version) or ()
     update_available = remote_key > local_key
-    # A git checkout can run ahead of the newest published release.
-    up_to_date = (
-        f"Already up-to-date {style.dim(f'· {current_version} is newer than the latest release')}"
-        if local_key > remote_key
-        else "Already up-to-date"
-    )
 
     if check_only:
         if as_json:
@@ -351,20 +341,20 @@ def update_cmd(ctx: click.Context, check_only: bool, force_update: bool, as_json
                 )
             )
         elif update_available:
-            click.echo("\n" + _step("◇", f"Update available: {current_version} → {style.bold(remote_version)}"))
-            click.echo(style.next_step("Apply it with", "lc update"))
+            click.echo(f"\n  ◇ Update available: {current_version} → {remote_version}")
+            click.echo("  ◇ Run `lc update` to apply.")
         else:
-            click.echo("\n" + _done(up_to_date))
+            click.echo("\n  ✓ Already up-to-date.")
         if update_available:
             ctx.exit(1)
         return
 
     if not update_available and not force_update:
-        click.echo("\n" + _done(up_to_date))
+        click.echo("\n  ✓ Already up-to-date.")
         return
 
     # 4. Apply
-    click.echo("\n" + _step("◆", f"Updating {current_version} → {remote_version} ({method} install)…"))
+    click.echo(f"\n  ◆ Updating {current_version} → {remote_version} ({method} install)...")
     previous = current_version
 
     if method == "git":
@@ -385,15 +375,7 @@ def update_cmd(ctx: click.Context, check_only: bool, force_update: bool, as_json
         if method == "git" and project_root:
             _reconcile_companions(project_root)
         clear_update_notice(root)
-        click.echo("\n" + _done(f"Updated from {previous} → {style.bold(remote_version)}"))
-        click.echo(f"  {style.accent('→')} Restart your coding agents (or their MCP servers) to load the new version.")
+        click.echo(f"\n  ◆ Updated from {previous} → {remote_version}")
+        click.echo("  ◆ Restart the MCP server or hooks to pick up changes.")
     else:
-        click.echo("\n" + _done("Already up-to-date"))
-
-
-def _step(glyph: str, text: str) -> str:
-    return f"  {style.accent(glyph)} {text}"
-
-
-def _done(text: str) -> str:
-    return f"  {style.success(text)}"
+        click.echo("\n  ✓ Already up-to-date.")

@@ -1,22 +1,26 @@
-"""Shared server-engine wiring used by every composition root.
-
-Tool dispatch is not wired here: server-side tool execution is hosted-only
-(``lemoncrow_server.bootstrap.build_dispatcher``).
-"""
+"""Shared server-engine wiring used by local and enterprise composition roots."""
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
+from lemoncrow.core.foundation.runtime_trace import TraceMode
+
+from .dispatch import ToolDispatcher, UnavailableDispatcher
+from .errors import ServerError
 from .index.contracts import IndexBackend
 from .index.memory import build_memory_backend
 from .index.sqlite import build_sqlite_backend
+from .registry_dispatch import PublicRegistryDispatcher
 from .workspace import ViewMaterializer
 
-__all__ = ["EngineConfig", "EngineLimits", "build_backend", "build_workspace"]
+__all__ = ["EngineConfig", "EngineLimits", "build_backend", "build_dispatcher", "build_workspace"]
+
+_LOG = logging.getLogger("lemoncrow.server.wiring")
 
 
 class EngineLimits(Protocol):
@@ -31,6 +35,20 @@ class EngineConfig(Protocol):
     index_path: Path | None
     workspace_root: Path | None
     limits: EngineLimits
+
+
+def build_dispatcher(trace_mode: TraceMode = "redacted") -> ToolDispatcher:
+    """Bind the one public tool registry, preserving typed degraded startup.
+
+    ``trace_mode`` defaults to ``redacted``: shared/hosted deployments must
+    never persist raw tenant queries or paths. The loopback composition opts
+    into ``raw`` explicitly.
+    """
+    try:
+        return PublicRegistryDispatcher(trace_mode=trace_mode)
+    except ServerError as exc:
+        _LOG.error("tool dispatcher unavailable: %s", exc.message)
+        return UnavailableDispatcher(exc.message)
 
 
 def build_backend(config: EngineConfig) -> IndexBackend:

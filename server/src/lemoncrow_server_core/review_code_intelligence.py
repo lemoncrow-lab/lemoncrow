@@ -6,7 +6,6 @@ import hashlib
 from collections.abc import Callable, Mapping
 from typing import Any
 
-from lemoncrow.core.service.code_relations import balanced_relationship_rows
 from lemoncrow.pro.capabilities.review.code_intelligence import (
     CodeIntelligenceLayerReadiness,
     CodeIntelligenceReadiness,
@@ -15,7 +14,6 @@ from lemoncrow.pro.capabilities.review.code_intelligence import (
 )
 
 from .index.contracts import IndexBackend, IndexLayerState, IndexLayerStatus, ViewState
-from .index.deferred import enqueue_deferred_layer
 from .index.query import IndexQuery, QueryAnswer
 
 
@@ -23,8 +21,6 @@ def _layer(status: IndexLayerStatus) -> CodeIntelligenceLayerReadiness:
     state: ReadinessState
     if status.state is IndexLayerState.READY:
         state = "ready"
-    elif status.state is IndexLayerState.UNAVAILABLE:
-        state = "unavailable"
     elif "content_incomplete" in status.reason:
         # This is not merely queued work: the layer cannot become complete from
         # the content this View may currently address. Preserve that native
@@ -44,12 +40,6 @@ def _layer(status: IndexLayerStatus) -> CodeIntelligenceLayerReadiness:
 def _node_id(path: str, line: int, label: str) -> str:
     digest = hashlib.sha256(f"{path}\0{line}\0{label}".encode()).hexdigest()[:16]
     return f"native:{digest}"
-
-
-# Repository-wide link summaries keyed by (org, View, View revision). A few
-# entries cover the Views one local server serves at once; older revisions are
-# evicted first.
-_REPOSITORY_LINKS: dict[tuple[str, str, int], dict[str, Any]] = {}
 
 
 class NativeReviewCodeIntelligence:
@@ -280,7 +270,6 @@ class NativeReviewCodeIntelligence:
         path: str = "",
         symbol: str = "",
         limit: int,
-        outgoing: bool = False,
     ) -> QueryAnswer | None:
         resolved = self._view()
         if resolved is None:
@@ -294,7 +283,6 @@ class NativeReviewCodeIntelligence:
             path=path,
             symbol=symbol,
             limit=limit,
-            outgoing=outgoing,
         )
 
     def find_symbol(
@@ -370,10 +358,7 @@ class NativeReviewCodeIntelligence:
         line = int(symbol.get("line") or 0)
         end_line = int(symbol.get("end_line") or line)
         focus_id = str(symbol.get("id") or _node_id(path, line, label))
-        bounded = max(1, min(limit, 40))
-        # Callers are the edges that land on this symbol's name; asking for
-        # exactly those keeps a busy file's other edges from crowding them out.
-        answer = self._run(kind="relations", path=path, symbol=label, limit=bounded)
+        answer = self._run(kind="relations", path=path, limit=max(1, min(limit, 40)))
         if answer is None:
             return {"nodes": [], "edges": [], "degraded": True, "degraded_reason": "index_unavailable"}
         nodes: dict[str, dict[str, Any]] = {
@@ -416,236 +401,13 @@ class NativeReviewCodeIntelligence:
                     },
                 )
                 edges.append({"source": caller_id, "target": focus_id, "kind": relation_kind, "weight": 1})
-        truncated = answer.truncated
-
-        # Outgoing edges carry only a source line, so they can be attributed to
-        # this symbol only through a body span the caller vouches for (the
-        # Review Snapshot's), and only while the View is still at the revision
-        # that span was captured from. Otherwise the line may now sit in a
-        # different function, and the callees are left out rather than guessed.
-        span_start = int(symbol.get("span_start") or 0)
-        span_end = int(symbol.get("span_end") or 0)
-        exact_revision = bool(self._preferred_view_id) and answer.at_view_revision == self._preferred_view_revision
-        outgoing_attributed = exact_revision and 0 < span_start < span_end
-        if outgoing_attributed:
-            # Only the edges leaving the file: a busy file's inbound edges must
-            # not use up the budget and leave the symbol showing no calls.
-            outgoing = self._run(kind="relations", path=path, outgoing=True, limit=200)
-            callees: dict[str, dict[str, Any]] = {}
-            for hit in outgoing.hits if outgoing is not None else ():
-                detail = hit.detail
-                relation_kind = str(detail.get("kind") or "reference")
-                src_line = int(detail.get("src_line") or 0)
-                dst = str(detail.get("dst_path") or "")
-                callee = str(detail.get("symbol") or "")
-                if relation_kind not in {"call", "reference"} or not dst or not callee:
-                    continue
-                if str(detail.get("src_path") or "") != path or not span_start <= src_line <= span_end:
-                    continue
-                if dst == path and callee == label:
-                    continue  # Recursion says nothing about what the symbol depends on.
-                callee_id = _node_id(dst, 0, callee)
-                row = callees.get(callee_id)
-                if row is None:
-                    row = {"source": focus_id, "target": callee_id, "kind": relation_kind, "weight": 0}
-                    callees[callee_id] = row
-                    nodes.setdefault(
-                        callee_id,
-                        {
-                            "id": callee_id,
-                            "path": dst,
-                            "label": callee,
-                            "qualified_name": "",
-                            "kind": "callee",
-                            "line": 0,
-                            "end_line": 0,
-                        },
-                    )
-                if relation_kind == "call":
-                    row["kind"] = "call"
-                row["weight"] += 1
-            edges.extend(callees.values())
-            truncated = truncated or bool(outgoing is not None and outgoing.truncated)
         return {
-            "nodes": list(nodes.values())[:80],
-            "edges": edges[:80],
+            "nodes": list(nodes.values())[:40],
+            "edges": edges[:40],
             "degraded": answer.degraded,
             "degraded_reason": answer.degraded_reason,
-            "truncated": truncated,
-            "outgoing_attributed": outgoing_attributed,
+            "truncated": answer.truncated,
         }
-
-    def file_relationships(
-        self,
-        paths: tuple[str, ...],
-        *,
-        limit: int = 320,
-    ) -> Mapping[str, Any]:
-        resolved = self._view()
-        if resolved is None:
-            return {
-                "edges": [],
-                "degraded": True,
-                "degraded_reason": "index_unavailable",
-                "truncated": False,
-            }
-
-        leaf, state = resolved
-        # As many as the Review Map overview shows changed files (300).
-        bounded_paths = tuple(dict.fromkeys(path for path in paths if path))[:300]
-        bounded_limit = max(1, min(int(limit), 640))
-        status = leaf.links.status(self._org_id, state.view_id)
-        # The durable generation graph can already be present after process
-        # restart while the in-memory readiness status is still cold. Read the
-        # exact View/generation graph first; if it has path edges, they are usable
-        # immediately and there is nothing to make Review wait for.
-        raw_edges = leaf.links.edges_for_paths(self._org_id, state.view_id, bounded_paths)
-        if not raw_edges and (not status.ready or status.at_view_revision != state.view_revision):
-            # Review Map is an explicit graph consumer. A genuinely cold/deferred
-            # View can exist without another query requesting Layer 3, so schedule
-            # the missing work and let the UI re-read readiness shortly.
-            enqueue_deferred_layer(leaf, self._org_id, state.view_id, "link")
-            return {
-                "edges": [],
-                "degraded": True,
-                "degraded_reason": f"link:{status.reason or status.state.value}",
-                "truncated": False,
-            }
-
-        seeds = set(bounded_paths)
-        aggregate: dict[tuple[str, str, str], dict[str, Any]] = {}
-        kind_name = {"call": "calls", "reference": "references", "import": "imports"}
-        for edge in raw_edges:
-            relation = kind_name.get(edge.kind.value, edge.kind.value)
-            key = (edge.src_path, edge.dst_path, relation)
-            row = aggregate.get(key)
-            if row is None:
-                row = {
-                    "source_path": edge.src_path,
-                    "target_path": edge.dst_path,
-                    "kind": relation,
-                    "weight": 0,
-                    "evidence": [],
-                    "symbols": {},
-                }
-                aggregate[key] = row
-            row["weight"] += 1
-            if edge.symbol:
-                # Every name the relationship lands on, not just the first few
-                # evidence sites: the Review Map attaches incoming calls to the
-                # changed symbol they reach.
-                named = row["symbols"]
-                named[edge.symbol] = int(named.get(edge.symbol, 0)) + 1
-            evidence = row["evidence"]
-            if len(evidence) < 4:
-                item = {
-                    "kind": relation,
-                    "path": edge.src_path,
-                    "line": edge.src_line,
-                    "symbol": edge.symbol,
-                }
-                if item not in evidence:
-                    evidence.append(item)
-
-        rows = list(aggregate.values())
-        for row in rows:
-            named = row["symbols"]
-            row["symbols"] = [
-                {"name": name, "count": count}
-                for name, count in sorted(named.items(), key=lambda item: (-item[1], item[0]))[:12]
-            ]
-        return {
-            "edges": balanced_relationship_rows(rows, seeds, bounded_limit),
-            "degraded": False,
-            "degraded_reason": "",
-            "truncated": len(rows) > bounded_limit,
-            "at_view_revision": state.view_revision,
-        }
-
-    def repository_file_links(self) -> Mapping[str, Any]:
-        """Every file-to-file link in the View, aggregated by (source, target, kind).
-
-        The `/code` module overview folds these into module edges. The result is
-        cached per View revision: the link layer only changes when the View does.
-        """
-
-        resolved = self._view()
-        if resolved is None:
-            return {"edges": [], "degraded": True, "degraded_reason": "index_unavailable", "truncated": False}
-        leaf, state = resolved
-        key = (self._org_id, state.view_id, state.view_revision)
-        cached = _REPOSITORY_LINKS.get(key)
-        if cached is not None:
-            return cached
-        status = leaf.links.status(self._org_id, state.view_id)
-        raw_edges = leaf.links.edges(self._org_id, state.view_id)
-        if not raw_edges and (not status.ready or status.at_view_revision != state.view_revision):
-            enqueue_deferred_layer(leaf, self._org_id, state.view_id, "link")
-            return {
-                "edges": [],
-                "degraded": True,
-                "degraded_reason": f"link:{status.reason or status.state.value}",
-                "truncated": False,
-            }
-        kind_name = {"call": "calls", "reference": "references", "import": "imports"}
-        aggregate: dict[tuple[str, str, str], dict[str, Any]] = {}
-        for edge in raw_edges:
-            if edge.src_path == edge.dst_path:
-                continue
-            relation = kind_name.get(edge.kind.value, edge.kind.value)
-            row_key = (edge.src_path, edge.dst_path, relation)
-            row = aggregate.get(row_key)
-            if row is None:
-                row = {
-                    "source_path": edge.src_path,
-                    "target_path": edge.dst_path,
-                    "kind": relation,
-                    "weight": 0,
-                    "symbols": {},
-                }
-                aggregate[row_key] = row
-            row["weight"] += 1
-            if edge.symbol:
-                named = row["symbols"]
-                named[edge.symbol] = int(named.get(edge.symbol, 0)) + 1
-        rows = list(aggregate.values())
-        for row in rows:
-            named = row["symbols"]
-            row["symbols"] = [
-                {"name": name, "count": count}
-                for name, count in sorted(named.items(), key=lambda item: (-item[1], item[0]))[:4]
-            ]
-        payload = {
-            "edges": rows,
-            "degraded": False,
-            "degraded_reason": "",
-            "truncated": False,
-            "at_view_revision": state.view_revision,
-        }
-        try:
-            while len(_REPOSITORY_LINKS) >= 4:
-                _REPOSITORY_LINKS.pop(next(iter(_REPOSITORY_LINKS)), None)
-        except (RuntimeError, StopIteration):
-            pass  # Another request evicted concurrently; the cap still holds.
-        _REPOSITORY_LINKS[key] = payload
-        return payload
-
-    def path_digest(self, path: str) -> str:
-        """Content digest the View holds for *path*, or ``""``.
-
-        `/code` compares it with the file on disk before trusting line geometry
-        from another index against this View's link lines.
-        """
-
-        resolved = self._view()
-        if resolved is None:
-            return ""
-        leaf, state = resolved
-        try:
-            entry = leaf.views.entry(self._org_id, state.view_id, path)
-        except Exception:
-            return ""
-        return str(entry.content_digest) if entry is not None else ""
 
     def references(self, symbol: Mapping[str, Any], *, limit: int = 20) -> Mapping[str, Any]:
         label = str(symbol.get("label") or symbol.get("qualified_name") or "")

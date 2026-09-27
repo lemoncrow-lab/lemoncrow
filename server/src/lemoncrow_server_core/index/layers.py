@@ -5,12 +5,6 @@ view's membership rows and a tenant's Layer-1 content. Both the in-process
 store and the SQLite store use the classes here and differ only in where the
 graph is persisted, which is why one differential oracle covers both.
 
-The semantic layer is not here. Its port is
-:class:`~.contracts.SemanticIndex`; the implementation (unit derivation, the
-generation/overlay ANN, query-time semantic scoring) is private advanced code
-intelligence, resolved through :mod:`.semantic`. The membership, readiness and
-build-lock helpers below are the shared layer discipline it builds on.
-
 Three properties are enforced here rather than in the algorithm:
 
 **Bounded work.** A build that would have to resolve more than
@@ -42,13 +36,13 @@ profile a manifest row declares for it are allowed to differ.
 
 from __future__ import annotations
 
-import logging
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Final, Protocol
 
-from ..errors import ErrorCode, ServerError
+from ..errors import ServerError
+from .analysis import SEMANTIC_EMBEDDING_VERSION, resolve_profile, semantic_units
 from .boundary import addressable_in
 from .contracts import (
     AnalysisStore,
@@ -61,6 +55,9 @@ from .contracts import (
     LinkBuildMode,
     LinkBuildReport,
     ManifestEntry,
+    SemanticMatch,
+    SemanticSearchResult,
+    SemanticUnit,
     ViewState,
     ViewStore,
     repository_generation_scope_id,
@@ -73,6 +70,7 @@ from .links import (
     facts_from,
     update_graph,
 )
+from .semantic_ann import SemanticAnnIndex, SemanticAnnItem, signatures
 
 __all__ = [
     "DEFAULT_INLINE_REBUILD_BUDGET",
@@ -81,10 +79,9 @@ __all__ = [
     "LayerSources",
     "LinkGraphStore",
     "LinkLayer",
+    "SemanticLayer",
     "StatusTable",
 ]
-
-_LOG = logging.getLogger(__name__)
 
 #: Files an inline build may resolve before it defers to scheduled work.
 DEFAULT_INLINE_REBUILD_BUDGET: Final[int] = 5_000
@@ -314,22 +311,6 @@ def _generation_graph_key(state: ViewState) -> str:
     return repository_generation_scope_id(state.generation_id, state.content_subject)
 
 
-def _live_view_revision(sources: LayerSources, org_id: str, view_id: str) -> int | None:
-    """The View's current revision, or ``None`` when it is not (or no longer) open.
-
-    A status query is a flag, not a failure: an evicted or never-opened View
-    keeps whatever the layer's own table says (eviction resets it to cold)
-    instead of turning a degradation check into ``view_unknown``.
-    """
-
-    try:
-        return sources.views.get(org_id, view_id).view_revision
-    except ServerError as exc:
-        if exc.code is ErrorCode.VIEW_UNKNOWN:
-            return None
-        raise
-
-
 class LinkLayer:
     """Layer 3 for every view, backed by a pluggable graph store."""
 
@@ -354,8 +335,8 @@ class LinkLayer:
 
     def status(self, org_id: str, view_id: str) -> IndexLayerStatus:
         current = self._status.status(org_id, view_id)
-        revision = _live_view_revision(self._sources, org_id, view_id) if current.ready else None
-        if revision is not None and current.at_view_revision != revision:
+        revision = self._sources.views.get(org_id, view_id).view_revision
+        if current.ready and current.at_view_revision != revision:
             self._status.note_revision(org_id, view_id, revision)
             current = self._status.status(org_id, view_id)
         return current
@@ -537,15 +518,15 @@ class LinkLayer:
                 reason=cold_reason,
             )
 
-        updated, report = update_graph(
+        graph, report = update_graph(
             previous,
             snapshot=members.snapshot,
             load_facts=self._loader(org_id, members.available, cancel),
             at_view_revision=at_view_revision,
             full_rebuild_ratio=self._ratio,
         )
-        if updated is not None:
-            return updated, report
+        if graph is not None:
+            return graph, report
         if len(members.snapshot) > ceiling:
             return None, LinkBuildReport(
                 mode=LinkBuildMode.DEFERRED,
@@ -569,7 +550,6 @@ class LinkLayer:
         budget: int | None = None,
         wait: bool = False,
         cancel: Callable[[], bool] | None = None,
-        defer_cold: bool = False,
     ) -> IndexLayerStatus:
         """Bring Layer 3 to the committed revision without blocking foreground callers.
 
@@ -754,3 +734,371 @@ class LinkLayer:
                 at_view_revision=0,
             ),
         )
+
+
+class SemanticLayer:
+    """Generation-scoped ANN plus a small revisioned View-overlay ANN."""
+
+    __slots__ = (
+        "_budget",
+        "_build_locks",
+        "_generation_indexes",
+        "_index_lock",
+        "_overlay_indexes",
+        "_signature_cache",
+        "_sources",
+        "_status",
+        "_unit_cache",
+    )
+
+    def __init__(
+        self,
+        sources: LayerSources,
+        *,
+        inline_rebuild_budget: int = DEFAULT_INLINE_REBUILD_BUDGET,
+    ) -> None:
+        self._sources = sources
+        self._budget = inline_rebuild_budget
+        self._status = StatusTable(_COLD_SEMANTIC)
+        self._build_locks = tuple(threading.Lock() for _ in range(_BUILD_LOCK_STRIPES))
+        self._generation_indexes: dict[tuple[str, str], SemanticAnnIndex] = {}
+        self._overlay_indexes: dict[tuple[str, str], tuple[int, SemanticAnnIndex, frozenset[str]]] = {}
+        self._index_lock = threading.Lock()
+        # Consecutive generations share almost every file. Per file version, its
+        # units and each embedding's LSH signatures are built once and shared
+        # by every index holding them, instead of re-read, re-hashed in pure
+        # Python and held again by each generation. Pruned to what retained
+        # indexes reference whenever a generation index is retired.
+        self._unit_cache: dict[tuple[str, str, str], tuple[SemanticUnit, ...]] = {}
+        self._signature_cache: dict[Sequence[float], tuple[int, ...]] = {}
+
+    def status(self, org_id: str, view_id: str) -> IndexLayerStatus:
+        current = self._status.status(org_id, view_id)
+        revision = self._sources.views.get(org_id, view_id).view_revision
+        if current.ready and current.at_view_revision != revision:
+            self._status.note_revision(org_id, view_id, revision)
+            current = self._status.status(org_id, view_id)
+        return current
+
+    def note_revision(self, org_id: str, view_id: str, view_revision: int) -> None:
+        self._status.note_revision(org_id, view_id, view_revision)
+
+    def forget(self, org_id: str, view_id: str) -> None:
+        self._status.forget(org_id, view_id)
+        with self._index_lock:
+            self._overlay_indexes.pop((org_id, view_id), None)
+
+    def forget_view(self, view_id: str) -> None:
+        self._status.forget_view(view_id)
+        with self._index_lock:
+            for key in [key for key in self._overlay_indexes if key[1] == view_id]:
+                del self._overlay_indexes[key]
+
+    def mark_ready(self, org_id: str, view_id: str, *, view_revision: int, covered_paths: int) -> None:
+        self._status.mark_ready(org_id, view_id, view_revision=view_revision, covered_paths=covered_paths)
+
+    @staticmethod
+    def _fallback_unit(artifact: object) -> tuple[SemanticUnit, ...]:
+        embedding = getattr(artifact, "embedding", ())
+        if not embedding or not any(embedding):
+            return ()
+        return (
+            SemanticUnit(
+                unit_id="file:1",
+                start_line=1,
+                end_line=max(1, int(getattr(artifact, "line_count", 1))),
+                symbol="",
+                embedding_version=SEMANTIC_EMBEDDING_VERSION,
+                embedding=tuple(float(value) for value in embedding),
+            ),
+        )
+
+    def _retire_idle_generation_indexes(self, org_id: str) -> None:
+        """Release the ANN of every generation no live View of *org_id* is on.
+
+        Each new generation of a repository -- every commit its Views move
+        onto -- builds a fresh in-memory index of all its embeddings, and none
+        was ever released: the server grew by hundreds of MB per generation.
+        """
+        live: set[str] = set()
+        for view_id in self._sources.views.view_ids_for_org(org_id):
+            try:
+                live.add(_generation_graph_key(self._sources.views.get(org_id, view_id)))
+            except ServerError:
+                continue  # closed while we looked
+        with self._index_lock:
+            for key in [key for key in self._generation_indexes if key[0] == org_id and key[1] not in live]:
+                del self._generation_indexes[key]
+            retained = [*self._generation_indexes.values(), *(row[1] for row in self._overlay_indexes.values())]
+            live_digests = {item.digest for index in retained for item in index.items}
+            for unit_key in [unit_key for unit_key in self._unit_cache if unit_key[1] not in live_digests]:
+                del self._unit_cache[unit_key]
+            live_vectors = {unit.embedding for units in self._unit_cache.values() for unit in units}
+            for vector in [vector for vector in self._signature_cache if vector not in live_vectors]:
+                del self._signature_cache[vector]
+
+    def _signatures(self, vector: Sequence[float]) -> tuple[int, ...]:
+        with self._index_lock:
+            cached = self._signature_cache.get(vector)
+        if cached is None:
+            cached = signatures(vector)
+            with self._index_lock:
+                self._signature_cache[vector] = cached
+        return cached
+
+    def _file_units(self, org_id: str, entry: ManifestEntry) -> tuple[SemanticUnit, ...] | None:
+        """One file version's semantic units, or ``None`` when its content is absent."""
+        artifact = self._sources.analysis.get(org_id, entry.content_digest, entry.parser_profile)
+        data: bytes | None = None
+        if artifact is None:
+            data = self._sources.content.get(org_id, entry.content_digest)
+            if data is None:
+                return None
+            artifact = self._sources.analysis.ensure(org_id, entry.content_digest, entry.parser_profile, data)
+        units = tuple(unit for unit in artifact.semantic_units if unit.embedding_version == SEMANTIC_EMBEDDING_VERSION)
+        if not units and resolve_profile(entry.parser_profile).semantic_units:
+            if data is None:
+                data = self._sources.content.get(org_id, entry.content_digest)
+            if data is not None:
+                units = semantic_units(data.decode("utf-8", errors="replace"), artifact.definitions)
+        return units or self._fallback_unit(artifact)
+
+    def _build_index(
+        self,
+        org_id: str,
+        members: _Members,
+        cancel: Callable[[], bool] | None,
+    ) -> SemanticAnnIndex:
+        items: list[SemanticAnnItem] = []
+        for path, entry in sorted(members.available.items()):
+            if cancel is not None and cancel():
+                raise IndexBuildCancelled("deferred index build cancelled")
+            unit_key = (org_id, entry.content_digest, entry.parser_profile)
+            with self._index_lock:
+                units = self._unit_cache.get(unit_key)
+            if units is None:
+                units = self._file_units(org_id, entry)
+                if units is None:
+                    continue
+                with self._index_lock:
+                    units = self._unit_cache.setdefault(unit_key, units)
+            items.extend(SemanticAnnItem(path=path, digest=entry.content_digest, unit=unit) for unit in units)
+        return SemanticAnnIndex.build(items, signatures_of=self._signatures)
+
+    def refresh(
+        self,
+        org_id: str,
+        view_id: str,
+        *,
+        budget: int | None = None,
+        wait: bool = False,
+        cancel: Callable[[], bool] | None = None,
+    ) -> IndexLayerStatus:
+        state = self._sources.views.get(org_id, view_id)
+        current = self._status.status(org_id, view_id)
+        if current.ready and current.at_view_revision == state.view_revision:
+            return current
+        build_key = _generation_graph_key(state)
+        lock = self._build_locks[hash((org_id, build_key)) % len(self._build_locks)]
+        if not _acquire_build_lock(lock, wait=wait, cancel=cancel):
+            return self._status.set(
+                org_id,
+                view_id,
+                IndexLayerStatus(
+                    state=IndexLayerState.BUILDING,
+                    reason="semantic_rebuild_in_progress",
+                    covered_paths=current.covered_paths,
+                    at_view_revision=current.at_view_revision,
+                ),
+            )
+        self._status.set(
+            org_id,
+            view_id,
+            IndexLayerStatus(
+                state=IndexLayerState.BUILDING,
+                reason="semantic_rebuild_in_progress",
+                covered_paths=current.covered_paths,
+                at_view_revision=current.at_view_revision,
+            ),
+        )
+        try:
+            return self._refresh_locked(org_id, view_id, state.view_revision, budget=budget, cancel=cancel)
+        finally:
+            lock.release()
+
+    def _deferred(self, org_id: str, view_id: str) -> IndexLayerStatus:
+        return self._status.set(
+            org_id,
+            view_id,
+            IndexLayerStatus(
+                state=IndexLayerState.BUILDING,
+                reason="semantic_rebuild_deferred",
+                covered_paths=0,
+                at_view_revision=0,
+            ),
+        )
+
+    def _incomplete(self, org_id: str, view_id: str, revision: int, covered: int) -> IndexLayerStatus:
+        return self._status.set(
+            org_id,
+            view_id,
+            IndexLayerStatus(
+                state=IndexLayerState.BUILDING,
+                reason="semantic_content_incomplete",
+                covered_paths=covered,
+                at_view_revision=revision,
+            ),
+        )
+
+    def _refresh_locked(
+        self,
+        org_id: str,
+        view_id: str,
+        revision: int,
+        *,
+        budget: int | None,
+        cancel: Callable[[], bool] | None,
+    ) -> IndexLayerStatus:
+        state = self._sources.views.get(org_id, view_id)
+        ceiling = self._budget if budget is None else budget
+        generation_key = _generation_graph_key(state)
+        generation_members = _generation_members(self._sources, org_id, view_id)
+        with self._index_lock:
+            generation_index = self._generation_indexes.get((org_id, generation_key))
+        if generation_index is None:
+            if len(generation_members.snapshot) > ceiling:
+                return self._deferred(org_id, view_id)
+            candidate = self._build_index(org_id, generation_members, cancel)
+            if generation_members.missing_digests:
+                return self._incomplete(org_id, view_id, revision, len(generation_members.snapshot))
+            with self._index_lock:
+                generation_index = self._generation_indexes.setdefault((org_id, generation_key), candidate)
+            self._retire_idle_generation_indexes(org_id)
+
+        overlay, tombstones = self._sources.views.overlay(org_id, view_id)
+        if overlay or tombstones:
+            overlay_members = _members_from(self._sources, state, overlay)
+            if len(overlay_members.snapshot) > ceiling:
+                return self._deferred(org_id, view_id)
+            overlay_index = self._build_index(org_id, overlay_members, cancel)
+            if overlay_members.missing_digests:
+                return self._incomplete(org_id, view_id, revision, len(generation_members.snapshot))
+            latest = self._sources.views.get(org_id, view_id).view_revision
+            if latest != revision:
+                current = self._status.status(org_id, view_id)
+                return self._status.set(
+                    org_id,
+                    view_id,
+                    IndexLayerStatus(
+                        state=IndexLayerState.BUILDING,
+                        reason="view_revision_advanced",
+                        covered_paths=current.covered_paths,
+                        at_view_revision=current.at_view_revision,
+                    ),
+                )
+            excluded = frozenset(set(overlay) | set(tombstones))
+            with self._index_lock:
+                self._overlay_indexes[(org_id, view_id)] = (revision, overlay_index, excluded)
+        else:
+            with self._index_lock:
+                self._overlay_indexes.pop((org_id, view_id), None)
+
+        latest_state = self._sources.views.get(org_id, view_id)
+        if latest_state.view_revision != revision:
+            current = self._status.status(org_id, view_id)
+            return self._status.set(
+                org_id,
+                view_id,
+                IndexLayerStatus(
+                    state=IndexLayerState.BUILDING,
+                    reason="view_revision_advanced",
+                    covered_paths=current.covered_paths,
+                    at_view_revision=current.at_view_revision,
+                ),
+            )
+        self._status.mark_ready(
+            org_id,
+            view_id,
+            view_revision=revision,
+            covered_paths=latest_state.entry_count,
+        )
+        return self._status.status(org_id, view_id)
+
+    def nearest(
+        self,
+        org_id: str,
+        view_id: str,
+        vector: Sequence[float],
+        limit: int,
+    ) -> SemanticSearchResult:
+        state = self._sources.views.get(org_id, view_id)
+        generation_key = _generation_graph_key(state)
+        overlay, tombstones = self._sources.views.overlay(org_id, view_id)
+        excluded = frozenset(set(overlay) | set(tombstones))
+        with self._index_lock:
+            base = self._generation_indexes.get((org_id, generation_key))
+            overlay_row = self._overlay_indexes.get((org_id, view_id))
+        if base is None:
+            return SemanticSearchResult((), 0, 0)
+        search_limit = max(limit, limit * 4)
+        base_result = base.query(vector, search_limit, excluded_paths=excluded)
+        results = list(base_result.matches)
+        candidates = base_result.candidates_scored
+        total_units = base_result.total_units
+        if overlay_row is not None and overlay_row[0] == state.view_revision:
+            overlay_result = overlay_row[1].query(vector, search_limit)
+            results.extend(overlay_result.matches)
+            candidates += overlay_result.candidates_scored
+            total_units += overlay_result.total_units
+        best: dict[str, SemanticMatch] = {}
+        for match in results:
+            current = best.get(match.path)
+            if current is None or match.score > current.score:
+                best[match.path] = match
+        ordered = sorted(best.values(), key=lambda match: (-match.score, match.path))
+        return SemanticSearchResult(tuple(ordered[:limit]), candidates, total_units)
+
+    def export_generation(self, org_id: str, view_id: str) -> Mapping[str, object] | None:
+        state = self._sources.views.get(org_id, view_id)
+        key = (org_id, _generation_graph_key(state))
+        with self._index_lock:
+            index = self._generation_indexes.get(key)
+        return None if index is None else {"ann": index.to_json()}
+
+    def restore_generation(self, org_id: str, view_id: str, payload: Mapping[str, object]) -> bool:
+        state = self._sources.views.get(org_id, view_id)
+        raw = payload.get("ann")
+        if not isinstance(raw, Mapping):
+            return False
+        try:
+            index = SemanticAnnIndex.from_json(raw)
+        except (KeyError, TypeError, ValueError):
+            return False
+        members = _generation_members(self._sources, org_id, view_id)
+        snapshot = dict(members.snapshot)
+        expected: set[tuple[str, str]] = set()
+        for path, entry in members.available.items():
+            artifact = self._sources.analysis.get(org_id, entry.content_digest, entry.parser_profile)
+            if artifact is None:
+                return False
+            usable_units = tuple(
+                unit
+                for unit in artifact.semantic_units
+                if unit.embedding_version == SEMANTIC_EMBEDDING_VERSION and any(unit.embedding)
+            )
+            if usable_units or (artifact.embedding and any(artifact.embedding)):
+                expected.add((path, entry.content_digest))
+        if index.path_digests != frozenset(expected):
+            return False
+        if any(snapshot.get(path) != digest for path, digest in index.path_digests):
+            return False
+        with self._index_lock:
+            self._generation_indexes[(org_id, _generation_graph_key(state))] = index
+        if not members.missing_digests:
+            self._status.mark_ready(
+                org_id,
+                view_id,
+                view_revision=state.view_revision,
+                covered_paths=state.entry_count,
+            )
+        return True

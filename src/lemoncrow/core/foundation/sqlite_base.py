@@ -20,72 +20,9 @@ import re
 import sqlite3
 import threading
 import time
-from collections import OrderedDict
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, ClassVar
-
-
-def _migration_statements(script: str) -> Iterator[str]:
-    """Each complete statement of *script*, in order.
-
-    Splitting on every ``;`` broke on one inside a comment, string literal or
-    trigger body, failing the upgrade of every existing store.
-    """
-
-    pending = ""
-    for piece in script.split(";"):
-        pending += piece + ";"
-        if sqlite3.complete_statement(pending):
-            if stmt := pending.strip().rstrip(";").strip():
-                yield stmt
-            pending = ""
-    if stmt := pending.rstrip(";").strip():
-        yield stmt
-
-
-class _IdleConnections:
-    """Idle SQLite connections kept for reuse, bounded process-wide (LRU).
-
-    Each store instance owns a list of its idle connections; this registry
-    orders every idle connection across stores so the process never holds more
-    than ``max_idle`` of them (each keeps the database, WAL and shm files open).
-    A connection is only ever in here while no caller holds it, so evicting and
-    closing it from whichever thread releases the next one is safe.
-    """
-
-    def __init__(self, max_idle: int) -> None:
-        self.max_idle = max_idle
-        self._lock = threading.Lock()
-        self._lru: OrderedDict[int, tuple[list[sqlite3.Connection], sqlite3.Connection]] = OrderedDict()
-
-    def take(self, owner: list[sqlite3.Connection]) -> sqlite3.Connection | None:
-        with self._lock:
-            if not owner:
-                return None
-            conn = owner.pop()
-            self._lru.pop(id(conn), None)
-            return conn
-
-    def give(self, owner: list[sqlite3.Connection], conn: sqlite3.Connection, *, per_owner: int) -> None:
-        evicted: list[sqlite3.Connection] = []
-        with self._lock:
-            if len(owner) >= per_owner:
-                evicted.append(conn)
-            else:
-                owner.append(conn)
-                self._lru[id(conn)] = (owner, conn)
-                while len(self._lru) > self.max_idle:
-                    _key, (old_owner, old) = self._lru.popitem(last=False)
-                    old_owner.remove(old)
-                    evicted.append(old)
-        for item in evicted:
-            item.close()
-
-
-# ~3 file descriptors each; a local server with dozens of Review stores stays
-# far below the default 1024 soft limit.
-_IDLE_CONNECTIONS = _IdleConnections(max_idle=64)
 
 
 class SqliteTableStore:
@@ -99,7 +36,7 @@ class SqliteTableStore:
     # starting a fresh transaction. SQLite allows one writer per file, so an
     # unbroken BEGIN...COMMIT around a whole import starves every other writer
     # for the length of the run -- GH #43: a 690-session opencode import held
-    # it for ~2 minutes and any concurrent session import died on the 30s
+    # it for ~2 minutes and any concurrent `lc import` died on the 30s
     # busy_timeout. Chunking bounds that wait to roughly this interval while
     # keeping most of the fsync amortization a batch exists for.
     BATCH_CHECKPOINT_SECONDS: ClassVar[float] = 1.0
@@ -113,19 +50,9 @@ class SqliteTableStore:
     # Sleeping here hands the lock over deterministically, at ~5% throughput.
     BATCH_CHECKPOINT_YIELD_SECONDS: ClassVar[float] = 0.05
 
-    # Idle connections this store keeps for reuse between calls; 0 opens (and
-    # drops) a fresh connection per call. A fresh connection costs three
-    # PRAGMAs plus a parse of the whole schema on its first statement -- for a
-    # read-heavy server store that dominated small reads (a Review page made
-    # ~450 connections for ~450 queries). Reuse keeps each call its own
-    # transaction: ``_transaction`` still commits or rolls back per call, and a
-    # connection is only handed on once it holds no transaction.
-    POOLED_CONNECTIONS: ClassVar[int] = 0
-
     def __init__(self, root: Path | str, *, db_name: str) -> None:
         self.root = Path(root).resolve()
         self.db_path = self.root / db_name
-        self._idle_connections: list[sqlite3.Connection] = []
         # The pinned connection of an open batch/read/transition scope, the
         # depth of nested _transaction() scopes on it (a checkpoint is only
         # safe at depth 0) and its checkpoint deadline are per thread: a
@@ -173,14 +100,8 @@ class SqliteTableStore:
     def _connect(self) -> sqlite3.Connection:
         if self._connection:
             return self._connection
-        if self.POOLED_CONNECTIONS:
-            pooled = _IDLE_CONNECTIONS.take(self._idle_connections)
-            if pooled is not None:
-                return pooled
 
-        # A pooled connection may serve a later call on another worker thread;
-        # the pool hands it to one caller at a time.
-        conn = sqlite3.connect(self.db_path, timeout=120, check_same_thread=not self.POOLED_CONNECTIONS)
+        conn = sqlite3.connect(self.db_path, timeout=120)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")
@@ -192,19 +113,6 @@ class SqliteTableStore:
         # wait at all under WAL.
         conn.execute("PRAGMA busy_timeout = 120000")
         return conn
-
-    def _release(self, conn: sqlite3.Connection) -> None:
-        """Return a connection ``_connect`` handed out for one call.
-
-        Pooled stores keep it for the next call when it holds no transaction;
-        otherwise (and for unpooled stores, as before) it is simply dropped.
-        """
-        if not self.POOLED_CONNECTIONS:
-            return
-        if conn.in_transaction:
-            conn.close()
-            return
-        _IDLE_CONNECTIONS.give(self._idle_connections, conn, per_owner=self.POOLED_CONNECTIONS)
 
     @contextlib.contextmanager
     def _transaction(self) -> Iterator[sqlite3.Connection]:
@@ -236,15 +144,8 @@ class SqliteTableStore:
                 self._batch_depth -= 1
             self._maybe_checkpoint_batch(conn)
         else:
-            try:
-                with conn:
-                    yield conn
-            except BaseException:
-                # A failed call never hands its connection to the next one.
-                if self.POOLED_CONNECTIONS:
-                    conn.close()
-                raise
-            self._release(conn)
+            with conn:
+                yield conn
 
     def _maybe_checkpoint_batch(self, conn: sqlite3.Connection) -> None:
         """Commit and reopen the batch transaction once it has run long enough.
@@ -407,7 +308,7 @@ class SqliteTableStore:
         for name in self.MIGRATIONS:
             if name in applied:
                 continue
-            for stmt in _migration_statements(read_migration(name)):
+            for stmt in (s.strip() for s in read_migration(name).split(";")):
                 if not stmt:
                     continue
                 try:

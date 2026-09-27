@@ -170,7 +170,7 @@ def _index(root: Path) -> None:
     files, so this costs about a second.
     """
 
-    from lemoncrow.pro.capabilities.code_context import CodeContextEngine
+    from lemoncrow.pro.capabilities.code_context.engine import CodeContextEngine
 
     engine = CodeContextEngine(root, autosync_enabled=False)
     engine.index_repo(force=True, require_lock=False)
@@ -189,7 +189,6 @@ def _render(root: Path, sha: str, store_root: Path) -> str:
 # --- the acceptance criterion ------------------------------------------------
 
 
-@pytest.mark.private_engine
 def test_comment_only_commit_produces_no_attention_at_all(tmp_path: Path) -> None:
     """A ``+3 -0`` pure-comment commit must reach ATTENTION with nothing to say."""
 
@@ -202,7 +201,6 @@ def test_comment_only_commit_produces_no_attention_at_all(tmp_path: Path) -> Non
     assert "SessionManager" not in text, text
 
 
-@pytest.mark.private_engine
 def test_the_same_repo_still_reports_the_real_breaking_change(tmp_path: Path) -> None:
     """The commit before it must keep every finding, or the test above is worthless."""
 
@@ -219,7 +217,6 @@ def test_the_same_repo_still_reports_the_real_breaking_change(tmp_path: Path) ->
     assert "frontend/session.ts:L2" in text, text
 
 
-@pytest.mark.private_engine
 def test_signature_finding_names_the_file_it_came_out_of(tmp_path: Path) -> None:
     """A finding without a source file is one a reviewer cannot trace back.
 
@@ -239,7 +236,6 @@ def test_signature_finding_names_the_file_it_came_out_of(tmp_path: Path) -> None
     assert "(src/auth/session.py)" in headline, headline
 
 
-@pytest.mark.private_engine
 def test_review_order_counts_what_attention_lists(tmp_path: Path) -> None:
     """The ranking's site count and the ATTENTION section must not disagree.
 
@@ -456,35 +452,54 @@ def _shift_repo(tmp_path: Path, trim: int) -> tuple[Path, str]:
     return root, reviewed
 
 
-@pytest.mark.private_engine
-def test_a_shifted_workspace_neither_fabricates_nor_drops(tmp_path: Path) -> None:
-    for case_index, trim in enumerate(list(range(11))):
-        case_tmp_path = tmp_path / f"case-{case_index}"
-        case_tmp_path.mkdir()
-        "Both halves, at every offset the header can shift by.\n\n    Before the fix this passed only at ``trim`` 0-2, and by luck: at 3-7 the\n    packet announced ``⚠ func_d changed`` with four fabricated untouched call\n    sites, and at 2 and 8-10 it reported nothing at all. The real edit to\n    ``func_c`` was reported at 0 and 1 only.\n\n    The absence assertion alone is worthless -- reporting nothing satisfies it --\n    so the presence assertion is what makes this a test rather than a mute\n    button.\n    "
-        root, reviewed = _shift_repo(case_tmp_path, trim)
-        _index(root)
-        rng = resolve_rev_range(root, f"{reviewed}~1", head=reviewed)
-        packet = build_review_packet(root, rng, store_root=case_tmp_path / "store", with_provenance=False)
-        text = render_review(packet, no_color=True)
-        names = {symbol.symbol_name for symbol in packet.symbols}
-        assert "func_c" in names, (trim, sorted(names), text)
-        assert "func_d" not in names, (trim, sorted(names), text)
-        assert "func_d" not in text, (trim, text)
-        assert [site.path for site in packet.impact if site.old == "func_d"] == [], (trim, text)
+@pytest.mark.parametrize("trim", list(range(11)))
+def test_a_shifted_workspace_neither_fabricates_nor_drops(tmp_path: Path, trim: int) -> None:
+    """Both halves, at every offset the header can shift by.
+
+    Before the fix this passed only at ``trim`` 0-2, and by luck: at 3-7 the
+    packet announced ``⚠ func_d changed`` with four fabricated untouched call
+    sites, and at 2 and 8-10 it reported nothing at all. The real edit to
+    ``func_c`` was reported at 0 and 1 only.
+
+    The absence assertion alone is worthless -- reporting nothing satisfies it --
+    so the presence assertion is what makes this a test rather than a mute
+    button.
+    """
+
+    root, reviewed = _shift_repo(tmp_path, trim)
+    _index(root)
+
+    rng = resolve_rev_range(root, f"{reviewed}~1", head=reviewed)
+    packet = build_review_packet(root, rng, store_root=tmp_path / "store", with_provenance=False)
+    text = render_review(packet, no_color=True)
+    names = {symbol.symbol_name for symbol in packet.symbols}
+
+    assert "func_c" in names, (trim, sorted(names), text)
+    assert "func_d" not in names, (trim, sorted(names), text)
+    # The fabricated headline and its four call sites, denied at the surface the
+    # reviewer actually reads.
+    assert "func_d" not in text, (trim, text)
+    assert [site.path for site in packet.impact if site.old == "func_d"] == [], (trim, text)
 
 
-@pytest.mark.private_engine
-def test_the_footer_admits_the_shift_it_is_reading_across(tmp_path: Path) -> None:
-    for case_index, trim in enumerate([0, 1, 6, 10]):
-        case_tmp_path = tmp_path / f"case-{case_index}"
-        case_tmp_path.mkdir()
-        '``index: fresh`` over a shifted index is the packet lying about itself.\n\n    Staleness was probed by asking "does an indexed symbol end past the end of\n    the file?", which can only fire when the workspace copy is *longer* than the\n    reviewed one. Every shift in the other direction -- a deletion, which is half\n    of all diffs -- was invisible, so the footer certified a packet built from\n    mismatched line numbers. The probe is now content-based and symmetric.\n    '
-        root, reviewed = _shift_repo(case_tmp_path, trim)
-        _index(root)
-        rng = resolve_rev_range(root, f"{reviewed}~1", head=reviewed)
-        packet = build_review_packet(root, rng, store_root=case_tmp_path / "store", with_provenance=False)
-        assert packet.index_status == ("fresh" if trim == 0 else "stale"), (trim, packet.degraded)
+@pytest.mark.parametrize("trim", [0, 1, 6, 10])
+def test_the_footer_admits_the_shift_it_is_reading_across(tmp_path: Path, trim: int) -> None:
+    """``index: fresh`` over a shifted index is the packet lying about itself.
+
+    Staleness was probed by asking "does an indexed symbol end past the end of
+    the file?", which can only fire when the workspace copy is *longer* than the
+    reviewed one. Every shift in the other direction -- a deletion, which is half
+    of all diffs -- was invisible, so the footer certified a packet built from
+    mismatched line numbers. The probe is now content-based and symmetric.
+    """
+
+    root, reviewed = _shift_repo(tmp_path, trim)
+    _index(root)
+
+    rng = resolve_rev_range(root, f"{reviewed}~1", head=reviewed)
+    packet = build_review_packet(root, rng, store_root=tmp_path / "store", with_provenance=False)
+
+    assert packet.index_status == ("fresh" if trim == 0 else "stale"), (trim, packet.degraded)
 
 
 def test_outline_drift_is_detected_in_both_directions() -> None:
@@ -610,7 +625,6 @@ def _drift_repo(tmp_path: Path) -> tuple[Path, str]:
     return root, reviewed
 
 
-@pytest.mark.private_engine
 def test_every_cited_caller_line_resolves_in_the_reviewed_revision(tmp_path: Path) -> None:
     """Gating *which* files may be cited was never enough; *where* was still the workspace's.
 
@@ -688,7 +702,6 @@ _COMMANDS_CHANGED = _COMMANDS_BASE.replace(
 )
 
 
-@pytest.mark.private_engine
 def test_a_decorator_added_to_the_next_command_leaves_the_one_above_it_alone(tmp_path: Path) -> None:
     """``Tag.line`` is the ``def``, so the decorators above it belonged to nobody.
 
@@ -736,7 +749,6 @@ def test_a_decorator_added_to_the_next_command_leaves_the_one_above_it_alone(tmp
 # --- what the index does not know, it may not subtract -----------------------
 
 
-@pytest.mark.private_engine
 def test_a_definition_the_index_has_no_row_for_is_never_silently_dropped(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -855,25 +867,36 @@ def _gap_repo(tmp_path: Path, statement: str) -> tuple[Path, str]:
     return root, _commit(repo, "core: wire up the module-level block; other() doubles", 60)
 
 
-@pytest.mark.private_engine
-def test_a_statement_added_below_a_definition_is_not_that_definition(tmp_path: Path) -> None:
-    for case_index, shape in enumerate(sorted(_GAP_STATEMENTS)):
-        case_tmp_path = tmp_path / f"case-{case_index}"
-        case_tmp_path.mkdir()
-        'Five ordinary Python shapes, each of which manufactured an ATTENTION headline.\n\n    ``target`` is byte-identical across the commit and has four untouched\n    callers, so if its window still runs past its own body every one of these\n    prints ``⚠ target changed`` over four files nobody needs to open. The same\n    commit really does change ``other``, which is what stops "report nothing"\n    from being a passing answer.\n    '
-        root, added = _gap_repo(case_tmp_path, _GAP_STATEMENTS[shape])
-        _index(root)
-        head_text = _GAP_HEAD + "\n\n" + _GAP_STATEMENTS[shape] + _GAP_TAIL_CHANGED
-        definition = "def target(items):"
-        body = _GAP_HEAD[_GAP_HEAD.index(definition) :]
-        assert body in head_text, "fixture no longer holds target byte-identical"
-        packet = _packet(root, added, case_tmp_path / "store")
-        text = render_review(packet, no_color=True)
-        names = {symbol.symbol_name for symbol in packet.symbols}
-        assert "target" not in names, sorted(names)
-        assert "target" not in text, text
-        assert [site.path for site in packet.impact if site.kind == "untouched_caller"] == [], text
-        assert "other" in names, sorted(names)
+@pytest.mark.parametrize("shape", sorted(_GAP_STATEMENTS))
+def test_a_statement_added_below_a_definition_is_not_that_definition(tmp_path: Path, shape: str) -> None:
+    """Five ordinary Python shapes, each of which manufactured an ATTENTION headline.
+
+    ``target`` is byte-identical across the commit and has four untouched
+    callers, so if its window still runs past its own body every one of these
+    prints ``⚠ target changed`` over four files nobody needs to open. The same
+    commit really does change ``other``, which is what stops "report nothing"
+    from being a passing answer.
+    """
+
+    root, added = _gap_repo(tmp_path, _GAP_STATEMENTS[shape])
+    _index(root)
+
+    # The precondition the assertions rest on.
+    head_text = _GAP_HEAD + "\n\n" + _GAP_STATEMENTS[shape] + _GAP_TAIL_CHANGED
+    definition = "def target(items):"
+    body = _GAP_HEAD[_GAP_HEAD.index(definition) :]
+    assert body in head_text, "fixture no longer holds target byte-identical"
+
+    packet = _packet(root, added, tmp_path / "store")
+    text = render_review(packet, no_color=True)
+    names = {symbol.symbol_name for symbol in packet.symbols}
+
+    assert "target" not in names, sorted(names)
+    assert "target" not in text, text
+    # Nothing may be cited on account of it either.
+    assert [site.path for site in packet.impact if site.kind == "untouched_caller"] == [], text
+    # And the definition that really changed is still reported.
+    assert "other" in names, sorted(names)
 
 
 _NESTED_BASE = '''"""Core."""
@@ -895,7 +918,6 @@ def outer(items):
 _NESTED_CHANGED = _NESTED_BASE.replace("    total = _scale(len(items))", "    total = _scale(len(items)) + 100")
 
 
-@pytest.mark.private_engine
 def test_an_edit_after_a_nested_def_belongs_to_the_parent(tmp_path: Path) -> None:
     """The same arithmetic, one level in -- and it cost a finding as well as inventing one.
 
@@ -1407,17 +1429,6 @@ def test_a_committed_store_file_is_a_row_and_a_skipped_one_is_counted(tmp_path: 
     working = collect_diff(root, resolve_rev_range(root, working_tree=True))
     assert [item.path for item in working.files] == []
     assert "lemoncrow_store_excluded:1" in working.degraded
-
-    _write(root, ".lemoncrow/review.yaml", "rules:\n  - stable_key: future\n    instruction: Review this later.\n")
-    _write(
-        root, ".lemoncrow/rules/team.yaml", "rules:\n  - stable_key: team\n    instruction: Keep the team invariant.\n"
-    )
-    policy_working = collect_diff(root, resolve_rev_range(root, working_tree=True))
-    assert [item.path for item in policy_working.files] == [
-        ".lemoncrow/review.yaml",
-        ".lemoncrow/rules/team.yaml",
-    ]
-    assert "lemoncrow_store_excluded:1" in policy_working.degraded
 
 
 def test_an_unmerged_path_says_so_instead_of_reading_as_an_empty_modification(tmp_path: Path) -> None:

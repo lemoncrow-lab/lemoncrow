@@ -1,4 +1,4 @@
-"""CLI plumbing tests for `lc usage optimize compress-context` (LLM monkeypatched)."""
+"""CLI plumbing tests for `lc optimize compress-context` (LLM monkeypatched)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ COMPRESSED = "# Rules\n\n- Run the full test suite before committing."
 
 def _invoke(tmp_path: Path, target: Path, *extra: str) -> Result:
     root = tmp_path / ".lemoncrow"
-    return CliRunner().invoke(cli, ["--root", str(root), "usage", "optimize", "compress-context", str(target), *extra])
+    return CliRunner().invoke(cli, ["--root", str(root), "optimize", "compress-context", str(target), *extra])
 
 
 @pytest.fixture()

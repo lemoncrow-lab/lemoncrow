@@ -222,7 +222,7 @@ class ToolCallLifecycle:
                 # Refresh the statusline frames sidecar on EVERY dispatch
                 # (not only savings-bearing calls) so the shell render's
                 # 10s freshness gate keeps passing during active work and
-                # the slow `lc runtime savings --segment` subprocess fallback
+                # the slow `lc savings --segment` subprocess fallback
                 # never fires. Rate-limited internally to one write per 5s.
                 with contextlib.suppress(Exception):
                     hooks.write_statusline_sidecar()

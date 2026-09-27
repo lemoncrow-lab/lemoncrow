@@ -1186,24 +1186,6 @@
    },
    "visibleToLlm": false,
    "core": false
-  },
-  "review_guidance": {
-   "description": "Record structured author guidance without creating or advancing a review.",
-   "inputSchema": {
-    "properties": {
-     "guidance": {
-      "additionalProperties": true,
-      "description": "Author guidance for the human reviewer, schema_version 1. Call once after final edits and verification: {schema_version: 1, intent, items[{key, title, targets[{path, symbol?, start_line?, end_line?}], behavior{before, after} or behavior{unchanged: true} when no external behavior should change, rationale, concerns[{scope, reason}], assumptions[{key, value, statement}], suggested_attention}], human_decisions[{key, question, options[{key, label}], selected_option, reason_human_required, targets, assumptions, contract_scope, relied_checks}], suggested_order, routine_candidates, supersedes}. Keys stay stable within the Change so later calls replace earlier ones. No confidence numbers: name concrete concerns and keyed assumptions. Put a choice in human_decisions only when it genuinely needs a human.",
-      "type": "object"
-     }
-    },
-    "required": [
-     "guidance"
-    ],
-    "type": "object"
-   },
-   "visibleToLlm": false,
-   "core": false
   }
  }
 }

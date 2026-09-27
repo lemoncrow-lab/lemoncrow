@@ -417,22 +417,6 @@ def _stream_shape(change: Change) -> list[tuple[str, str, str]]:
     return [(event.kind, event.session_id, event.summary) for event in sorted(events, key=lambda e: e.sequence)]
 
 
-def test_an_ingestor_for_another_ledger_root_is_never_shared(tmp_path: Path) -> None:
-    from lemoncrow.pro.capabilities.review.development_ingest import ingestor_for
-
-    store = ReviewStore(tmp_path / "reviews")
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    # A capture naming the review store as its ledger root must not leave the
-    # Reader (which reads the real agent ledgers) with an ingestor over nothing.
-    wrong = ingestor_for(store, source_store_root=tmp_path / "reviews", repo_root=repo)
-    ledgers = ingestor_for(store, source_store_root=tmp_path / "ledgers", repo_root=repo)
-
-    assert ledgers is not wrong
-    assert ledgers.source_store_root == (tmp_path / "ledgers").resolve()
-    assert ingestor_for(store, source_store_root=tmp_path / "ledgers", repo_root=repo) is ledgers
-
-
 def test_event_ordering_is_deterministic_across_ingestion_order(tmp_path: Path) -> None:
     shapes = []
     for variant, order in (("a", ("claude", "codex")), ("b", ("codex", "claude"))):
@@ -798,7 +782,6 @@ def _post(client: TestClient, path: str, body: dict[str, Any]) -> Any:
 def test_live_state_development_cursor_moves_only_on_development_changes(change: Change) -> None:
     change.ledger("claude", "author", [_edit("src/auth.py", 1)])
     revision = change.snapshot()
-    change.store.publish_snapshot(change.session.id, revision.id)
     client = _client(change)
     path = f"/api/reviews/{change.session.id}/live-state?wait_ms=0"
 

@@ -44,7 +44,7 @@ if $WORKSPACE_SET; then
     STALE_WS_MCP="${WORKSPACE}/.cursor/mcp.json"
 fi
 
-info()  { echo "[lc:uninstall:cursor] $*"; }
+info()  { echo "[lemoncrow:uninstall:cursor] $*"; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 
 if [ -f "$MCP_FILE" ] && grep -q "lemoncrow" "$MCP_FILE" 2>/dev/null; then

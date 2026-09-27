@@ -33,28 +33,6 @@ _VERIFY_PATTERNS = (
 )
 
 
-def provider_cache_style(provider: str, model: str = "") -> str:
-    """Return cache strategy: anthropic, openai, gemini, or none."""
-    p = provider.lower()
-    m = model.lower()
-    if "anthropic" in p or "claude" in m:
-        return "anthropic"
-    if "bedrock" in p:
-        return "anthropic" if "claude" in m or "anthropic" in m else "none"
-    if "openai" in p or "azure" in p or "gpt" in m or m.startswith("o1") or m.startswith("o3"):
-        return "openai"
-    if "gemini" in p or "google" in p or "vertex" in p or "gemini" in m:
-        return "gemini"
-    if "openrouter" in p:
-        if "claude" in m or "anthropic" in m:
-            return "anthropic"
-        if "gpt" in m or "openai" in m:
-            return "openai"
-        if "gemini" in m or "google" in m:
-            return "gemini"
-    return "none"
-
-
 def normalize_cache_policy(policy: str) -> Literal["off", "5m", "1h"]:
     normalized = (policy or "auto").strip().lower()
     if normalized in {"off", "fresh", "none", "disabled"}:

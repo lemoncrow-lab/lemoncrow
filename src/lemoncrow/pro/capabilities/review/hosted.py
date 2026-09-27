@@ -11,21 +11,16 @@ from __future__ import annotations
 
 import contextlib
 import gzip
-import hashlib
 import json
-import os
-import re
 import shutil
 import stat
 import subprocess
 import sys
 import tempfile
-import time
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from dataclasses import replace as dataclass_replace
 from pathlib import Path
 from typing import Any
 
@@ -34,20 +29,11 @@ from lemoncrow_client.errors import ClientError, ErrorCode
 from lemoncrow_client.liveview import load_live_view_binding
 from lemoncrow_client.session import RemoteSession, workspace_state_fingerprint
 
-from .gitdiff import (
-    BlobPair,
-    RevRange,
-    _open_repo,
-    current_branch_ref,
-    legacy_source_fingerprint,
-    source_state,
-    with_review_base,
-)
+from .gitdiff import BlobPair, RevRange, _open_repo, source_state
 from .live_runtime import (
     LiveReviewBinding,
     _write_live_review_binding_unlocked,
     live_review_publication_guard,
-    load_live_review_binding,
     write_live_review_binding,
 )
 from .models import review_packet_from_dict
@@ -58,7 +44,6 @@ from .packet import (
     attach_provenance,
     build_review_packet_with_blobs,
 )
-from .precompute import base_snapshot, load_source_build, save_source_build
 from .snapshot import materialize_git_revision
 from .sources.local import source_ref
 
@@ -147,9 +132,21 @@ def _materialize_capture_new_side(repo_root: Path, rng: RevRange, build: PacketB
 
 
 def _workspace_branch(repo_root: Path) -> str:
-    """Short branch name routing local Review identity; a paused rebase keeps its branch."""
+    """Best-effort human branch label for local Review identity."""
 
-    branch = current_branch_ref(repo_root).removeprefix("refs/heads/")
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "branch", "--show-current"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if result.returncode != 0:
+        return ""
+    branch = result.stdout.strip()
     return branch if branch and len(branch) <= 256 and "\n" not in branch and "\r" not in branch else ""
 
 
@@ -245,8 +242,6 @@ def _write_local_finalize_job(
     with_impact: bool,
     with_provenance: bool,
     advance_claimed_binding: bool,
-    publish_live_binding: bool = True,
-    attach_base: bool = True,
 ) -> Path:
     payload = {
         "repo_root": str(repo_root),
@@ -261,7 +256,6 @@ def _write_local_finalize_job(
             "dirty": rng.dirty,
             "title": rng.title,
             "submodule_dirt_discounted": rng.submodule_dirt_discounted,
-            "paths": list(rng.paths),
         },
         "packet": build.packet.to_dict(),
         "blobs": {
@@ -284,8 +278,6 @@ def _write_local_finalize_job(
         "with_impact": bool(with_impact),
         "with_provenance": bool(with_provenance),
         "advance_claimed_binding": bool(advance_claimed_binding),
-        "publish_live_binding": bool(publish_live_binding),
-        "attach_base": bool(attach_base),
     }
     path = _finalize_job_dir(store_root) / f"{uuid.uuid4().hex}.json.gz"
     with gzip.open(path, "wt", encoding="utf-8") as handle:
@@ -318,9 +310,7 @@ def _run_local_finalize_job(job_path: Path) -> int:
             payload = json.load(handle)
         repo_root = Path(str(payload["repo_root"])).expanduser().resolve()
         store_root = Path(str(payload["store_root"])).expanduser().resolve()
-        range_data = dict(payload["rng"])
-        range_data["paths"] = tuple(range_data.get("paths") or ())
-        rng = RevRange(**range_data)
+        rng = RevRange(**dict(payload["rng"]))
         packet = review_packet_from_dict(dict(payload["packet"]))
         blobs_raw = dict(payload.get("blobs") or {})
         build = PacketBuild(
@@ -348,7 +338,6 @@ def _run_local_finalize_job(job_path: Path) -> int:
         session_id_is_hint = bool(payload.get("session_id_is_hint"))
         limit = int(payload.get("limit") or 40)
         advance_claimed_binding = bool(payload.get("advance_claimed_binding"))
-        publish_live_binding = bool(payload.get("publish_live_binding", True))
         enrichment_superseded = False
         try:
             remote.handshake(timeout_s=config.request_timeout_s)
@@ -390,7 +379,7 @@ def _run_local_finalize_job(job_path: Path) -> int:
                         packet=enriched.packet.to_dict(),
                         timeout_s=config.tool_timeout_s,
                     )
-                    if publish_live_binding and enriched.packet.provenance.certainty == "exact":
+                    if enriched.packet.provenance.certainty == "exact":
                         with contextlib.suppress(OSError, TypeError, ValueError):
                             write_live_review_binding(
                                 store_root,
@@ -406,14 +395,6 @@ def _run_local_finalize_job(job_path: Path) -> int:
                                     author_session_id=enriched.packet.provenance.session_id or "",
                                     review_short_id=review_short_id,
                                     revision_short_id=revision_short_id,
-                                    branch_ref=(
-                                        f"refs/heads/{_workspace_branch(repo_root)}"
-                                        if _workspace_branch(repo_root)
-                                        else ""
-                                    ),
-                                    worktree_key=hashlib.sha256(
-                                        str(repo_root.resolve()).encode("utf-8", errors="surrogateescape")
-                                    ).hexdigest()[:32],
                                 ),
                                 allow_advance_claimed=advance_claimed_binding,
                             )
@@ -434,9 +415,9 @@ def _run_local_finalize_job(job_path: Path) -> int:
                             timeout_s=config.request_timeout_s,
                         )
 
-            if not payload.get("attach_base", True):
-                return 0
-            with base_snapshot(store_root, repo_root, rng, _materialize_capture_old_side) as base_root:
+            with tempfile.TemporaryDirectory(prefix="lemoncrow-review-base-") as base_temporary:
+                base_root = Path(base_temporary)
+                _materialize_capture_old_side(repo_root, rng, base_root)
                 base_opened = remote.open_review_snapshot(
                     base_root,
                     source_revision=rng.base_sha or "review-empty-base",
@@ -464,319 +445,6 @@ def _run_local_finalize_job(job_path: Path) -> int:
             job_path.unlink(missing_ok=True)
 
 
-def _effective_local_review_base(repo_root: Path, payload: Mapping[str, Any], frozen: str) -> str:
-    """Preserve integration for legacy Reviews; explicit new Reviews stay fixed.
-
-    Blank when this clone lacks the recorded base commit: the capture keeps
-    ``HEAD`` as its base under either policy.
-    """
-
-    from lemoncrow.pro.capabilities.review.gitdiff import review_branch_base
-
-    return review_branch_base(repo_root, frozen, advance=payload.get("review_base_policy") != "fixed")
-
-
-def _local_review_base_for_reference(
-    config: ClientConfig,
-    *,
-    repo_root: Path,
-    reference: str,
-    range_mode: str,
-) -> tuple[str, str]:
-    """Resolve one public/canonical local Review reference to its frozen base."""
-
-    wanted = reference.strip()
-    if not wanted or config.hosted:
-        return "", ""
-    try:
-        rows = server_review_rows(config)
-    except (ClientError, AttributeError, TypeError):
-        return "", ""
-    resolved_root = str(repo_root.resolve())
-    token = wanted.removeprefix("r/")
-    matches: list[dict[str, Any]] = []
-    for row in rows:
-        if str(row.get("status") or "") != "open" or str(row.get("range_mode") or "") != range_mode:
-            continue
-        worktree_root = str(row.get("worktree_root") or "")
-        if worktree_root and worktree_root != resolved_root:
-            continue
-        row_id = str(row.get("id") or "")
-        row_ref = str(row.get("ref") or "")
-        short_id = str(row.get("short_id") or "")
-        matched = row_ref == wanted or row_id == wanted or short_id == token
-        if not matched and token and len(token) >= 8:
-            matched = row_id.startswith(token)
-        if matched:
-            matches.append(row)
-    if len(matches) != 1:
-        return "", ""
-    row = matches[0]
-    review_id = str(row.get("id") or "").strip()
-    frozen = str(row.get("review_base_sha") or "").strip()
-    if review_id and frozen:
-        return review_id, _effective_local_review_base(repo_root, row, frozen)
-    if not review_id:
-        return "", ""
-    try:
-        overview = server_review_request(config, "GET", f"/api/reviews/{review_id}")
-    except ClientError:
-        return "", ""
-    raw = overview.get("session") if isinstance(overview, dict) else None
-    session = raw if isinstance(raw, dict) else {}
-    frozen = str(session.get("review_base_sha") or "").strip()
-    return (review_id, _effective_local_review_base(repo_root, session, frozen)) if frozen else ("", "")
-
-
-def _branch_bound_review(repo_root: Path, branch: str) -> str:
-    """Return the Review explicitly bound to a local fix branch."""
-
-    from lemoncrow.pro.capabilities.review.fix_lines import BRANCH_REVIEW_KEY
-
-    result = subprocess.run(
-        [
-            "git",
-            "-C",
-            str(repo_root),
-            "config",
-            "--get",
-            f"branch.{branch}.{BRANCH_REVIEW_KEY}",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    value = result.stdout.strip() if result.returncode == 0 else ""
-    return value if re.fullmatch(r"[0-9a-f]{32}", value) else ""
-
-
-def active_local_review_base(
-    config: ClientConfig,
-    *,
-    repo_root: Path,
-    store_root: Path,
-    range_mode: str,
-) -> tuple[str, str]:
-    """Resolve this worktree branch's active mutable Review and frozen base.
-
-    The live binding is only a fast pointer to the last Review used in this
-    worktree. Branch switching (and staged-vs-working-tree review) can make that
-    pointer irrelevant, so the server's durable branch binding is authoritative.
-    """
-
-    if config.hosted or range_mode not in {"working_tree", "staged"}:
-        return "", ""
-    branch = _workspace_branch(repo_root)
-    if not branch:
-        return "", ""
-    branch_ref = f"refs/heads/{branch}"
-    resolved_root = str(repo_root.resolve())
-
-    def review_base(review_id: str) -> tuple[str, str]:
-        try:
-            overview = server_review_request(config, "GET", f"/api/reviews/{review_id}")
-        except ClientError:
-            return "", ""
-        raw = overview.get("session") if isinstance(overview, dict) else None
-        session = raw if isinstance(raw, dict) else {}
-        if session.get("status") != "open" or session.get("range_mode") != range_mode:
-            return "", ""
-        frozen = str(session.get("review_base_sha") or "").strip()
-        if not frozen:
-            try:
-                history = server_review_request(config, "GET", f"/api/reviews/{review_id}/revisions")
-            except ClientError:
-                history = {}
-            revisions = history.get("revisions") if isinstance(history, dict) else None
-            if isinstance(revisions, list):
-                for item in revisions:
-                    if isinstance(item, dict):
-                        frozen = str(item.get("base_sha") or "").strip()
-                        if frozen:
-                            break
-        return (review_id, _effective_local_review_base(repo_root, session, frozen)) if frozen else ("", "")
-
-    # Fix-line Reviews are hidden from the inbox, so the branch itself carries
-    # the child Review id and keeps its frozen base stable after fixer commits.
-    bound = _branch_bound_review(repo_root, branch)
-    if bound:
-        # A newly-created fix child has no Snapshot yet, so the generic Reader
-        # overview quite correctly refuses it. The fix-line metadata is already
-        # durable, though, and carries the frozen commit needed by capture #1.
-        try:
-            fix_meta = server_review_request(config, "GET", f"/api/reviews/{bound}/fix-lines")
-        except ClientError:
-            fix_meta = {}
-        raw_fix_of = fix_meta.get("fix_of") if isinstance(fix_meta, dict) else None
-        fix_of = raw_fix_of if isinstance(raw_fix_of, dict) else {}
-        frozen_fix_base = str(fix_of.get("base_commit") or "").strip()
-        if frozen_fix_base:
-            return bound, frozen_fix_base
-        resolved = review_base(bound)
-        if resolved[0]:
-            return resolved
-
-    binding = load_live_review_binding(store_root, repo_root, server_url=config.url)
-    if binding is not None and binding.review_id and binding.branch_ref == branch_ref:
-        resolved = review_base(binding.review_id)
-        if resolved[0]:
-            return resolved
-
-    try:
-        rows = server_review_rows(config)
-    except (ClientError, AttributeError, TypeError):
-        return "", ""
-    candidates = [
-        row
-        for row in rows
-        if str(row.get("status") or "") == "open"
-        and str(row.get("range_mode") or "") == range_mode
-        and str(row.get("branch") or "") == branch
-        and str(row.get("worktree_root") or "") == resolved_root
-    ]
-    active = [row for row in candidates if row.get("branch_active") is True]
-    chosen: dict[str, Any] | None = None
-    if len(active) == 1:
-        chosen = active[0]
-    elif len(active) > 1:
-        return "", ""
-    elif len(candidates) == 1:
-        # Upgrade path before ReviewBinding existed: one unambiguous open Review
-        # for the exact worktree+branch may be adopted safely.
-        chosen = candidates[0]
-    if chosen is None:
-        return "", ""
-    review_id = str(chosen.get("id") or chosen.get("ref") or "").strip()
-    frozen = str(chosen.get("review_base_sha") or "").strip()
-    if review_id and frozen:
-        return review_id, _effective_local_review_base(repo_root, chosen, frozen)
-    return review_base(review_id) if review_id else ("", "")
-
-
-def hosted_branch_review_base(
-    remote: RemoteSession,
-    config: ClientConfig,
-    *,
-    repo_root: Path,
-    range_mode: str,
-) -> tuple[str, str, str]:
-    """The branch this hosted capture names, and that branch's open Review and base.
-
-    Returns ``(workspace_branch, review_id, base)``. Hosted routes a
-    working-tree or staged Review by repository, branch and the signed-in
-    author (plan 2026-10-10, D1), so the server answers only for the caller.
-    The base is the recorded one advanced past integrated work under the
-    ``integrated`` policy, as :func:`active_local_review_base` does locally;
-    blank when there is no Review, it recorded no base, or this clone lacks
-    the base commit. A server that does not honor ``workspace_branch`` gets
-    no branch and is not asked: the capture routes as it always did. One
-    that does serves the lookup (``BRANCH_REVIEW_PATH``, beside the Reader
-    API, so it rides the session's refreshing transport); if the lookup
-    fails, the capture fails with a retryable refusal.
-    """
-
-    if not config.hosted or range_mode not in {"working_tree", "staged"}:
-        return "", "", ""
-    branch = _workspace_branch(repo_root)
-    if not branch:
-        return "", "", ""
-    if "workspace_branch" not in remote.review_manifest(timeout_s=config.request_timeout_s).capture_options:
-        return "", "", ""
-    from urllib.parse import urlencode
-
-    from lemoncrow_client.config import repo_identity
-    from lemoncrow_client.review_base import BRANCH_REVIEW_PATH, branch_review_failed, parse_branch_review
-
-    # The engine has no repository id before it opens a View: it names the
-    # repository by the identity claim a View open sends.
-    query = urlencode({"range_mode": range_mode, "branch": branch, **repo_identity(repo_root).to_wire()})
-    try:
-        payload = remote.review_reader_request(
-            "GET", f"{BRANCH_REVIEW_PATH}?{query}", timeout_s=config.request_timeout_s
-        )
-        found = parse_branch_review(payload, range_mode=range_mode)
-    except ClientError as exc:
-        raise branch_review_failed(branch, exc) from exc
-    if not found.review_id or not found.base_sha:
-        return branch, "", ""
-    base = _effective_local_review_base(repo_root, {"review_base_policy": found.policy}, found.base_sha)
-    return branch, found.review_id, base
-
-
-def _local_source_build(
-    repo_root: Path,
-    rng: RevRange,
-    *,
-    store_root: Path,
-    session_id: str | None,
-    session_id_is_hint: bool,
-    limit: int,
-    progress: Callable[[str], None] | None = None,
-    report: Callable[[str, str], None] | None = None,
-) -> PacketBuild:
-    """The cacheable working-tree build: exact diff, source bytes and changed symbols.
-
-    Persist only source-derived data. Evidence and graph results (impact,
-    provenance) are refreshed after publication even when this build is reused.
-    """
-
-    build = build_review_packet_with_blobs(
-        repo_root,
-        rng,
-        store_root=store_root,
-        with_impact=False,
-        with_provenance=False,
-        session_id=session_id,
-        session_id_is_hint=session_id_is_hint,
-        limit=limit,
-        with_patch_text=True,
-        unbounded_patch_text=True,
-        progress=progress,
-    )
-    if report is not None:
-        report("packet_symbols", "Identifying changed symbols for stable Review targets")
-    build = attach_changed_symbols(repo_root, build, limit=limit)
-    if report is not None:
-        report("packet_symbols_done", "Stable Review targets ready")
-    return build
-
-
-def prepare_local_source_build(
-    config: ClientConfig,
-    repo_root: Path,
-    rng: RevRange,
-    *,
-    store_root: Path,
-    session_id: str | None,
-    limit: int,
-) -> str:
-    """Draft the next working-tree Snapshot locally; return its source fingerprint.
-
-    Nothing is written to the Review server: no Review and no Snapshot exist
-    until ``lc review`` (or the Reader's Snapshot action) publishes one, and
-    :func:`capture_server_review` then reuses this exact build instead of
-    rebuilding it. Returns ``""`` when there is nothing to prepare.
-    """
-
-    if config.hosted or rng.mode != "working_tree" or rng.paths:
-        return ""
-    if _workspace_branch(repo_root):
-        # The range a plain `lc review` captures: the branch Review's frozen base.
-        review_id, frozen_base = active_local_review_base(
-            config, repo_root=repo_root, store_root=store_root, range_mode=rng.mode
-        )
-        if review_id and frozen_base:
-            rng = with_review_base(repo_root, frozen_base, rng)
-    fingerprint = source_state(repo_root, rng).fingerprint
-    if load_source_build(store_root, repo_root, rng, fingerprint) is not None:
-        return fingerprint
-    build = _local_source_build(
-        repo_root, rng, store_root=store_root, session_id=session_id, session_id_is_hint=True, limit=limit
-    )
-    save_source_build(store_root, repo_root, rng, build)
-    return build.source_fingerprint
-
-
 def capture_server_review(
     config: ClientConfig,
     repo_root: Path,
@@ -797,44 +465,15 @@ def capture_server_review(
     respect_human_claim: bool = False,
     superseded: Callable[[], bool] | None = None,
     defer_post_ready: bool = False,
-    force_new_review: bool = False,
-    continue_review_id: str = "",
-    reuse_closed_review: bool = False,
-    paths: tuple[str, ...] = (),
-    review_scope: str = "",
 ) -> ServerCapture:
     """Capture *rng* into the configured LemonCrow server without binding locally.
 
     ``source_ref_override`` names the durable Review explicitly (a GitHub pull
     request is ``github:owner/repo#N`` whatever its head SHA), and
-    ``title_override`` supplies the author title for this captured Snapshot
-    on a local server; a hosted server has no per-Snapshot title and titles
-    only a Review this capture creates.
-
-    ``paths`` limits the Change to those files and ``review_scope`` names the
-    workstream it belongs to (one agent session in a shared worktree): a scoped
-    Review is its own Change, advanced by later scoped captures, and never
-    continues or takes over the branch's Review.
+    ``title_override`` titles a Review this capture creates.
     """
 
-    if paths:
-        rng = dataclass_replace(rng, paths=tuple(sorted({path for path in paths if path})))
-    publish_live_binding = not (review_scope or rng.paths)
-    capture_started = time.perf_counter()
-    stage_started: dict[str, float] = {}
-    print_timings = os.environ.get("LEMONCROW_REVIEW_TIMINGS", "").lower() in {"1", "true", "yes"}
-
     def report(stage: str, detail: str = "") -> None:
-        now = time.perf_counter()
-        if stage.endswith("_done"):
-            phase = stage[:-5]
-            began = stage_started.pop(phase, None)
-            if began is not None and print_timings:
-                print(f"[review-timing] {phase}={(now - began) * 1000:.1f}ms", file=sys.stderr)
-            if stage == "publish_done" and print_timings:
-                print(f"[review-timing] first_snapshot={(now - capture_started) * 1000:.1f}ms", file=sys.stderr)
-        else:
-            stage_started.setdefault(stage, now)
         if progress is not None:
             progress(stage, detail)
 
@@ -868,44 +507,13 @@ def capture_server_review(
         report(f"packet_{stage}", packet_start.get(stage, stage))
 
     local_working_tree = bool(not config.hosted and rng.mode == "working_tree")
-    local_mutable_review = bool(not config.hosted and rng.mode in {"working_tree", "staged"})
-    workspace_branch = _workspace_branch(repo_root) if not config.hosted and not review_scope else ""
-    branch_ref = f"refs/heads/{workspace_branch}" if workspace_branch else ""
-    target_review_id = continue_review_id.strip()
-    if local_mutable_review and branch_ref and not force_new_review:
-        frozen_base = ""
-        if target_review_id:
-            target_review_id, frozen_base = _local_review_base_for_reference(
-                config, repo_root=repo_root, reference=target_review_id, range_mode=rng.mode
-            )
-        else:
-            target_review_id, frozen_base = active_local_review_base(
-                config, repo_root=repo_root, store_root=store_root, range_mode=rng.mode
-            )
-        if target_review_id and frozen_base:
-            rng = with_review_base(repo_root, frozen_base, rng)
-    # Immutable commit ranges have the same source-first contract: expensive
-    # impact and provenance cannot hold the first reviewable diff hostage.
-    progressive_commit_range = bool(
-        not config.hosted and rng.mode == "commit_range" and (with_impact or with_provenance)
-    )
-    progressive_local = bool((local_working_tree or progressive_commit_range) and (with_impact or with_provenance))
+    progressive_local = bool(local_working_tree and (with_impact or with_provenance))
 
     # First-open latency is the max of source capture and View sync, not their
     # sum. They are independent until the exact packet bytes are pinned below.
     # A matching live View is already cheaper than a new sync, so preserve that
     # path and parallelize only the cold/stale case.
     remote = RemoteSession(config, publish_live_view=False)
-    if config.hosted and not review_scope:
-        try:
-            workspace_branch, _review_id, hosted_base = hosted_branch_review_base(
-                remote, config, repo_root=repo_root, range_mode=rng.mode
-            )
-        except BaseException:
-            remote.close()
-            raise
-        if hosted_base:
-            rng = with_review_base(repo_root, hosted_base, rng)
     parallel_pool: ThreadPoolExecutor | None = None
     parallel_open: Any = None
     observed_workspace = ""
@@ -937,49 +545,30 @@ def capture_server_review(
             parallel_open = parallel_pool.submit(prepare_source_view)
 
     try:
-        build = None
-        # A scoped build must never be served as, or overwrite, the whole-tree one.
-        if local_working_tree and not rng.paths:
-            fingerprint = source_state(repo_root, rng).fingerprint
-            build = load_source_build(store_root, repo_root, rng, fingerprint)
-            if build is not None and source_state(repo_root, rng).fingerprint != fingerprint:
-                build = None
-        if build is None:
-            if local_working_tree:
-                build = _local_source_build(
-                    repo_root,
-                    rng,
-                    store_root=store_root,
-                    session_id=session_id,
-                    session_id_is_hint=session_id_is_hint,
-                    limit=limit,
-                    progress=packet_progress,
-                    report=report,
-                )
-                if not rng.paths:
-                    save_source_build(store_root, repo_root, rng, build)
-            else:
-                build = build_review_packet_with_blobs(
-                    repo_root,
-                    rng,
-                    store_root=store_root,
-                    with_impact=with_impact and not progressive_commit_range,
-                    with_provenance=with_provenance and not progressive_commit_range,
-                    session_id=session_id,
-                    session_id_is_hint=session_id_is_hint,
-                    limit=limit,
-                    with_patch_text=True,
-                    unbounded_patch_text=True,
-                    progress=packet_progress,
-                )
-                if not with_impact and not (progressive_commit_range and len(build.packet.files) > 250):
-                    # For small Reviews, publish stable symbols immediately.
-                    # For large local commit ranges, initial file targets already
-                    # allow diff review; all symbol/caller intelligence follows
-                    # in the immutable Snapshot's background enrichment.
-                    build = attach_changed_symbols(repo_root, build, limit=limit)
-        else:
-            report("packet_source_done", "Prepared diff, source snapshots, and Review targets reused")
+        build = build_review_packet_with_blobs(
+            repo_root,
+            rng,
+            store_root=store_root,
+            # Local working-tree Review establishes exact source/target identity
+            # first. Caller fan-out and author correlation enrich that same visible
+            # revision after Reader opens. Conservative capture modes remain whole.
+            with_impact=False if progressive_local else with_impact,
+            with_provenance=False if progressive_local else with_provenance,
+            session_id=session_id,
+            session_id_is_hint=session_id_is_hint,
+            limit=limit,
+            with_patch_text=True,
+            unbounded_patch_text=True,
+            progress=packet_progress,
+        )
+        # Stable symbol targets are part of Snapshot identity, not optional impact
+        # enrichment. Establish them for every local working-tree publication so
+        # a later normal Review can enrich a Snapshot first opened with
+        # --no-impact/--no-provenance without adding visible targets.
+        if local_working_tree:
+            report("packet_symbols", "Identifying changed symbols for stable Review targets")
+            build = attach_changed_symbols(repo_root, build, limit=limit)
+            report("packet_symbols_done", "Stable Review targets ready")
         if packet_stage is not None:
             report(f"packet_{packet_stage}_done", packet_done.get(packet_stage, packet_stage))
         packet = build.packet
@@ -989,6 +578,8 @@ def capture_server_review(
         )
         stable_source_ref = source_ref_override or source_ref(rng, repo_root=repo_root) or f"client:{rng.mode}"
         review_title = title_override or packet.title
+        workspace_branch = _workspace_branch(repo_root) if not config.hosted else ""
+
         # An adopted View belongs to the authoring process. Its client_seq is
         # private to that process, so Review must only read it. If the checkout
         # moved while the packet was built, open our own View and pin the bytes
@@ -1015,8 +606,6 @@ def capture_server_review(
         # immediately while Compare/runtime materialization finishes.
         if not config.hosted and rng.mode == "working_tree":
             captured_source = build.source_fingerprint or source_state(repo_root, rng).fingerprint
-            # The server matches a Snapshot recorded before the tree-id identity by this form.
-            captured_legacy = legacy_source_fingerprint(repo_root, rng, captured_source)
             if reused_live_view and live_binding is not None:
                 report("sync_current", "Reusing live authoring source")
                 remote.adopt_live_view(live_binding)
@@ -1052,13 +641,9 @@ def capture_server_review(
                     build.blobs.new,
                     binary_new_blobs=build.blobs.binary_new,
                     deleted_paths=deleted_paths,
-                    timeout_s=config.tool_timeout_s,
                 )
 
-            report(
-                "publish",
-                "Publishing new review" if force_new_review or not target_review_id else "Creating new snapshot",
-            )
+            report("publish", "Publishing reviewable source revision")
             publication_guard = (
                 live_review_publication_guard(store_root, repo_root)
                 if respect_human_claim
@@ -1074,14 +659,8 @@ def capture_server_review(
                         new_blobs={},
                         restore_archived=restore_archived,
                         source_fingerprint=captured_source,
-                        legacy_source_fingerprint=captured_legacy,
                         workspace_branch=workspace_branch,
-                        force_new_review=force_new_review,
-                        continue_review_id=continue_review_id,
-                        reuse_closed_review=reuse_closed_review,
-                        review_scope=review_scope,
                         timeout_s=config.tool_timeout_s,
-                        progress=lambda detail: report("publish", f"Creating new snapshot · {detail}"),
                     )
                 except ClientError as exc:
                     if not reused_live_view or exc.code not in {ErrorCode.VIEW_UNKNOWN, ErrorCode.VIEW_REVISION_STALE}:
@@ -1099,7 +678,6 @@ def capture_server_review(
                         build.blobs.new,
                         binary_new_blobs=build.blobs.binary_new,
                         deleted_paths=deleted_paths,
-                        timeout_s=config.tool_timeout_s,
                     )
                     report("sync_current_done", "Current source synchronized and Snapshot pinned")
                     raw = remote.capture_review(
@@ -1110,14 +688,8 @@ def capture_server_review(
                         new_blobs={},
                         restore_archived=restore_archived,
                         source_fingerprint=captured_source,
-                        legacy_source_fingerprint=captured_legacy,
                         workspace_branch=workspace_branch,
-                        force_new_review=force_new_review,
-                        continue_review_id=continue_review_id,
-                        reuse_closed_review=reuse_closed_review,
-                        review_scope=review_scope,
                         timeout_s=config.tool_timeout_s,
-                        progress=lambda detail: report("publish", f"Creating new snapshot · {detail}"),
                     )
                 response = dict(raw)
                 review = response.get("review")
@@ -1168,41 +740,33 @@ def capture_server_review(
                 )
                 # Publish the reusable Review only after both the packet-build gate
                 # and server View validation proved this exact source generation.
-                # A scoped Review is its own Change: its source fingerprint covers
-                # the whole worktree, so as the warm pointer plain `lc review`
-                # reopens it would open the scoped Review instead of the branch's.
-                if publish_live_binding:
-                    try:
-                        binding_writer = (
-                            _write_live_review_binding_unlocked if respect_human_claim else write_live_review_binding
-                        )
-                        binding_writer(
-                            store_root,
-                            repo_root,
-                            LiveReviewBinding(
-                                server_url=config.url,
-                                repo_id=str(repo_id),
-                                review_id=review_id,
-                                revision_id=revision_id,
-                                revision_number=revision_number if isinstance(revision_number, int) else 0,
-                                source_fingerprint=captured_source,
-                                author_host=build.packet.provenance.host or "",
-                                review_short_id=review_short_id,
-                                revision_short_id=revision_short_id,
-                                branch_ref=branch_ref,
-                                worktree_key=hashlib.sha256(
-                                    str(repo_root.resolve()).encode("utf-8", errors="surrogateescape")
-                                ).hexdigest()[:32],
-                                author_session_id=(
-                                    build.packet.provenance.session_id or ""
-                                    if session_id_is_hint
-                                    else session_id or build.packet.provenance.session_id or ""
-                                ),
+                try:
+                    binding_writer = (
+                        _write_live_review_binding_unlocked if respect_human_claim else write_live_review_binding
+                    )
+                    binding_writer(
+                        store_root,
+                        repo_root,
+                        LiveReviewBinding(
+                            server_url=config.url,
+                            repo_id=str(repo_id),
+                            review_id=review_id,
+                            revision_id=revision_id,
+                            revision_number=revision_number if isinstance(revision_number, int) else 0,
+                            source_fingerprint=captured_source,
+                            author_host=build.packet.provenance.host or "",
+                            review_short_id=review_short_id,
+                            revision_short_id=revision_short_id,
+                            author_session_id=(
+                                build.packet.provenance.session_id or ""
+                                if session_id_is_hint
+                                else session_id or build.packet.provenance.session_id or ""
                             ),
-                            allow_advance_claimed=advance_claimed_binding,
-                        )
-                    except (OSError, TypeError, ValueError):
-                        pass
+                        ),
+                        allow_advance_claimed=advance_claimed_binding,
+                    )
+                except (OSError, TypeError, ValueError):
+                    pass
             if ready is not None:
                 ready(captured)
 
@@ -1226,7 +790,6 @@ def capture_server_review(
                     with_impact=with_impact,
                     with_provenance=with_provenance,
                     advance_claimed_binding=advance_claimed_binding,
-                    publish_live_binding=publish_live_binding,
                 )
                 if _launch_local_finalize_job(job_path):
                     report("background_handoff_done", "Remaining Review context continues in background")
@@ -1283,7 +846,7 @@ def capture_server_review(
                         packet=enriched.packet.to_dict(),
                         timeout_s=config.tool_timeout_s,
                     )
-                    if publish_live_binding and enriched.packet.provenance.certainty == "exact":
+                    if enriched.packet.provenance.certainty == "exact":
                         with contextlib.suppress(OSError, TypeError, ValueError):
                             write_live_review_binding(
                                 store_root,
@@ -1299,10 +862,6 @@ def capture_server_review(
                                     author_session_id=enriched.packet.provenance.session_id or "",
                                     review_short_id=review_short_id,
                                     revision_short_id=revision_short_id,
-                                    branch_ref=branch_ref,
-                                    worktree_key=hashlib.sha256(
-                                        str(repo_root.resolve()).encode("utf-8", errors="surrogateescape")
-                                    ).hexdigest()[:32],
                                 ),
                                 allow_advance_claimed=advance_claimed_binding,
                             )
@@ -1336,7 +895,9 @@ def capture_server_review(
                         pass
 
             report("freeze_base", "Freezing base snapshot in background")
-            with base_snapshot(store_root, repo_root, rng, _materialize_capture_old_side) as base_root:
+            with tempfile.TemporaryDirectory(prefix="lemoncrow-review-base-") as base_temporary:
+                base_root = Path(base_temporary)
+                _materialize_capture_old_side(repo_root, rng, base_root)
                 base_opened = remote.open_review_snapshot(
                     base_root,
                     source_revision=rng.base_sha or "review-empty-base",
@@ -1361,7 +922,9 @@ def capture_server_review(
         # Hosted, staged and commit-range capture retain the conservative exact
         # two-snapshot path until their live-View equivalents are available.
         report("freeze_base", "Freezing base snapshot")
-        with base_snapshot(store_root, repo_root, rng, _materialize_capture_old_side) as base_root:
+        with tempfile.TemporaryDirectory(prefix="lemoncrow-review-base-") as base_temporary:
+            base_root = Path(base_temporary)
+            _materialize_capture_old_side(repo_root, rng, base_root)
             base_opened = remote.open_review_snapshot(
                 base_root,
                 source_revision=rng.base_sha or "review-empty-base",
@@ -1394,10 +957,6 @@ def capture_server_review(
             base_view_revision=base_view_revision,
             restore_archived=restore_archived,
             workspace_branch=workspace_branch,
-            force_new_review=force_new_review,
-            continue_review_id=continue_review_id,
-            reuse_closed_review=reuse_closed_review,
-            review_scope=review_scope,
             timeout_s=config.tool_timeout_s,
         )
         response = dict(raw)
@@ -1407,9 +966,6 @@ def capture_server_review(
         review_id = str(review["id"])
         revision = response.get("revision")
         revision_number = revision.get("revision_number") if isinstance(revision, dict) else None
-        revision_id = str(revision.get("id") or "") if isinstance(revision, dict) else ""
-        if progressive_commit_range and not revision_id:
-            raise ValueError("LemonCrow server captured the diff without returning a Snapshot id")
         report(
             "publish_done",
             (f"Snapshot {revision_number} published" if isinstance(revision_number, int) else "Snapshot published"),
@@ -1420,95 +976,15 @@ def capture_server_review(
             if isinstance(review_path, str) and review_path.startswith("/r/")
             else remote.review_url(str(review.get("ref") or f"r/{review_id}"))
         )
-        preparation_id = ""
-        if progressive_commit_range:
-            preparation_id = f"prep-{uuid.uuid4().hex}"
-            remote.update_review_preparation(
-                repo_id=str(repo_id),
-                review_id=review_id,
-                preparation_id=preparation_id,
-                state="impact_background",
-                detail="exact diff is available; intelligence continues",
-                timeout_s=config.request_timeout_s,
-            )
-            separator = "&" if "#" in review_url else "#"
-            review_url = f"{review_url}{separator}p={preparation_id}&sr=1"
         captured = ServerCapture(
             build=build,
             repo_id=str(repo_id),
             review_id=review_id,
             review_url=review_url,
             response=response,
-            preparation_id=preparation_id,
         )
         if ready is not None:
             ready(captured)
-        if progressive_commit_range:
-            if defer_post_ready:
-                job_path = _write_local_finalize_job(
-                    store_root=store_root,
-                    repo_root=repo_root,
-                    rng=rng,
-                    build=build,
-                    repo_id=str(repo_id),
-                    review_id=review_id,
-                    revision_id=revision_id,
-                    revision_number=revision_number if isinstance(revision_number, int) else 0,
-                    review_short_id=str(review.get("short_id") or ""),
-                    revision_short_id=str(revision.get("short_id") or "") if isinstance(revision, dict) else "",
-                    preparation_id=preparation_id,
-                    captured_source=build.source_fingerprint,
-                    session_id=session_id,
-                    session_id_is_hint=session_id_is_hint,
-                    limit=limit,
-                    with_impact=with_impact,
-                    with_provenance=with_provenance,
-                    advance_claimed_binding=False,
-                    publish_live_binding=False,
-                    attach_base=False,  # Immutable base was attached before publication.
-                )
-                if _launch_local_finalize_job(job_path):
-                    report("background_handoff_done", "Commit-range intelligence continues in background")
-                    return captured
-                with contextlib.suppress(OSError):
-                    job_path.unlink(missing_ok=True)
-            try:
-                enriched = build
-                if with_impact:
-                    report("packet_impact", "Analyzing callers and impact after source publication")
-                    enriched = attach_impact(repo_root, rng, enriched, limit=limit)
-                    report("packet_impact_done", "Impact ready")
-                if with_provenance:
-                    report("packet_provenance", "Analyzing author context after source publication")
-                    enriched = attach_provenance(
-                        store_root,
-                        repo_root,
-                        rng,
-                        enriched,
-                        session_id=session_id,
-                        session_id_is_hint=session_id_is_hint,
-                    )
-                    report("packet_provenance_done", "Author context ready")
-                remote.enrich_review_projection(
-                    repo_id=str(repo_id),
-                    review_id=review_id,
-                    revision_id=revision_id,
-                    packet=enriched.packet.to_dict(),
-                    timeout_s=config.tool_timeout_s,
-                )
-                captured = dataclass_replace(captured, build=enriched)
-            except (ClientError, OSError, RuntimeError, TypeError, ValueError) as exc:
-                report("packet_enrichment_failed", f"Source remains reviewable; enrichment skipped · {exc}")
-            finally:
-                with contextlib.suppress(ClientError):
-                    remote.update_review_preparation(
-                        repo_id=str(repo_id),
-                        review_id=review_id,
-                        preparation_id=preparation_id,
-                        state="ready",
-                        detail="source and available Review context are ready",
-                        timeout_s=config.request_timeout_s,
-                    )
         return captured
     finally:
         if parallel_pool is not None:

@@ -691,20 +691,16 @@ def _frontload_context(prompt: str, payload: dict[str, Any]) -> str | None:
     old_handler = signal.signal(signal.SIGALRM, _timeout)
     signal.alarm(_FRONTLOAD_TIMEOUT_S)
     try:
-        # The advanced engine is private: reach it only through the public
-        # provider seam, which raises ProEngineUnavailable (caught below) when
-        # the enterprise runtime is absent.
-        from lemoncrow.core.capabilities.code_intelligence_provider import (
-            create_code_intelligence_provider,
+        from lemoncrow.pro.capabilities.code_context.engine import (
+            CodeContextEngine,
+            _default_db_path,
         )
-        from lemoncrow.core.foundation.paths import resolve_workspace_store_dir
 
         # Only an already-indexed workspace qualifies — indexing is not the
         # hook's job, and an empty store must not be created as a side effect.
-        index_db = resolve_workspace_store_dir(workspace_root=Path(workspace).resolve()) / "code_context.sqlite"
-        if not index_db.exists():
+        if not _default_db_path(Path(workspace).resolve()).exists():
             return None
-        engine = create_code_intelligence_provider(workspace, autosync_enabled=False)
+        engine = CodeContextEngine(workspace, autosync_enabled=False)
         result = engine.tool_explore(prompt, max_files=4, auto_index=False)
         if not (result.get("files") or result.get("related_symbols")):
             return None

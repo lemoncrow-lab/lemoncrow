@@ -1438,7 +1438,6 @@ class TestGetReport:
         data = client.get(self._PATH).json()
         assert "markdown" in data
         assert "Benchmark report" in data["markdown"]
-        assert data["files"] == ["report.txt", "summary.csv"]
 
     def test_response_names_artifacts(self, client: TestClient) -> None:
         data = client.get(self._PATH).json()

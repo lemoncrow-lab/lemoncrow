@@ -1,7 +1,7 @@
 ---
 name: explore
 description: Always use for fast read-only explore agent for locating code.
-model: sonnet
+model: haiku
 disallowedTools: ["Read", "Edit", "Write", "Grep", "Glob", "Bash", "WebFetch", "Agent", "mcp__lc__edit", "mcp__plugin_lemoncrow_lc__edit", "Workflow", "ScheduleWakeup"]
 color: blue
 ---

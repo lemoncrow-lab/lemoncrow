@@ -276,11 +276,18 @@ def test_wedged_pipe_with_other_persistent_sessions_alive_is_still_bounded(tmp_p
     os.close(fd) avoids the deadlock but double-closes a possibly-recycled fd
     when the wrapper later finalizes. See _neutralize_pipe_fds.
     """
-    # Two persistent "servers" left running, like qemu + websockify. Give
-    # them a unique script path so the test can always reap the detached children
-    # instead of leaking anonymous `sleep 3600` processes into later test runs.
-    persistent_script = tmp_path / "persistent_server.py"
-    persistent_script.write_text("import time\ntime.sleep(3600)\n")
+    # Two persistent "servers" left running, like qemu + websockify -- their
+    # own output is redirected to a file, so they don't leak anything
+    # themselves; they're here purely to keep _MANAGED_COMMANDS non-empty.
+    server_ids = []
+    for i in range(2):
+        log = tmp_path / f"server{i}.log"
+        cmd = f"nohup sleep 3600 > {log} 2>&1 &\nsleep 0.2; echo server{i}-up"
+        started = bx.start_managed_command(cmd, timeout=5)
+        server_ids.append(str(started["session_id"]))
+    for sid in server_ids:
+        result = _poll_until_done(sid, timeout_s=_BOUND_S + 2.0)
+        assert "up" in str(result["stdout"])
 
     # Third command: nginx stand-in -- forks a grandchild that inherits the
     # pipe and never closes it, wrapping command exits promptly (no trailing &).
@@ -288,30 +295,15 @@ def test_wedged_pipe_with_other_persistent_sessions_alive_is_still_bounded(tmp_p
     wedge_script.write_text(
         "import os, sys, time\nif os.fork() == 0:\n    time.sleep(3600)\n    sys.exit(0)\nsys.exit(0)\n"
     )
-
-    server_ids = []
-    try:
-        for i in range(2):
-            log = tmp_path / f"server{i}.log"
-            cmd = f"nohup {sys.executable} {persistent_script} > {log} 2>&1 &\n" f"sleep 0.2; echo server{i}-up"
-            started = bx.start_managed_command(cmd, timeout=5)
-            server_ids.append(str(started["session_id"]))
-        for sid in server_ids:
-            result = _poll_until_done(sid, timeout_s=_BOUND_S + 2.0)
-            assert "up" in str(result["stdout"])
-
-        command = f"echo configuring; {sys.executable} {wedge_script}\nsleep 0.2; echo nginx-check-done"
-        started = bx.start_managed_command(command, timeout=5)
-        sid = str(started["session_id"])
-        start = time.monotonic()
-        result = _poll_until_done(sid, timeout_s=_BOUND_S + 2.0)
-        elapsed = time.monotonic() - start
-        assert elapsed < _BOUND_S + 2.0  # was: ran to the full task budget in production
-        assert "nginx-check-done" in str(result["stdout"])
-        assert "still be running" in str(result["stderr"])
-    finally:
-        _kill_stray(str(persistent_script))
-        _kill_stray(str(wedge_script))
+    command = f"echo configuring; {sys.executable} {wedge_script}\nsleep 0.2; echo nginx-check-done"
+    started = bx.start_managed_command(command, timeout=5)
+    sid = str(started["session_id"])
+    start = time.monotonic()
+    result = _poll_until_done(sid, timeout_s=_BOUND_S + 2.0)
+    elapsed = time.monotonic() - start
+    assert elapsed < _BOUND_S + 2.0  # was: ran to the full task budget in production
+    assert "nginx-check-done" in str(result["stdout"])
+    assert "still be running" in str(result["stderr"])
 
 
 def test_run_command_self_daemonizing_foreground_is_bounded(tmp_path: Path) -> None:

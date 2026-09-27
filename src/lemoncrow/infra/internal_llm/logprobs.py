@@ -117,14 +117,6 @@ def logprobs(text: str, model: str | None = None) -> list[float] | None:
         return None
     if not text.strip():
         return []
-    from lemoncrow.infra.internal_llm.exceptions import InternalLLMError
-    from lemoncrow.pro.capabilities.review.intelligence_runtime import require_intelligence_enabled
-
-    try:
-        # The BI0 kill switch: a disabled or invalid policy sends nothing.
-        require_intelligence_enabled()
-    except InternalLLMError:
-        return None
     try:
         if backend in ("openai", "openai_compatible"):
             return _openai_logprobs(text, model)

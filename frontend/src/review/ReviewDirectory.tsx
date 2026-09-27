@@ -1,49 +1,25 @@
-import { Select, SelectItem } from "../components/ui/select";
-import { Badge, type BadgeTone } from "../components/ui/badge";
-import { EmptyState } from "../components/ui/empty-state";
-import { Hunk, HunkHead, HunkLabel } from "../components/ui/hunk";
-import { Button as UiButton } from "../components/ui/button";
-import { Input as UiInput } from "../components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody, DialogFooter } from "../components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "../components/ui/dropdown-menu";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { Archive, ArchiveRestore, CheckCircle2, CircleDot, Copy, Ellipsis, Pencil, Search, Terminal, Trash2 } from "lucide-react";
+import { Archive, CheckCircle2, CircleDot, Copy, Search, Terminal } from "lucide-react";
+
 import "./reviewUi.css";
 import { PageFrame } from "../components/WorkbenchUI";
 import {
   adoptBootstrapFragment,
-  createInboxFilter,
-  deleteInboxFilter,
-  fetchInboxFilters,
   fetchReviewDirectory,
-  deleteReview,
-  finishReview,
   reviewHref,
   type ReviewDirectoryQuery,
-  updateReviewTitle,
 } from "./reviewApi";
-import { hasInboxSignals, InboxRowSignals, InboxViewControls, SavedInboxFilterControls } from "./ReviewInboxViews";
 import { reviewEnvironmentDescription, reviewEnvironmentLabel, useReviewEnvironment } from "./reviewEnvironment";
-import {
-  archiveConfirmationRequired,
-  confirmationFor,
-  deleteIdentityMatches,
-  type ArchiveConfirmation,
-  type ArchiveHazards,
-} from "./automationApi";
 import type {
-  InboxView,
-  InboxWorkflowState,
   ReviewDirectoryPage,
   ReviewDirectoryRow,
   ReviewDirectoryStatus,
-  SavedInboxFilter,
 } from "./types";
 
 function statusGlyph(status: ReviewDirectoryRow["status"]) {
-  if (status === "archived") return <Archive size={14} className="text-muted-foreground" />;
-  if (status === "finished") return <CheckCircle2 size={14} className="text-ok" />;
-  return <CircleDot size={14} className="text-muted-foreground" />;
+  if (status === "archived") return <Archive size={12} className="text-neutral-500" />;
+  if (status === "finished") return <CheckCircle2 size={12} className="text-emerald-400" />;
+  return <CircleDot size={12} className="text-sky-400" />;
 }
 
 function reviewSourceLabel(row: ReviewDirectoryRow): string {
@@ -60,324 +36,59 @@ function reviewSourceLabel(row: ReviewDirectoryRow): string {
   return source && !source.startsWith("client:") ? source : "Local source";
 }
 
-/** An open Review whose feedback is with its fixer: nothing for the reviewer to do yet. */
-function waitingOnFixer(row: ReviewDirectoryRow): boolean {
-  return row.status === "open"
-    && (row.primary_bucket === "waiting_on_agent" || row.primary_bucket === "waiting_on_author");
-}
-
-/** The row's one next-step label, as a badge: red is must-fix, amber is still to do, cyan is for you to re-check. */
-function reviewRowAction(row: ReviewDirectoryRow): { label: string; tone: BadgeTone } {
-  if (row.status === "finished") return { label: "Finished", tone: "success" };
-  if (row.status === "archived") return { label: "Archived", tone: "neutral" };
-  if (row.primary_bucket === "returned_to_me") {
-    const returned = row.returned_thread_count ?? 0;
-    return { label: returned > 0 ? `Returned · re-review ${returned}` : "Returned · re-review", tone: "p2" };
-  }
-  if (row.primary_bucket === "delivery_needs_inspection") {
-    return { label: "Delivery needs inspection", tone: "p1" };
-  }
-  if (waitingOnFixer(row)) {
-    return { label: `Waiting on ${row.handoff_label || "author"}`, tone: "neutral" };
-  }
+function reviewRowAction(row: ReviewDirectoryRow): { label: string; tone: string } {
+  if (row.status === "finished") return { label: "Finished", tone: "text-emerald-400" };
+  if (row.status === "archived") return { label: "Archived", tone: "text-neutral-500" };
   const progress = row.progress;
-  if (!progress || progress.target_count === 0) return { label: "Needs review", tone: "neutral" };
+  if (!progress || progress.target_count === 0) return { label: "Needs review", tone: "text-neutral-400" };
   if (progress.changed_since_review > 0) {
-    return { label: `${progress.changed_since_review} changed`, tone: "p2" };
+    return { label: `${progress.changed_since_review} changed`, tone: "text-sky-300" };
   }
   if (progress.unreviewed + progress.unknown > 0) {
     const pending = progress.unreviewed + progress.unknown;
-    return { label: `${pending} left`, tone: "p1" };
+    return { label: `${pending} left`, tone: "text-amber-300" };
   }
   if (progress.needs_changes > 0) {
-    return { label: "Awaiting changes", tone: "p0" };
+    return { label: "Awaiting changes", tone: "text-rose-300" };
   }
-  return { label: "Ready to finish", tone: "success" };
+  return { label: "Ready to finish", tone: "text-emerald-300" };
 }
 
-function ReviewRow({
-  row,
-  onRename,
-  onArchive,
-  onDelete,
-}: {
-  row: ReviewDirectoryRow;
-  onRename: (row: ReviewDirectoryRow, title: string) => Promise<void>;
-  onArchive: (row: ReviewDirectoryRow, confirmation?: ArchiveConfirmation) => Promise<void>;
-  onDelete: (row: ReviewDirectoryRow, confirmIdentity: string) => Promise<void>;
-}) {
-  const cancelDeleteRef = useRef<HTMLButtonElement>(null);
-  const cancelDiscardRef = useRef<HTMLButtonElement>(null);
+function ReviewRow({ row }: { row: ReviewDirectoryRow }) {
   const action = reviewRowAction(row);
-  const archived = row.status === "archived";
-  const [archiving, setArchiving] = useState(false);
-  const [archiveError, setArchiveError] = useState("");
-  // A discard that would drop pending feedback or withdraw an armed landing is
-  // confirmed here, naming each one and what happens to it.
-  const [discard, setDiscard] = useState<ArchiveHazards | null>(null);
-  const [acknowledged, setAcknowledged] = useState<ReadonlySet<string>>(new Set());
-  const toggleArchive = async (confirmation?: ArchiveConfirmation) => {
-    setArchiving(true);
-    setArchiveError("");
-    try {
-      await onArchive(row, confirmation);
-      setDiscard(null);
-    } catch (reason) {
-      const hazards = archiveConfirmationRequired(reason);
-      if (hazards) {
-        setDiscard(hazards);
-        setAcknowledged(new Set());
-      } else {
-        setArchiveError(String(reason instanceof Error ? reason.message : reason));
-      }
-      setArchiving(false);
-    }
-  };
-  const allAcknowledged = discard !== null && discard.hazards.every((item) => acknowledged.has(item.id));
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState("");
-  const [deleteIdentity, setDeleteIdentity] = useState("");
-  const deleteConfirmed = deleteIdentityMatches(deleteIdentity, row.id, row.title || "");
-  const remove = async () => {
-    if (!archived || deleting || !deleteConfirmed) return;
-    setDeleting(true);
-    setDeleteError("");
-    try {
-      await onDelete(row, deleteIdentity.trim());
-    } catch (reason) {
-      setDeleteError(String(reason instanceof Error ? reason.message : reason));
-      setDeleting(false);
-    }
-  };
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [renameError, setRenameError] = useState("");
   const hasWorkspaceIdentity = Boolean(
     row.directory || row.project || row.worktree || row.branch,
   );
-  const saveTitle = async (title: string) => {
-    setSaving(true);
-    setRenameError("");
-    try {
-      await onRename(row, title);
-      setEditing(false);
-    } catch (reason) {
-      setRenameError(String(reason instanceof Error ? reason.message : reason));
-    } finally {
-      setSaving(false);
-    }
-  };
   return (
-    <div
-      className="review-directory-grid group relative min-h-[56px] items-center border-t border-border px-3 text-label transition-colors duration-fast hover:bg-accent/40"
+    <a
+      href={reviewHref(row.ref || row.id)}
+      title={`${row.worktree_root || row.repo_id} · ${row.id}`}
+      className="review-directory-grid group min-h-[56px] items-center border-t border-neutral-900/90 px-3 text-[11px] transition-colors hover:bg-neutral-900/55"
     >
-      {!editing && <a
-        href={reviewHref(row.ref || row.id)}
-        data-review-link
-        title={`${row.worktree_root || row.repo_id} · ${row.id}`}
-        aria-label={`Open ${row.title || "Untitled review"}`}
-        className="absolute inset-0 rounded-md focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
-      />}
-      <div className="pointer-events-none relative min-w-0 pr-4">
+      <div className="min-w-0 pr-4">
         <div className="flex min-w-0 items-center gap-2">
           {statusGlyph(row.status)}
-          {editing ? (
-            <form className="pointer-events-auto relative z-10 flex min-w-0 flex-1 flex-wrap items-center gap-1" onSubmit={(event) => { event.preventDefault(); void saveTitle(draft.trim()); }}>
-              <UiInput
-                autoFocus
-                value={draft}
-                maxLength={120}
-                onChange={(event) => setDraft(event.target.value)}
-                onKeyDown={(event) => { if (event.key === "Escape") setEditing(false); }}
-                aria-label="Custom review title"
-                placeholder={row.auto_title || row.title}
-                className="h-7 min-w-0 flex-1 text-label"
-              />
-              <UiButton size="xs" type="submit" disabled={saving}>Save</UiButton>
-              <UiButton size="xs" type="button" variant="ghost" disabled={saving} onClick={() => setEditing(false)}>Cancel</UiButton>
-              {row.title_is_custom && <UiButton size="xs" type="button" variant="ghost" disabled={saving} onClick={() => void saveTitle("")}>Use auto</UiButton>}
-            </form>
-          ) : (
-            <>
-              <span className="min-w-0 truncate text-ui font-semibold text-foreground">{row.title || "Untitled review"}</span>
-              <UiButton
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="pointer-events-auto relative z-10 ml-auto h-6 w-6 shrink-0"
-                aria-label={`Rename ${row.title || "review"}`}
-                tooltip="Edit review title"
-                onClick={() => { setDraft(row.title_is_custom ? row.title : ""); setRenameError(""); setEditing(true); }}
-              >
-                <Pencil size={14} aria-hidden="true" />
-              </UiButton>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <UiButton
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="pointer-events-auto relative z-10 h-6 w-6 shrink-0"
-                    aria-label={`More actions for ${row.title || "review"}`}
-                    tooltip="More review actions"
-                    disabled={archiving || deleting}
-                  >
-                    <Ellipsis size={14} aria-hidden="true" />
-                  </UiButton>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem
-                    onSelect={() => void toggleArchive()}
-                    disabled={archiving || deleting}
-                    className="gap-2"
-                  >
-                    {archived ? <ArchiveRestore size={14} aria-hidden="true" /> : <Archive size={14} aria-hidden="true" />}
-                    {archived ? `Restore ${row.title || "review"}` : `Archive ${row.title || "review"}`}
-                  </DropdownMenuItem>
-                  {archived && (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        onSelect={() => { setDeleteError(""); setDeleteIdentity(""); setDeleteOpen(true); }}
-                        disabled={archiving || deleting}
-                        className="gap-2 text-destructive focus:text-destructive"
-                      >
-                        <Trash2 size={14} aria-hidden="true" />
-                        {`Delete ${row.title || "review"}`}
-                      </DropdownMenuItem>
-                    </>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              {archived && (
-                <Dialog open={deleteOpen} onOpenChange={(open) => { if (!deleting) setDeleteOpen(open); }}>
-                  <DialogContent
-                    onOpenAutoFocus={(event) => {
-                      event.preventDefault();
-                      cancelDeleteRef.current?.focus();
-                    }}
-                  >
-                    <DialogHeader><DialogTitle>Delete archived review?</DialogTitle></DialogHeader>
-                    <DialogBody>
-                      <DialogDescription>
-                        Permanently delete “{row.title || "Untitled review"}” and its review history, comments, and saved snapshots. This cannot be undone and is recorded in the deletion audit. Your source files are kept.
-                      </DialogDescription>
-                      <label className="mt-3 grid gap-1 text-caption text-muted-foreground">
-                        <span>Type the review id <span className="font-mono text-foreground">{row.id}</span> or its exact title to confirm</span>
-                        <UiInput
-                          value={deleteIdentity}
-                          onChange={(event) => setDeleteIdentity(event.target.value)}
-                          aria-label="Confirm the review to delete"
-                          autoComplete="off"
-                          className="h-8 text-label"
-                        />
-                      </label>
-                      {deleteError && <div role="alert" className="mt-3 text-body text-destructive">{deleteError}</div>}
-                    </DialogBody>
-                    <DialogFooter>
-                      <UiButton ref={cancelDeleteRef} disabled={deleting} onClick={() => setDeleteOpen(false)}>Cancel</UiButton>
-                      <UiButton variant="destructive" disabled={deleting || !deleteConfirmed} onClick={() => void remove()}>
-                        {deleting ? "Deleting…" : "Delete review"}
-                      </UiButton>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-              )}
-            </>
-          )}
+          <span className="truncate font-medium text-neutral-200 group-hover:text-neutral-50">
+            {row.title || "Untitled review"}
+          </span>
         </div>
-        {discard && (
-          <Dialog open onOpenChange={(open) => { if (!open && !archiving) setDiscard(null); }}>
-            <DialogContent
-              onOpenAutoFocus={(event) => {
-                event.preventDefault();
-                cancelDiscardRef.current?.focus();
-              }}
-            >
-              <DialogHeader><DialogTitle>Discard this review?</DialogTitle></DialogHeader>
-              <DialogBody>
-                <DialogDescription>
-                  Discarding “{row.title || "Untitled review"}” affects {discard.hazards.map((item) => item.label.toLowerCase()).join(" and ")}. Confirm each one.
-                </DialogDescription>
-                <ul className="mt-3 space-y-2" aria-label="What discarding affects">
-                  {discard.hazards.map((item) => (
-                    <li key={item.id} className="rounded-md border border-p1-line bg-p1-bg px-3 py-2">
-                      <div className="flex items-start gap-2 text-meta">
-                        <span className="min-w-0 flex-1">
-                          <span className="block font-medium text-p1">{item.label}: {item.detail}</span>
-                          <span className="block text-muted-foreground">{item.outcome}</span>
-                        </span>
-                        <UiButton
-                          type="button"
-                          size="xs"
-                          variant={acknowledged.has(item.id) ? "solid" : "outline"}
-                          className="shrink-0"
-                          aria-pressed={acknowledged.has(item.id)}
-                          aria-label={`Confirm ${item.label.toLowerCase()}`}
-                          disabled={archiving}
-                          onClick={() => setAcknowledged((current) => {
-                            const next = new Set(current);
-                            if (next.has(item.id)) next.delete(item.id);
-                            else next.add(item.id);
-                            return next;
-                          })}
-                        >
-                          {acknowledged.has(item.id) ? "Confirmed" : "Confirm"}
-                        </UiButton>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-                <p className="mt-3 text-caption text-muted-foreground">{discard.retention}</p>
-              </DialogBody>
-              <DialogFooter>
-                <UiButton ref={cancelDiscardRef} disabled={archiving} onClick={() => setDiscard(null)}>Keep review</UiButton>
-                <UiButton
-                  variant="destructive"
-                  disabled={archiving || !allAcknowledged}
-                  onClick={() => void toggleArchive(confirmationFor(discard))}
-                >
-                  {archiving ? "Discarding…" : `Discard with ${discard.hazards.map((item) => item.label.toLowerCase()).join(" and ")}`}
-                </UiButton>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        )}
-        {renameError && <div role="alert" className="pointer-events-auto relative z-10 pl-5 text-p0">{renameError}</div>}
-        {archiveError && <div role="alert" className="pointer-events-auto relative z-10 pl-5 text-p0">{archiveError}</div>}
-        {archived && row.owed_cancellation && (
-          <div className="pointer-events-auto relative z-10 pl-5 text-caption text-p1" title={row.owed_cancellation.error || row.owed_cancellation.detail}>
-            {row.owed_cancellation.provider || "Provider"} cancellation owed · Merge when ready is withdrawn once {row.owed_cancellation.provider || "the provider"} confirms
-          </div>
-        )}
-        <div className="mt-0.5 flex min-w-0 items-center gap-2 pl-5 text-caption text-muted-foreground">
-          <span className="truncate" title={row.title_is_custom ? row.auto_title : undefined}>{row.title_is_custom ? `Auto: ${row.auto_title || reviewSourceLabel(row)}` : reviewSourceLabel(row)}</span>
+        <div className="mt-0.5 flex min-w-0 items-center gap-2 pl-5 text-[10px] text-neutral-600">
+          <span className="truncate">{reviewSourceLabel(row)}</span>
           {row.progress && row.progress.target_count > 0 && (
             <>
-              <span className="shrink-0 font-mono tabular-nums">· {row.progress.reviewed}/{row.progress.target_count} reviewed</span>
-              <span
-                aria-hidden="true"
-                className="hidden h-1 w-16 shrink-0 overflow-hidden rounded-full bg-border sm:block"
-              >
-                <span
-                  className="block h-full rounded-full bg-foreground/70"
-                  style={{ width: `${Math.round((row.progress.reviewed / row.progress.target_count) * 100)}%` }}
-                />
-              </span>
+              <span className="shrink-0">· {row.progress.reviewed}/{row.progress.target_count} reviewed</span>
               {row.progress.changed_since_review > 0 && (
-                <span className="shrink-0 text-p2">· {row.progress.changed_since_review} changed</span>
+                <span className="shrink-0 text-sky-400">· {row.progress.changed_since_review} changed</span>
               )}
               {row.progress.needs_changes > 0 && (
-                <span className="shrink-0 text-p0">· {row.progress.needs_changes} need changes</span>
+                <span className="shrink-0 text-rose-400">· {row.progress.needs_changes} need changes</span>
               )}
             </>
           )}
         </div>
       </div>
       <div
-        className="review-grid-secondary pointer-events-none relative min-w-0 pr-4 text-caption text-muted-foreground"
+        className="review-grid-secondary min-w-0 pr-4 text-[10px] text-neutral-500"
         title={row.worktree_root || row.directory || row.repo_id}
       >
         {hasWorkspaceIdentity ? (
@@ -385,41 +96,40 @@ function ReviewRow({
             <div className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
               {row.project && (
                 <>
-                  <span className="text-muted-foreground">project</span>
-                  <span className="max-w-28 truncate font-medium text-foreground">{row.project}</span>
+                  <span className="text-neutral-700">project</span>
+                  <span className="max-w-28 truncate font-medium text-neutral-400">{row.project}</span>
                 </>
               )}
               {row.worktree && (
                 <>
-                  {row.project && <span className="text-muted-foreground">·</span>}
-                  <span className="text-muted-foreground">worktree</span>
-                  <span className="max-w-32 truncate font-medium text-foreground">{row.worktree}</span>
+                  {row.project && <span className="text-neutral-700">·</span>}
+                  <span className="text-neutral-700">worktree</span>
+                  <span className="max-w-32 truncate font-medium text-neutral-400">{row.worktree}</span>
                 </>
               )}
               {row.branch && (
                 <>
-                  {(row.project || row.worktree) && <span className="text-muted-foreground">·</span>}
-                  <span className="text-muted-foreground">branch</span>
-                  <span className="max-w-40 truncate font-medium text-foreground">{row.branch}</span>
+                  {(row.project || row.worktree) && <span className="text-neutral-700">·</span>}
+                  <span className="text-neutral-700">branch</span>
+                  <span className="max-w-40 truncate font-medium text-neutral-400">{row.branch}</span>
                 </>
               )}
             </div>
             {row.directory && (
-              <div className="mt-0.5 flex min-w-0 items-center gap-1.5 whitespace-nowrap text-muted-foreground">
+              <div className="mt-0.5 flex min-w-0 items-center gap-1.5 whitespace-nowrap text-neutral-700">
                 <span>dir</span>
-                <span className="truncate font-mono text-muted-foreground">{row.directory}</span>
+                <span className="truncate font-mono text-neutral-600">{row.directory}</span>
               </div>
             )}
           </>
         ) : (
-          <span className="truncate text-muted-foreground">Workspace unavailable</span>
+          <span className="truncate text-neutral-600">Workspace unavailable</span>
         )}
       </div>
-      <div className="pointer-events-none relative min-w-0 pr-3 text-caption font-medium">
-        <Badge tone={action.tone}>{action.label}</Badge>
-        {hasInboxSignals(row) && <InboxRowSignals signals={row} />}
+      <div className={`text-[10px] font-medium ${action.tone}`}>
+        {action.label}
       </div>
-      <div className="review-grid-secondary pointer-events-none relative text-right text-caption text-muted-foreground">
+      <div className="review-grid-secondary text-right text-[10px] text-neutral-600">
         {row.updated_at
           ? new Date(row.updated_at).toLocaleString([], {
               month: "short",
@@ -429,20 +139,13 @@ function ReviewRow({
             })
           : ""}
       </div>
-    </div>
+    </a>
   );
 }
 
 export default function ReviewDirectory() {
   const environment = useReviewEnvironment("local");
   const [status, setStatus] = useState<ReviewDirectoryStatus>("open");
-  // P9-INBOX: the view, workflow state and saved filter select the server's view mode.
-  const [view, setView] = useState<InboxView>("all");
-  const [workflow, setWorkflow] = useState<InboxWorkflowState | "">("");
-  const [filterId, setFilterId] = useState("");
-  const [filters, setFilters] = useState<SavedInboxFilter[]>([]);
-  const [counts, setCounts] = useState<ReviewDirectoryPage["counts"]>(undefined);
-  const [total, setTotal] = useState<number | null>(null);
   const [commandCopied, setCommandCopied] = useState(false);
   const [searchDraft, setSearchDraft] = useState("");
   const [query, setQuery] = useState("");
@@ -452,90 +155,20 @@ export default function ReviewDirectory() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const generationRef = useRef(0);
-  const directoryRef = useRef<HTMLDivElement>(null);
-  const focusAfterDeleteRef = useRef(false);
-
-  useEffect(() => {
-    if (!focusAfterDeleteRef.current) return;
-    focusAfterDeleteRef.current = false;
-    const directory = directoryRef.current;
-    (directory?.querySelector<HTMLAnchorElement>("a[data-review-link]") ?? directory)?.focus();
-  }, [rows]);
 
   useEffect(() => {
     adoptBootstrapFragment();
   }, []);
 
-  const reloadFilters = useCallback(async () => {
-    const listed = await fetchInboxFilters();
-    setFilters(listed.filters);
-    return listed.filters;
-  }, []);
-
-  useEffect(() => {
-    // Saved filters are optional chrome: a failed list leaves the Reviews list working.
-    reloadFilters().catch(() => setFilters([]));
-  }, [reloadFilters]);
-
-  const applyFilter = (id: string) => {
-    // A saved filter defines the selection; the controls go neutral so it applies as saved.
-    setFilterId(id);
-    if (id) {
-      setView("all");
-      setStatus("all");
-      setWorkflow("");
-      setQuery("");
-      setSearchDraft("");
-    }
-  };
-
-  const saveFilter = async (name: string) => {
-    const created = await createInboxFilter(name, {
-      view,
-      status,
-      workflow_states: workflow ? [workflow] : [],
-      query,
-    });
-    await reloadFilters();
-    applyFilter(created.filter.id);
-  };
-
-  const removeFilter = async (id: string) => {
-    await deleteInboxFilter(id);
-    await reloadFilters();
-    setFilterId("");
-  };
-
   const loadPage = useCallback(
     async (cursor: string, append: boolean, generation: number) => {
       if (append) setLoadingMore(true);
       else setLoading(true);
-      const request: ReviewDirectoryQuery = { status, query, cursor, limit: 50, view, workflow, filter: filterId };
-      // The full Inbox scores every local Review before paging. Its workflow,
-      // attention and readiness are enrichment, not prerequisites for showing
-      // a review link. On initial unfiltered load, show the inexpensive legacy
-      // page first, then replace it with the authoritative view-mode page.
-      const previewEligible = !append && !cursor && status === "open" && view === "all"
-        && !query && !workflow && !filterId;
-      let previewReady = false;
-      if (previewEligible) {
-        try {
-          const preview = await fetchReviewDirectory({ ...request, view: undefined, summary: true });
-          if (generationRef.current !== generation) return;
-          setRows(preview.reviews);
-          setError("");
-          setLoading(false);
-          previewReady = true;
-        } catch {
-          // A missing/failed legacy endpoint cannot prevent the full Inbox.
-        }
-      }
+      const request: ReviewDirectoryQuery = { status, query, cursor, limit: 50 };
       try {
         const page: ReviewDirectoryPage = await fetchReviewDirectory(request);
         if (generationRef.current !== generation) return;
         setNextCursor(page.next_cursor);
-        setCounts(page.counts);
-        setTotal(typeof page.total === "number" ? page.total : null);
         setError("");
         setRows((current) =>
           append
@@ -553,7 +186,7 @@ export default function ReviewDirectory() {
       } catch (reason) {
         if (generationRef.current !== generation) return;
         setError(String(reason instanceof Error ? reason.message : reason));
-        if (!append && !previewReady) setRows([]);
+        if (!append) setRows([]);
       } finally {
         if (generationRef.current === generation) {
           setLoading(false);
@@ -561,7 +194,7 @@ export default function ReviewDirectory() {
         }
       }
     },
-    [filterId, query, status, view, workflow],
+    [query, status],
   );
 
   useEffect(() => {
@@ -572,165 +205,115 @@ export default function ReviewDirectory() {
     void loadPage("", false, generation);
   }, [loadPage]);
 
-  const rename = async (row: ReviewDirectoryRow, title: string) => {
-    const updated = await updateReviewTitle(row.repo_id, row.id, title);
-    setRows((current) => current.map((item) => item.repo_id === row.repo_id && item.id === row.id
-      ? { ...item, ...updated }
-      : item));
-  };
-
-  const archive = async (row: ReviewDirectoryRow, confirmation?: ArchiveConfirmation) => {
-    const next = row.status === "archived" ? "open" : "archived";
-    await finishReview(row.id, next, next === "archived" ? row.revision_id : "", next === "archived" ? confirmation : undefined);
-    setRows((current) =>
-      status === "all"
-        ? current.map((item) => (item.repo_id === row.repo_id && item.id === row.id ? { ...item, status: next } : item))
-        : current.filter((item) => !(item.repo_id === row.repo_id && item.id === row.id)),
-    );
-  };
-
-  const remove = async (row: ReviewDirectoryRow, confirmIdentity: string) => {
-    if (row.status !== "archived") return;
-    await deleteReview(row.id, confirmIdentity);
-    focusAfterDeleteRef.current = true;
-    setRows((current) => current.filter((item) => !(item.repo_id === row.repo_id && item.id === row.id)));
-  };
-
   const search = (event: FormEvent) => {
     event.preventDefault();
     setQuery(searchDraft.trim());
   };
 
   return (
-    <div ref={directoryRef} role="region" aria-label="Reviews" tabIndex={-1} className="min-h-full bg-background text-foreground" data-testid="review-directory">
+    <div className="min-h-full bg-neutral-950 text-neutral-200" data-testid="review-directory">
       <PageFrame className="space-y-3">
-        <Hunk>
-          <HunkHead>
-            <HunkLabel>Reviews</HunkLabel>
-            <Badge tone="secondary" className="shrink-0">{total ?? rows.length} review{(total ?? rows.length) === 1 ? "" : "s"}</Badge>
-          </HunkHead>
-          <div className="flex flex-wrap items-center gap-3 border-b border-border p-2">
-            <form
-              onSubmit={search}
-              className="review-field flex h-8 min-w-[260px] max-w-[720px] flex-1 items-center overflow-hidden p-0"
-            >
-              <Search size={14} className="ml-3 text-muted-foreground" />
-              <UiInput unstyled
-                value={searchDraft}
-                onChange={(event) => setSearchDraft(event.target.value)}
-                placeholder="Search reviews…"
-                aria-label="Search reviews"
-                className="min-w-0 flex-1 border-0 bg-transparent px-2.5 py-2 text-ui text-foreground outline-none placeholder:text-muted-foreground"
-              />
-              <UiButton unstyled
-                type="submit"
-                className="h-full border-y-0 border-r-0 border-l border-border bg-transparent px-4 text-meta font-semibold text-subtle transition-colors duration-fast hover:bg-accent hover:text-foreground"
-              >
-                Search
-              </UiButton>
-            </form>
-            <InboxViewControls
-              view={view}
-              onView={setView}
-              workflow={workflow}
-              onWorkflow={setWorkflow}
-              counts={counts ?? {}}
-              teamsSupported={false}
-              advancedActive={status !== "open" || Boolean(filterId)}
-              advanced={(
-                <>
-                  <Select
-                    aria-label="Review status"
-                    value={status}
-                    onValueChange={(value) => setStatus(value as ReviewDirectoryStatus)}
-                    uiSize="xs"
-                    className="w-full"
-                  >
-                    <SelectItem value="open">Needs review</SelectItem>
-                    <SelectItem value="all">All reviews</SelectItem>
-                    <SelectItem value="finished">Finished</SelectItem>
-                    <SelectItem value="archived">Archived</SelectItem>
-                  </Select>
-                  <SavedInboxFilterControls filters={filters} activeId={filterId} onApply={applyFilter}
-                    onSave={saveFilter} onDelete={removeFilter} />
-                </>
-              )}
+        <div className="flex flex-wrap items-center gap-3">
+          <form
+            onSubmit={search}
+            className="review-field flex h-8 min-w-[260px] max-w-[720px] flex-1 items-center overflow-hidden p-0"
+          >
+            <Search size={13} className="ml-3 text-neutral-600" />
+            <input
+              value={searchDraft}
+              onChange={(event) => setSearchDraft(event.target.value)}
+              placeholder="Search reviews…"
+              aria-label="Search reviews"
+              className="min-w-0 flex-1 border-0 bg-transparent px-2.5 py-2 text-[11px] text-neutral-200 outline-none placeholder:text-neutral-700"
             />
-            <Badge tone="secondary" className="shrink-0" title={reviewEnvironmentDescription(environment)}>{reviewEnvironmentLabel(environment.mode)}</Badge>
-          </div>
+            <button
+              type="submit"
+              className="h-full rounded-none border-y-0 border-r-0 border-l border-neutral-700/80 bg-transparent px-4 text-[10px] font-semibold text-neutral-400 hover:bg-neutral-900 hover:text-neutral-50"
+            >
+              Search
+            </button>
+          </form>
+          <select
+            aria-label="Review status"
+            value={status}
+            onChange={(event) => setStatus(event.target.value as ReviewDirectoryStatus)}
+            className="review-field h-8 py-0 text-[10px]"
+          >
+            <option value="open">Needs review</option>
+            <option value="all">All reviews</option>
+            <option value="finished">Finished</option>
+            <option value="archived">Archived</option>
+          </select>
+          <span className="review-pill shrink-0" title={reviewEnvironmentDescription(environment)}>{reviewEnvironmentLabel(environment.mode)}</span>
+          <span className="review-pill shrink-0">{rows.length} review{rows.length === 1 ? "" : "s"}</span>
+        </div>
 
-          {loading && rows.length === 0 && (
-            <div className="py-6 text-center text-meta text-muted-foreground" role="status">
-              Loading reviews…
-            </div>
-          )}
-          {error && (
-            <div className="border-b border-p0-line bg-p0-bg px-3 py-2.5 text-meta text-p0">
-              Could not load reviews · {error}
-            </div>
-          )}
-          {!loading && !error && rows.length === 0 && (
-            status === "open" && !query && view === "all" && !workflow && !filterId ? (
-              <EmptyState
-                frame={false}
-                icon={<Terminal aria-hidden="true" />}
-                title="No local reviews yet"
-                description="Review staged, unstaged, committed, or branch changes directly from your workspace. No PR or hosted account is required."
-                action={(
-                  <UiButton
-                    type="button"
-                    className="gap-2 font-mono"
-                    onClick={() => {
-                      const write = navigator.clipboard?.writeText;
-                      if (!write) return;
-                      void Promise.resolve(write.call(navigator.clipboard, "lc review")).then(() => {
-                        setCommandCopied(true);
-                        window.setTimeout(() => setCommandCopied(false), 1200);
-                      });
-                    }}
-                    tooltip="Copy lc review"
-                  >
-                    <span>$ lc review</span>
-                    <Copy size={14} />
-                    {commandCopied && <span className="font-sans text-ok">Copied</span>}
-                  </UiButton>
-                )}
-              />
-            ) : (
-              <EmptyState
-                frame={false}
-                icon={<Search aria-hidden="true" />}
-                title="No reviews match this view"
-                description="Clear the search or the filters, or start a review with lc review in a repository."
-              />
-            )
-          )}
-          {rows.length > 0 && (
-            <div>
-              <div className="review-directory-grid h-8 items-center border-b border-border bg-muted px-3 font-mono text-tag uppercase text-muted-foreground">
-                <span>Change</span>
-                <span className="review-grid-secondary">Workspace</span>
-                <span>Next</span>
-                <span className="review-grid-secondary text-right">Updated</span>
+        {loading && rows.length === 0 && (
+          <div
+            className="border-y border-neutral-900 py-6 text-center text-[10px] text-neutral-600"
+            role="status"
+          >
+            Loading reviews…
+          </div>
+        )}
+        {error && (
+          <div className="my-4 border-y border-rose-900/45 bg-rose-950/10 px-3 py-2.5 text-[10px] text-rose-300">
+            Could not load reviews · {error}
+          </div>
+        )}
+        {!loading && !error && rows.length === 0 && (
+          status === "open" && !query ? (
+            <div className="flex flex-col items-center py-8 text-center">
+              <Terminal size={19} className="text-neutral-700" />
+              <div className="mt-3 text-[12px] font-medium text-neutral-300">No local reviews yet</div>
+              <div className="mt-1 max-w-lg text-[10px] leading-5 text-neutral-600">
+                Review staged, unstaged, committed, or branch changes directly from your workspace. No PR or hosted account is required.
               </div>
-              {/* The server pages by Updated; early summary rows follow the same newest-first order. */}
-              {(rows.every(hasInboxSignals) ? rows : [...rows].sort((a, b) =>
-                (Date.parse(b.updated_at || "") || 0) - (Date.parse(a.updated_at || "") || 0)
-              )).map((row) => (
-                <ReviewRow key={`${row.repo_id}:${row.id}`} row={row} onRename={rename} onArchive={archive} onDelete={remove} />
-              ))}
+              <button
+                type="button"
+                className="review-toolbar-button mt-3 gap-2 font-mono"
+                onClick={() => {
+                  const write = navigator.clipboard?.writeText;
+                  if (!write) return;
+                  void Promise.resolve(write.call(navigator.clipboard, "lc review")).then(() => {
+                    setCommandCopied(true);
+                    window.setTimeout(() => setCommandCopied(false), 1200);
+                  });
+                }}
+                title="Copy lc review"
+              >
+                <span>$ lc review</span>
+                <Copy size={11} />
+                {commandCopied && <span className="font-sans text-emerald-400">Copied</span>}
+              </button>
             </div>
-          )}
-        </Hunk>
+          ) : (
+            <div className="py-8 text-center text-[11px] text-neutral-600">No reviews match this view.</div>
+          )
+        )}
+        {rows.length > 0 && (
+          <section className="overflow-hidden rounded-md border border-neutral-800/80 bg-neutral-950/75">
+            <div className="review-directory-grid h-7 items-center px-3 text-[10px] font-medium uppercase tracking-[0.06em] text-neutral-700">
+              <span>Change</span>
+              <span className="review-grid-secondary">Workspace</span>
+              <span>Next</span>
+              <span className="review-grid-secondary text-right">Updated</span>
+            </div>
+            {rows.map((row) => (
+              <ReviewRow key={`${row.repo_id}:${row.id}`} row={row} />
+            ))}
+          </section>
+        )}
         {nextCursor && (
           <div className="mt-4 flex justify-center">
-            <UiButton
+            <button
               type="button"
               disabled={loadingMore}
               onClick={() => void loadPage(nextCursor, true, generationRef.current)}
+              className="review-toolbar-button"
             >
               {loadingMore ? "Loading…" : "Load more"}
-            </UiButton>
+            </button>
           </div>
         )}
       </PageFrame>

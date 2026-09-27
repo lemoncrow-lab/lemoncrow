@@ -9,7 +9,6 @@ the edit produced -- because the read named the revision the write committed.
 from __future__ import annotations
 
 import subprocess
-import threading
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +20,6 @@ from lemoncrow_client.dispatcher import Dispatcher
 from lemoncrow_client.errors import ClientError, ErrorCode
 from lemoncrow_client.liveview import load_live_view_binding
 from lemoncrow_client.manifest import walk_worktree
-from lemoncrow_client.mcpserver import McpServer
 from lemoncrow_client.session import RemoteSession, _host_runtime_headers, _json_size
 from lemoncrow_client.transport import HttpTransport
 
@@ -73,20 +71,16 @@ def test_a_provisioned_token_file_is_used_and_a_readable_one_is_refused(
     from _stub import TOKEN
     from conftest import make_config
 
-    # Hosted mode honours a provisioned file only when it is named explicitly:
-    # the default ~/.lemoncrow/token is the local server's machine credential.
-    target = state_dir / "provisioned-token"
+    target = state_dir / "token"
     target.write_text(TOKEN, encoding="utf-8")
     os.chmod(target, 0o600)
-    config = make_config(
-        url=stub.url, worktree=worktree, state_dir=state_dir, token="", LEMONCROW_TOKEN_FILE=str(target)
-    )
+    config = make_config(url=stub.url, worktree=worktree, state_dir=state_dir, token="")
     assert config.token == TOKEN
     assert config.token_source == str(target)
 
     os.chmod(target, 0o644)
     with pytest.raises(ClientError) as caught:
-        make_config(url=stub.url, worktree=worktree, state_dir=state_dir, token="", LEMONCROW_TOKEN_FILE=str(target))
+        make_config(url=stub.url, worktree=worktree, state_dir=state_dir, token="")
     assert "chmod 600" in caught.value.message
 
 
@@ -143,39 +137,6 @@ def test_claude_workspace_bridge_is_not_adopted_without_window_session_id(
     assert _host_runtime_headers(config) == {}
 
 
-def test_inherited_opencode_label_cannot_relabel_claude_session(
-    config: ClientConfig, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("LEMONCROW_AGENT", "opencode")
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "claude-window-1")
-    monkeypatch.delenv("OPENCODE_SESSION_ID", raising=False)
-
-    assert _host_runtime_headers(config) == {
-        "X-LemonCrow-Host-Session": "claude-window-1",
-        "X-LemonCrow-Host": "claude",
-    }
-
-
-def test_explicit_opencode_uses_its_own_session_when_nested_in_claude(
-    config: ClientConfig, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("LEMONCROW_AGENT", "opencode")
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "parent-claude-window")
-    monkeypatch.setenv("OPENCODE_SESSION_ID", "native-opencode-session")
-
-    assert _host_runtime_headers(config) == {
-        "X-LemonCrow-Host-Session": "native-opencode-session",
-        "X-LemonCrow-Host": "opencode",
-    }
-
-
-def test_pin_review_snapshot_is_a_valid_bound_session_method(config: ClientConfig) -> None:
-    """Review capture passes the already-read snapshot through a bound RemoteSession."""
-
-    session = RemoteSession(config)
-    assert session.pin_review_snapshot({"src/example.py": "value = 1\n"}) == session.state.view_revision
-
-
 # --------------------------------------------------------------------------- #
 # same-host proof metadata                                                    #
 # --------------------------------------------------------------------------- #
@@ -196,22 +157,6 @@ def test_local_fs_proof_never_enters_the_source_manifest(stub: StubServer, workt
 
     walked = walk_worktree(worktree, size_cap=stub.state.content_size_cap)
     assert LOCAL_FS_PROOF_PATH not in {item.path for item in walked.files}
-
-
-def test_local_fs_proof_never_truncates_a_symlink_target(
-    tmp_path: Path,
-    worktree: Path,
-) -> None:
-    from lemoncrow_client.workspace_paths import LOCAL_FS_PROOF_PATH, write_local_fs_proof
-
-    private_file = tmp_path / "private-file"
-    private_file.write_text("do not overwrite", encoding="utf-8")
-    marker = worktree / LOCAL_FS_PROOF_PATH
-    marker.symlink_to(private_file)
-    assert write_local_fs_proof(worktree, "replacement-nonce") is True
-    assert private_file.read_text(encoding="utf-8") == "do not overwrite"
-    assert not marker.is_symlink()
-    assert marker.read_text(encoding="utf-8") == "replacement-nonce"
 
 
 def test_local_fs_proof_is_excluded_from_git_status_without_editing_gitignore(
@@ -452,56 +397,6 @@ def test_review_capture_refuses_one_entry_larger_than_a_request(
     assert stub.state.review_requests == []
 
 
-def test_open_view_propagates_explicit_timeout_to_sync_round_trips(
-    stub: StubServer,
-    session: RemoteSession,
-    worktree: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    seen: list[tuple[str, float | None]] = []
-    original_post = HttpTransport.post
-
-    def recording_post(self: HttpTransport, path: str, **kwargs: Any):
-        if (
-            path.endswith("/manifest-chunks")
-            or path.endswith("/missing")
-            or path.endswith("/overlay")
-            or path == "/v1/blobs"
-        ):
-            seen.append((path, kwargs.get("timeout_s")))
-        return original_post(self, path, **kwargs)
-
-    monkeypatch.setattr(HttpTransport, "post", recording_post)
-    session.handshake(timeout_s=10.0)
-    session.open_session(timeout_s=10.0)
-    (worktree / "pkg/alpha.py").write_text("changed\n", encoding="utf-8")
-    session.open_view(timeout_s=37.0)
-
-    assert any(path.endswith("/missing") for path, _ in seen)
-    assert any(path.endswith("/overlay") for path, _ in seen)
-    assert all(timeout == 37.0 for _, timeout in seen)
-
-
-def test_pin_review_snapshot_deletion_wins_over_empty_new_side_blob(
-    stub: StubServer,
-    session: RemoteSession,
-) -> None:
-    session.handshake(timeout_s=10.0)
-    session.open_session(timeout_s=10.0)
-    session.open_view(timeout_s=10.0)
-    path = "pkg/alpha.py"
-    assert path in stub.state.manifest
-
-    session.pin_review_snapshot(
-        {path: ""},
-        deleted_paths=(path,),
-        timeout_s=37.0,
-    )
-
-    assert path not in stub.state.manifest
-    assert path not in session.state.known
-
-
 def test_a_manifest_only_open_sends_no_repository_content(
     stub: StubServer, session: RemoteSession, worktree: Path
 ) -> None:
@@ -560,12 +455,13 @@ def test_warm_clean_git_cache_reuses_the_proven_generation_without_replanning(
         assert first.bootstrap(deadline_s=10.0).ok
     finally:
         first.close()
-    assert load_walk_cache(config.runtime_state_dir, repo).generation_revision == revision
+    assert load_walk_cache(state_dir, repo).generation_revision == revision
 
     def unexpected_full_cache(*args: Any, **kwargs: Any) -> Any:
         pytest.fail("exact warm clean-generation proof parsed or rebuilt the full manifest")
 
     monkeypatch.setattr(session_mod, "load_walk_cache", unexpected_full_cache)
+    monkeypatch.setattr(session_mod, "restore_cached_worktree", unexpected_full_cache)
     monkeypatch.setattr(session_mod, "plan_repository_generation", unexpected_full_cache)
     monkeypatch.setattr(session_mod, "chunk_manifest", unexpected_full_cache)
     monkeypatch.setattr(session_mod, "manifest_root", unexpected_full_cache)
@@ -808,109 +704,6 @@ def test_server_read_refreshes_after_an_out_of_band_edit(
     assert stub.state.content_for("pkg/alpha.py") == b"def alpha():\n    return 'OUT_OF_BAND'\n"
 
 
-@pytest.mark.parametrize(
-    "tool", ["context", "orient", "verify", "trace", "rescue", "compact", "memory", "review_evidence"]
-)
-def test_every_view_reading_server_tool_syncs_an_out_of_band_edit_first(
-    tool: str, stub: StubServer, bootstrapped: RemoteSession, worktree: Path
-) -> None:
-    """The server answers every View-bound tool from the View's tree, not only search."""
-    edited = b"def alpha():\n    return 'OUT_OF_BAND'\n"
-    (worktree / "pkg" / "alpha.py").write_bytes(edited)
-    bootstrapped.call_tool(tool, {})
-    assert stub.state.content_for("pkg/alpha.py") == edited
-    name, _arguments, bound = stub.state.tool_calls[-1]
-    assert (name, bound) == (tool, bootstrapped.state.view_revision)
-
-
-def test_a_view_independent_server_tool_does_not_sync(
-    stub: StubServer, bootstrapped: RemoteSession, worktree: Path
-) -> None:
-    before = stub.state.content_for("pkg/alpha.py")
-    (worktree / "pkg" / "alpha.py").write_text("x = 'changed'\n", encoding="utf-8")
-    bootstrapped.call_tool("statusline_segment", {})
-    assert stub.state.content_for("pkg/alpha.py") == before
-
-
-def test_only_declared_server_routes_skip_the_freshness_probe() -> None:
-    from lemoncrow_client.routing import ROUTES, Site
-
-    skipped = {route.tool for route in ROUTES.values() if route.site is Site.SERVER and not route.reads_view}
-    assert skipped == {"statusline_segment"}
-    assert session_mod._reads_view("an_unrouted_tool")  # fail-safe
-
-
-def test_sync_if_changed_pushes_only_a_changed_tree_and_never_waits(
-    stub: StubServer, bootstrapped: RemoteSession, worktree: Path
-) -> None:
-    revision = bootstrapped.state.view_revision
-    assert bootstrapped.sync_if_changed() is False  # unchanged: nothing sent
-    assert bootstrapped.state.view_revision == revision
-
-    edited = b"def alpha():\n    return 'SYNCED'\n"
-    (worktree / "pkg" / "alpha.py").write_bytes(edited)
-    assert bootstrapped.sync_if_changed() is True
-    assert stub.state.content_for("pkg/alpha.py") == edited
-    assert bootstrapped.sync_if_changed() is False
-
-    held, release = threading.Event(), threading.Event()
-
-    def hold() -> None:
-        with bootstrapped._sync_lock:
-            held.set()
-            release.wait(5.0)
-
-    holder = threading.Thread(target=hold)
-    holder.start()
-    try:
-        assert held.wait(5.0)
-        (worktree / "pkg" / "alpha.py").write_text("x = 'later'\n", encoding="utf-8")
-        assert bootstrapped.sync_if_changed() is None  # a call is in flight: not waited on
-    finally:
-        release.set()
-        holder.join()
-
-
-def _bash(server: McpServer, command: str) -> dict[str, Any]:
-    params = {"name": "bash", "arguments": {"command": command}}
-    answer = server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": params})
-    assert answer is not None and not answer["result"]["isError"], answer
-    return answer
-
-
-def test_a_bash_that_rewrites_files_is_synced_before_it_answers(
-    stub: StubServer, bootstrapped: RemoteSession, config: ClientConfig
-) -> None:
-    """The next index call finds the View current instead of paying for the sync."""
-    server = McpServer(config, bootstrapped)
-    revision = bootstrapped.state.view_revision
-    _bash(server, "true")
-    assert bootstrapped.state.view_revision == revision  # nothing changed, nothing pushed
-
-    _bash(server, "printf 'x = 42\\n' > pkg/alpha.py")
-    assert stub.state.content_for("pkg/alpha.py") == b"x = 42\n"
-    assert bootstrapped.state.view_revision > revision
-
-
-def test_a_push_that_failed_after_a_bash_is_not_waited_on_by_every_later_bash(
-    bootstrapped: RemoteSession, config: ClientConfig, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    server = McpServer(config, bootstrapped)
-    attempts: list[str | None] = []
-
-    def unreachable(_self: RemoteSession, observed: str | None = None) -> bool:
-        attempts.append(observed)  # a hung server: each attempt costs a whole request timeout
-        raise ClientError(ErrorCode.SERVER_UNREACHABLE, "timed out", retryable=True)
-
-    monkeypatch.setattr(RemoteSession, "_refresh_view_if_source_changed", unreachable)
-    _bash(server, "printf 'x = 42\\n' > pkg/alpha.py")
-    _bash(server, "true")
-    _bash(server, "true")
-    assert len(attempts) == 1
-    _bash(server, "printf 'x = 43\\n' > pkg/alpha.py")
-    assert len(attempts) == 2  # a new change is still pushed before its command answers
-
-
 def test_server_view_drops_a_file_that_becomes_ignored_out_of_band(
     stub: StubServer, bootstrapped: RemoteSession, worktree: Path
 ) -> None:
@@ -1091,109 +884,14 @@ def test_a_blob_miss_is_filled_in_the_same_turn_and_retried_once(
     assert events[-1].count == 1
 
 
-def test_a_side_effecting_tool_syncs_the_view_first_and_is_sent_once(
-    stub: StubServer, bootstrapped: RemoteSession, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    events: list[str] = []
-
-    def source_changed(self: RemoteSession, fingerprint: str | None = None) -> bool:
-        events.append(f"refresh after {len(stub.state.tool_calls)} calls")
-        return True
-
-    monkeypatch.setattr(RemoteSession, "_refresh_view_if_source_changed", source_changed)
-
-    bootstrapped.call_tool("memory", {"action": "write", "text": "remember this once"})
-
-    assert [call[0] for call in stub.state.tool_calls] == ["memory"]
-    assert events == ["refresh after 0 calls"]
-
-
-def test_a_pure_tool_is_still_sent_speculatively_and_retried_on_a_moved_view(
-    stub: StubServer, bootstrapped: RemoteSession, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(RemoteSession, "_refresh_view_if_source_changed", lambda self, fingerprint=None: True)
-
-    bootstrapped.call_tool("code_search", {"query": "alpha"})
-
-    assert [call[0] for call in stub.state.tool_calls] == ["code_search", "code_search"]
-
-
-def test_a_second_unfilled_miss_is_a_typed_refusal_not_a_loop(
-    stub: StubServer,
-    bootstrapped: RemoteSession,
-    worktree: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_a_second_unfilled_miss_is_a_typed_refusal_not_a_loop(stub: StubServer, bootstrapped: RemoteSession) -> None:
     """The server asks once; a client that loops turns an answer into a hang."""
-    # The file exists, so the fill is real and it is the server that still asks.
-    (worktree / "pkg" / "never.py").write_text("x = 1\n", encoding="utf-8")
-    monkeypatch.setattr(RemoteSession, "_refresh_view_if_source_changed", lambda self, fingerprint: False)
     stub.state.miss_always["read"] = ("pkg/never.py",)
     with pytest.raises(ClientError) as caught:
         bootstrapped.call_tool("read", {"files": ["pkg/never.py"]})
     assert caught.value.code is ErrorCode.BLOB_MISSING
     assert caught.value.action.value == "upload_blobs"
     assert not caught.value.retryable
-
-
-def test_a_needed_path_that_names_nothing_is_a_fix_request_with_suggestions(
-    stub: StubServer, bootstrapped: RemoteSession
-) -> None:
-    """No upload can satisfy an absent path, so it is never filled or retried."""
-    stub.state.miss_always["code_search"] = ("alpha.py",)
-    revision = bootstrapped.state.view_revision
-    with pytest.raises(ClientError) as caught:
-        bootstrapped.call_tool("code_search", {"query": "alpha", "paths": ["alpha.py"]})
-    error = caught.value
-    assert error.code is ErrorCode.PATH_NOT_ADDRESSABLE
-    assert error.action.value == "fix_request"
-    assert not error.retryable
-    assert "'alpha.py' does not exist" in error.message
-    assert "did you mean 'pkg/alpha.py'?" in error.message
-    assert error.details["paths"] == {"alpha.py": {"reason": "absent", "suggestions": ["pkg/alpha.py"]}}
-    assert bootstrapped.state.view_revision == revision  # no overlay commit
-    assert not [call for call in stub.state.tool_calls if call[0] == "code_search"]
-    event = bootstrapped.state.recovery_events[-1]
-    assert (event.kind, event.outcome, event.error_code) == ("blob_fill", "failed", "path_not_addressable")
-
-
-def test_a_needed_directory_with_nothing_indexed_is_a_fix_request(
-    stub: StubServer, bootstrapped: RemoteSession
-) -> None:
-    stub.state.miss_always["code_search"] = ("build",)  # gitignored in the fixture
-    with pytest.raises(ClientError) as caught:
-        bootstrapped.call_tool("code_search", {"query": "artifact", "paths": ["build"]})
-    assert caught.value.code is ErrorCode.PATH_NOT_ADDRESSABLE
-    assert caught.value.details["paths"]["build"]["reason"] == "directory"
-
-
-def test_suggestions_match_whole_segments_shallowest_first() -> None:
-    candidates = [
-        "frontend/src/components/pdp/analyzer/constants.ts",
-        "frontend/src/components/pdp/Gallery.tsx",
-        "archive/components/pdp/Old.tsx",
-        "frontend/src/mycomponents/pdp/x.ts",
-        "docs/components/pdp",
-    ]
-    assert session_mod.suggest_paths("components/pdp", candidates) == (
-        "archive/components/pdp",
-        "docs/components/pdp",
-        "frontend/src/components/pdp",
-    )
-    assert session_mod.suggest_paths("components/pdp/", candidates, limit=1) == ("archive/components/pdp",)
-    assert session_mod.suggest_paths("nothing/here", candidates) == ()
-    assert session_mod.suggest_paths("/", candidates) == ()
-
-
-def test_suggestions_fall_back_to_git_when_no_manifest_is_held(tmp_path: Path) -> None:
-    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
-    (tmp_path / "frontend" / "src" / "components" / "pdp").mkdir(parents=True)
-    (tmp_path / "frontend" / "src" / "components" / "pdp" / "a.ts").write_text("x\n", encoding="utf-8")
-    (tmp_path / ".gitignore").write_text("ignored/\n", encoding="utf-8")
-    (tmp_path / "ignored" / "components" / "pdp").mkdir(parents=True)
-    (tmp_path / "ignored" / "components" / "pdp" / "b.ts").write_text("x\n", encoding="utf-8")
-    listed = session_mod._git_listed_paths(tmp_path)
-    assert session_mod.suggest_paths("components/pdp", listed) == ("frontend/src/components/pdp",)
 
 
 def test_a_path_the_client_cannot_address_is_refused_rather_than_joined(
@@ -1213,7 +911,7 @@ def test_borrowed_live_view_is_never_closed_or_retired_by_the_borrower(stub: Stu
     owner = RemoteSession(config)
     report = owner.bootstrap(deadline_s=5.0)
     assert report.ok
-    binding = load_live_view_binding(config.runtime_state_dir, config.repo_root, server_url=config.url)
+    binding = load_live_view_binding(config.state_dir, config.repo_root, server_url=config.url)
     assert binding is not None
     assert binding.view_id == owner.state.view_id
 
@@ -1224,13 +922,13 @@ def test_borrowed_live_view_is_never_closed_or_retired_by_the_borrower(stub: Stu
     borrower.close()
 
     assert binding.view_id not in stub.state.closed_views
-    still_live = load_live_view_binding(config.runtime_state_dir, config.repo_root, server_url=config.url)
+    still_live = load_live_view_binding(config.state_dir, config.repo_root, server_url=config.url)
     assert still_live is not None
     assert still_live.view_id == binding.view_id
 
     owner.close()
     assert binding.view_id in stub.state.closed_views
-    assert load_live_view_binding(config.runtime_state_dir, config.repo_root, server_url=config.url) is None
+    assert load_live_view_binding(config.state_dir, config.repo_root, server_url=config.url) is None
 
 
 def test_review_style_session_does_not_publish_a_transient_live_view(stub: StubServer, config: ClientConfig) -> None:
@@ -1239,7 +937,7 @@ def test_review_style_session_does_not_publish_a_transient_live_view(stub: StubS
     session.open_session(timeout_s=5.0)
     session.open_view(timeout_s=5.0)
 
-    assert load_live_view_binding(config.runtime_state_dir, config.repo_root, server_url=config.url) is None
+    assert load_live_view_binding(config.state_dir, config.repo_root, server_url=config.url) is None
     session.close()
 
 

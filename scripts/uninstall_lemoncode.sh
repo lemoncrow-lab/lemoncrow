@@ -50,7 +50,7 @@ else
 fi
 STAGING_DIR="${HOME}/.lemoncrow/lemoncode"
 
-info()  { echo "[lc:uninstall:lemoncode] $*"; }
+info()  { echo "[lemoncrow:uninstall:lemoncode] $*"; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 
 clean_config() {

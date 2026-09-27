@@ -24,10 +24,6 @@ const readiness: ReviewReadinessModel = {
     { id: "changed", label: "1 review area changed", detail: "Previous judgment is stale.", tone: "sky" },
   ],
   evidenceFacts: [],
-  targetCount: 8,
-  reviewedTargets: 5,
-  changedSinceReview: 1,
-  needsChanges: 0,
   targetPending: 3,
   openComments: 1,
   failedChecks: 0,
@@ -132,12 +128,12 @@ describe("ReviewAttentionBar", () => {
         delivery={null}
         readiness={{
           ...readiness,
-          label: "Checking merge readiness",
-          detail: "Loading merge requirements for this Snapshot.",
+          label: "Checking landing readiness",
+          detail: "Loading the server-authoritative landing conditions for this Snapshot.",
           blockers: [{
             id: "landing-readiness",
-            label: "Checking merge readiness",
-            detail: "Merge requirements are still loading.",
+            label: "Checking landing readiness",
+            detail: "The exact landing conditions are still loading.",
             tone: "amber",
           }],
           targetPending: 2,
@@ -164,11 +160,11 @@ describe("ReviewAttentionBar", () => {
         delivery={null}
         readiness={{
           ...readiness,
-          label: "1 merge requirement unresolved",
-          detail: "Latest revision reviewed",
+          label: "1 landing condition unresolved",
+          detail: "Latest Snapshot reviewed",
           blockers: [{
             id: "latest-snapshot-reviewed",
-            label: "Latest revision reviewed",
+            label: "Latest Snapshot reviewed",
             detail: "2 review areas still need human judgment or re-review.",
             tone: "amber",
           }],

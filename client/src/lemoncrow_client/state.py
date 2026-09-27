@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from typing import Any, Final
 
 from .manifest import ManifestEntry
-from .protocol import HEADER_REVISION, HEADER_SESSION, HEADER_VIEW, ReviewManifest
+from .protocol import HEADER_REVISION, HEADER_SESSION, HEADER_VIEW
 from .recovery import RecoveryEvent, RecoveryKind, RecoveryOutcome
 
 __all__ = ["SessionState"]
@@ -58,11 +58,6 @@ class SessionState:
     online: bool = False
     #: One line, shown to the developer when the server is not usable.
     reason: str = ""
-    #: The protocol version the handshake settled on (N or N-1); empty before it.
-    protocol_version: str = ""
-    #: The server's Review capability manifest, from the handshake or
-    #: ``GET /v1/reviews/manifest``; ``None`` until one of them is read.
-    review_manifest: ReviewManifest | None = None
 
     # -- server-declared limits, defaulted to this build's expectations ---- #
     content_size_cap: int = _MIB

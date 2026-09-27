@@ -1,24 +1,10 @@
-import { Button as UiButton } from "../components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "../components/ui/dropdown-menu";
-import { useState, type Ref } from "react";
-import { CircleHelp, Copy, Download, EllipsisVertical, History, Send, Settings } from "lucide-react";
+import { useRef, useState, type Ref } from "react";
+import { CircleHelp, Copy, Download, EllipsisVertical, Send } from "lucide-react";
 
 import type { DiffOverflow, DiffStylePreference } from "./diffModel";
 import { REVIEW_CODE_THEMES, type ReviewCodeTheme } from "./reviewCodeTheme";
+import type { ReaderOrder } from "./readerModel";
 import type { ReviewPrimaryAction } from "./reviewPrimaryAction";
-import type { ReviewPaletteAction } from "./ReviewCommandPalette";
 
 interface ReviewActionMenuProps {
   busy: boolean;
@@ -26,43 +12,33 @@ interface ReviewActionMenuProps {
   historical: boolean;
   allowRefresh: boolean;
   showFinish: boolean;
-  nextAction?: ReviewPrimaryAction;
-  onNextAction?(): void;
   reviewId: string;
   workspacePath?: string;
+  primaryAction: ReviewPrimaryAction;
+  order: ReaderOrder;
   codeTheme: ReviewCodeTheme;
   diffStyle: DiffStylePreference;
   diffOverflow: DiffOverflow;
   contextOpen: boolean;
   focusMode: boolean;
-  /** Stable element to return focus to once a menu-opened dialog (e.g. feedback) closes. */
   feedbackTriggerRef?: Ref<HTMLButtonElement>;
   onRefresh(): void;
   onFinish(): void;
   onDownloadPatch(): void;
+  onPrimaryAction(): void;
+  onOrderChange(order: ReaderOrder): void;
   onCodeThemeChange(theme: ReviewCodeTheme): void;
   onDiffStyleChange(preference: DiffStylePreference): void;
   onToggleDiffOverflow(): void;
   onToggleContext(): void;
   onToggleFocus(): void;
   onShowShortcuts(): void;
-  /** Snapshot history and compare: the header's Snapshot chip is hidden on phones. */
-  onShowHistory?: () => void;
   onOpenFeedback(): void;
-  settingsHref?: string;
   /** Present only for a Review opened from a GitHub pull request. */
   onPublishGitHub?: () => void;
-  /** Expert correction actions; unavailable ones stay listed with their reason. */
-  correctionActions?: ReviewPaletteAction[];
 }
 
 type CopyState = "idle" | "copied" | "failed";
-
-const DIFF_STYLE_LABEL: Record<DiffStylePreference, string> = {
-  auto: "Auto",
-  split: "Split",
-  unified: "Unified",
-};
 
 export default function ReviewActionMenu({
   busy,
@@ -70,10 +46,10 @@ export default function ReviewActionMenu({
   historical,
   allowRefresh,
   showFinish,
-  nextAction,
-  onNextAction,
   reviewId,
   workspacePath = "",
+  primaryAction,
+  order,
   codeTheme,
   diffStyle,
   diffOverflow,
@@ -83,19 +59,25 @@ export default function ReviewActionMenu({
   onRefresh,
   onFinish,
   onDownloadPatch,
+  onPrimaryAction,
+  onOrderChange,
   onCodeThemeChange,
   onDiffStyleChange,
   onToggleDiffOverflow,
   onToggleContext,
   onToggleFocus,
   onShowShortcuts,
-  onShowHistory,
   onOpenFeedback,
-  settingsHref = "/settings",
   onPublishGitHub,
-  correctionActions = [],
 }: ReviewActionMenuProps) {
   const [copyIdState, setCopyIdState] = useState<CopyState>("idle");
+  const menuRef = useRef<HTMLDetailsElement>(null);
+  // One-shot commands close the menu so their result (sheet, error, scroll) is
+  // not hidden behind it; settings and copy rows keep it open.
+  const closing = (action: () => void) => () => {
+    menuRef.current?.removeAttribute("open");
+    action();
+  };
   const [copyWorkspaceState, setCopyWorkspaceState] = useState<CopyState>("idle");
 
   const copyText = (value: string, setState: (state: CopyState) => void) => {
@@ -113,167 +95,142 @@ export default function ReviewActionMenu({
     );
   };
 
-  const codeThemeLabel = REVIEW_CODE_THEMES.find((option) => option.id === codeTheme)?.label ?? codeTheme;
-
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <UiButton ref={feedbackTriggerRef} variant="ghost" size="icon" aria-label="Review actions">
-          <EllipsisVertical size={14} />
-        </UiButton>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64 max-h-[calc(100dvh-80px)]">
-        <DropdownMenuLabel>Review</DropdownMenuLabel>
-        {nextAction && nextAction.kind !== "review_target" && onNextAction && (
-          <DropdownMenuItem disabled={busy || nextAction.disabled} onSelect={onNextAction}>
-            {nextAction.label}
-          </DropdownMenuItem>
-        )}
+    <details ref={menuRef} data-review-dropdown className="relative shrink-0">
+      <summary
+        aria-label="Review actions"
+        className="review-icon-button cursor-pointer list-none [&::-webkit-details-marker]:hidden"
+      >
+        <EllipsisVertical size={14} />
+      </summary>
+      <div className="review-menu absolute right-0 top-full z-50 mt-2 w-64 max-h-[calc(100dvh-80px)] overflow-y-auto">
+        <div className="px-2.5 pb-1.5 pt-2">
+          <div className="review-kicker">Review</div>
+        </div>
         {allowRefresh && (
-          <DropdownMenuItem disabled={busy || readOnly} onSelect={onRefresh}>
+          <button type="button" disabled={busy || readOnly} onClick={closing(onRefresh)} className="review-menu-item">
             Update from current source
-          </DropdownMenuItem>
+          </button>
         )}
         {showFinish && (
-          <DropdownMenuItem disabled={busy || historical} onSelect={onFinish}>
-            Finish review…
-          </DropdownMenuItem>
-        )}
-        {onShowHistory && (
-          <DropdownMenuItem onSelect={onShowHistory}>
-            <History size={14} />
-            Snapshot history
-          </DropdownMenuItem>
+          <button type="button" disabled={busy || historical} onClick={closing(onFinish)} className="review-menu-item">
+            Record review outcome…
+          </button>
         )}
         {onPublishGitHub && (
-          <DropdownMenuItem
-            disabled={busy || historical}
-            onSelect={(event) => {
-              event.preventDefault();
-              onPublishGitHub();
-            }}
-          >
-            <Send size={14} />
+          <button type="button" disabled={busy || historical} onClick={onPublishGitHub} className="review-menu-item">
+            <Send size={12} />
             Publish to GitHub…
-          </DropdownMenuItem>
+          </button>
         )}
-        {correctionActions.length > 0 && (
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>Fix &amp; corrections</DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-72">
-              {correctionActions.map((action) => (
-                <DropdownMenuItem
-                  key={action.id}
-                  className="items-start"
-                  disabled={action.disabled}
-                  onSelect={() => action.run()}
-                >
-                  <span className="min-w-0 flex-1">
-                    <span className="block">{action.label}</span>
-                    {action.detail && <span className="block text-caption text-muted-foreground">{action.detail}</span>}
-                  </span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-        )}
-        <DropdownMenuItem
-          onSelect={(event) => {
-            event.preventDefault();
-            copyText(reviewId, setCopyIdState);
-          }}
-        >
-          <Copy size={14} />
+        <button type="button" onClick={() => copyText(reviewId, setCopyIdState)} className="review-menu-item">
+          <Copy size={12} />
           Copy Change ID
           {copyIdState === "copied" && <span className="ml-auto text-emerald-400">Copied</span>}
           {copyIdState === "failed" && <span className="ml-auto text-amber-300">Copy failed</span>}
-        </DropdownMenuItem>
+        </button>
         {workspacePath && (
-          <DropdownMenuItem
-            className="items-start"
-            onSelect={(event) => {
-              event.preventDefault();
-              copyText(workspacePath, setCopyWorkspaceState);
-            }}
+          <button
+            type="button"
+            onClick={() => copyText(workspacePath, setCopyWorkspaceState)}
+            className="review-menu-item"
+            title={workspacePath}
           >
-            <Copy size={14} className="mt-0.5 shrink-0" />
-            <span className="min-w-0 flex-1">
-              <span className="block">Copy workspace path</span>
-              <span className="block truncate text-caption text-muted-foreground">{workspacePath}</span>
-            </span>
-            {copyWorkspaceState === "copied" && <span className="shrink-0 text-emerald-400">Copied</span>}
-            {copyWorkspaceState === "failed" && <span className="shrink-0 text-amber-300">Copy failed</span>}
-          </DropdownMenuItem>
+            <Copy size={12} />
+            Copy workspace path
+            {copyWorkspaceState === "copied" && <span className="ml-auto text-emerald-400">Copied</span>}
+            {copyWorkspaceState === "failed" && <span className="ml-auto text-amber-300">Copy failed</span>}
+          </button>
         )}
-        <DropdownMenuItem className="items-start" onSelect={onDownloadPatch}>
-          <Download size={14} className="mt-0.5 shrink-0" />
-          <span className="min-w-0 flex-1">
-            <span className="block">Download Snapshot patch</span>
-            <span className="block text-caption text-muted-foreground">Apply with git apply</span>
-          </span>
-        </DropdownMenuItem>
-
-        <DropdownMenuSeparator />
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            Appearance
-            <span className="ml-auto pl-3 text-caption text-muted-foreground">{codeThemeLabel}</span>
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent>
-            <DropdownMenuRadioGroup value={codeTheme} onValueChange={(value) => onCodeThemeChange(value as ReviewCodeTheme)}>
-              {REVIEW_CODE_THEMES.map((option) => (
-                <DropdownMenuRadioItem key={option.id} value={option.id}>{option.label}</DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-
-        <DropdownMenuSeparator />
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            Diff view
-            <span className="ml-auto pl-3 text-caption text-muted-foreground">{DIFF_STYLE_LABEL[diffStyle]}</span>
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent>
-            <DropdownMenuRadioGroup value={diffStyle} onValueChange={(value) => onDiffStyleChange(value as DiffStylePreference)}>
-              <DropdownMenuRadioItem value="auto">Auto · responsive</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="split">Split</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="unified">Unified</DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-        <DropdownMenuItem
-          onSelect={(event) => {
-            event.preventDefault();
-            onToggleDiffOverflow();
-          }}
+        <button
+          type="button"
+          onClick={closing(onDownloadPatch)}
+          className="review-menu-item"
+          title="Download the exact frozen Snapshot patch; apply it with git apply."
         >
-          Code lines <span className="ml-auto text-muted-foreground">{diffOverflow === "wrap" ? "Wrap" : "One line"} · w</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={onToggleContext}>
+          <Download size={12} />
+          Download Snapshot patch
+          <span className="ml-auto font-mono text-[10px] text-neutral-600">git apply</span>
+        </button>
+        {primaryAction.kind === "send_feedback" && (
+          <button
+            type="button"
+            disabled={busy || primaryAction.disabled}
+            onClick={closing(onPrimaryAction)}
+            className="review-menu-item"
+            title="Opens the handoff preview. Nothing is sent automatically."
+          >
+            <Send size={12} />
+            Preview & send to agent
+            <span className="ml-auto text-[10px] text-neutral-600">manual</span>
+          </button>
+        )}
+
+        <div className="my-1 border-t border-neutral-900" />
+        <label className="block px-2.5 py-2 text-neutral-500">
+          <span className="review-kicker mb-1.5 block">Review order</span>
+          <select
+            aria-label="Review order"
+            disabled={busy}
+            value={order}
+            onChange={(event) => onOrderChange(event.target.value as ReaderOrder)}
+            className="review-field h-8 w-full py-0 disabled:opacity-40"
+          >
+            <option value="recommended">Recommended</option>
+            <option value="file">File order</option>
+          </select>
+        </label>
+        <label className="block px-2.5 pb-2 text-neutral-500">
+          <span className="review-kicker mb-1.5 block">Appearance</span>
+          <select
+            aria-label="Code theme"
+            value={codeTheme}
+            onChange={(event) => onCodeThemeChange(event.target.value as ReviewCodeTheme)}
+            className="review-field h-8 w-full py-0 text-[10px]"
+          >
+            {REVIEW_CODE_THEMES.map((option) => (
+              <option key={option.id} value={option.id}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+
+        <div className="my-1 border-t border-neutral-900" />
+        <label className="block px-2.5 py-2 text-neutral-500">
+          <span className="review-kicker mb-1.5 block">Diff view</span>
+          <select
+            aria-label="Diff view"
+            value={diffStyle}
+            onChange={(event) => onDiffStyleChange(event.target.value as DiffStylePreference)}
+            className="review-field h-8 w-full py-0 text-[10px]"
+          >
+            <option value="auto">Auto · responsive</option>
+            <option value="split">Split</option>
+            <option value="unified">Unified</option>
+          </select>
+        </label>
+        <button type="button" onClick={onToggleDiffOverflow} className="review-menu-item">
+          Code lines <span className="ml-auto text-neutral-500">{diffOverflow === "wrap" ? "Wrap" : "One line"} · w</span>
+        </button>
+        <button type="button" onClick={closing(onToggleContext)} className="review-menu-item">
           {contextOpen ? "Close" : "Open"} context
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={onToggleFocus}>
+        </button>
+        <button type="button" onClick={closing(onToggleFocus)} className="review-menu-item">
           {focusMode ? "Exit" : "Enter"} focus mode
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={onShowShortcuts}>
-          Keyboard shortcuts <span className="ml-auto font-mono text-muted-foreground">?</span>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
-          <a href={settingsHref}>
-            <Settings size={14} />
-            Settings
-          </a>
-        </DropdownMenuItem>
-        <DropdownMenuItem className="items-start" onSelect={onOpenFeedback} aria-label="Send LemonCrow feedback">
-          <CircleHelp size={14} className="mt-0.5 shrink-0" />
-          <span className="min-w-0 flex-1">
-            <span className="block">Make a wish</span>
-            <span className="block text-caption text-muted-foreground">Tell LemonCrow what to build next</span>
-          </span>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </button>
+        <button type="button" onClick={closing(onShowShortcuts)} className="review-menu-item">
+          Keyboard shortcuts <span className="ml-auto font-mono text-neutral-600">?</span>
+        </button>
+        <button
+          ref={feedbackTriggerRef}
+          type="button"
+          onClick={closing(onOpenFeedback)}
+          aria-label="Send LemonCrow feedback"
+          className="review-menu-item border-t border-neutral-900"
+        >
+          <CircleHelp size={12} />
+          Product feedback
+        </button>
+      </div>
+    </details>
   );
 }

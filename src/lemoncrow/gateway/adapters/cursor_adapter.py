@@ -13,7 +13,7 @@ agent (the Cursor Tab / Composer) can:
 
 Installation (automatic via the installer)::
 
-    lc runtime install cursor
+    lc install cursor
 
 Or manually — add to ``~/.cursor/mcp.json``::
 
@@ -22,7 +22,7 @@ Or manually — add to ``~/.cursor/mcp.json``::
         "lc": {
           "type": "stdio",
           "command": "lemoncrow",
-          "args": ["runtime", "mcp"]
+          "args": ["mcp"]
         }
       }
     }
@@ -135,13 +135,13 @@ class CursorAdapter(AgentAdapter):
         return (
             "# Cursor IDE ← LemonCrow integration\n"
             "1. pip install lemoncrow\n"
-            "2. lc runtime init && lc runtime mcp --host cursor    # verify MCP server starts\n"
+            "2. lc init && lc mcp    # verify MCP server starts\n"
             "3. Add to ~/.cursor/mcp.json:\n"
             '   { "mcpServers": {\n'
             '       "lc": {\n'
             '           "type": "stdio",\n'
             '           "command": "lemoncrow",\n'
-            '           "args": ["runtime", "mcp", "--host", "cursor"]\n'
+            '           "args": []\n'
             "       }\n"
             "   }}\n"
             "4. (Optional) Create ~/.cursor/rules/lemoncrow.mdc with:\n"

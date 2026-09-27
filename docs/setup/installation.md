@@ -1,205 +1,324 @@
-# Installation
+# Installation & Configuration
 
-Install LemonCrow once, then use it with an existing coding agent, through LemonCrow's managed coding loop, or for Review.
+This page starts with the installed product flow. Source-checkout and contributor setup are lower down.
 
-## Install
+## Quick Install
 
-```bash
-curl -fsSL https://lemoncrow.com/install.sh | bash
-```
-
-The installer asks nothing. It installs Local Review: the `lc` client (`lc` and `lcr` are real executables, not shell aliases) and a loopback Review server on port 7420. No account or sign-in is needed. Pass `--hosted` (alias `--cloud`) for Hosted Review at api.lemoncrow.com instead, which needs an invited account; run `lc auth login` next. Re-running the bare installer keeps an existing hosted install hosted. Runtime is fetched once, the first time you run `lc rt enable <host>` (`claude`, `codex`, or `opencode`). To pre-install it, pass `--product runtime` or `--product both`, adding `--agent <host>` to enable an agent. `--dry-run` prints the plan; `--url` and `--port` are the other flags. Environment overrides: `LEMONCROW_RELEASE_TAG`, `LEMONCROW_RELEASE_BASE_URL` (alternate asset base, for example `file://` for a local rehearsal), and `LEMONCROW_NO_LAZY_INSTALL=1` to disable the first-use fetch.
-
-Verify the install, then get your first AI review in two more steps (a key or an agent you are signed in to, then `lc review --ai`; see [Your first AI review](./ai-review.md)):
+Install from a checksummed GitHub release:
 
 ```bash
-lc --version
-lc status
-export ANTHROPIC_API_KEY=sk-ant-...        # or OPENAI_API_KEY; or skip it and use: lc review --ai --agent claude
-cd your-project && lc review --ai
+curl -fsSL https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download/install.sh | bash
 ```
 
-The normal Runtime path does not require a LemonCrow daemon or a listening local application server. Repository intelligence is prepared in the repository you are working in.
+What the installer does:
 
-## Install the GitHub Action
+- downloads a pre-compiled LemonCrow binary for your platform from the latest release (checksum-verified)
+- installs it to `~/.local/bin/`
+- adds the directory to `PATH` in your shell profile
 
-To have LemonCrow review your pull requests in CI, on your own model key, add the Action to a workflow instead of installing anything: see [GitHub Action: AI pull request review](./github-action.md).
+The binary is self-contained — no `git`, `uv`, `npm`, or `node` required at install time. No account or login is required; LemonCrow runs fully locally.
 
-## Use LemonCrow with your existing coding agent
-
-Claude Code, Codex, and OpenCode support a temporary launch that adds the LemonCrow plugin only to that run:
+Prefer to build from source? Run the source installer from a checkout:
 
 ```bash
-lc with claude
-lc with codex
-lc with opencode
+bash scripts/local.sh
 ```
 
-The agent keeps its existing model, provider account, credentials, and saved settings. Run these commands from a Git worktree so LemonCrow can prepare the repository index.
+## Full Developer Install
 
-The local index lives under:
-
-```text
-<repo>/.lemoncrow/workspace/
-```
-
-It is incremental and reused the next time you work in that repository.
-
-### Keep the integration enabled
-
-For Claude Code, Codex, and OpenCode you can persist the integration:
-
-```bash
-lc rt enable claude
-lc rt enable codex
-lc rt enable opencode
-```
-
-Check it with:
-
-```bash
-lc rt status
-```
-
-Remove it with:
-
-```bash
-lc rt disable claude
-```
-
-### Cursor
-
-Cursor is also supported, but it uses an installed Cursor integration rather than the `lc with` launcher. The integration covers both the Cursor IDE and `cursor-agent` CLI.
-
-The public installer and `lc rt enable` do not configure Cursor (`lc rt enable cursor` reports `unsupported agent 'cursor'`). Today the integration is installed from a source checkout:
-
-```bash
-bash scripts/install_cursor.sh
-```
-
-For workspace-specific rules and hooks:
-
-```bash
-bash scripts/install_cursor.sh --workspace /path/to/repo
-```
-
-See [Cursor integration](../hosts/cursor-install.md) for the exact artifacts and verification steps.
-
-## Use Runtime Lite locally
-
-Use your existing coding agent with the open-source local Runtime:
-
-```bash
-lc with claude
-lc with codex
-lc with opencode
-```
-
-Cursor uses its integration from a source checkout (above). Persist a supported integration with `lc rt enable <host>`. The repository index is local and can be prepared explicitly with:
-
-```bash
-lc runtime index
-```
-
-Pi and LemonCode are public managed coding-agent hosts:
-
-```bash
-lc rt host install --engine pi
-lc rt host status --engine pi
-lc rt host install --engine lemoncode   # full CLI only; the installed client says so
-```
-
-The installed client manages Pi itself. LemonCode host lifecycle needs the full LemonCrow CLI from a [source checkout](#source-checkout--contributor-setup). Installing either host does not enable Hosted Runtime and does not require a Pro plan.
-
-## Use Hosted Runtime
-
-Point an existing-agent integration explicitly at Hosted Runtime. A Pro plan grants access; see [LemonCrow Pro: Hosted Runtime](./pro-hosted-runtime.md) for the full sequence:
-
-```bash
-curl -fsSL https://lemoncrow.com/install.sh | bash -s -- --product runtime --hosted
-lc auth login
-lc rt enable claude --hosted
-```
-
-`lc code` is reserved for LemonCrow's Hosted owned coding agent, which is not yet available. The installed client says so and exits; it does not fall back to a local private engine:
-
-```bash
-lc code --help
-```
-
-| Path | What it adds |
-| --- | --- |
-| Runtime Lite | Open-source repository intelligence and LemonCrow tools on the developer machine |
-| Public hosts | Pi and LemonCode host binaries managed with `lc rt host` |
-| Hosted Runtime | Private deeper retrieval and richer code relationships. Cross-workspace context and LemonCrow-owned managed execution are not yet available |
-| Enterprise Runtime | The private Runtime in customer-controlled/dedicated infrastructure with identity, policy, managed workspaces, governance, and audit |
-
-A Pro plan is a commercial access tier for Hosted Runtime. Signing in does not silently change local Runtime Lite into hosted execution. To set up a Pro organization's machines, follow [LemonCrow Pro: Hosted Runtime](./pro-hosted-runtime.md).
-
-## Source checkout / contributor setup
-
-For development from this repository:
+For host integrations plus the local loopback server, install from a repo
+checkout using the dev installer:
 
 ```bash
 git clone https://github.com/lemoncrow-lab/lemoncrow.git
 cd lemoncrow
-uv sync --all-extras
-make oss-dev    # the real public installer on locally built assets, in the sandbox ~/.lemoncrow-oss (port 7428)
-make verify
+bash scripts/local.sh --local
 ```
 
-Developer targets come in two sets with the same verbs. `oss-*` uses only this
-repository; `hosted-*` also needs the private `enterprise/` checkout. Only
-`-prod` touches your live `~/.lemoncrow`; every other verb stays in that side's
-sandbox, so both sandboxes can run side by side.
+The dev installer:
 
-| Verb | `oss-*` | `hosted-*` |
-| --- | --- | --- |
-| `-dev` | `install.sh --local` on staged assets into `~/.lemoncrow-oss` (server on 7428) | `hosted-up`, then `install.sh --cloud` into `~/.lemoncrow-hosted` |
-| `-up` / `-down` | the sandbox Review server | enterprise API 7432, UI 3130, Authward |
-| `-status` | servers and the sandbox client | servers and the sandbox client |
-| `-reset` | `-down`, then delete the sandbox | `-down`, then delete the sandbox |
-| `-ui` | Vite HMR against `API_PORT` (7428) | disposable preview with sample data (3131) |
-| `-ui-build` | `frontend/dist` | `enterprise/frontend/dist` |
-| `-test` | both products in a temp home (7429) | Review client qualification on a real server |
-| `-prod` | full rebuild into the live home (7420) | `-test`, then the live home (`HOSTED_URL`) |
+- installs `lc` and the thin MCP client as user-level commands
+- installs the public `lemoncrow-server` package
+- starts one loopback server on `http://127.0.0.1:7420`
+- installs host integrations when compatible CLIs are found on `PATH`
+- preserves persistent MCP connector state across reinstalls
 
-`oss-prod` and `hosted-prod` replace each other, since the live home holds one
-deployment. Sandboxes never configure agent hosts; `-dev` and `-status` print
-the environment that points `lc` at a sandbox. `make release-stage` stages the
-release assets every installer target uses.
+The dev installer uses uv at install time to create a managed tool environment.
+After install, normal CLI/MCP usage runs directly from that environment.
 
-Useful host-specific installers live under `scripts/install_<host>.sh` and are documented under [`docs/hosts/`](../hosts/all-agent-clis.md).
+Verify the install:
 
-## Shared services and self-hosting
+```bash
+lc --version
+lc mcp --host claude check --json
+```
 
-Review, hosted Runtime, Enterprise, and integration/API use cases can involve shared HTTP services. They are not required for the normal local Runtime plugin path.
+## Useful Installer Variants
 
-For production or self-hosted service topology, storage backends, ports, and operational controls, use [Production readiness](../operations/production-readiness.md) and the [architecture reference](../reference/architecture.md).
+Skip host integrations:
 
-## Upgrading: behaviour changes
+```bash
+curl -fsSL https://raw.githubusercontent.com/lemoncrow-lab/lemoncrow/main/scripts/local.sh | bash -s -- --no-hosts
+```
 
-Security hardening changed how the local product behaves. The full list is in the [changelog](https://github.com/lemoncrow-lab/lemoncrow/blob/main/CHANGELOG.md#behaviour-changes-for-local-installs); the ones you will notice first:
+Install from a local checkout instead of GitHub:
 
-- A bare install is Local Review; Hosted Review needs `--hosted`.
-- Run `lc review --open` once to connect the browser to the Local Review server. The browser session then renews itself; run `lc review --open` again if the Reader says it is not connected.
-- The Local Review server answers only `127.0.0.1`, `localhost` or `[::1]` on its own port and returns `403` otherwise. Tunnel it with the same port (`ssh -L 7420:127.0.0.1:7420 host`), not a different one.
-- Hosted mode ignores `~/.lemoncrow/token`. Sign in with `lc auth login`, or set `LEMONCROW_TOKEN_FILE` or `LEMONCROW_TOKEN`.
-- Review's **Send to agent** keeps each agent's own approvals: Codex runs in `workspace-write` with network off, and Copilot and OpenCode get no auto-approve.
-- Remote MCP pairing codes (`lc rt mcp serve`) are single use and valid for 15 minutes, and `--no-auth` is loopback only.
+```bash
+bash scripts/local.sh --local
+```
+
+Install host + universal MCP artifacts into the current project (instead of user-global host config):
+
+```bash
+bash scripts/local.sh --local --workspace .
+```
 
 ## Uninstall
 
-`lc uninstall` lists exactly what it will remove, removes what the installer added after one question, and asks separately before it deletes anything of yours. A product is required:
+Remove LemonCrow with the uninstall script:
 
 ```bash
-lc uninstall all --dry-run   # list what would be removed; changes nothing
-lc uninstall all             # asks; --yes skips the question (your data stays), --purge removes your data too
-lc uninstall review          # Review only, Runtime keeps working (or: runtime)
+bash scripts/uninstall.sh          # remove LemonCrow; your data under ~/.lemoncrow is preserved
+bash scripts/uninstall.sh --purge  # remove LemonCrow and all LemonCrow-managed local state
 ```
 
-What it removes: the `lc` and `lcr` commands, the Review client and engine, the installer's scripts, the background server, carried review results (a cache) and the lines the installer added to `~/.bashrc`, `~/.profile` and the other shell startup files. What it asks about: your settings and any API key you saved (`~/.lemoncrow/plugin_settings.json`), the reviews you opened in the Reader, the git hooks `lc review hook install` wrote, and the `.lemoncrow` folder of the repository you run it in. It never runs `npm` and never touches coding-agent settings or your code. Without a terminal it removes nothing until you pass `--yes`. Details: [CLI reference](../reference/cli.md#removal-lc-uninstall).
+`lc uninstall` removes host integrations and wrappers only; use the script
+above to remove the runtime itself.
 
-Update with `lc update`, which re-runs the installer for each installed product and leaves host registrations untouched.
+## Runtime Modes After Install
 
-Host-specific uninstall scripts remain available for audited or recovery workflows.
+### Local mode (default)
+
+Local mode has one persistent LemonCrow process: the public loopback server on `127.0.0.1:7420`.
+The thin client used by `lc mcp` connects to that server; it does not build a second local index or start per-worktree services.
+
+From a source checkout:
+
+```bash
+make start
+make stop
+make restart
+bash scripts/local_server.sh status
+```
+
+The installer starts the loopback server automatically. `LEMONCROW_URL` can point the thin client at another endpoint; its default is `http://127.0.0.1:7420`.
+
+### Hosted mode
+
+Hosted mode starts no local LemonCrow server. The same thin client connects to the configured hosted endpoint.
+
+### `lc code` model gateway
+
+`lc code` is LemonCrow's coding agent. When it uses LemonCode/Pi as a frontend, it starts an **ephemeral** OpenAI/Anthropic-compatible gateway for that coding session and stops it when the session exits. That gateway is not the local data-plane server and is not a background stack.
+
+### Optional standalone HTTP service
+
+`lc service start` remains an explicit standalone API surface for integrations that need the older service API. It is not started by the local installer and is not required for MCP or `lc code`.
+
+Manual job control remains available without a controller daemon:
+
+```bash
+lc worker enqueue consolidate_playbooks
+lc worker run-once
+lc worker list
+```
+
+### Installer Behavior Variables
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `LEMONCROW_NO_HOSTS` | `0` | Skip host integration install scripts |
+| `LEMONCROW_LOCAL` | `0` | Install from the current checkout in editable mode |
+
+## Storage Backends
+
+### SQLite (default)
+
+SQLite is the default install mode and does not require any extra setup.
+
+- store root: `~/.lemoncrow` by default
+- queue-backed worker jobs are supported
+- good default for local usage, single-user environments, and most host integrations
+
+Store layout:
+
+```text
+.lemoncrow/
+├── lemoncrow.db          # SQLite store (blocks, traces, rubrics, jobs)
+├── blocks/             # Markdown mirrors of Playbooks
+├── rubrics/            # YAML mirrors of rubrics
+└── traces/             # JSON mirrors of recorded traces
+```
+
+### PostgreSQL (optional)
+
+Use Postgres when you want shared storage, central deployment, or multi-writer operation.
+
+```bash
+LEMONCROW_STORAGE_BACKEND=postgres \
+LEMONCROW_DATABASE_URL=postgresql://user:pass@localhost:5432/lemoncrow \
+lc init
+```
+
+### pgvector (optional)
+
+Embedding-based similarity search is optional and additive:
+
+```bash
+LEMONCROW_STORAGE_BACKEND=postgres \
+LEMONCROW_DATABASE_URL=postgresql://... \
+LEMONCROW_VECTOR_SEARCH_ENABLED=true \
+LEMONCROW_EMBEDDING_MODEL=text-embedding-3-small \
+lc init
+```
+
+## Environment Variables
+
+### Core
+
+| Variable               | Default            | Description                       |
+| ---------------------- | ------------------ | --------------------------------- |
+| `LEMONCROW_ROOT`         | `~/.lemoncrow`       | Main runtime store root           |
+| `LEMONCROW_STORE_ROOT`   | `~/.lemoncrow`       | Alias for `LEMONCROW_ROOT`          |
+| `LEMONCROW_LESSONS_ROOT` | workspace-relative | Optional git-tracked lessons root |
+
+### Storage
+
+| Variable                        | Default                  | Description                               |
+| ------------------------------- | ------------------------ | ----------------------------------------- |
+| `LEMONCROW_STORAGE_BACKEND`       | `sqlite`                 | `sqlite` or `postgres`                    |
+| `LEMONCROW_DATABASE_URL`          | `""`                     | PostgreSQL DSN when backend is `postgres` |
+| `LEMONCROW_VECTOR_SEARCH_ENABLED` | `false`                  | Enable pgvector similarity search         |
+| `LEMONCROW_EMBEDDING_DIM`         | `1536`                   | Embedding dimension                       |
+| `LEMONCROW_EMBEDDING_MODEL`       | `text-embedding-3-small` | Embedding model name                      |
+
+### Background Controller
+
+| Variable                                          | Default | Description                                    |
+| ------------------------------------------------- | ------- | ---------------------------------------------- |
+
+### Optional Stack
+
+| Variable           | Default | Description                           |
+| ------------------ | ------- | ------------------------------------- |
+
+### Optional HTTP Service
+
+| Variable               | Default     | Description                                 |
+| ---------------------- | ----------- | ------------------------------------------- |
+| `LEMONCROW_SERVICE_HOST` | `127.0.0.1` | Service bind host                           |
+| `LEMONCROW_SERVICE_PORT` | `8787`      | Service port                                |
+| `LEMONCROW_REQUIRE_AUTH` | `false`     | Require Bearer auth                         |
+| `LEMONCROW_API_KEY`      | `""`        | Bearer token for authenticated service mode |
+
+### MCP
+
+| Variable                    | Default | Description                                                                |
+| --------------------------- | ------- | -------------------------------------------------------------------------- |
+| `LEMONCROW_SERVICE_URL`       | unset   | Remote service URL; when set, core MCP calls route to this service         |
+| `LEMONCROW_ADDITIONAL_DIRS`   | `""`    | Extra directories the edit tools may **write** to (see below)              |
+
+#### Widening the edit write boundary
+
+LemonCrow's read-only tools (`read`, `grep`, `search`, `explore`) accept any
+absolute path. Its **write** tools (`edit`, batch edit, and `bash`'s write
+confinement) are deliberately confined to the workspace root, plus `/tmp`, which
+is always writable. Anything else has to be opted in explicitly. An edit outside
+the boundary fails with `edit path escapes the workspace root`.
+
+There are three supported ways to widen it:
+
+| Route                                                                                                  | Scope             | Takes effect          |
+| ------------------------------------------------------------------------------------------------------ | ----------------- | --------------------- |
+| `permissions.additionalDirectories` in `~/.claude/settings.json` or `~/.claude/settings.local.json`      | all workspaces    | immediately (live)    |
+| `permissions.additionalDirectories` in `<workspace>/.claude/settings.json` or `settings.local.json`      | that workspace    | immediately (live)    |
+| `LEMONCROW_ADDITIONAL_DIRS` env var on the `lc` MCP server entry (`lc settings set mcp.additional_edit_dirs ...`) | that MCP process  | after a reconnect     |
+
+All four settings files are read, and each is read from **both** the nested
+`permissions.additionalDirectories` key (what Claude Code's `--add-dir` flag and
+`/permissions` UI write) and the legacy top-level `additionalDirectories` key:
+
+```json
+{
+  "permissions": {
+    "additionalDirectories": ["~/notes", "/srv/shared/plans"]
+  }
+}
+```
+
+Those files are re-read on every edit call (mtime-checked), so adding, editing,
+or deleting one applies immediately — no restart, no reconnect. The env var is
+read once at process start like any MCP server env var, so changing it requires
+restarting the `lc` MCP connection. It is `:`-separated (PATH-style); a comma is
+**not** a separator, so a directory whose name contains one is listed as-is:
+
+```bash
+lc settings set mcp.additional_edit_dirs "$HOME/notes:/srv/shared/plans"
+```
+
+Every entry — env var or settings file — must be an **absolute** path once a
+leading `~` is expanded. Relative entries (`notes`, `.`, `..`) are skipped with a
+warning rather than resolved against the MCP server's working directory. Entries
+that resolve to a filesystem root (`/`) or to your whole home directory (a bare
+`~`) are refused with a warning naming the source, so a cloned repo shipping a
+`.claude/settings.local.json` that asks for `/` grants nothing. The other entries
+in the same list are still honored.
+
+Directory matching is component-wise, not prefix-based: allowing `/srv/plans`
+does **not** allow `/srv/plans-secret`. A settings file that fails to parse is
+skipped with a warning naming the file (`lc` MCP server log) and grants nothing.
+
+`LEMONCROW_ADDITIONAL_DIRS` is the only variable that widens the write boundary.
+The similarly named `LEMONCROW_RETRIEVAL_ADDITIONAL_DIRS`
+(`lc settings set retrieval.additional_dirs`) only adds directories to code
+search/indexing and never grants write access.
+
+### Telemetry
+
+Anonymous remote telemetry is **on by default**. Turn it off with
+`lc telemetry remote off`, and back on with `lc telemetry remote on`.
+The kill switches `DO_NOT_TRACK=1` and `LEMONCROW_TELEMETRY=off` suppress remote
+telemetry entirely. See [Privacy & network behavior](privacy.md) for exactly
+what is and is not sent.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `LEMONCROW_TELEMETRY` | on (remote) | Remote telemetry is on by default; `off`/`0`/`false`/`no`, or `DO_NOT_TRACK=1`, disables it |
+
+If you are developing LemonCrow itself instead of using the installed product:
+
+```bash
+cd lemoncrow
+uv sync --all-extras
+lc init
+```
+
+Contributor verification flow:
+
+```bash
+make verify
+```
+
+Local mode uses one machine-wide loopback server on `127.0.0.1:7420`; git worktrees do not allocate their own LemonCrow service ports.
+
+## Per-Agent Host Setup
+
+After installation, use the host-specific guides if you want to inspect or customize integration:
+
+- [hosts/claude-code-install.md](../hosts/claude-code-install.md)
+- [hosts/copilot-install.md](../hosts/copilot-install.md)
+- [hosts/codex-install.md](../hosts/codex-install.md)
+- [hosts/opencode-install.md](../hosts/opencode-install.md)
+- [hosts/lemoncode-install.md](../hosts/lemoncode-install.md)
+- [hosts/antigravity-install.md](../hosts/antigravity-install.md)
+
+### Optional Zoekt Backend
+
+Zoekt is not bootstrapped by default. LemonCrow uses its internal code index,
+local embeddings, and ripgrep unless an existing Zoekt runtime is detected.
+
+- `LEMONCROW_ZOEKT_MODE=off` (default): never probe or route to Zoekt.
+- `LEMONCROW_ZOEKT_MODE=installed`: use Zoekt only when its binaries are already
+  installed or provided through `LEMONCROW_ZOEKT_BIN`.
+- `LEMONCROW_ZOEKT_MODE=managed`: allow LemonCrow to provision and run the pinned
+  Zoekt container through Docker for large repositories.

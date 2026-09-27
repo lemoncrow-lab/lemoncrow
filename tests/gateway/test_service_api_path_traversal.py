@@ -41,10 +41,10 @@ def _client_for(root: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     return cast("TestClient", FastAPITestClient(create_app(store_root=root)))
 
 
-def test_safe_segment_rejects_traversal() -> None:
-    for bad in TRAVERSAL_IDS:
-        with pytest.raises(ValueError, match="invalid session_id"):
-            safe_segment(bad, field="session_id")
+@pytest.mark.parametrize("bad", TRAVERSAL_IDS)
+def test_safe_segment_rejects_traversal(bad: str) -> None:
+    with pytest.raises(ValueError, match="invalid session_id"):
+        safe_segment(bad, field="session_id")
 
 
 def test_safe_segment_accepts_real_ids() -> None:
@@ -79,52 +79,6 @@ def test_session_dir_still_builds_the_canonical_layout(tmp_path: Path) -> None:
     built = session_dir(tmp_path, "claude", "019e4764-8065")
     assert built.is_relative_to(tmp_path / "sessions")
     assert built.name == "019e4764-8065"
-
-
-def test_session_dir_snapshot_answers_like_the_per_id_glob(tmp_path: Path) -> None:
-    from lemoncrow.core.foundation.paths import session_dir_snapshot
-
-    for rel in ("2026/09/02/codex/s1", "2026/09/01/claude/s1", "2026/09/01/.hidden/s2", "2026/09/03/claude/s3"):
-        (tmp_path / "sessions" / rel).mkdir(parents=True)
-    ids = ["s1", "s2", "s3", "missing"]
-    expected = {sid: find_session_dir(tmp_path, sid) for sid in ids}
-    assert expected["s1"] == tmp_path / "sessions/2026/09/01/claude/s1"
-
-    with session_dir_snapshot():
-        assert {sid: find_session_dir(tmp_path, sid) for sid in ids} == expected
-        # The block answers from its one scan; a later directory shows after it.
-        (tmp_path / "sessions/2026/09/04/claude/late").mkdir(parents=True)
-        assert find_session_dir(tmp_path, "late") is None
-    assert find_session_dir(tmp_path, "late") == tmp_path / "sessions/2026/09/04/claude/late"
-
-
-def test_session_end_carry_rereads_an_appended_sidecar(tmp_path: Path) -> None:
-    import json
-
-    from lemoncrow.core.capabilities.savings_summary import read_session_end_carry
-
-    sidecar = session_dir(tmp_path, "claude", "carry-session") / "savings.jsonl"
-    sidecar.parent.mkdir(parents=True)
-
-    def append(ts: str, carry: float) -> None:
-        with sidecar.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps({"kind": "session_end", "ts": ts, "carry_usd": carry, "carry_tokens": 7}) + "\n")
-
-    append("2026-09-01T10:00:00+00:00", 0.5)
-    assert read_session_end_carry("carry-session", tmp_path) == (0.5, 7)
-    assert read_session_end_carry("carry-session", tmp_path) == (0.5, 7)
-    append("2026-09-01T11:00:00+00:00", 1.25)
-    assert read_session_end_carry("carry-session", tmp_path) == (1.25, 7)
-
-
-def test_session_end_carry_is_absent_for_an_id_no_directory_can_hold(tmp_path: Path) -> None:
-    from lemoncrow.core.capabilities.savings_summary import read_session_end_carry
-    from lemoncrow.infra.runtime.session_report import read_total_savings_from_events
-
-    # Worktree session keys can pass 128 chars; no session directory can be named that.
-    long_key = "claude--home-user-project--claude-worktrees-" + "x" * 90
-    assert read_session_end_carry(long_key, tmp_path) is None
-    assert read_total_savings_from_events(long_key, tmp_path) == 0.0
 
 
 def test_file_content_endpoint_confines_reads(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

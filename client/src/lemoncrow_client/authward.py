@@ -10,7 +10,6 @@ can turn authentication into arbitrary egress.
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Final
@@ -23,7 +22,7 @@ DEVICE_CODE_GRANT: Final[str] = "urn:ietf:params:oauth:grant-type:device_code"
 REFRESH_TOKEN_GRANT: Final[str] = "refresh_token"
 _DEFAULT_SCOPES: Final[tuple[str, ...]] = ("openid", "profile", "email", "offline_access", "lemoncrow:access")
 _MAX_ENDPOINT_LEN: Final[int] = 2048
-_LOG = logging.getLogger(__name__)
+
 TransportFactory = Callable[[str], HttpTransport]
 
 
@@ -108,7 +107,6 @@ def discover_authward(
     server_transport: HttpTransport,
     *,
     timeout_s: float,
-    product: str = "core",
     transport_factory: Callable[..., HttpTransport] = HttpTransport,
 ) -> AuthwardClient:
     """Resolve and verify the Authward contract advertised by LemonCrow."""
@@ -125,14 +123,6 @@ def discover_authward(
     client_id = _required_string(raw_auth, "client_id")
     resource = _required_string(raw_auth, "resource")
     scopes = _scopes(raw_auth.get("scopes"))
-    if product in {"review", "runtime"}:
-        product_scope = f"lemoncrow:{product}"
-        product_scope_supported = product_scope in scopes
-        scopes = tuple(scope for scope in scopes if scope not in {"lemoncrow:review", "lemoncrow:runtime"})
-        if product_scope_supported:
-            scopes = tuple(dict.fromkeys((*scopes, product_scope)))
-    elif product != "core":
-        raise _not_configured(f"unknown LemonCrow product for sign-in: {product}")
     _validate_issuer(issuer)
 
     auth_transport = transport_factory(issuer, timeout_s=timeout_s)
@@ -215,23 +205,18 @@ def _oauth_payload(response: Response, *, operation: str) -> Mapping[str, Any]:
         return payload
 
     error = raw_error if isinstance(raw_error, str) and raw_error else "oauth_error"
+    description = payload.get("error_description")
+    message = (
+        description
+        if isinstance(description, str) and description
+        else f"LemonCrow sign-in refused the {operation} request ({error})"
+    )
     retryable = error in {"authorization_pending", "slow_down"}
     action = AgentAction.RETRY_LATER if retryable else AgentAction.REAUTHENTICATE
     code = ErrorCode.UNAUTHENTICATED
-    if error == "invalid_client":
-        _LOG.error("OAuth client authentication failed operation=%s error=invalid_client", operation)
-        message = "Sign-in is temporarily unavailable. Please try again later."
-        code = ErrorCode.NOT_CONFIGURED
-        action = AgentAction.ABANDON
-        retryable = False
-    elif error == "invalid_grant" and operation == "token refresh":
-        message = "Your session has ended. Run `lc auth login` to sign in again."
-    elif error == "access_denied":
-        message = "LemonCrow sign-in was denied."
+    if error == "access_denied":
         code = ErrorCode.FORBIDDEN
         action = AgentAction.REQUEST_ACCESS
-    else:
-        message = f"LemonCrow sign-in refused the {operation} request ({error})"
     raise ClientError(
         code,
         message,

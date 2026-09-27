@@ -310,11 +310,6 @@ def _text(value: object, limit: int) -> str:
     return str(value if value is not None else "").strip()[:limit]
 
 
-#: Runner statuses (case- and underscore-insensitive) that mean the scenario
-#: stopped before it finished, as Playwright's ``timedOut``/``interrupted``.
-_INCOMPLETE_RUNNER_STATUSES = frozenset({"timedout", "interrupted"})
-
-
 def _status(value: object) -> str:
     text = str(value or "").strip().upper()
     aliases = {"PASSED": "PASS", "OK": "PASS", "FAILED": "FAIL", "ERROR": "FAIL", "SKIPPED": "NOT_RUN"}
@@ -404,12 +399,8 @@ def normalize_browser_run(
     )
     title = _text(body.get("title"), 120) or (configured.title if configured else scenario_id)
 
-    reported = _status(body.get("status")) if _text(body.get("status"), 40) else ""
+    reported = _status(body.get("status")) if body.get("status") is not None else ""
     completed = body.get("completed") is not False
-    if _text(body.get("status"), 40).replace("_", "").lower() in _INCOMPLETE_RUNNER_STATUSES:
-        # The runner's own word that it stopped early outranks a defaulted
-        # ``completed``; the nested Playwright result is read the same way.
-        completed = False
     assertions: list[dict[str, Any]] = []
     playwright = body.get("playwright")
     if isinstance(playwright, Mapping):
@@ -557,9 +548,7 @@ def browser_verdict(
 ) -> tuple[str, list[str], int]:
     """Deterministic verdict: FAIL wins, PASS only from inspectable checks."""
 
-    if reported == "NOT_RUN":
-        # A runner that says it did not run did not run, whatever else the
-        # report defaults; nothing it attached can stand in for the run.
+    if reported == "NOT_RUN" and not completed:
         return "NOT_RUN", [not_run_reason or "the browser runner reported that this scenario did not run"], 0
     failures: list[str] = []
     unresolved: list[str] = []
@@ -594,10 +583,6 @@ def browser_verdict(
             failures.append(f"visual difference {diff_ratio:.4f} exceeds the configured threshold {threshold:.4f}")
     if reported == "FAIL" and not failures:
         failures.append("the browser runner reported FAIL")
-    if reported == "UNKNOWN":
-        # An unrecognized runner status (cancelled, flaky, ...) is not a
-        # passing run, however clean the attached checks look.
-        unresolved.append("the browser runner reported a status that is not PASS, FAIL or NOT_RUN")
     if failures:
         return "FAIL", failures, deterministic
     if deterministic == 0:
@@ -653,37 +638,6 @@ def is_browser_evidence(item: ReviewEvidence) -> bool:
         and item.source_ref.startswith(BROWSER_SOURCE_REF_PREFIX)
         and item.mime_type == BROWSER_CHECK_MEDIA_TYPE
     )
-
-
-#: Lane of a run that reached Review untyped (the browser-checks endpoint): its
-#: reporter is not an attested provider.
-BROWSER_REPORTED_LANE = "reported"
-_HUMAN_LANES = frozenset({"human_observation", "human_waiver"})
-_ATTESTED_LANES = frozenset({"lemoncrow_verification", "provider_ci", "trusted_security_feed"})
-
-
-def browser_attestation(item: ReviewEvidence) -> str:
-    """The attestation lane of one recorded run; part of its row identity.
-
-    A run reported through the browser-checks endpoint is untyped
-    (``reported``) unless a human recorded it. A human-observed run is a
-    different check from a reported run of the same scenario: it never
-    supersedes one and never stands in for a required scenario.
-    """
-
-    if item.attestation_class:
-        return item.attestation_class
-    return "human_observation" if item.source == "human" else BROWSER_REPORTED_LANE
-
-
-def browser_check_key(attestation: str, scenario_id: str, viewport: str) -> str:
-    """Typed identity of one browser row: attestation lane, scenario id, viewport.
-
-    The scenario id is the stable key repository policy defines. The display
-    title is presentation only, so two scenarios sharing a title are two rows.
-    """
-
-    return "|".join(("browser", attestation, scenario_id, viewport))
 
 
 # --------------------------------------------------------------------------- #
@@ -761,20 +715,14 @@ def build_browser_projection(
         key=lambda item: (order.get(item.revision_id, 0), item.created_at, item.id),
         reverse=True,
     )
-    # Identity is (scenario id, viewport, attestation lane), never the title.
-    Key = tuple[str, str, str]
-    current: dict[Key, tuple[ReviewEvidence, Mapping[str, Any]]] = {}
-    base: dict[Key, tuple[ReviewEvidence, Mapping[str, Any]]] = {}
-    prior: dict[Key, tuple[ReviewEvidence, Mapping[str, Any]]] = {}
+    current: dict[tuple[str, str], tuple[ReviewEvidence, Mapping[str, Any]]] = {}
+    base: dict[tuple[str, str], tuple[ReviewEvidence, Mapping[str, Any]]] = {}
+    prior: dict[tuple[str, str], tuple[ReviewEvidence, Mapping[str, Any]]] = {}
     for item in rows:
         record = read_record(item)
         if not isinstance(record, Mapping):
             continue
-        key = (
-            str(record.get("scenario") or ""),
-            str(record.get("viewport_key") or ""),
-            browser_attestation(item),
-        )
+        key = (str(record.get("scenario") or ""), str(record.get("viewport_key") or ""))
         side = str(record.get("side") or "new")
         if item.revision_id == revision.id:
             bucket = current if side == "new" else base
@@ -783,9 +731,6 @@ def build_browser_projection(
         else:
             continue
         bucket.setdefault(key, (item, record))
-    # Only a non-human run can satisfy a configured scenario's slot; a human
-    # observation supports review beside it (verification_gate's rule).
-    covered = {(scenario_id, vp) for scenario_id, vp, lane in current if lane not in _HUMAN_LANES}
 
     applicability: dict[str, tuple[str, str]] = {
         scenario.id: scenario_applicability(scenario, changed_paths, web_routes) for scenario in policy.scenarios
@@ -801,8 +746,6 @@ def build_browser_projection(
         status: str,
         state: str,
         scenario_id: str,
-        viewport: str,
-        attestation: str,
         route: str,
         detail: str,
         run: Mapping[str, Any] | None,
@@ -811,7 +754,6 @@ def build_browser_projection(
         reason: str,
     ) -> dict[str, Any]:
         snapshot_id = item.revision_id if item is not None else revision.id
-        human = attestation in _HUMAN_LANES
         return {
             "name": name,
             "kind": "browser",
@@ -822,15 +764,6 @@ def build_browser_projection(
             "source": item.source if item is not None else "policy",
             "source_ref": item.source_ref if item is not None else f"browser:{scenario_id}",
             "lane": "browser",
-            # Typed identity; a policy placeholder holds the reported slot it owes.
-            "check_key": browser_check_key(attestation, scenario_id, viewport),
-            "stable_key": scenario_id,
-            "attestation_class": "" if attestation == BROWSER_REPORTED_LANE else attestation,
-            "authority": (
-                ""
-                if item is None
-                else "human" if human else "attested" if attestation in _ATTESTED_LANES else "reported"
-            ),
             "path": "",
             "detail": detail,
             "observed_at": item.created_at if item is not None else "",
@@ -845,7 +778,7 @@ def build_browser_projection(
                 if item is not None
                 else None
             ),
-            "required": required(scenario_id) if state == "current" and not human else False,
+            "required": required(scenario_id) if state == "current" else False,
             "browser": {
                 "scenario": scenario_id,
                 "route": route,
@@ -857,8 +790,10 @@ def build_browser_projection(
         }
 
     checks: list[dict[str, Any]] = []
+    current_scenarios: set[str] = set()
     for key, (item, record) in current.items():
-        scenario_id, viewport, attestation = key
+        scenario_id = key[0]
+        current_scenarios.add(scenario_id)
         run = _run_payload(item, record, numbers=display)
         baseline_row: dict[str, Any] | None = None
         if key in base:
@@ -874,8 +809,6 @@ def build_browser_projection(
                 status=str(item.verification_status or record.get("status") or "UNKNOWN"),
                 state="current",
                 scenario_id=scenario_id,
-                viewport=viewport,
-                attestation=attestation,
                 route=str(record.get("route") or ""),
                 detail=item.detail,
                 run=run,
@@ -885,20 +818,19 @@ def build_browser_projection(
             )
         )
 
-    covered_scenarios = {scenario_id for scenario_id, _ in covered}
     applicable_ids: list[str] = []
     for scenario in policy.scenarios:
         state, reason = applicability[scenario.id]
         if state == "not_applicable":
             continue
         applicable_ids.append(scenario.id)
-        if scenario.id in covered_scenarios and not scenario.viewports:
+        if scenario.id in current_scenarios and not scenario.viewports:
             continue
         status = "NOT_RUN" if state == "applies" else "UNKNOWN"
         # A scenario pinned to viewports is owed at each one: a result at one
         # layout says nothing about another.
         for vp in scenario.viewports or ("",):
-            if (scenario.id, vp) in covered:
+            if (scenario.id, vp) in current:
                 continue
             detail = (
                 f"Configured browser scenario applies ({reason}) but no "
@@ -912,8 +844,6 @@ def build_browser_projection(
                     status=status,
                     state="current",
                     scenario_id=scenario.id,
-                    viewport=vp,
-                    attestation=BROWSER_REPORTED_LANE,
                     route=scenario.route,
                     detail=detail,
                     run=None,
@@ -932,8 +862,6 @@ def build_browser_projection(
                 status=str(item.verification_status or record.get("status") or "UNKNOWN"),
                 state="stale",
                 scenario_id=key[0],
-                viewport=key[1],
-                attestation=key[2],
                 route=str(record.get("route") or ""),
                 detail=item.detail,
                 run=_run_payload(item, record, numbers=display),
@@ -953,8 +881,6 @@ def build_browser_projection(
                     status="NOT_RUN",
                     state="current",
                     scenario_id="",
-                    viewport="",
-                    attestation=BROWSER_REPORTED_LANE,
                     route=exposed_routes[0],
                     detail=(
                         f"This Change exposes Web route(s) {shown}, but no browser regression scenario "
@@ -968,6 +894,7 @@ def build_browser_projection(
                 "required": False,
             }
         )
+
     current_rows = [row for row in checks if row["state"] == "current"]
     summary = {
         "configured": len(policy.scenarios),

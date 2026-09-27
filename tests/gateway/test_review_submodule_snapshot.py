@@ -141,23 +141,6 @@ def test_scoped_git_materialization_does_not_walk_unrelated_trees(tmp_path: Path
     _git(repo, "commit", "--quiet", "-m", "fixture")
     sha = _git(repo, "rev-parse", "HEAD")
 
-    frontend_tree = _git(repo, "rev-parse", f"{sha}:frontend")
-    streamed: list[tuple[str, str]] = []
-    original_stream = snapshot._stream_git_tree
-
-    def observed_stream(repo_obj, tree_oid: str, prefix: str, target: Path) -> bool:
-        streamed.append((tree_oid, prefix))
-        return original_stream(repo_obj, tree_oid, prefix, target)
-
-    monkeypatch.setattr(snapshot, "_stream_git_tree", observed_stream)
-    fast = tmp_path / "fast"
-    snapshot.materialize_git_revision(repo, sha, fast, scope="frontend")
-
-    assert (fast / "frontend/src/page.tsx").read_text() == "export default 1\n"
-    assert not (fast / "backend").exists()
-    assert streamed == [(frontend_tree, "frontend")]  # git lists only the scoped subtree
-
-    # The pygit2 fallback walks only that subtree too.
     prefixes: list[str] = []
     original = snapshot._walk_tree
 
@@ -165,7 +148,6 @@ def test_scoped_git_materialization_does_not_walk_unrelated_trees(tmp_path: Path
         prefixes.append(prefix)
         yield from original(repo_obj, tree_obj, prefix)
 
-    monkeypatch.setattr(snapshot, "_stream_git_tree", lambda *_args: False)
     monkeypatch.setattr(snapshot, "_walk_tree", observed)
     target = tmp_path / "materialized"
     snapshot.materialize_git_revision(repo, sha, target, scope="frontend")

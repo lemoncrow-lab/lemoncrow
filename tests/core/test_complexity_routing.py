@@ -14,10 +14,83 @@ from lemoncrow.pro.capabilities.model_routing import (
 # --- pure complexity score -------------------------------------------------
 
 
+def test_complexity_score_is_zero_for_empty_signals() -> None:
+    assert complexity_score(ComplexitySignals()) == 0
+
+
+def test_complexity_score_is_bounded_0_to_100() -> None:
+    huge = ComplexitySignals(
+        retrieval_set_size=10_000,
+        symbol_count=10_000,
+        cross_file_count=10_000,
+        task_size_chars=1_000_000,
+        prior_errors=999,
+    )
+    assert complexity_score(huge) == 100
+
+
+def test_complexity_score_is_monotonic_in_each_signal() -> None:
+    base = complexity_score(ComplexitySignals(cross_file_count=1))
+    more = complexity_score(ComplexitySignals(cross_file_count=4))
+    assert more > base
+
+
+def test_complexity_score_is_pure_and_deterministic() -> None:
+    sig = ComplexitySignals(retrieval_set_size=5, symbol_count=4, cross_file_count=3, task_size_chars=400)
+    assert complexity_score(sig) == complexity_score(sig)
+
+
 # --- tier mapping: simple -> cheap, complex -> strong ----------------------
 
 
+def test_simple_work_maps_to_cheap() -> None:
+    result = tier_for_complexity(ComplexitySignals(retrieval_set_size=1, task_size_chars=50))
+    assert result.tier == "cheap"
+    assert result.model_tier == "cheap"
+    assert any("step_down" in r for r in result.reasons)
+
+
+def test_complex_work_maps_to_strong() -> None:
+    result = tier_for_complexity(
+        ComplexitySignals(
+            retrieval_set_size=12,
+            symbol_count=10,
+            cross_file_count=6,
+            task_size_chars=1_200,
+        )
+    )
+    assert result.tier == "strong"
+    assert result.model_tier == "expensive"
+
+
+def test_mid_complexity_maps_to_standard() -> None:
+    result = tier_for_complexity(
+        ComplexitySignals(retrieval_set_size=6, symbol_count=4, cross_file_count=3, task_size_chars=300)
+    )
+    assert result.tier == "standard"
+    assert result.model_tier == "medium"
+
+
 # --- escalation never downgrades hard work ---------------------------------
+
+
+def test_escalate_flag_forces_strong_even_when_score_is_low() -> None:
+    result = tier_for_complexity(ComplexitySignals(task_size_chars=10, escalate=True))
+    assert result.tier == "strong"
+    assert result.stepped_up is True
+    assert any("escalate" in r for r in result.reasons)
+
+
+def test_cross_project_forces_strong() -> None:
+    result = tier_for_complexity(ComplexitySignals(task_size_chars=10, cross_project=True))
+    assert result.tier == "strong"
+    assert result.stepped_up is True
+
+
+def test_repeated_errors_lift_cheap_to_standard() -> None:
+    result = tier_for_complexity(ComplexitySignals(task_size_chars=10, prior_errors=3))
+    assert result.tier in {"standard", "strong"}
+    assert result.tier != "cheap"
 
 
 def test_signals_from_state_uses_collection_lengths() -> None:
@@ -94,48 +167,3 @@ def test_opt_in_silent_step_down_for_simple_work(monkeypatch) -> None:  # type: 
     assert rec is not None
     assert rec.tier == "cheap"
     assert any("step down" in r for r in rec.reasons)
-
-
-def test_complexity_score_contract() -> None:
-    assert complexity_score(ComplexitySignals()) == 0
-    huge = ComplexitySignals(
-        retrieval_set_size=10_000,
-        symbol_count=10_000,
-        cross_file_count=10_000,
-        task_size_chars=1_000_000,
-        prior_errors=999,
-    )
-    assert complexity_score(huge) == 100
-    assert complexity_score(ComplexitySignals(cross_file_count=4)) > complexity_score(
-        ComplexitySignals(cross_file_count=1)
-    )
-    signals = ComplexitySignals(retrieval_set_size=5, symbol_count=4, cross_file_count=3, task_size_chars=400)
-    assert complexity_score(signals) == complexity_score(signals)
-
-
-def test_complexity_tier_mapping_contract() -> None:
-    cases = [
-        (ComplexitySignals(retrieval_set_size=1, task_size_chars=50), "cheap", "cheap"),
-        (
-            ComplexitySignals(retrieval_set_size=6, symbol_count=4, cross_file_count=3, task_size_chars=300),
-            "standard",
-            "medium",
-        ),
-        (
-            ComplexitySignals(retrieval_set_size=12, symbol_count=10, cross_file_count=6, task_size_chars=1_200),
-            "strong",
-            "expensive",
-        ),
-    ]
-    for signals, tier, model_tier in cases:
-        result = tier_for_complexity(signals)
-        assert (result.tier, result.model_tier) == (tier, model_tier), signals
-
-
-def test_complexity_escalation_contract() -> None:
-    escalated = tier_for_complexity(ComplexitySignals(task_size_chars=10, escalate=True))
-    assert escalated.tier == "strong" and escalated.stepped_up and any("escalate" in r for r in escalated.reasons)
-    cross_project = tier_for_complexity(ComplexitySignals(task_size_chars=10, cross_project=True))
-    assert cross_project.tier == "strong" and cross_project.stepped_up
-    repeated = tier_for_complexity(ComplexitySignals(task_size_chars=10, prior_errors=3))
-    assert repeated.tier in {"standard", "strong"}

@@ -794,89 +794,10 @@ class PostgresStore:
             conn.commit()
         return job_id
 
-    def enqueue_job_once(
-        self,
-        job_type: str,
-        payload: dict[str, Any] | None = None,
-        *,
-        job_id: str,
-        max_attempts: int = 3,
-    ) -> bool:
-        """Enqueue once per semantic identity, including terminal jobs.
-
-        An identical event must not rerun already completed model work.
-        """
-
-        now = datetime.now(UTC).isoformat()
-        with self._connect() as conn:
-            res = conn.execute(
-                """
-                INSERT INTO jobs (
-                    id, job_type, payload, status, attempts, max_attempts,
-                    locked_by, locked_at, error, created_at, updated_at
-                )
-                VALUES (%s, %s, %s::jsonb, 'pending', 0, %s, NULL, NULL, NULL, %s, %s)
-                ON CONFLICT (id) DO NOTHING
-                """,
-                (job_id, job_type, json.dumps(payload or {}), max_attempts, now, now),
-            )
-            conn.commit()
-        return (res.rowcount or 0) > 0
-
-    def pause_job(self, job_id: str, reason: str, *, locked_by: str) -> bool:
-        now = datetime.now(UTC).isoformat()
-        with self._connect() as conn:
-            res = conn.execute(
-                """
-                UPDATE jobs
-                SET status = 'paused',
-                    attempts = GREATEST(attempts - 1, 0),
-                    locked_by = NULL,
-                    locked_at = NULL,
-                    error = %s,
-                    updated_at = %s
-                WHERE id = %s AND status = 'running' AND locked_by = %s
-                """,
-                (reason, now, job_id, locked_by),
-            )
-            conn.commit()
-        return (res.rowcount or 0) > 0
-
-    def resume_paused_jobs(self, *, older_than_seconds: int = 300) -> int:
-        now = datetime.now(UTC)
-        cutoff = (now - timedelta(seconds=max(0, older_than_seconds))).isoformat()
-        with self._connect() as conn:
-            res = conn.execute(
-                "UPDATE jobs SET status = 'pending', updated_at = %s WHERE status = 'paused' AND updated_at <= %s",
-                (now.isoformat(), cutoff),
-            )
-            conn.commit()
-        return int(res.rowcount or 0)
-
     def claim_job(self, worker_id: str | None = None) -> dict[str, Any] | None:
         claimed_by = worker_id or f"postgres-{os.getpid()}"
         now = datetime.now(UTC).isoformat()
-        lease_raw = os.environ.get("LEMONCROW_JOB_LEASE_SECONDS", "")
-        lease_seconds = int(lease_raw) if lease_raw.isdigit() and int(lease_raw) > 0 else 900
-        lease_cutoff = (datetime.now(UTC) - timedelta(seconds=lease_seconds)).isoformat()
         with self._connect() as conn:
-            # As the SQLite store: reap jobs whose worker died mid-run (lease
-            # expired) so they retry, or dead-letter once attempts are spent,
-            # instead of staying 'running' forever.
-            conn.execute(
-                """
-                UPDATE jobs
-                SET status = CASE WHEN attempts >= max_attempts THEN 'dead' ELSE 'failed' END,
-                    locked_by = NULL,
-                    locked_at = NULL,
-                    error = 'lease expired: worker did not finish (reaped)',
-                    updated_at = %s
-                WHERE status = 'running'
-                  AND locked_at IS NOT NULL
-                  AND locked_at < %s
-                """,
-                (now, lease_cutoff),
-            )
             row = conn.execute("""
                 SELECT *
                 FROM jobs
@@ -906,19 +827,7 @@ class PostgresStore:
             conn.commit()
         return self._row_to_job(claimed) if claimed is not None else None
 
-    def heartbeat_job(self, job_id: str, *, locked_by: str) -> bool:
-        """Extend a running job's lease; ``False`` once the lease was lost (reaped or reclaimed)."""
-
-        now = datetime.now(UTC).isoformat()
-        with self._connect() as conn:
-            res = conn.execute(
-                "UPDATE jobs SET locked_at = %s, updated_at = %s WHERE id = %s AND status = 'running' AND locked_by = %s",
-                (now, now, job_id, locked_by),
-            )
-            conn.commit()
-        return (res.rowcount or 0) > 0
-
-    def complete_job(self, job_id: str, result: dict[str, Any] | None = None, *, locked_by: str) -> bool:
+    def complete_job(self, job_id: str, result: dict[str, Any] | None = None) -> bool:
         _ = result
         now = datetime.now(UTC).isoformat()
         with self._connect() as conn:
@@ -930,14 +839,14 @@ class PostgresStore:
                     locked_at = NULL,
                     error = NULL,
                     updated_at = %s
-                WHERE id = %s AND status = 'running' AND locked_by = %s
+                WHERE id = %s
                 """,
-                (now, job_id, locked_by),
+                (now, job_id),
             )
             conn.commit()
         return (res.rowcount or 0) > 0
 
-    def fail_job(self, job_id: str, error: str, *, locked_by: str) -> bool:
+    def fail_job(self, job_id: str, error: str) -> bool:
         now = datetime.now(UTC).isoformat()
         with self._connect() as conn:
             res = conn.execute(
@@ -948,9 +857,9 @@ class PostgresStore:
                     locked_at = NULL,
                     error = %s,
                     updated_at = %s
-                WHERE id = %s AND status = 'running' AND locked_by = %s
+                WHERE id = %s
                 """,
-                (error, now, job_id, locked_by),
+                (error, now, job_id),
             )
             conn.commit()
         return (res.rowcount or 0) > 0
@@ -977,13 +886,12 @@ class PostgresStore:
         return [self._row_to_job(row) for row in rows]
 
     def prune_jobs(self, *, older_than_days: int = 14) -> int:
-        """Delete terminal jobs (succeeded/failed/dead) and long-paused jobs older than the cutoff."""
+        """Delete terminal jobs (succeeded/failed/dead) older than the cutoff."""
         cutoff = (datetime.now(UTC) - timedelta(days=max(1, older_than_days))).isoformat()
         with self._connect() as conn:
             res = conn.execute(
-                "DELETE FROM jobs WHERE (status IN ('succeeded', 'failed', 'dead') AND updated_at < %s)"
-                " OR (status = 'paused' AND created_at < %s)",
-                (cutoff, cutoff),
+                "DELETE FROM jobs WHERE status IN ('succeeded', 'failed', 'dead') AND updated_at < %s",
+                (cutoff,),
             )
             conn.commit()
         return int(res.rowcount or 0)

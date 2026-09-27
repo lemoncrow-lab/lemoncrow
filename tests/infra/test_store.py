@@ -153,7 +153,7 @@ def test_job_queue_roundtrip(tmp_path: Path) -> None:
     assert claimed["payload"] == {"dry_run": True}
     assert claimed["status"] == "running"
     assert claimed["attempts"] == 1
-    assert store.complete_job(job_id, {"written": 0}, locked_by=claimed["locked_by"]) is True
+    assert store.complete_job(job_id, {"written": 0}) is True
     jobs = store.list_jobs(limit=10)
     assert jobs[0]["id"] == job_id
     assert jobs[0]["status"] == "succeeded"
@@ -196,80 +196,6 @@ def test_claim_job_dead_letters_orphan_once_attempts_exhausted(tmp_path: Path) -
     assert job["status"] == "dead"
 
 
-def test_only_the_lease_holder_completes_fails_pauses_or_heartbeats_a_job(tmp_path: Path) -> None:
-    """BI2 review item 6: every outcome is fenced on ``locked_by``; a reaped worker's late result changes nothing."""
-
-    store = JobsStore(tmp_path)
-    store.init()
-    job_id = store.enqueue_job(JOB_CONSOLIDATE_BLOCKS, {}, max_attempts=3)
-    first = store.claim_job("worker-a")
-    assert first is not None and first["locked_by"] == "worker-a"
-    for wrong in ("worker-b", ""):
-        assert store.heartbeat_job(job_id, locked_by=wrong) is False
-        assert store.complete_job(job_id, {}, locked_by=wrong) is False
-        assert store.fail_job(job_id, "x", locked_by=wrong) is False
-        assert store.pause_job(job_id, "x", locked_by=wrong) is False
-    assert next(j for j in store.list_jobs() if j["id"] == job_id)["status"] == "running"
-
-    # worker-a's lease expires and worker-b reclaims the job: worker-a can no longer touch it.
-    _expire_lease(store, job_id)
-    second = store.claim_job("worker-b")
-    assert second is not None and second["id"] == job_id and second["attempts"] == 2
-    assert store.heartbeat_job(job_id, locked_by="worker-a") is False
-    assert store.complete_job(job_id, {}, locked_by="worker-a") is False
-    assert store.fail_job(job_id, "late", locked_by="worker-a") is False
-    row = next(j for j in store.list_jobs() if j["id"] == job_id)
-    assert (row["status"], row["locked_by"]) == ("running", "worker-b")
-    assert store.complete_job(job_id, {}, locked_by="worker-b") is True
-    assert store.complete_job(job_id, {}, locked_by="worker-b") is False  # not running any more
-
-
-def test_a_heartbeat_extends_the_lease_so_a_live_job_is_not_reaped(tmp_path: Path, monkeypatch: Any) -> None:
-    """BI2 review item 6: the lease the reaper reads is the last heartbeat, not the claim."""
-
-    monkeypatch.setenv("LEMONCROW_JOB_LEASE_SECONDS", "600")
-    store = JobsStore(tmp_path)
-    store.init()
-    job_id = store.enqueue_job(JOB_CONSOLIDATE_BLOCKS, {}, max_attempts=3)
-    assert store.claim_job("worker-a") is not None
-    _expire_lease(store, job_id)  # claimed an hour ago: past the 600 s lease
-    assert store.heartbeat_job(job_id, locked_by="worker-a") is True
-    assert store.claim_job("worker-b") is None  # still leased: not reaped, not re-run
-    row = next(j for j in store.list_jobs() if j["id"] == job_id)
-    assert (row["status"], row["locked_by"], row["attempts"]) == ("running", "worker-a", 1)
-
-
-def test_enqueue_job_once_keeps_a_semantic_id_after_success_or_exhaustion(tmp_path: Path) -> None:
-    """Repeated durable events never cause a second model run for the same identity."""
-
-    store = JobsStore(tmp_path)
-    store.init()
-    assert store.enqueue_job_once(JOB_CONSOLIDATE_BLOCKS, {"n": 1}, job_id="bg-1", max_attempts=1)
-    assert not store.enqueue_job_once(JOB_CONSOLIDATE_BLOCKS, {"n": 2}, job_id="bg-1")
-    claimed = store.claim_job("w")
-    assert claimed is not None and claimed["payload"] == {"n": 1}
-    assert claimed["attempts"] == 1
-    assert not store.enqueue_job_once(JOB_CONSOLIDATE_BLOCKS, {"n": 2}, job_id="bg-1")
-    assert store.pause_job("bg-1", "paused: background_exhausted", locked_by="w")
-    assert not store.enqueue_job_once(JOB_CONSOLIDATE_BLOCKS, {"n": 2}, job_id="bg-1")
-    assert store.resume_paused_jobs(older_than_seconds=0) == 1
-    assert store.claim_job("w") is not None
-    assert store.complete_job("bg-1", {}, locked_by="w")
-    assert not store.enqueue_job_once(JOB_CONSOLIDATE_BLOCKS, {"n": 3}, job_id="bg-1")
-    row = next(j for j in store.list_jobs() if j["id"] == "bg-1")
-    assert (row["status"], row["attempts"], row["payload"]) == ("succeeded", 1, {"n": 1})
-    assert row["locked_by"] is None
-    assert row["max_attempts"] == 1
-    assert row["error"] is None
-
-    assert store.enqueue_job_once(JOB_CONSOLIDATE_BLOCKS, {"n": 4}, job_id="bg-2", max_attempts=1)
-    assert store.claim_job("w") is not None
-    assert store.fail_job("bg-2", "boom", locked_by="w")
-    assert not store.enqueue_job_once(JOB_CONSOLIDATE_BLOCKS, {"n": 5}, job_id="bg-2")
-    assert next(j for j in store.list_jobs() if j["id"] == "bg-2")["status"] == "dead"
-    assert next(j for j in store.list_jobs() if j["id"] == "bg-2")["payload"] == {"n": 4}
-
-
 def test_job_queue_health_counts_stuck_running_and_dead(tmp_path: Path) -> None:
     store = JobsStore(tmp_path)
     store.init()
@@ -281,7 +207,7 @@ def test_job_queue_health_counts_stuck_running_and_dead(tmp_path: Path) -> None:
     assert dead_job is not None
     assert running_job["id"] == running_job_id
     assert dead_job["id"] == dead_job_id
-    assert store.fail_job(dead_job_id, "boom", locked_by=dead_job["locked_by"]) is True
+    assert store.fail_job(dead_job_id, "boom") is True
     stale_locked_at = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
     with store._connect() as conn:
         conn.execute(

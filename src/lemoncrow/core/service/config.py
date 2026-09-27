@@ -6,7 +6,6 @@ All values have safe defaults suitable for local/SQLite mode.
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 from lemoncrow.core.environment import bool_env
 from lemoncrow.core.foundation.paths import default_store_root
@@ -87,9 +86,3 @@ class ServiceConfig:
 
 # Module-level singleton
 cfg = ServiceConfig()
-
-
-def service_token_path() -> Path:
-    """Where ``lc service start`` keeps the API key it mints (owner-only)."""
-
-    return Path(cfg.lemoncrow_root).expanduser() / "service" / "api-token"

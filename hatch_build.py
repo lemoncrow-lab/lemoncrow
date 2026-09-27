@@ -22,8 +22,6 @@ wheel.
 
 from __future__ import annotations
 
-import ast
-import builtins
 import hashlib
 import os
 import pathlib
@@ -118,55 +116,18 @@ _DYNAMIC_RE = re.compile(r"__import__\s*\(")
 _BUILTIN_INHERIT_RE = re.compile(
     r"class\s+\w+\s*\((?:dict|list|set|tuple|str|bytes|int|float|Exception|BaseException|ValueError|TypeError|RuntimeError|KeyError|OSError)[^)]*\)"
 )
-# mypyc checks the whole MRO, so a class deriving from such a builtin through an
-# in-repo class (``class Refused(InternalLLMError)``, ``InternalLLMError(RuntimeError)``)
-# hits the same error. The builtins mypyc can subclass natively, per
-# ``mypyc.irbuild.prepare`` (BaseException and dict special-cased, then
-# ``can_subclass_builtin``):
-_MYPYC_SUBCLASSABLE = frozenset(
-    {
-        "object",
-        "BaseException",
-        "dict",
-        "Exception",
-        "LookupError",
-        "IndexError",
-        "Warning",
-        "UserWarning",
-        "ValueError",
-    }
-)
-_UNSUBCLASSABLE_BUILTINS = frozenset(
-    name for name, value in vars(builtins).items() if isinstance(value, type) and name not in _MYPYC_SUBCLASSABLE
-)
 # mypyc: AssertionError on try/except redef pattern (optional-dep fallbacks)
 _NO_REDEF_RE = re.compile(r"# type: ignore\[no-redef\]")
 # mypyc: Protocol subclasses lose Protocol metaclass, breaking @runtime_checkable
 _RUNTIME_CHECKABLE_RE = re.compile(r"@runtime_checkable")
 # mypyc: Click decorators add __dict__ attrs to functions; C extension functions have no __dict__
 _CLICK_RE = re.compile(r"@(?:click|_click)\.")
-# mypyc: FastAPI reads every endpoint's signature, and a mypyc 2.2 function has none
-# ("no signature found for builtin", or an empty one that drops every parameter); its DI
-# defaults (Header()/Depends()/...) also violate the compiled parameter's annotation on
-# import. Any module importing fastapi stays interpreted.
+# mypyc: FastAPI DI defaults (Header()/Depends()/Query()/...) are sentinel objects that
+# violate the compiled parameter's type annotation, so the module raises
+# "str object expected; got fastapi.params.Header" at import time. Both regexes must
+# match: the bare call names alone collide with pathlib.Path()/Query() elsewhere.
 _FASTAPI_IMPORT_RE = re.compile(r"^\s*(?:from|import)\s+fastapi\b", re.M)
-
-
-def _contains_async_generator(text: str) -> bool:
-    """Return whether a module contains an async generator unsupported by mypyc."""
-
-    try:
-        tree = ast.parse(text)
-    except SyntaxError:
-        return False
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.AsyncFunctionDef):
-            continue
-        if any(isinstance(child, (ast.Yield, ast.YieldFrom)) for child in ast.walk(node)):
-            return True
-    return False
-
-
+_FASTAPI_DI_RE = re.compile(r"=\s*(?:Header|Depends|Query|Body|Form|Cookie|File|Path|Security)\s*\(")
 _SKIP_DIRS = {"__pycache__", "_vendor", "bench"}
 # Files that cause mypyc cross-module Any errors when pydantic files are excluded
 _SKIP_FILES = {
@@ -188,9 +149,6 @@ _SKIP_PATHS = {
     "lemoncrow/gateway/openai_gateway/adapter.py",
     "lemoncrow/gateway/openai_gateway/app.py",
     "lemoncrow/gateway/cli/runtime.py",
-    # Compiled, a usage error raised from a Redirect(click.UsageError) subclass segfaults
-    # in __init__ (`lc mcp` exits 139 instead of printing the hint).
-    "lemoncrow/gateway/cli/style.py",
     "lemoncrow/infra/code_intel/zoekt/server.py",  # clang 21 ICE on mypyc-generated C
     # Must stay interpreted: mypyc-native classes have no __weakref__ slot, and
     # this holder exists precisely to be a weakref target for the native engine.
@@ -203,19 +161,22 @@ _SKIP_PATHS = {
     # mypyc does not support async generators (async def with yield).
     "lemoncrow/gateway/adapters/mcp_http.py",
     "lemoncrow/gateway/openai_gateway/responses.py",
-    "lemoncrow/pro/capabilities/review/state_events.py",
     # FastAPI DI defaults (Header()/Depends()/Request) are sentinel objects that
     # violate the compiled parameter's type annotation, so mypyc raises
     # "str object expected; got fastapi.params.Header" the instant run_daemon
     # defines its route handlers. Ship interpreted like the FastAPI modules above.
     "lemoncrow/gateway/adapters/mcp_daemon.py",
-    # mypyc 2.2: "continue inside try/finally block is unimplemented" (the retry loop).
-    "lemoncrow/infra/runtime/lite_semantic_helper.py",
-    # mypyc 2.2: "Nested class definitions not supported" (a class inside a function).
-    "lemoncrow/pro/capabilities/review/analysis_common.py",
-    "lemoncrow/pro/capabilities/review/evaluation/pipeline.py",
-    # mypyc 2.2: 'Cannot access instance attribute "__slots__" through class object'.
-    "lemoncrow/pro/capabilities/review/outcomes/incidents.py",
+    # create_protected_mcp_app builds its bearer-auth FastAPI dependency as a
+    # nested closure over per-app state (the OAuth token store). mypyc compiles
+    # a closure that captures outer-scope variables into an environment-class
+    # callable whose __call__ has no inspectable signature, so
+    # inspect.signature() (which FastAPI's Depends() machinery calls while
+    # registering the route) raises "no signature found for builtin
+    # <..._create_protected_mcp_app_obj>" the instant the /mcp route is
+    # registered -- reproduced directly against a minimal mypyc-compiled
+    # repro of this exact pattern. Ship interpreted like the other FastAPI
+    # modules above.
+    "lemoncrow/gateway/adapters/mcp_oauth.py",
 }
 
 
@@ -410,244 +371,6 @@ def _assert_no_duplicate_source(artifact_path: str, require_compiled: bool = Fal
     print("[hatch-mypyc] wheel check PASSED: no compiled .py twins", flush=True)
 
 
-def _subtree_has_yield(node: ast.AST) -> bool:
-    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-        return False
-    if isinstance(node, (ast.Yield, ast.YieldFrom)):
-        return True
-    for child in ast.iter_child_nodes(node):
-        if _subtree_has_yield(child):
-            return True
-    return False
-
-
-def _has_starred_membership_literal(text: str) -> bool:
-    """Whether a module tests ``x in (*xs, y)`` or ``x not in [*xs, y]``.
-
-    mypyc's in-literal fast path compiles every item of the tuple or list,
-    and a starred one is an internal error ("should have been handled in
-    Tuple/List/Set/DictExpr or CallExpr"). A set literal takes another path.
-    """
-
-    if "*" not in text:
-        return False
-    try:
-        tree = ast.parse(text)
-    except SyntaxError:
-        return False
-    return any(
-        isinstance(node, ast.Compare)
-        and len(node.ops) == 1
-        and isinstance(node.ops[0], (ast.In, ast.NotIn))
-        and isinstance(node.comparators[0], (ast.Tuple, ast.List))
-        and any(isinstance(item, ast.Starred) for item in node.comparators[0].elts)
-        for node in ast.walk(tree)
-    )
-
-
-def _has_module_getattr(text: str) -> bool:
-    """Whether a module defines PEP 562 ``__getattr__`` at top level.
-
-    A mypyc 2.2 module with one segfaults on import. ``_SKIP_FILES`` covers
-    ``__init__.py`` by name, but not in pro/ and not any other module.
-    """
-
-    if "__getattr__" not in text:
-        return False
-    try:
-        tree = ast.parse(text)
-    except SyntaxError:
-        return False
-    return any(
-        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "__getattr__" for node in tree.body
-    )
-
-
-def _has_dataclass_classvar(text: str) -> bool:
-    """Whether a ``@dataclass`` declares a ``ClassVar``.
-
-    mypyc 2.2 makes it an init field: ahead of a required field the class
-    fails on import, after one ``fields()`` and ``__init__`` silently grow it.
-    """
-
-    if "ClassVar" not in text or "dataclass" not in text:
-        return False
-    try:
-        tree = ast.parse(text)
-    except SyntaxError:
-        return False
-    return any(
-        isinstance(node, ast.ClassDef)
-        and any(_base_name(decorator) == "dataclass" for decorator in node.decorator_list)
-        and any(isinstance(stmt, ast.AnnAssign) and _base_name(stmt.annotation) == "ClassVar" for stmt in node.body)
-        for node in ast.walk(tree)
-    )
-
-
-def _has_ellipsis_default(text: str) -> bool:
-    """Whether a function defaults a parameter to ``...``.
-
-    mypy accepts ``n: int = ...`` in a Protocol stub; mypyc checks the default
-    against the annotation when the class is built, so the module fails to import.
-    """
-
-    if "..." not in text:
-        return False
-    try:
-        tree = ast.parse(text)
-    except SyntaxError:
-        return False
-    return any(
-        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and any(
-            isinstance(default, ast.Constant) and default.value is Ellipsis
-            for default in (*node.args.defaults, *node.args.kw_defaults)
-        )
-        for node in ast.walk(tree)
-    )
-
-
-def _source_read_modules(texts: dict[pathlib.Path, str]) -> frozenset[str]:
-    """Module files another module reads with ``inspect.getsource(module)``.
-
-    A compiled module has no source, so the read raises OSError. Only an absolute
-    import binds the name; an unresolved one leaves its target compiled.
-    """
-
-    read: set[str] = set()
-    for text in texts.values():
-        if "getsource" not in text:
-            continue
-        try:
-            tree = ast.parse(text)
-        except SyntaxError:
-            continue
-        bound: dict[str, str] = {}
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module and not node.level:
-                bound.update({alias.asname or alias.name: f"{node.module}.{alias.name}" for alias in node.names})
-            elif isinstance(node, ast.Import):
-                bound.update({alias.asname: alias.name for alias in node.names if alias.asname})
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Call)
-                and _base_name(node.func) == "getsource"
-                and node.args
-                and isinstance(node.args[0], ast.Name)
-                and node.args[0].id in bound
-            ):
-                path = bound[node.args[0].id].replace(".", "/")
-                read.update((f"{path}.py", f"{path}/__init__.py"))
-    return frozenset(read)
-
-
-#: Calls that read a function's parameters or annotations; a mypyc 2.2 function keeps only the
-#: parameter names and defaults (``__text_signature__``), never the annotations.
-_SIGNATURE_READS = frozenset({"signature", "get_type_hints"})
-
-
-def _introspecting_decorators(texts: dict[pathlib.Path, str]) -> frozenset[str]:
-    """Names of module-level functions that read another function's signature or type hints.
-
-    ``@mcp_tool`` builds each tool's input schema and its argument coercion from the decorated
-    function's annotations: compiled, every parameter is ``Any``, a stringified ``"20"`` is not
-    coerced and the strict compiled handler raises ``TypeError``. A module applying one of these
-    as a decorator stays interpreted. Matched by name, so a same-named decorator elsewhere also
-    keeps its module interpreted (fail-safe).
-    """
-
-    names: set[str] = set()
-    for text in texts.values():
-        if "signature" not in text and "get_type_hints" not in text:
-            continue
-        try:
-            tree = ast.parse(text)
-        except SyntaxError:
-            continue
-        for node in tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(
-                isinstance(call, ast.Call) and _base_name(call.func) in _SIGNATURE_READS for call in ast.walk(node)
-            ):
-                names.add(node.name)
-    return frozenset(names)
-
-
-def _applies_decorator(text: str, decorators: frozenset[str]) -> bool:
-    """Whether a module decorates a function with one of *decorators* (``@d``, ``@m.d``, ``@d(...)``)."""
-
-    if not decorators or not any(name in text for name in decorators):
-        return False
-    try:
-        tree = ast.parse(text)
-    except SyntaxError:
-        return False
-    return any(
-        _base_name(decorator) in decorators
-        for node in ast.walk(tree)
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        for decorator in node.decorator_list
-    )
-
-
-def _has_async_generator(text: str) -> bool:
-    if "async def" not in text or "yield" not in text:
-        return False
-    try:
-        tree = ast.parse(text)
-    except SyntaxError:
-        return False
-    for node in ast.walk(tree):
-        if isinstance(node, ast.AsyncFunctionDef):
-            for child in ast.iter_child_nodes(node):
-                if _subtree_has_yield(child):
-                    return True
-    return False
-
-
-def _base_name(node: ast.expr) -> str:
-    """The bare name a reference resolves to: ``a.b.Err`` -> ``Err``, ``dict[str, int]`` -> ``dict``, ``f(x)`` -> ``f``."""
-
-    if isinstance(node, ast.Call):
-        node = node.func
-    if isinstance(node, ast.Subscript):
-        node = node.value
-    if isinstance(node, ast.Attribute):
-        return node.attr
-    return node.id if isinstance(node, ast.Name) else ""
-
-
-def _class_bases(text: str) -> list[tuple[str, frozenset[str]]]:
-    """(name, base names) of every class a module defines."""
-
-    try:
-        tree = ast.parse(text)
-    except SyntaxError:
-        return []
-    return [
-        (node.name, frozenset(_base_name(base) for base in node.bases))
-        for node in ast.walk(tree)
-        if isinstance(node, ast.ClassDef)
-    ]
-
-
-def _builtin_derived(classes: list[tuple[str, frozenset[str]]]) -> frozenset[str]:
-    """Names of the classes deriving, at any depth, from a builtin mypyc cannot subclass natively.
-
-    Bases are matched by bare name, so a name collision only keeps one more
-    module interpreted; it never compiles one mypyc would reject.
-    """
-
-    derived = set(_UNSUBCLASSABLE_BUILTINS)
-    changed = True
-    while changed:
-        changed = False
-        for name, bases in classes:
-            if name not in derived and bases & derived:
-                derived.add(name)
-                changed = True
-    return frozenset(derived)
-
-
 def _find_compilable(lemoncrow_src: pathlib.Path, src_dir: pathlib.Path) -> list[str]:
     result = []
     # lemoncrow/pro is the performance-critical engine, so it is compiled as
@@ -656,58 +379,34 @@ def _find_compilable(lemoncrow_src: pathlib.Path, src_dir: pathlib.Path) -> list
     # pro/. A pro module mypyc cannot handle simply ships as .py (reported
     # below) -- all source is published either way.
     pro_uncompilable: list[tuple[str, str]] = []
-    sources = [
-        py
-        for py in sorted(lemoncrow_src.rglob("*.py"))
-        if not any(p in py.parts for p in _SKIP_DIRS) and py.name != "__main__.py"
-    ]
-    texts = {py: py.read_text(errors="replace") for py in sources}
-    classes = {py: _class_bases(text) for py, text in texts.items()}
-    derived = _builtin_derived([entry for entries in classes.values() for entry in entries])
-    source_read = _source_read_modules(texts)
-    introspecting = _introspecting_decorators(texts)
-    for py in sources:
+    for py in sorted(lemoncrow_src.rglob("*.py")):
+        if any(p in py.parts for p in _SKIP_DIRS):
+            continue
+        if py.name == "__main__.py":
+            continue
         rel = str(py.relative_to(src_dir))
         is_pro = rel.startswith("lemoncrow/pro/")
         reason = ""
         if not is_pro and py.name in _SKIP_FILES:
             reason = f"SKIP_FILES({py.name})"
-        elif rel in _SKIP_PATHS:
+        elif not is_pro and rel in _SKIP_PATHS:
             reason = "SKIP_PATHS"
         else:
-            text = texts[py]
-            if _contains_async_generator(text):
-                reason = "async generator"
-            elif _PYDANTIC_RE.search(text):
+            text = py.read_text(errors="replace")
+            if _PYDANTIC_RE.search(text):
                 reason = "pydantic BaseModel/RootModel"
             elif _DYNAMIC_RE.search(text):
                 reason = "__import__()"
             elif _BUILTIN_INHERIT_RE.search(text):
                 reason = "builtin-type inheritance"
-            elif any(bases & derived for _, bases in classes[py]):
-                reason = "builtin-type inheritance through an in-repo base"
-            elif _has_starred_membership_literal(text):
-                reason = "starred item in an `in` literal"
-            elif _has_module_getattr(text):
-                reason = "module-level __getattr__"
-            elif _has_dataclass_classvar(text):
-                reason = "ClassVar in a dataclass"
-            elif _has_ellipsis_default(text):
-                reason = "`...` parameter default"
-            elif rel in source_read:
-                reason = "source read by inspect.getsource"
             elif _NO_REDEF_RE.search(text):
                 reason = "type: ignore[no-redef]"
             elif _RUNTIME_CHECKABLE_RE.search(text):
                 reason = "@runtime_checkable"
             elif _CLICK_RE.search(text):
                 reason = "click decorator"
-            elif _FASTAPI_IMPORT_RE.search(text):
-                reason = "FastAPI endpoint signatures"
-            elif _applies_decorator(text, introspecting):
-                reason = "signature read by its decorator (@mcp_tool)"
-            elif _has_async_generator(text):
-                reason = "async generator"
+            elif _FASTAPI_IMPORT_RE.search(text) and _FASTAPI_DI_RE.search(text):
+                reason = "FastAPI DI default"
         if reason:
             if is_pro:
                 pro_uncompilable.append((rel, reason))

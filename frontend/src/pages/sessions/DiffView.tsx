@@ -1,9 +1,7 @@
-import { Button as UiButton } from "../../components/ui/button";
 import { Fragment, useState, useMemo } from "react";
 import { ChevronDown, ChevronUp, ExternalLink } from "lucide-react";
-import { api, apiUrl, type FileEditRecord } from "../../api";
+import { api, type FileEditRecord } from "../../api";
 import { cx } from "../../components/WorkbenchUI";
-import { useRuntimeCapabilities } from "../../lib/RuntimeCapabilities";
 
 // ---------------------------------------------------------------------------
 // Shared row type for side-by-side rendering
@@ -342,22 +340,22 @@ function SideBySideBody({ rows }: { rows: SBSRow[] }) {
   // either side grows the grid row and both cells stay height-matched. Two
   // independent flow columns (one per side) desync the moment any row wraps.
   return (
-    <div className="grid grid-cols-2 font-mono text-caption">
+    <div className="grid grid-cols-2 font-mono text-[10px]">
       {rows.map((row, idx) => (
         <Fragment key={idx}>
           <div
             className={cx(
-              "flex items-start border-r border-border/30 min-w-0",
+              "flex items-start border-r border-neutral-800/30 min-w-0",
               row.left
                 ? row.left.type === "remove"
                   ? "bg-red-950/25 border-l-2 border-l-red-600/50"
                   : ""
-                : "bg-muted/25"
+                : "bg-neutral-900/25"
             )}
           >
             {row.left && (
               <>
-                <span className="w-9 flex-shrink-0 text-right pr-2 py-0.5 text-muted-foreground select-none text-caption leading-5 border-r border-border/20">
+                <span className="w-9 flex-shrink-0 text-right pr-2 py-0.5 text-neutral-400 select-none text-[10px] leading-5 border-r border-neutral-800/20">
                   {row.left.num}
                 </span>
                 <span
@@ -365,7 +363,7 @@ function SideBySideBody({ rows }: { rows: SBSRow[] }) {
                     "flex-1 py-0.5 pl-2 whitespace-pre-wrap break-all leading-5",
                     row.left.type === "remove"
                       ? "text-red-300"
-                      : "text-muted-foreground"
+                      : "text-neutral-400"
                   )}
                 >
                   {row.left.type === "remove" && (
@@ -384,12 +382,12 @@ function SideBySideBody({ rows }: { rows: SBSRow[] }) {
                 ? row.right.type === "insert"
                   ? "bg-emerald-950/25 border-l-2 border-l-emerald-600/50"
                   : ""
-                : "bg-muted/25"
+                : "bg-neutral-900/25"
             )}
           >
             {row.right && (
               <>
-                <span className="w-9 flex-shrink-0 text-right pr-2 py-0.5 text-muted-foreground select-none text-caption leading-5 border-r border-border/20">
+                <span className="w-9 flex-shrink-0 text-right pr-2 py-0.5 text-neutral-400 select-none text-[10px] leading-5 border-r border-neutral-800/20">
                   {row.right.num}
                 </span>
                 <span
@@ -397,7 +395,7 @@ function SideBySideBody({ rows }: { rows: SBSRow[] }) {
                     "flex-1 py-0.5 pl-2 whitespace-pre-wrap break-all leading-5",
                     row.right.type === "insert"
                       ? "text-emerald-300"
-                      : "text-muted-foreground"
+                      : "text-neutral-400"
                   )}
                 >
                   {row.right.type === "insert" && (
@@ -417,8 +415,8 @@ function SideBySideBody({ rows }: { rows: SBSRow[] }) {
 // Sticky column labels used by both diff surfaces
 function SBSLabels() {
   return (
-    <div className="flex sticky top-0 z-10 bg-surface-code border-b border-border/40 font-mono text-caption uppercase tracking-widest text-muted-foreground">
-      <div className="w-1/2 px-3 py-1.5 border-r border-border/40">
+    <div className="flex sticky top-0 z-10 bg-[#080d08] border-b border-neutral-800/40 font-mono text-[10px] uppercase tracking-widest text-neutral-400">
+      <div className="w-1/2 px-3 py-1.5 border-r border-neutral-800/40">
         Before
       </div>
       <div className="w-1/2 px-3 py-1.5">After</div>
@@ -532,20 +530,18 @@ function DiffShell({
   onToggle: () => void;
   children: React.ReactNode;
 }) {
-  // The edited file lives on the developer machine; a hosted server has no route for it.
-  const localFiles = useRuntimeCapabilities().localMachine;
   return (
-    <div className="w-full border border-emerald-900/25 bg-background/60 overflow-hidden rounded-lg">
-      <div className="flex items-center justify-between px-4 py-2.5 bg-surface-code">
+    <div className="w-full border border-emerald-900/25 bg-[#050a05] rounded-sm overflow-hidden shadow-xl">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-[#080d08]">
         <div className="flex items-center gap-3 min-w-0 flex-1">
-          <span className="text-caption font-semibold uppercase tracking-tag text-emerald-600/80 border border-emerald-800/40 bg-emerald-950/30 px-1.5 py-0.5 flex-shrink-0">
+          <span className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600/80 border border-emerald-800/40 bg-emerald-950/30 px-1.5 py-0.5 flex-shrink-0">
             FILE_EDIT
           </span>
-          <span className="text-body font-mono text-muted-foreground truncate">
+          <span className="text-xs font-mono text-neutral-400 truncate">
             {path || "(unknown path)"}
           </span>
           {(addCount > 0 || delCount > 0) && (
-            <div className="flex items-center gap-1.5 text-caption font-mono font-semibold flex-shrink-0">
+            <div className="flex items-center gap-1.5 text-[10px] font-mono font-black flex-shrink-0">
               {addCount > 0 && (
                 <span className="text-emerald-600">+{addCount}</span>
               )}
@@ -556,42 +552,42 @@ function DiffShell({
           )}
         </div>
         <div className="flex items-center gap-3 ml-4 flex-shrink-0">
-          {localFiles && path && (
+          {path && (
             <>
               <a
                 href={api.fileProjectionInspectUrl(path, { view: "compact" })}
                 target="_blank"
                 rel="noreferrer"
-                className="text-meta text-muted-foreground hover:text-cyan-300 font-semibold uppercase tracking-widest transition-colors"
+                className="text-[10px] text-neutral-400 hover:text-cyan-300 font-black uppercase tracking-widest transition-colors"
                 title="Inspect compact projection metadata"
               >
                 Projection
               </a>
               <a
-                href={apiUrl(`/v1/files/content?path=${encodeURIComponent(path)}`)}
+                href={`/api/v1/files/content?path=${encodeURIComponent(path)}`}
                 target="_blank"
                 rel="noreferrer"
-                className="text-meta text-muted-foreground hover:text-emerald-300 font-semibold uppercase tracking-widest transition-colors flex items-center gap-1"
+                className="text-[10px] text-neutral-400 hover:text-emerald-300 font-black uppercase tracking-widest transition-colors flex items-center gap-1"
               >
-                View <ExternalLink size={14} />
+                View <ExternalLink size={10} />
               </a>
             </>
           )}
           {!forceExpand && (
-            <UiButton unstyled
+            <button
               onClick={onToggle}
-              className="text-meta text-muted-foreground hover:text-subtle font-semibold uppercase tracking-widest transition-colors border-l border-border/60 pl-3 flex items-center gap-1.5"
+              className="text-[10px] text-neutral-400 hover:text-neutral-300 font-black uppercase tracking-widest transition-colors border-l border-neutral-800/60 pl-3 flex items-center gap-1.5"
             >
               {expanded ? (
                 <>
-                  Hide Diff <ChevronUp size={14} />
+                  Hide Diff <ChevronUp size={10} />
                 </>
               ) : (
                 <>
-                  View Diff <ChevronDown size={14} />
+                  View Diff <ChevronDown size={10} />
                 </>
               )}
-            </UiButton>
+            </button>
           )}
         </div>
       </div>
@@ -612,7 +608,6 @@ export function FileDetail({
   forceExpand: boolean;
 }) {
   const [internalExpanded, setInternalExpanded] = useState(false);
-  const localFiles = useRuntimeCapabilities().localMachine;
   const expanded = forceExpand || internalExpanded;
   const isObj = typeof file !== "string";
   const path = isObj ? file.path : file;
@@ -627,17 +622,17 @@ export function FileDetail({
   const delCount = rows.filter((r) => r.left?.type === "remove").length;
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border/70 bg-background/60 group/file">
-      <div className="flex items-center justify-between p-4 hover:bg-accent/20 transition-all">
-        <UiButton unstyled
+    <div className="border border-neutral-800 bg-surface-raised rounded-none overflow-hidden group/file">
+      <div className="flex items-center justify-between p-4 hover:bg-neutral-800/20 transition-all">
+        <button
           onClick={() => setInternalExpanded(!internalExpanded)}
           className="flex-1 flex items-center gap-4 min-w-0 text-left"
         >
-          <span className="text-body font-mono text-muted-foreground group-hover/file:text-foreground transition-colors tracking-wide truncate">
+          <span className="text-xs font-mono text-neutral-400 group-hover/file:text-neutral-100 transition-colors tracking-wide truncate">
             {path}
           </span>
           {diff && (addCount > 0 || delCount > 0) && (
-            <div className="flex items-center gap-1.5 text-caption font-mono font-semibold flex-shrink-0">
+            <div className="flex items-center gap-1.5 text-[10px] font-mono font-black flex-shrink-0">
               {addCount > 0 && (
                 <span className="text-emerald-600">+{addCount}</span>
               )}
@@ -646,48 +641,44 @@ export function FileDetail({
               )}
             </div>
           )}
-        </UiButton>
+        </button>
         <div className="flex items-center gap-3 ml-4">
-          {localFiles && (
-            <>
-              <a
-                href={api.fileProjectionInspectUrl(path, { view: "compact" })}
-                target="_blank"
-                rel="noreferrer"
-                className="text-meta text-muted-foreground font-semibold tracking-widest hover:text-cyan-300 transition-colors uppercase"
-                title="Inspect compact projection metadata"
-              >
-                Projection
-              </a>
-              <a
-                href={apiUrl(`/v1/files/content?path=${encodeURIComponent(path)}`)}
-                target="_blank"
-                rel="noreferrer"
-                className="text-meta text-muted-foreground font-semibold tracking-widest hover:text-emerald-300 transition-colors uppercase flex items-center gap-1"
-                title="View raw file content"
-              >
-                Raw <ExternalLink size={14} />
-              </a>
-            </>
-          )}
-          <UiButton unstyled
+          <a
+            href={api.fileProjectionInspectUrl(path, { view: "compact" })}
+            target="_blank"
+            rel="noreferrer"
+            className="text-[10px] text-neutral-400 font-black tracking-widest hover:text-cyan-300 transition-colors uppercase"
+            title="Inspect compact projection metadata"
+          >
+            Projection
+          </a>
+          <a
+            href={`/api/v1/files/content?path=${encodeURIComponent(path)}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-[10px] text-neutral-400 font-black tracking-widest hover:text-emerald-300 transition-colors uppercase flex items-center gap-1"
+            title="View raw file content"
+          >
+            Raw <ExternalLink size={10} />
+          </a>
+          <button
             onClick={() => setInternalExpanded(!internalExpanded)}
-            className="text-meta text-muted-foreground font-semibold tracking-widest group-hover/file:text-subtle transition-colors uppercase pl-2 border-l border-border flex items-center gap-1.5"
+            className="text-[10px] text-neutral-400 font-black tracking-widest group-hover/file:text-neutral-300 transition-colors uppercase pl-2 border-l border-neutral-800 flex items-center gap-1.5"
           >
             {expanded ? (
               <>
-                Hide <ChevronUp size={14} />
+                Hide <ChevronUp size={10} />
               </>
             ) : (
               <>
-                Diff <ChevronDown size={14} />
+                Diff <ChevronDown size={10} />
               </>
             )}
-          </UiButton>
+          </button>
         </div>
       </div>
       {expanded && diff && (
-        <div className="max-h-[520px] overflow-auto border-t border-border/70 bg-surface-code">
+        <div className="border-t border-neutral-800 bg-[#080d08] overflow-auto max-h-[520px] shadow-[inset_0_2px_15px_rgba(0,0,0,0.8)]">
           <SBSLabels />
           <SideBySideBody rows={rows} />
         </div>

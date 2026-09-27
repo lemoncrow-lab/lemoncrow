@@ -16,6 +16,12 @@ from lemoncrow.infra.code_intel.languages import (
 )
 from lemoncrow.pro.capabilities.semantic_file_memory.treesitter_ast import _LANG_CONFIG
 
+# ---------------------------------------------------------------------------
+# Legacy expectation table — sourced verbatim from
+# semantic_file_memory.capability._language_for, EXCEPT the shell extensions
+# (.sh/.bash/.zsh) which now canonicalize to "bash" (DLS-LANG-03) instead of
+# the legacy "shell" spelling.
+# ---------------------------------------------------------------------------
 _LEGACY_EXTENSION_TO_NAME: dict[str, str] = {
     ".py": "python",
     ".pyi": "python",
@@ -45,9 +51,9 @@ _LEGACY_EXTENSION_TO_NAME: dict[str, str] = {
     ".h": "c",
     ".swift": "swift",
     ".php": "php",
-    ".sh": "bash",
-    ".bash": "bash",
-    ".zsh": "bash",
+    ".sh": "bash",  # was "shell" — canonicalized (DLS-LANG-03)
+    ".bash": "bash",  # was "shell"
+    ".zsh": "bash",  # was "shell"
     ".yaml": "yaml",
     ".yml": "yaml",
     ".toml": "toml",
@@ -55,16 +61,23 @@ _LEGACY_EXTENSION_TO_NAME: dict[str, str] = {
 }
 
 
-def test_language_registry_surface_contract() -> None:
-    """case: test_public_surface_types"""
+# ---------------------------------------------------------------------------
+# DLS-LANG-01: public surface exists with the expected types
+# ---------------------------------------------------------------------------
+
+
+def test_public_surface_types() -> None:
     assert dataclasses.is_dataclass(Language)
+    # Frozen dataclass: fields are immutable.
     fields = {f.name for f in dataclasses.fields(Language)}
     assert fields == {"name", "extensions", "parser_name", "filenames"}
     sample = language_by_name("python")
     assert sample is not None
     with pytest.raises(dataclasses.FrozenInstanceError):
-        sample.name = "mutated"
-    "case: test_public_surface_callables_and_containers"
+        sample.name = "mutated"  # type: ignore[misc]
+
+
+def test_public_surface_callables_and_containers() -> None:
     assert callable(language_for_path)
     assert callable(language_by_name)
     assert isinstance(EXTENSION_TO_LANGUAGE, dict)
@@ -73,35 +86,68 @@ def test_language_registry_surface_contract() -> None:
     assert "bash" in ALL_LANGUAGES
 
 
-def test_language_resolution_contract() -> None:
-    """case: test_legacy_extensions_resolve_to_canonical_name"""
-    for extension, expected_name in sorted(_LEGACY_EXTENSION_TO_NAME.items()):
-        resolved = language_for_path(f"file{extension}")
-        assert resolved is not None, f"extension {extension} dropped from registry"
-        assert resolved.name == expected_name
-    "case: test_unknown_extension_resolves_to_none"
+# ---------------------------------------------------------------------------
+# DLS-LANG-02 (legacy coverage): every legacy extension resolves to its prior
+# canonical name, except shell extensions which now map to "bash".
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("extension", "expected_name"),
+    sorted(_LEGACY_EXTENSION_TO_NAME.items()),
+)
+def test_legacy_extensions_resolve_to_canonical_name(extension: str, expected_name: str) -> None:
+    resolved = language_for_path(f"file{extension}")
+    assert resolved is not None, f"extension {extension} dropped from registry"
+    assert resolved.name == expected_name
+
+
+# ---------------------------------------------------------------------------
+# DLS-LANG-02 (fallback): unknown / unregistered extensionless paths resolve to None.
+# ---------------------------------------------------------------------------
+
+
+def test_unknown_extension_resolves_to_none() -> None:
     assert language_for_path("file.xyz") is None
-    "case: test_unregistered_no_extension_resolves_to_none"
+
+
+def test_unregistered_no_extension_resolves_to_none() -> None:
     assert language_for_path("noext") is None
-    "case: test_registered_extensionless_filenames_resolve_by_basename"
-    for filename in ["GNUmakefile", "Makefile", "makefile"]:
-        resolved = language_for_path(f"subdir/{filename}")
-        assert resolved is not None
-        assert resolved.name == "make"
-    "case: test_shell_extensions_canonical_to_bash"
-    for extension in [".sh", ".bash", ".zsh"]:
-        resolved = language_for_path(f"script{extension}")
-        assert resolved is not None
-        assert resolved.name == "bash"
-    "case: test_csharp_canonical_spelling"
+
+
+@pytest.mark.parametrize("filename", ["GNUmakefile", "Makefile", "makefile"])
+def test_registered_extensionless_filenames_resolve_by_basename(filename: str) -> None:
+    resolved = language_for_path(f"subdir/{filename}")
+    assert resolved is not None
+    assert resolved.name == "make"
+
+
+# ---------------------------------------------------------------------------
+# DLS-LANG-03 (boundary): shell extensions canonicalize to "bash".
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("extension", [".sh", ".bash", ".zsh"])
+def test_shell_extensions_canonical_to_bash(extension: str) -> None:
+    resolved = language_for_path(f"script{extension}")
+    assert resolved is not None
+    assert resolved.name == "bash"
+
+
+def test_csharp_canonical_spelling() -> None:
     resolved = language_for_path("Program.cs")
     assert resolved is not None
     assert resolved.name == "csharp"
 
 
-def test_language_registry_drift_contract() -> None:
-    """case: test_lang_config_keys_present_in_registry"""
-    for lang_key in sorted(_LANG_CONFIG.keys()):
-        assert (
-            language_by_name(lang_key) is not None
-        ), f"_LANG_CONFIG key {lang_key!r} is absent from the canonical registry"
+# ---------------------------------------------------------------------------
+# DLS-LANG-04 (drift guard): every _LANG_CONFIG key must resolve via the
+# registry, protecting the SUPPORTED_LANGUAGES↔registry contract (Pitfall 2).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("lang_key", sorted(_LANG_CONFIG.keys()))
+def test_lang_config_keys_present_in_registry(lang_key: str) -> None:
+    assert (
+        language_by_name(lang_key) is not None
+    ), f"_LANG_CONFIG key {lang_key!r} is absent from the canonical registry"

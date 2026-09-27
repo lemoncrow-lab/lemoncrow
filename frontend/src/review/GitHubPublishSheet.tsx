@@ -1,9 +1,8 @@
-import { Button as UiButton } from "../components/ui/button";
-import { Sheet, SheetClose, SheetContent, SheetHeader, SheetLede, SheetTitle } from "../components/ui/sheet";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ExternalLink, X } from "lucide-react";
 
 import "./reviewUi.css";
+import { trapModalTab } from "./focusTrap";
 import { previewGitHubPublish, publishGitHubReview } from "./reviewApi";
 import type { GitHubPublishPreview, GitHubPublishResult } from "./types";
 
@@ -26,6 +25,7 @@ function span(start: number, line: number): string {
 
 /** Preview, then post, this Review's comments and verdict to its GitHub pull request. */
 export default function GitHubPublishSheet({ reviewId, onClose, onPublished }: GitHubPublishSheetProps) {
+  const closeRef = useRef<HTMLButtonElement>(null);
   const [preview, setPreview] = useState<GitHubPublishPreview | null>(null);
   const [result, setResult] = useState<GitHubPublishResult | null>(null);
   const [busy, setBusy] = useState<"preview" | "publish" | "">("preview");
@@ -44,6 +44,7 @@ export default function GitHubPublishSheet({ reviewId, onClose, onPublished }: G
   }, [reviewId]);
 
   useEffect(() => {
+    closeRef.current?.focus();
     void load();
   }, [load]);
 
@@ -64,31 +65,43 @@ export default function GitHubPublishSheet({ reviewId, onClose, onPublished }: G
   const blocked = !preview || preview.stale || preview.empty;
 
   return (
-    <Sheet open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <SheetContent>
-        <SheetHeader>
-          <SheetTitle>
-            Publish to GitHub{preview ? ` · PR #${preview.pr.number}` : ""}
-          </SheetTitle>
-          <SheetClose asChild>
-            <UiButton variant="ghost" size="icon" type="button" aria-label="Close publish to GitHub">
-              <X size={14} />
-            </UiButton>
-          </SheetClose>
-        </SheetHeader>
-        <SheetLede>
-          Posted as one review under your own <code>gh</code> login. Nothing is sent until you publish.
-        </SheetLede>
+    <div
+      className="absolute inset-0 z-[70] flex justify-end bg-black/45"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="github-publish-title"
+      onKeyDown={(event) => {
+        if (trapModalTab(event)) return;
+        if (event.key === "Escape") {
+          event.stopPropagation();
+          onClose();
+        }
+      }}
+    >
+      <section className="review-sheet flex h-full w-[min(500px,100%)] flex-col border-y-0 border-r-0">
+        <div className="flex items-start gap-3 border-b border-neutral-800/80 px-4 py-3">
+          <div className="min-w-0 flex-1">
+            <h2 id="github-publish-title" className="text-[13px] font-semibold text-neutral-100">
+              Publish to GitHub{preview ? ` · PR #${preview.pr.number}` : ""}
+            </h2>
+            <p className="mt-0.5 text-[10px] leading-4 text-neutral-500">
+              Posted as one review under your own <code>gh</code> login. Nothing is sent until you publish.
+            </p>
+          </div>
+          <button ref={closeRef} type="button" onClick={onClose} aria-label="Close publish to GitHub" className="review-icon-button">
+            <X size={14} />
+          </button>
+        </div>
 
-        <div className="min-h-0 flex-1 overflow-auto px-4 py-4 text-label text-subtle">
-          {busy === "preview" && <p className="text-muted-foreground">Asking GitHub what it will accept…</p>}
+        <div className="min-h-0 flex-1 overflow-auto px-4 py-4 text-[11px] text-neutral-300">
+          {busy === "preview" && <p className="text-neutral-500">Asking GitHub what it will accept…</p>}
           {error && <p role="alert" className="mb-3 text-amber-300">{error}</p>}
           {result && (
             <p className="mb-3 text-emerald-300">
               {result.adopted ? "Already on GitHub" : "Published"}: {EVENT_LABEL[result.event]}, {result.inline} inline
               {result.folded > 0 ? `, ${result.folded} in the review body` : ""}.{" "}
               <a href={result.html_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline">
-                Open on GitHub <ExternalLink size={14} />
+                Open on GitHub <ExternalLink size={11} />
               </a>
             </p>
           )}
@@ -99,7 +112,7 @@ export default function GitHubPublishSheet({ reviewId, onClose, onPublished }: G
                   The pull request has new commits. Run <code>lc review --pr {preview.pr.number}</code> to refresh, then publish.
                 </p>
               )}
-              {preview.empty && !preview.stale && <p className="mb-3 text-muted-foreground">Nothing new to publish.</p>}
+              {preview.empty && !preview.stale && <p className="mb-3 text-neutral-500">Nothing new to publish.</p>}
               {preview.notices.map((notice) => (
                 <p key={notice} className="mb-2 text-amber-200">{notice}</p>
               ))}
@@ -109,21 +122,21 @@ export default function GitHubPublishSheet({ reviewId, onClose, onPublished }: G
               <ul className="mb-3 space-y-1">
                 {preview.inline.map((item) => (
                   <li key={item.annotation_id}>
-                    <span className="font-mono text-muted-foreground">{item.path}:{span(item.start_line, item.line)}{item.side === "LEFT" ? " (old)" : ""}</span>
-                    <div className="whitespace-pre-wrap text-subtle">{item.body}</div>
+                    <span className="font-mono text-neutral-400">{item.path}:{span(item.start_line, item.line)}{item.side === "LEFT" ? " (old)" : ""}</span>
+                    <div className="whitespace-pre-wrap text-neutral-300">{item.body}</div>
                   </li>
                 ))}
               </ul>
               {preview.folded.length > 0 && (
                 <>
                   <div className="review-kicker mb-1">In the review body ({preview.folded.length})</div>
-                  <p className="mb-1 text-caption text-muted-foreground">GitHub only accepts inline comments on lines it shows in the diff.</p>
+                  <p className="mb-1 text-[10px] text-neutral-500">GitHub only accepts inline comments on lines it shows in the diff.</p>
                   <ul className="space-y-1">
                     {preview.folded.map((item) => (
                       <li key={item.annotation_id}>
-                        <span className="font-mono text-muted-foreground">{item.location}</span>
-                        <span className="text-muted-foreground"> · {item.reason}</span>
-                        <div className="whitespace-pre-wrap text-subtle">{item.body}</div>
+                        <span className="font-mono text-neutral-400">{item.location}</span>
+                        <span className="text-neutral-500"> · {item.reason}</span>
+                        <div className="whitespace-pre-wrap text-neutral-300">{item.body}</div>
                       </li>
                     ))}
                   </ul>
@@ -133,24 +146,22 @@ export default function GitHubPublishSheet({ reviewId, onClose, onPublished }: G
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-border/80 bg-background/95 px-4 py-3">
+        <div className="flex items-center justify-end gap-2 border-t border-neutral-800/80 bg-neutral-950/95 px-4 py-3">
           {preview && (
-            <UiButton asChild className="mr-auto">
-              <a href={preview.pr.url} target="_blank" rel="noreferrer">
-                View PR
-              </a>
-            </UiButton>
+            <a href={preview.pr.url} target="_blank" rel="noreferrer" className="review-toolbar-button mr-auto">
+              View PR
+            </a>
           )}
-          <UiButton type="button" disabled={busy !== ""} onClick={result ? onClose : () => void load()}>
+          <button type="button" disabled={busy !== ""} onClick={result ? onClose : () => void load()} className="review-toolbar-button">
             {result ? "Done" : "Refresh preview"}
-          </UiButton>
+          </button>
           {!result && (
-            <UiButton variant="solid" type="button" disabled={busy !== "" || blocked} onClick={() => void publish()} className="px-3">
+            <button type="button" disabled={busy !== "" || blocked} onClick={() => void publish()} className="review-toolbar-button-primary">
               {busy === "publish" ? "Publishing…" : "Publish to GitHub"}
-            </UiButton>
+            </button>
           )}
         </div>
-      </SheetContent>
-    </Sheet>
+      </section>
+    </div>
   );
 }

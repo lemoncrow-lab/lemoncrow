@@ -147,6 +147,12 @@ def test_threshold_env_zero_disables_shrinking(tmp_path: Path) -> None:
     assert proc.stdout == ""
 
 
+def test_malformed_stdin_exits_zero_with_no_output(tmp_path: Path) -> None:
+    proc = _run({}, tmp_path, stdin_text="not json at all {{{")
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == ""
+
+
 def test_empty_stdin_exits_zero_with_no_output(tmp_path: Path) -> None:
     proc = _run({}, tmp_path, stdin_text="")
     assert proc.returncode == 0, proc.stderr

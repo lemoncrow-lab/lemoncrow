@@ -27,8 +27,8 @@ export default function ImageOverlayCompare({
   };
 
   return (
-    <div className={`overflow-hidden rounded border border-border bg-background ${className}`} data-testid="image-overlay-compare">
-      <div className="max-h-[640px] overflow-auto bg-muted p-2">
+    <div className={`overflow-hidden rounded border border-neutral-800 bg-neutral-950 ${className}`} data-testid="image-overlay-compare">
+      <div className="max-h-[640px] overflow-auto bg-neutral-900 p-2">
         <div ref={stageRef} className="relative grid w-full place-items-start overflow-hidden bg-white">
           <img src={beforeSrc} alt={`${beforeLabel} screenshot`} className="col-start-1 row-start-1 block h-auto w-full" />
           <img
@@ -89,13 +89,13 @@ export default function ImageOverlayCompare({
           >
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-cyan-300 transition-[width] group-hover:w-0.5 group-focus-visible:w-0.5"
+              className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-sky-300 shadow-[0_0_0_1px_rgba(0,0,0,0.45)] transition-[width] group-hover:w-0.5 group-focus-visible:w-0.5"
             />
             {showHint && (
               <div
                 aria-hidden="true"
                 data-testid="image-overlay-drag-hint"
-                className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded-full border border-border/80 bg-background/90 px-2 py-1 text-caption font-medium text-foreground shadow-float backdrop-blur"
+                className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 whitespace-nowrap rounded-full border border-neutral-700/80 bg-neutral-950/90 px-2 py-1 text-[10px] font-medium text-neutral-200 shadow-lg backdrop-blur"
               >
                 ↔ Drag to compare
               </div>

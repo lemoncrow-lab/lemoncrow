@@ -78,6 +78,12 @@ def test_opt_out_env_var_disables_guard(tmp_path: Path) -> None:
     assert proc.stdout == ""
 
 
+def test_malformed_stdin_exits_zero_with_no_output(tmp_path: Path) -> None:
+    proc = _run({}, tmp_path, stdin_text="not json at all {{{")
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == ""
+
+
 def test_malformed_tool_input_is_ignored(tmp_path: Path) -> None:
     payload = {"tool_name": "Task", "tool_input": "not-a-dict"}
     proc = _run(payload, tmp_path)

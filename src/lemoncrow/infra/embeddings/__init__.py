@@ -1,12 +1,9 @@
-"""Embedding backends: neutral protocol, null embedder and service clients.
-
-Local neural code embedders are private and resolved through
-``lemoncrow.core.capabilities.code_intelligence_provider``.
-"""
+"""Embedding backends."""
 
 from __future__ import annotations
 
 from lemoncrow.infra.embeddings.base import Embedder, EmbedResult
+from lemoncrow.infra.embeddings.bge import BgeEmbedder
 from lemoncrow.infra.embeddings.factory import (
     DEFAULT_CODE_EMBED_MODEL,
     NullEmbedder,
@@ -21,6 +18,7 @@ from lemoncrow.infra.embeddings.letta_embedder import LettaEmbedder
 
 __all__ = [
     "DEFAULT_CODE_EMBED_MODEL",
+    "BgeEmbedder",
     "EmbedResult",
     "Embedder",
     "LettaEmbedder",

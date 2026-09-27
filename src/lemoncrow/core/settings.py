@@ -19,7 +19,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 from pathlib import Path
 from typing import Any
 
@@ -28,8 +27,6 @@ from lemoncrow.core.settings_registry import CATEGORIES, SETTINGS, SettingSpec
 logger = logging.getLogger(__name__)
 
 _BY_KEY: dict[str, SettingSpec] = {spec.key: spec for spec in SETTINGS}
-_SEEDED_ENV: set[str] = set()
-"""Env vars :func:`apply_settings_env` filled into ``os.environ`` in this process."""
 
 __all__ = [
     "CATEGORIES",
@@ -37,12 +34,9 @@ __all__ = [
     "all_settings",
     "apply_settings_env",
     "coerce",
-    "env_override",
     "find_by_key",
-    "is_secret",
     "load_raw",
     "load_settings",
-    "secret_location_note",
     "settings_path",
     "unset_setting",
     "write_setting",
@@ -77,34 +71,11 @@ def _read_json(path: Path) -> dict[str, Any]:
     return {}
 
 
-_SECRET = re.compile(r"(?:api_key|_token|secret|password)$")
-
-
-def is_secret(spec: SettingSpec) -> bool:
-    """API keys and tokens: never echoed back to the screen, and the reason the settings file is owner-only."""
-    return spec.type == "str" and bool(_SECRET.search(spec.key))
-
-
 def _write_json(path: Path, data: dict[str, Any]) -> None:
-    """Replace *path* with *data*, readable by its owner only.
-
-    The file can hold API keys (``llm.openai_api_key``), so it is never group- or world-readable. It is written to a new
-    file and moved over the old one, which also repairs an older install's 0644 file the next time anything is saved.
-    """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.tmp")
-    descriptor = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-        handle.write(json.dumps(data, indent=2, sort_keys=True))
-    os.chmod(tmp, 0o600)  # a leftover temporary file keeps the mode it was created with
+    tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
     tmp.replace(path)
-
-
-def secret_location_note(root: str | Path, spec: SettingSpec) -> str:
-    """Where a secret setting is kept, said plainly (``""`` for a setting that is not a secret)."""
-    if not is_secret(spec):
-        return ""
-    return f"Stored as plain text in {settings_path(root)}, readable only by you (mode 600)."
 
 
 def coerce(spec: SettingSpec, raw: Any) -> Any:
@@ -159,14 +130,6 @@ def write_setting(root: str | Path, key: str, raw_value: Any) -> Any:
         value = coerce(spec, raw_value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"invalid value for {key} (expected {spec.type}): {raw_value!r}") from exc
-    if spec.choices:
-        value = str(value).strip().lower()
-        if value and value not in spec.choices:  # empty clears the choice
-            raise ValueError(f"invalid value for {key}: {raw_value!r} (choices: {', '.join(spec.choices)})")
-    if spec.int_range is not None:
-        low, high = spec.int_range
-        if not low <= int(value) <= high:
-            raise ValueError(f"invalid value for {key}: {raw_value!r} (must be between {low} and {high})")
     raw = load_raw(root)
     raw[key] = value
     _write_json(settings_path(root), raw)
@@ -180,16 +143,6 @@ def unset_setting(root: str | Path, key: str) -> None:
     if key in raw:
         del raw[key]
         _write_json(settings_path(root), raw)
-
-
-def env_override(spec: SettingSpec) -> str | None:
-    """The value of an exported env var that wins over the stored setting, if any.
-
-    Values this process seeded from the settings file itself don't count.
-    """
-    if spec.env_var is None or spec.env_var in _SEEDED_ENV:
-        return None
-    return os.environ.get(spec.env_var)
 
 
 def _resolve_root() -> Path:
@@ -219,12 +172,8 @@ def apply_settings_env(root: str | Path | None = None, *, env: dict[str, str] | 
             continue
         if spec.env_var in target:
             continue
-        if spec.yields_to and str(target.get(spec.yields_to) or "").strip():
-            continue  # the key exported in this shell wins over the saved one
         try:
             coerced = coerce(spec, value)
         except (TypeError, ValueError):
             continue
         target[spec.env_var] = _env_repr(spec, coerced)
-        if target is os.environ:
-            _SEEDED_ENV.add(spec.env_var)

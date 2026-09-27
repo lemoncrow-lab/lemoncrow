@@ -1,17 +1,32 @@
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from lemoncrow.core.foundation.runtime_trace import TraceStore, is_trace_id, new_trace_id, open_trace
+from lemoncrow.gateway.tools import runtime_call
 from lemoncrow.gateway.tools.call_runtime import META_CALL_ID, run_tool_call, runtime_call_from_jsonrpc
 from lemoncrow.gateway.tools.registry import tool_spec
 from lemoncrow.gateway.tools.runtime_call import RuntimeCall, ToolCallRuntime, ToolCallRuntimeHooks
 from tests.gateway.test_tool_call_runtime_boundary import _noop_lifecycle_hooks
 
 _FORBIDDEN_PREFIXES = ("lemoncrow.gateway.adapters", "aiohttp", "mcp", "starlette", "fastapi", "http")
+
+
+def test_runtime_module_imports_no_transport() -> None:
+    tree = ast.parse(Path(runtime_call.__file__).read_text(encoding="utf-8"))
+    imported: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            imported.append(node.module)
+        elif isinstance(node, ast.Import):
+            imported.extend(alias.name for alias in node.names)
+    offenders = [name for name in imported if name.startswith(_FORBIDDEN_PREFIXES)]
+    assert offenders == []
+    assert "rid" not in {f for f in RuntimeCall.__dataclass_fields__}
 
 
 def _hooks() -> ToolCallRuntimeHooks:

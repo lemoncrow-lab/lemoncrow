@@ -63,8 +63,8 @@ def _savings(**overrides: object) -> dict:
 def test_format_stats_normal_path_uses_canonical_formatters() -> None:
     stop = _load_stop()
     out = stop._format_stats(_stats(), _savings())
-    assert "est. cost: $0.0500(I:1.3k C:2.0k O:500)" in out
-    assert "↓ $1.50(I:12.0k) · 3 calls avoided" in out
+    assert "tokens: 1.3k in (1.0k new + 300 cW) · 2.0k cR · 500 out · 3.8k total" in out
+    assert "savings: $1.50 · 12.0k tok · 3 calls avoided" in out
     assert "top tools: read×3 · edit×1" in out  # noqa: RUF001
 
 
@@ -82,8 +82,8 @@ def test_format_stats_falls_back_when_installed_package_lacks_helpers(
     stop = _load_stop()
     out = stop._format_stats(_stats(), _savings())
 
-    assert "est. cost: $0.0500(I:1.3k C:2.0k O:500)" in out
-    assert "↓ $1.50(I:12.0k) · 3 calls avoided" in out
+    assert "tokens: 1.3k in (1.0k new + 300 cW) · 2.0k cR · 500 out · 3.8k total" in out
+    assert "savings: $1.50 · 12.0k tok · 3 calls avoided" in out
 
 
 def test_format_stats_fallback_matches_canonical_output(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -101,98 +101,3 @@ def test_format_stats_fallback_matches_canonical_output(monkeypatch: pytest.Monk
     fallback_out = fallback_stop._format_stats(stats, savings)
 
     assert fallback_out == canonical_out
-
-
-def test_codex_and_claude_compact_breakdowns_match(tmp_path, monkeypatch):
-    from lemoncrow.core.capabilities import plugin_runtime
-
-    savings = _savings(
-        carry_usd=0.2,
-        carry_tokens=200,
-        output_usd=0.4,
-        output_tokens=800,
-        input_usd=0.1,
-        input_tokens=3000,
-        routing_usd=0.05,
-    )
-    claude = _load_stop()._format_stats(_stats(), savings, real_cost=True)
-    monkeypatch.setattr(
-        plugin_runtime,
-        "build_savings_report",
-        lambda *args, **kwargs: {
-            "session": {"turns": 2, "usage": _stats()},
-            "cost": {
-                "saved_usd": 1.5,
-                "total_saved_usd": 1.7,
-                "carry_usd": 0.2,
-                "carry_tokens": 200,
-                "output_saved_usd": 0.4,
-                "output_saved_tokens": 800,
-                "input_saved_usd": 0.1,
-                "input_saved_tokens": 3000,
-                "routing_saved_usd": 0.05,
-            },
-            "tokens_saved": 12000,
-            "calls_avoided": 3,
-        },
-    )
-    codex = plugin_runtime.build_codex_stop_output(
-        tmp_path,
-        {
-            "hook_event_name": "Stop",
-            "session_id": "parity",
-            "cost": {"total_cost_usd": 0.05},
-        },
-    )["systemMessage"]
-    claude_expected = "cost: $0.0500(I:1.3k C:2.0k O:500) ↓ $1.70(I:12.0k K:200 O:800 C:3.0k R:$0.05) · 3 calls avoided"
-    assert claude_expected in claude.splitlines()
-    assert "cost: $0.0500(I:1.3k C:2.0k O:500)" in codex.splitlines()
-    assert any(
-        line.startswith("est. LC savings: $1.70(I:12.0k K:200 O:800 C:3.0k R:$0.05)") and "3 calls avoided" in line
-        for line in codex.splitlines()
-    )
-
-
-def test_format_stats_measured_subagents_separates_actual_cost_from_estimated_savings() -> None:
-    stop = _load_stop()
-    stats = _stats(
-        measurement_source="claude_mod",
-        measured_main_turns=2,
-        measured_subagent_count=3,
-        measured_subagent_turns=20,
-        subagent_attributed_cost_usd=9.0,
-        est_cost_usd=10.0,
-    )
-    savings = _savings(total_saved_usd=2.5)
-
-    out = stop._format_stats(stats, savings, real_cost=True)
-
-    assert "2 main turns · 4 main tool calls" in out
-    assert "3 subagents · 20 child turns · 90.0% of spend" in out
-    assert "Claude cost: $10.0000" in out
-    assert "est. LC savings: $2.50" in out
-    assert "~20.0% lower" in out
-    assert "baseline" not in out
-    assert "top main tools:" in out
-
-
-def test_format_verified_local_savings_is_separate_from_modelled_total(monkeypatch: pytest.MonkeyPatch) -> None:
-    from lemoncrow.pro.capabilities.verified_work import calibration
-
-    monkeypatch.setattr(
-        calibration,
-        "session_calibrated_savings",
-        lambda session_id, root=None: {
-            "promoted_repairs": 3,
-            "qualified_repairs": 3,
-            "unqualified_repairs": 0,
-            "local_cost_usd": 0.0,
-            "calibrated_net_savings_usd": 1.42,
-            "provenance": "paired_shadow_host_usage",
-        },
-    )
-    stop = _load_stop()
-
-    line = stop._format_verified_local_savings("session-1")
-
-    assert line == "\nverified local: 3 promoted · 3 calibrated · net $1.42 paired (separate from est. LC savings)"

@@ -122,8 +122,6 @@ def frontend_watchdog_profile_config(root: str | Path) -> dict[str, Any]:
         "active_profile": config.active_profile,
         "profiles": profiles,
         "library": library,
-        # Not wired: the only runner (ContextRuntime.run) has no production
-        # caller, so the dashboard shows watchdogs as coming soon.
-        "runtime_wired": False,
+        "runtime_wired": True,
         "config_path": str(watchdog_profile_config_path(root)),
     }

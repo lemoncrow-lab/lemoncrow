@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
-import ReviewReadinessSheet, { blockingSummary, deriveReviewReadiness, scmRequirementBlockers } from "./ReviewReadinessSheet";
+import ReviewReadinessSheet, { deriveReviewReadiness, scmRequirementBlockers } from "./ReviewReadinessSheet";
 import type { EvidenceRow, ReviewLandingReadiness, ReviewOutcome, ReviewProgress } from "./types";
 
 const progress: ReviewProgress = {
@@ -158,7 +158,7 @@ describe("deriveReviewReadiness", () => {
       {
         id: "scm-requirement:rel-checks",
         label: "Required checks · pending",
-        detail: "github remains authoritative for this merge requirement.",
+        detail: "github remains authoritative for this landing requirement.",
         tone: "amber",
       },
     ]);
@@ -190,127 +190,18 @@ describe("ReviewReadinessSheet focus", () => {
     });
     render(<ReviewReadinessSheet model={model} onClose={vi.fn()} />);
 
-    expect(screen.getByText("Your review")).toBeTruthy();
-    expect(screen.getByText("3/4 reviewed")).toBeTruthy();
+    expect(screen.getByText("Human review")).toBeTruthy();
     expect(screen.getByText("1 review area need judgment")).toBeTruthy();
-    expect(screen.getByText("Verification")).toBeTruthy();
+    expect(screen.getByText("Evidence")).toBeTruthy();
     expect(screen.getByText("Unit tests")).toBeTruthy();
     expect(screen.getByText("API contract")).toBeTruthy();
     expect(screen.getByText("1 stale artifact")).toBeTruthy();
-    expect(screen.getByText("Passed")).toBeTruthy();
-    expect(screen.getByText("Failed")).toBeTruthy();
-    expect(screen.getAllByText("Evidence details").every((summary) => !summary.closest("details")?.hasAttribute("open"))).toBe(true);
+    expect(screen.getByText("PASS")).toBeTruthy();
+    expect(screen.getByText("FAIL")).toBeTruthy();
+    expect(screen.queryByText("1 failed check")).toBeNull();
   });
 
-  it("uses reviewer-facing language for unresolved checks and keeps evidence detail collapsed", () => {
-    const model = deriveReviewReadiness({
-      progress,
-      openComments: 0,
-      verification: { pass: 0, fail: 0, not_run: 1, unknown: 1 },
-      outcome: null,
-    });
-    render(<ReviewReadinessSheet model={model} onClose={vi.fn()} />);
-
-    expect(screen.getByText("1 check did not run")).toBeTruthy();
-    expect(screen.getByText("1 check result could not be determined")).toBeTruthy();
-    expect(screen.getByText("Did not run")).toBeTruthy();
-    expect(screen.getByText("Couldn’t determine")).toBeTruthy();
-    expect(screen.queryByText("NOT RUN")).toBeNull();
-    expect(screen.queryByText("UNKNOWN")).toBeNull();
-    expect(screen.getAllByText("Evidence details").every((summary) => !summary.closest("details")?.hasAttribute("open"))).toBe(true);
-  });
-
-  it("keeps automation and signed-record internals behind closed disclosures", () => {
-    const model = deriveReviewReadiness({ progress, openComments: 0, verification, outcome: null });
-    render(
-      <ReviewReadinessSheet
-        model={model}
-        automation={<div>acts as service account · needs review:manage</div>}
-        recordSection={<div>lc review verify-record record.json --keys keys.json</div>}
-        onClose={vi.fn()}
-      />,
-    );
-
-    const automation = screen.getByTestId("review-automation-details") as HTMLDetailsElement;
-    const record = screen.getByTestId("review-record-details") as HTMLDetailsElement;
-    expect(automation.open).toBe(false);
-    expect(record.open).toBe(false);
-
-    fireEvent.click(within(automation).getByText("Automation"));
-    fireEvent.click(within(record).getByText("Review record"));
-    expect(automation.open).toBe(true);
-    expect(record.open).toBe(true);
-  });
-
-  it("keeps Your review, Team review, and Merge readiness conceptually distinct", () => {
-    const model = deriveReviewReadiness({
-      progress: { ...progress, reviewed: 3, unreviewed: 1 },
-      openComments: 0,
-      verification,
-      outcome: null,
-      additionalBlockers: [
-        { id: "organization-policy-0", label: "Reviewer B has not completed", detail: "Team policy requires Reviewer B.", tone: "amber" },
-      ],
-    });
-    const landing: ReviewLandingReadiness = {
-      review_id: "review-1",
-      snapshot_id: "rr-2",
-      snapshot_number: 2,
-      tree_fingerprint: "tree-2",
-      source_fingerprint: "source-2",
-      conditions: [
-        {
-          id: "scm-approval",
-          label: "Code-owner approval",
-          state: "pending",
-          detail: "GitHub invalidated the previous approval after a new commit.",
-          owner: "scm",
-          category: "approval",
-          url: "",
-        },
-      ],
-      ready: false,
-      armable: true,
-      blocker_count: 1,
-      local_blocker_count: 0,
-      conditions_hash: "conditions-2",
-      work_items: [],
-      landing: {
-        supported: true,
-        provider: "github",
-        state: "not_armed",
-        armed: false,
-        semantic_stale: false,
-        revision_id: "",
-        tree_fingerprint: "",
-        conditions_hash: "",
-        detail: "",
-        url: "",
-        mechanism: "",
-      },
-    };
-
-    render(
-      <ReviewReadinessSheet
-        model={model}
-        landing={landing}
-        extraSections={<div>Required reviewers and scoped assignments</div>}
-        onClose={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByText("Your review")).toBeTruthy();
-    expect(screen.getByText("Team review")).toBeTruthy();
-    expect(screen.getByText("Reviewer B has not completed")).toBeTruthy();
-    expect(screen.getByText("Merge readiness")).toBeTruthy();
-    expect(screen.getByText("Provider requires renewed approval")).toBeTruthy();
-    expect(screen.getByText("Code-owner approval")).toBeTruthy();
-    expect(screen.getByText(/invalidated the previous approval/)).toBeTruthy();
-    expect(screen.getByText("1 review area need judgment")).toBeTruthy();
-    expect(screen.queryByText(/changed since your review/)).toBeNull();
-  });
-
-  it("shows exact landing conditions and requires an explicit merge-when-ready action", () => {
+  it("shows exact landing conditions and requires an explicit arm action", () => {
     const model = deriveReviewReadiness({ progress, openComments: 0, verification, outcome: null });
     const onArmLanding = vi.fn();
     const landing: ReviewLandingReadiness = {
@@ -320,7 +211,7 @@ describe("ReviewReadinessSheet focus", () => {
       tree_fingerprint: "tree-2",
       source_fingerprint: "source-2",
       conditions: [
-        { id: "reviewed", label: "Latest revision reviewed", state: "pass", detail: "All targets reviewed.", owner: "lemoncrow", category: "human_review", url: "" },
+        { id: "reviewed", label: "Latest Snapshot reviewed", state: "pass", detail: "All targets reviewed.", owner: "lemoncrow", category: "human_review", url: "" },
         { id: "checks", label: "Required checks", state: "pending", detail: "GitHub is waiting on CI.", owner: "scm", category: "scm", url: "https://github.example/pr/7" },
       ],
       ready: false,
@@ -335,20 +226,20 @@ describe("ReviewReadinessSheet focus", () => {
     render(<ReviewReadinessSheet model={model} landing={landing} onArmLanding={onArmLanding} onClose={vi.fn()} />);
 
     expect(screen.getByText("Not ready · 1 condition")).toBeTruthy();
-    expect(screen.getByText("Latest revision reviewed")).toBeTruthy();
-    expect(screen.getByText("Provider")).toBeTruthy();
+    expect(screen.getByText("Latest Snapshot reviewed")).toBeTruthy();
+    expect(screen.getByText("SCM-owned")).toBeTruthy();
     expect(screen.getByRole("link", { name: /Fix callback race/i })).toBeTruthy();
-    const mergeWhenReady = screen.getByRole("button", { name: "Merge when ready" });
-    expect(mergeWhenReady).not.toHaveProperty("disabled", true);
-    fireEvent.click(mergeWhenReady);
+    const arm = screen.getByRole("button", { name: "Arm Merge when ready" });
+    expect(arm).not.toHaveProperty("disabled", true);
+    fireEvent.click(arm);
     expect(onArmLanding).toHaveBeenCalledTimes(1);
   });
 
-  it("shows a merged landing as done and never offers to enable merge again", () => {
+  it("shows a merged landing as done and never offers to arm it again", () => {
     const model = deriveReviewReadiness({ progress, openComments: 0, verification, outcome: null });
     const landing: ReviewLandingReadiness = {
       review_id: "review-1", snapshot_id: "rr-2", snapshot_number: 2, tree_fingerprint: "tree-2", source_fingerprint: "source-2",
-      conditions: [{ id: "reviewed", label: "Latest revision reviewed", state: "pass", detail: "All targets reviewed.", owner: "lemoncrow", category: "human_review", url: "" }],
+      conditions: [{ id: "reviewed", label: "Latest Snapshot reviewed", state: "pass", detail: "All targets reviewed.", owner: "lemoncrow", category: "human_review", url: "" }],
       ready: true, armable: true, blocker_count: 0, local_blocker_count: 0, conditions_hash: "conditions-2", work_items: [],
       landing: { supported: true, provider: "github", state: "merged", armed: false, semantic_stale: false, revision_id: "rr-2", tree_fingerprint: "tree-2", conditions_hash: "conditions-2", detail: "GitHub merged exactly the reviewed head bbbbbbbbbbbb.", url: "https://github.example/pr/7", mechanism: "exact_head_merge" },
     };
@@ -357,53 +248,40 @@ describe("ReviewReadinessSheet focus", () => {
 
     expect(screen.getByText("merged")).toBeTruthy();
     expect(screen.getByText("GitHub merged exactly the reviewed head bbbbbbbbbbbb.")).toBeTruthy();
-    expect(screen.queryByText("Ready to merge")).toBeNull();
+    expect(screen.queryByText("Ready to land")).toBeNull();
     expect(screen.queryByRole("button", { name: /Merge when ready/ })).toBeNull();
   });
 
-  it("shows the deployment line of a merged Change without changing readiness", () => {
-    const model = deriveReviewReadiness({ progress, openComments: 0, verification, outcome: null });
-    const { rerender } = render(<ReviewReadinessSheet model={model} onClose={vi.fn()} />);
-    const before = screen.getAllByRole("button").length;
-    rerender(
-      <ReviewReadinessSheet
-        model={model}
-        deployments={<div data-testid="deployments">Deployed to staging · production canary 10%</div>}
-        onClose={vi.fn()}
-      />,
-    );
-    expect(screen.getByTestId("deployments").textContent).toBe("Deployed to staging · production canary 10%");
-    expect(screen.getAllByRole("button").length).toBe(before); // no new control
-  });
-
-  it("still offers to cancel an enabled merge when the sheet is otherwise read-only", () => {
+  it("still offers to cancel an armed landing when the sheet is otherwise read-only", () => {
     const model = deriveReviewReadiness({ progress, openComments: 0, verification, outcome: null });
     const onCancelLanding = vi.fn();
     const landing: ReviewLandingReadiness = {
       review_id: "review-1", snapshot_id: "rr-2", snapshot_number: 2, tree_fingerprint: "tree-2", source_fingerprint: "source-2",
-      conditions: [{ id: "reviewed", label: "Latest revision reviewed", state: "pass", detail: "All targets reviewed.", owner: "lemoncrow", category: "human_review", url: "" }],
+      conditions: [{ id: "reviewed", label: "Latest Snapshot reviewed", state: "pass", detail: "All targets reviewed.", owner: "lemoncrow", category: "human_review", url: "" }],
       ready: true, armable: true, blocker_count: 0, local_blocker_count: 0, conditions_hash: "conditions-2", work_items: [],
       landing: { supported: true, provider: "github", state: "armed", armed: true, semantic_stale: false, revision_id: "rr-2", tree_fingerprint: "tree-2", conditions_hash: "conditions-2", detail: "Waiting for GitHub requirements.", url: "https://github.example/pr/7", mechanism: "lemoncrow_watch" },
     };
 
     render(<ReviewReadinessSheet model={model} landing={landing} readOnly onArmLanding={vi.fn()} onCancelLanding={onCancelLanding} onClose={vi.fn()} />);
 
+    // Cancelling is always safe: a discarded or no-longer-current view may
+    // still withdraw landing, but it may never arm it.
     fireEvent.click(screen.getByRole("button", { name: "Cancel merge when ready" }));
     expect(onCancelLanding).toHaveBeenCalledTimes(1);
   });
 
-  it("never offers to enable merge from a read-only sheet", () => {
+  it("never offers to arm from a read-only sheet", () => {
     const model = deriveReviewReadiness({ progress, openComments: 0, verification, outcome: null });
     const landing: ReviewLandingReadiness = {
       review_id: "review-1", snapshot_id: "rr-2", snapshot_number: 2, tree_fingerprint: "tree-2", source_fingerprint: "source-2",
-      conditions: [{ id: "reviewed", label: "Latest revision reviewed", state: "pass", detail: "All targets reviewed.", owner: "lemoncrow", category: "human_review", url: "" }],
+      conditions: [{ id: "reviewed", label: "Latest Snapshot reviewed", state: "pass", detail: "All targets reviewed.", owner: "lemoncrow", category: "human_review", url: "" }],
       ready: true, armable: true, blocker_count: 0, local_blocker_count: 0, conditions_hash: "conditions-2", work_items: [],
       landing: { supported: true, provider: "github", state: "not_armed", armed: false, semantic_stale: false, revision_id: "", tree_fingerprint: "", conditions_hash: "", detail: "", url: "", mechanism: "" },
     };
 
     render(<ReviewReadinessSheet model={model} landing={landing} readOnly onArmLanding={vi.fn()} onCancelLanding={vi.fn()} onClose={vi.fn()} />);
 
-    expect(screen.queryByRole("button", { name: "Merge when ready" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Arm Merge when ready/ })).toBeNull();
   });
 
   it("shows a human-waived condition as waived rather than passed", () => {
@@ -419,54 +297,7 @@ describe("ReviewReadinessSheet focus", () => {
     expect(screen.getByText("waived by a human")).toBeTruthy();
   });
 
-  it("names the policy generation and evidence freshness without new chrome", () => {
-    const model = deriveReviewReadiness({ progress, openComments: 0, verification, outcome: null });
-    const landing: ReviewLandingReadiness = {
-      review_id: "review-1", snapshot_id: "rr-2", snapshot_number: 2, tree_fingerprint: "tree-2", source_fingerprint: "source-2",
-      conditions: [
-        {
-          id: "supply-chain-policy", label: "Dependency / supply-chain policy passed", state: "pass", detail: "Current dependency / supply-chain policy results passed.", owner: "lemoncrow", category: "supply_chain", url: "", reason: "satisfied",
-          evidence_refs: [
-            { evidence_id: "ev-sbom", freshness_class: "snapshot_intrinsic", state: "current", observed_at: "2026-10-01T12:00:00Z", source_revision: "", expires_at: "", reason: "" },
-            { evidence_id: "ev-scan", freshness_class: "external_observation", state: "current", observed_at: "2026-10-01T12:00:00Z", source_revision: "db@100", expires_at: "2026-10-02T12:00:00Z", reason: "" },
-          ],
-        },
-        {
-          id: "feed", label: "Required advisory feed", state: "unknown", detail: "The advisory observation is no longer current; re-observe on this Snapshot.", owner: "lemoncrow", category: "verification", url: "", reason: "evidence_expired",
-          evidence_refs: [{ evidence_id: "ev-feed", freshness_class: "external_observation", state: "expired", observed_at: "2026-09-29T12:00:00Z", source_revision: "", expires_at: "2026-09-30T12:00:00Z", reason: "external observation expired" }],
-        },
-      ],
-      ready: false, armable: false, blocker_count: 1, local_blocker_count: 1, conditions_hash: "conditions-2", work_items: [],
-      landing: { supported: true, provider: "github", state: "armed", armed: true, semantic_stale: false, revision_id: "rr-2", tree_fingerprint: "tree-2", conditions_hash: "conditions-2", detail: "", url: "", mechanism: "", policy_generation: "policy:old", policy_stale: true },
-      policy_generation: {
-        digest: "policy:abcdef1234567890",
-        short: "abcdef123456",
-        authority: "provisional",
-        layers: [
-          { layer: "built_in", source: "lemoncrow", digest: "1", state: "final" },
-          { layer: "trusted_base", source: "trusted base .lemoncrow/review.yaml (provisional)", digest: "2", state: "provisional" },
-        ],
-      },
-      evaluated_at: "2026-10-01T13:00:00Z",
-      valid_until: "2026-10-02T12:00:00Z",
-    };
-
-    render(<ReviewReadinessSheet model={model} landing={landing} onCancelLanding={vi.fn()} onClose={vi.fn()} />);
-
-    expect(screen.queryByText(/Policy abcdef123456/)).toBeNull();
-    const policy = screen.getByText("Policy details · provisional");
-    fireEvent.click(policy);
-    const policyDetails = screen.getByTestId("review-policy-details");
-    expect(policyDetails.textContent).toContain("Generation abcdef123456");
-    expect(policyDetails.getAttribute("title")).toBeNull();
-    expect(within(policyDetails).getByTitle(/policy:abcdef1234567890/)).toBeTruthy();
-    expect(screen.getByText("External observation valid until 2026-10-02 12:00:00 UTC")).toBeTruthy();
-    expect(screen.getByText("1 external observation is no longer current")).toBeTruthy();
-    expect(screen.getByText(/Enabled under an earlier Review policy/)).toBeTruthy();
-    expect(screen.queryByText("Ready to merge")).toBeNull();
-  });
-
-  it("does not allow merge when ready while a LemonCrow-owned blocker remains", () => {
+  it("does not allow arming while a LemonCrow-owned landing blocker remains", () => {
     const model = deriveReviewReadiness({ progress, openComments: 0, verification, outcome: null });
     const landing: ReviewLandingReadiness = {
       review_id: "review-1", snapshot_id: "rr-2", snapshot_number: 2, tree_fingerprint: "tree-2", source_fingerprint: "source-2",
@@ -475,10 +306,10 @@ describe("ReviewReadinessSheet focus", () => {
       landing: { supported: true, provider: "github", state: "not_armed", armed: false, semantic_stale: false, revision_id: "", tree_fingerprint: "", conditions_hash: "", detail: "", url: "", mechanism: "" },
     };
     render(<ReviewReadinessSheet model={model} landing={landing} onArmLanding={vi.fn()} onClose={vi.fn()} />);
-    expect(screen.getByRole("button", { name: "Merge when ready" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("button", { name: "Arm Merge when ready" })).toHaveProperty("disabled", true);
   });
 
-  it("does not call review-ready state ready to land when automatic merge is unavailable", () => {
+  it("does not call review-ready state ready to land when no SCM landing adapter exists", () => {
     const model = deriveReviewReadiness({ progress, openComments: 0, verification, outcome: null });
     const landing: ReviewLandingReadiness = {
       review_id: "review-1",
@@ -487,7 +318,7 @@ describe("ReviewReadinessSheet focus", () => {
       tree_fingerprint: "tree-2",
       source_fingerprint: "source-2",
       conditions: [
-        { id: "reviewed", label: "Latest revision reviewed", state: "pass", detail: "All targets reviewed.", owner: "lemoncrow", category: "human_review", url: "" },
+        { id: "reviewed", label: "Latest Snapshot reviewed", state: "pass", detail: "All targets reviewed.", owner: "lemoncrow", category: "human_review", url: "" },
       ],
       ready: true,
       armable: true,
@@ -500,157 +331,20 @@ describe("ReviewReadinessSheet focus", () => {
 
     render(<ReviewReadinessSheet model={model} landing={landing} onClose={vi.fn()} />);
 
-    expect(screen.getByText("Review ready · merge unavailable")).toBeTruthy();
-    expect(screen.queryByText("Ready to merge")).toBeNull();
+    expect(screen.getByText("Review ready · SCM landing unavailable")).toBeTruthy();
+    expect(screen.queryByText("Ready to land")).toBeNull();
   });
 
   it("shows an authoritative-readiness failure instead of silently presenting local readiness as complete", () => {
     const model = deriveReviewReadiness({ progress, openComments: 0, verification, outcome: null });
-    render(<ReviewReadinessSheet model={model} landingError="Merge readiness unavailable: offline" onClose={vi.fn()} />);
-    expect(screen.getByRole("alert").textContent).toContain("Merge readiness unavailable: offline");
+    render(<ReviewReadinessSheet model={model} landingError="Landing readiness unavailable: offline" onClose={vi.fn()} />);
+    expect(screen.getByRole("alert").textContent).toContain("Landing readiness unavailable: offline");
     expect(screen.getByRole("alert").textContent).toContain("Readiness is not assumed from partial local state");
   });
 
   it("moves initial focus inside the modal", () => {
     const model = deriveReviewReadiness({ progress, openComments: 0, verification, outcome: null });
     render(<ReviewReadinessSheet model={model} onClose={vi.fn()} />);
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close review status" }));
-  });
-});
-
-describe("ReviewReadinessSheet landing decisions", () => {
-  const model = () => deriveReviewReadiness({ progress, openComments: 0, verification, outcome: null });
-  function landing(extra: Partial<ReviewLandingReadiness["landing"]>, overrides: Partial<ReviewLandingReadiness> = {}): ReviewLandingReadiness {
-    return {
-      review_id: "review-1", snapshot_id: "rr-2", snapshot_number: 2, tree_fingerprint: "tree-2", source_fingerprint: "source-2",
-      conditions: [{ id: "merge-result", label: "Merge result", state: "fail", detail: "1 check(s) pass on the reviewed head but fail on the merge queue group: ci.", owner: "lemoncrow", category: "landing", url: "" }],
-      ready: false, armable: false, blocker_count: 1, local_blocker_count: 1, conditions_hash: "conditions-2", work_items: [],
-      blocking_reasons: [
-        { id: "merge-result", owner: "lemoncrow", state: "fail", action: "Merged result fails checks" },
-        { id: "org-policy:check:ci", owner: "lemoncrow", state: "pending", action: "Waiting for checks" },
-        { id: "org-policy:check:lint", owner: "lemoncrow", state: "pending", action: "Waiting for checks" },
-      ],
-      landing: {
-        supported: true, provider: "github", state: "not_armed", armed: false, semantic_stale: false,
-        revision_id: "", tree_fingerprint: "", conditions_hash: "", detail: "", url: "", mechanism: "", ...extra,
-      },
-      ...overrides,
-    };
-  }
-
-  it("names the exact blocking actions once each, failing first", () => {
-    render(<ReviewReadinessSheet model={model()} landing={landing({})} onClose={vi.fn()} />);
-    expect(screen.getByTestId("readiness-blocking").textContent).toBe("Blocked: Merged result fails checks · Waiting for checks");
-    expect(blockingSummary([{ id: "c", owner: "scm", state: "pending", action: "Provider requirement" }])).toBe("Waiting: Provider requirement");
-    expect(blockingSummary([])).toBe("");
-  });
-
-  it("never shows blocking actions for a ready Change", () => {
-    render(<ReviewReadinessSheet model={model()} landing={landing({}, { ready: true })} onClose={vi.fn()} />);
-    expect(screen.queryByTestId("readiness-blocking")).toBeNull();
-  });
-
-  it("shows the policy approval, its failed gates, and the provider-owned merge state", () => {
-    const { rerender } = render(
-      <ReviewReadinessSheet
-        model={model()}
-        landing={landing({
-          auto_approval: { state: "approved", eligible: true, blocking: [] },
-          scm: { managed_by: "github", mechanism: "", auto_merge: "enabled", queue_state: "checks_requested" },
-        })}
-        onClose={vi.fn()}
-      />,
-    );
-    expect(screen.getByTestId("readiness-auto-approval").textContent).toContain("Approved by organization policy on GitHub. Branch protection still applies.");
-    expect(screen.getByTestId("readiness-scm-state").textContent).toBe("Managed by GitHub: auto-merge enabled · merge queue checks requested");
-    rerender(
-      <ReviewReadinessSheet
-        model={model()}
-        landing={landing({ auto_approval: { state: "none", eligible: false, blocking: ["Provider in sync", "Requested reviews current"] } })}
-        onClose={vi.fn()}
-      />,
-    );
-    expect(screen.getByTestId("readiness-auto-approval").textContent).toContain("Not auto-approved: Provider in sync · Requested reviews current");
-    expect(screen.queryByTestId("readiness-scm-state")).toBeNull();
-    rerender(<ReviewReadinessSheet model={model()} landing={landing({ auto_approval: { state: "none", eligible: null, blocking: [] } })} onClose={vi.fn()} />);
-    expect(screen.queryByTestId("readiness-auto-approval")).toBeNull(); // nothing decided: no chrome
-  });
-
-  it("shows who broke glass, what was bypassed and the follow-up review state", () => {
-    const record = (state: "open" | "overdue" | "completed") => ({
-      id: `bg_${state}`, revision_id: "rr-2", actor_id: "user_admin", reason: "Checkout outage", incident_url: "https://status.example.com/7",
-      bypassed: [{ id: "latest-snapshot-reviewed", label: "Latest Snapshot reviewed", state: "pending", reason: "" }],
-      created_at: "2026-10-05T09:00:00Z", policy_generation: "gen",
-      follow_up: { state, due_at: "2026-10-06T09:00:00Z", completed_at: state === "completed" ? "2026-10-05T12:00:00Z" : "", completed_by: state === "completed" ? "bob" : "" },
-    });
-    render(<ReviewReadinessSheet model={model()} landing={landing({ break_glass: [record("completed"), record("overdue"), record("open")] })} onClose={vi.fn()} />);
-    const section = screen.getByTestId("readiness-break-glass");
-    expect(within(section).getAllByText("user_admin bypassed Latest Snapshot reviewed")).toHaveLength(3);
-    expect(within(section).getByText("Follow-up review by bob")).toBeTruthy();
-    expect(within(section).getByText("Follow-up review overdue (was due 2026-10-06 09:00:00 UTC)")).toBeTruthy();
-    expect(within(section).getByText("Follow-up review due 2026-10-06 09:00:00 UTC")).toBeTruthy();
-    expect(within(section).getAllByRole("link", { name: /Incident/ })).toHaveLength(3);
-  });
-});
-
-describe("ReviewReadinessSheet landing recovery", () => {
-  function landingFor(armed: boolean): ReviewLandingReadiness {
-    return {
-      review_id: "review-1", snapshot_id: "rr-2", snapshot_number: 2, tree_fingerprint: "tree-2", source_fingerprint: "source-2",
-      conditions: [{ id: "reviewed", label: "Latest Snapshot reviewed", state: "pass", detail: "All targets reviewed.", owner: "lemoncrow", category: "human_review", url: "" }],
-      ready: true, armable: true, blocker_count: 0, local_blocker_count: 0, conditions_hash: "conditions-2", work_items: [],
-      landing: {
-        supported: true, provider: "github", state: armed ? "armed" : "not_armed", armed, semantic_stale: false,
-        revision_id: armed ? "rr-2" : "", tree_fingerprint: "", conditions_hash: "", detail: "", url: "", mechanism: "",
-      },
-    };
-  }
-  const model = () => deriveReviewReadiness({ progress, openComments: 0, verification, outcome: null });
-
-  it("holds merge when ready while the request is in flight so it cannot be sent twice", () => {
-    const onArmLanding = vi.fn();
-    render(<ReviewReadinessSheet model={model()} landing={landingFor(false)} landingBusy onArmLanding={onArmLanding} onClose={vi.fn()} />);
-    const enable = screen.getByRole("button", { name: "Enabling…" });
-    expect(enable).toHaveAttribute("aria-disabled", "true");
-    fireEvent.click(enable);
-    expect(onArmLanding).not.toHaveBeenCalled();
-  });
-
-  it("keeps merge when ready available for a retry after enabling failed, with the failure named", () => {
-    const onArmLanding = vi.fn();
-    render(
-      <ReviewReadinessSheet
-        model={model()}
-        landing={landingFor(false)}
-        landingError="Could not arm landing: GitHub refused"
-        onArmLanding={onArmLanding}
-        onClose={vi.fn()}
-      />,
-    );
-    expect(screen.getByText("Could not arm landing: GitHub refused")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Merge when ready" }));
-    expect(onArmLanding).toHaveBeenCalledTimes(1);
-  });
-
-  it("keeps Cancel available after cancelling failed, and holds it while in flight", () => {
-    const onCancelLanding = vi.fn();
-    const { rerender } = render(
-      <ReviewReadinessSheet
-        model={model()}
-        landing={landingFor(true)}
-        landingError="Could not cancel landing: timeout"
-        onCancelLanding={onCancelLanding}
-        onClose={vi.fn()}
-      />,
-    );
-    expect(screen.getByText("Could not cancel landing: timeout")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Merge when ready" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Cancel merge when ready" }));
-    expect(onCancelLanding).toHaveBeenCalledTimes(1);
-
-    rerender(
-      <ReviewReadinessSheet model={model()} landing={landingFor(true)} landingBusy onCancelLanding={onCancelLanding} onClose={vi.fn()} />,
-    );
-    expect(screen.getByRole("button", { name: "Cancelling…" })).toBeDisabled();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close review readiness" }));
   });
 });

@@ -18,10 +18,8 @@ Four kinds, because they degrade differently:
     cannot finish inline the answer still returns, flagged, with the reason
     named.
 ``semantic``
-    Needs the semantic layer, whose implementation is private (see
-    :mod:`.semantic`). Same bounded-build, flag-don't-fail rule; without the
-    private engine the answer is empty and flagged
-    ``semantic:semantic_engine_unavailable``.
+    Needs the Layer-1 embedding rows for every member. Same bounded-build,
+    flag-don't-fail rule.
 
 A file over the content size cap is manifested but not uploaded. It is still
 searchable **by path**, and a hit on one is marked ``content_indexed: false``
@@ -53,11 +51,12 @@ import regex
 from lemoncrow.core.capabilities.context_engine import ContextQuery, Ranker, get_ranker
 
 from ..errors import AgentAction, ErrorCode, ServerError
+from .analysis import embed_terms, parse_query, semantic_embedding
 from .boundary import addressable_in
 from .candidates import hit_candidate, record_ranked_candidates
-from .contracts import Edge, EdgeKind, IndexBackend, IndexLayerState, IndexLayerStatus, ManifestEntry
+from .contracts import Edge, EdgeKind, IndexBackend, IndexLayerStatus, ManifestEntry
 from .deferred import enqueue_deferred_layer
-from .planner import QueryIntent, QueryPlan, plan_code_query, split_pipe_alternatives
+from .planner import QueryIntent, QueryPlan, plan_code_query
 
 __all__ = ["QUERY_KINDS", "IndexQuery", "QueryAnswer", "QueryHit"]
 
@@ -125,7 +124,25 @@ _QUERY_SYMBOL_STOP: Final[frozenset[str]] = frozenset(
 )
 
 
-_split_pipe_query = split_pipe_alternatives  # the planner's own split: one rule
+def _split_pipe_query(query: str) -> tuple[str, ...]:
+    """Interpret grep-style ``a|b|c`` as retrieval alternatives, not a body scan.
+
+    Historical LemonCrow queries commonly came from grep/agent traces and use a
+    pipe as an OR between identifiers/literals. Treating every such query as a
+    regular expression forces an O(view) source scan and discards the exact
+    definition channel. This mirrors the legacy retriever's normalization while
+    leaving genuine non-pipe regexes on the bounded regex path below.
+    """
+    if "|" not in query:
+        return ()
+    seen: dict[str, None] = {}
+    for part in query.split("|"):
+        stripped = part.strip().lstrip("^").rstrip("$")
+        stripped = re.sub(r"\\[bBsSwWdD]", "", stripped).strip()
+        if len(stripped) < 3 or not re.search(r"[A-Za-z0-9_]", stripped):
+            continue
+        seen[stripped] = None
+    return tuple(seen) if len(seen) >= 2 else ()
 
 
 def _alternative_symbol(term: str) -> str:
@@ -371,20 +388,11 @@ class IndexQuery:
         path: str = "",
         symbol: str = "",
         limit: int = _DEFAULT_LIMIT,
-        outgoing: bool = False,
     ) -> QueryAnswer:
-        """``outgoing`` narrows a ``relations`` query on ``path`` to the edges leaving it."""
         backend = self._backend.for_view(org_id, view_id)
         if backend is not self._backend:
             return IndexQuery(backend, content_size_cap=self._cap, max_limit=self._max_limit, ranker=self._ranker).run(
-                org_id=org_id,
-                view_id=view_id,
-                kind=kind,
-                query=query,
-                path=path,
-                symbol=symbol,
-                limit=limit,
-                outgoing=outgoing,
+                org_id=org_id, view_id=view_id, kind=kind, query=query, path=path, symbol=symbol, limit=limit
             )
         if kind not in QUERY_KINDS:
             raise ServerError(
@@ -405,9 +413,7 @@ class IndexQuery:
         else:
             state, membership, reachable = self._view_scope(org_id, view_id, operation=kind)
             candidate_count = len(membership)
-            answer = self._relations(
-                org_id, view_id, membership, reachable, path, symbol, bounded, state.view_revision, outgoing=outgoing
-            )
+            answer = self._relations(org_id, view_id, membership, reachable, path, symbol, bounded, state.view_revision)
         ops = self._backend.ops
         if ops is not None:
             ops.retrieval(
@@ -587,20 +593,12 @@ class IndexQuery:
                         raise TimeoutError
                     path_match = pattern.search(path, timeout=remaining)
                 except TimeoutError as exc:
-                    # Answer with what the scan confirmed, marked partial, instead
-                    # of discarding it. With no confirmed match there is nothing
-                    # to show, and the refusal tells the caller to narrow.
-                    if not hits:
-                        raise ServerError(
-                            ErrorCode.DEADLINE_EXCEEDED,
-                            "regular expression search exceeded its deadline",
-                            details={"tool": "code_search"},
-                            action=AgentAction.FIX_REQUEST,
-                        ) from exc
-                    degraded = True
-                    degraded_reason = "regex:deadline; matches are partial, narrow the pattern or add paths"
-                    channel_truncated = True
-                    break
+                    raise ServerError(
+                        ErrorCode.DEADLINE_EXCEEDED,
+                        "regular expression search exceeded its deadline",
+                        details={"tool": "code_search"},
+                        action=AgentAction.FIX_REQUEST,
+                    ) from exc
                 if match is not None or path_match is not None:
                     hits[path] = self._describe(
                         org_id,
@@ -642,7 +640,6 @@ class IndexQuery:
             precise_symbol = plan.intent is QueryIntent.EXACT_SYMBOL
             definition_match = _DEFINITION_ALT_RE.search(query)
             ignored_terms = (query.split(None, 1)[0].lower(),) if definition_match is not None else ()
-            symbol_names: tuple[str, ...]
             if plan.intent is QueryIntent.EXACT_SYMBOL and plan.symbol:
                 symbol_names = (plan.symbol,)
             else:
@@ -705,7 +702,7 @@ class IndexQuery:
                     )
             symbols = list(symbol_hits.values())
             lexical: tuple[QueryHit, ...] = ()
-            if "lexical" in plan.channels or (precise_symbol and not symbols):
+            if "lexical" in plan.channels:
                 lexical_answer, examined = self._candidate_lexical(
                     org_id,
                     view_id,
@@ -721,7 +718,7 @@ class IndexQuery:
                 channel_truncated = channel_truncated or lexical_answer.truncated
                 lexical = lexical_answer.hits
             if precise_symbol:
-                selected = list(symbols) if symbols else list(lexical)
+                selected = list(symbols)
             else:
                 selected = [*lexical, *symbols]
                 if lexical and definition_match is None and "relations" in plan.channels:
@@ -739,14 +736,14 @@ class IndexQuery:
                             if other in seed_scores:
                                 continue
                             score = max(0.001, float(seed_scores[seed_path]) - 0.25)
-                            prior_choice = choices.get(other)
-                            if prior_choice is None or score > prior_choice[0]:
+                            prior = choices.get(other)
+                            if prior is None or score > prior[0]:
                                 choices[other] = (score, seed_path, edge)
                         related_entries: dict[str, ManifestEntry] = {}
                         for other in choices:
-                            related_entry = self._backend.views.entry(org_id, view_id, other)
-                            if related_entry is not None and related_entry.size <= self._cap:
-                                related_entries[other] = related_entry
+                            entry = self._backend.views.entry(org_id, view_id, other)
+                            if entry is not None and entry.size <= self._cap:
+                                related_entries[other] = entry
                         related_reachable = addressable_in(
                             self._backend.provenance,
                             state,
@@ -1125,7 +1122,7 @@ class IndexQuery:
         hits: list[QueryHit] = []
         for digest, score in scores.items():
             for path in by_digest.get(digest, ()):
-                detail: dict[str, Any] = {"content_indexed": True}
+                detail = {"content_indexed": True}
                 hits.append(
                     self._describe(org_id, path, members[path], reachable, float(score), detail)
                     if hydrate
@@ -1444,7 +1441,7 @@ class IndexQuery:
         hits: list[QueryHit] = []
         for digest, score in scores.items():
             for path in by_digest.get(digest, ()):
-                detail: dict[str, Any] = {"content_indexed": True}
+                detail = {"content_indexed": True}
                 hits.append(
                     self._describe(org_id, path, members[path], reachable, float(score), detail)
                     if hydrate
@@ -1550,8 +1547,6 @@ class IndexQuery:
         symbol: str,
         limit: int,
         revision: int,
-        *,
-        outgoing: bool = False,
     ) -> QueryAnswer:
         status = self._refresh(self._backend.links, org_id, view_id)
         edges = self._backend.links.edges(org_id, view_id)
@@ -1564,7 +1559,7 @@ class IndexQuery:
         for edge in edges:
             if edge.src_path not in openings or edge.dst_path not in openings:
                 continue
-            if path and edge.src_path != path and (outgoing or edge.dst_path != path):
+            if path and edge.src_path != path and edge.dst_path != path:
                 continue
             if symbol and edge.symbol != symbol:
                 continue
@@ -1592,21 +1587,7 @@ class IndexQuery:
     def _semantic(self, org_id: str, view_id: str, query: str, limit: int) -> tuple[QueryAnswer, int]:
         status = self._refresh(self._backend.semantic, org_id, view_id)
         state = self._backend.views.get(org_id, view_id)
-        if status.state is IndexLayerState.UNAVAILABLE:
-            # No semantic engine is installed (public-only server). Say so on
-            # the answer instead of returning an empty "complete" result.
-            return (
-                QueryAnswer(
-                    kind="semantic",
-                    hits=(),
-                    at_view_revision=state.view_revision,
-                    searched_paths=0,
-                    degraded=True,
-                    degraded_reason=f"semantic:{status.reason or status.state.value}",
-                    truncated=False,
-                ),
-                0,
-            )
+        vector = semantic_embedding(query)
         if not status.ready:
             # Readiness is explicit, but semantic search remains useful while a
             # large ANN catches up. This is the only path that retains the old
@@ -1615,7 +1596,8 @@ class IndexQuery:
             members = self._indexable(membership, reachable)
             by_digest = self._paths_by_digest(members)
             started = time.perf_counter()
-            ranked = self._backend.semantic.scan(org_id, view_id, tuple(by_digest), query, limit)
+            legacy_vector = embed_terms(parse_query(query).terms)
+            ranked = self._backend.analysis.nearest(org_id, tuple(by_digest), legacy_vector, limit)
             ops = self._backend.ops
             if ops is not None:
                 ops.semantic_scan(vectors=len(by_digest), duration_s=time.perf_counter() - started)
@@ -1647,7 +1629,7 @@ class IndexQuery:
             )
 
         started = time.perf_counter()
-        result = self._backend.semantic.search(org_id, view_id, query, limit)
+        result = self._backend.semantic.nearest(org_id, view_id, vector, limit)
         ops = self._backend.ops
         if ops is not None:
             ops.semantic_ann(
@@ -1698,41 +1680,10 @@ class IndexQuery:
         )
 
     def _refresh(self, layer: Any, org_id: str, view_id: str) -> IndexLayerStatus:
-        """Build locally when bounded, or hand a clean hosted generation to its worker."""
-
-        hosted_schedule = self._backend.schedule_index
-        if hosted_schedule is not None:
-            warmer = self._backend.warm_generation
-            if warmer is not None:
-                try:
-                    warmed = warmer(org_id, view_id)
-                except Exception:
-                    warmed = False
-                if warmed:
-                    current = layer.status(org_id, view_id)
-                    if current.ready:
-                        return current
-
-            name = "link" if layer is self._backend.links else "semantic"
-            if hosted_schedule(org_id, view_id, name):
-                # Mark the local layer explicitly stale/deferred without doing the
-                # expensive generation build in the API process. Exact fallback
-                # remains available until a worker publishes a bundle.
-                if layer is self._backend.semantic:
-                    return layer.refresh(org_id, view_id, budget=0, defer_cold=True)
-                return layer.refresh(org_id, view_id, budget=0)
-
-        # Local loopback keeps its existing durable deferred worker. Dirty hosted
-        # overlays also land here: bounded foreground work is allowed, while work
-        # over the inline budget remains explicitly degraded.
-        handoff = layer is self._backend.semantic and bool(
-            getattr(self._backend.deferred_jobs, "worker_attached", False)
-        )
-        status: IndexLayerStatus = (
-            layer.refresh(org_id, view_id, defer_cold=True) if handoff else layer.refresh(org_id, view_id)
-        )
+        """Build within the foreground budget and queue any deferred remainder."""
+        status: IndexLayerStatus = layer.refresh(org_id, view_id)
         reason = status.reason
         if reason in {"link_rebuild_deferred", "semantic_rebuild_deferred"}:
             name = "link" if layer is self._backend.links else "semantic"
-            enqueue_deferred_layer(self._backend, org_id, view_id, name, force=handoff)
+            enqueue_deferred_layer(self._backend, org_id, view_id, name)
         return status

@@ -238,27 +238,28 @@ def test_local_model_is_unpriced_not_zero(tmp_path: Path) -> None:
     assert row.total_tokens == 58_000
 
 
-def test_unpriced_model_never_reports_zero_cost(tmp_path: Path) -> None:
-    for case_index, (model, expected) in enumerate(
-        [
-            *[(f"{prefix}/some-model-x", "self_hosted_unpriced") for prefix in SELF_HOSTED_VENDOR_PREFIXES],
-            *[(f"{prefix}/gpt-5", "enterprise_allocated") for prefix in SUBSCRIPTION_VENDOR_PREFIXES],
-            ("<synthetic>", "unknown"),
-            ("", "unknown"),
-        ]
-    ):
-        case_tmp_path = tmp_path / f"case-{case_index}"
-        case_tmp_path.mkdir()
-        "No unpriceable id may ever produce a dollar figure -- including 0.0."
-        attribution = derive_cost(model, input_tokens=120000, output_tokens=20000)
-        assert attribution.provenance == expected
-        assert attribution.cost_usd is None
-        assert attribution.cost_usd != 0.0
-        _write_run(case_tmp_path, session_id="u1", calls=[_call(model or "unknown", inp=120000, out=20000)])
-        if model:
-            row = _only(collect_usage_rows(case_tmp_path))
-            assert row.cost_usd is None
-            assert row.cost_provenance == expected
+@pytest.mark.parametrize(
+    ("model", "expected"),
+    [
+        *[(f"{prefix}/some-model-x", "self_hosted_unpriced") for prefix in SELF_HOSTED_VENDOR_PREFIXES],
+        *[(f"{prefix}/gpt-5", "enterprise_allocated") for prefix in SUBSCRIPTION_VENDOR_PREFIXES],
+        ("<synthetic>", "unknown"),
+        ("", "unknown"),
+    ],
+)
+def test_unpriced_model_never_reports_zero_cost(tmp_path: Path, model: str, expected: str) -> None:
+    """No unpriceable id may ever produce a dollar figure -- including 0.0."""
+
+    attribution = derive_cost(model, input_tokens=120_000, output_tokens=20_000)
+    assert attribution.provenance == expected
+    assert attribution.cost_usd is None
+    assert attribution.cost_usd != 0.0
+
+    _write_run(tmp_path, session_id="u1", calls=[_call(model or "unknown", inp=120_000, out=20_000)])
+    if model:
+        row = _only(collect_usage_rows(tmp_path))
+        assert row.cost_usd is None
+        assert row.cost_provenance == expected
 
 
 def test_self_hosted_id_in_the_pricing_table_is_still_unpriced(tmp_path: Path) -> None:

@@ -1,7 +1,7 @@
 """Shared HTTP handlers for the LemonCrow server engine.
 
-The class in this module deliberately does not own authentication,
-authorization, commercial policy, or deployment wiring.  Those are composition
+The class in this module deliberately does not own authentication, RBAC,
+entitlement, quota, hosted Review, or deployment wiring.  Those are composition
 concerns supplied by subclasses.  Session/view/index/dispatch behavior lives
 here once so local and hosted servers cannot drift.
 """
@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
-import contextvars
 import logging
 import multiprocessing
 import os
@@ -61,8 +60,7 @@ from .index.deferred import cancel_deferred_view, enqueue_deferred_view
 from .index.manifest import required_digests
 from .matrix import Site, require_server_side, site_of
 from .protocol import RESULT_REUSE_CAPABILITY, negotiate, server_identity
-from .read_budget import ReadBudget, read_budget
-from .sessions import Session, SessionAccess, require_acknowledged_revision
+from .sessions import Session, require_acknowledged_revision
 from .workspace import WorkspaceStatus
 
 __all__ = [
@@ -266,9 +264,9 @@ def _decode_blob(raw: Mapping[str, Any], *, limit: int) -> bytes:
 class CoreServerRoutes:
     """Shared session/tool/view/blob handlers; composition is supplied outside."""
 
-    def core_route_defs(self, *, include_tools: bool = True) -> tuple[web.RouteDef, ...]:
-        """Routes owned by the shared engine. Tool execution is Runtime-owned."""
-        base = (
+    def core_route_defs(self) -> tuple[web.RouteDef, ...]:
+        """Routes owned by the shared engine, independent of deployment mode."""
+        return (
             web.get("/healthz", self.health),
             web.get("/readyz", self.ready),
             web.get("/.well-known/lemoncrow-server.json", self.discovery),
@@ -277,16 +275,8 @@ class CoreServerRoutes:
             web.get("/v1/sessions/{session_id}", self.session_status),
             web.post("/v1/sessions/{session_id}/cancel", self.session_cancel),
             web.delete("/v1/sessions/{session_id}", self.session_close),
-        )
-        tools = (
-            (
-                web.get("/v1/tools", self.tool_list),
-                web.post("/v1/tools/{name}", self.tool_call),
-            )
-            if include_tools
-            else ()
-        )
-        sync = (
+            web.get("/v1/tools", self.tool_list),
+            web.post("/v1/tools/{name}", self.tool_call),
             web.post("/v1/views/open", self.view_open),
             web.post("/v1/views/{view_id}/manifest-chunks", self.view_manifest_chunks),
             web.post("/v1/views/{view_id}/missing", self.view_missing),
@@ -295,7 +285,6 @@ class CoreServerRoutes:
             web.post("/v1/views/{view_id}/close", self.view_close),
             web.post("/v1/blobs", self.blobs_upload),
         )
-        return (*base, *tools, *sync)
 
     def _storage_budget(
         self,
@@ -423,30 +412,6 @@ class CoreServerRoutes:
     async def _forget_view_owner(self, org_id: str, view_id: str) -> None:
         self.view_owners.forget(org_id, view_id)
 
-    def _content_subject_for_view(self, principal: Principal, repo_id: str) -> str:
-        """Return the opaque content scope used by the public single-user engine."""
-        del principal, repo_id
-        return ""
-
-    def _record_content_provenance(
-        self, org_id: str, repo_id: str, content_subject: str, digests: Sequence[str]
-    ) -> int:
-        """Record verified bytes in the composition-selected opaque content scope."""
-        return self.backend.provenance.record(org_id, repo_id, content_subject, digests)
-
-    def _note_view_scope(self, *, org_id: str, view_id: str, repo_id: str) -> None:
-        """Composition hook for deployments that maintain external view scope state."""
-        del org_id, view_id, repo_id
-
-    def _forget_view_scope(self, org_id: str, view_id: str) -> None:
-        """Composition hook paired with _note_view_scope."""
-        del org_id, view_id
-
-    def _resolved_session_access(self, principal: Principal, session: Session) -> SessionAccess:
-        """Access token used after a session has already resolved for this caller."""
-        del session
-        return self._access(principal)
-
     async def _session_store_call(self, fn: Callable[..., _T], /, *args: Any, **kwargs: Any) -> _T:
         """Run a session-store operation without penalizing local mode.
 
@@ -520,26 +485,6 @@ class CoreServerRoutes:
 
     async def discovery(self, request: web.Request) -> web.StreamResponse:
         return json_response(self._server_identity())
-
-    async def review_manifest(self, request: web.Request) -> web.StreamResponse:
-        """The Review capability manifest on the Review API, for callers that skip the handshake.
-
-        The same document as discovery's ``product_capabilities.review``, plus
-        the protocol window, so a Reader or terminal call can check skew and
-        gate a feature in one authenticated read.
-        """
-        self._principal(request)
-        identity = self._server_identity()
-        capabilities = identity.get("product_capabilities")
-        review = capabilities.get("review") if isinstance(capabilities, Mapping) else None
-        return json_response(
-            {
-                "protocol_version": identity["protocol_version"],
-                "supported_protocol_versions": identity["supported_protocol_versions"],
-                "deployment": identity.get("deployment") or {},
-                "product_capabilities": {"review": review if isinstance(review, Mapping) else {}},
-            }
-        )
 
     async def handshake(self, request: web.Request) -> web.StreamResponse:
         """Negotiate before authenticating, so a stale client learns *why*.
@@ -615,7 +560,7 @@ class CoreServerRoutes:
             return json_response({"closed": False, "cancelled": 0})
         cancelled = await self.cancels.cancel_session_async(session.session_id)
         closed = await self._close_session_store(
-            self._resolved_session_access(principal, session),
+            self._access(principal, cross_subject=session.subject != principal.subject),
             session.session_id,
         )
         self.blob_miss.forget_session(session.session_id)
@@ -900,47 +845,39 @@ class CoreServerRoutes:
         return replace(invocation, workspace_root=str(materialized.root)), materialized.status
 
     async def _dispatch(self, invocation: ToolInvocation, token: Any) -> ToolResult:
-        """Run off the event loop; abandoned database reads release their snapshots."""
-        deadline_s = self.config.limits.tool_deadline_s
-        budget = ReadBudget(deadline=time.monotonic() + deadline_s)
+        """Run the synchronous dispatcher off the event loop, with a deadline.
 
-        def dispatch() -> ToolResult:
-            with read_budget(budget):
-                budget.check()
-                return self.dispatcher.dispatch(invocation)
-
+        Cancellation stops the *response*; it cannot interrupt a call already
+        running inside the worker thread. The abandoned thread is bounded by
+        ``dispatch_workers`` and by the tool deadline, and the client is told
+        the truth (``cancelled``) rather than being left waiting.
+        """
         loop = asyncio.get_running_loop()
-        work: asyncio.Future[ToolResult] = loop.run_in_executor(self._executor, dispatch)
+        work: asyncio.Future[ToolResult] = loop.run_in_executor(self._executor, self.dispatcher.dispatch, invocation)
         waiter: asyncio.Future[None] = asyncio.ensure_future(token.wait())
         racing: set[asyncio.Future[Any]] = {work, waiter}
         try:
             done, _pending = await asyncio.wait(
                 racing,
-                timeout=deadline_s,
+                timeout=self.config.limits.tool_deadline_s,
                 return_when=asyncio.FIRST_COMPLETED,
             )
-            if work in done:
-                return work.result()
-            if waiter in done:
-                raise ServerError(
-                    ErrorCode.CANCELLED,
-                    "request was cancelled by the client",
-                    details={"tool": invocation.tool},
-                )
-            raise ServerError(
-                ErrorCode.DEADLINE_EXCEEDED,
-                "tool call exceeded the server deadline",
-                details={"tool": invocation.tool, "deadline_s": deadline_s},
-            )
         finally:
-            budget.cancelled.set()
-            if not work.done():
-                work.cancel()
-            elif not work.cancelled():
-                # Consume a failure racing with cancellation of the handler.
-                work.exception()
             if not waiter.done():
                 waiter.cancel()
+        if work in done:
+            return work.result()
+        if waiter in done:
+            raise ServerError(
+                ErrorCode.CANCELLED,
+                "request was cancelled by the client",
+                details={"tool": invocation.tool},
+            )
+        raise ServerError(
+            ErrorCode.DEADLINE_EXCEEDED,
+            "tool call exceeded the server deadline",
+            details={"tool": invocation.tool, "deadline_s": self.config.limits.tool_deadline_s},
+        )
 
     async def _stream(
         self,
@@ -994,10 +931,17 @@ class CoreServerRoutes:
         claim = RepoIdentityClaim.from_json(require_object(body, "repo_identity"))
         repo_id = await self._authority_call(self.backend.repos.canonical_repo_id, principal.org_id, claim)
         chunk_ids = require_str_array(body, "manifest_chunks", max_len=4096)
-        # The shared engine stores an opaque content scope on the View. The
-        # public local composition uses one default scope; other compositions
-        # may choose a narrower or shared scope before the View is opened.
-        content_subject = self._content_subject_for_view(principal, repo_id)
+        # Which demonstrated possession this view may read content through, and
+        # the one moment it can be decided. The repository identity is the
+        # client's own claim -- a root-commit fingerprint is no harder to learn
+        # than a digest -- so claiming a colleague's repository must not inherit
+        # their content. It does not: unless a binding names this repository as
+        # a sharing unit, the view is scoped to what its opener has themselves
+        # demonstrated, and a blob a colleague uploaded reads exactly like one
+        # nobody has ever held. Fixed here rather than per request because the
+        # derived layers and the materialized tree are cached per view, and a
+        # reach that widened for one caller would still be cached for the next.
+        shared = self.authorizer.scoped.shares_repository(principal, principal.org_id, repo_id)
         result = await self._authority_call(
             self.backend.views.open,
             org_id=principal.org_id,
@@ -1006,7 +950,7 @@ class CoreServerRoutes:
             manifest_root=validate_digest(body.get("manifest_root"), "manifest_root"),
             chunk_ids=chunk_ids,
             lease_s=_requested_lease_s(body, self.config.view_lease_s, self.config.view_lease_max_s),
-            content_subject=content_subject,
+            content_subject="" if shared else principal.subject,
             owner_subject=principal.subject,
         )
         self._note_view_leased(result.state.view_id)
@@ -1036,10 +980,12 @@ class CoreServerRoutes:
             view_id=result.state.view_id,
             subject=principal.subject,
         )
-        # Deployment-specific scope placement is a composition concern. Local
-        # mode has nothing to record; managed deployments install their policy
-        # through this hook.
-        self._note_view_scope(
+        # And this is where the view sits in the org -> team -> repo tree. It
+        # is the one moment the data plane knows the repository a view belongs
+        # to, and without it the scope directory stays empty: repository- and
+        # team-scoped bindings would reach nothing, so the only sharing grant
+        # expressible would be a per-view one.
+        self.authorizer.scoped.note_view(
             org_id=principal.org_id,
             view_id=result.state.view_id,
             repo_id=repo_id,
@@ -1138,10 +1084,10 @@ class CoreServerRoutes:
             needed=outstanding,
             analyze_batch=self._derive_analysis_artifacts_sync,
         )
-        self._record_content_provenance(
+        self.backend.provenance.record(
             org_id,
             state.repo_id,
-            state.content_subject,
+            principal.subject,
             filled.filled,
         )
         if state.manifest_complete and not (set(outstanding) - set(filled.filled)):
@@ -1171,11 +1117,9 @@ class CoreServerRoutes:
 
         A same-host fill reads and hashes the developer checkout. On the loop
         that stalls every request, health checks included, and clients see
-        ``timed out`` instead of an answer. The work runs in a copy of the
-        caller's context, as ``asyncio.to_thread`` does.
+        ``timed out`` instead of an answer.
         """
-        context = contextvars.copy_context()
-        return await asyncio.get_running_loop().run_in_executor(self._executor, partial(context.run, fn, *args))
+        return await asyncio.get_running_loop().run_in_executor(self._executor, fn, *args)
 
     async def _authority_call(self, fn: Callable[..., _T], /, *args: Any, **kwargs: Any) -> _T:
         """Call an authoritative store without penalizing local storage.
@@ -1225,10 +1169,8 @@ class CoreServerRoutes:
         if not pending:
             return ()
         executor = getattr(self, "_analysis_executor", None)
-        # Serial derivation is pure CPU (parsing, AST walks); it runs on a
-        # worker thread so the event loop keeps serving while a batch analyzes.
         if executor is None or len(pending) < _ANALYSIS_PARALLEL_MIN_FILES:
-            return await asyncio.to_thread(_analyze_chunk, pending)
+            return _analyze_chunk(pending)
         chunks = tuple(
             tuple(pending[start : start + _ANALYSIS_CHUNK_FILES])
             for start in range(0, len(pending), _ANALYSIS_CHUNK_FILES)
@@ -1241,7 +1183,7 @@ class CoreServerRoutes:
             # start/import or the pool becomes broken, preserve correctness and
             # availability by deriving the already-validated bounded batch here.
             _LOG.warning("parallel Layer-1 analysis unavailable; falling back inline: %s", exc)
-            return await asyncio.to_thread(_analyze_chunk, pending)
+            return _analyze_chunk(pending)
         return tuple(artifact for part in parts for artifact in part)
 
     def _search_prewarm_work(self, principal: Principal, view_id: str) -> None:
@@ -1554,7 +1496,7 @@ class CoreServerRoutes:
         self.backend.links.forget(principal.org_id, view_id)
         self.backend.semantic.forget(principal.org_id, view_id)
         await self._forget_view_owner(principal.org_id, view_id)
-        self._forget_view_scope(principal.org_id, view_id)
+        self.authorizer.scoped.forget_view(principal.org_id, view_id)
         self._local_fs_grants.pop((principal.org_id, view_id), None)
         self._local_fs_repo_fingerprints.pop((principal.org_id, view_id), None)
         self._local_fs_complete_revisions.pop((principal.org_id, view_id), None)
@@ -1707,16 +1649,20 @@ class CoreServerRoutes:
             backend,
         )
 
-        # This is one of exactly two places where possession is demonstrated:
-        # bytes arrived and were verified. Provenance is recorded against the
-        # opaque content scope fixed on the bound View. An upload with no View
-        # bound records no provenance.
+        # This is one of exactly two places where possession is *demonstrated*:
+        # the bytes arrived, the store hashed them and refused the ones that did
+        # not match. The row is attributed to the engineer who sent them and to
+        # the repository their open view belongs to, which is what later makes
+        # the digest addressable there and nowhere else. An upload with no view
+        # bound records nothing: it is still stored and still deduplicated, but
+        # there is no repository to attribute it to, and an unattributable row
+        # would read exactly like the repository-wide scope.
         recorded = 0
         if view_id is not None and stored:
 
             def record_possession() -> int:
-                state = self.backend.views.get(principal.org_id, view_id)
-                return self._record_content_provenance(principal.org_id, state.repo_id, state.content_subject, stored)
+                repo_id = self.backend.views.get(principal.org_id, view_id).repo_id
+                return self.backend.provenance.record(principal.org_id, repo_id, principal.subject, stored)
 
             recorded = await self._authority_call(record_possession)
 

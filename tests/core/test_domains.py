@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import yaml
+from click.testing import CliRunner
 
 from lemoncrow.core.domains import DomainManager
 from lemoncrow.core.domains.loader import DomainLoader
 from lemoncrow.core.domains.models import DomainBundle
+from lemoncrow.gateway.cli import cli
 
 # ---------------------------------------------------------------------------
 # DomainManager: basic loading
@@ -139,3 +142,54 @@ def test_domain_loader_load_builtin_swe_general() -> None:
     assert isinstance(bundle, DomainBundle)
     assert bundle.bundle_id == "swe.general"
     assert bundle.domain == "swe.general"
+
+
+# ---------------------------------------------------------------------------
+# domain CLI commands
+# ---------------------------------------------------------------------------
+
+
+def test_domain_cli_list(tmp_path: Path) -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--root", str(tmp_path / ".lemoncrow"), "domain", "list"])
+    assert result.exit_code == 0, result.output
+    assert "swe.general" in result.output
+
+
+def test_domain_cli_list_json(tmp_path: Path) -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--root", str(tmp_path / ".lemoncrow"), "domain", "list", "--json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert isinstance(payload, list)
+    ids = {item["bundle_id"] for item in payload}
+    assert "swe.general" in ids
+
+
+def test_domain_cli_info(tmp_path: Path) -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--root", str(tmp_path / ".lemoncrow"), "domain", "info", "swe.general"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert payload["bundle_id"] == "swe.general"
+
+
+def test_domain_cli_info_unknown_bundle(tmp_path: Path) -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--root", str(tmp_path / ".lemoncrow"), "domain", "info", "does.not.exist"])
+    assert result.exit_code != 0
+
+
+def test_domain_cli_no_pack_commands() -> None:
+    """The old 'pack' group must not be present in the CLI."""
+    runner = CliRunner()
+    # Check registered command *names*, not raw help prose: unrelated commands may
+    # legitimately use words like "packet" in their one-line description.
+    commands = getattr(cli, "commands", {})
+    assert "pack" not in commands
+    assert "domain" in commands
+    result = runner.invoke(cli, ["--help"])
+    assert result.exit_code == 0
+    # Specifically the old 'pack' group should be gone
+    result2 = runner.invoke(cli, ["pack", "--help"])
+    assert result2.exit_code != 0

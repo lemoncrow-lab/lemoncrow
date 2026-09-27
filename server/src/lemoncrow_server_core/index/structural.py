@@ -28,8 +28,6 @@ _EXTENSION: Final[dict[str, str]] = {
     "typescript": ".ts",
     "go": ".go",
     "rust": ".rs",
-    "c": ".c",
-    "cpp": ".cpp",
 }
 
 
@@ -88,17 +86,11 @@ def _python_facts(data: bytes, text: str) -> StructuralFacts:
         return StructuralFacts(STRUCTURAL_ANALYZER_VERSION, "python", (), ())
     encoded_lines = text.splitlines(keepends=True)
     offsets = [0]
-    for source_line in encoded_lines:
-        offsets.append(offsets[-1] + len(source_line.encode("utf-8")))
+    for line in encoded_lines:
+        offsets.append(offsets[-1] + len(line.encode("utf-8")))
 
     definitions: dict[tuple[int, int, str], SymbolDef] = {}
     definition_nodes: set[ast.AST] = set()
-    # Membership by identity, computed once: per-node ``in parent.body`` scans
-    # over a re-walked tree made large modules quadratic.
-    class_members = {
-        id(child) for parent in ast.walk(tree) if isinstance(parent, ast.ClassDef) for child in parent.body
-    }
-    module_members = {id(child) for child in getattr(tree, "body", ())}
     for node in ast.walk(tree):
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             definition_nodes.add(node)
@@ -108,12 +100,18 @@ def _python_facts(data: bytes, text: str) -> StructuralFacts:
             start = offsets[line - 1] + len(raw_line[: max(0, name_at)].encode("utf-8"))
             end = start + len(node.name.encode("utf-8"))
             kind = (
-                "class" if isinstance(node, ast.ClassDef) else ("method" if id(node) in class_members else "function")
+                "class"
+                if isinstance(node, ast.ClassDef)
+                else (
+                    "method"
+                    if any(node in parent.body for parent in ast.walk(tree) if isinstance(parent, ast.ClassDef))
+                    else "function"
+                )
             )
             definitions[(start, end, node.name)] = SymbolDef(
                 node.name, kind, line, start, end, not node.name.startswith("_")
             )
-        elif isinstance(node, (ast.Assign, ast.AnnAssign)) and id(node) in module_members:
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)) and node in getattr(tree, "body", ()):
             targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
             for target in targets:
                 if not isinstance(target, ast.Name):
@@ -175,7 +173,8 @@ def analyze_structural(data: bytes, language: str) -> StructuralFacts | None:
             if not kind:
                 continue
             start, end = tag.byte_range
-            definitions[(start, end, tag.name)] = SymbolDef(
+            key = (start, end, tag.name)
+            definitions[key] = SymbolDef(
                 name=tag.name,
                 kind=kind,
                 line=tag.line,
@@ -184,9 +183,8 @@ def analyze_structural(data: bytes, language: str) -> StructuralFacts | None:
                 exported=_exported(language, tag.name, _line_text(text, tag.line)),
             )
         elif tag.kind in {"reference", "call"} and len(references) < _MAX_REFERENCES:
-            references[(tag.name, tag.line, tag.kind == "call")] = SymbolRef(
-                name=tag.name, line=tag.line, is_call=tag.kind == "call"
-            )
+            key = (tag.name, tag.line, tag.kind == "call")
+            references[key] = SymbolRef(name=tag.name, line=tag.line, is_call=tag.kind == "call")
     defined_sites = {(item.name, item.line) for item in definitions.values()}
     call_sites = {(name, line) for name, line, is_call in references if is_call}
     filtered = {

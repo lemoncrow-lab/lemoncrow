@@ -126,7 +126,6 @@ def recover_read_stray_query(args: dict[str, Any], known_params: frozenset[str])
         "max_lines": "lines",
         "filePath": "path",
         "file_path": "path",
-        "paths": "files",
     },
     recover_args=recover_read_stray_query,
 )

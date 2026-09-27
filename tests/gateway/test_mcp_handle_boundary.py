@@ -6,6 +6,25 @@ from lemoncrow.gateway.adapters import mcp_server
 from lemoncrow.gateway.tools import call_runtime, runtime_call
 
 
+def test_handle_is_only_the_protocol_dispatch_boundary() -> None:
+    source = inspect.getsource(mcp_server._handle)
+    assert "handle_control_request(" in source
+    assert "_handle_tool_call(" in source
+    assert "_finalize_response" not in source
+    assert len(source.splitlines()) <= 30
+
+
+def test_tool_call_pipeline_has_a_named_boundary() -> None:
+    # The JSON-RPC wrapper only translates; the pipeline lives in the runtime.
+    assert "runtime_call_from_jsonrpc(" in inspect.getsource(call_runtime.run_tool_call)
+    source = inspect.getsource(runtime_call.ToolCallRuntime.run)
+    assert "prepare_tool_call(" in source
+    assert "ToolCallLifecycle(" in source
+    assert "execute_prepared_tool_call(" in source
+    wrapper = inspect.getsource(mcp_server._run_tool_call)
+    assert "_canonical_run_tool_call(" in wrapper
+
+
 def test_tool_call_lifecycle_owns_finalization() -> None:
     call_source = inspect.getsource(runtime_call.ToolCallRuntime.run)
     lifecycle_source = inspect.getsource(mcp_server._ToolCallLifecycle)

@@ -105,9 +105,92 @@ def _model_rec_event(
 # --------------------------------------------------------------------------- #
 
 
+def test_derive_vendor_anthropic() -> None:
+    assert _derive_vendor({"claude-haiku-4-5": 10}) == "Anthropic"
+
+
+def test_derive_vendor_openai() -> None:
+    assert _derive_vendor({"gpt-4o": 5}) == "OpenAI"
+
+
+def test_derive_vendor_google() -> None:
+    assert _derive_vendor({"gemini-pro": 3}) == "Google"
+
+
+def test_derive_vendor_mixed() -> None:
+    assert _derive_vendor({"claude-haiku-4-5": 5, "gpt-4o": 3}) == "mixed"
+
+
+def test_derive_vendor_empty() -> None:
+    assert _derive_vendor({}) == "Unknown"
+
+
 # --------------------------------------------------------------------------- #
 # _read_routing_savings                                                        #
 # --------------------------------------------------------------------------- #
+
+
+def test_read_routing_savings_empty() -> None:
+    downtiered, saved, lesson_applications, cost_cap_fired = _read_routing_savings([])
+    assert downtiered == 0
+    assert saved == 0.0
+    assert lesson_applications == 0
+    assert cost_cap_fired == 0
+
+
+def test_read_routing_savings_with_events() -> None:
+    events = [
+        _model_rec_event(cost_saved_usd=0.05),
+        _model_rec_event(cost_saved_usd=0.03),
+        {"kind": "tool_call", "at": _NOW.isoformat()},  # non-rec event
+    ]
+    downtiered, saved, lesson_applications, cost_cap_fired = _read_routing_savings(events)
+    assert downtiered == 2
+    assert abs(saved - 0.08) < 1e-6
+    assert lesson_applications == 0
+    assert cost_cap_fired == 0
+
+
+def test_read_routing_savings_zero_saved_not_counted() -> None:
+    events = [_model_rec_event(cost_saved_usd=0.0)]
+    downtiered, saved, lesson_applications, cost_cap_fired = _read_routing_savings(events)
+    assert downtiered == 0
+    assert saved == 0.0
+    assert lesson_applications == 0
+    assert cost_cap_fired == 0
+
+
+def test_read_routing_savings_ignores_unconfigured_events() -> None:
+    events = [
+        {"kind": "model_recommendation", "payload": {"configured": False, "cost_saved_usd": 9.99}},
+        _model_rec_event(cost_saved_usd=0.05),
+    ]
+    downtiered, saved, lesson_applications, cost_cap_fired = _read_routing_savings(events)
+    assert downtiered == 1
+    assert abs(saved - 0.05) < 1e-6
+    assert lesson_applications == 0
+    assert cost_cap_fired == 0
+
+
+def test_read_routing_savings_counts_lesson_applications_and_cost_caps() -> None:
+    events = [
+        {
+            "kind": "model_recommendation",
+            "payload": {
+                "configured": True,
+                "cost_saved_usd": 0.5,
+                "applied_lessons": ["tl-1"],
+                "cost_cap_triggered": True,
+            },
+        }
+    ]
+
+    downtiered, saved, lesson_applications, cost_cap_fired = _read_routing_savings(events)
+
+    assert downtiered == 1
+    assert saved == 0.5
+    assert lesson_applications == 1
+    assert cost_cap_fired == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -308,6 +391,22 @@ def test_build_report_zero_cost_no_crash(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 
+def test_load_report_missing_returns_none(tmp_path: Path) -> None:
+    result = load_report("nonexistent_session_id", tmp_path)
+    assert result is None
+
+
+def test_load_report_reads_run_file(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "sessions" / "mysession"
+    runs_dir.mkdir(parents=True)
+    snap = _make_snapshot(session_id="mysession")
+    (runs_dir / "run.json").write_text(json.dumps(snap), encoding="utf-8")
+
+    report = load_report("mysession", tmp_path)
+    assert report is not None
+    assert report.session_id == "mysession"
+
+
 # --------------------------------------------------------------------------- #
 # list_run_files                                                               #
 # --------------------------------------------------------------------------- #
@@ -342,6 +441,28 @@ def test_list_run_files_since_filter(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 # render_text                                                                  #
 # --------------------------------------------------------------------------- #
+
+
+def test_render_text_includes_session_id(tmp_path: Path) -> None:
+    snap = _make_snapshot(session_id="deadbeef1234")
+    report = build_report(snap, tmp_path)
+    text = render_text(report)
+    assert "deadbe" in text
+
+
+def test_render_text_ongoing_label(tmp_path: Path) -> None:
+    snap = _make_snapshot(status="running")
+    report = build_report(snap, tmp_path)
+    text = render_text(report)
+    assert "(ongoing)" in text
+
+
+def test_render_text_cost_values(tmp_path: Path) -> None:
+    calls = [_llm_call(cost_usd=1.23)]
+    snap = _make_snapshot(calls=calls)
+    report = build_report(snap, tmp_path)
+    text = render_text(report)
+    assert "$1.23" in text
 
 
 def test_build_report_zero_total_uses_bucket_sum(tmp_path: Path) -> None:
@@ -411,212 +532,20 @@ def test_render_text_no_compression_line_when_zero(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_build_report_prefers_claude_mod_measurement_and_attributes_subagents(tmp_path: Path) -> None:
-    sid = "mod-measured"
-    payload = {
-        "schema_version": 1,
-        "source": "claude_mod",
-        "session_id": sid,
-        "started_at_ms": 1000,
-        "updated_at_ms": 2000,
-        "session_usage": {"cost": 10.0},
-        "totals": {
-            "steps": 4,
-            "turns": 4,
-            "duration_ms": 1000,
-            "input_tokens": 40,
-            "output_tokens": 400,
-            "cache_read_input_tokens": 40_000,
-            "cache_creation_input_tokens": 4_000,
-        },
-        "main": {
-            "kind": "main",
-            "steps": 1,
-            "turns": 1,
-            "input_tokens": 10,
-            "output_tokens": 100,
-            "cache_read_input_tokens": 10_000,
-            "cache_creation_input_tokens": 1_000,
-            "models": {"claude-opus-5-5": 1},
-            "model_usage": {
-                "claude-opus-5-5": {
-                    "steps": 1,
-                    "input_tokens": 10,
-                    "output_tokens": 100,
-                    "cache_read_input_tokens": 10_000,
-                    "cache_creation_input_tokens": 1_000,
-                }
-            },
-        },
-        "subagents": {
-            "agent-a": {
-                "kind": "subagent",
-                "agent_id": "agent-a",
-                "steps": 3,
-                "turns": 3,
-                "input_tokens": 30,
-                "output_tokens": 300,
-                "cache_read_input_tokens": 30_000,
-                "cache_creation_input_tokens": 3_000,
-                "models": {"claude-opus-5-5": 3},
-                "model_usage": {
-                    "claude-opus-5-5": {
-                        "steps": 3,
-                        "input_tokens": 30,
-                        "output_tokens": 300,
-                        "cache_read_input_tokens": 30_000,
-                        "cache_creation_input_tokens": 3_000,
-                    }
-                },
-            }
-        },
-        "models": {"claude-opus-5-5": 4},
-    }
-    (tmp_path / f"claude-mod-usage-{sid}.json").write_text(json.dumps(payload), encoding="utf-8")
-    report = build_report(_make_snapshot(session_id=sid), tmp_path)
-
-    assert report.usage_measurement_source == "claude_mod"
-    assert report.actual_cost_source == "claude_mod"
-    assert report.cost_estimated is False
-    assert report.total_cost_usd == pytest.approx(10.0)
-    assert report.input_tokens == 40
-    assert report.cache_read_tokens == 40_000
-    assert report.measured_request_steps == 4
-    assert report.measured_main_turns == 1
-    assert report.measured_subagent_count == 1
-    assert report.measured_subagent_turns == 3
-    assert report.main_attributed_cost_usd + report.subagent_attributed_cost_usd == pytest.approx(10.0, abs=1e-6)
-    assert report.subagent_attributed_cost_usd > report.main_attributed_cost_usd
-
-    text = render_text(report)
-    assert "Measured total:" in text
-    assert "Subagents:" in text
-    assert "Subagent share:" in text
-    assert "75.0%" in text
-    assert "Estimated LemonCrow savings" in text
+def test_render_json_valid(tmp_path: Path) -> None:
+    snap = _make_snapshot()
+    report = build_report(snap, tmp_path)
+    raw = render_json(report)
+    parsed = json.loads(raw)
+    assert parsed["session_id"] == "abc123"
 
 
-def test_render_text_labels_priced_host_usage_without_calling_it_measured(tmp_path: Path) -> None:
-    snapshot = _make_snapshot(calls=[_llm_call(cost_usd=0.25)])
-    snapshot["cost"].update(
-        {
-            "status": "estimated",
-            "source": "priced",
-            "usage_source": "host_transcript",
-        }
-    )
-
-    report = build_report(snapshot, tmp_path)
-    text = render_text(report)
-
-    assert report.usage_measurement_source == "host_transcript"
-    assert report.actual_cost_source == "priced"
-    assert report.cost_estimated is True
-    assert "Priced total:" in text
-    assert "Measured total:" not in text
-
-
-def test_render_text_shows_unavailable_instead_of_fake_zero_cost(tmp_path: Path) -> None:
-    snapshot = _make_snapshot()
-    snapshot["cost"].update(
-        {
-            "status": "unavailable",
-            "source": "unavailable",
-            "usage_source": "unavailable",
-        }
-    )
-
-    report = build_report(snapshot, tmp_path)
-    text = render_text(report)
-
-    assert report.usage_measurement_source == "unavailable"
-    assert report.actual_cost_source == "unavailable"
-    assert "Usage:" in text
-    assert "unavailable from host" in text
-    assert "Cost:" in text
-    assert "$0.00" not in text.split("Estimated LemonCrow savings", 1)[0]
-
-
-def test_vendor_derivation_contract() -> None:
-    cases = [
-        ({"claude-haiku-4-5": 10}, "Anthropic"),
-        ({"gpt-4o": 5}, "OpenAI"),
-        ({"gemini-pro": 3}, "Google"),
-        ({"claude-haiku-4-5": 5, "gpt-4o": 3}, "mixed"),
-        ({}, "Unknown"),
-    ]
-    for models, expected in cases:
-        assert _derive_vendor(models) == expected
-
-
-def test_routing_savings_contract() -> None:
-    cases = [
-        ([], (0, 0.0, 0, 0)),
-        (
-            [
-                _model_rec_event(cost_saved_usd=0.05),
-                _model_rec_event(cost_saved_usd=0.03),
-                {"kind": "tool_call", "at": _NOW.isoformat()},
-            ],
-            (2, 0.08, 0, 0),
-        ),
-        ([_model_rec_event(cost_saved_usd=0.0)], (0, 0.0, 0, 0)),
-        (
-            [
-                {"kind": "model_recommendation", "payload": {"configured": False, "cost_saved_usd": 9.99}},
-                _model_rec_event(cost_saved_usd=0.05),
-            ],
-            (1, 0.05, 0, 0),
-        ),
-        (
-            [
-                {
-                    "kind": "model_recommendation",
-                    "payload": {
-                        "configured": True,
-                        "cost_saved_usd": 0.5,
-                        "applied_lessons": ["tl-1"],
-                        "cost_cap_triggered": True,
-                    },
-                }
-            ],
-            (1, 0.5, 1, 1),
-        ),
-    ]
-    for events, expected in cases:
-        actual = _read_routing_savings(events)
-        assert actual[0] == expected[0] and actual[2:] == expected[2:]
-        assert actual[1] == pytest.approx(expected[1])
-
-
-def test_load_report_contract(tmp_path: Path) -> None:
-    assert load_report("nonexistent_session_id", tmp_path) is None
-    runs_dir = tmp_path / "sessions" / "mysession"
-    runs_dir.mkdir(parents=True)
-    (runs_dir / "run.json").write_text(json.dumps(_make_snapshot(session_id="mysession")), encoding="utf-8")
-    report = load_report("mysession", tmp_path)
-    assert report is not None and report.session_id == "mysession"
-
-
-def test_basic_text_rendering_contract(tmp_path: Path) -> None:
-    cases = [
-        (_make_snapshot(session_id="deadbeef1234"), "deadbe"),
-        (_make_snapshot(status="running"), "Session abc123  running"),
-        (_make_snapshot(calls=[_llm_call(cost_usd=1.23)]), "$1.23"),
-    ]
-    for index, (snapshot, expected) in enumerate(cases):
-        assert expected in render_text(build_report(snapshot, tmp_path / f"case-{index}"))
-
-
-def test_json_rendering_contract(tmp_path: Path) -> None:
-    reports = [
-        build_report(_make_snapshot(), tmp_path / "one"),
-        build_report(_make_snapshot(calls=[_llm_call(cost_usd=5.00)]), tmp_path / "two"),
-    ]
-    parsed = [json.loads(render_json(report)) for report in reports]
-    assert parsed[0]["session_id"] == "abc123"
-    assert (
-        "total_cost_usd" in parsed[1]
-        and "models_used" in parsed[1]
-        and isinstance(parsed[1]["top_tools_by_cost"], list)
-    )
+def test_render_json_parseable_by_jq(tmp_path: Path) -> None:
+    """Smoke test: rendered JSON can be parsed and accessed via key."""
+    snap = _make_snapshot(calls=[_llm_call(cost_usd=5.00)])
+    report = build_report(snap, tmp_path)
+    raw = render_json(report)
+    parsed = json.loads(raw)
+    assert "total_cost_usd" in parsed
+    assert "models_used" in parsed
+    assert isinstance(parsed["top_tools_by_cost"], list)

@@ -109,6 +109,19 @@ def test_ledger_show_and_summarize(tmp_path: Path) -> None:
     assert "LemonCrow compact state" in res2.output
 
 
+def test_tool_mode_show_set(tmp_path: Path) -> None:
+    # 'tool-mode' was folded under 'tools mode' during CLI consolidation.
+    root = tmp_path / "a"
+    init_store_at(str(root))
+    res = _invoke(root, "tools", "mode", "show")
+    assert res.exit_code == 0
+    assert res.output.strip() == "shadow"
+    res2 = _invoke(root, "tools", "mode", "set", "suggest")
+    assert res2.exit_code == 0
+    res3 = _invoke(root, "tools", "mode", "show")
+    assert res3.output.strip() == "suggest"
+
+
 def test_read_returns_summary_and_related(tmp_path: Path) -> None:
     root = tmp_path / "a"
     init_store_at(str(root))
@@ -134,7 +147,7 @@ def test_savings_reports_counters(tmp_path: Path) -> None:
     root = tmp_path / "a"
     init_store_at(str(root))
     _seed_ledger(root)
-    res = _invoke(root, "runtime", "savings", "--json")
+    res = _invoke(root, "savings", "--json")
     assert res.exit_code == 0
     payload = json.loads(res.output)
     assert "rescue_events" in payload
@@ -148,7 +161,7 @@ def test_optimize_reports_trace_recommendations(tmp_path: Path) -> None:
     root = tmp_path / "a"
     _seed_optimizer_traces(root)
 
-    res = _invoke(root, "usage", "optimize", "--host", "codex", "--json")
+    res = _invoke(root, "optimize", "--host", "codex", "--json")
 
     assert res.exit_code == 0, res.output
     payload = json.loads(res.output)
@@ -162,7 +175,7 @@ def test_optimize_accepts_new_registry_host_choice(tmp_path: Path) -> None:
     root = tmp_path / "a"
     _seed_optimizer_traces(root)
 
-    res = _invoke(root, "usage", "optimize", "--host", "qwen", "--json")
+    res = _invoke(root, "optimize", "--host", "qwen", "--json")
 
     assert res.exit_code == 0, res.output
     payload = json.loads(res.output)
@@ -174,7 +187,7 @@ def test_optimize_details_reports_advisor_breakdowns(tmp_path: Path) -> None:
     root = tmp_path / "a"
     _seed_advisor_traces(root)
 
-    res = _invoke(root, "usage", "optimize", "details", "--host", "codex", "--json")
+    res = _invoke(root, "optimize", "details", "--host", "codex", "--json")
 
     assert res.exit_code == 0, res.output
     payload = json.loads(res.output)
@@ -195,7 +208,7 @@ def test_optimize_apply_preset_writes_policy(tmp_path: Path) -> None:
     root = tmp_path / "a"
     init_store_at(str(root))
 
-    res = _invoke(root, "usage", "optimize", "apply", "--preset", "economy", "--json")
+    res = _invoke(root, "optimize", "apply", "--preset", "economy", "--json")
 
     assert res.exit_code == 0, res.output
     payload = json.loads(res.output)
@@ -207,13 +220,12 @@ def test_optimize_shadow_requires_consent_then_records_state(tmp_path: Path) -> 
     root = tmp_path / "a"
     _seed_advisor_traces(root)
 
-    refused = _invoke(root, "usage", "optimize", "shadow", "--json")
+    refused = _invoke(root, "optimize", "shadow", "--json")
     assert refused.exit_code != 0
     assert "requires --i-understand-this-costs-money" in refused.output
 
     started = _invoke(
         root,
-        "usage",
         "optimize",
         "shadow",
         "--i-understand-this-costs-money",
@@ -225,10 +237,10 @@ def test_optimize_shadow_requires_consent_then_records_state(tmp_path: Path) -> 
     assert payload["status"] == "running"
     assert payload["estimated_weekly_spend_usd"] <= payload["baseline_weekly_cost_usd"]
 
-    status = _invoke(root, "usage", "optimize", "shadow", "status", "--json")
+    status = _invoke(root, "optimize", "shadow", "status", "--json")
     assert status.exit_code == 0, status.output
     assert json.loads(status.output)["status"] == "running"
 
-    forgot = _invoke(root, "usage", "optimize", "shadow", "forget-consent", "--json")
+    forgot = _invoke(root, "optimize", "shadow", "forget-consent", "--json")
     assert forgot.exit_code == 0, forgot.output
     assert json.loads(forgot.output)["revoked"] is True

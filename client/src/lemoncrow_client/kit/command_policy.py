@@ -795,29 +795,6 @@ def _extract_write_targets(command: str) -> list[str] | None:
     return targets
 
 
-def temporary_roots() -> tuple[Path, ...]:
-    """Canonical scratch roots where shell execution may safely stage work.
-
-    ``tempfile.gettempdir()`` honors the host's configured ``TMPDIR``/``TEMP``
-    choice.  On POSIX we also keep the conventional system scratch roots
-    available explicitly: a custom ``TMPDIR`` must not make ordinary ``/tmp``
-    worktrees suddenly illegal.  Resolving each root also folds macOS
-    ``/tmp -> /private/tmp`` into the same containment check.
-    """
-    raw: list[Path] = [Path(tempfile.gettempdir())]
-    if os.name != "nt":
-        raw.extend(Path(value) for value in ("/tmp", "/var/tmp", "/usr/tmp"))
-    roots: list[Path] = []
-    for candidate in raw:
-        try:
-            resolved = candidate.resolve()
-        except (OSError, RuntimeError, ValueError):
-            continue
-        if resolved not in roots:
-            roots.append(resolved)
-    return tuple(roots)
-
-
 def _file_write_within_allowed(command: str, allowed_roots: list[Path] | None) -> bool:
     """True if every write target is a literal path inside *allowed_roots*.
 
@@ -1510,7 +1487,7 @@ def classify_command(
         # empty list). Blocking what we cannot parse would break legitimate
         # $TMPDIR-style writes; the destructive blocklist above still applies,
         # and a genuinely wrong opaque path just fails at runtime.
-        if targets and not _file_write_within_allowed(command, [*allowed_write_roots, *temporary_roots()]):
+        if targets and not _file_write_within_allowed(command, [*allowed_write_roots, Path(tempfile.gettempdir())]):
             return CommandPolicyDecision(
                 category="file-write",
                 action="block",

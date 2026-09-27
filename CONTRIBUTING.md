@@ -32,10 +32,10 @@ allowlisted.
 
 LemonCrow is governance for AI-assisted coding. It does not own the agent loop, replace CI, replace linting, become a Slack/GitHub bot, auto-apply lesson candidates, or add a web editor for Playbooks. Before proposing adoption tooling, keep this scope in mind (the "What NOT to build" list above).
 
-Before opening a pull request, please run the whole gate. It runs the whole test suite, which pytest refuses without an explicit per-command opt-in (coding agents never opt in):
+Before opening a pull request, please run:
 
 ```bash
-LEMONCROW_FULL_SUITE=1 make pre-commit
+make pre-commit
 ```
 
 To enable the repository-managed pre-push hook:

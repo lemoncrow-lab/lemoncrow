@@ -121,7 +121,7 @@ def test_delivery_stops_a_copy_instead_of_claiming_success(monkeypatch: pytest.M
 
 
 def test_delivery_fails_when_claude_is_missing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(review_delivery, "host_executable", lambda _name: None)
+    monkeypatch.setattr("shutil.which", lambda _name: None)
     result = deliver_to_claude_session(SESSION, tmp_path, "review feedback")
     assert result.state == "failed"
     assert "not installed" in result.message
@@ -242,42 +242,6 @@ def test_generic_delivery_uses_exact_session_resume_flags(
     assert result.target_ref == f"{host}:{SESSION}"
     assert seen[: len(expected)] == expected
     assert any(SESSION in token for token in seen)
-    # SL-3: the reviewed checkout may be untrusted; the host keeps its normal approvals.
-    assert not {"--dangerously-skip-permissions", "--allow-all", "--auto"} & set(seen)
-
-
-@pytest.mark.parametrize("host", ("codex", "opencode", "lemoncode"))
-def test_delivery_never_disables_host_approvals_or_sandbox(
-    host: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    from lemoncrow.pro.capabilities.review import delivery
-
-    monkeypatch.setattr("shutil.which", lambda name: f"/usr/bin/{name}" if name == host else None)
-    seen: list[list[str]] = []
-
-    class FakeProcess:
-        pid = 4242
-
-        def wait(self, timeout: float) -> int:
-            raise subprocess.TimeoutExpired([], timeout)
-
-        def poll(self) -> int:
-            return 0
-
-    def popen(args: list[str], **_kwargs: object) -> FakeProcess:
-        seen.append(list(args))
-        return FakeProcess()
-
-    monkeypatch.setattr(subprocess, "Popen", popen)
-    delivery.deliver_to_agent_session(host, SESSION, tmp_path, "review feedback")
-    delivery.launch_agent_session(host, tmp_path, "review feedback", log_dir=tmp_path / "logs", wait_s=0)
-
-    assert len(seen) == 2
-    for argv in seen:
-        assert not [arg for arg in argv if arg.startswith("--dangerously") or arg in {"--allow-all", "--auto"}]
-        if host == "codex":
-            assert "sandbox_workspace_write.network_access=false" in argv
-            assert "workspace-write" in argv or 'sandbox_mode="workspace-write"' in argv
 
 
 def test_codex_delivery_resumes_the_exact_thread_instead_of_queueing(
@@ -651,97 +615,3 @@ def test_session_inbox_enqueue_and_claim_race_delivers_semantic_message_once(tmp
     assert failures == []
     assert len(delivered) == 1
     assert len(set(delivered)) == 1
-
-
-# ----- new agent sessions (review handoff spec, phase 2) ----- #
-
-
-def _fake_cli(bin_dir: Path, name: str, script: str) -> None:
-    bin_dir.mkdir(parents=True, exist_ok=True)
-    path = bin_dir / name
-    path.write_text("#!/bin/sh\n" + script, encoding="utf-8")
-    path.chmod(0o755)
-
-
-def test_a_new_codex_session_reports_its_thread_id(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    bin_dir = tmp_path / "bin"
-    _fake_cli(bin_dir, "codex", 'echo \'{"type":"thread.started","thread_id":"thread-42"}\'\nsleep 2\n')
-    monkeypatch.setenv("PATH", f"{bin_dir}:/usr/bin:/bin")
-    logs = tmp_path / "logs"
-
-    result = review_delivery.launch_agent_session(
-        "codex", tmp_path, "review feedback", delivery_id="fop-1:abc", log_dir=logs
-    )
-
-    assert result.state == "working"
-    assert result.session_id == "thread-42"
-    assert result.target_ref == "codex:thread-42"
-    assert list(logs.iterdir()) == [], "the launch log is unlinked once the id is known"
-
-
-def test_a_new_session_that_never_reports_an_id_is_uncertain_not_relaunched(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    bin_dir = tmp_path / "bin"
-    _fake_cli(bin_dir, "opencode", "sleep 2\n")
-    monkeypatch.setenv("PATH", f"{bin_dir}:/usr/bin:/bin")
-
-    result = review_delivery.launch_agent_session(
-        "opencode", tmp_path, "review feedback", log_dir=tmp_path / "logs", wait_s=0.3
-    )
-
-    assert result.state == "uncertain"
-    assert result.session_id == ""
-    assert result.remote_ref.startswith("pid:")
-
-
-def test_a_new_session_that_exits_early_fails_cleanly(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    bin_dir = tmp_path / "bin"
-    _fake_cli(bin_dir, "codex", "exit 3\n")
-    monkeypatch.setenv("PATH", f"{bin_dir}:/usr/bin:/bin")
-
-    result = review_delivery.launch_agent_session("codex", tmp_path, "review feedback", log_dir=tmp_path / "logs")
-
-    assert result.state == "failed"
-    assert "status 3" in result.message
-
-
-def test_a_new_claude_session_uses_the_chosen_id(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    bin_dir = tmp_path / "bin"
-    argv_log = tmp_path / "argv"
-    _fake_cli(bin_dir, "claude", f'printf "%s\\n" "$@" > {argv_log}\necho "started 1a2b3c4d"\n')
-    monkeypatch.setenv("PATH", f"{bin_dir}:/usr/bin:/bin")
-    chosen = review_delivery.new_session_id("claude", "review-1\0rev-1\0ann-1")
-
-    result = review_delivery.launch_agent_session(
-        "claude", tmp_path, "review feedback", session_id=chosen, log_dir=tmp_path / "logs"
-    )
-
-    assert result.state == "working"
-    assert result.session_id == chosen
-    assert result.target_ref == f"claude:{chosen}"
-    argv = argv_log.read_text(encoding="utf-8").splitlines()
-    assert argv[:3] == ["--bg", "--session-id", chosen]
-    assert chosen == review_delivery.new_session_id("claude", "review-1\0rev-1\0ann-1"), "deterministic"
-
-
-def test_copilot_is_not_offered_for_new_sessions(tmp_path: Path) -> None:
-    supported, reason = review_delivery.new_session_supported("copilot")
-    assert supported is False
-    assert "session id" in reason
-
-
-def test_running_claude_sessions_are_limited_to_this_worktree(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    here = tmp_path / "repo"
-    here.mkdir()
-    elsewhere = tmp_path / "other"
-    elsewhere.mkdir()
-    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/claude" if name == "claude" else None)
-    listing = [
-        {"sessionId": "here-1", "cwd": str(here), "kind": "background", "state": "working"},
-        {"sessionId": "here-done", "cwd": str(here), "kind": "background", "state": "done"},
-        {"sessionId": "other-1", "cwd": str(elsewhere), "kind": "background", "state": "working"},
-    ]
-    monkeypatch.setattr(subprocess, "run", lambda *_a, **_k: _completed(stdout=json.dumps(listing)))
-
-    assert review_delivery.running_claude_sessions(here) == (("here-1", "working"),)

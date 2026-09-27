@@ -45,10 +45,7 @@ unit on some machines.
 from __future__ import annotations
 
 import hashlib
-import re
-import time
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import replace
+from collections.abc import Mapping, Sequence
 
 from lemoncrow.pro.capabilities.review.impact import SymbolWindow, symbol_windows
 from lemoncrow.pro.capabilities.review.models import (
@@ -67,54 +64,6 @@ from lemoncrow.pro.capabilities.review.session_models import FingerprintMethod, 
 _FP_VERSION = "v1"
 
 _UNKNOWN: FingerprintMethod = "unknown"
-_MODULE_DATA_LINE = re.compile(
-    r"^(?:(?:export|declare|const|let|var|final|readonly)\s+)*" r"([A-Za-z_$][\w$]*)(?:\s*:\s*[^=]+)?\s*=(?!=)"
-)
-_MODULE_DATA_LABEL = "Module declarations"
-
-
-def module_data_name(line: str) -> str | None:
-    """Name a top-level data binding without treating a callback as data."""
-
-    match = _MODULE_DATA_LINE.match(line)
-    if match is None:
-        return None
-    value = line.split("=", 1)[1].strip()
-    if re.match(r"(?:lambda\b|(?:async\s+)?function\b|(?:useCallback|forwardRef|memo)\s*\()", value):
-        return None
-    # Arrow functions, including async, generic and return-typed ones.
-    if re.match(r"(?:async\s+)?(?:<[^>]*>\s*)?(?:\([^)]*\)(?:\s*:\s*[^=]+?)?|[A-Za-z_$][\w$]*)\s*=>", value):
-        return None
-    return match.group(1)
-
-
-def _module_data_groups(windows: Sequence[SymbolWindow], lines: Sequence[str]) -> tuple[tuple[SymbolWindow, ...], ...]:
-    """Runs of small top-level bindings separated only by nearby comments or blanks."""
-
-    groups: list[tuple[SymbolWindow, ...]] = []
-    pending: list[SymbolWindow] = []
-
-    def flush() -> None:
-        if len(pending) > 1:
-            groups.append(tuple(pending))
-        pending.clear()
-
-    for window in windows:
-        declaration = lines[window.start_line - 1] if 0 < window.start_line <= len(lines) else ""
-        candidate = window.end_line - window.start_line < 5 and module_data_name(declaration) is not None
-        if not candidate:
-            flush()
-            continue
-        if pending:
-            gap = lines[pending[-1].end_line : window.start_line - 1]
-            nearby = len(gap) <= 4 and all(
-                not row.strip() or row.lstrip().startswith(("#", "//", "/*", "*")) for row in gap
-            )
-            if not nearby:
-                flush()
-        pending.append(window)
-    flush()
-    return tuple(groups)
 
 
 def normalize_body(text: str) -> str:
@@ -357,15 +306,7 @@ def _name_for(symbol: ChangedSymbol | None, fallback: str) -> str:
     return symbol.symbol_name if symbol is not None else ""
 
 
-def derive_units(
-    packet: ReviewPacket,
-    new_blobs: Mapping[str, str],
-    *,
-    previous_packet: ReviewPacket | None = None,
-    previous_units: Sequence[ReviewUnit] = (),
-    previous_blobs: Mapping[str, str] | None = None,
-    progress: Callable[[int, int], None] | None = None,
-) -> tuple[ReviewUnit, ...]:
+def derive_units(packet: ReviewPacket, new_blobs: Mapping[str, str]) -> tuple[ReviewUnit, ...]:
     """Every reviewable unit of *packet*, flat, in packet-file order.
 
     One ``file`` unit per changed file, one ``hunk`` unit per hunk, and one
@@ -387,59 +328,15 @@ def derive_units(
     for symbol in packet.symbols:
         symbols_by_path.setdefault(symbol.file_path, []).append(symbol)
 
-    previous_files = {item.path: item for item in previous_packet.files} if previous_packet is not None else {}
-    previous_symbols: dict[str, list[ChangedSymbol]] = {}
-    if previous_packet is not None:
-        for symbol in previous_packet.symbols:
-            previous_symbols.setdefault(symbol.file_path, []).append(symbol)
-    prior_files: dict[str, ReviewUnit] = {}
-    prior_symbols: dict[str, list[ReviewUnit]] = {}
-    for unit in previous_units:
-        if unit.kind == "file":
-            prior_files[unit.path] = unit
-        elif unit.kind in {"symbol", "document_section"}:
-            prior_symbols.setdefault(unit.path, []).append(unit)
-
     units: list[ReviewUnit] = []
-    total = len(packet.files)
-    last_report = time.monotonic()
-    if progress is not None:
-        progress(0, total)
-    for completed, item in enumerate(packet.files):
-        # Count fully derived files, including reused projections, at most four
-        # times per second so worker feedback cannot flood the event loop.
-        if progress is not None and time.monotonic() - last_report >= 0.25:
-            progress(completed, total)
-            last_report = time.monotonic()
+    for item in packet.files:
         entry = order_by_path.get(item.path)
         rank = entry.rank if entry is not None else 0
         group: FileCategory = entry.group if entry is not None else item.category
         reasons = entry.reasons if entry is not None else ()
 
-        file_unit = _file_unit(item, new_blobs, rank=rank, group=group, reasons=reasons)
-        units.append(file_unit)
+        units.append(_file_unit(item, new_blobs, rank=rank, group=group, reasons=reasons))
         units.extend(_hunk_units(item, rank=rank, group=group, reasons=reasons))
-        previous_file = prior_files.get(item.path)
-        # Exact frozen bytes, hunks and symbol inputs prove the same projection.
-        # File fingerprints normalize whitespace, so they alone cannot prove
-        # identical geometry. Ranking is joined anew.
-        # Unknown fingerprints never authorize reuse.
-        if (
-            previous_file is not None
-            and previous_file.fingerprint_method == file_unit.fingerprint_method == "blob_sha256"
-            and previous_file.content_fingerprint == file_unit.content_fingerprint
-            and previous_file.reasons == reasons
-            and previous_blobs is not None
-            and item.path in previous_blobs
-            and previous_blobs[item.path] == new_blobs.get(item.path)
-            and previous_files.get(item.path) == item
-            and previous_symbols.get(item.path, []) == symbols_by_path.get(item.path, [])
-        ):
-            units.extend(
-                replace(unit, revision_id="", attention_rank=rank, attention_group=group)
-                for unit in prior_symbols.get(item.path, [])
-            )
-            continue
         units.extend(
             _symbol_units(
                 item,
@@ -450,8 +347,6 @@ def derive_units(
                 reasons=reasons,
             )
         )
-    if progress is not None:
-        progress(total, total)
     return tuple(units)
 
 
@@ -567,35 +462,6 @@ def _symbol_units(
 
     if not item.is_binary and new_text and item.status != "deleted":
         windows = symbol_windows(new_text, item.path)
-        source_lines = new_text.splitlines()
-        section_ordinals: dict[str, int] = {}
-        for members in _module_data_groups(windows, source_lines):
-            first, last = members[0], members[-1]
-            name = f"{_MODULE_DATA_LABEL} · {first.name}"
-            section_ordinal = section_ordinals.get(name, 0)
-            section_ordinals[name] = section_ordinal + 1
-            if not any(_touches_hunk(first.start_line, last.end_line, hunk) for hunk in item.hunks):
-                continue
-            end_line = last.end_line
-            while end_line > last.start_line and not source_lines[end_line - 1].strip():
-                end_line -= 1
-            body = "\n".join(source_lines[first.start_line - 1 : end_line])
-            out.append(
-                ReviewUnit(
-                    revision_id="",
-                    unit_key=unit_key("document_section", item.path, name, section_ordinal),
-                    kind="document_section",
-                    path=item.path,
-                    content_fingerprint=symbol_fingerprint("module_data_group", name, body),
-                    fingerprint_method="symbol_body_sha256",
-                    symbol=name,
-                    start_line=first.start_line,
-                    end_line=end_line,
-                    attention_rank=rank,
-                    attention_group=group,
-                    reasons=reasons,
-                )
-            )
         qualified = qualified_window_names(windows)
         for window, containment_name in zip(windows, qualified, strict=True):
             # Ordinals are identity, so count *every* same-named definition in

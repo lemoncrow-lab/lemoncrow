@@ -13,18 +13,14 @@ resume command and return once the process is known to have started.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import re
+import shutil
 import subprocess
-import time
-import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-
-from lemoncrow.pro.capabilities.review.host_tools import host_executable, host_tool_environment
 
 if TYPE_CHECKING:
     from lemoncrow.pro.capabilities.review.session_models import Annotation
@@ -33,24 +29,6 @@ if TYPE_CHECKING:
 _BG_ID_RE = re.compile(r"\b[0-9a-fA-F]{8}\b")
 _DONE_BACKGROUND_STATES = frozenset({"done", "completed", "stopped", "failed"})
 DIRECT_DELIVERY_HOSTS: tuple[str, ...] = ("claude", "codex", "opencode", "lemoncode", "copilot")
-# Hosts LemonCrow can start fresh *and* learn the new session's id, so the
-# agent's later `review_feedback_addressed` claim matches the delivery. Claude
-# takes a caller-chosen id; the others report theirs in their JSON event stream.
-# Copilot reports no id for a new session, so it is not offered.
-NEW_SESSION_HOSTS: tuple[str, ...] = ("claude", "codex", "opencode", "lemoncode")
-PENDING_SESSION_ID = "pending"
-_NEW_SESSION_ID_WAIT_S = 10.0
-_SESSION_ID_KEYS = ("thread_id", "sessionID", "session_id", "sessionId")
-# Delivered sessions run in a checkout whose content (AGENTS.md, PR text quoted
-# in feedback) may be untrusted, so every host keeps its normal approval mode:
-# never a bypass/skip-permissions/allow-all flag. Codex runs headless, so it gets
-# its workspace-write sandbox with network off instead of interactive approval.
-# The environment stays the user's own (host_tool_environment): these are the
-# user's agent CLIs and need their own auth/config variables; the sandbox and
-# approval mode, not a scrubbed environment, bound what the agent can do.
-_CODEX_NETWORK_OFF = ("-c", "sandbox_workspace_write.network_access=false")
-_CODEX_EXEC_SANDBOX = ("-s", "workspace-write", *_CODEX_NETWORK_OFF)
-_CODEX_RESUME_SANDBOX = ("-c", 'sandbox_mode="workspace-write"', *_CODEX_NETWORK_OFF)
 
 
 @dataclass(frozen=True)
@@ -59,8 +37,6 @@ class AgentDeliveryResult:
     target_ref: str
     remote_ref: str = ""
     message: str = ""
-    session_id: str = ""
-    """The exact session that now owns the feedback, when a launch created it."""
 
     @property
     def sent(self) -> bool:
@@ -105,7 +81,6 @@ def _agents(cli: str, *, cwd: Path) -> tuple[dict[str, Any], ...]:
     result = subprocess.run(
         [cli, "agents", "--json"],
         cwd=str(cwd),
-        env=host_tool_environment(),
         capture_output=True,
         text=True,
         timeout=10,
@@ -152,7 +127,7 @@ def deliver_to_claude_session(
     session_id = session_id.strip()
     if not session_id:
         return AgentDeliveryResult("blocked", "", message="no exact Claude session id is available")
-    cli = host_executable("claude")
+    cli = shutil.which("claude")
     if not cli:
         return AgentDeliveryResult("failed", f"claude:{session_id}", message="Claude CLI is not installed")
 
@@ -193,7 +168,6 @@ def deliver_to_claude_session(
         dispatched = subprocess.run(
             [cli, "--resume", session_id, "--bg", prompt],
             cwd=str(repo_root),
-            env=host_tool_environment(),
             capture_output=True,
             text=True,
             timeout=20,
@@ -240,7 +214,6 @@ def deliver_to_claude_session(
         with subprocess.Popen(
             [cli, "stop", remote_ref],
             cwd=str(repo_root),
-            env=host_tool_environment(),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         ):
@@ -304,7 +277,7 @@ def _spawn_resume(
     wrap_review_feedback: bool = True,
     delivery_id: str = "",
 ) -> AgentDeliveryResult:
-    cli = host_executable(host)
+    cli = shutil.which(host)
     target_ref = f"{host}:{session_id}"
     if not cli:
         return AgentDeliveryResult("failed", target_ref, message=f"{host} CLI is not installed")
@@ -357,13 +330,12 @@ def _spawn_resume(
         # feedback as queued while it silently stalls. `exec resume` runs it.
         # lc-debt: no probe says whether a Codex thread is attached right now;
         # route live threads through `queue` once one exists.
-        # `exec resume` has no -s flag; the same sandbox goes in as config.
         command = [
             cli,
             "exec",
             "resume",
             "--json",
-            *_CODEX_RESUME_SANDBOX,
+            "--dangerously-bypass-approvals-and-sandbox",
             session_id,
             prompt,
         ]
@@ -377,6 +349,7 @@ def _spawn_resume(
             "json",
             "--dir",
             str(repo_root),
+            "--dangerously-skip-permissions",
             prompt,
         ]
     elif host == "copilot":
@@ -387,6 +360,7 @@ def _spawn_resume(
             prompt,
             "-C",
             str(repo_root),
+            "--allow-all",
             "--output-format",
             "json",
             "--stream",
@@ -400,7 +374,6 @@ def _spawn_resume(
         process = subprocess.Popen(
             command,
             cwd=str(repo_root),
-            env=host_tool_environment(),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -508,267 +481,6 @@ def deliver_prompt_to_agent_session(
         target_ref,
         message=f"direct prompt delivery is not configured for {host}",
     )
-
-
-def new_session_supported(host: str) -> tuple[bool, str]:
-    """Whether LemonCrow can start *host* fresh here, and why not."""
-
-    host = host.strip().lower()
-    if host not in NEW_SESSION_HOSTS:
-        return False, f"LemonCrow cannot start a new {host or 'agent'} session and learn its session id"
-    if host_executable(host) is None:
-        return False, f"{host} CLI is not installed"
-    return True, ""
-
-
-def new_session_id(host: str, seed: str) -> str:
-    """The id a new session will get: chosen here when the host allows it.
-
-    Deterministic in *seed*, so a feedback preview and its send name the same
-    target and a provably-unsent retry reuses it instead of forking a second id.
-    """
-
-    if host.strip().lower() == "claude":
-        return str(uuid.uuid5(uuid.NAMESPACE_URL, "lemoncrow-review-handoff:" + seed))
-    return PENDING_SESSION_ID
-
-
-def _find_session_id(value: Any, *, depth: int = 0) -> str:
-    if depth > 3:
-        return ""
-    if isinstance(value, dict):
-        for key in _SESSION_ID_KEYS:
-            found = value.get(key)
-            if isinstance(found, str) and found.strip():
-                return found.strip()
-        for nested in value.values():
-            if isinstance(nested, (dict, list)):
-                found_nested = _find_session_id(nested, depth=depth + 1)
-                if found_nested:
-                    return found_nested
-    elif isinstance(value, list):
-        for item in value:
-            found_item = _find_session_id(item, depth=depth + 1)
-            if found_item:
-                return found_item
-    return ""
-
-
-def _session_id_from_log(log: Path) -> str:
-    try:
-        text = log.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return ""
-    for line in text.splitlines():
-        line = line.strip()
-        if not line.startswith("{"):
-            continue
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
-        found = _find_session_id(event)
-        if found:
-            return found
-    return ""
-
-
-def launch_agent_session(
-    host: str,
-    repo_root: Path,
-    feedback: str,
-    *,
-    session_id: str = "",
-    delivery_id: str = "",
-    log_dir: Path,
-    wait_s: float = _NEW_SESSION_ID_WAIT_S,
-    wrap_review_feedback: bool = True,
-) -> AgentDeliveryResult:
-    """Start a fresh *host* session in *repo_root* with the feedback, or fail closed.
-
-    The result carries the new session's exact id so later sends resume it and
-    its addressed claim matches the delivery. When a started process has not
-    reported its id in time the result is ``uncertain``: it is running with the
-    feedback, so it must not be launched again. ``wrap_review_feedback=False``
-    sends an already-complete prompt (a Review action handoff) as is, through
-    the same command line and the same tool policy.
-    """
-
-    host = host.strip().lower()
-    pending_ref = f"{host}:{session_id or PENDING_SESSION_ID}"
-    supported, reason = new_session_supported(host)
-    if not supported:
-        return AgentDeliveryResult("blocked", pending_ref, message=reason)
-    cli = host_executable(host) or host
-    prompt = _feedback_prompt(feedback, delivery_id=delivery_id) if wrap_review_feedback else feedback
-    if host == "claude":
-        if not session_id or session_id == PENDING_SESSION_ID:
-            return AgentDeliveryResult("blocked", pending_ref, message="a new Claude session needs a chosen session id")
-        try:
-            started = subprocess.run(
-                [cli, "--bg", "--session-id", session_id, prompt],
-                cwd=str(repo_root),
-                env=host_tool_environment(),
-                capture_output=True,
-                text=True,
-                timeout=20,
-                check=False,
-            )
-        except (OSError, subprocess.SubprocessError) as exc:
-            return AgentDeliveryResult("failed", pending_ref, message=str(exc))
-        if started.returncode != 0:
-            message = (started.stderr or started.stdout or "Claude could not start a new session").strip()
-            return AgentDeliveryResult("failed", pending_ref, message=message)
-        return AgentDeliveryResult(
-            "working",
-            pending_ref,
-            remote_ref=_dispatch_id("\n".join((started.stdout or "", started.stderr or ""))),
-            message="a new Claude session started with the feedback; consumption is not yet separately acknowledged",
-            session_id=session_id,
-        )
-
-    if host == "codex":
-        command = [cli, "exec", "--json", *_CODEX_EXEC_SANDBOX, prompt]
-    else:  # opencode / lemoncode: the same flags as their verified resume path
-        command = [
-            cli,
-            "run",
-            "--format",
-            "json",
-            "--dir",
-            str(repo_root),
-            prompt,
-        ]
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log = log_dir / f"{host}-{uuid.uuid4().hex}.jsonl"
-    try:
-        with log.open("wb") as sink:
-            process = subprocess.Popen(
-                command,
-                cwd=str(repo_root),
-                env=host_tool_environment(),
-                stdin=subprocess.DEVNULL,
-                stdout=sink,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-    except OSError as exc:
-        with contextlib.suppress(OSError):
-            log.unlink()
-        return AgentDeliveryResult("failed", pending_ref, message=str(exc))
-    remote_ref = f"pid:{process.pid}"
-    found = ""
-    deadline = time.monotonic() + max(0.0, wait_s)
-    try:
-        while True:
-            found = _session_id_from_log(log)
-            if found:
-                break
-            returncode = process.poll()
-            if returncode is not None:
-                found = _session_id_from_log(log)
-                if found:
-                    break
-                if returncode != 0:
-                    return AgentDeliveryResult(
-                        "failed",
-                        pending_ref,
-                        remote_ref=remote_ref,
-                        message=f"new {host} session exited with status {returncode} before reporting its id",
-                    )
-                break
-            if time.monotonic() >= deadline:
-                break
-            time.sleep(0.1)
-    finally:
-        # The process keeps its open descriptor; unlinking only drops the name.
-        with contextlib.suppress(OSError):
-            log.unlink()
-    if not found:
-        return AgentDeliveryResult(
-            "uncertain",
-            pending_ref,
-            remote_ref=remote_ref,
-            message=(
-                f"a new {host} session started with the feedback but has not reported its session id; "
-                "LemonCrow will not start another one"
-            ),
-        )
-    return AgentDeliveryResult(
-        "working",
-        f"{host}:{found}",
-        remote_ref=remote_ref,
-        message=f"a new {host} session started with the feedback; consumption is not yet separately acknowledged",
-        session_id=found,
-    )
-
-
-def running_claude_sessions(repo_root: Path) -> tuple[tuple[str, str], ...]:
-    """``(session_id, state)`` of Claude agents running in *repo_root* right now.
-
-    Best effort: an absent CLI or a failed listing is simply no sessions.
-    """
-
-    cli = host_executable("claude")
-    if not cli:
-        return ()
-    try:
-        items = _agents(cli, cwd=repo_root)
-    except (OSError, subprocess.SubprocessError, RuntimeError):
-        return ()
-    root = repo_root.resolve()
-    found: list[tuple[str, str]] = []
-    for item in items:
-        session_id = str(item.get("sessionId") or "").strip()
-        cwd = str(item.get("cwd") or "").strip()
-        if not session_id or not cwd or not _is_running(item):
-            continue
-        try:
-            resolved_cwd = Path(cwd).resolve()
-        except OSError:
-            resolved_cwd = None
-        if resolved_cwd != root:
-            continue
-        found.append((session_id, str(item.get("state") or item.get("kind") or "")))
-    return tuple(found)
-
-
-def workspace_agent_session(repo_root: Path) -> tuple[str, str, str] | None:
-    """``(host, session_id, activity)`` of the session last active in *repo_root*."""
-
-    try:
-        from lemoncrow.core.foundation.paths import resolve_workspace_store_dir
-
-        state = json.loads(
-            (resolve_workspace_store_dir(workspace_root=repo_root) / "session_state.json").read_text(encoding="utf-8")
-        )
-    except (OSError, TypeError, ValueError):
-        return None
-    if not isinstance(state, dict):
-        return None
-    host = str(state.get("host") or "").strip().lower()
-    session_id = str(state.get("session_id") or "").strip()
-    if not host or not session_id:
-        return None
-    return host, session_id, str(state.get("activity") or "").strip().lower()
-
-
-def workspace_session_activity_at(repo_root: Path, host: str, session_id: str) -> str:
-    """Last recorded activity, only when the bridge still names this exact session."""
-
-    try:
-        from lemoncrow.core.foundation.paths import resolve_workspace_store_dir
-
-        state = json.loads(
-            (resolve_workspace_store_dir(workspace_root=repo_root) / "session_state.json").read_text(encoding="utf-8")
-        )
-    except (OSError, TypeError, ValueError):
-        return ""
-    if not isinstance(state, dict):
-        return ""
-    if str(state.get("host") or "").strip().lower() != host or str(state.get("session_id") or "").strip() != session_id:
-        return ""
-    return str(state.get("activity_at") or "").strip()
 
 
 def mark_feedback_addressed(
@@ -880,18 +592,11 @@ def mark_feedback_addressed(
 
 __all__ = [
     "DIRECT_DELIVERY_HOSTS",
-    "NEW_SESSION_HOSTS",
-    "PENDING_SESSION_ID",
     "AgentDeliveryResult",
     "ClaudeDeliveryResult",
     "deliver_prompt_to_agent_session",
     "deliver_to_agent_session",
     "deliver_to_claude_session",
     "direct_delivery_supported",
-    "launch_agent_session",
     "mark_feedback_addressed",
-    "new_session_id",
-    "new_session_supported",
-    "running_claude_sessions",
-    "workspace_agent_session",
 ]

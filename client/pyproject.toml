@@ -1,6 +1,6 @@
 [project]
 name = "lemoncrow-client"
-version = "0.8.1"
+version = "0.1.0"
 description = "Public LemonCrow thin client: one short-lived MCP stdio process, Python standard library only"
 requires-python = ">=3.12,<3.14"
 license = { text = "Apache-2.0" }
@@ -21,7 +21,6 @@ dev = [
 
 [project.scripts]
 lemoncrow-client = "lemoncrow_client.cli:main"
-lcr = "lemoncrow_client.cli:review_entrypoint"
 
 [build-system]
 requires = ["hatchling"]

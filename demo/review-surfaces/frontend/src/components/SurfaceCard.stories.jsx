@@ -1,7 +1,7 @@
 import SurfaceCard from "./SurfaceCard.jsx";
 
 export default {
-  title: "Cloud/SurfaceCard",
+  title: "Demo/SurfaceCard",
   component: SurfaceCard,
   args: { name: "Web", detail: "Live route preview" },
 };

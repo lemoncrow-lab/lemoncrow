@@ -19,7 +19,7 @@ import logging
 import os
 import re
 import typing
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -114,6 +114,109 @@ def _rule(label: str = "") -> None:
         click.echo(f"{_DIM}{'─' * _W}{_RESET}")
 
 
+def render_overview(root: Path, *, days: int = 7, n_runs: int = 8) -> str:
+    """Render the terminal dashboard: a windowed spend/savings rollup + recent runs.
+
+    Composes the same ``build_insights`` aggregation the ``insights`` CLI and the
+    web Savings page read, so every surface agrees on the numbers. Plain text by
+    design — the legacy ``_render_dashboard`` ANSI plumbing is intentionally not
+    reused (that was the surface asking for a beauty treatment).
+    """
+    from lemoncrow.infra.runtime.session_report import build_report, list_run_files
+    from lemoncrow.pro.runtime.insights import _bar, build_insights
+
+    until = datetime.now(UTC)
+    since = until - timedelta(days=days)
+    window = build_insights(root, since=since, until=until)
+
+    width = 60
+    lines: list[str] = [f"LemonCrow · last {days} days", "─" * width]
+
+    # At-a-glance
+    if window.session_count:
+        avg_min = int(window.total_duration_seconds / window.session_count / 60)
+        total_h, rem = divmod(int(window.total_duration_seconds), 3600)
+        lines.append(f"  Sessions   {window.session_count}   (avg {avg_min} min · total {total_h}h {rem // 60}m)")
+    else:
+        lines.append("  Sessions   0")
+    lines.append(f"  AI spend   {_fmt_usd(window.total_cost_usd)}")
+    if window.total_cost_usd > 0:
+        frac = window.total_lemoncrow_savings_usd / window.total_cost_usd
+        lines.append(
+            f"  Saved      {_fmt_usd(window.total_lemoncrow_savings_usd)}   ({frac * 100:.0f}% of spend)   {_bar(frac)}"
+        )
+    else:
+        lines.append(f"  Saved      {_fmt_usd(window.total_lemoncrow_savings_usd)}")
+
+    # Cost by model
+    if window.cost_by_model:
+        lines.append("")
+        lines.append("  Cost by model")
+        for model, cost in list(window.cost_by_model.items())[:4]:
+            frac = cost / window.total_cost_usd if window.total_cost_usd > 0 else 0.0
+            lines.append(f"    {model:<20}{_fmt_usd(cost):>9}  {frac * 100:>3.0f}%  {_bar(frac, 14)}")
+
+    # Top tools
+    if window.cost_by_tool:
+        lines.append("")
+        lines.append("  Top tools")
+        for tool, cost in list(window.cost_by_tool.items())[:4]:
+            lines.append(f"    {tool:<20}{_fmt_usd(cost):>9}")
+
+    # Recent runs -- ordered by the snapshot's own updated_at/created_at, the
+    # same timestamp the age column displays. run.json mtime is not usable as
+    # the sort key: the file gets rewritten (imports, bridge refreshes) without
+    # refreshing updated_at, so mtime order made the age column non-monotonic.
+    candidates: list[tuple[float, dict[str, Any]]] = []
+    for run_file in list_run_files(root):
+        try:
+            snap: dict[str, Any] = json.loads(run_file.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        ts_raw = str(snap.get("updated_at") or snap.get("created_at") or "")
+        try:
+            ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            ts = run_file.stat().st_mtime
+        candidates.append((ts, snap))
+    candidates.sort(key=lambda item: item[0], reverse=True)
+
+    rows_added = False
+    for _ts, snap in candidates[:n_runs]:
+        try:
+            # Small, bounded n_runs (default 8) -- cheap to include the
+            # transcript-based carry component here, unlike bulk aggregation
+            # paths (see build_report's docstring).
+            report = build_report(snap, root, include_carry_credit=True)
+        except Exception:
+            continue
+        if not rows_added:
+            lines.append("")
+            lines.append("  Recent runs")
+            rows_added = True
+        sid = (report.session_id or str(snap.get("run_id") or snap.get("id") or ""))[:6] or "?"
+        agent = str(snap.get("agent") or "-")[:10]
+        task_line = (str(snap.get("task") or "").strip().splitlines() or [""])[0]
+        task = (task_line[:26] + "…") if len(task_line) > 26 else (task_line or "-")
+        status = str(snap.get("status") or "?")
+        mark = {"success": "✓", "complete": "✓", "failed": "✗", "error": "✗"}.get(status, "•")
+        age = _age(str(snap.get("updated_at") or snap.get("created_at") or ""))
+        lines.append(
+            f"    {sid:<7}{agent:<11}{task:<28}{mark} {_fmt_usd(report.total_cost_usd):>8}  "
+            f"saved {_fmt_usd(report.total_lemoncrow_savings_usd):>8}  {age}"
+        )
+
+    if window.session_count or rows_added:
+        lines.append("")
+        lines.append("  → drill into a run:  lc session report <id>")
+        lines.append("    open in browser:   lc dashboard open")
+    else:
+        lines.append("")
+        lines.append("  No sessions yet — run any AI command, then check back.")
+
+    return "\n".join(lines)
+
+
 def _render_dashboard(root: Path, *, line_mode: bool, n_runs: int, session_id: str | None) -> None:
     """Render the runs dashboard (same output as the old lemoncrow-status binary)."""
 
@@ -162,7 +265,7 @@ def _render_dashboard_impl(root: Path, line_mode: bool, n_runs: int, session_id:
         ledger_path = "NONE"
 
     # Load savings from the canonical per-session ledger (store A) — the same
-    # source the statusline, `lc runtime savings` CLI, and web Savings page read,
+    # source the statusline, `lc savings` CLI, and web Savings page read,
     # so the dashboard's saved totals agree with every other surface.
     from lemoncrow.core.capabilities.savings_summary import _price_savings_row
 

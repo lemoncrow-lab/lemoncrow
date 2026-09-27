@@ -8,23 +8,6 @@ touched.
 The short version of what you are looking for: **the first screen is a diff with
 an order and a reason. The second screen is the one `git diff` cannot produce.**
 
-**Before you start.** This walkthrough drives the full Review CLI from a
-LemonCrow source checkout, because it scripts marks, comments and
-`--since-my-review` from the terminal. The installed `lc` client
-(`curl -fsSL https://lemoncrow.com/install.sh | bash`) does not carry those
-flags; with it, run `lc review` in your repository and do the same loop in the
-Review Reader (**Mark reviewed**, **Add comment**, **Changed since your
-review**, **Copy feedback**). Get the checkout once:
-
-```bash
-git clone https://github.com/lemoncrow-lab/lemoncrow.git ~/src/lemoncrow
-cd ~/src/lemoncrow && uv sync
-export LEMONCROW_SRC=~/src/lemoncrow
-```
-
-Run the marking commands from your own terminal: they record human judgment, so
-they refuse to run inside a coding-agent session.
-
 ---
 
 ## 0. A repository to play with
@@ -94,7 +77,7 @@ One convenience, because every command below points at that repo and that store
 playground-scoped, so it gets its own name):
 
 ```bash
-lcp() { uv run --project "$LEMONCROW_SRC" lc --root /tmp/lc-playground/store review --repo-root /tmp/lc-playground/repo "$@"; }
+lcp() { lc --root /tmp/lc-playground/store review --repo-root /tmp/lc-playground/repo "$@"; }
 ```
 
 **Index it first.** Without an index there are no caller or centrality signals,
@@ -103,7 +86,7 @@ and the review order degrades to "biggest diff first" — the tool says so in it
 ranking and a sort:
 
 ```bash
-uv run --project "$LEMONCROW_SRC" lc runtime index --repo-root /tmp/lc-playground/repo
+lc --root /tmp/lc-playground/store code index --repo-root /tmp/lc-playground/repo
 ```
 
 Now play the agent. Change a function everything calls, widen a signature, and
@@ -295,9 +278,9 @@ The honesty rules are the feature. They are worth testing yourself:
 | Symptom | Cause |
 | ------- | ----- |
 | `no changes in this range` | Clean tree. Review a commit instead: `lcp --base HEAD~1`. |
-| `START HERE` looks like a file list | No index for this repo — run `lc runtime index`. Without it there are no caller or centrality signals. |
-| `Generated with: unknown` | No agent session recorded an edit in this window. Exact provenance depends on the host integration being installed/enabled while the agent works; check `lc rt status` and the relevant host guide. |
+| `START HERE` looks like a file list | No index for this repo — run `lc code index`. Without it there are no caller or centrality signals. |
+| `Generated with: unknown` | No agent session recorded an edit in this window. Exact provenance is captured by the host hooks at edit time; install them with `lc init` in the repo the agent works in. |
 | `--open` writes HTML instead | No frontend bundle in this install. Set `LEMONCROW_REVIEW_BUNDLE_DIR`, or read the HTML report. |
-| `Error: no review area matches …` | The unit is not in the current revision — usually because the code moved on since you listed the keys. Re-run `--units`. |
+| `Error: no reviewable unit matches …` | The unit is not in the current revision — usually because the code moved on since you listed the keys. Re-run `--units`. |
 
 When you are done: `rm -rf /tmp/lc-playground`.

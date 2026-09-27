@@ -8,8 +8,6 @@
   algorithm the differential oracle tests.
 * :mod:`.layers` -- where a build is actually driven, with a bounded budget and
   an explicit readiness contract.
-* :mod:`.semantic` -- the semantic-layer seam. The implementation is private;
-  without it the layer is explicitly unavailable.
 * :mod:`.query` -- Layer-2-filtered queries over Layer 1 and Layer 3.
 * :mod:`.lifecycle` -- refcounted blob GC with a retention window, and view
   eviction by lease.
@@ -60,7 +58,7 @@ from .contracts import (
     validate_digest,
     validate_path,
 )
-from .layers import LayerSources, LinkLayer
+from .layers import LayerSources, LinkLayer, SemanticLayer
 from .lifecycle import Maintenance, MaintenanceReport, StorageReport
 from .links import (
     Divergence,
@@ -89,7 +87,6 @@ from .memory import (
     build_memory_backend,
 )
 from .query import IndexQuery, QueryAnswer, QueryHit
-from .semantic import UnavailableSemanticIndex, create_semantic_index, private_semantic_available
 from .sqlite import SqliteIndex, build_sqlite_backend
 
 __all__ = [
@@ -136,12 +133,12 @@ __all__ = [
     "RepoIdentityClaim",
     "RepoIdentityService",
     "SemanticIndex",
+    "SemanticLayer",
     "SqliteIndex",
     "StorageReport",
     "SweepResult",
     "SymbolDef",
     "SymbolRef",
-    "UnavailableSemanticIndex",
     "ViewOpenResult",
     "ViewState",
     "ViewStore",
@@ -151,10 +148,8 @@ __all__ = [
     "build_sqlite_backend",
     "chunk_manifest",
     "classify_divergence",
-    "create_semantic_index",
     "manifest_root",
     "parse_query",
-    "private_semantic_available",
     "profile_for_path",
     "required_digests",
     "score_match",

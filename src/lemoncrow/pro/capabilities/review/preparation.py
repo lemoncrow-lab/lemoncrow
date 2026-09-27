@@ -2,9 +2,9 @@
 
 This module deliberately separates *preparation* from *judgment*.  It may
 summarise deterministic facts already present in a ReviewPacket and project a
-small number of LemonCrow annotations, each stating a concrete consequence and
-the question it raises.  It never emits approval/request-change verdicts and it
-never makes an LLM call.
+small number of LemonCrow annotations that explain why a file deserves
+attention.  It never emits approval/request-change verdicts and it never makes
+an LLM call.
 
 The human-facing invariant is simple: opening a review should begin with
 orientation and evidence, not with reconstructing what the tool already knows.
@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, Any
 
 from lemoncrow.pro.capabilities.review.chapters import conceptual_chapters
 from lemoncrow.pro.capabilities.review.models import ReviewPacket
-from lemoncrow.pro.capabilities.review.review_priority import TIER_REVIEW_FIRST
 from lemoncrow.pro.capabilities.review.session_models import Annotation, ReviewRevision, ReviewSession
 from lemoncrow.pro.capabilities.review.store import ReviewStore
 
@@ -27,26 +26,24 @@ if TYPE_CHECKING:
 
 _MAX_AUTO_ANNOTATIONS = 6
 _MAX_BRIEF_START = 5
-# ``ordering._impact_score`` writes this exact reason when an impact site proves
-# the definition's contract changed (removed symbol or signature change).
-_CONTRACT_REASON = "public contract changed"
+_HIGH_SIGNAL_TERMS = (
+    "public",
+    "caller",
+    "outside",
+    "untouched",
+    "high-centrality",
+    "migration",
+    "config",
+    "failed",
+    "removed",
+    "signature",
+    "contract",
+)
 
 
-def _concrete_question(reasons: Sequence[str], outside_confirmed: Sequence[Any]) -> str:
-    """A note must state a consequence and a question supported by evidence.
-
-    Spec §4.5: topology alone (caller counts, centrality, a config word) is
-    context, not a note. The one deterministic consequence the packet proves is
-    a changed public contract with confirmed sites the patch did not touch.
-    """
-
-    if not outside_confirmed or not any(str(reason).strip() == _CONTRACT_REASON for reason in reasons):
-        return ""
-    named = [str(site.path) for site in outside_confirmed[:3] if str(site.path)]
-    count = len(outside_confirmed)
-    sites = f"{count} confirmed site{'s' if count != 1 else ''} outside this patch"
-    listing = f" ({', '.join(named)})" if named else ""
-    return f"Public contract changed and {sites}{listing} still use it. Do they match the new contract?"
+def _strong_reasons(reasons: Sequence[str]) -> tuple[str, ...]:
+    material = tuple(str(reason).strip() for reason in reasons if str(reason).strip())
+    return tuple(reason for reason in material if any(term in reason.lower() for term in _HIGH_SIGNAL_TERMS))
 
 
 def project_lemoncrow_annotations(
@@ -57,11 +54,11 @@ def project_lemoncrow_annotations(
     *,
     new_blobs: Mapping[str, str],
 ) -> int:
-    """Project a *small* set of deterministic consequence notes into annotations.
+    """Project a *small* set of deterministic attention facts into annotations.
 
-    These are not an AI review and not another queue of findings.  A file gets
-    at most one file-level LemonCrow note, and only when the packet proves a
-    consequence worth a question (:func:`_concrete_question`).  Identity uses
+    These are not an AI review and not another queue of findings.  The top
+    attention-ranked files get at most one file-level LemonCrow annotation when
+    there is concrete evidence worth carrying beside the diff.  Identity uses
     the file-unit content fingerprint so repeated capture of the same bytes is
     idempotent while a rewritten file naturally receives fresh evidence.
     """
@@ -87,19 +84,30 @@ def project_lemoncrow_annotations(
         unit = file_units.get(entry.path)
         if unit is None:
             continue
+        reasons = _strong_reasons(entry.reasons)
         sites = impact_by_source.get(entry.path, [])
-        # An unverified site is a maybe; a note built on it would state a
-        # consequence the evidence does not prove.
-        outside = [site for site in sites if not site.in_patch and not site.uncertainty]
-        body = _concrete_question(entry.reasons, outside)
-        if not body:
+        outside = [site for site in sites if not site.in_patch]
+        # A low-signal ordering row should not become another thing the human
+        # must read merely because an ordering score exists.
+        if not reasons and not outside:
+            continue
+        if entry.rank > 10 and not outside:
             continue
 
         source_id = f"attention:{entry.path}:{unit.content_fingerprint}"
         if source_id in existing:
             continue
 
-        title = "Contract change reaches unchanged code"
+        lines: list[str] = []
+        if reasons:
+            lines.extend(f"• {reason}" for reason in reasons[:3])
+        if outside:
+            named = [str(site.path) for site in outside[:3] if str(site.path)]
+            lines.append(
+                f"• {len(outside)} observed impact site{'s' if len(outside) != 1 else ''} outside this patch"
+                + (f": {', '.join(named)}" if named else "")
+            )
+        title = "Why this file deserves attention"
         evidence = [f"review-order:{entry.rank}"]
         evidence.extend(f"impact:{site.path}" for site in outside[:4])
         _, was_created = annotate_machine_finding(
@@ -109,7 +117,7 @@ def project_lemoncrow_annotations(
             path=entry.path,
             start_line=0,
             end_line=0,
-            body=body,
+            body="\n".join(lines),
             title=title,
             created_by="lemoncrow",
             created_by_actor="unknown",
@@ -151,53 +159,20 @@ def build_review_brief(
 
     rows = [row for group in groups for row in (group.get("rows") or ()) if isinstance(row, Mapping)]
     unique_paths = {str(row.get("path") or "") for row in rows if str(row.get("path") or "")}
-    unique_paths.update(target.path for target in targets if target.path)
-    start: list[dict[str, Any]] = []
-    if targets:
-        # The canonical queue decides what deserves attention first (spec §7):
-        # each file's first outstanding entry, kept only when it is an action.
-        firsts: dict[str, ReviewTarget] = {}
-        for target in sorted(targets, key=lambda item: item.priority.position):
-            if target.priority.outstanding and target.path not in firsts:
-                firsts[target.path] = target
-        needs_targets = [target for target in firsts.values() if target.priority.tier <= TIER_REVIEW_FIRST]
-        needs_count = len(needs_targets)
-        for target in needs_targets[:_MAX_BRIEF_START]:
-            reason = target.priority.reasons[0] if target.priority.reasons else None
-            start.append(
-                {
-                    "path": target.path,
-                    "rank": target.attention_rank,
-                    "reason": reason.detail if reason is not None else "",
-                    "reason_code": reason.code if reason is not None else "",
-                    "target_id": target.target_id,
-                }
-            )
-    else:
-        # Legacy callers without targets: the pre-queue group projection.
-        needs = [
-            row
-            for group in groups
-            if str(group.get("key") or "") in {"needs_attention", "changed_since_my_review"}
-            for row in (group.get("rows") or ())
-            if isinstance(row, Mapping)
-        ]
-        needs.sort(
-            key=lambda row: (
-                1 if int(row.get("attention_rank") or 0) == 0 else 0,
-                int(row.get("attention_rank") or 0),
-                str(row.get("path") or ""),
-            )
+    needs = [
+        row
+        for group in groups
+        if str(group.get("key") or "") in {"needs_attention", "changed_since_my_review"}
+        for row in (group.get("rows") or ())
+        if isinstance(row, Mapping)
+    ]
+    needs.sort(
+        key=lambda row: (
+            1 if int(row.get("attention_rank") or 0) == 0 else 0,
+            int(row.get("attention_rank") or 0),
+            str(row.get("path") or ""),
         )
-        needs_count = len(needs)
-        for row in needs[:_MAX_BRIEF_START]:
-            start.append(
-                {
-                    "path": str(row.get("path") or ""),
-                    "rank": int(row.get("attention_rank") or 0),
-                    "reason": _brief_reason(row),
-                }
-            )
+    )
 
     intent = [item for item in (chapters.get("intent") or ()) if isinstance(item, Mapping)]
     meaningful = list(conceptual_chapters(intent))
@@ -289,13 +264,23 @@ def build_review_brief(
         annotation.source for annotation in annotations if annotation.state != "obsolete" and not annotation.parent_id
     )
 
+    start = []
+    for row in needs[:_MAX_BRIEF_START]:
+        start.append(
+            {
+                "path": str(row.get("path") or ""),
+                "rank": int(row.get("attention_rank") or 0),
+                "reason": _brief_reason(row),
+            }
+        )
+
     theme_text = ", ".join(themes[:3])
     if unique_paths:
         summary = f"{len(unique_paths)} files"
         if theme_text:
             summary += f" across {theme_text}"
-        if needs_count:
-            summary += f"; {needs_count} currently deserve focused attention."
+        if needs:
+            summary += f"; {len(needs)} currently deserve focused attention."
         else:
             summary += "; no file is currently elevated above normal review."
     else:

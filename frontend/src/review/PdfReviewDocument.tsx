@@ -1,4 +1,3 @@
-import { Button as UiButton } from "../components/ui/button";
 import { useEffect, useRef, useState } from "react";
 
 interface PdfReviewDocumentProps {
@@ -27,17 +26,12 @@ function blobArrayBuffer(blob: Blob): Promise<ArrayBuffer> {
 
 function loadPdfRuntime(): Promise<PdfJs> {
   if (!pdfRuntimePromise) {
-    const attempt: Promise<PdfJs> = Promise.all([
+    pdfRuntimePromise = Promise.all([
       import("pdfjs-dist"),
       import("pdfjs-dist/build/pdf.worker.min.mjs?url"),
     ]).then(([pdfjs, worker]) => {
       pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
       return pdfjs;
-    });
-    pdfRuntimePromise = attempt;
-    // A rejected import must not stay cached; the next call re-initializes.
-    attempt.catch(() => {
-      if (pdfRuntimePromise === attempt) pdfRuntimePromise = null;
     });
   }
   return pdfRuntimePromise;
@@ -49,7 +43,6 @@ export default function PdfReviewDocument({ blob, label }: PdfReviewDocumentProp
   const [pageNumber, setPageNumber] = useState(1);
   const [rendering, setRendering] = useState(true);
   const [error, setError] = useState("");
-  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let disposed = false;
@@ -81,7 +74,7 @@ export default function PdfReviewDocument({ blob, label }: PdfReviewDocumentProp
       disposed = true;
       void loadingTask?.destroy();
     };
-  }, [blob, attempt]);
+  }, [blob]);
 
   useEffect(() => {
     if (!documentProxy) return;
@@ -131,52 +124,43 @@ export default function PdfReviewDocument({ blob, label }: PdfReviewDocumentProp
   return (
     <div className="w-full" data-testid="pdf-review-document">
       {pageCount > 0 && (
-        <div className="mb-2 flex items-center justify-end border-b border-border pb-2 font-mono text-caption text-muted-foreground">
+        <div className="mb-2 flex items-center justify-end border-b border-neutral-800 pb-2 font-mono text-[10px] text-neutral-500">
           <div className="flex items-center gap-2">
-            <UiButton
+            <button
               type="button"
-              variant="ghost"
-              size="icon"
               aria-label={`Previous page of ${label}`}
               disabled={pageNumber <= 1}
               onClick={() => setPageNumber((current) => Math.max(1, current - 1))}
-              className="h-6 w-7"
+              className="review-icon-button h-6 w-7 disabled:opacity-30"
             >
               ←
-            </UiButton>
-            <span className="min-w-16 text-center text-muted-foreground">{pageNumber} / {pageCount}</span>
-            <UiButton
+            </button>
+            <span className="min-w-16 text-center text-neutral-400">{pageNumber} / {pageCount}</span>
+            <button
               type="button"
-              variant="ghost"
-              size="icon"
               aria-label={`Next page of ${label}`}
               disabled={pageNumber >= pageCount}
               onClick={() => setPageNumber((current) => Math.min(pageCount, current + 1))}
-              className="h-6 w-7"
+              className="review-icon-button h-6 w-7 disabled:opacity-30"
             >
               →
-            </UiButton>
+            </button>
           </div>
         </div>
       )}
 
-      <div className="relative flex min-h-72 items-start justify-center overflow-auto bg-muted p-4">
+      <div className="relative flex min-h-72 items-start justify-center overflow-auto bg-neutral-900 p-4">
         {error ? (
-          <div role="alert" className="my-auto flex flex-col items-center gap-3 px-6 py-12 text-center text-label text-amber-300">
-            <span>PDF preview unavailable · {error}</span>
-            <UiButton type="button" variant="outline" size="sm" onClick={() => setAttempt((current) => current + 1)}>
-              Retry
-            </UiButton>
-          </div>
+          <div className="my-auto px-6 py-12 text-center text-[11px] text-amber-300">PDF preview unavailable · {error}</div>
         ) : (
           <>
             <canvas
               ref={canvasRef}
               aria-label={`${label} PDF page ${pageNumber}`}
-              className={`max-w-full bg-white shadow-frame ${rendering ? "opacity-40" : "opacity-100"}`}
+              className={`max-w-full bg-white shadow-[0_14px_45px_rgba(0,0,0,0.35)] ${rendering ? "opacity-40" : "opacity-100"}`}
             />
             {rendering && (
-              <div className="absolute inset-0 flex items-center justify-center font-mono text-caption text-muted-foreground">
+              <div className="absolute inset-0 flex items-center justify-center font-mono text-[10px] text-neutral-500">
                 Rendering PDF…
               </div>
             )}

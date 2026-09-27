@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import sqlite3
 import threading
 import time
 from pathlib import Path
@@ -11,14 +10,7 @@ import pytest
 from aiohttp import ClientSession
 from lemoncrow_server_core.bootstrap import build_local_server
 from lemoncrow_server_core.config import LocalServerConfig
-from lemoncrow_server_core.errors import ErrorCode, ServerError
-from lemoncrow_server_core.index.contracts import (
-    IndexBackend,
-    IndexLayerState,
-    ManifestEntry,
-    RepoIdentityClaim,
-    sha256_hex,
-)
+from lemoncrow_server_core.index.contracts import IndexBackend, ManifestEntry, RepoIdentityClaim, sha256_hex
 from lemoncrow_server_core.index.deferred import (
     ACTIVE_PRIORITY,
     RECOVERY_PRIORITY,
@@ -235,32 +227,34 @@ async def _local_server_deferred_flow(tmp_path: Path) -> None:
             leaf = state.backend.for_view("org_local", view_id)
             deadline = time.monotonic() + 5.0
             while time.monotonic() < deadline:
-                if leaf.links.status("org_local", view_id).ready:
+                if leaf.links.status("org_local", view_id).ready and leaf.semantic.status("org_local", view_id).ready:
                     break
                 await asyncio.sleep(0.01)
             assert leaf.links.status("org_local", view_id).ready
-            assert leaf.semantic.status("org_local", view_id).state is IndexLayerState.UNAVAILABLE
+            assert leaf.semantic.status("org_local", view_id).ready
     finally:
         await server.stop()
     assert not state.index_worker.running
 
 
-def test_deferred_worker_completes_large_link_layer_and_never_queues_unavailable_semantic(tmp_path: Path) -> None:
+def test_deferred_worker_completes_large_link_and_semantic_layers(tmp_path: Path) -> None:
     owner = RepositoryIndex(tmp_path / "indexes", content_size_cap=CAP, inline_rebuild_budget=1)
     worker = DeferredIndexWorker(owner.backend, retry_delay_s=0.01)
     try:
         _repo, view_id = _seed(owner.backend)
         leaf = owner.backend.for_view("org_deferred", view_id)
         assert leaf.links.refresh("org_deferred", view_id).reason == "link_rebuild_deferred"
-        assert leaf.semantic.refresh("org_deferred", view_id).reason == "semantic_engine_unavailable"
+        assert leaf.semantic.refresh("org_deferred", view_id).reason == "semantic_rebuild_deferred"
         jobs = enqueue_deferred_view(owner.backend, "org_deferred", view_id)
-        assert [job.layer for job in jobs] == ["link"]
-        assert enqueue_deferred_layer(owner.backend, "org_deferred", view_id, "semantic") is None
+        assert len(jobs) == 2
 
         worker.start()
-        _eventually(lambda: leaf.links.status("org_deferred", view_id).ready)
+        _eventually(
+            lambda: leaf.links.status("org_deferred", view_id).ready
+            and leaf.semantic.status("org_deferred", view_id).ready
+        )
         assert leaf.links.status("org_deferred", view_id).at_view_revision == 0
-        assert leaf.semantic.status("org_deferred", view_id).state is IndexLayerState.UNAVAILABLE
+        assert leaf.semantic.status("org_deferred", view_id).at_view_revision == 0
         assert all(owner.deferred_jobs.get(job.job_id).state == "completed" for job in jobs)  # type: ignore[union-attr]
         assert owner.ops.snapshot().value("lemoncrow_index_worker_jobs_total", layer="link", outcome="completed") >= 1
     finally:
@@ -285,7 +279,10 @@ def test_deferred_worker_recovers_readiness_after_restart(tmp_path: Path) -> Non
         assert not leaf.links.status("org_deferred", view_id).ready
         assert not leaf.semantic.status("org_deferred", view_id).ready
         restarted.start()
-        _eventually(lambda: leaf.links.status("org_deferred", view_id).ready)
+        _eventually(
+            lambda: leaf.links.status("org_deferred", view_id).ready
+            and leaf.semantic.status("org_deferred", view_id).ready
+        )
     finally:
         restarted.close()
         reopened.close()
@@ -334,142 +331,6 @@ def test_running_job_is_cancelled_when_view_becomes_obsolete(tmp_path: Path, mon
         owner.close()
 
 
-@pytest.mark.parametrize("kind", ["memory", "sqlite"])
-def test_release_hands_back_a_running_job_without_spending_an_attempt(kind: str, tmp_path: Path) -> None:
-    db = _Db(str(tmp_path / "jobs.sqlite3")) if kind == "sqlite" else None
-    store = MemoryDeferredJobStore() if db is None else SqliteDeferredJobStore(db)
-    try:
-        job = store.enqueue(org_id="o", repo_id="r", view_id="v", layer="link", revision=1, priority=0, now=1.0)
-        claimed = store.claim(2.0)
-        assert claimed is not None and claimed.attempts == 1
-        store.release(job.job_id, 3.0, not_before=4.0, error="OperationalError: database is locked")
-        released = store.get(job.job_id)
-        assert released is not None
-        assert (released.state, released.attempts, released.not_before) == ("pending", 0, 4.0)
-        assert store.claim(3.5) is None  # honours not_before
-        store.obsolete(job.job_id, 5.0, "view_closed")
-        store.release(job.job_id, 6.0, not_before=0.0, error="late")
-        assert store.get(job.job_id).state == "obsolete"  # type: ignore[union-attr]  # never resurrected
-    finally:
-        if db is not None:
-            db.close()
-
-
-def test_lock_contention_never_spends_the_failure_budget(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    owner = RepositoryIndex(tmp_path / "indexes", content_size_cap=CAP, inline_rebuild_budget=1)
-    worker = DeferredIndexWorker(owner.backend, max_attempts=1, retry_delay_s=0.01, contention_delay_s=0.01)
-    try:
-        _repo, view_id = _seed(owner.backend)
-        original = LinkLayer._all_facts
-        calls = [0]
-
-        def locked_three_times(self, org_id, members, cancel=None):  # type: ignore[no-untyped-def]
-            calls[0] += 1
-            if calls[0] <= 3:
-                raise sqlite3.OperationalError("database is locked")
-            return original(self, org_id, members, cancel)
-
-        monkeypatch.setattr(LinkLayer, "_all_facts", locked_three_times)
-        job = enqueue_deferred_layer(owner.backend, "org_deferred", view_id, "link")
-        assert job is not None
-        worker.start()
-        _eventually(lambda: owner.deferred_jobs.get(job.job_id).state == "completed")  # type: ignore[union-attr]
-        contended = owner.ops.snapshot().value("lemoncrow_index_worker_jobs_total", layer="link", outcome="contended")
-        assert contended == 3
-    finally:
-        worker.close()
-        owner.close()
-
-
-def test_a_view_that_disappears_mid_build_obsoletes_its_job(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    owner = RepositoryIndex(tmp_path / "indexes", content_size_cap=CAP, inline_rebuild_budget=1)
-    worker = DeferredIndexWorker(owner.backend, retry_delay_s=0.01)
-    try:
-        _repo, view_id = _seed(owner.backend)
-        leaf = owner.backend.for_view("org_deferred", view_id)
-        state = leaf.views.apply_overlay(
-            org_id="org_deferred",
-            view_id=view_id,
-            expected_view_revision=0,
-            client_seq=1,
-            entries=(),
-            removed_paths=("b.py",),
-        )
-        leaf.links.note_revision("org_deferred", view_id, state.view_revision)
-
-        def gone(self, org_id, members, cancel=None):  # type: ignore[no-untyped-def]
-            raise ServerError(ErrorCode.VIEW_UNKNOWN, "view is not available")
-
-        monkeypatch.setattr(LinkLayer, "_all_facts", gone)
-        job = enqueue_deferred_layer(owner.backend, "org_deferred", view_id, "link")
-        assert job is not None and job.target_kind == "view"
-        worker.start()
-        _eventually(lambda: owner.deferred_jobs.get(job.job_id).state == "obsolete")  # type: ignore[union-attr]
-        assert owner.deferred_jobs.get(job.job_id).error == "target_gone"  # type: ignore[union-attr]
-    finally:
-        worker.close()
-        owner.close()
-
-
-def test_worker_survives_a_store_failure_outside_job_handling(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    owner = RepositoryIndex(tmp_path / "indexes", content_size_cap=CAP, inline_rebuild_budget=1)
-    worker = DeferredIndexWorker(owner.backend, retry_delay_s=0.01, contention_delay_s=0.01)
-    try:
-        _repo, view_id = _seed(owner.backend)
-        leaf = owner.backend.for_view("org_deferred", view_id)
-        store_type = type(owner.deferred_jobs)
-        original = store_type.claim
-        failures = [0]
-
-        def flaky_claim(self, now):  # type: ignore[no-untyped-def]
-            if failures[0] < 2:
-                failures[0] += 1
-                raise sqlite3.OperationalError("disk I/O error")
-            return original(self, now)
-
-        monkeypatch.setattr(store_type, "claim", flaky_claim)
-        worker.start()
-        _eventually(lambda: leaf.links.status("org_deferred", view_id).ready)
-        assert worker.running
-    finally:
-        worker.close()
-        owner.close()
-
-
-def test_a_claim_whose_release_failed_is_released_later(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A stranded claim must not wait for a restart to be picked up again."""
-    owner = RepositoryIndex(tmp_path / "indexes", content_size_cap=CAP, inline_rebuild_budget=1)
-    worker = DeferredIndexWorker(owner.backend, retry_delay_s=0.01, contention_delay_s=0.01)
-    try:
-        _repo, view_id = _seed(owner.backend)
-        leaf = owner.backend.for_view("org_deferred", view_id)
-        store_type = type(owner.deferred_jobs)
-        original_process = DeferredIndexWorker._process
-        original_release = store_type.release
-        broken = {"process": 1, "release": 1}
-
-        def process_once_broken(self, job):  # type: ignore[no-untyped-def]
-            if broken["process"]:
-                broken["process"] -= 1
-                raise RuntimeError("a store write failed inside the job's own handler")
-            return original_process(self, job)
-
-        def release_once_broken(self, *args, **kwargs):  # type: ignore[no-untyped-def]
-            if broken["release"]:
-                broken["release"] -= 1
-                raise sqlite3.OperationalError("disk I/O error")
-            return original_release(self, *args, **kwargs)
-
-        monkeypatch.setattr(DeferredIndexWorker, "_process", process_once_broken)
-        monkeypatch.setattr(store_type, "release", release_once_broken)
-        worker.start()
-        _eventually(lambda: leaf.links.status("org_deferred", view_id).ready)
-        assert broken == {"process": 0, "release": 0}
-    finally:
-        worker.close()
-        owner.close()
-
-
 def test_worker_shutdown_interrupts_and_restart_recovers_running_job(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -502,11 +363,7 @@ def test_worker_shutdown_interrupts_and_restart_recovers_running_job(
         restarted.start()
         try:
             leaf = owner.backend.for_view("org_deferred", view_id)
-            # A ready layer is visible before its queue completion transaction commits.
-            _eventually(
-                lambda: leaf.links.status("org_deferred", view_id).ready
-                and owner.deferred_jobs.get(job.job_id).state == "completed"  # type: ignore[union-attr]
-            )
+            _eventually(lambda: leaf.links.status("org_deferred", view_id).ready)
             assert owner.deferred_jobs.get(job.job_id).state == "completed"  # type: ignore[union-attr]
         finally:
             restarted.close()

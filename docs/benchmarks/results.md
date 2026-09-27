@@ -141,7 +141,7 @@ CODEBENCH_LEMONCROW_AGENT=lemoncrow:auto uv run --project benchmarks python -m b
   --min-changed-files 1 -a baseline lc --reps 5 --model claude-opus-4-8 --jobs 8
 
 # Retrieval evaluation
-uv run lemoncrow dev eval retrieval --channel lexical --full --resume --csv /tmp/retrieval_mrr.csv
+uv run lemoncrow eval retrieval --channel lexical --full --resume --csv /tmp/retrieval_mrr.csv
 
 # Telegraphic Q&A
 uv run lemoncrow benchmark telegraphic --arm baseline --arm lemoncrow --arm caveman --model claude-opus-4-8 --reps 5 --max-turns 50 --jobs 4 -y

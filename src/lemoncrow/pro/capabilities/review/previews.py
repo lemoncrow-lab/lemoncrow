@@ -28,18 +28,11 @@ import subprocess
 import threading
 import time
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
+from typing import Any, ClassVar, Protocol, runtime_checkable
 
 from lemoncrow.core.foundation.run_file_io import RunFileLock
-from lemoncrow.pro.capabilities.review.execution import (
-    ExecutionRecipe,
-    ExecutionResult,
-    ExecutionSubject,
-    StageOutcome,
-)
-from lemoncrow.pro.capabilities.review.run_evidence import MaskingUnavailable, mask_png, protect_text
 from lemoncrow.pro.capabilities.review.sandbox_limits import (
     SandboxCapacityBusy,
     limit_note,
@@ -58,9 +51,6 @@ from lemoncrow.pro.capabilities.review.surfaces import (
     _safe_relative_path,
 )
 
-if TYPE_CHECKING:
-    from lemoncrow.pro.capabilities.review.hermetic import HermeticContext
-
 PREVIEW_RENDERER_ENTRYPOINT_GROUP = "lemoncrow.review_preview_renderers"
 
 # Host-owned ceilings. ``.lemoncrow/review.yaml`` may lower them, never raise them.
@@ -73,7 +63,6 @@ MAX_LOG_CHARS = 4000
 # that share a side reuse its workspace and artifacts. Keep the most recently
 # used side caches of a Review and drop the rest once they have been idle a while.
 KEEP_SIDE_CACHES_PER_REVIEW = 8
-KEEP_PREVIEW_REVIEWS = 16
 _PRUNE_IDLE_SECONDS = 3600
 _SIDES_DIR = "sides"
 # DOM returned by a page capture is read for render state only, never stored.
@@ -154,39 +143,23 @@ class PreviewSandbox:
     OUTPUT_MOUNT = "/capture"
     WORKSPACE_MOUNT = "/workspace"
 
-    def __init__(
-        self,
-        *,
-        workspace: Path,
-        output_dir: Path,
-        trusted_checkout: Path,
-        deadline: float,
-        hermetic: HermeticContext | None = None,
-    ) -> None:
+    def __init__(self, *, workspace: Path, output_dir: Path, trusted_checkout: Path, deadline: float) -> None:
         self.workspace = workspace
         self.output_dir = output_dir
         self.trusted_checkout = trusted_checkout
         self.deadline = deadline
-        # Set by a trusted dispatcher: lets a dependency-changing side run in
-        # the hermetic fetch -> build -> run environment instead of refusing.
-        self.hermetic = hermetic
-        self.stages: list[StageOutcome] = []
-        self.lockfile_digest = ""
-        self._hermetic_trees: set[Path] = set()
 
     def remaining_seconds(self) -> int:
         return max(0, int(self.deadline - time.monotonic()))
 
     def node_modules(self, project_root: str = ".") -> Path:
-        """Return dependencies proven to match the reviewed lockfile.
+        """Return checkout dependencies proven to match the reviewed lockfile.
 
-        When the reviewed ``package.json``/lockfile equals the trusted
-        checkout's, its dependencies are borrowed read-only (missing ones are
-        installed once from the lockfile with lifecycle scripts disabled).
-        When the reviewed graph differs, the hermetic environment provisions
-        exactly the reviewed lockfile (registry-only fetch with no repository
-        code, offline build) into a trust-isolated cache; without a hermetic
-        context the change is refused instead of rendered with the wrong graph.
+        Dependencies are borrowed read-only from the trusted checkout and only
+        when the reviewed ``package.json``/lockfile equals the checkout's, so a
+        change that edits dependencies is refused instead of rendered with the
+        wrong graph. Missing dependencies are installed once from the lockfile
+        with lifecycle scripts disabled.
         """
 
         from lemoncrow.pro.capabilities.review.web_preview import (
@@ -202,19 +175,8 @@ class PreviewSandbox:
         if not (live_project / "package.json").is_file():
             raise PreviewUnavailable(f"project root {project_root} has no package.json in the proven checkout")
         if _dependency_signature(project) != _dependency_signature(live_project):
-            if self.hermetic is None:
-                raise PreviewUnavailable(
-                    "the reviewed dependency graph differs from the checkout; refusing automatic dependency provisioning"
-                )
-            return self._hermetic_node_modules(project)
-        if self.hermetic is not None:
-            self.stages.append(
-                StageOutcome(
-                    "fetch",
-                    "skipped",
-                    network="denied",
-                    detail="reviewed dependency graph equals the trusted checkout; its dependencies are mounted read-only",
-                )
+            raise PreviewUnavailable(
+                "the reviewed dependency graph differs from the checkout; refusing automatic dependency provisioning"
             )
         project_modules = live_project / "node_modules"
         modules = project_modules if project_modules.is_dir() else self.trusted_checkout / "node_modules"
@@ -229,62 +191,6 @@ class PreviewSandbox:
             raise PreviewUnavailable("dependency directory escapes the trusted checkout")
         return modules
 
-    def _hermetic_node_modules(self, project: Path) -> Path:
-        from lemoncrow.pro.capabilities.review.hermetic import (
-            HermeticRefused,
-            HermeticUnavailable,
-            provision_npm_dependencies,
-        )
-
-        hermetic = self.hermetic
-        assert hermetic is not None
-        if hermetic.policy_error:
-            self.stages.append(StageOutcome("fetch", "refused", network="registry_only", detail=hermetic.policy_error))
-            raise PreviewUnavailable(f"trusted-base execution policy is invalid: {hermetic.policy_error}")
-        try:
-            tree = provision_npm_dependencies(project, policy=hermetic.policy, cache=hermetic.cache)
-        except HermeticRefused as exc:
-            self.stages.append(StageOutcome("fetch", "refused", network="registry_only", detail=str(exc)[:2000]))
-            raise PreviewUnavailable(f"hermetic dependency provisioning refused: {exc}") from exc
-        except HermeticUnavailable as exc:
-            self.stages.append(StageOutcome("fetch", "unavailable", network="registry_only", detail=str(exc)[:2000]))
-            raise PreviewUnavailable(f"hermetic dependency provisioning is unavailable: {exc}") from exc
-        self.stages.extend(tree.stages)
-        self.lockfile_digest = tree.plan.lockfile_digest
-        self._hermetic_trees.add(tree.node_modules.resolve())
-        return tree.node_modules
-
-    def execution_result(
-        self, *, review_id: str, revision_id: str, side: str, identity: str, scope: str, renderer: str
-    ) -> ExecutionResult | None:
-        """The typed execution record of this render, when a hermetic context ran it."""
-
-        if self.hermetic is None:
-            return None
-        from lemoncrow.pro.capabilities.review.hermetic import build_execution_result
-
-        used_fetch = any(stage.stage == "fetch" and stage.status != "skipped" for stage in self.stages)
-        recipe = ExecutionRecipe(
-            command=("preview", renderer),
-            cwd=scope,
-            stages=("fetch", "build", "run") if used_fetch else ("build", "run"),
-            sinks=False,
-            policy=self.hermetic.policy.to_wire(),
-        )
-        return build_execution_result(
-            subject=ExecutionSubject(
-                review_id=review_id, revision_id=revision_id, side=side, snapshot_identity=identity, scope=scope
-            ),
-            executor_class=self.hermetic.executor_class,
-            policy=self.hermetic.policy,
-            recipe=recipe,
-            stages=self.stages,
-            namespace=self.hermetic.namespace,
-            content_access=self.hermetic.content_access,
-            lockfile_digest=self.lockfile_digest,
-            tools=("node", "python3"),
-        )
-
     def _timeout(self, requested: int | None) -> int:
         remaining = self.remaining_seconds()
         if remaining < 1:
@@ -296,14 +202,11 @@ class PreviewSandbox:
     def _prefix(self, *, cwd: str, node_modules: Path | None, browser: bool) -> list[str]:
         from lemoncrow.pro.capabilities.review.web_preview import WebPreviewUnavailable, _bubblewrap_prefix
 
-        # A hermetic tree is the complete reviewed graph: never mix in the
-        # checkout's repository-level dependency store.
-        borrowed = node_modules is not None and node_modules.resolve() not in self._hermetic_trees
         try:
             return _bubblewrap_prefix(
                 self.workspace,
                 node_modules,
-                repo_root=self.trusted_checkout if borrowed else None,
+                repo_root=self.trusted_checkout if node_modules is not None else None,
                 project_root=cwd,
                 include_chrome=browser,
                 capture_dir=self.output_dir,
@@ -359,27 +262,11 @@ class PreviewSandbox:
         except OSError as exc:
             raise PreviewUnavailable(f"sandboxed command could not run: {exc}") from exc
         note = limit_note(proc.returncode)
-        # Output is shown to reviewers and may be stored: redact before it leaves.
-        output, _redactions = protect_text(
-            _tail(proc.stdout or ""), self.hermetic.policy.redaction if self.hermetic is not None else None
-        )
-        duration_ms = int((time.monotonic() - started) * 1000)
-        if self.hermetic is not None:
-            self.stages.append(
-                StageOutcome(
-                    "run" if browser else "build",
-                    "passed" if proc.returncode == 0 else "failed",
-                    network="denied",
-                    detail=f"{command[0]} exited {proc.returncode}",
-                    exit_code=proc.returncode,
-                    duration_ms=duration_ms,
-                    output=output[-2000:],
-                )
-            )
+        output = _tail(proc.stdout or "")
         return SandboxResult(
             exit_code=proc.returncode,
             output=f"{output}\n[{note}]".strip() if note else output,
-            duration_ms=duration_ms,
+            duration_ms=int((time.monotonic() - started) * 1000),
             limit_note=note,
         )
 
@@ -668,8 +555,6 @@ class PreviewResult:
     output: str = ""
     identity: str = ""
     cached: bool = False
-    # ExecutionResult wire record when the render ran in a hermetic context.
-    execution: Mapping[str, Any] | None = None
 
 
 _GUARD = threading.Lock()
@@ -727,25 +612,16 @@ def _write_json_atomic(path: Path, payload: Mapping[str, Any]) -> None:
 def _prune_review_cache(review_root: Path, current_side: Path) -> None:
     """Closer for the artifact cache, including the retired per-Snapshot layout."""
 
-    from lemoncrow.pro.capabilities.review.scratch_cache import LIGHT_TTL_SECONDS, prune_cache_entries
+    from lemoncrow.pro.capabilities.review.web_preview import prune_cache_entries
 
     prune_cache_entries(
         review_root / _SIDES_DIR,
         current_side,
         keep_count=KEEP_SIDE_CACHES_PER_REVIEW,
         idle_seconds=_PRUNE_IDLE_SECONDS,
-        ttl_seconds=LIGHT_TTL_SECONDS,
     )
     # Before artifacts were content-keyed, each Snapshot had its own directory here.
     prune_cache_entries(review_root, review_root / _SIDES_DIR, keep_count=1, idle_seconds=_PRUNE_IDLE_SECONDS)
-    # A Review nobody reopens never reaches the per-Review closer above.
-    prune_cache_entries(
-        review_root.parent,
-        review_root,
-        keep_count=KEEP_PREVIEW_REVIEWS,
-        idle_seconds=_PRUNE_IDLE_SECONDS,
-        ttl_seconds=LIGHT_TTL_SECONDS,
-    )
 
 
 def _result(
@@ -774,18 +650,12 @@ def render_surface_preview(
     side: str,
     renderers: PreviewRendererRegistry | None = None,
     source_repo: Path | None = None,
-    hermetic: HermeticContext | None = None,
 ) -> PreviewResult:
     """Produce (or reuse) one revision-pinned preview artifact for one side.
 
     Never raises for plugin problems: an uninstalled, incompatible, crashing,
     slow or misbehaving renderer yields ``status`` ``unavailable``/``failed``
     with a specific ``reason``, leaving the rest of the Review untouched.
-
-    ``hermetic`` (built by the trusted dispatcher from trusted-base policy)
-    lets a side whose dependency graph differs from the trusted checkout run
-    in the hermetic environment instead of being refused, and records a typed
-    :class:`~lemoncrow.pro.capabilities.review.execution.ExecutionResult`.
     """
 
     if side not in {"old", "new"}:
@@ -802,8 +672,11 @@ def render_surface_preview(
     renderer = registry.get(descriptor.renderer)
     assert renderer is not None  # preview_availability proved it
 
-    from lemoncrow.pro.capabilities.review.scratch_cache import touch_cache_entry
-    from lemoncrow.pro.capabilities.review.web_preview import dependency_state, revision_side_identity
+    from lemoncrow.pro.capabilities.review.web_preview import (
+        dependency_state,
+        revision_side_identity,
+        touch_cache_entry,
+    )
 
     revision = context.revision
     config = _surface_config(context, surface)
@@ -845,7 +718,6 @@ def render_surface_preview(
     artifact_marker = artifact_dir / "artifact.json"
     output_dir = artifact_dir / "output"
     touch_cache_entry(side_root)
-    touch_cache_entry(review_root)
 
     cached = _cached_result(context, descriptor, side, artifact_marker, output_dir, limits, expected_identity)
     if cached is not None:
@@ -865,25 +737,6 @@ def render_surface_preview(
         if output_dir.exists():
             shutil.rmtree(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
-        sandbox = PreviewSandbox(
-            workspace=workspace,
-            output_dir=output_dir,
-            trusted_checkout=trusted_checkout,
-            deadline=time.monotonic() + limits.timeout_seconds,
-            hermetic=hermetic,
-        )
-
-        def execution_record() -> Mapping[str, Any] | None:
-            record = sandbox.execution_result(
-                review_id=revision.review_id,
-                revision_id=revision.id,
-                side=side,
-                identity=identity,
-                scope=scope,
-                renderer=descriptor.renderer,
-            )
-            return record.to_wire() if record is not None else None
-
         request = PreviewRenderRequest(
             context=context,
             surface=surface,
@@ -893,15 +746,18 @@ def render_surface_preview(
             workspace=workspace,
             output_dir=output_dir,
             limits=limits,
-            sandbox=sandbox,
+            sandbox=PreviewSandbox(
+                workspace=workspace,
+                output_dir=output_dir,
+                trusted_checkout=trusted_checkout,
+                deadline=time.monotonic() + limits.timeout_seconds,
+            ),
             config=config,
         )
         try:
             artifact = renderer.render(request)
         except PreviewUnavailable as exc:
-            return _result(
-                context, descriptor, side, "unavailable", str(exc), identity=identity, execution=execution_record()
-            )
+            return _result(context, descriptor, side, "unavailable", str(exc), identity=identity)
         except Exception as exc:
             return _result(
                 context,
@@ -910,22 +766,8 @@ def render_surface_preview(
                 "failed",
                 f"preview renderer {descriptor.renderer!r} raised {type(exc).__name__}: {exc}",
                 identity=identity,
-                execution=execution_record(),
             )
-        result = _accept_artifact(
-            context,
-            descriptor,
-            surface,
-            side,
-            artifact,
-            output_dir,
-            limits,
-            identity,
-            mask_regions=hermetic.policy.redaction.mask_regions if hermetic is not None else (),
-        )
-        execution = execution_record()
-        if execution is not None:
-            result = replace(result, execution=execution)
+        result = _accept_artifact(context, descriptor, surface, side, artifact, output_dir, limits, identity)
         if result.status == "ready" and result.path is not None:
             _write_json_atomic(
                 artifact_marker,
@@ -939,7 +781,6 @@ def render_surface_preview(
                     "revision_id": revision.id,
                     "side": side,
                     "summary": result.summary,
-                    "execution": execution,
                 },
             )
     _prune_review_cache(review_root, side_root)
@@ -1021,7 +862,6 @@ def _cached_result(
         summary=str(data.get("summary") or ""),
         identity=str(data.get("identity") or ""),
         cached=True,
-        execution=data.get("execution") if isinstance(data.get("execution"), Mapping) else None,
     )
 
 
@@ -1034,8 +874,6 @@ def _accept_artifact(
     output_dir: Path,
     limits: PreviewLimits,
     identity: str,
-    *,
-    mask_regions: Sequence[Any] = (),
 ) -> PreviewResult:
     label = f"preview renderer {descriptor.renderer!r}"
     if not isinstance(artifact, PreviewArtifact):
@@ -1071,22 +909,9 @@ def _accept_artifact(
             identity=identity,
         )
     media_type = _normalized_media_type(artifact.media_type or descriptor.media_type)
-    payload = resolved.read_bytes()
-    problem = _validate_bytes(descriptor.display, media_type, payload)
+    problem = _validate_bytes(descriptor.display, media_type, resolved.read_bytes())
     if problem:
         return _result(context, descriptor, side, "failed", f"{label}: {problem}", identity=identity)
-    if mask_regions and media_type.startswith("image/"):
-        # Trusted policy masks screenshot regions before the artifact becomes
-        # cached/servable; an image that cannot be masked is withheld.
-        try:
-            if media_type != "image/png":
-                raise MaskingUnavailable(f"screenshot masking supports image/png only, not {media_type}")
-            resolved.write_bytes(mask_png(payload, mask_regions))
-        except MaskingUnavailable as exc:
-            resolved.unlink(missing_ok=True)
-            return _result(
-                context, descriptor, side, "failed", f"{label}: screenshot withheld: {exc}", identity=identity
-            )
     fallback = f"{surface.id}-{side}{PurePosixPath(resolved.name).suffix}"
     filename = _FILENAME_RE.sub("-", artifact.filename or fallback).strip(".-") or f"preview-{side}"
     return _result(

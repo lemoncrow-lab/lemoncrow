@@ -6,7 +6,7 @@
 #
 # The release ships a Python wheel inside lemoncrow-distribution-<os>-<arch>.tar.gz
 # (not a standalone binary), so this installs that wheel into an ephemeral uv
-# venv and runs `lc runtime session stats`. The venv is cached under /tmp keyed by
+# venv and runs `lc session stats`. The venv is cached under /tmp keyed by
 # release tag + platform, so repeated runs are fast.
 #
 # Per-session realized savings (the "Savings" column) come from
@@ -331,7 +331,7 @@ fi
 # the exact same function the statusline relies on — so they are guaranteed
 # consistent with the plugin's real display.
 _run_stats() {
-    "${LEMONCROW_BIN}" runtime session stats "$@" 2> >(
+    "${LEMONCROW_BIN}" session stats "$@" 2> >(
         grep -vE \
             -e '^Scanning last .* across .* host\(s\)' \
             -e '^claude reader: dropped .* unparseable line\(s\) while importing session ' \

@@ -1,10 +1,10 @@
 """Deployment-neutral request limits, cancellation, and global concurrency.
 
 These are engine mechanics shared by the public loopback server and the hosted
-composition. Multi-user policy is not part of the public engine: a hosting
-composition may extend :class:`Limits` and supply its own concurrency gate. The
-shared handlers only depend on the small ``hold(scope_id)`` shape, so local mode
-never needs to know what an organization is.
+composition. Tenant fairness does not live here: the enterprise package extends
+:class:`Limits` with a per-organization ceiling and supplies its own concurrency
+gate. The shared handlers only depend on the small ``hold(scope_id)`` shape, so
+local mode never needs to know what an organization is.
 """
 
 from __future__ import annotations

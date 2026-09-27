@@ -42,19 +42,8 @@ def _isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # No real `claude` process ancestor in the test runner -- pin this
     # explicitly rather than relying on /proc absence so the test is stable
     # across platforms/CI.
-    monkeypatch.setattr(mcp_server._ledger, "_resolve_live_session_id", lambda: "")
+    monkeypatch.setattr(mcp_server, "_resolve_live_session_id", lambda: "")
     mcp_server._SAVINGS_SIDECAR_PATH_BY_SID.clear()
-
-
-def test_non_claude_host_never_adopts_a_stale_claude_live_session(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("LEMONCROW_AGENT", "opencode")
-    monkeypatch.setattr(mcp_server._ledger, "_resolve_live_session_id", lambda: "stale-claude-session")
-    payload = {"session_id": "ses-opencode", "prompt": "hi", "model": "gpt-5.6-terra"}
-    plugin_runtime._write_opencode_session_state(tmp_path, payload)
-
-    assert mcp_server._resolved_host_session() == ("ses-opencode", "opencode")
 
 
 def test_opencode_hook_bridges_session_id_for_mcp_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -181,9 +170,6 @@ def test_opencode_lifecycle_tracks_tools_and_renders_idle_status(
     assert "1 prompt turn · 1 tool call" in status["uiMessage"]
     assert "tools: lc_read×1" in status["uiMessage"]  # noqa: RUF001
     assert plugin_runtime.build_opencode_stop_output(root, payload).get("no_output") is True
-    from lemoncrow.core.foundation.paths import session_dir
-
-    assert (session_dir(root, "opencode", "ses-status") / "savings.jsonl").exists()
 
 
 def test_codex_hook_bridges_session_id_for_mcp_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

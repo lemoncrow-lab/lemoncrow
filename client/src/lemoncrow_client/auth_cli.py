@@ -12,7 +12,6 @@ import time
 import webbrowser
 from collections.abc import Mapping, Sequence
 from typing import Any, TextIO
-from urllib.parse import parse_qs, urlsplit
 
 from .authward import AuthwardClient, discover_authward
 from .config import ClientConfig, load_config
@@ -25,21 +24,18 @@ __all__ = ["auth_main"]
 _PENDING_REASONS = frozenset({"authorization_pending", "slow_down"})
 
 
-def _config(product: str = "core") -> ClientConfig:
-    return load_config(cwd=None, product=product)
+def _config() -> ClientConfig:
+    return load_config(cwd=None)
 
 
 def _authward(config: ClientConfig) -> AuthwardClient:
     transport = HttpTransport(config.url, timeout_s=config.request_timeout_s)
-    return discover_authward(transport, timeout_s=config.request_timeout_s, product=config.product)
+    return discover_authward(transport, timeout_s=config.request_timeout_s)
 
 
 def _managed(config: ClientConfig) -> bool:
-    managed_paths = {
-        str(managed_credentials_path(config.account_state_dir)),
-        str(managed_credentials_path(config.state_dir)),
-    }
-    return config.token_source in managed_paths or (not config.token and config.refresh_token_source in managed_paths)
+    managed = str(managed_credentials_path(config.state_dir))
+    return config.token_source == managed or (not config.token and config.refresh_token_source == managed)
 
 
 def _required_string(payload: Mapping[str, Any], name: str) -> str:
@@ -49,50 +45,11 @@ def _required_string(payload: Mapping[str, Any], name: str) -> str:
     return value
 
 
-def _device_browser_uri(payload: Mapping[str, Any], verification_uri: str, user_code: str) -> str:
-    """Use the issuer\'s code-filled link only when it matches its base page."""
-    complete = payload.get("verification_uri_complete")
-    if not isinstance(complete, str) or not complete or len(complete) > 2048:
-        return verification_uri
-    try:
-        base, target = urlsplit(verification_uri), urlsplit(complete)
-        if (target.scheme, target.hostname, target.port, target.path) != (
-            base.scheme,
-            base.hostname,
-            base.port,
-            base.path,
-        ):
-            return verification_uri
-        if target.username or target.password or target.fragment:
-            return verification_uri
-        if target.scheme != "https" and not (
-            target.scheme == "http" and target.hostname in {"localhost", "127.0.0.1", "::1"}
-        ):
-            return verification_uri
-        if parse_qs(target.query).get("user_code") != [user_code]:
-            return verification_uri
-    except ValueError:
-        return verification_uri
-    return complete
-
-
 def _error(exc: ClientError) -> str:
     return f"{exc.server_code}: {exc.message}"
 
 
-_VERB_USAGE: Mapping[str, str] = {
-    "login": (
-        "usage: lemoncrow-client auth login [--no-browser]\n"
-        "Sign in to the configured Hosted LemonCrow deployment with Authward device authorization.\n"
-        "  --no-browser  print the sign-in URL and code without opening a browser\n"
-        "Local Review and Runtime Lite need no login.\n"
-    ),
-    "status": "usage: lemoncrow-client auth status\nShow the configured hosted login state.\n",
-    "logout": "usage: lemoncrow-client auth logout\nRevoke managed refresh credentials and sign out.\n",
-}
-
-
-def auth_main(arguments: Sequence[str], *, sink: TextIO, product: str = "core") -> int:
+def auth_main(arguments: Sequence[str], *, sink: TextIO) -> int:
     """Run ``auth status|login|logout`` and return a process-style exit code."""
 
     if not arguments or arguments[0] in {"-h", "--help", "help"}:
@@ -103,11 +60,8 @@ def auth_main(arguments: Sequence[str], *, sink: TextIO, product: str = "core") 
         return 0
 
     verb, rest = arguments[0], list(arguments[1:])
-    if verb in _VERB_USAGE and rest in (["-h"], ["--help"], ["help"]):
-        sink.write(_VERB_USAGE[verb])
-        return 0
     try:
-        config = _config(product)
+        config = _config()
     except ClientError as exc:
         sink.write(_error(exc) + "\n")
         return 2
@@ -167,7 +121,6 @@ def _login(config: ClientConfig, arguments: Sequence[str], sink: TextIO) -> int:
         device_code = _required_string(authorization, "device_code")
         user_code = _required_string(authorization, "user_code")
         verification_uri = _required_string(authorization, "verification_uri")
-        verification_uri = _device_browser_uri(authorization, verification_uri, user_code)
     except ClientError as exc:
         sink.write(_error(exc) + "\n")
         return 1
@@ -207,7 +160,7 @@ def _login(config: ClientConfig, arguments: Sequence[str], sink: TextIO) -> int:
         except ValueError as exc:
             sink.write(str(exc) + "\n")
             return 1
-        write_managed_credentials(config.account_state_dir, access_token=access_token, refresh_token=refresh_token)
+        write_managed_credentials(config.state_dir, access_token=access_token, refresh_token=refresh_token)
         sink.write(f"Signed in to {config.url}\n")
         return 0
 
@@ -239,9 +192,6 @@ def _logout(config: ClientConfig, sink: TextIO) -> int:
     except ClientError as exc:
         error = exc
     finally:
-        # Clear both locations so a legacy credential cannot reappear after the
-        # new account-scoped file is removed.
-        clear_managed_credentials(config.account_state_dir)
         clear_managed_credentials(config.state_dir)
 
     if error is not None:

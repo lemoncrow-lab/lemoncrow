@@ -23,14 +23,67 @@ from lemoncrow.pro.capabilities.tool_supervision.search_read import (
 # ---------------------------------------------------------------------------
 
 
+def test_detect_lang_python() -> None:
+    assert _detect_lang("foo/bar.py") == "python"
+
+
+def test_detect_lang_typescript() -> None:
+    assert _detect_lang("src/widget.tsx") == "typescript"
+
+
+def test_detect_lang_fallback() -> None:
+    assert _detect_lang("Makefile") == "text"
+
+
 # ---------------------------------------------------------------------------
 # Unit: _assert_safe_args
 # ---------------------------------------------------------------------------
 
 
+def test_safe_args_accepts_plain_query() -> None:
+    _assert_safe_args("Playbook", "src/")  # must not raise
+
+
+def test_safe_args_rejects_semicolons() -> None:
+    with pytest.raises(ValueError, match="metacharacter"):
+        _assert_safe_args("foo; rm -rf /", ".")
+
+
+def test_safe_args_rejects_backtick() -> None:
+    with pytest.raises(ValueError, match="metacharacter"):
+        _assert_safe_args("`ls`", ".")
+
+
+def test_safe_args_rejects_leading_dash() -> None:
+    with pytest.raises(ValueError, match="must not start"):
+        _assert_safe_args("-e expression", ".")
+
+
+def test_safe_args_rejects_path_with_pipe() -> None:
+    with pytest.raises(ValueError, match="metacharacter"):
+        _assert_safe_args("foo", "src | cat")
+
+
 # ---------------------------------------------------------------------------
 # Unit: _parse_grep_output
 # ---------------------------------------------------------------------------
+
+
+def test_parse_grep_output_basic() -> None:
+    raw = "src/foo.py:42: def example():\nsrc/bar.py:7: x = example()\nsrc/foo.py:100: return None\n"
+    hits = _parse_grep_output(raw)
+    assert hits["src/foo.py"] == [42, 100]
+    assert hits["src/bar.py"] == [7]
+
+
+def test_parse_grep_output_empty() -> None:
+    assert _parse_grep_output("") == {}
+
+
+def test_parse_grep_output_malformed_lines_skipped() -> None:
+    raw = "not-a-match\nsrc/ok.py:5: def foo():\n"
+    hits = _parse_grep_output(raw)
+    assert list(hits.keys()) == ["src/ok.py"]
 
 
 # ---------------------------------------------------------------------------
@@ -40,6 +93,36 @@ from lemoncrow.pro.capabilities.tool_supervision.search_read import (
 
 def _make_lines(n: int) -> list[str]:
     return [f"line {i}" for i in range(1, n + 1)]
+
+
+def test_cluster_snippets_single_match() -> None:
+    lines = _make_lines(50)
+    snippets = _cluster_snippets([25], lines, context=3)
+    assert len(snippets) == 1
+    sn = snippets[0]
+    assert sn.line_start == 22  # 25 - 3
+    assert sn.line_end == 28  # 25 + 3
+
+
+def test_cluster_snippets_merges_nearby() -> None:
+    lines = _make_lines(50)
+    # Two close matches should merge
+    snippets = _cluster_snippets([10, 12], lines, context=3)
+    assert len(snippets) == 1
+
+
+def test_cluster_snippets_keeps_distant_separate() -> None:
+    lines = _make_lines(100)
+    # Two matches far apart should stay separate
+    snippets = _cluster_snippets([5, 90], lines, context=3)
+    assert len(snippets) == 2
+
+
+def test_cluster_snippets_score_higher_for_dense() -> None:
+    lines = _make_lines(100)
+    sparse = _cluster_snippets([5], lines, context=8)
+    dense = _cluster_snippets([5, 6, 7, 8, 9], lines, context=8)
+    assert dense[0].score > sparse[0].score
 
 
 # ---------------------------------------------------------------------------
@@ -251,39 +334,3 @@ def test_search_read_does_not_follow_symlinked_result_out_of_base(tmp_path: Path
     for match in result.matches:
         for snippet in match.snippets:
             assert "SECRET" not in snippet.text
-
-
-def test_language_detection_contract() -> None:
-    for path, expected in [("foo/bar.py", "python"), ("src/widget.tsx", "typescript"), ("Makefile", "text")]:
-        assert _detect_lang(path) == expected
-
-
-def test_safe_argument_contract() -> None:
-    _assert_safe_args("Playbook", "src/")
-    for query, path, message in [
-        ("foo; rm -rf /", ".", "metacharacter"),
-        ("`ls`", ".", "metacharacter"),
-        ("-e expression", ".", "must not start"),
-        ("foo", "src | cat", "metacharacter"),
-    ]:
-        with pytest.raises(ValueError, match=message):
-            _assert_safe_args(query, path)
-
-
-def test_grep_output_parser_contract() -> None:
-    raw = "src/foo.py:42: def example():\nsrc/bar.py:7: x = example()\nsrc/foo.py:100: return None\n"
-    hits = _parse_grep_output(raw)
-    assert hits == {"src/foo.py": [42, 100], "src/bar.py": [7]}
-    assert _parse_grep_output("") == {}
-    assert _parse_grep_output("not-a-match\nsrc/ok.py:5: def foo():\n") == {"src/ok.py": [5]}
-
-
-def test_snippet_clustering_contract() -> None:
-    lines = _make_lines(100)
-    single = _cluster_snippets([25], lines, context=3)
-    assert len(single) == 1 and (single[0].line_start, single[0].line_end) == (22, 28)
-    assert len(_cluster_snippets([10, 12], lines, context=3)) == 1
-    assert len(_cluster_snippets([5, 90], lines, context=3)) == 2
-    sparse = _cluster_snippets([5], lines, context=8)
-    dense = _cluster_snippets([5, 6, 7, 8, 9], lines, context=8)
-    assert dense[0].score > sparse[0].score

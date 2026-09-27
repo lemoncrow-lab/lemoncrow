@@ -129,7 +129,7 @@ print('yes' if isinstance(lc, dict) and lc.get('alwaysLoad') is True else 'no')
         fail ".mcp.json missing at $MCP_JSON - run: scripts/install_claude.sh --workspace $WORKSPACE"
     fi
 # The registered server key is "lc" (not "lemoncrow" -- that's the plugin
-# name); match the actual `claude mcp list` line, e.g. "lc: lc runtime mcp ...".
+# name); match the actual `claude mcp list` line, e.g. "lc: lc mcp ...".
 elif claude mcp list 2>&1 | grep -qE "^lc:"; then
     pass "Claude user MCP list contains lc"
 else

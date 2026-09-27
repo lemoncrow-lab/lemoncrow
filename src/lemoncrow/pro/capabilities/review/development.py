@@ -41,16 +41,12 @@ import sqlite3
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from lemoncrow_client.kit.redaction import redact
 
-from lemoncrow.core.foundation.optional_modules import module_absent
-
 if TYPE_CHECKING:
-    from lemoncrow.pro.capabilities.review.development_ingest import DevelopmentIngestor
-    from lemoncrow.pro.capabilities.review.session_models import ActorType, ReviewActivityKind, ReviewSession
+    from lemoncrow.pro.capabilities.review.session_models import ActorType, ReviewActivityKind
     from lemoncrow.pro.capabilities.review.store import ReviewStore
 
 DevelopmentEventKind = Literal[
@@ -69,8 +65,6 @@ DevelopmentEventKind = Literal[
     "handoff",
     "task_started",
     "task_completed",
-    "side_effect",
-    "approval",
 ]
 DEVELOPMENT_EVENT_KINDS: tuple[str, ...] = (
     "intent",
@@ -88,15 +82,7 @@ DEVELOPMENT_EVENT_KINDS: tuple[str, ...] = (
     "handoff",
     "task_started",
     "task_completed",
-    "side_effect",
-    "approval",
 )
-"""``side_effect``: an agent action outside the repository (``agent_ledger.py``,
-Phase 9R item 17); ``status`` carries its ledger category, ``task_id`` its exact
-action digest (``action_approval.action_digest``). ``approval``: a human's
-decision on a risky agent action (P12-AGENT); ``status`` is ``approved`` or
-``denied``, ``task_id`` the action digest. Only the Review decision route records
-one -- :func:`push_events` refuses the kind."""
 DEVELOPMENT_PURPOSES: tuple[str, ...] = (
     "implement",
     "verify",
@@ -145,9 +131,6 @@ def host_label(host: str) -> str:
 
 
 PROJECTION_VERSION = 1
-# ``side_effect`` events did not exist before the ``outside`` reducer key, so a
-# stored v1 state without it is still exact (the reducer adds it on first use);
-# no rebuild of stored projections is needed.
 
 _MAX_SUMMARY = 500
 _MAX_DETAIL = 1600
@@ -160,8 +143,6 @@ _MAX_SESSION_PATHS = 200
 _MAX_CAUSATIONS = 200
 _MAX_CAUSATION_PATHS = 50
 _MAX_PUSH_EVENTS = 200
-_MAX_OUTSIDE = 100
-_MAX_APPROVALS = 100
 # Events are folded from SQLite in pages of this many rows: memory stays
 # bounded while every fold still covers the whole requested range.
 _FOLD_PAGE = 2000
@@ -178,12 +159,12 @@ _RESOLVED_STATUSES = frozenset({"resolved", "closed", "answered", "cleared"})
 # investigator contributes only what was explicitly handed off / accepted.
 ADMITTED_KINDS: Mapping[str, frozenset[str]] = {
     "author": frozenset(DEVELOPMENT_EVENT_KINDS),
-    "verifier": frozenset({"test", "validation", "command", "task_started", "task_completed", "side_effect"}),
+    "verifier": frozenset({"test", "validation", "command", "task_started", "task_completed"}),
     "investigator": frozenset({"handoff", "fact", "decision"}),
 }
 # Review/Ask sessions are Review work.  If one really edited source, only the
 # edits and checks are Development; its conversation stays in Review.
-REVIEW_PURPOSE_KINDS = frozenset({"edit", "revert", "test", "validation", "side_effect"})
+REVIEW_PURPOSE_KINDS = frozenset({"edit", "revert", "test", "validation"})
 
 
 # --------------------------------------------------------------------------- #
@@ -434,8 +415,6 @@ def empty_state() -> dict[str, Any]:
         "checks": {},
         "paths": {},
         "causations": {},
-        "outside": [],
-        "approvals": [],
         "latest": None,
     }
 
@@ -573,17 +552,6 @@ def apply_event(state: dict[str, Any], event: DevelopmentEvent) -> None:
     elif kind == "handoff":
         if session is not None and event.role == "investigator":
             session["evidence"]["support"] = True
-    elif kind == "side_effect":
-        outside: list[dict[str, Any]] = state.setdefault("outside", [])
-        # The digest and source let a human pre-approval cover exactly this action.
-        outside.append({**brief, "action_digest": event.task_id, "source": event.source})
-        if len(outside) > _MAX_OUTSIDE:
-            del outside[: len(outside) - _MAX_OUTSIDE]
-    elif kind == "approval":
-        approvals: list[dict[str, Any]] = state.setdefault("approvals", [])
-        approvals.append({**brief, "action_digest": event.task_id})
-        if len(approvals) > _MAX_APPROVALS:
-            del approvals[: len(approvals) - _MAX_APPROVALS]
 
     if kind == "handoff" and event.causation_id:
         causation = _causation(state, event.causation_id, event)
@@ -754,7 +722,7 @@ def _narrative(
         edits = int(item.get("edit_count") or 0)
         included = item.get("included_in_revision")
         if edits and included is not None and scope != "since":
-            lines.append(f"Review feedback was addressed in Revision {included} ({_count(edits, 'edit')}).")
+            lines.append(f"Review feedback was addressed in Snapshot {included} ({_count(edits, 'edit')}).")
         elif edits:
             lines.append(f"Review feedback is being addressed ({_count(edits, 'edit')} so far).")
         else:
@@ -990,38 +958,7 @@ def render_projection(
         "files": file_count,
         "decisions": len(state.get("decisions") or []),
         "open_items": len(state.get("open_items") or {}),
-        "outside_workspace": len(state.get("outside") or []),
     }
-    outside_workspace = [
-        {
-            "id": str(row.get("id") or ""),
-            "category": str(row.get("status") or ""),
-            "summary": str(row.get("summary") or ""),
-            "detail": str(row.get("detail") or ""),
-            "host": str(row.get("host") or ""),
-            "session_id": str(row.get("session_id") or ""),
-            "role": str(row.get("role") or ""),
-            "at": str(row.get("at") or ""),
-            "sequence": int(row.get("sequence") or 0),
-            "action_digest": str(row.get("action_digest") or ""),
-            "source": str(row.get("source") or ""),
-        }
-        for row in reversed(list(state.get("outside") or []))
-    ][:50]
-    approval_events = [
-        {
-            "id": str(row.get("id") or ""),
-            "status": str(row.get("status") or ""),
-            "summary": str(row.get("summary") or ""),
-            "detail": str(row.get("detail") or ""),
-            "host": str(row.get("host") or ""),
-            "session_id": str(row.get("session_id") or ""),
-            "at": str(row.get("at") or ""),
-            "sequence": int(row.get("sequence") or 0),
-            "action_digest": str(row.get("action_digest") or ""),
-        }
-        for row in reversed(list(state.get("approvals") or []))
-    ][:50]
     event_count = int(state.get("event_count") or 0)
     narrative = _narrative(
         scope,
@@ -1048,8 +985,6 @@ def render_projection(
         "changed_paths": changed_paths,
         "unattributed_paths": unattributed[:200],
         "feedback": feedback,
-        "outside_workspace": outside_workspace,
-        "approval_events": approval_events,
         "latest_event": dict(state["latest"]) if state.get("latest") else None,
         "event_count": event_count,
         "cursor": int(state.get("cursor") or 0),
@@ -1935,10 +1870,6 @@ def push_events(
         kind = str(raw.get("kind") or "").strip()
         if kind not in DEVELOPMENT_EVENT_KINDS:
             raise ValueError(f"unknown development event kind {kind!r}")
-        if kind == "approval":
-            # A human decision is recorded only by the Review decision route; an
-            # agent must never be able to report its own action as approved.
-            raise ValueError("approval events are recorded only by a human decision in the Review")
         host = str(raw.get("host") or "").strip().lower()
         session_id = str(raw.get("session_id") or "").strip()
         summary = str(raw.get("summary") or "").strip()
@@ -1963,9 +1894,7 @@ def push_events(
             role = "author" if role == "author" else "investigator"
         elif kind == "handoff":
             role = role if role in {"author", "verifier"} else ""
-        elif kind == "side_effect" or role == "author" or (role == "verifier" and kind in ADMITTED_KINDS["verifier"]):
-            # Any linked session's action outside the repository is recorded; it
-            # never makes the session a contributor.
+        elif role == "author" or (role == "verifier" and kind in ADMITTED_KINDS["verifier"]):
             pass
         else:
             # Investigators contribute only what an author explicitly accepted.
@@ -2056,44 +1985,6 @@ def record_feedback_handoff(
         binding="explicit",
     )
     return development.append(change_id, drafts, sessions=(binding,))
-
-
-def record_approval_decision(
-    development: DevelopmentStore,
-    change_id: str,
-    *,
-    approval_id: str,
-    host: str,
-    session_id: str,
-    status: str,
-    summary: str,
-    detail: str,
-    action_digest: str,
-    at: str,
-) -> AppendResult:
-    """Record one human approval decision on a risky agent action (P12-AGENT).
-
-    Idempotent per approval and outcome. The event is on the agent's own session
-    (so Activity shows it beside that session's side effects) but never binds
-    the session or changes its role.
-    """
-
-    if status not in {"approved", "denied"}:
-        raise ValueError("an approval decision is approved or denied")
-    draft = DevelopmentDraft(
-        kind="approval",
-        at=at,
-        source_event_id=f"review:approval:{approval_id}:{status}",
-        host=host,
-        session_id=session_id,
-        summary=summary,
-        detail=detail,
-        status=status,
-        role="",
-        source="review",
-        task_id=action_digest,
-    )
-    return development.append(change_id, [draft])
 
 
 def _now_iso() -> str:
@@ -2255,46 +2146,9 @@ def legacy_timeline(
     return rows[: max(1, min(limit, 200))]
 
 
-# --------------------------------------------------------------------------- #
-# Agent-ledger ingestion, where this build includes it                       #
-# --------------------------------------------------------------------------- #
-
-#: Reads this machine's agent ledgers into the stream. Runtime's host hooks write
-#: those ledgers; the Review-only engine ships neither, so there Development holds
-#: only what is pushed to it and the Reader reports live ingestion as off.
-DEVELOPMENT_INGEST = "lemoncrow.pro.capabilities.review.development_ingest"
-
-
-def ledger_ingestor(store: ReviewStore, *, source_store_root: Path, repo_root: Path) -> DevelopmentIngestor | None:
-    """The agent-ledger ingestor for *store*, or ``None`` where this build has none."""
-
-    try:
-        from lemoncrow.pro.capabilities.review.development_ingest import ingestor_for
-    except ModuleNotFoundError as exc:
-        if not module_absent(exc, DEVELOPMENT_INGEST):
-            raise
-        return None
-    return ingestor_for(store, source_store_root=source_store_root, repo_root=repo_root)
-
-
-def sync_ledgers_before_capture(
-    store: ReviewStore, session: ReviewSession, *, repo_root: Path, source_store_root: Path
-) -> None:
-    """Best-effort catch-up so a new Snapshot's watermark includes recent agent work."""
-
-    try:
-        from lemoncrow.pro.capabilities.review.development_ingest import sync_before_capture
-    except ModuleNotFoundError as exc:
-        if not module_absent(exc, DEVELOPMENT_INGEST):
-            raise
-        return
-    sync_before_capture(store, session, repo_root=repo_root, source_store_root=source_store_root)
-
-
 __all__ = [
     "ADMITTED_KINDS",
     "DEVELOPMENT_EVENT_KINDS",
-    "DEVELOPMENT_INGEST",
     "DEVELOPMENT_PURPOSES",
     "DEVELOPMENT_ROLES",
     "PROJECTION_VERSION",
@@ -2317,18 +2171,15 @@ __all__ = [
     "development_view",
     "empty_state",
     "event_payload",
-    "ledger_ingestor",
     "legacy_events",
     "legacy_timeline",
     "normalize_at",
     "push_events",
-    "record_approval_decision",
     "record_feedback_handoff",
     "reduce_events",
     "render_projection",
     "sanitize_draft",
     "session_key",
     "stable_id",
-    "sync_ledgers_before_capture",
     "timeline_filter",
 ]

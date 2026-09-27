@@ -40,15 +40,7 @@ class _GitHub:
         if call == ["api", "user"]:
             return json.dumps({"login": "bob"})
         if call == ["api", api]:
-            return json.dumps(
-                {
-                    "head": {"sha": self.head},
-                    "user": {"login": "alice"},
-                    "state": "open",
-                    "base": {"repo": {"id": 4242}},
-                    "html_url": "https://github.com/acme/widgets/pull/7",
-                }
-            )
+            return json.dumps({"head": {"sha": self.head}, "user": {"login": "alice"}, "state": "open"})
         if call[:3] == ["api", "--paginate", "--slurp"] and call[3].startswith(f"{api}/files"):
             return json.dumps([[{"filename": "app.py", "patch": "@@ -1,3 +1,3 @@\n a\n-b\n+B\n c"}]])
         if call[:3] == ["api", "--paginate", "--slurp"] and "/comments" in call[3]:

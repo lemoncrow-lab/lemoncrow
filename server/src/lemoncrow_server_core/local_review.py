@@ -20,9 +20,6 @@ Security posture:
 from __future__ import annotations
 
 import asyncio
-import contextvars
-import threading
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -30,11 +27,8 @@ from aiohttp import web
 from multidict import CIMultiDict
 
 from lemoncrow.pro.capabilities.review.api import SECURITY_HEADERS, origin_refusal, register_review_api
-from lemoncrow.pro.capabilities.review.hosted_attachment import attached_identity
 from lemoncrow.pro.capabilities.review.store import ReviewStore
 from lemoncrow.pro.capabilities.review.workspace import bundle_dir
-
-from .read_budget import ReadBudget, read_budget
 
 __all__ = ["LOCAL_REVIEW_APP_KEY", "LocalReviewSurface"]
 
@@ -47,20 +41,6 @@ _ROOT_PUBLIC_ASSETS = frozenset(
         "robots.txt",
     }
 )
-
-#: Vite copies ``frontend/public/**`` into the bundle root verbatim, so the SPA
-#: references them as root-relative URLs. Names outside this list are never
-#: served: the bundle root may also hold whatever else a build dropped there,
-#: and only an explicit allowlist keeps that from becoming a file server.
-#: ``logos/hosts/*`` is the host-mark set the console renders per host row; a
-#: host with no entry under it falls back to the generic ◌ tile.
-_ROOT_PUBLIC_PREFIXES: tuple[str, ...] = ("logos/",)
-
-#: Vite content-hashes every /assets file name, so changed bytes are a new URL.
-#: no-store made every load re-download the bundle and re-compile it (V8 only
-#: reuses compiled code for HTTP-cached scripts); index.html stays no-store and
-#: names the current set.
-_IMMUTABLE_ASSET_CACHE = "public, max-age=31536000, immutable"
 
 _HOP_HEADERS = frozenset(
     {
@@ -79,16 +59,11 @@ _HOP_HEADERS = frozenset(
 class LocalReviewSurface:
     """One local Review surface for every repository known to one server."""
 
-    def __init__(
-        self, store_root: Path, *, port: int, frontend_dir: Path | None = None, landing: str = "/home"
-    ) -> None:
+    def __init__(self, store_root: Path, *, port: int, frontend_dir: Path | None = None) -> None:
         self.store_root = Path(store_root).expanduser().resolve()
         self.port = int(port)
-        #: Where ``/`` lands: the Dashboard home, or Reviews when only Review runs.
-        self.landing = landing
         self.store = ReviewStore(self.store_root)
         configured = None if frontend_dir is None else Path(frontend_dir).expanduser().resolve()
-        self.bundle = configured if configured is not None and (configured / "index.html").is_file() else bundle_dir()
         self.bundle = configured if configured is not None and (configured / "index.html").is_file() else bundle_dir()
         self._apps: dict[str, Any] = {}
 
@@ -103,7 +78,6 @@ class LocalReviewSurface:
             path == prefix or path.startswith(prefix + "/")
             for prefix in (
                 "/home",
-                "/activity",
                 "/runs",
                 "/code",
                 "/knowledge",
@@ -124,30 +98,7 @@ class LocalReviewSurface:
         )
 
     def is_public_path(self, path: str) -> bool:
-        return self.is_ui_path(path) or path.startswith("/assets/") or self.is_public_root_asset(path)
-
-    @staticmethod
-    def is_public_root_asset(path: str) -> bool:
-        name = path.lstrip("/")
-        return name in _ROOT_PUBLIC_ASSETS or name.startswith(_ROOT_PUBLIC_PREFIXES)
-
-    def public_asset_route_defs(self) -> tuple[web.RouteDef, ...]:
-        """Bundle-root files the SPA reads as root-relative URLs.
-
-        Both the local server and the standalone gateway app wire routes from
-        here: the allowlist is long enough that a second hand-maintained copy is
-        how an allowlisted asset ends up served by one app and 404ing on the
-        other.
-        """
-
-        return (
-            web.get("/favicon.svg", self.root_asset),
-            web.get("/lemoncrow-card.png", self.root_asset),
-            web.get("/lemoncrow-card.svg", self.root_asset),
-            web.get("/site.webmanifest", self.root_asset),
-            web.get("/robots.txt", self.root_asset),
-            *(web.get(f"/{prefix}{{tail:.*}}", self.root_asset) for prefix in _ROOT_PUBLIC_PREFIXES),
-        )
+        return self.is_ui_path(path) or path.startswith("/assets/") or path.lstrip("/") in _ROOT_PUBLIC_ASSETS
 
     def route_defs(self) -> tuple[web.RouteDef, ...]:
         if not self.available:
@@ -156,8 +107,6 @@ class LocalReviewSurface:
             web.get("/", self.home),
             web.get("/review", self.ui),
             web.get("/home", self.ui),
-            web.get("/activity", self.ui),
-            web.get("/activity/{tail:.*}", self.ui),
             web.get("/runs", self.ui),
             web.get("/runs/{tail:.*}", self.ui),
             web.get("/code", self.ui),
@@ -173,7 +122,11 @@ class LocalReviewSurface:
             web.get("/r/{tail:.*}", self.ui),
             web.get("/rr/{tail:.*}", self.ui),
             web.get("/assets/{tail:.*}", self.asset),
-            *self.public_asset_route_defs(),
+            web.get("/favicon.svg", self.root_asset),
+            web.get("/lemoncrow-card.png", self.root_asset),
+            web.get("/lemoncrow-card.svg", self.root_asset),
+            web.get("/site.webmanifest", self.root_asset),
+            web.get("/robots.txt", self.root_asset),
             web.get("/api/reviews", self.api_reviews),
             web.route("*", "/api/{tail:.*}", self.api),
         )
@@ -195,7 +148,7 @@ class LocalReviewSurface:
         refusal = self._guard_refusal(request)
         if refusal:
             return web.json_response({"detail": refusal}, status=403, headers=self._security_headers())
-        raise web.HTTPFound(self.landing, headers=self._security_headers())
+        raise web.HTTPFound("/home", headers=self._security_headers())
 
     async def ui(self, request: web.Request) -> web.StreamResponse:
         refusal = self._guard_refusal(request)
@@ -219,9 +172,7 @@ class LocalReviewSurface:
             raise web.HTTPNotFound() from exc
         if not candidate.is_file():
             raise web.HTTPNotFound()
-        headers = self._security_headers()
-        headers["Cache-Control"] = _IMMUTABLE_ASSET_CACHE
-        return web.FileResponse(candidate, headers=headers)
+        return web.FileResponse(candidate, headers=self._security_headers())
 
     async def root_asset(self, request: web.Request) -> web.StreamResponse:
         refusal = self._guard_refusal(request)
@@ -230,7 +181,7 @@ class LocalReviewSurface:
         if self.bundle is None:
             raise web.HTTPNotFound()
         name = request.path.lstrip("/")
-        if not self.is_public_root_asset(name):
+        if name not in _ROOT_PUBLIC_ASSETS:
             raise web.HTTPNotFound()
         candidate = (self.bundle / name).resolve()
         try:
@@ -253,27 +204,14 @@ class LocalReviewSurface:
                 headers=self._security_headers(),
             )
         sessions = self.store.list_sessions(status="" if status_filter == "all" else status_filter, limit=500)
-        # One identity (G5-SYNC, RC5): an attached Review is named by its hosted Change.
-        attachments = self.store.hosted_attachments() if self.store.hosted_attachment_supported() else {}
         rows: list[dict[str, Any]] = []
         for session in sessions:
             revision = self.store.latest_revision(session.id)
             annotations = self.store.list_annotations(session.id)
-            attachment = attachments.get(session.id)
-            identity = (
-                {}
-                if attachment is None
-                else attached_identity(
-                    local_review_id=session.id,
-                    origin=attachment.origin,
-                    hosted_review_id=attachment.hosted_review_id,
-                )
-            )
             rows.append(
                 {
-                    "id": identity.get("id", session.id),
-                    "ref": identity.get("ref", f"r/{session.id}"),
-                    **({"hosted": identity["hosted"]} if identity else {}),
+                    "id": session.id,
+                    "ref": f"r/{session.id}",
                     "title": session.title,
                     "subject_type": session.subject_type,
                     "range_mode": session.range_mode,
@@ -372,155 +310,26 @@ class LocalReviewSurface:
 LOCAL_REVIEW_APP_KEY: web.AppKey[LocalReviewSurface] = web.AppKey("local_review_surface", LocalReviewSurface)
 
 
-# The Reader API has ~40 `async def` handlers that do blocking SQLite, git and CPU
-# work. On the server's one event loop, a single slow request (a comment save, a
-# mark, a map) stalled every other request of every open Reader. Each request that
-# does not stream therefore runs its whole ASGI call on its own thread and loop.
-# `/ask` and Review SSE keep the shared loop: streaming calls cannot be buffered.
-# Four threads: the work is CPU-bound under one GIL, so more threads add no
-# throughput, only peak memory (each holds a multi-MB Snapshot projection).
-_ISOLATED_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="lc-reader-asgi")
+async def _dispatch_asgi(app: Any, request: web.Request) -> web.StreamResponse:
+    """Run one ASGI request in-process and stream the result through aiohttp."""
 
-
-def _runs_isolated(path: str) -> bool:
-    return "/ask" not in path and not path.endswith(("/source-state/events", "/live-state/events"))
-
-
-class _IsolatedCall:
-    """One ASGI call on its own thread and event loop, cancellable from outside."""
-
-    def __init__(self) -> None:
-        self.loop: asyncio.AbstractEventLoop | None = None
-        self.task: asyncio.Task[None] | None = None
-        self.cancel_requested = False
-        self.lock = threading.Lock()
-
-    def cancel(self) -> None:
-        with self.lock:
-            self.cancel_requested = True
-            if self.loop is not None and self.task is not None and not self.loop.is_closed():
-                self.loop.call_soon_threadsafe(self.task.cancel)
-
-
-def _run_asgi_isolated(
-    app: Any, scope: dict[str, Any], body: bytes, budget: ReadBudget, call: _IsolatedCall
-) -> tuple[int, list[tuple[bytes, bytes]], bytes]:
-    status = 500
-    headers: list[tuple[bytes, bytes]] = []
-    chunks: list[bytes] = []
-    sent = False
+    body = await request.read()
+    received = False
 
     async def receive() -> dict[str, Any]:
-        nonlocal sent
-        if not sent:
-            sent = True
+        nonlocal received
+        if not received:
+            received = True
             return {"type": "http.request", "body": body, "more_body": False}
-        await asyncio.Event().wait()  # no disconnect signal here; cancellation ends the call
         return {"type": "http.disconnect"}
 
+    messages: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+
     async def send(message: dict[str, Any]) -> None:
-        nonlocal status, headers
-        if message["type"] == "http.response.start":
-            status = int(message.get("status", 500))
-            headers = list(message.get("headers", ()))
-        elif message["type"] == "http.response.body":
-            chunks.append(bytes(message.get("body", b"")))
+        await messages.put(message)
 
-    loop = asyncio.new_event_loop()
-    try:
-        with read_budget(budget):
-            task = loop.create_task(app(scope, receive, send))
-            with call.lock:
-                call.loop, call.task = loop, task
-                if call.cancel_requested:
-                    task.cancel()
-            try:
-                loop.run_until_complete(task)
-            finally:
-                # Whatever the app left running (middleware receive tasks) ends with it.
-                leftovers = [t for t in asyncio.all_tasks(loop) if not t.done()]
-                for leftover in leftovers:
-                    leftover.cancel()
-                if leftovers:
-                    loop.run_until_complete(asyncio.gather(*leftovers, return_exceptions=True))
-                loop.run_until_complete(loop.shutdown_asyncgens())
-                loop.run_until_complete(loop.shutdown_default_executor())
-    finally:
-        loop.close()
-    return status, headers, b"".join(chunks)
-
-
-async def run_asgi_get_isolated(app: Any, path: str) -> web.Response:
-    """One in-process GET on the Reader pool, buffered like a dispatched request."""
-
-    scope: dict[str, Any] = {
-        "type": "http",
-        "asgi": {"version": "3.0", "spec_version": "2.5"},
-        "http_version": "1.1",
-        "method": "GET",
-        "scheme": "http",
-        "path": path,
-        "raw_path": path.encode(),
-        "query_string": b"",
-        "root_path": "",
-        "headers": [(b"host", b"127.0.0.1")],
-        "client": ("127.0.0.1", 0),
-        "server": ("127.0.0.1", 0),
-        "state": {},
-    }
-    loop = asyncio.get_running_loop()
-    status, raw_headers, payload = await loop.run_in_executor(
-        _ISOLATED_POOL, _run_asgi_isolated, app, scope, b"", ReadBudget(), _IsolatedCall()
-    )
-    return web.Response(status=status, headers=_response_headers(raw_headers), body=payload)
-
-
-def _response_headers(raw_headers: list[tuple[bytes, bytes]]) -> CIMultiDict[str]:
-    out = CIMultiDict[str]()
-    for name, value in raw_headers:
-        if name.lower() in _HOP_HEADERS or name.lower() == b"content-length":
-            continue
-        out.add(name.decode("latin-1"), value.decode("latin-1"))
-    return out
-
-
-async def _dispatch_isolated(app: Any, request: web.Request, body: bytes) -> web.StreamResponse:
-    budget = ReadBudget()
-    call = _IsolatedCall()
-    scope = _asgi_scope(request)
-    loop = asyncio.get_running_loop()
-    context = contextvars.copy_context()
-    future = loop.run_in_executor(
-        _ISOLATED_POOL, lambda: context.run(_run_asgi_isolated, app, scope, body, budget, call)
-    )
-
-    async def watch_disconnect() -> None:
-        while not future.done():
-            transport = request.transport
-            if transport is None or transport.is_closing():
-                budget.cancelled.set()
-                call.cancel()
-                return
-            await asyncio.sleep(0.1)
-
-    watcher = asyncio.create_task(watch_disconnect())
-    try:
-        status, raw_headers, payload = await asyncio.shield(future)
-    except asyncio.CancelledError:
-        budget.cancelled.set()
-        call.cancel()
-        # The app winds down on its own thread; wait for it so nothing leaks.
-        await asyncio.gather(future, return_exceptions=True)
-        raise
-    finally:
-        watcher.cancel()
-        await asyncio.gather(watcher, return_exceptions=True)
-    return web.Response(status=status, headers=_response_headers(raw_headers), body=payload)
-
-
-def _asgi_scope(request: web.Request) -> dict[str, Any]:
     raw_headers = [(name.lower(), value) for name, value in request.raw_headers if name.lower() not in _HOP_HEADERS]
-    return {
+    scope: dict[str, Any] = {
         "type": "http",
         "asgi": {"version": "3.0", "spec_version": "2.5"},
         "http_version": f"{request.version.major}.{request.version.minor}",
@@ -536,78 +345,32 @@ def _asgi_scope(request: web.Request) -> dict[str, Any]:
         "state": {},
     }
 
+    task = asyncio.create_task(app(scope, receive, send))
+    first = await _next_asgi_message(task, messages)
+    if first.get("type") != "http.response.start":
+        task.cancel()
+        raise RuntimeError("local Review ASGI app emitted a body before response start")
 
-async def _dispatch_asgi(app: Any, request: web.Request) -> web.StreamResponse:
-    """Run one ASGI request in-process and stream the result through aiohttp."""
+    headers = CIMultiDict[str]()
+    for name, value in first.get("headers", ()):
+        if name.lower() in _HOP_HEADERS or name.lower() == b"content-length":
+            continue
+        headers.add(name.decode("latin-1"), value.decode("latin-1"))
+    response = web.StreamResponse(status=int(first.get("status", 500)), headers=headers)
+    await response.prepare(request)
 
-    body = await request.read()
-    if _runs_isolated(request.path):
-        return await _dispatch_isolated(app, request, body)
-    received = False
-    disconnected = asyncio.Event()
-    budget = ReadBudget()
-
-    async def receive() -> dict[str, Any]:
-        nonlocal received
-        if not received:
-            received = True
-            return {"type": "http.request", "body": body, "more_body": False}
-        await disconnected.wait()
-        return {"type": "http.disconnect"}
-
-    messages: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=1)
-
-    async def send(message: dict[str, Any]) -> None:
-        await messages.put(message)
-
-    scope = _asgi_scope(request)
-
-    with read_budget(budget):
-        task = asyncio.create_task(app(scope, receive, send))
-
-    async def watch_disconnect() -> None:
-        while not task.done():
-            transport = request.transport
-            if transport is None or transport.is_closing():
-                disconnected.set()
-                budget.cancelled.set()
-                task.cancel()
-                return
-            await asyncio.sleep(0.1)
-
-    watcher = asyncio.create_task(watch_disconnect())
-    try:
-        first = await _next_asgi_message(task, messages)
-        if first.get("type") != "http.response.start":
-            raise RuntimeError("local Review ASGI app emitted a body before response start")
-
-        headers = CIMultiDict[str]()
-        for name, value in first.get("headers", ()):
-            if name.lower() in _HOP_HEADERS or name.lower() == b"content-length":
-                continue
-            headers.add(name.decode("latin-1"), value.decode("latin-1"))
-        response = web.StreamResponse(status=int(first.get("status", 500)), headers=headers)
-        await response.prepare(request)
-
-        while True:
-            message = await _next_asgi_message(task, messages)
-            if message.get("type") != "http.response.body":
-                continue
-            chunk = message.get("body", b"")
-            if chunk:
-                await response.write(chunk)
-            if not message.get("more_body", False):
-                break
-        await response.write_eof()
-        await task
-        return response
-    finally:
-        disconnected.set()
-        budget.cancelled.set()
-        for pending in (task, watcher):
-            if not pending.done():
-                pending.cancel()
-        await asyncio.gather(task, watcher, return_exceptions=True)
+    while True:
+        message = await _next_asgi_message(task, messages)
+        if message.get("type") != "http.response.body":
+            continue
+        chunk = message.get("body", b"")
+        if chunk:
+            await response.write(chunk)
+        if not message.get("more_body", False):
+            break
+    await response.write_eof()
+    await task
+    return response
 
 
 async def _next_asgi_message(
@@ -620,17 +383,20 @@ async def _next_asgi_message(
         return messages.get_nowait()
 
     waiting = asyncio.create_task(messages.get())
-    try:
-        done, _pending = await asyncio.wait({task, waiting}, return_when=asyncio.FIRST_COMPLETED)
-        if waiting in done:
-            return waiting.result()
+    done, _pending = await asyncio.wait({task, waiting}, return_when=asyncio.FIRST_COMPLETED)
+    if waiting in done:
+        return waiting.result()
 
-        # A clean early return is also a broken ASGI response.
-        exception = task.exception()
-        if exception is not None:
-            raise exception
-        raise RuntimeError("local Review ASGI app ended before completing the response")
-    finally:
-        if not waiting.done():
-            waiting.cancel()
-        await asyncio.gather(waiting, return_exceptions=True)
+    waiting.cancel()
+    try:
+        await waiting
+    except asyncio.CancelledError:
+        pass
+
+    # The app finished before producing the response message we were waiting
+    # for. Re-raise its exception when there is one; a clean early return is
+    # still a broken ASGI response and must not leave the aiohttp request hung.
+    exception = task.exception()
+    if exception is not None:
+        raise exception
+    raise RuntimeError("local Review ASGI app ended before completing the response")

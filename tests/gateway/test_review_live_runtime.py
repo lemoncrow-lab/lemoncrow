@@ -25,23 +25,6 @@ def _repo(root: Path) -> Path:
     return root
 
 
-def _draft_only(monkeypatch, prepare: Any) -> None:
-    """Route the worker's draft step to *prepare*; publishing a Snapshot fails the test."""
-    from lemoncrow.pro.capabilities.review import hosted
-
-    def forbidden_publish(*_args: Any, **_kwargs: Any) -> Any:
-        raise AssertionError("background prewarm must draft locally, never publish a Review Snapshot")
-
-    monkeypatch.setattr(hosted, "capture_server_review", forbidden_publish)
-    monkeypatch.setattr(hosted, "prepare_local_source_build", prepare)
-
-
-def _fingerprint(repo: Path) -> str:
-    from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range, source_state
-
-    return source_state(repo, resolve_rev_range(repo, working_tree=True)).fingerprint
-
-
 def test_live_review_binding_round_trip_is_workspace_and_server_scoped(tmp_path: Path) -> None:
     root = tmp_path / "state"
     repo = _repo(tmp_path / "repo")
@@ -54,8 +37,6 @@ def test_live_review_binding_round_trip_is_workspace_and_server_scoped(tmp_path:
         source_fingerprint="source-fp",
         author_host="claude",
         author_session_id="session-live",
-        branch_ref="refs/heads/main",
-        worktree_key="worktree-1",
     )
     live_runtime.write_live_review_binding(root, repo, binding)
 
@@ -68,59 +49,44 @@ def test_live_review_binding_round_trip_is_workspace_and_server_scoped(tmp_path:
     assert loaded.source_fingerprint == "source-fp"
     assert loaded.author_host == "claude"
     assert loaded.author_session_id == "session-live"
-    assert loaded.branch_ref == "refs/heads/main"
-    assert loaded.worktree_key == "worktree-1"
     assert loaded.updated_at > 0
     assert live_runtime.load_live_review_binding(root, repo, server_url="http://127.0.0.1:9") is None
     assert live_runtime.load_live_review_binding(root, _repo(tmp_path / "other"), server_url=binding.server_url) is None
 
 
-def test_prepare_worker_drafts_the_snapshot_without_publishing(tmp_path: Path, monkeypatch) -> None:
+def test_prepare_worker_publishes_only_a_stable_exact_generation(tmp_path: Path, monkeypatch) -> None:
     root = tmp_path / "state"
     repo = _repo(tmp_path / "repo")
     monkeypatch.setenv("LEMONCROW_HOME", str(tmp_path / "home"))
     monkeypatch.setenv("LEMONCROW_INSTALL_MODE", "local")
     monkeypatch.setenv("LEMONCROW_URL", "http://127.0.0.1:7420")
     request = live_runtime._write_request(root, repo, host="claude", session_id="session-1")
-    drafted: list[tuple[str, str | None]] = []
+    captures: list[str] = []
 
-    def prepare(
-        _config: Any, repo_root: Path, _rng: Any, *, store_root: Path, session_id: str | None, **_kwargs: Any
-    ) -> str:
-        assert store_root == root.resolve()
-        drafted.append((_fingerprint(repo_root), session_id))
-        return drafted[-1][0]
+    def capture(_config: Any, _repo: Path, _rng: Any, **_kwargs: Any) -> Any:
+        from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range, source_state
 
-    _draft_only(monkeypatch, prepare)
+        captures.append(source_state(repo, resolve_rev_range(repo, working_tree=True)).fingerprint)
+        return SimpleNamespace(
+            repo_id="repo-server",
+            review_id="review-server",
+            response={"revision": {"id": "revision-server", "revision_number": len(captures)}},
+        )
+
+    from lemoncrow.pro.capabilities.review import hosted
+
+    monkeypatch.setattr(hosted, "capture_server_review", capture)
     assert live_runtime.prepare_live_review_worker(root, repo, debounce_s=0) == 0
 
-    assert drafted == [(_fingerprint(repo), "session-1")]
-    # No Review exists until `lc review`: nothing for `lcr` to open or claim.
-    assert live_runtime.load_live_review_binding(root, repo, server_url="http://127.0.0.1:7420") is None
+    binding = live_runtime.load_live_review_binding(root, repo, server_url="http://127.0.0.1:7420")
+    assert binding is not None
+    assert binding.review_id == "review-server"
+    assert binding.revision_id == "revision-server"
+    assert binding.revision_number == 1
+    assert binding.author_host == ""
+    assert binding.author_session_id == ""
+    assert binding.source_fingerprint == captures[0]
     assert live_runtime._read_request(root, repo) == request
-
-
-def test_drafted_build_is_the_one_lc_review_reuses(tmp_path: Path, monkeypatch) -> None:
-    from lemoncrow.pro.capabilities.review import hosted
-    from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range
-    from lemoncrow.pro.capabilities.review.precompute import load_source_build
-
-    root = tmp_path / "state"
-    repo = _repo(tmp_path / "repo")
-    rng = resolve_rev_range(repo, working_tree=True)
-    config = SimpleNamespace(hosted=False, url="http://127.0.0.1:9")
-    monkeypatch.setattr(hosted, "active_local_review_base", lambda *_args, **_kwargs: ("", ""))
-
-    fingerprint = hosted.prepare_local_source_build(config, repo, rng, store_root=root, session_id=None, limit=40)
-
-    assert fingerprint == _fingerprint(repo)
-    reused = load_source_build(root, repo, rng, fingerprint)
-    assert reused is not None
-    assert [changed.path for changed in reused.packet.files] == ["app.py"]
-    # Already drafted: a heartbeat on unchanged source rebuilds nothing.
-    assert (
-        hosted.prepare_local_source_build(config, repo, rng, store_root=root, session_id=None, limit=40) == fingerprint
-    )
 
 
 def test_prepare_worker_coalesces_an_edit_that_arrives_during_capture(tmp_path: Path, monkeypatch) -> None:
@@ -130,19 +96,31 @@ def test_prepare_worker_coalesces_an_edit_that_arrives_during_capture(tmp_path: 
     monkeypatch.setenv("LEMONCROW_INSTALL_MODE", "local")
     monkeypatch.setenv("LEMONCROW_URL", "http://127.0.0.1:7420")
     live_runtime._write_request(root, repo, host="codex", session_id="session-old")
-    drafted: list[str] = []
+    calls = 0
 
-    def prepare(_config: Any, repo_root: Path, _rng: Any, **_kwargs: Any) -> str:
-        drafted.append(_fingerprint(repo_root))
-        if len(drafted) == 1:
+    def capture(_config: Any, _repo: Path, _rng: Any, **_kwargs: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
             (repo / "app.py").write_text("def value():\n    return 3\n", encoding="utf-8")
             live_runtime._write_request(root, repo, host="codex", session_id="session-new")
-        return drafted[-1]
+        return SimpleNamespace(
+            repo_id="repo-server",
+            review_id="review-server",
+            response={"revision": {"id": f"revision-{calls}", "revision_number": calls}},
+        )
 
-    _draft_only(monkeypatch, prepare)
+    from lemoncrow.pro.capabilities.review import hosted
+
+    monkeypatch.setattr(hosted, "capture_server_review", capture)
     assert live_runtime.prepare_live_review_worker(root, repo, debounce_s=0) == 0
-    assert len(drafted) == 2
-    assert drafted[-1] == _fingerprint(repo)
+    assert calls == 2
+
+    binding = live_runtime.load_live_review_binding(root, repo, server_url="http://127.0.0.1:7420")
+    assert binding is not None
+    assert binding.revision_id == "revision-2"
+    assert binding.revision_number == 2
+    assert binding.author_session_id == ""
 
 
 def test_edit_signal_is_nonblocking_and_spawns_detached_worker(tmp_path: Path, monkeypatch) -> None:
@@ -169,7 +147,7 @@ def test_edit_signal_is_nonblocking_and_spawns_detached_worker(tmp_path: Path, m
     assert kwargs["cwd"] == str(repo.resolve())
 
 
-def test_claimed_live_review_keeps_drafting_without_moving_the_binding(tmp_path: Path, monkeypatch) -> None:
+def test_claimed_live_review_stops_background_revision_advancement(tmp_path: Path, monkeypatch) -> None:
     root = tmp_path / "state"
     repo = _repo(tmp_path / "repo")
     monkeypatch.setenv("LEMONCROW_HOME", str(tmp_path / "home"))
@@ -197,17 +175,13 @@ def test_claimed_live_review_keeps_drafting_without_moving_the_binding(tmp_path:
     assert claimed.claimed_at > 0
 
     live_runtime._write_request(root, repo, host="claude", session_id="session-live")
-    drafted: list[str] = []
+    from lemoncrow.pro.capabilities.review import hosted
 
-    def prepare(_config: Any, repo_root: Path, _rng: Any, **_kwargs: Any) -> str:
-        drafted.append(_fingerprint(repo_root))
-        return drafted[-1]
+    def forbidden_capture(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("claimed human Review must not be advanced by background prewarm")
 
-    _draft_only(monkeypatch, prepare)
+    monkeypatch.setattr(hosted, "capture_server_review", forbidden_capture)
     assert live_runtime.prepare_live_review_worker(root, repo, debounce_s=0) == 0
-
-    # The next explicit Snapshot is prepared; the human's Snapshot is untouched.
-    assert drafted == [_fingerprint(repo)]
 
     after = live_runtime.load_live_review_binding(root, repo, server_url=binding.server_url)
     assert after is not None
@@ -272,10 +246,12 @@ def test_unchanged_heartbeat_reuses_binding_without_new_revision(tmp_path: Path,
     )
     live_runtime._write_request(root, repo, host="claude", session_id="session-new")
 
-    def forbidden_prepare(*_args: Any, **_kwargs: Any) -> Any:
-        raise AssertionError("an unchanged watcher heartbeat must not draft another Snapshot")
+    from lemoncrow.pro.capabilities.review import hosted
 
-    _draft_only(monkeypatch, forbidden_prepare)
+    def forbidden_capture(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("an unchanged watcher heartbeat must not publish another Review revision")
+
+    monkeypatch.setattr(hosted, "capture_server_review", forbidden_capture)
     assert live_runtime.prepare_live_review_worker(root, repo, debounce_s=0, watch_idle_s=0) == 0
 
     binding = live_runtime.load_live_review_binding(root, repo, server_url="http://127.0.0.1:7420")
@@ -323,22 +299,28 @@ def test_out_of_band_watch_signal_recaptures_one_new_generation(tmp_path: Path, 
         return False
 
     monkeypatch.setattr(live_runtime, "_wait_for_out_of_band_change", wait_for_change)
-    drafted: list[str] = []
+    captures = 0
 
-    def prepare(_config: Any, repo_root: Path, _rng: Any, **_kwargs: Any) -> str:
-        drafted.append(_fingerprint(repo_root))
-        return drafted[-1]
+    def capture(_config: Any, _repo: Path, _rng: Any, **_kwargs: Any) -> Any:
+        nonlocal captures
+        captures += 1
+        return SimpleNamespace(
+            repo_id="repo-live",
+            review_id="review-live",
+            response={"revision": {"id": "revision-2", "revision_number": 2}},
+        )
 
-    _draft_only(monkeypatch, prepare)
+    from lemoncrow.pro.capabilities.review import hosted
+
+    monkeypatch.setattr(hosted, "capture_server_review", capture)
     assert live_runtime.prepare_live_review_worker(root, repo, debounce_s=0, watch_idle_s=10) == 0
 
-    assert len(drafted) == 1
-    assert drafted[0] != first_fingerprint
-    # The published Snapshot stays exactly what the human last created.
+    assert captures == 1
     binding = live_runtime.load_live_review_binding(root, repo, server_url="http://127.0.0.1:7420")
     assert binding is not None
-    assert binding.revision_id == "revision-1"
-    assert binding.source_fingerprint == first_fingerprint
+    assert binding.revision_id == "revision-2"
+    assert binding.revision_number == 2
+    assert binding.source_fingerprint != first_fingerprint
 
 
 def test_watchdog_heartbeat_request_wakes_existing_worker_without_overwriting_identity(
@@ -406,8 +388,6 @@ def test_watchdog_path_still_detects_a_semantic_change_when_no_event_arrives(tmp
 
     monkeypatch.setitem(sys.modules, "watchdog.events", SimpleNamespace(FileSystemEventHandler=object))
     monkeypatch.setitem(sys.modules, "watchdog.observers", SimpleNamespace(Observer=_Observer))
-    # The heartbeat that catches a dropped event is 60s in production.
-    monkeypatch.setattr(live_runtime, "_WATCHDOG_RECHECK_S", 0.0)
     timer = threading.Timer(
         0.03,
         lambda: (repo / "app.py").write_text("def value():\n    return 777\n", encoding="utf-8"),
@@ -604,13 +584,22 @@ def test_hundred_edit_burst_coalesces_to_one_final_semantic_capture(tmp_path: Pa
 
     calls: list[str] = []
 
-    def prepare(_config: Any, repo_root: Path, _rng: Any, **_kwargs: Any) -> str:
+    def capture(_config: Any, _repo: Path, _rng: Any, **_kwargs: Any) -> Any:
         calls.append((repo / "app.py").read_text(encoding="utf-8"))
-        return _fingerprint(repo_root)
+        return SimpleNamespace(
+            repo_id="repo-server",
+            review_id="review-server",
+            response={"revision": {"id": "revision-final", "revision_number": 1}},
+        )
 
-    _draft_only(monkeypatch, prepare)
+    from lemoncrow.pro.capabilities.review import hosted
+
+    monkeypatch.setattr(hosted, "capture_server_review", capture)
     assert live_runtime.prepare_live_review_worker(root, repo, debounce_s=0, watch_idle_s=0) == 0
     assert calls == ["def value():\n    return 100\n"]
+    binding = live_runtime.load_live_review_binding(root, repo, server_url="http://127.0.0.1:7420")
+    assert binding is not None
+    assert binding.revision_id == "revision-final"
 
 
 def test_prepare_worker_does_not_drop_generation_after_eight_edit_bursts(tmp_path: Path, monkeypatch) -> None:
@@ -620,19 +609,30 @@ def test_prepare_worker_does_not_drop_generation_after_eight_edit_bursts(tmp_pat
     monkeypatch.setenv("LEMONCROW_INSTALL_MODE", "local")
     monkeypatch.setenv("LEMONCROW_URL", "http://127.0.0.1:7420")
     live_runtime._write_request(root, repo, host="codex", session_id="session-0")
-    drafted: list[str] = []
+    calls = 0
 
-    def prepare(_config: Any, repo_root: Path, _rng: Any, **_kwargs: Any) -> str:
-        drafted.append(_fingerprint(repo_root))
-        if len(drafted) < 10:
-            (repo / "app.py").write_text(f"def value():\n    return {len(drafted) + 2}\n", encoding="utf-8")
-            live_runtime._write_request(root, repo, host="codex", session_id=f"session-{len(drafted)}")
-        return drafted[-1]
+    def capture(_config: Any, _repo: Path, _rng: Any, **_kwargs: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        if calls < 10:
+            (repo / "app.py").write_text(f"def value():\n    return {calls + 2}\n", encoding="utf-8")
+            live_runtime._write_request(root, repo, host="codex", session_id=f"session-{calls}")
+        return SimpleNamespace(
+            repo_id="repo-server",
+            review_id="review-server",
+            response={"revision": {"id": f"revision-{calls}", "revision_number": calls}},
+        )
 
-    _draft_only(monkeypatch, prepare)
+    from lemoncrow.pro.capabilities.review import hosted
+
+    monkeypatch.setattr(hosted, "capture_server_review", capture)
     assert live_runtime.prepare_live_review_worker(root, repo, debounce_s=0, watch_idle_s=0) == 0
-    assert len(drafted) == 10
-    assert drafted[-1] == _fingerprint(repo)
+    assert calls == 10
+    binding = live_runtime.load_live_review_binding(root, repo, server_url="http://127.0.0.1:7420")
+    assert binding is not None
+    assert binding.revision_id == "revision-10"
+    assert binding.revision_number == 10
+    assert binding.author_session_id == ""
 
 
 def test_worker_shutdown_handoff_cannot_strand_a_new_prepare_request(tmp_path: Path, monkeypatch) -> None:
@@ -642,7 +642,17 @@ def test_worker_shutdown_handoff_cannot_strand_a_new_prepare_request(tmp_path: P
     monkeypatch.setenv("LEMONCROW_INSTALL_MODE", "local")
     monkeypatch.setenv("LEMONCROW_URL", "http://127.0.0.1:7420")
     live_runtime._write_request(root, repo, host="codex", session_id="session-old")
-    _draft_only(monkeypatch, lambda _config, repo_root, _rng, **_kwargs: _fingerprint(repo_root))
+
+    def capture(_config: Any, _repo: Path, _rng: Any, **_kwargs: Any) -> Any:
+        return SimpleNamespace(
+            repo_id="repo-server",
+            review_id="review-server",
+            response={"revision": {"id": "revision-1", "revision_number": 1}},
+        )
+
+    from lemoncrow.pro.capabilities.review import hosted
+
+    monkeypatch.setattr(hosted, "capture_server_review", capture)
     release_entered = threading.Event()
     allow_release = threading.Event()
     worker_done = threading.Event()
@@ -683,81 +693,3 @@ def test_worker_shutdown_handoff_cannot_strand_a_new_prepare_request(tmp_path: P
     latest = live_runtime._read_request(root, repo)
     assert latest is not None
     assert latest.session_id == "session-new"
-
-
-def test_source_state_cache_is_reused_only_while_the_tree_is_unchanged(tmp_path: Path, monkeypatch) -> None:
-    import os
-
-    from lemoncrow.pro.capabilities.review import gitdiff
-
-    repo = _repo(tmp_path / "repo")
-    old = 1_600_000_000
-    os.utime(repo / "app.py", (old, old))  # settled: old enough to trust from cache
-    rng = gitdiff.resolve_rev_range(repo, working_tree=True)
-    calls = 0
-    real = gitdiff._source_state_uncached
-
-    def counting(*args: Any, **kwargs: Any) -> Any:
-        nonlocal calls
-        calls += 1
-        return real(*args, **kwargs)
-
-    monkeypatch.setattr(gitdiff, "_source_state_uncached", counting)
-    first = gitdiff.source_state(repo, rng)
-    assert gitdiff.source_state(repo, rng) == first
-    assert calls == 1  # the second call was served from cache
-
-    (repo / "app.py").write_text("def value():\n    return 3\n", encoding="utf-8")
-    os.utime(repo / "app.py", (old + 5, old + 5))  # different mtime, still settled
-    changed = gitdiff.source_state(repo, rng)
-    assert changed.fingerprint != first.fingerprint
-    assert calls == 2
-
-
-def test_prepare_request_skips_temp_checkouts_unless_always(tmp_path: Path, monkeypatch) -> None:
-    repo = _repo(tmp_path / "repo")  # tmp_path lives under the system temp root
-    monkeypatch.setattr(live_runtime.subprocess, "Popen", lambda *_args, **_kwargs: None)
-
-    monkeypatch.delenv("LEMONCROW_LIVE_REVIEW_PREWARM")
-    assert live_runtime.request_live_review_prepare(tmp_path / "state", repo, host="claude", session_id="s") is None
-    assert live_runtime._read_request(tmp_path / "state", repo) is None
-
-    monkeypatch.setenv("LEMONCROW_LIVE_REVIEW_PREWARM", "always")
-    assert live_runtime.request_live_review_prepare(tmp_path / "state", repo, host="claude", session_id="s") is not None
-
-
-def test_sparse_checkout_ignore_rules_read_from_the_index_hide_what_git_hides(tmp_path: Path) -> None:
-    import subprocess
-
-    from lemoncrow.pro.capabilities.review import gitdiff
-
-    root = tmp_path / "sparse"
-    root.mkdir()
-
-    def git(*args: str) -> str:
-        return subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True).stdout
-
-    git("init", "-q", "-b", "main")
-    git("config", "user.email", "t@example.com")
-    git("config", "user.name", "t")
-    (root / ".gitignore").write_text("node_modules\n", encoding="utf-8")
-    (root / "pkg").mkdir()
-    (root / "pkg" / ".gitignore").write_text("build/\n", encoding="utf-8")
-    (root / "app.py").write_text("x = 1\n", encoding="utf-8")
-    git("add", "-A")
-    git("commit", "-q", "-m", "base")
-    # Sparse: both ignore files are skip-worktree and absent from disk; git still honors them.
-    git("config", "core.sparseCheckout", "true")
-    git("update-index", "--skip-worktree", ".gitignore", "pkg/.gitignore")
-    (root / ".gitignore").unlink()
-    (root / "pkg" / ".gitignore").unlink()
-    (root / "node_modules" / "dep").mkdir(parents=True)
-    (root / "node_modules" / "dep" / "index.js").write_text("x\n", encoding="utf-8")
-    (root / "pkg" / "build").mkdir()
-    (root / "pkg" / "build" / "out.js").write_text("x\n", encoding="utf-8")
-    (root / "new.py").write_text("y = 2\n", encoding="utf-8")
-
-    git_untracked = {line[3:] for line in git("status", "--porcelain", "-uall").splitlines() if line.startswith("??")}
-    status = gitdiff._open_repo(root).status(untracked_files="all", ignored=False)
-    ours = {path for path, flags in status.items() if int(flags) & 128}  # WT_NEW
-    assert git_untracked == ours == {"new.py"}

@@ -23,9 +23,6 @@ class _FakeResponse:
         _ = (amt, decode_content)
         yield self._body
 
-    def close(self) -> None:
-        return None
-
     def release_conn(self) -> None:
         return None
 
@@ -39,9 +36,6 @@ class _FakeRedirectResponse:
 
     def stream(self, amt: int = 65536, decode_content: bool = True) -> Iterator[bytes]:
         return iter([b""])
-
-    def close(self) -> None:
-        return None
 
     def release_conn(self) -> None:
         return None
@@ -57,9 +51,6 @@ class _FakeErrorResponse:
     def stream(self, amt: int = 65536, decode_content: bool = True) -> Iterator[bytes]:
         yield self._body
 
-    def close(self) -> None:
-        return None
-
     def release_conn(self) -> None:
         return None
 
@@ -73,9 +64,6 @@ class _FakeBinaryResponse:
 
     def stream(self, amt: int = 65536, decode_content: bool = True) -> Iterator[bytes]:
         yield self._body
-
-    def close(self) -> None:
-        return None
 
     def release_conn(self) -> None:
         return None
@@ -117,9 +105,6 @@ class _FakePdfResponse:
     def stream(self, amt: int = 65536, decode_content: bool = True) -> Iterator[bytes]:
         yield self._body
 
-    def close(self) -> None:
-        return None
-
     def release_conn(self) -> None:
         return None
 
@@ -145,6 +130,59 @@ def clear_cache() -> Iterator[None]:
 # --------------------------------------------------------------------------- #
 
 
+def test_validate_url_rejects_control_chars() -> None:
+    with pytest.raises(ValueError, match="control characters"):
+        web_fetch._validate_public_url("http://example.com/\x00")
+
+
+def test_validate_url_rejects_empty() -> None:
+    with pytest.raises(ValueError, match="empty"):
+        web_fetch._validate_public_url("")
+
+
+def test_validate_url_rejects_no_hostname() -> None:
+    with pytest.raises(ValueError, match="hostname"):
+        web_fetch._validate_public_url("http:///path")
+
+
+def test_validate_url_rejects_credentials() -> None:
+    with pytest.raises(ValueError, match="credentials"):
+        web_fetch._validate_public_url("http://user:pass@example.com")
+
+
+def test_validate_url_rejects_bad_scheme() -> None:
+    with pytest.raises(ValueError, match="only supports http and https"):
+        web_fetch._validate_public_url("ftp://example.com")
+
+
+def test_validate_url_accepts_loopback_url_format_only() -> None:
+    """Format check alone should accept loopback — IP validation happens at connect time."""
+    result = web_fetch._validate_public_url("http://127.0.0.1")
+    assert result == "http://127.0.0.1"
+
+
+def test_validate_url_accepts_standard_ports() -> None:
+    """Explicit standard ports (80, 443) are on the allowlist."""
+    assert web_fetch._validate_public_url("http://example.com:80/path") == "http://example.com:80/path"
+    assert web_fetch._validate_public_url("https://example.com:443/path") == "https://example.com:443/path"
+
+
+def test_validate_url_accepts_default_port() -> None:
+    """No explicit port is allowed — the scheme default is used at connect time."""
+    assert web_fetch._validate_public_url("http://example.com/path") == "http://example.com/path"
+
+
+def test_validate_url_accepts_non_standard_ports() -> None:
+    assert web_fetch._validate_public_url("http://localhost:8080/path") == "http://localhost:8080/path"
+    assert web_fetch._validate_public_url("http://example.com:8443/path") == "http://example.com:8443/path"
+
+
+def test_validate_url_rejects_malformed_port() -> None:
+    """A malformed (non-numeric / out-of-range) port is rejected."""
+    with pytest.raises(ValueError, match="malformed port"):
+        web_fetch._validate_public_url("http://example.com:notaport/path")
+
+
 # --------------------------------------------------------------------------- #
 # IP validation (resolution + public-IP check)                                #
 # --------------------------------------------------------------------------- #
@@ -162,6 +200,34 @@ def test_assert_fetchable_ip_allows_loopback_when_env_set(monkeypatch: pytest.Mo
     web_fetch._assert_fetchable_ip("127.0.0.1")
     web_fetch._assert_fetchable_ip("127.23.45.67")
     web_fetch._assert_fetchable_ip("::1")
+
+
+def test_assert_fetchable_ip_rejects_private() -> None:
+    with pytest.raises(ValueError, match="private/local"):
+        web_fetch._assert_fetchable_ip("10.0.0.1")
+
+
+def test_assert_fetchable_ip_rejects_link_local() -> None:
+    with pytest.raises(ValueError, match="private/local"):
+        web_fetch._assert_fetchable_ip("169.254.1.1")
+
+
+def test_assert_fetchable_ip_rejects_multicast() -> None:
+    with pytest.raises(ValueError, match="private/local"):
+        web_fetch._assert_fetchable_ip("224.0.0.1")
+
+
+def test_assert_fetchable_ip_rejects_unspecified() -> None:
+    with pytest.raises(ValueError, match="private/local"):
+        web_fetch._assert_fetchable_ip("0.0.0.0")
+
+
+def test_assert_fetchable_ip_accepts_public_ipv4() -> None:
+    web_fetch._assert_fetchable_ip("8.8.8.8")
+
+
+def test_assert_fetchable_ip_accepts_public_ipv6() -> None:
+    web_fetch._assert_fetchable_ip("2001:4860:4860::8888")
 
 
 def test_fetch_url_allows_loopback_on_non_standard_port(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -831,9 +897,6 @@ class _FakeHtmlResponse:
     def stream(self, amt: int = 65536, decode_content: bool = True) -> Iterator[bytes]:
         yield self._body
 
-    def close(self) -> None:
-        return None
-
     def release_conn(self) -> None:
         return None
 
@@ -877,45 +940,3 @@ def test_collapse_image_links_and_strip_tracking() -> None:
 def test_strip_link_tracking_leaves_clean_urls_untouched() -> None:
     md = "[a](https://ex.com/p?id=7&page=2) and [b](https://ex.com/plain)"
     assert web_fetch._strip_link_tracking(md) == md
-
-
-def test_url_format_validation_contract() -> None:
-    rejected = [
-        ("http://example.com/\x00", "control characters"),
-        ("", "empty"),
-        ("http:///path", "hostname"),
-        ("http://user:pass@example.com", "credentials"),
-        ("ftp://example.com", "only supports http and https"),
-        ("http://example.com:notaport/path", "malformed port"),
-    ]
-    for url, message in rejected:
-        with pytest.raises(ValueError, match=message):
-            web_fetch._validate_public_url(url)
-
-    accepted = [
-        "http://127.0.0.1",
-        "http://example.com:80/path",
-        "https://example.com:443/path",
-        "http://example.com/path",
-        "http://localhost:8080/path",
-        "http://example.com:8443/path",
-    ]
-    for url in accepted:
-        assert web_fetch._validate_public_url(url) == url
-
-
-def test_ip_visibility_contract() -> None:
-    for ip in ("10.0.0.1", "169.254.1.1", "224.0.0.1", "0.0.0.0"):
-        with pytest.raises(ValueError, match="private/local"):
-            web_fetch._assert_fetchable_ip(ip)
-    for ip in ("8.8.8.8", "2001:4860:4860::8888"):
-        web_fetch._assert_fetchable_ip(ip)
-
-
-def test_ip_guard_refuses_every_non_global_range_including_site_local_ipv6() -> None:
-    # fec0::/10 is deprecated site-local: Python reports it is_global, not private.
-    for ip in ("fec0::1", "feff::1", "100.64.0.1", "198.18.0.1", "2001:db8::1", "fd00::1", "::ffff:10.0.0.1"):
-        with pytest.raises(ValueError, match="private/local"):
-            web_fetch._assert_fetchable_ip(ip)
-    for ip in ("1.1.1.1", "2606:4700::1111"):
-        web_fetch._assert_fetchable_ip(ip)

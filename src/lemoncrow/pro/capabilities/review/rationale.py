@@ -326,9 +326,6 @@ def import_author_rationales(
             created_by_actor="agent",
             source="author",
             source_id=record.session_id,
-            agent_host=record.host,
-            agent_model=record.model,
-            source_message_id=record.id,
             evidence=evidence,
             new_text=new_blobs.get(record.path),
         )

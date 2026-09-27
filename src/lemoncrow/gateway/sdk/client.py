@@ -128,10 +128,10 @@ class SavingsSummary(BaseModel):
 
     operations_tracked: int = 0
     total_calls: int = 0
-    would_have_cost_usd: float | None = 0.0
-    actually_cost_usd: float | None = 0.0
-    saved_usd: float | None = 0.0
-    saved_pct: float | None = 0.0
+    would_have_cost_usd: float = 0.0
+    actually_cost_usd: float = 0.0
+    saved_usd: float = 0.0
+    saved_pct: float = 0.0
     per_operation: builtins.list[dict[str, Any]] = Field(default_factory=list)
     note: str = ""
 

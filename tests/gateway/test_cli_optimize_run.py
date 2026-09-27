@@ -18,7 +18,7 @@ def test_optimize_run_blocks_open_pr_when_proposal_not_approved(monkeypatch, tmp
         },
     )
 
-    result = CliRunner().invoke(cli, ["--root", str(tmp_path / ".lemoncrow"), "usage", "optimize", "run", "--open-pr"])
+    result = CliRunner().invoke(cli, ["--root", str(tmp_path / ".lemoncrow"), "optimize", "run", "--open-pr"])
 
     assert result.exit_code != 0
     assert "open-pr blocked: missing_non_inferiority_evidence" in result.output
@@ -33,7 +33,6 @@ def test_optimize_auto_commands_persist_canonical_config(tmp_path: Path) -> None
         [
             "--root",
             str(root),
-            "usage",
             "optimize",
             "auto",
             "enable",
@@ -45,10 +44,10 @@ def test_optimize_auto_commands_persist_canonical_config(tmp_path: Path) -> None
     assert enable.exit_code == 0, enable.output
     assert '"enabled": true' in enable.output.lower()
 
-    status = runner.invoke(cli, ["--root", str(root), "usage", "optimize", "auto", "status", "--json"])
+    status = runner.invoke(cli, ["--root", str(root), "optimize", "auto", "status", "--json"])
     assert status.exit_code == 0, status.output
     assert '"minimum_projected_tokens_saved": 2500' in status.output
 
-    disable = runner.invoke(cli, ["--root", str(root), "usage", "optimize", "auto", "disable", "--json"])
+    disable = runner.invoke(cli, ["--root", str(root), "optimize", "auto", "disable", "--json"])
     assert disable.exit_code == 0, disable.output
     assert '"enabled": false' in disable.output.lower()

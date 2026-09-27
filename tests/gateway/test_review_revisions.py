@@ -41,23 +41,46 @@ from lemoncrow.pro.capabilities.review.revisions import (
     group_frontier,
     reconcile,
 )
-from lemoncrow.pro.capabilities.review.session_models import Annotation, ReviewMark, ReviewRevision, ReviewUnit
+from lemoncrow.pro.capabilities.review.session_models import (
+    Annotation,
+    ReviewMark,
+    ReviewRevision,
+    ReviewUnit,
+)
 from lemoncrow.pro.capabilities.review.sources.local import mark_unit, open_or_create_session, refresh
 from lemoncrow.pro.capabilities.review.store import ReviewStore
 from lemoncrow.pro.capabilities.review.units import unit_key
-from lemoncrow.pro.capabilities.review.validity import mark_event_reason
 
-_BASE = '"""Module {i}."""\n\n\ndef handler_{i}(value):\n    return value\n'
-_REVIEWED = (
-    '"""Module {i}."""\n\n\ndef handler_{i}(value):\n    total = value + {i}\n    logged = total\n    return logged\n'
-)
+# --------------------------------------------------------------------------- #
+# fixture repository
+# --------------------------------------------------------------------------- #
+
+_BASE = '''"""Module {i}."""
+
+
+def handler_{i}(value):
+    return value
+'''
+
+# The change under review: every one of the 20 files gains a body.
+#  1 docstring   2 blank   3 blank   4 def   5 total   6 logged   7 return
+_REVIEWED = '''"""Module {i}."""
+
+
+def handler_{i}(value):
+    total = value + {i}
+    logged = total
+    return logged
+'''
+
 _COMMENTED_LINE = 6
-"``    logged = total`` -- the line all five annotations are attached to."
+"""``    logged = total`` -- the line all five annotations are attached to."""
 
 
 @pytest.fixture(autouse=True)
 def _no_astgrep_download(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Keep the impact detectors from bootstrapping an ast-grep binary per repo."""
+
     monkeypatch.setenv("LEMONCROW_AST_GREP_BIN", str(tmp_path / "sg"))
 
 
@@ -90,6 +113,7 @@ def _rel(index: int) -> str:
 
 def _repo(tmp_path: Path, files: int = 20) -> tuple[Path, Any]:
     """A committed baseline plus an uncommitted change across *files* files."""
+
     root = tmp_path / "repo"
     repo = _init_repo(root)
     for index in range(files):
@@ -97,13 +121,13 @@ def _repo(tmp_path: Path, files: int = 20) -> tuple[Path, Any]:
     _commit(repo, "baseline", 0)
     for index in range(files):
         _write(root, _rel(index), _REVIEWED.format(i=index))
-    return (root, repo)
+    return root, repo
 
 
 def _session(tmp_path: Path, root: Path) -> tuple[ReviewStore, Any, Any]:
     store = ReviewStore(tmp_path / "store")
     rng = resolve_rev_range(root)
-    return (store, open_or_create_session(store, root, rng), rng)
+    return store, open_or_create_session(store, root, rng), rng
 
 
 def _refresh(store: ReviewStore, session: Any, root: Path, tmp_path: Path) -> Any:
@@ -112,6 +136,7 @@ def _refresh(store: ReviewStore, session: Any, root: Path, tmp_path: Path) -> An
 
 def _by_kind(units: tuple[ReviewUnit, ...], kind: str) -> dict[str, ReviewUnit]:
     """Units of one kind, keyed by path (or ``path::symbol`` for symbols)."""
+
     if kind == "symbol":
         return {f"{unit.path}::{unit.symbol}": unit for unit in units if unit.kind == kind}
     return {unit.path: unit for unit in units if unit.kind == kind}
@@ -123,10 +148,12 @@ def _states(store: ReviewStore, review_id: str) -> dict[str, str]:
 
 def _anchor_events(store: ReviewStore, revision_id: str) -> dict[str, list[tuple[str, str]]]:
     """``annotation_id -> [(method, status)]`` recorded against one revision."""
+
     conn = sqlite3.connect(store.db_path)
     try:
         rows = conn.execute(
-            "SELECT annotation_id, method, status FROM annotation_anchor_events WHERE revision_id = ?", (revision_id,)
+            "SELECT annotation_id, method, status FROM annotation_anchor_events WHERE revision_id = ?",
+            (revision_id,),
         ).fetchall()
     finally:
         conn.close()
@@ -147,6 +174,11 @@ def _revision() -> ReviewRevision:
     )
 
 
+# --------------------------------------------------------------------------- #
+# case 1 -- idempotency
+# --------------------------------------------------------------------------- #
+
+
 def test_a_refresh_with_no_content_change_creates_no_revision_and_moves_no_mark(tmp_path: Path) -> None:
     """Running the command twice must not cost the reviewer their marks.
 
@@ -154,11 +186,14 @@ def test_a_refresh_with_no_content_change_creates_no_revision_and_moves_no_mark(
     second revision to reconcile against and nothing to reopen. Without this,
     every invocation would strand the marks made by the previous one.
     """
+
     root, _repo_handle = _repo(tmp_path, files=3)
     store, session, _rng = _session(tmp_path, root)
+
     first = _refresh(store, session, root, tmp_path)
     for unit in store.list_units(first.revision.id):
         mark_unit(store, session, first.revision, unit)
+
     second = _refresh(store, session, root, tmp_path)
     assert second.created is False
     assert second.revision.id == first.revision.id
@@ -168,28 +203,39 @@ def test_a_refresh_with_no_content_change_creates_no_revision_and_moves_no_mark(
     assert set(_states(store, session.id).values()) == {"reviewed"}
 
 
+# --------------------------------------------------------------------------- #
+# case 2 -- one edited function in a 20-file change
+# --------------------------------------------------------------------------- #
+
+
 def test_editing_one_function_reopens_that_symbol_and_its_file_and_nothing_else(tmp_path: Path) -> None:
     root, _repo_handle = _repo(tmp_path)
     store, session, _rng = _session(tmp_path, root)
+
     first = _refresh(store, session, root, tmp_path)
     for unit in store.list_units(first.revision.id):
         mark_unit(store, session, first.revision, unit)
+
     _write(root, _rel(7), _REVIEWED.format(i=7).replace("    logged = total", "    logged = total * 2"))
     second = _refresh(store, session, root, tmp_path)
     assert second.created is True
+
     states = _states(store, session.id)
     files = _by_kind(store.list_units(second.revision.id), "file")
     symbols = _by_kind(store.list_units(second.revision.id), "symbol")
+
     assert states[files[_rel(7)].unit_key] == "changed_since_review"
     assert states[symbols[f"{_rel(7)}::handler_7"].unit_key] == "changed_since_review"
-    # Trust T1: the audited event names the rule that reopened the mark.
-    [*_, reopened] = store.list_mark_events(session.id, unit_key=files[_rel(7)].unit_key)
-    assert reopened.reason == mark_event_reason("content_changed")
     for index in range(20):
         if index == 7:
             continue
         assert states[files[_rel(index)].unit_key] == "reviewed", _rel(index)
         assert states[symbols[f"{_rel(index)}::handler_{index}"].unit_key] == "reviewed"
+
+
+# --------------------------------------------------------------------------- #
+# case 3 -- an insertion above a reviewed function
+# --------------------------------------------------------------------------- #
 
 
 def test_inserting_lines_above_a_reviewed_function_leaves_that_function_reviewed(tmp_path: Path) -> None:
@@ -200,22 +246,42 @@ def test_inserting_lines_above_a_reviewed_function_leaves_that_function_reviewed
     function's verdict survives and exactly the file -- whose content genuinely
     did change -- reopens.
     """
+
     root, _repo_handle = _repo(tmp_path, files=3)
     store, session, _rng = _session(tmp_path, root)
+
     first = _refresh(store, session, root, tmp_path)
     for unit in store.list_units(first.revision.id):
         mark_unit(store, session, first.revision, unit)
+
     padding = "".join(f"CONSTANT_{n} = {n}\n" for n in range(10))
     _write(root, _rel(1), _REVIEWED.format(i=1).replace('"""Module 1."""\n', f'"""Module 1."""\n{padding}'))
     second = _refresh(store, session, root, tmp_path)
+
     states = _states(store, session.id)
     units = store.list_units(second.revision.id)
     assert states[_by_kind(units, "symbol")[f"{_rel(1)}::handler_1"].unit_key] == "reviewed"
     assert states[_by_kind(units, "file")[_rel(1)].unit_key] == "changed_since_review"
 
 
-_WIDE_BASE = '"""Wide module."""\n\n{filler}\n\ndef handler(value):\n    return value\n'
-_WIDE_REVIEWED = '"""Wide module."""\n\n{filler}\n\ndef handler(value):\n    total = value + 1\n    logged = total\n    return logged\n'
+_WIDE_BASE = '''"""Wide module."""
+
+{filler}
+
+def handler(value):
+    return value
+'''
+
+_WIDE_REVIEWED = '''"""Wide module."""
+
+{filler}
+
+def handler(value):
+    total = value + 1
+    logged = total
+    return logged
+'''
+
 _FILLER = "\n".join(f"CONSTANT_{n} = {n}" for n in range(20))
 
 
@@ -227,11 +293,13 @@ def test_a_re_hunked_file_resets_its_hunk_marks_and_says_why(tmp_path: Path) -> 
     surface can explain it instead of looking broken. File and symbol marks,
     whose keys are position-independent, reconcile normally underneath.
     """
+
     root = tmp_path / "repo"
     repo_handle = _init_repo(root)
     _write(root, "src/wide.py", _WIDE_BASE.format(filler=_FILLER))
     _commit(repo_handle, "baseline", 0)
     _write(root, "src/wide.py", _WIDE_REVIEWED.format(filler=_FILLER))
+
     store = ReviewStore(tmp_path / "store")
     session = open_or_create_session(store, root, resolve_rev_range(root))
     first = _refresh(store, session, root, tmp_path)
@@ -239,18 +307,30 @@ def test_a_re_hunked_file_resets_its_hunk_marks_and_says_why(tmp_path: Path) -> 
     assert len([unit for unit in units if unit.kind == "hunk"]) == 1
     for unit in units:
         mark_unit(store, session, first.revision, unit)
+
+    # A second, distant edit at the top of the file: same content below, one
+    # more hunk above it.
     _write(root, "src/wide.py", "HEADER = True\n" + _WIDE_REVIEWED.format(filler=_FILLER))
     second = _refresh(store, session, root, tmp_path)
+
     states = _states(store, session.id)
     after = store.list_units(second.revision.id)
     hunks = [unit for unit in after if unit.kind == "hunk"]
     assert len(hunks) == 2
     assert {states.get(unit.unit_key) for unit in hunks} <= {"unreviewed", None}
     assert any("hunk count changed 1 -> 2" in note for note in second.reconciliation.notes)
+    # The position-independent keys are untouched by the re-hunking.
     assert states[_by_kind(after, "symbol")["src/wide.py::handler"].unit_key] == "reviewed"
 
 
-def test_deleting_a_reviewed_file_makes_its_comment_obsolete_and_never_leaves_it_reviewed(tmp_path: Path) -> None:
+# --------------------------------------------------------------------------- #
+# case 4 -- a deleted file
+# --------------------------------------------------------------------------- #
+
+
+def test_deleting_a_reviewed_file_makes_its_comment_obsolete_and_never_leaves_it_reviewed(
+    tmp_path: Path,
+) -> None:
     """``obsolete`` and ``orphaned`` are different facts and must not be merged.
 
     The comment did not lose its footing -- the thing it was about is gone. A
@@ -262,8 +342,10 @@ def test_deleting_a_reviewed_file_makes_its_comment_obsolete_and_never_leaves_it
     so the mark drops to ``unknown`` rather than attesting to a file nobody can
     show you.
     """
+
     root, _repo_handle = _repo(tmp_path, files=3)
     store, session, _rng = _session(tmp_path, root)
+
     first = _refresh(store, session, root, tmp_path)
     units = store.list_units(first.revision.id)
     for unit in units:
@@ -285,8 +367,10 @@ def test_deleting_a_reviewed_file_makes_its_comment_obsolete_and_never_leaves_it
             body="this whole file looks redundant",
         )
     )
+
     (root / _rel(2)).unlink()
     _refresh(store, session, root, tmp_path)
+
     states = _states(store, session.id)
     assert states[doomed.unit_key] == "unknown"
     assert states[doomed.unit_key] != "reviewed"
@@ -303,20 +387,29 @@ def test_a_unit_that_leaves_the_change_set_takes_its_mark_with_it(tmp_path: Path
     A mark left behind would be a verdict on something the review no longer
     contains, and it would keep counting toward "how much is done".
     """
+
     root, _repo_handle = _repo(tmp_path, files=3)
     store, session, _rng = _session(tmp_path, root)
+
     first = _refresh(store, session, root, tmp_path)
     units = store.list_units(first.revision.id)
     for unit in units:
         mark_unit(store, session, first.revision, unit)
     reverted = [unit.unit_key for unit in units if unit.path == _rel(2)]
     assert reverted
+
     _write(root, _rel(2), _BASE.format(i=2))
     second = _refresh(store, session, root, tmp_path)
+
     assert set(reverted) <= set(second.reconciliation.removed)
     assert {mark.unit_key for mark in second.reconciliation.dropped} == set(reverted)
     states = _states(store, session.id)
     assert all(key not in states for key in reverted)
+
+
+# --------------------------------------------------------------------------- #
+# case 5 -- a rename
+# --------------------------------------------------------------------------- #
 
 
 def test_a_rename_git_reports_as_delete_plus_add_never_claims_the_marks_survived(tmp_path: Path) -> None:
@@ -331,30 +424,51 @@ def test_a_rename_git_reports_as_delete_plus_add_never_claims_the_marks_survived
     covers the reconciliation side, so switching rename detection on later is a
     change to the diff layer alone and carries the marks across without loss.
     """
+
     root, repo_handle = _repo(tmp_path, files=3)
     _commit(repo_handle, "the reviewed change", 60)
     store_root = tmp_path / "store"
     rng = resolve_rev_range(root, "HEAD~1")
     store = ReviewStore(store_root)
     session = open_or_create_session(store, root, rng)
+
     first = refresh(store, session, root, store_root=store_root, rng=rng, limit=500)
     for unit in store.list_units(first.revision.id):
         mark_unit(store, session, first.revision, unit)
+
     (root / _rel(1)).rename(root / "src/moved.py")
     _commit(repo_handle, "rename", 120)
-    second = refresh(store, session, root, store_root=store_root, rng=resolve_rev_range(root, "HEAD~2"), limit=500)
+    second = refresh(
+        store,
+        session,
+        root,
+        store_root=store_root,
+        rng=resolve_rev_range(root, "HEAD~2"),
+        limit=500,
+    )
+
     states = _states(store, session.id)
     after = store.list_units(second.revision.id)
     moved = _by_kind(after, "file")["src/moved.py"]
     assert moved.unit_key in second.reconciliation.added
     assert states.get(moved.unit_key) is None
+    # The two files that were genuinely untouched keep their verdicts.
     assert states[_by_kind(after, "file")[_rel(0)].unit_key] == "reviewed"
     assert states[_by_kind(after, "file")[_rel(2)].unit_key] == "reviewed"
 
 
-_SPARE_4 = (
-    "    return logged * scale\n\n\ndef spare_4(value):\n    total = value + 4\n    logged = total\n    return logged\n"
-)
+# --------------------------------------------------------------------------- #
+# case 6 -- the Phase 2 acceptance test
+# --------------------------------------------------------------------------- #
+
+_SPARE_4 = """    return logged * scale
+
+
+def spare_4(value):
+    total = value + 4
+    logged = total
+    return logged
+"""
 
 
 def _agent_rewrite(root: Path) -> None:
@@ -370,8 +484,11 @@ def _agent_rewrite(root: Path) -> None:
       still tell the two copies apart;
     * ``mod_05`` and ``mod_06`` are rewritten with no comment on them at all.
     """
+
     _write(
-        root, _rel(3), _REVIEWED.format(i=3).replace('"""Module 3."""\n', '"""Module 3."""\nimport os\nimport sys\n')
+        root,
+        _rel(3),
+        _REVIEWED.format(i=3).replace('"""Module 3."""\n', '"""Module 3."""\nimport os\nimport sys\n'),
     )
     _write(
         root,
@@ -401,14 +518,17 @@ def test_phase_two_acceptance_agent_rewrites_a_reviewed_change(tmp_path: Path) -
     Clause (d) is the negative one and it is the point: a relocation nobody can
     audit after the fact is indistinguishable from a fabrication.
     """
+
     root, _repo_handle = _repo(tmp_path)
     store, session, _rng = _session(tmp_path, root)
+
     first = _refresh(store, session, root, tmp_path)
     units_before = store.list_units(first.revision.id)
     assert len({unit.path for unit in units_before}) == 20
     for unit in units_before:
         mark_unit(store, session, first.revision, unit)
     assert set(_states(store, session.id).values()) == {"reviewed"}
+
     files_before = _by_kind(units_before, "file")
     annotated = (0, 1, 2, 3, 4)
     annotations = [
@@ -431,11 +551,15 @@ def test_phase_two_acceptance_agent_rewrites_a_reviewed_change(tmp_path: Path) -
         for index in annotated
     ]
     assert len(annotations) == 5
+
     _agent_rewrite(root)
     second = _refresh(store, session, root, tmp_path)
     assert second.created is True
+
     units_after = store.list_units(second.revision.id)
     states = _states(store, session.id)
+
+    # --- (a) exactly the units whose fingerprints changed reopened ---------- #
     before_fp = {unit.unit_key: unit.content_fingerprint for unit in units_before}
     genuinely_changed = {
         unit.unit_key
@@ -445,6 +569,8 @@ def test_phase_two_acceptance_agent_rewrites_a_reviewed_change(tmp_path: Path) -
     reopened = {key for key, state in states.items() if state == "changed_since_review"}
     assert reopened == genuinely_changed
     assert reopened, "the rewrite must have reopened something"
+
+    # --- (b) the other 16 files remain reviewed ----------------------------- #
     files_after = _by_kind(units_after, "file")
     untouched = [index for index in range(20) if index not in (3, 4, 5, 6)]
     assert len(untouched) == 16
@@ -452,6 +578,8 @@ def test_phase_two_acceptance_agent_rewrites_a_reviewed_change(tmp_path: Path) -
         assert states[files_after[_rel(index)].unit_key] == "reviewed", _rel(index)
     for index in (3, 4, 5, 6):
         assert states[files_after[_rel(index)].unit_key] == "changed_since_review", _rel(index)
+
+    # --- (c) all five annotations still resolve, by a named rung ------------ #
     stored = {item.id: item for item in store.list_annotations(session.id)}
     assert len(stored) == 5
     methods = {item.anchor.path: item.anchor_method for item in stored.values()}
@@ -461,9 +589,13 @@ def test_phase_two_acceptance_agent_rewrites_a_reviewed_change(tmp_path: Path) -
     assert methods[_rel(3)] == "exact_text_context"
     assert methods[_rel(4)] == "symbol_text"
     assert all(item.state == "open" for item in stored.values())
+
+    # Each surviving comment landed on the line it is actually about.
     for item in stored.values():
         text = (root / item.anchor.path).read_text(encoding="utf-8").splitlines()
         assert text[item.anchor.start_line - 1] == "    logged = total"
+
+    # --- (d) nothing moved without a recorded rung -------------------------- #
     events = _anchor_events(store, second.revision.id)
     assert set(events) == set(stored)
     for move in second.moves:
@@ -485,13 +617,17 @@ def test_reopening_everything_would_fail_the_acceptance_test(tmp_path: Path) -> 
     files because an agent edited four others stops reading any of them. This
     fails loudly if the carry-forward path is ever removed "for safety".
     """
+
     root, _repo_handle = _repo(tmp_path)
     store, session, _rng = _session(tmp_path, root)
+
     first = _refresh(store, session, root, tmp_path)
     for unit in store.list_units(first.revision.id):
         mark_unit(store, session, first.revision, unit)
+
     _agent_rewrite(root)
     second = _refresh(store, session, root, tmp_path)
+
     frontier = compute_frontier(
         session.id,
         "local",
@@ -506,25 +642,33 @@ def test_reopening_everything_would_fail_the_acceptance_test(tmp_path: Path) -> 
     assert {entry.path for entry in groups.changed_since_review} == {_rel(3), _rel(4), _rel(5), _rel(6)}
 
 
+# --------------------------------------------------------------------------- #
+# the pure reconciliation rules
+# --------------------------------------------------------------------------- #
+
+
 def _unit(key: str, fingerprint: str, *, method: str = "blob_sha256", kind: str = "file") -> ReviewUnit:
     return ReviewUnit(
         revision_id="rrv-1",
         unit_key=key,
-        kind=kind,
+        kind=kind,  # type: ignore[arg-type]
         path="src/a.py",
         content_fingerprint=fingerprint,
-        fingerprint_method=method,
+        fingerprint_method=method,  # type: ignore[arg-type]
     )
 
 
 def _mark(key: str, fingerprint: str, state: str = "reviewed") -> ReviewMark:
     return ReviewMark(
-        review_id="rev-1", unit_key=key, state=state, reviewed_revision_id="rrv-1", content_fingerprint=fingerprint
+        review_id="rev-1",
+        unit_key=key,
+        state=state,  # type: ignore[arg-type]
+        reviewed_revision_id="rrv-1",
+        content_fingerprint=fingerprint,
     )
 
 
-def test_revision_mark_preservation_contract() -> None:
-    """case: test_file_revision_delta_preserves_only_exact_known_file_identity"""
+def test_file_revision_delta_preserves_only_exact_known_file_identity() -> None:
     before = [
         replace(_unit("fil:a", "same"), path="src/a.py"),
         replace(_unit("fil:b", "old"), path="src/b.py"),
@@ -539,57 +683,86 @@ def test_revision_mark_preservation_contract() -> None:
         replace(_unit("fil:new-name", "moved"), path="src/new-name.py"),
         replace(_unit("fil:opaque", "placeholder", method="unknown"), path="src/opaque.bin"),
     ]
+
     delta = file_revision_delta(before, after, renames=[("src/old-name.py", "src/new-name.py")])
+
     assert delta.preserved == ("src/a.py",)
     assert delta.changed == ("src/b.py", "src/opaque.bin")
     assert delta.added == ("src/new.py",)
     assert delta.removed == ("src/gone.py",)
     assert delta.renamed == (("src/old-name.py", "src/new-name.py"),)
+
     base_moved = file_revision_delta(before, before, same_diff_base=False)
     assert base_moved.preserved == ()
-    assert base_moved.changed == ("src/a.py", "src/b.py", "src/gone.py", "src/old-name.py", "src/opaque.bin")
-    "case: test_reviewed_is_never_silently_preserved_across_changed_content"
-    "The sentence the whole module exists for, asserted as one line."
+    assert base_moved.changed == (
+        "src/a.py",
+        "src/b.py",
+        "src/gone.py",
+        "src/old-name.py",
+        "src/opaque.bin",
+    )
+
+
+def test_reviewed_is_never_silently_preserved_across_changed_content() -> None:
+    """The sentence the whole module exists for, asserted as one line."""
+
     result = reconcile([_unit("k", "fp-a")], [_unit("k", "fp-b")], [_mark("k", "fp-a")])
     assert result.carried == ()
     assert [mark.state for mark in result.reopened] == ["changed_since_review"]
-    "case: test_an_unchanged_reviewed_unit_keeps_the_revision_the_human_actually_looked_at"
-    "``reviewed_revision_id`` is not advanced; it records when a human looked.\n\n    Advancing it would erase the only evidence of how stale a still-valid\n    verdict is.\n    "
+
+
+def test_an_unchanged_reviewed_unit_keeps_the_revision_the_human_actually_looked_at() -> None:
+    """``reviewed_revision_id`` is not advanced; it records when a human looked.
+
+    Advancing it would erase the only evidence of how stale a still-valid
+    verdict is.
+    """
+
     result = reconcile([_unit("k", "fp-a")], [_unit("k", "fp-a")], [_mark("k", "fp-a")])
     assert result.reopened == ()
     assert result.carried[0].reviewed_revision_id == "rrv-1"
-    "case: test_changed_since_review_stays_reopened_across_later_unchanged_revisions"
-    "A -> B -> B stays reopened until the human explicitly reviews B."
+
+
+def test_changed_since_review_stays_reopened_across_later_unchanged_revisions() -> None:
+    """A -> B -> B stays reopened until the human explicitly reviews B."""
+
     original_mark = _mark("k", "fp-a")
     changed = reconcile([_unit("k", "fp-a")], [_unit("k", "fp-b")], [original_mark])
     reopened = changed.reopened[0]
     assert reopened.state == "changed_since_review"
+
     unchanged_after_change = reconcile([_unit("k", "fp-b")], [_unit("k", "fp-b")], [reopened])
     assert unchanged_after_change.reopened == ()
     assert unchanged_after_change.carried == (reopened,)
     assert unchanged_after_change.carried[0].state == "changed_since_review"
     assert unchanged_after_change.carried[0].reviewed_revision_id == "rrv-1"
     assert unchanged_after_change.carried[0].content_fingerprint == "fp-a"
-    "case: test_content_that_changed_and_came_back_is_reviewed_again"
-    "An exact return to the fingerprint the human reviewed is valid again."
+
+
+def test_content_that_changed_and_came_back_is_reviewed_again() -> None:
+    """An exact return to the fingerprint the human reviewed is valid again."""
+
     mark = _mark("k", "fp-a", state="changed_since_review")
     result = reconcile([_unit("k", "fp-b")], [_unit("k", "fp-a")], [mark])
     assert [item.state for item in result.reopened] == ["reviewed"]
-    "case: test_an_unfingerprintable_unit_becomes_unknown_but_recovers_when_identity_returns"
+
+
+def test_an_unfingerprintable_unit_becomes_unknown_but_recovers_when_identity_returns() -> None:
     mark = _mark("k", "fp-a")
     unknown = _unit("k", "fp-x", method="unknown")
     degraded = reconcile([_unit("k", "fp-a")], [unknown], [mark])
     assert [item.state for item in degraded.reopened] == ["unknown"]
     downgraded = degraded.reopened[0]
     assert downgraded.content_fingerprint == "fp-a"
+
     restored = reconcile([unknown], [_unit("k", "fp-a")], [downgraded])
     assert [item.state for item in restored.reopened] == ["reviewed"]
+
     changed = reconcile([unknown], [_unit("k", "fp-b")], [downgraded])
     assert [item.state for item in changed.reopened] == ["changed_since_review"]
 
 
-def test_revision_request_and_rename_contract() -> None:
-    """case: test_needs_changes_survives_a_rehunk_instead_of_being_withdrawn"""
+def test_needs_changes_survives_a_rehunk_instead_of_being_withdrawn() -> None:
     mark = _mark("hun:k", "fp-a", state="needs_changes")
     before = ReviewUnit(
         revision_id="", unit_key="hun:k", kind="hunk", path="a.py", ordinal=0, content_fingerprint="fp-a"
@@ -603,23 +776,41 @@ def test_revision_request_and_rename_contract() -> None:
     result = reconcile([before], [after, extra], [mark])
     assert result.carried == (mark,)
     assert result.reopened == ()
-    "case: test_a_needs_changes_verdict_is_a_human_request_and_survives_intact"
-    "Reconciliation may invalidate an attestation; it may not withdraw a request.\n\n    Downgrading ``needs_changes`` to ``unknown`` because a file turned binary\n    would delete the reviewer's own input, which is strictly worse than the\n    staleness the ``unknown`` rule guards against.\n    "
+
+
+def test_a_needs_changes_verdict_is_a_human_request_and_survives_intact() -> None:
+    """Reconciliation may invalidate an attestation; it may not withdraw a request.
+
+    Downgrading ``needs_changes`` to ``unknown`` because a file turned binary
+    would delete the reviewer's own input, which is strictly worse than the
+    staleness the ``unknown`` rule guards against.
+    """
+
     mark = _mark("k", "fp-a", state="needs_changes")
     result = reconcile([_unit("k", "fp-a")], [_unit("k", "fp-x", method="unknown")], [mark])
     assert result.carried == (mark,)
     assert result.reopened == ()
-    "case: test_a_unit_that_left_the_review_takes_its_mark_with_it"
+
+
+def test_a_unit_that_left_the_review_takes_its_mark_with_it() -> None:
     result = reconcile([_unit("k", "fp-a")], [_unit("j", "fp-b")], [_mark("k", "fp-a")])
     assert result.removed == ("k",)
     assert result.added == ("j",)
     assert [mark.unit_key for mark in result.dropped] == ["k"]
     assert result.carried == ()
     assert result.reopened == ()
-    "case: test_a_mark_on_a_renamed_unit_moves_to_its_new_key_and_leaves_no_duplicate"
-    "Pure-function proof of the rename path, independent of git's detection."
-    old = replace(_unit(unit_key("symbol", "src/a.py", "f", 0), "fp-a", kind="symbol"), path="src/a.py", symbol="f")
+
+
+def test_a_mark_on_a_renamed_unit_moves_to_its_new_key_and_leaves_no_duplicate() -> None:
+    """Pure-function proof of the rename path, independent of git's detection."""
+
+    old = replace(
+        _unit(unit_key("symbol", "src/a.py", "f", 0), "fp-a", kind="symbol"),
+        path="src/a.py",
+        symbol="f",
+    )
     new = replace(old, path="src/b.py", unit_key=unit_key("symbol", "src/b.py", "f", 0))
+
     result = reconcile([old], [new], [_mark(old.unit_key, "fp-a")], renames=[("src/a.py", "src/b.py")])
     assert [mark.unit_key for mark in result.reopened] == [new.unit_key]
     assert [mark.state for mark in result.reopened] == ["reviewed"]
@@ -628,8 +819,7 @@ def test_revision_request_and_rename_contract() -> None:
     assert result.removed == ()
 
 
-def test_revision_compare_frontier_contract() -> None:
-    """case: test_revision_compare_reports_only_semantic_changes_and_preserves_judgment_context"""
+def test_revision_compare_reports_only_semantic_changes_and_preserves_judgment_context() -> None:
     before = (
         replace(_unit("stable", "fp-stable"), path="src/a.py", start_line=3),
         replace(_unit("changed", "fp-old"), path="src/a.py", start_line=10),
@@ -646,6 +836,7 @@ def test_revision_compare_frontier_contract() -> None:
         previous_marks=[_mark("changed", "fp-old", state="reviewed")],
         next_marks=[_mark("changed", "fp-old", state="changed_since_review")],
     )
+
     assert (result.added, result.changed, result.removed, result.unchanged) == (1, 1, 1, 1)
     assert [(item.unit_key, item.status, item.from_state, item.to_state) for item in result.units] == [
         ("added", "added", "unreviewed", "unreviewed"),
@@ -657,15 +848,20 @@ def test_revision_compare_frontier_contract() -> None:
         ("src/new.py", "added", 1, 0, 0),
         ("src/old.py", "removed", 0, 0, 1),
     ]
-    "case: test_revision_compare_never_calls_unknown_fingerprints_unchanged"
+
+
+def test_revision_compare_never_calls_unknown_fingerprints_unchanged() -> None:
     before = [replace(_unit("opaque", "placeholder", method="unknown"), path="opaque.bin")]
     after = [replace(_unit("opaque", "placeholder", method="unknown"), path="opaque.bin")]
     result = compare_revision_units(before, after)
     assert result.changed == 1
     assert result.unchanged == 0
     assert [(item.path, item.status) for item in result.files] == [("opaque.bin", "changed")]
-    "case: test_the_frontier_is_derived_and_cannot_disagree_with_the_marks"
-    "Every entry's state comes from the mark rows, with no cached second copy."
+
+
+def test_the_frontier_is_derived_and_cannot_disagree_with_the_marks() -> None:
+    """Every entry's state comes from the mark rows, with no cached second copy."""
+
     revision = _revision()
     units = (_unit("k", "fp-b"), _unit("j", "fp-c"))
     frontier = compute_frontier("rev-1", "local", revision, units, [_mark("k", "fp-a")])
@@ -675,7 +871,9 @@ def test_revision_compare_frontier_contract() -> None:
     assert by_key["j"].state == "unreviewed"
     assert frontier.last_seen_revision == revision.id
     assert frontier.reviewed_unit_fingerprints == (("k", "fp-a"),)
-    "case: test_group_frontier_puts_what_an_agent_rewrote_first_and_never_double_counts"
+
+
+def test_group_frontier_puts_what_an_agent_rewrote_first_and_never_double_counts() -> None:
     revision = _revision()
     units = (
         _unit("changed", "fp-1"),

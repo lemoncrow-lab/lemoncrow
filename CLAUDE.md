@@ -18,8 +18,9 @@ The `.venv` is at `.venv/bin/python3` if you need the path explicitly.
 ## Common Commands
 
 ```bash
-# Test: only the files your change touches. tests/conftest.py refuses runs over
-# 1000 tests; agents never set LEMONCROW_FULL_SUITE (a person opts in per command).
+# Test
+uv run pytest -q                          # all tests (slow tests excluded by default)
+uv run pytest -q -x -m "not slow"        # fast, stop on first failure
 uv run pytest tests/path/test_file.py -q # single file
 uv run pytest -q -k "test_name"          # single test by name
 
@@ -28,7 +29,7 @@ make lint           # ruff
 make format         # ruff --fix + black + prettier (frontend)
 make typecheck      # mypy --strict src
 
-# Full pre-commit gate: runs the whole suite, so a person runs it with LEMONCROW_FULL_SUITE=1
+# Full pre-commit gate
 make pre-commit     # format + lint + typecheck + docs + test
 
 # Docs governance
@@ -41,10 +42,6 @@ bash scripts/install_claude.sh
 |     |     |     |
 | --- | --- | --- |
 |     |     |     |
-
-## Status index
-
-`docs/status/capabilities.toml` (private checkout only; `make status-index` renders `docs/status/README.md`) is the present-tense answer to what ships, in what state, with what default and which tests prove it; `docs/planning/` plans are history. Change it in the same commit that changes a capability's state or default; `make docs-check` enforces it.
 
 ## Coding Guidelines
 

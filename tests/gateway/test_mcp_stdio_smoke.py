@@ -32,7 +32,7 @@ def test_mcp_stdio_smoke() -> None:
                 "name": "context",
                 "arguments": {
                     "task": "Update Shopify product metafields",
-                    "domain": "swe.general",
+                    "domain": "beseam.shopify.publish",
                     "tools": ["shopify.update_metafield"],
                 },
             },
@@ -59,7 +59,7 @@ def test_mcp_stdio_smoke() -> None:
     env = os.environ.copy()
 
     result = subprocess.run(
-        ["uv", "run", "lemoncrow", "runtime", "mcp"],
+        ["uv", "run", "lemoncrow", "mcp"],
         input=input_str,
         text=True,
         capture_output=True,

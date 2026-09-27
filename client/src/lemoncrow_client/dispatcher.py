@@ -52,8 +52,6 @@ __all__ = ["Dispatcher", "ToolOutcome"]
 _MAX_WORKTREE_SESSIONS: Final[int] = 3
 #: A worktree session that failed to open is not retried on every call.
 _WORKTREE_RETRY_S: Final[float] = 30.0
-#: The visible line a degraded answer carries (``code_search`` renders its own).
-_DEGRADED_MARK: Final[str] = "! degraded"
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,13 +95,6 @@ class ToolOutcome:
                 "lemoncrow/degraded": True,
                 "lemoncrow/degraded_reason": self.degraded_reason,
             }
-            # ``_meta`` is for programs; hosts do not show it to the model. The
-            # agent must see that an answer is partial, or it trusts it as whole.
-            if not any(_DEGRADED_MARK in str(block.get("text", "")) for block in self.content):
-                reason = self.degraded_reason.strip()
-                payload["content"].append(
-                    {"type": "text", "text": f"{_DEGRADED_MARK}{': ' + reason if reason else ''}"}
-                )
         return payload
 
 
@@ -132,7 +123,7 @@ class Dispatcher:
         self._children: OrderedDict[Path, Dispatcher] = OrderedDict()
         self._child_attempts: dict[Path, float] = {}
         self._child_lock = threading.Lock()
-        self._traces = ClientTraceWriter(config.runtime_state_dir, hosted=bool(getattr(config, "hosted", False)))
+        self._traces = ClientTraceWriter(config.state_dir, hosted=bool(getattr(config, "hosted", False)))
         self._context = LocalContext(
             config=config,
             repo_root=config.repo_root,
@@ -228,9 +219,7 @@ class Dispatcher:
                 if now - self._child_attempts.get(worktree.root, float("-inf")) >= _WORKTREE_RETRY_S:
                     self._child_attempts[worktree.root] = now
                     try:
-                        report = session.bootstrap(
-                            deadline_s=max(self._config.startup_budget_s, self._config.request_timeout_s)
-                        )
+                        report = session.bootstrap(deadline_s=self._config.startup_budget_s)
                     except ClientError as exc:
                         session.state.go_offline(f"{exc.server_code}: {exc.message}")
                     else:
@@ -294,16 +283,6 @@ class Dispatcher:
 
     def _route(self, route: Route, arguments: Mapping[str, Any]) -> ToolOutcome:
         if route.tool == "read":
-            if not arguments.get("symbol"):
-                local = executor_for("read_from_disk")(self._context, arguments)
-                rev = getattr(getattr(self._session, "state", None), "view_revision", None)
-                return ToolOutcome(
-                    content=local.content,
-                    is_error=local.is_error,
-                    site=Site.CLIENT.value,
-                    view_revision=rev if self._session.state.view_bound else None,
-                    structured=local.structured,
-                )
             split = _split_absolute_read_files(arguments)
             if split is not None:
                 return self._read_with_absolute_files(route, *split)
@@ -342,21 +321,13 @@ class Dispatcher:
     def _local(self, route: Route, arguments: Mapping[str, Any]) -> ToolOutcome:
         result = executor_for(route.executor)(self._context, arguments)
         revision: int | None = None
-        degraded, degraded_reason = result.degraded, result.degraded_reason
         if route.pushes_blobs and result.changed_paths:
-            try:
-                revision = self._push(result.changed_paths)
-            except ClientError as exc:
-                # The write landed; only the server's copy lags, and every
-                # View-reading call syncs the tree before it answers. Reported
-                # as an error, an applied edit read as a failed one, and agents
-                # redid it into ``old_string not found``.
-                degraded, degraded_reason = True, f"{exc.code.value}: {exc.message}"
+            revision = self._push(result.changed_paths)
         return ToolOutcome(
             content=result.content,
             is_error=result.is_error,
-            degraded=degraded,
-            degraded_reason=degraded_reason,
+            degraded=result.degraded,
+            degraded_reason=result.degraded_reason,
             site=route.site.value,
             view_revision=revision,
             structured=result.structured,
@@ -366,10 +337,9 @@ class Dispatcher:
         """Bring the server's view forward, or say why it could not.
 
         A push failure is not allowed to lose the edit -- the file is already
-        written -- so :meth:`_local` degrades the *result* with this error
-        rather than failing the call. The agent is told the server's copy is
-        behind, which is exactly the fact a subsequent server-side read would
-        otherwise get wrong.
+        written -- so it degrades the *result* rather than raising. The agent
+        is told the server's copy is behind, which is exactly the fact a
+        subsequent server-side read would otherwise get wrong.
         """
         if not self._session.online or not self._session.state.view_bound:
             return None
@@ -401,20 +371,7 @@ class Dispatcher:
                 site=Site.CLIENT.value,
                 structured=local.structured,
             )
-        try:
-            answer = self._session.call_tool(route.tool, arguments)
-        except ClientError as exc:
-            if exc.code in {ErrorCode.SERVER_UNREACHABLE, ErrorCode.SERVER_SESSION_UNAVAILABLE} and route.offline:
-                local = executor_for(route.offline)(self._context, arguments)
-                rev = getattr(getattr(self._session, "state", None), "view_revision", None)
-                return ToolOutcome(
-                    content=local.content,
-                    is_error=local.is_error,
-                    site=Site.CLIENT.value,
-                    view_revision=rev if rev else None,
-                    structured=local.structured,
-                )
-            raise
+        answer = self._session.call_tool(route.tool, arguments)
         return ToolOutcome(
             content=answer.content,
             is_error=answer.is_error,
@@ -440,9 +397,9 @@ class Dispatcher:
         return ToolOutcome(
             content=result.content,
             is_error=result.is_error,
-            degraded=result.degraded,
-            degraded_reason=result.degraded_reason,
-            site=Site.CLIENT.value,
+            degraded=True,
+            degraded_reason=result.degraded_reason or f"server_unreachable:{route.offline}",
+            site="client_offline_fallback",
             structured=result.structured,
         )
 

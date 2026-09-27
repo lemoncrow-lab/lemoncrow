@@ -24,15 +24,12 @@ import pytest
 from _serverpkg import REASON, public_registry_available, server_available
 from lemoncrow_client.errors import AgentAction, ErrorCode
 from lemoncrow_client.protocol import (
-    CAPTURE_OPTIONS,
     CLIENT_CAPABILITIES,
     PROTOCOL_VERSION,
     REQUIRED_CLIENT_CAPABILITIES,
-    REVIEW_FEATURES,
-    protocol_window,
 )
 from lemoncrow_client.routing import ROUTES, SECURITY_EXCLUDED_TOOLS, Site
-from lemoncrow_client.surface import SURFACE_PATH, UNSERVED_CLAUSES, load_surface, tool_list
+from lemoncrow_client.surface import SURFACE_PATH, load_surface, tool_list
 
 PUBLIC_REASON = "the public lemoncrow distribution is not importable here"
 
@@ -48,13 +45,6 @@ def test_the_protocol_version_matches() -> None:
 
     assert PROTOCOL_VERSION == server_protocol.PROTOCOL_VERSION
     assert PROTOCOL_VERSION in server_protocol.SUPPORTED_PROTOCOL_VERSIONS
-    # The whole window, N and N-1, moves in one change on both sides.
-    window = server_protocol.PROTOCOL_WINDOW
-    assert protocol_window() == (window.current, window.previous)
-    assert set(protocol_window()) == server_protocol.SUPPORTED_PROTOCOL_VERSIONS
-    # A Review feature or capture option only one side names is one the other cannot gate.
-    assert REVIEW_FEATURES == server_protocol.REVIEW_FEATURES
-    assert CAPTURE_OPTIONS == server_protocol.CAPTURE_OPTIONS
 
 
 @pytest.mark.skipif(not server_available(), reason=REASON)
@@ -232,30 +222,6 @@ def test_tool_list_profile_is_case_and_whitespace_insensitive() -> None:
     expected = {name for name in ROUTES if bool(surface[name].get("visibleToLlm")) and bool(surface[name].get("core"))}
     names = {entry["name"] for entry in tool_list(env={"LEMONCROW_MCP_TOOL_PROFILE": "  CORE  "})}
     assert names == expected
-
-
-def test_tool_list_never_advertises_an_argument_this_client_refuses() -> None:
-    """``project_id`` and bash's REPL mode are refused here; offering them only
-    invited calls that had to fail."""
-    tools = {entry["name"]: entry for entry in tool_list()}
-    for name, entry in tools.items():
-        assert "project_id" not in entry["inputSchema"].get("properties", {}), name
-    bash = tools["bash"]
-    properties = bash["inputSchema"]["properties"]
-    assert {"interactive", "input"}.isdisjoint(properties)
-    assert "send" not in properties["action"]["enum"]
-    assert "send" not in properties["action"]["description"]
-    assert "interactive" not in bash["description"]
-
-
-def test_every_unserved_clause_still_matches_the_generated_surface() -> None:
-    """A regenerated description that rewords a clause must fail here, not
-    silently start advertising the refused argument again."""
-    surface = load_surface()
-    for name, clauses in UNSERVED_CLAUSES.items():
-        prose = surface[name]["description"] + json.dumps(surface[name]["inputSchema"], ensure_ascii=False)
-        for clause in clauses:
-            assert clause in prose, (name, clause)
 
 
 def test_tool_list_has_no_runtime_subtractive_visibility_override() -> None:

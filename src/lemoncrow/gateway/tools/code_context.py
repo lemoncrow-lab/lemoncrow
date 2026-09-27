@@ -46,9 +46,7 @@ def code_context_engine(repo_root: str = ".", *, workspace: Path | None = None) 
     if override is not NO_CODE_ENGINE_OVERRIDE:
         return override
 
-    from lemoncrow.core.capabilities.code_intelligence_provider import (
-        create_code_intelligence_provider,
-    )
+    from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 
     resolved = _resolved_repo_root(repo_root, workspace)
     cache_key = str(resolved)
@@ -59,7 +57,7 @@ def code_context_engine(repo_root: str = ".", *, workspace: Path | None = None) 
         if engine is not None:
             code_engine_cache.move_to_end(cache_key)
             return engine
-        engine = create_code_intelligence_provider(resolved)
+        engine = CodeContextEngine(resolved)
         code_engine_cache[cache_key] = engine
         while len(code_engine_cache) > code_engine_cache_limit():
             evicted_key, evicted = code_engine_cache.popitem(last=False)
@@ -105,22 +103,6 @@ def scoped_context_capability(
         return capability
 
 
-class _RequestScopedSingleRepoRouter:
-    """Sentinel router for hosted requests with an injected authoritative engine.
-
-    A hosted request is already bound to one revision-scoped repository. Asking
-    the private standalone provider whether a local workspace config exists would
-    both cross the product boundary and can fail before callers reach the injected
-    engine. Callers only route when ``is_configured`` is true, so this sentinel
-    preserves the single-repository path explicitly.
-    """
-
-    is_configured = False
-
-    def route(self, *_args: Any, **_kwargs: Any) -> Any:
-        raise RuntimeError("request-scoped server code intelligence cannot workspace-route")
-
-
 def workspace_code_router(
     repo_root: str = ".",
     *,
@@ -128,20 +110,13 @@ def workspace_code_router(
     engine_factory: Callable[[str], Any] | None = None,
 ) -> Any:
     """Build a multi-workspace code router using the canonical engine cache."""
-    override = getattr(request_code_engine_override, "value", NO_CODE_ENGINE_OVERRIDE)
-    if override is not NO_CODE_ENGINE_OVERRIDE:
-        return _RequestScopedSingleRepoRouter()
-
-    from lemoncrow.core.capabilities.code_intelligence_provider import (
-        advanced_code_intelligence_helper,
-    )
+    from lemoncrow.pro.capabilities.code_context.workspace_router import WorkspaceCodeRouter
 
     root = Path(repo_root)
     base = workspace if workspace is not None else workspace_root()
     resolved = root if root.is_absolute() else base / root
     factory = engine_factory or (lambda target: code_context_engine(target, workspace=base))
-    return advanced_code_intelligence_helper(
-        "create_workspace_router",
+    return WorkspaceCodeRouter(
         repo_root=resolved,
         engine_factory=lambda target_root: factory(str(target_root)),
     )

@@ -17,7 +17,6 @@ Run via CLI::
 from __future__ import annotations
 
 import contextlib
-import heapq
 import importlib.resources
 import json
 import logging
@@ -30,10 +29,7 @@ import subprocess
 import sys
 import threading
 import time
-from array import array
-from collections import OrderedDict, defaultdict
-from collections.abc import Callable, Iterable, Iterator
-from dataclasses import dataclass
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -41,13 +37,12 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 from pydantic import BaseModel, ConfigDict, Field
 
 from lemoncrow.core.capabilities.host_router_bridge import evaluate_host_router_request
-from lemoncrow.core.capabilities.pricing import ModelPricing, get_model_pricing, usage_cost_usd
+from lemoncrow.core.capabilities.pricing import usage_cost_usd
 from lemoncrow.core.capabilities.workflow_runtime_state import (
     pause_workflow_runtime,
     stop_workflow_runtime,
     workflow_runtime_detail,
 )
-from lemoncrow.core.foundation.history_store import TRACE_SUMMARY_OMITTED_FIELDS
 from lemoncrow.core.foundation.models import Trace, coerce_trace_json, to_jsonable
 from lemoncrow.core.foundation.paths import (
     WorkspaceNotRegisteredError,
@@ -59,7 +54,7 @@ from lemoncrow.core.foundation.paths import (
     safe_segment,
 )
 from lemoncrow.core.service.auth import verify_api_key
-from lemoncrow.core.service.config import cfg, service_token_path
+from lemoncrow.core.service.config import cfg
 from lemoncrow.core.service.schemas import (
     ContextRequest,
     ContextResponse,
@@ -217,7 +212,6 @@ def _list_traces_filtered(
     since: datetime | None,
     limit: int,
     offset: int,
-    summary: bool = False,
 ) -> list[Trace]:
     """Like ContextStore.list_traces(), plus a workspace_path filter.
 
@@ -237,7 +231,6 @@ def _list_traces_filtered(
             since=since,
             limit=limit,
             offset=offset,
-            summary=summary,
         )
 
     sql = "SELECT id FROM traces WHERE task != 'session-auto-record' AND workspace_path = ?"
@@ -376,10 +369,6 @@ class CodeMapReviewRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     project_root: str | None = Field(default=None, max_length=4096)
-    # Scope the Change to one agent session's files ("host:session_id" as the
-    # changes endpoint lists it), or to an explicit set of paths.
-    session: str | None = Field(default=None, max_length=300)
-    paths: list[str] | None = Field(default=None, max_length=2000)
 
 
 class CodeMapEditorOpenRequest(BaseModel):
@@ -389,45 +378,6 @@ class CodeMapEditorOpenRequest(BaseModel):
     path: str = Field(min_length=1, max_length=4096)
     line: int = Field(default=1, ge=1)
     column: int = Field(default=1, ge=1)
-    editor: Literal["vscode", "cursor"] | None = None
-
-
-class CodeMapModulePurposeRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    project_root: str | None = Field(default=None, max_length=4096)
-    module: str = Field(default="", max_length=4096)
-
-
-class CodeMapAskHistoryTurn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    role: Literal["user", "assistant"]
-    body: str = Field(max_length=8000)
-
-
-class CodeMapAskAttachment(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(min_length=1, max_length=256)
-    content: str = Field(max_length=32_768)
-
-
-class CodeMapAskRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    project_root: str | None = Field(default=None, max_length=4096)
-    path: str = Field(min_length=1, max_length=4096)
-    line: int | None = Field(default=None, ge=1)
-    end_line: int | None = Field(default=None, ge=1)
-    symbol: str = Field(default="", max_length=500)
-    selected_text: str = Field(default="", max_length=8000)
-    question: str = Field(min_length=1, max_length=8000)
-    mentioned_paths: list[str] = Field(default_factory=list, max_length=5)
-    attachments: list[CodeMapAskAttachment] = Field(default_factory=list, max_length=8)
-    history: list[CodeMapAskHistoryTurn] = Field(default_factory=list, max_length=12)
-    driver: Literal["configured", "claude", "codex", "ollama", "openai", "litellm"] = "configured"
-    model: str = Field(default="", max_length=200)
 
 
 class CodeMapAgentHandoffRequest(BaseModel):
@@ -928,11 +878,9 @@ def _trace_usage_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return [entry] if entry is not None else []
 
 
-def _trace_model_usages(
-    payload: dict[str, Any], usage_entries: list[dict[str, Any]] | None = None
-) -> list[dict[str, Any]]:
+def _trace_model_usages(payload: dict[str, Any]) -> list[dict[str, Any]]:
     aggregated: dict[str, dict[str, Any]] = {}
-    for raw_entry in usage_entries if usage_entries is not None else _trace_usage_entries(payload):
+    for raw_entry in _trace_usage_entries(payload):
         if raw_entry.get("kind") == "tool":
             continue
         model_id = str(raw_entry.get("model") or "").strip()
@@ -980,9 +928,8 @@ def _trace_session_model(
     return str(payload.get("model") or "").strip()
 
 
-def _trace_cost_from_payload(payload: dict[str, Any], usage_entries: list[dict[str, Any]] | None = None) -> float:
-    if usage_entries is None:
-        usage_entries = _trace_usage_entries(payload)
+def _trace_cost_from_payload(payload: dict[str, Any]) -> float:
+    usage_entries = _trace_usage_entries(payload)
     if not usage_entries:
         return 0.0
 
@@ -1002,11 +949,8 @@ def _trace_cost_from_payload(payload: dict[str, Any], usage_entries: list[dict[s
     return round(total_cost, 8)
 
 
-def _trace_cost_breakdown_from_payload(
-    payload: dict[str, Any], usage_entries: list[dict[str, Any]] | None = None
-) -> dict[str, float]:
-    if usage_entries is None:
-        usage_entries = _trace_usage_entries(payload)
+def _trace_cost_breakdown_from_payload(payload: dict[str, Any]) -> dict[str, float]:
+    usage_entries = _trace_usage_entries(payload)
     if not usage_entries:
         return {
             "input_token_cost_usd": 0.0,
@@ -1083,37 +1027,35 @@ def _analytics_event_cost(model_id: str | None, event_type: str, input_tokens: i
     return 0.0
 
 
-def _analytics_row_filter(
+def _filter_analytics_rows(
+    rows: list[dict[str, Any]],
     *,
     agent: str | None = None,
     model: str | None = None,
     category: str | None = None,
     search: str | None = None,
-) -> Callable[[dict[str, Any]], bool] | None:
-    """The row predicate for these filters, or ``None`` when every row passes."""
+) -> list[dict[str, Any]]:
     agent_match = (agent or "").strip().lower()
     model_match = (model or "").strip().lower()
     search_match = (search or "").strip().lower()
-    if not (agent_match or model_match or category or search_match):
-        return None
 
-    def matches(row: dict[str, Any]) -> bool:
+    filtered: list[dict[str, Any]] = []
+    for row in rows:
         row_agent = str(row.get("agent") or "").strip().lower()
         row_model = str(row.get("model") or "").strip().lower()
         if agent_match and row_agent != agent_match:
-            return False
+            continue
         if model_match and row_model != model_match:
-            return False
+            continue
         if category and row.get("category") != category:
-            return False
+            continue
         if search_match:
             tool_name = str(row.get("tool_name") or "").lower()
             sub_command = str(row.get("sub_command") or "").lower()
             if search_match not in tool_name and search_match not in sub_command:
-                return False
-        return True
-
-    return matches
+                continue
+        filtered.append(row)
+    return filtered
 
 
 # ~100 years — comfortably beyond any real analytics window, yet small enough
@@ -1197,35 +1139,77 @@ def _tool_category(tool_name: str) -> str:
     return "Native / Unoptimized" if tool_name in _NATIVE_ANALYTICS_TOOLS else "LemonCrow Optimized"
 
 
-def _trace_analytics_event_rows(payload: dict[str, Any]) -> Iterator[tuple[str, str, str, str, int, int, int, float]]:
-    """``(model, event_type, tool_name, category, input, output, calls, cost)`` per event.
-
-    Tuples, not dicts: a 30-day window is ~300k events and the grouped view
-    only sums them. Each model's pricing is resolved once per trace; the cost
-    is the same ``cost_usd`` call :func:`_analytics_event_cost` makes.
-    """
+def _trace_analytics_events(
+    trace_id: str,
+    agent: str,
+    host: str | None,
+    created_at: str,
+    payload: dict[str, Any],
+) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
     usage_entries = _trace_usage_entries(payload)
-    model_usages = _trace_model_usages(payload, usage_entries)
+    model_usages = _trace_model_usages(payload)
     session_model = _trace_session_model(payload, usage_entries, model_usages)
-    pricing_by_model: dict[str, ModelPricing] = {}
+    session_host = host or agent
 
-    def _pricing(model_id: str) -> ModelPricing:
-        key = model_id or "_default"
-        found = pricing_by_model.get(key)
-        if found is None:
-            found = pricing_by_model[key] = get_model_pricing(key)
-        return found
+    def _append_event(
+        *,
+        model: str,
+        event_type: str,
+        tool_name: str,
+        category: str,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        call_count: int = 1,
+        sub_command: str | None = None,
+        cost_override: float | None = None,
+    ) -> None:
+        events.append(
+            {
+                "trace_id": trace_id,
+                "host": session_host,
+                "agent": agent,
+                "model": model,
+                "event_type": event_type,
+                "tool_name": tool_name,
+                "sub_command": sub_command,
+                "category": category,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "first_seen": created_at,
+                "last_seen": created_at,
+                "call_count": call_count,
+                "session_count": 1,
+                "cost": (
+                    float(cost_override)
+                    if cost_override is not None
+                    else _analytics_event_cost(model, event_type, input_tokens, output_tokens)
+                ),
+            }
+        )
 
     user_prompt_tokens = int(payload.get("user_prompt_tokens") or 0)
     if user_prompt_tokens > 0:
-        yield (session_model, "user_string", "User Entered String", "User Activity", user_prompt_tokens, 0, 1, 0.0)
+        _append_event(
+            model=session_model,
+            event_type="user_string",
+            tool_name="User Entered String",
+            category="User Activity",
+            input_tokens=user_prompt_tokens,
+        )
 
     for entry in usage_entries:
         if entry.get("kind") == "tool":
             tool_name = str(entry.get("tool_name") or "unknown")
             cost_usd = float(entry.get("cost_usd") or 0.0)
             if cost_usd > 0:
-                yield ("", "tool_charge", tool_name, "Tool Billing", 0, 0, 1, float(cost_usd))
+                _append_event(
+                    model="",
+                    event_type="tool_charge",
+                    tool_name=tool_name,
+                    category="Tool Billing",
+                    cost_override=cost_usd,
+                )
             continue
 
         model_id = str(entry.get("model") or session_model)
@@ -1234,321 +1218,102 @@ def _trace_analytics_event_rows(payload: dict[str, Any]) -> Iterator[tuple[str, 
         cache_write_tokens = int(entry.get("cache_creation_input_tokens") or 0)
         output_tokens = int(entry.get("output_tokens") or 0)
         thinking_tokens = int(entry.get("thinking_tokens") or 0)
-        pricing = _pricing(model_id)
 
         if input_tokens > 0:
-            cost = pricing.cost_usd(input_tokens=input_tokens)
-            yield (model_id, "prompt", "Context Window (Base)", "LLM Context", input_tokens, 0, 1, cost)
+            _append_event(
+                model=model_id,
+                event_type="prompt",
+                tool_name="Context Window (Base)",
+                category="LLM Context",
+                input_tokens=input_tokens,
+            )
         if cached_input_tokens > 0:
-            cost = pricing.cost_usd(cache_read_tokens=cached_input_tokens)
-            yield (
-                model_id,
-                "cached_prompt",
-                "Cached Prompt (Cache Read)",
-                "LLM Context (Cache Read)",
-                cached_input_tokens,
-                0,
-                1,
-                cost,
+            _append_event(
+                model=model_id,
+                event_type="cached_prompt",
+                tool_name="Cached Prompt (Cache Read)",
+                category="LLM Context (Cache Read)",
+                input_tokens=cached_input_tokens,
             )
         if cache_write_tokens > 0:
-            cost = pricing.cost_usd(cache_write_tokens=cache_write_tokens)
-            yield (model_id, "cache_create", "Cache Write", "LLM Context (Cache Write)", cache_write_tokens, 0, 1, cost)
+            _append_event(
+                model=model_id,
+                event_type="cache_create",
+                tool_name="Cache Write",
+                category="LLM Context (Cache Write)",
+                input_tokens=cache_write_tokens,
+            )
         if output_tokens > 0:
-            cost = pricing.cost_usd(output_tokens=output_tokens)
-            yield (model_id, "result", "Assistant Response", "LLM Generation", 0, output_tokens, 1, cost)
+            _append_event(
+                model=model_id,
+                event_type="result",
+                tool_name="Assistant Response",
+                category="LLM Generation",
+                output_tokens=output_tokens,
+            )
         if thinking_tokens > 0:
-            cost = pricing.cost_usd(thinking_tokens=thinking_tokens)
-            yield (model_id, "thinking", "Thinking", "LLM Generation", 0, thinking_tokens, 1, cost)
+            _append_event(
+                model=model_id,
+                event_type="thinking",
+                tool_name="Thinking",
+                category="LLM Generation",
+                output_tokens=thinking_tokens,
+            )
 
     for raw_tool in payload.get("tools_called") or []:
         if not isinstance(raw_tool, dict):
             continue
         tool_name = str(raw_tool.get("name") or "unknown")
-        tool_output = int(raw_tool.get("output_tokens") or 0)
-        # Tool outputs re-enter the next prompt window and use input pricing.
-        yield (
-            session_model,
-            "tool_call",
-            tool_name,
-            _tool_category(tool_name),
-            int(raw_tool.get("input_tokens") or 0),
-            tool_output,
-            int(raw_tool.get("count") or 1),
-            _pricing(session_model).cost_usd(input_tokens=tool_output),
+        _append_event(
+            model=session_model,
+            event_type="tool_call",
+            tool_name=tool_name,
+            category=_tool_category(tool_name),
+            input_tokens=int(raw_tool.get("input_tokens") or 0),
+            output_tokens=int(raw_tool.get("output_tokens") or 0),
+            call_count=int(raw_tool.get("count") or 1),
         )
 
+    return events
 
-def _trace_analytics_events(
-    trace_id: str,
-    agent: str,
-    host: str | None,
-    created_at: str,
-    payload: dict[str, Any],
-) -> list[dict[str, Any]]:
-    session_host = host or agent
-    return [
-        {
-            "trace_id": trace_id,
-            "host": session_host,
-            "agent": agent,
-            "model": model,
-            "event_type": event_type,
-            "tool_name": tool_name,
-            "sub_command": None,
-            "category": category,
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "first_seen": created_at,
-            "last_seen": created_at,
-            "call_count": call_count,
-            "session_count": 1,
-            "cost": cost,
-        }
-        for model, event_type, tool_name, category, input_tokens, output_tokens, call_count, cost in (
-            _trace_analytics_event_rows(payload)
+
+def _group_analytics_rows(events: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    grouped_rows: dict[tuple[Any, ...], dict[str, Any]] = {}
+    session_ids: dict[tuple[Any, ...], set[str]] = {}
+
+    for event in events:
+        key = (
+            event["host"],
+            event["agent"],
+            event["model"],
+            event["event_type"],
+            event["tool_name"],
+            event["sub_command"],
+            event["category"],
         )
-    ]
-
-
-@dataclass(frozen=True, slots=True)
-class _AnalyticsGroup:
-    """One trace's events for one grouping key, pre-summed.
-
-    ``costs`` keeps every event's cost in order: the grouped row rounds its
-    running cost after each event, so replaying them preserves that exactly.
-    """
-
-    key: tuple[Any, ...]
-    input_tokens: int
-    output_tokens: int
-    call_count: int
-    costs: array[float]
-
-
-def _trace_analytics_groups(
-    trace_id: str, agent: str, host: str, created_at: str, payload: dict[str, Any]
-) -> tuple[_AnalyticsGroup, ...]:
-    del trace_id, created_at
-    session_host = host or agent
-    sums: dict[tuple[Any, ...], list[Any]] = {}
-    for (
-        model,
-        event_type,
-        tool_name,
-        category,
-        input_tokens,
-        output_tokens,
-        call_count,
-        cost,
-    ) in _trace_analytics_event_rows(payload):
-        key = (session_host, agent, model, event_type, tool_name, None, category)
-        acc = sums.get(key)
-        if acc is None:
-            sums[key] = [input_tokens, output_tokens, call_count, array("d", [cost])]
+        row = grouped_rows.get(key)
+        if row is None:
+            row = dict(event)
+            grouped_rows[key] = row
+            session_ids[key] = {str(event["trace_id"])}
             continue
-        acc[0] += input_tokens
-        acc[1] += output_tokens
-        acc[2] += call_count
-        acc[3].append(cost or 0.0)
-    return tuple(_AnalyticsGroup(key, *acc) for key, acc in sums.items())
 
+        row["input_tokens"] += int(event.get("input_tokens") or 0)
+        row["output_tokens"] += int(event.get("output_tokens") or 0)
+        row["call_count"] += int(event.get("call_count") or 0)
+        row["cost"] = round(float(row.get("cost") or 0.0) + float(event.get("cost") or 0.0), 8)
+        row["first_seen"] = min(str(row.get("first_seen") or ""), str(event.get("first_seen") or ""))
+        row["last_seen"] = max(str(row.get("last_seen") or ""), str(event.get("last_seen") or ""))
+        session_ids[key].add(str(event["trace_id"]))
 
-class _TraceDerivedCache[T]:
-    """Per-trace values derived from a trace's payload, LRU-bounded by ``max_units``.
+    rows: list[dict[str, Any]] = []
+    for key, row in grouped_rows.items():
+        row["session_count"] = len(session_ids[key])
+        row.pop("trace_id", None)
+        rows.append(row)
 
-    Deriving from a trace means parsing its whole payload (MBs for a long
-    session) and pricing its usage: seconds per request for a 30-90 day
-    window. Traces are upserted in place with no version column, so an entry
-    is validated by a stamp over the payload bytes and every other input, and
-    all entries drop when the pricing table is reloaded.
-    """
-
-    def __init__(self, max_units: int) -> None:
-        self._max_units = max_units
-        self._lock = threading.Lock()
-        self._entries: OrderedDict[str, tuple[tuple[Any, ...], T, int]] = OrderedDict()
-        self._units = 0
-        self._pricing: object | None = None
-
-    def _check_pricing(self, pricing_table: object) -> None:
-        if self._pricing is not pricing_table:
-            self._entries.clear()
-            self._units = 0
-            self._pricing = pricing_table
-
-    def get(self, trace_id: str, stamp: tuple[Any, ...], pricing_table: object) -> T | None:
-        with self._lock:
-            self._check_pricing(pricing_table)
-            hit = self._entries.get(trace_id)
-            if hit is None or hit[0] != stamp:
-                return None
-            self._entries.move_to_end(trace_id)
-            return hit[1]
-
-    def put(self, trace_id: str, stamp: tuple[Any, ...], value: T, pricing_table: object, *, units: int) -> None:
-        with self._lock:
-            self._check_pricing(pricing_table)
-            old = self._entries.pop(trace_id, None)
-            if old is not None:
-                self._units -= old[2]
-            self._entries[trace_id] = (stamp, value, units)
-            self._units += units
-            while self._units > self._max_units and self._entries:
-                _, (_, _, evicted) = self._entries.popitem(last=False)
-                self._units -= evicted
-
-
-# Units are cached event costs; measured ~22 bytes each with keys and group
-# overhead, so ~45 MB at the cap. A 90-day window is ~1.3M units: a smaller
-# cap would make that window's newest-first scan evict itself every load.
-_analytics_trace_cache: _TraceDerivedCache[tuple[_AnalyticsGroup, ...]] = _TraceDerivedCache(2_000_000)
-
-
-@dataclass(frozen=True, slots=True)
-class _DashboardTraceFacts:
-    """What the analytics dashboard derives from one trace's payload."""
-
-    payload_session_id: Any
-    model: str
-    model_usages: list[dict[str, Any]]
-    cost: float
-    # Only the fields the dashboard reads; a missing key reads as None either way.
-    tools_called: list[dict[str, Any]]
-    # CAST(json_extract(...)) columns, kept as SQLite returns them.
-    input_tokens: Any
-    output_tokens: Any
-    reasoning_output_tokens: Any
-    thinking_tokens: Any
-    cached_tokens: Any
-    cache_write_tokens: Any
-    user_prompt_tokens: Any
-
-
-_DASHBOARD_EXTRACT_SQL = """
-    SELECT
-        json_extract(payload, '$.model') AS model,
-        CAST(json_extract(payload, '$.input_tokens') AS INTEGER) AS input_tokens,
-        CAST(json_extract(payload, '$.output_tokens') AS INTEGER) AS output_tokens,
-        CAST(json_extract(payload, '$.reasoning_output_tokens') AS INTEGER) AS reasoning_output_tokens,
-        CAST(json_extract(payload, '$.thinking_tokens') AS INTEGER) AS thinking_tokens,
-        CAST(json_extract(payload, '$.cached_input_tokens') AS INTEGER) AS cached_tokens,
-        CAST(json_extract(payload, '$.cache_creation_input_tokens') AS INTEGER) AS cache_write_tokens,
-        CAST(json_extract(payload, '$.user_prompt_tokens') AS INTEGER) AS user_prompt_tokens
-    FROM traces
-    WHERE id = ?
-"""
-
-
-def _dashboard_trace_facts(raw_payload: bytes | None, extracted: dict[str, Any]) -> _DashboardTraceFacts:
-    payload_obj: dict[str, Any] = {}
-    tools_called: list[dict[str, Any]] = []
-    try:
-        parsed_payload = json.loads(raw_payload or b"{}")
-        if isinstance(parsed_payload, dict):
-            payload_obj = parsed_payload
-            raw_tools = payload_obj.get("tools_called") or []
-            if isinstance(raw_tools, list):
-                tools_called = [
-                    {field: tool.get(field) for field in ("name", "count", "input_tokens", "output_tokens")}
-                    for tool in raw_tools
-                    if isinstance(tool, dict)
-                ]
-    except (TypeError, ValueError) as exc:
-        logger.warning("Failed to parse trace payload: %s", exc)
-
-    payload_for_usage = payload_obj or {
-        "model": extracted.get("model") or "",
-        "input_tokens": extracted.get("input_tokens") or 0,
-        "output_tokens": extracted.get("output_tokens") or 0,
-        "reasoning_output_tokens": extracted.get("reasoning_output_tokens") or 0,
-        "thinking_tokens": extracted.get("thinking_tokens") or 0,
-        "cached_input_tokens": extracted.get("cached_tokens") or 0,
-        "cache_creation_input_tokens": extracted.get("cache_write_tokens") or 0,
-    }
-    usage_entries = _trace_usage_entries(payload_for_usage)
-    model_usages = _trace_model_usages(payload_for_usage, usage_entries)
-    return _DashboardTraceFacts(
-        payload_session_id=payload_obj.get("session_id"),
-        model=_trace_session_model(payload_for_usage, usage_entries, model_usages),
-        model_usages=model_usages,
-        cost=_trace_cost_from_payload(payload_for_usage, usage_entries),
-        tools_called=tools_called,
-        input_tokens=extracted.get("input_tokens"),
-        output_tokens=extracted.get("output_tokens"),
-        reasoning_output_tokens=extracted.get("reasoning_output_tokens"),
-        thinking_tokens=extracted.get("thinking_tokens"),
-        cached_tokens=extracted.get("cached_tokens"),
-        cache_write_tokens=extracted.get("cache_write_tokens"),
-        user_prompt_tokens=extracted.get("user_prompt_tokens"),
-    )
-
-
-# Units are cached tool and model-usage rows (~200 bytes each): ~40 MB at the cap.
-_dashboard_trace_cache: _TraceDerivedCache[_DashboardTraceFacts] = _TraceDerivedCache(200_000)
-
-
-def _group_analytics_traces(
-    traces: Iterable[tuple[str, tuple[_AnalyticsGroup, ...]]],
-    *,
-    limit: int,
-    matches: Callable[[dict[str, Any]], bool] | None,
-) -> list[dict[str, Any]]:
-    """Group per-trace partials, newest trace first, as if event by event."""
-    rows: dict[tuple[Any, ...], dict[str, Any]] = {}
-    kept: dict[tuple[Any, ...], bool] = {}
-    for created_at, groups in traces:
-        for group in groups:
-            key = group.key
-            if matches is not None:
-                keep = kept.get(key)
-                if keep is None:
-                    keep = kept[key] = matches(
-                        {
-                            "agent": key[1],
-                            "model": key[2],
-                            "tool_name": key[4],
-                            "sub_command": key[5],
-                            "category": key[6],
-                        }
-                    )
-                if not keep:
-                    continue
-            costs = iter(group.costs)
-            row = rows.get(key)
-            if row is None:
-                host, agent, model, event_type, tool_name, sub_command, category = key
-                row = rows[key] = {
-                    "host": host,
-                    "agent": agent,
-                    "model": model,
-                    "event_type": event_type,
-                    "tool_name": tool_name,
-                    "sub_command": sub_command,
-                    "category": category,
-                    "input_tokens": group.input_tokens,
-                    "output_tokens": group.output_tokens,
-                    "first_seen": created_at,
-                    "last_seen": created_at,
-                    "call_count": group.call_count,
-                    "session_count": 1,
-                    "cost": next(costs),
-                }
-            else:
-                row["input_tokens"] += group.input_tokens
-                row["output_tokens"] += group.output_tokens
-                row["call_count"] += group.call_count
-                row["first_seen"] = min(str(row["first_seen"] or ""), str(created_at or ""))
-                row["last_seen"] = max(str(row["last_seen"] or ""), str(created_at or ""))
-                row["session_count"] += 1
-            cost = row["cost"]
-            for event_cost in costs:
-                cost = round(float(cost or 0.0) + float(event_cost or 0.0), 8)
-            row["cost"] = cost
-
-    ordered = list(rows.values())
-    ordered.sort(key=lambda row: str(row.get("last_seen") or ""), reverse=True)
-    return ordered[:limit]
+    rows.sort(key=lambda row: str(row.get("last_seen") or ""), reverse=True)
+    return rows[:limit]
 
 
 def _query_analytics_rows(
@@ -1569,10 +1334,8 @@ def _query_analytics_rows(
 
     params: list[Any] = []
 
-    # The payload comes back as bytes: hashing them validates a cache entry
-    # without decoding MBs of text, and json.loads parses bytes directly.
     sql = f"""
-        SELECT id, agent, host, CAST(payload AS BLOB), created_at
+        SELECT id, agent, host, payload, created_at
         FROM traces
         WHERE 1=1 {"AND date(datetime(created_at, 'localtime')) >= ?" if start_day else ""}
         ORDER BY created_at DESC
@@ -1581,58 +1344,36 @@ def _query_analytics_rows(
     if start_day:
         params.append(start_day)
 
-    def _load(raw: bytes | None) -> dict[str, Any] | None:
-        try:
-            payload = json.loads(raw or b"{}")
-        except (TypeError, ValueError):
-            return None
-        return payload if isinstance(payload, dict) else None
+    events: list[dict[str, Any]] = []
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        for row in conn.execute(sql, params).fetchall():
+            try:
+                payload = json.loads(row["payload"] or "{}")
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            events.extend(
+                _trace_analytics_events(
+                    str(row["id"]),
+                    str(row["agent"] or ""),
+                    str(row["host"] or ""),
+                    str(row["created_at"] or ""),
+                    payload,
+                )
+            )
 
     # Filter BEFORE applying the row limit: filtering the newest-N slice (as the
     # callers used to) silently dropped matching rows that fell outside the most
     # recent `limit` events, understating or zeroing filtered results.
-    matches = _analytics_row_filter(agent=agent, model=model, category=category, search=search)
+    events = _filter_analytics_rows(events, agent=agent, model=model, category=category, search=search)
 
     if grouped:
-        from lemoncrow.core.capabilities.pricing import _load_pricing_table
+        return _group_analytics_rows(events, limit=limit)
 
-        pricing_table = _load_pricing_table()
-
-        def _traces() -> Iterator[tuple[str, tuple[_AnalyticsGroup, ...]]]:
-            # Streamed trace by trace: a 90-day window is ~160 MB of payload.
-            with contextlib.closing(sqlite3.connect(db_path)) as conn:
-                for raw_id, raw_agent, raw_host, raw_payload, raw_created in conn.execute(sql, params):
-                    trace_id, trace_agent = str(raw_id), str(raw_agent or "")
-                    trace_host, created_at = str(raw_host or ""), str(raw_created or "")
-                    stamp = (hash(raw_payload), len(raw_payload or b""), trace_agent, trace_host, created_at)
-                    groups = _analytics_trace_cache.get(trace_id, stamp, pricing_table)
-                    if groups is None:
-                        payload = _load(raw_payload)
-                        groups = (
-                            ()
-                            if payload is None
-                            else _trace_analytics_groups(trace_id, trace_agent, trace_host, created_at, payload)
-                        )
-                        units = 1 + sum(len(group.costs) for group in groups)
-                        _analytics_trace_cache.put(trace_id, stamp, groups, pricing_table, units=units)
-                    yield created_at, groups
-
-        return _group_analytics_traces(_traces(), limit=limit, matches=matches)
-
-    def _events() -> Iterator[dict[str, Any]]:
-        with contextlib.closing(sqlite3.connect(db_path)) as conn:
-            for raw_id, raw_agent, raw_host, raw_payload, raw_created in conn.execute(sql, params):
-                payload = _load(raw_payload)
-                if payload is None:
-                    continue
-                yield from _trace_analytics_events(
-                    str(raw_id), str(raw_agent or ""), str(raw_host or ""), str(raw_created or ""), payload
-                )
-
-    events: Iterable[dict[str, Any]] = _events() if matches is None else filter(matches, _events())
-    # Documented equivalent of sorted(..., reverse=True)[:limit], ties included.
-    newest = heapq.nlargest(limit, events, key=lambda event: str(event.get("last_seen") or ""))
-    rows = [dict(event) for event in newest]
+    events.sort(key=lambda event: str(event.get("last_seen") or ""), reverse=True)
+    rows = [dict(event) for event in events[:limit]]
     for row in rows:
         row.pop("trace_id", None)
     return rows
@@ -1780,10 +1521,7 @@ def _trace_cache_leverage(trace: Trace) -> float:
 
 def _recent_traces(store: StoreBundle, *, window_days: int) -> list[Trace]:
     cutoff = datetime.now(UTC) - timedelta(days=_clamp_days(window_days))
-    # Bound the load in SQL: only window traces survive the filter below, and
-    # validating up to 5000 full payloads per request cost seconds. A day of
-    # slack keeps the exact datetime filter authoritative across UTC offsets.
-    traces = store.history.list_traces(since=cutoff - timedelta(days=1), limit=5000)
+    traces = store.history.list_traces(limit=5000)
     recent = [trace for trace in traces if _trace_created_at(trace) >= cutoff]
     return sorted(recent, key=_trace_created_at)
 
@@ -2445,50 +2183,6 @@ def _savings_summary_payload(
     window_days: int,
     store: StoreBundle | None = None,
 ) -> dict[str, Any]:
-    """Use canonical usage spend for the Home and Savings headlines."""
-    from lemoncrow.pro.capabilities.usage.spend import window_spend
-
-    payload = _ledger_savings_summary_payload(root, window_days=window_days, store=store)
-    spend = window_spend(root, days=payload["window_days"])
-    payload["spend"] = spend.to_dict()
-    payload["spend_available"] = spend.available and spend.rows > spend.unpriced_rows
-    actual = round(spend.total_usd, 6)
-    saved = float(payload.get("total_saved_usd") or payload.get("saved_usd") or 0)
-    payload["actually_cost_usd"] = actual
-    payload["would_have_cost_usd"] = round(actual + saved, 6)
-    payload["saved_pct"] = round(100 * saved / (actual + saved), 2) if actual + saved > 0 else 0
-    since = datetime.now(UTC) - timedelta(days=payload["window_days"])
-    now = datetime.now(UTC)
-    evidence = saved > 0 or bool(payload.get("ledger_tokens_saved"))
-    if not evidence:
-        for sidecar in (root / "sessions").glob("**/savings.jsonl"):
-            try:
-                if sidecar.stat().st_size == 0:
-                    continue
-                for line in sidecar.read_text(encoding="utf-8").splitlines():
-                    try:
-                        row = json.loads(line)
-                        at = datetime.fromisoformat(str(row.get("ts") or "").replace("Z", "+00:00"))
-                        at = at if at.tzinfo else at.replace(tzinfo=UTC)
-                    except (ValueError, TypeError, AttributeError):
-                        continue
-                    if since <= at <= now:
-                        evidence = True
-                        break
-            except OSError:
-                continue
-            if evidence:
-                break
-    payload["savings_available"] = evidence
-    return payload
-
-
-def _ledger_savings_summary_payload(
-    root: Path,
-    *,
-    window_days: int,
-    store: StoreBundle | None = None,
-) -> dict[str, Any]:
     from lemoncrow.core.capabilities.savings_summary import aggregate_window_savings
     from lemoncrow.infra.runtime.cost_tracker import CostTracker, load_cost_history
 
@@ -2593,16 +2287,12 @@ def _ledger_savings_summary_payload(
     sorted_levers = dict(sorted(per_lever.items(), key=lambda kv: kv[1], reverse=True))
     cost_summary = CostTracker(root).total_savings()
     # Headline = the per-session ledger rule (_price_savings_row) — the SAME
-    # figure the statusline, stop hook, and `lc runtime savings` CLI show, so
+    # figure the statusline, stop hook, and `lc savings` CLI show, so
     # every surface agrees on realized savings. The CostTracker + live-events
     # composite that used to headline here is a different spend domain
     # (internal-LLM ops + routing/compaction analytics); it stays visible as
     # ``ops_saved_usd``, never summed into the headline.
-    # Legacy operation cost can be unknown (unpriced model); do not turn it
-    # into a fabricated $0 or crash a savings page that includes that run.
-    ops_saved_usd = (
-        round(float(cost_summary["saved_usd"]) + live_cost_saved, 6) if cost_summary["saved_usd"] is not None else None
-    )
+    ops_saved_usd = round(float(cost_summary["saved_usd"]) + live_cost_saved, 6)
     saved_usd = round(window_summary.saved_usd, 6)
     would_have_cost = round(window_summary.would_have_cost_usd, 6)
     actually_cost = round(window_summary.spend_usd, 6)
@@ -2719,9 +2409,7 @@ def _ledger_savings_summary_payload(
         if isinstance(event.get("model"), str) and event.get("model"):
             bucket["model"] = str(event["model"])
 
-    # Only window traces are used; see _recent_traces for why the SQL bound.
-    window_floor = datetime(start_day.year, start_day.month, start_day.day, tzinfo=UTC) - timedelta(days=1)
-    traces = store.history.list_traces(since=window_floor, limit=5000)
+    traces = store.history.list_traces(limit=5000)
     recent_traces = [trace for trace in traces if _trace_created_at(trace).date() >= start_day]
     trace_by_session = {_trace_run_key(trace): trace for trace in recent_traces}
 
@@ -3275,7 +2963,7 @@ def _implemented_optimization_catalog(
                 "Injects smallest-plan, bounded-context, and delivery-or-stop guardrails. "
                 "Also powers the trace-based optimization recommendations shown below."
             ),
-            "examples": ["SessionStart guidance", "No-edit 10m nudge", "lc usage optimize"],
+            "examples": ["SessionStart guidance", "No-edit 10m nudge", "lc optimize"],
         },
         {
             "id": "optimization_decision_trace",
@@ -3289,7 +2977,7 @@ def _implemented_optimization_catalog(
                 "Records proposed versus actual policy, calls, tokens, cost, verification, "
                 "and accepted outcomes without prompts, source, arguments, commands, or diffs."
             ),
-            "examples": ["lc usage optimize decisions --json", "--optimization-mode off|shadow|enforce"],
+            "examples": ["lc optimize decisions --json", "--optimization-mode off|shadow|enforce"],
         },
         {
             "id": "output_governor_v2",
@@ -3761,13 +3449,13 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         docs_url="/docs",
     )
 
-    # CORS: only this service's own loopback origin. Any-port loopback trust
-    # let every page served from a localhost port (including a reviewed PR's
-    # web preview) drive and read this API.
+    # CORS for the local web UI: loopback origins only (any port). A wildcard
+    # origin with credentials would let any website a browser visits drive
+    # this API with the user's cookies/credentials.
     app.add_middleware(GZipMiddleware, minimum_size=1_000)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[f"http://{host}" for host in sorted(service_loopback_hosts(cfg.port))],
+        allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$",
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -3877,9 +3565,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             "total_rubrics": summary.rubrics_total,
             "total_clusters": 0,
             "total_raw_tokens_estimate": total_raw_tokens,
-            "estimated_total_cost_usd": (
-                max(total_cost_usd, savings["actually_cost_usd"]) if savings["actually_cost_usd"] is not None else None
-            ),
+            "estimated_total_cost_usd": max(total_cost_usd, savings["actually_cost_usd"]),
             "estimated_saved_cost_usd": savings["saved_usd"],
             "average_compression_ratio": 1.0,
             "is_estimate": False,
@@ -3900,11 +3586,6 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         days: int | None = Query(None),
         limit: int = Query(50, ge=1, le=1000),
         offset: int = Query(0, ge=0),
-        summary: bool = Query(
-            False,
-            description="Omit per-turn arrays (usage_entries, reasoning, commands_run, files_touched, "
-            "tools_called); GET /v1/traces/{id} returns the full trace",
-        ),
     ) -> dict[str, Any]:
         store = get_store()
         since = datetime.now(UTC) - timedelta(days=_clamp_days(days)) if days else None
@@ -3919,7 +3600,6 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             since=since,
             limit=limit,
             offset=offset,
-            summary=summary,
         )
         # Fetch global metrics for the current domain/agent/host filters
         metrics = store.history.get_traces_metrics(domain=domain, agent=agent, host=host, since=since)
@@ -3927,13 +3607,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         # so the frontend's workspace filter dropdown is complete.
         metrics["workspaces"] = _distinct_workspaces(store, domain=domain, agent=agent, host=host, since=since)
 
-        items = [to_jsonable(t) for t in traces]
-        if summary:
-            # Absent, not empty: a summary row must not read as a trace with no turns.
-            for item in items:
-                for field in TRACE_SUMMARY_OMITTED_FIELDS:
-                    item.pop(field, None)
-        return {"items": items, "metrics": metrics}
+        return {"items": [to_jsonable(t) for t in traces], "metrics": metrics}
 
     @app.get("/v1/traces/{trace_id}", tags=["traces"], dependencies=[Depends(verify_api_key)])
     def get_trace(trace_id: str) -> dict[str, Any]:
@@ -4332,52 +4006,38 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
 
     @app.get("/telemetry/config", tags=["telemetry"], dependencies=[Depends(verify_api_key)])
     def get_telemetry_config() -> dict[str, Any]:
-        from lemoncrow.core.service.telemetry.config import telemetry_status
+        from lemoncrow.core.service.telemetry.config import load_telemetry_config
 
-        return telemetry_status()
+        cfg_telemetry = load_telemetry_config()
+        return {
+            "remote_enabled": cfg_telemetry.remote_enabled,
+            "lexical_frustration_enabled": cfg_telemetry.lexical_frustration_enabled,
+        }
 
     @app.post("/telemetry/config", tags=["telemetry"], dependencies=[Depends(verify_api_key)])
     def update_telemetry_config(payload: dict[str, Any]) -> dict[str, Any]:
-        from lemoncrow.core.service.telemetry.config import (
-            TelemetryConfigError,
-            TelemetryPolicyLocked,
-            save_telemetry_config,
-            telemetry_status,
+        from lemoncrow.core.service.telemetry.config import save_telemetry_config
+
+        cfg_telemetry = save_telemetry_config(
+            remote_enabled=payload.get("remote_enabled"),
+            lexical_frustration_enabled=payload.get("lexical_frustration_enabled"),
         )
-
-        def _opt_bool(key: str) -> bool | None:
-            value = payload.get(key)
-            if value is None or isinstance(value, bool):
-                return value
-            raise HTTPException(status_code=400, detail=f"{key} must be a boolean")
-
-        def _opt_str(key: str) -> str | None:
-            value = payload.get(key)
-            if value is None or isinstance(value, str):
-                return value
-            raise HTTPException(status_code=400, detail=f"{key} must be a string")
-
-        try:
-            save_telemetry_config(
-                remote_enabled=_opt_bool("remote_enabled"),
-                lexical_frustration_enabled=_opt_bool("lexical_frustration_enabled"),
-                destination=_opt_str("destination"),
-                endpoint=_opt_str("endpoint"),
-                token=_opt_str("token"),
-            )
-        except TelemetryPolicyLocked as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except TelemetryConfigError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return telemetry_status()
+        return {
+            "remote_enabled": cfg_telemetry.remote_enabled,
+            "lexical_frustration_enabled": cfg_telemetry.lexical_frustration_enabled,
+        }
 
     @app.post("/telemetry/ack", tags=["telemetry"], dependencies=[Depends(verify_api_key)])
     def acknowledge_telemetry() -> dict[str, Any]:
         from lemoncrow.core.service.telemetry.banner import mark_acknowledged
-        from lemoncrow.core.service.telemetry.config import telemetry_status
+        from lemoncrow.core.service.telemetry.config import load_telemetry_config
 
         mark_acknowledged()
-        return telemetry_status()
+        cfg_telemetry = load_telemetry_config()
+        return {
+            "remote_enabled": cfg_telemetry.remote_enabled,
+            "lexical_frustration_enabled": cfg_telemetry.lexical_frustration_enabled,
+        }
 
     @app.get("/telemetry/local", tags=["telemetry"], dependencies=[Depends(verify_api_key)])
     def list_local_telemetry(
@@ -4422,36 +4082,6 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         from lemoncrow.core.service.telemetry.schema import schema_dump
 
         return schema_dump()
-
-    # ------------------------------------------------------------------ #
-    # Product feedback                                                     #
-    # ------------------------------------------------------------------ #
-
-    @app.post("/feedback", tags=["feedback"], dependencies=[Depends(verify_api_key)])
-    def post_product_feedback(payload: dict[str, Any]) -> dict[str, Any]:
-        """Send one "Make a wish" submission to the LemonCrow sink.
-
-        The browser never talks to lemoncrow.com directly, and a wish is not
-        telemetry: this endpoint sends it whatever the telemetry switch says,
-        and answers 502 when nothing was sent so the UI can offer its mailto
-        fallback instead of pretending it was delivered.
-        """
-        from lemoncrow.core.service.feedback import FeedbackError, submit_feedback
-
-        try:
-            result = submit_feedback(
-                message=payload.get("message"),
-                email=payload.get("email"),
-                source=payload.get("source", "review"),
-            )
-        except FeedbackError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        if result.delivered == "failed":
-            raise HTTPException(
-                status_code=502,
-                detail=f"feedback_not_delivered ({result.detail or 'network'})",
-            )
-        return {"ok": True, "delivered": result.delivered}
 
     # ------------------------------------------------------------------ #
     # Analytics & Compatibility Endpoints                                 #
@@ -4510,15 +4140,20 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         db_path = store.history.db_path
         start_day = (datetime.now().astimezone().date() - timedelta(days=_clamp_days(days) - 1)).isoformat()
         host_filter = "AND COALESCE(host, agent) = ?" if host else ""
-        # Payload-derived fields come from _dashboard_trace_cache; the payload is
-        # read as bytes only to validate an entry, and the json_extract columns
-        # run per trace on a miss (_DASHBOARD_EXTRACT_SQL).
         sql = f"""
             SELECT
                 id,
             COALESCE(host, agent) AS host,
                 domain,
-                CAST(payload AS BLOB) AS payload,
+                json_extract(payload, '$.model') AS model,
+                CAST(json_extract(payload, '$.input_tokens') AS INTEGER) AS input_tokens,
+                CAST(json_extract(payload, '$.output_tokens') AS INTEGER) AS output_tokens,
+                CAST(json_extract(payload, '$.reasoning_output_tokens') AS INTEGER) AS reasoning_output_tokens,
+                CAST(json_extract(payload, '$.thinking_tokens') AS INTEGER) AS thinking_tokens,
+                CAST(json_extract(payload, '$.cached_input_tokens') AS INTEGER) AS cached_tokens,
+                CAST(json_extract(payload, '$.cache_creation_input_tokens') AS INTEGER) AS cache_write_tokens,
+                CAST(json_extract(payload, '$.user_prompt_tokens') AS INTEGER) AS user_prompt_tokens,
+                payload,
                 created_at,
                 date(datetime(created_at, 'localtime')) AS day,
                 strftime('%Y-%m-%d %H:00', datetime(created_at)) AS hour_bucket
@@ -4531,41 +4166,54 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         if host:
             params.append(host)
 
-        from lemoncrow.core.capabilities.pricing import _load_pricing_table
-
-        pricing_table = _load_pricing_table()
         sessions = []
-        with contextlib.closing(sqlite3.connect(db_path)) as conn:
+        with sqlite3.connect(db_path) as conn:
             conn.row_factory = sqlite3.Row
-            # Streamed: fetchall() held every payload of the window at once.
-            for row in conn.execute(sql, params):
+            rows = conn.execute(sql, params).fetchall()
+            for row in rows:
                 d = dict(row)
-                raw_payload = d.pop("payload")
-                trace_key = str(d["id"])
-                stamp = (hash(raw_payload), len(raw_payload or b""))
-                facts = _dashboard_trace_cache.get(trace_key, stamp, pricing_table)
-                if facts is None:
-                    # Same connection, so the same read snapshot as the row.
-                    extracted = conn.execute(_DASHBOARD_EXTRACT_SQL, (d["id"],)).fetchone()
-                    facts = _dashboard_trace_facts(raw_payload, dict(extracted) if extracted is not None else {})
-                    units = 1 + len(facts.tools_called) + len(facts.model_usages)
-                    _dashboard_trace_cache.put(trace_key, stamp, facts, pricing_table, units=units)
+                payload_obj: dict[str, Any] = {}
+                tools_called: list[dict[str, Any]] = []
+                try:
+                    parsed_payload = json.loads(d.get("payload") or "{}")
+                    if isinstance(parsed_payload, dict):
+                        payload_obj = parsed_payload
+                        raw_tools = payload_obj.get("tools_called") or []
+                        if isinstance(raw_tools, list):
+                            tools_called = [tool for tool in raw_tools if isinstance(tool, dict)]
+                except (json.JSONDecodeError, TypeError) as exc:
+                    logger.warning("Failed to parse trace payload: %s", exc)
 
-                in_t = facts.input_tokens or 0
-                out_t = facts.output_tokens or 0
-                reasoning_out_t = min(facts.reasoning_output_tokens or 0, out_t)
-                think_t = facts.thinking_tokens or 0
-                cache_r = facts.cached_tokens or 0
-                cache_w = facts.cache_write_tokens or 0
+                payload_for_usage = payload_obj or {
+                    "model": d.get("model") or "",
+                    "input_tokens": d.get("input_tokens") or 0,
+                    "output_tokens": d.get("output_tokens") or 0,
+                    "reasoning_output_tokens": d.get("reasoning_output_tokens") or 0,
+                    "thinking_tokens": d.get("thinking_tokens") or 0,
+                    "cached_input_tokens": d.get("cached_tokens") or 0,
+                    "cache_creation_input_tokens": d.get("cache_write_tokens") or 0,
+                }
+                usage_entries = _trace_usage_entries(payload_for_usage)
+                model_usages = _trace_model_usages(payload_for_usage)
+                session_model = _trace_session_model(payload_for_usage, usage_entries, model_usages)
+
+                in_t = d.get("input_tokens") or 0
+                out_t = d.get("output_tokens") or 0
+                reasoning_out_t = min(d.get("reasoning_output_tokens") or 0, out_t)
+                think_t = d.get("thinking_tokens") or 0
+                cache_r = d.get("cached_tokens") or 0
+                cache_w = d.get("cache_write_tokens") or 0
+
+                cost = _trace_cost_from_payload(payload_for_usage)
 
                 sessions.append(
                     {
                         "id": d["id"],
-                        "session_key": str(facts.payload_session_id or d["id"]),
+                        "session_key": str(payload_obj.get("session_id") or d["id"]),
                         "host": d["host"] or "unknown",
                         "domain": d["domain"] or "unknown",
-                        "model": facts.model,
-                        "model_usages": facts.model_usages,
+                        "model": session_model,
+                        "model_usages": model_usages,
                         "day": d.get("day") or "",
                         "hour_bucket": d.get("hour_bucket") or "",
                         "created_at": d.get("created_at") or "",
@@ -4577,9 +4225,9 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
                         "thinking_tokens": think_t,
                         "cached_tokens": cache_r,
                         "cache_write_tokens": cache_w,
-                        "user_prompt_tokens": facts.user_prompt_tokens or 0,
-                        "cost": facts.cost,
-                        "tools_called": facts.tools_called,
+                        "user_prompt_tokens": d.get("user_prompt_tokens") or 0,
+                        "cost": cost,
+                        "tools_called": tools_called,
                     }
                 )
 
@@ -4781,7 +4429,6 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             reverse=True,
         )
 
-        from lemoncrow.core.foundation.paths import session_dir_snapshot
         from lemoncrow.infra.runtime.session_report import read_total_savings_from_events
 
         _lemoncrow_root = Path(cfg.lemoncrow_root)
@@ -4790,18 +4437,15 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         # by session_id. Display savings (content[].saved) live in the host
         # transcript and aren't aggregated here.
         _session_savings: dict[str, float] = {}
-        # One sessions-tree scan serves every lookup instead of a glob per
-        # session that has no directory.
-        with session_dir_snapshot():
-            for _s in dashboard_sessions:
-                _sk = str(_s.get("session_key") or _s["id"])
-                if _sk in _session_savings:
-                    continue
-                try:
-                    _session_savings[_sk] = read_total_savings_from_events(_sk, _lemoncrow_root)
-                except Exception:
-                    logging.exception("Recovered from broad exception handler")
-                    _session_savings[_sk] = 0.0
+        for _s in dashboard_sessions:
+            _sk = str(_s.get("session_key") or _s["id"])
+            if _sk in _session_savings:
+                continue
+            try:
+                _session_savings[_sk] = read_total_savings_from_events(_sk, _lemoncrow_root)
+            except Exception:
+                logging.exception("Recovered from broad exception handler")
+                _session_savings[_sk] = 0.0
 
         top_sessions_clean = [
             {
@@ -5488,7 +5132,9 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         elif view == "summary":
             payload["max_lines"] = max_lines
         elif view == "range":
-            payload["range"] = range or f"L1-L{max_lines}"
+            if not range:
+                raise HTTPException(status_code=400, detail="range is required when view=range")
+            payload["range"] = range
         else:
             raise HTTPException(status_code=400, detail=f"Unsupported projection view: {view}")
         return cast(dict[str, Any], call_registered_tool("read", payload))
@@ -6281,43 +5927,13 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
     _imported_session_payload_cache: dict[str, tuple[tuple[Any, ...], dict[str, Any]]] = {}
     _imported_session_payload_cache_lock = threading.Lock()
 
-    def _session_payload_code_key() -> str:
-        import importlib.metadata
-        import importlib.util
-
-        from lemoncrow.core.service.session_payload_cache import code_key
-
-        modules = (
-            "lemoncrow.gateway.hosts.session_parsers._session_parser",
-            "lemoncrow.core.capabilities.pricing",
-            "lemoncrow.infra.runtime.session_report",
-            "lemoncrow.pro.capabilities.usage.collect",
-        )
-        versions = []
-        for dist in ("lemoncrow", "litellm"):
-            try:
-                versions.append(f"{dist}={importlib.metadata.version(dist)}")
-            except importlib.metadata.PackageNotFoundError:
-                versions.append(f"{dist}=?")
-        files = [__file__, *((spec.origin if (spec := importlib.util.find_spec(name)) else name) for name in modules)]
-        return code_key(files, versions)
-
-    from lemoncrow.core.service.session_payload_cache import SessionPayloadDiskCache
-
-    # Survives restarts: without it the first Runs load re-parses every transcript.
-    _session_payload_disk = SessionPayloadDiskCache(
-        store_path / "cache" / "session-payloads.sqlite3", key=_session_payload_code_key
-    )
-
     def _build_imported_session_payload(
         session_id: str,
         trace: Trace,
         store_inst: StoreBundle | None = None,
         root: Path | None = None,
         artifact_fp_lookup: dict[str, tuple[str, int]] | None = None,
-        full_trace: Callable[[], Trace] | None = None,
     ) -> dict[str, Any]:
-        """*full_trace* loads the complete trace on a cache miss when *trace* is a summary row."""
         from lemoncrow.infra.runtime.session_report import (
             _derive_vendor,
             read_total_savings_from_events,
@@ -6339,18 +5955,11 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             cached = _imported_session_payload_cache.get(session_id)
         if cached is not None and cached[0] == fingerprint:
             return dict(cached[1])
-        persisted = _session_payload_disk.get(session_id, fingerprint)
-        if persisted is not None:
-            with _imported_session_payload_cache_lock:
-                _imported_session_payload_cache[session_id] = (fingerprint, dict(persisted))
-            return persisted
-        if full_trace is not None:
-            trace = full_trace()
 
         conversations, _, _, raw_usage_summary = _reconstruct_trace_conversations(session_id, trace, store_inst)
         trace_payload = to_jsonable(trace)
         trace_usage_entries = _trace_usage_entries(trace_payload)
-        trace_model_usages = _trace_model_usages(trace_payload, trace_usage_entries)
+        trace_model_usages = _trace_model_usages(trace_payload)
 
         # Seed from the real conversation timestamps, not trace.created_at:
         # that field is when this trace record was written (import/ingest
@@ -6503,12 +6112,12 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         ):
             trace_total_turns = 1
 
-        trace_cost_breakdown = _trace_cost_breakdown_from_payload(trace_payload, trace_usage_entries)
+        trace_cost_breakdown = _trace_cost_breakdown_from_payload(trace_payload)
         trace_input_token_cost_usd = float(trace_cost_breakdown["input_token_cost_usd"])
         trace_output_token_cost_usd = float(trace_cost_breakdown["output_token_cost_usd"])
         trace_cache_read_cost_usd = float(trace_cost_breakdown["cache_read_cost_usd"])
         trace_cache_write_cost_usd = float(trace_cost_breakdown["cache_write_cost_usd"])
-        trace_total_cost_usd = _trace_cost_from_payload(trace_payload, trace_usage_entries)
+        trace_total_cost_usd = _trace_cost_from_payload(trace_payload)
         if trace_total_cost_usd <= 0 and (
             trace_input_tokens > 0
             or trace_output_tokens > 0
@@ -6661,58 +6270,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             cache_read_tokens=cache_read_tokens,
             cache_write_tokens=cache_write_tokens,
         )
-        trace_telemetry = trace.telemetry or {}
-        usage_measurement_source = str(trace_telemetry.get("usage_measurement_source") or "").strip()
-        if not usage_measurement_source:
-            usage_measurement_source = (
-                "host_transcript"
-                if trace.usage_entries or input_tokens or output_tokens or cache_read_tokens or cache_write_tokens
-                else "unavailable"
-            )
-        actual_cost_source = str(trace_telemetry.get("actual_cost_source") or "").strip()
-        actual_cost_value = trace_telemetry.get("actual_cost_usd")
-        if not actual_cost_source and "host_reported_cost_usd" in trace_telemetry:
-            actual_cost_source = "host_reported"
-            actual_cost_value = trace_telemetry.get("host_reported_cost_usd")
-        authoritative_cost: float | None = None
-        if actual_cost_source and actual_cost_value is not None and not isinstance(actual_cost_value, bool):
-            try:
-                authoritative_cost = max(0.0, float(actual_cost_value))
-            except (TypeError, ValueError):
-                authoritative_cost = None
-        raw_priced_override = trace_telemetry.get("priced_cost_usd")
-        priced_override: float | None = None
-        if not isinstance(raw_priced_override, bool) and raw_priced_override is not None:
-            try:
-                priced_override = max(0.0, float(raw_priced_override))
-            except (TypeError, ValueError):
-                priced_override = None
-
-        if authoritative_cost is not None:
-            if total_cost_usd > 0:
-                scale = authoritative_cost / total_cost_usd
-                input_token_cost_usd *= scale
-                output_token_cost_usd *= scale
-                cache_read_cost_usd *= scale
-                cache_write_cost_usd *= scale
-            total_cost_usd = authoritative_cost
-            cost_status = "recorded"
-        elif priced_override is not None:
-            if total_cost_usd > 0:
-                scale = priced_override / total_cost_usd
-                input_token_cost_usd *= scale
-                output_token_cost_usd *= scale
-                cache_read_cost_usd *= scale
-                cache_write_cost_usd *= scale
-            total_cost_usd = priced_override
-            actual_cost_source = "priced"
-            cost_status = "estimated"
-        elif total_cost_usd > 0 or cost_attribution.cost_usd is not None:
-            actual_cost_source = "priced"
-            cost_status = "estimated"
-        else:
-            actual_cost_source = "unavailable"
-            cost_status = "unavailable"
+        cost_status = "estimated" if total_cost_usd > 0 or cost_attribution.cost_usd is not None else "unavailable"
 
         result: dict[str, Any] = {
             "session_id": session_id,
@@ -6734,8 +6292,6 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             "models_used": models_used,
             "started_model": started_model,
             "cost_status": cost_status,
-            "usage_measurement_source": usage_measurement_source,
-            "actual_cost_source": actual_cost_source,
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
             "cached_input_tokens": cache_read_tokens,
@@ -6759,7 +6315,6 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             if len(_imported_session_payload_cache) > 2000:
                 _imported_session_payload_cache.clear()
             _imported_session_payload_cache[session_id] = (fingerprint, dict(result))
-        _session_payload_disk.put(session_id, fingerprint, result)
         return result
 
     def _build_session_payload(report: Any, trace: Trace | None = None) -> dict[str, Any]:
@@ -6796,41 +6351,24 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             cache_write_tokens=cache_write_tokens,
             recorded_total_usd=total_cost_usd if total_cost_usd > 0 else None,
         )
-        usage_measurement_source = str(report.usage_measurement_source or "ledger")
-        actual_cost_source = str(report.actual_cost_source or "ledger")
-        if actual_cost_source == "unavailable":
-            cost_status = "unavailable"
-        elif report.cost_estimated or actual_cost_source == "priced":
-            cost_status = "estimated"
-        else:
-            # An authoritative source can legitimately report $0 (for example a
-            # free/local provider), so source provenance matters more than >0.
-            cost_status = "recorded"
-        if (
-            total_cost_usd <= 0
-            and cost_status != "recorded"
-            and ledger_attribution.cost_usd is not None
-            and (input_tokens + output_tokens + cache_read_tokens + cache_write_tokens > 0)
-        ):
+        cost_status = "recorded" if total_cost_usd > 0 else "unavailable"
+        if total_cost_usd <= 0 and ledger_attribution.cost_usd is not None:
             total_cost_usd = float(ledger_attribution.cost_usd)
-            actual_cost_source = "priced"
+            cost_status = "estimated"
+        if report.cost_estimated and total_cost_usd > 0:
+            # build_report backfilled the total from pricing-derived buckets
+            # because the ledger recorded no cost -- that is an estimate.
             cost_status = "estimated"
 
         if estimated_payload is not None:
-            if total_cost_usd <= 0 and (
-                float(estimated_payload["total_cost_usd"]) > 0 or estimated_payload.get("cost_status") == "recorded"
-            ):
+            if total_cost_usd <= 0 and float(estimated_payload["total_cost_usd"]) > 0:
                 total_cost_usd = float(estimated_payload["total_cost_usd"])
                 input_token_cost_usd = float(estimated_payload["input_token_cost_usd"])
                 output_token_cost_usd = float(estimated_payload["output_token_cost_usd"])
                 cache_read_cost_usd = float(estimated_payload["cache_read_cost_usd"])
                 cache_write_cost_usd = float(estimated_payload["cache_write_cost_usd"])
                 top_tools_by_cost = list(estimated_payload["top_tools_by_cost"])
-                cost_status = str(estimated_payload.get("cost_status") or "estimated")
-                usage_measurement_source = str(
-                    estimated_payload.get("usage_measurement_source") or usage_measurement_source
-                )
-                actual_cost_source = str(estimated_payload.get("actual_cost_source") or actual_cost_source)
+                cost_status = "estimated"
             elif not top_tools_by_cost:
                 top_tools_by_cost = list(estimated_payload["top_tools_by_cost"])
             if not started_model:
@@ -6862,8 +6400,6 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             "models_used": models_used,
             "started_model": started_model,
             "cost_status": cost_status,
-            "usage_measurement_source": usage_measurement_source,
-            "actual_cost_source": actual_cost_source,
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
             "cached_input_tokens": cache_read_tokens,
@@ -6903,14 +6439,14 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
     _RUN_FILES_LIST_CACHE_TTL_SECONDS = 10.0
 
     def _cached_list_run_files(root: Path, *, days: int, cutoff: datetime) -> list[Any]:
-        from lemoncrow.infra.runtime.session_report import list_run_snapshots
+        from lemoncrow.infra.runtime.session_report import list_run_files
 
         cache_key = (str(root), days)
         now_monotonic = time.monotonic()
         cached_listing = _run_files_list_cache.get(cache_key)
         if cached_listing is not None and now_monotonic - cached_listing[0] < _RUN_FILES_LIST_CACHE_TTL_SECONDS:
             return cached_listing[1]
-        files = list_run_snapshots(root, since=cutoff)
+        files = list_run_files(root, since=cutoff)
         _run_files_list_cache[cache_key] = (now_monotonic, files)
         return files
 
@@ -6936,16 +6472,17 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         files = _cached_list_run_files(root, days=days, cutoff=cutoff)
         results: list[dict[str, Any]] = []
         seen_session_ids: set[str] = set()
-        for f, snap in files[:limit]:
+        for f in files[:limit]:
             try:
                 stat_result = f.stat()
-                run_file_fingerprint = (stat_result.st_mtime, hash(json.dumps(snap, sort_keys=True)))
+                run_file_fingerprint = (stat_result.st_mtime, stat_result.st_size)
                 cache_key = str(f)
                 with _run_file_session_payload_cache_lock:
                     cached_entry = _run_file_session_payload_cache.get(cache_key)
                 if cached_entry is not None and cached_entry[0] == run_file_fingerprint:
                     payload = dict(cached_entry[1])
                 else:
+                    snap: dict[str, Any] = json.loads(f.read_text(encoding="utf-8"))
                     report = build_report(snap, root)
                     # build_report()'s started_at prefers the oldest *surviving*
                     # ledger event, but RunLedger.events is a bounded/evicted list
@@ -6973,12 +6510,9 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         # The list endpoint is polled frequently by the browser. Pull enough
         # imported candidates to merge fairly with run-ledger rows, but do not
         # fully reconstruct hundreds of raw transcripts on every cold start.
-        # Summary rows: nearly every payload below is a cache hit, which needs
-        # only the id and artifact ids; a miss loads its full trace by id.
         imported_traces = store_inst.history.list_traces(
             since=cutoff,
             limit=max(min(limit * 2, 400), min(limit, 50)),
-            summary=True,
         )
         # Batch every imported session's raw-artifact staleness fingerprints
         # in one query up front instead of one store.get_raw_artifact() call
@@ -7001,18 +6535,12 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
                 # reconstruction there.
                 detailed = detailed_imported_sessions < 6
                 trace_for_list = trace if detailed else trace.model_copy(update={"raw_artifact_ids": []})
-
-                def _full_trace(listed: Trace = trace, detailed: bool = detailed) -> Trace:
-                    loaded = store_inst.history.get_trace(listed.id) or listed
-                    return loaded if detailed else loaded.model_copy(update={"raw_artifact_ids": []})
-
                 payload = _build_imported_session_payload(
                     sid,
                     trace_for_list,
                     store_inst,
                     root=root,
                     artifact_fp_lookup=artifact_fp_lookup,
-                    full_trace=_full_trace,
                 )
                 detailed_imported_sessions += 1
                 # trace.created_at is when this trace record was ingested
@@ -7344,7 +6872,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
                     )
                     rows.append(
                         {
-                            "id": f"{project['project_id']}:{suite_dir.name}:{run_dir.name}",
+                            "id": f'{project["project_id"]}:{suite_dir.name}:{run_dir.name}',
                             **project,
                             "suite": suite_dir.name,
                             "run_id": run_dir.name,
@@ -7747,185 +7275,41 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
     # Local code map                                                     #
     # ------------------------------------------------------------------ #
 
-    def _code_map_context(project_root: str | None, *, lite: bool = True) -> tuple[Any, Path]:
-        """The selected worktree and the engine its views read.
-
-        Deterministic views fall back to the open-source Runtime Lite index
-        when the private engine is absent (``lite``); model-backed and agent
-        routes keep requiring the private engine.
-        """
-
+    def _code_map_context(project_root: str | None) -> tuple[Any, Path]:
         from lemoncrow.core.service import code_map
 
         try:
             resolved = code_map.resolve_project_root(project_root)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        engine = code_map.get_map_engine(str(resolved)) if lite else code_map.get_engine(str(resolved))
-        return engine, resolved
+        return code_map.get_engine(str(resolved)), resolved
 
     @app.get("/v1/code-map/projects", tags=["code-map"], dependencies=[Depends(verify_api_key)])
     def get_code_map_projects() -> dict[str, Any]:
         from lemoncrow.core.service import code_map
 
-        return {"projects": code_map.list_map_projects()}
+        return {"projects": code_map.list_projects()}
 
-    def _code_provider(resolved: Path, engine: Any) -> Any:
-        """The relationship provider Review also reads: the native index View of
-        this worktree when the local server has one, else the engine's own --
-        Runtime Lite's import-level links, or the legacy engine."""
-
-        resolver = getattr(app.state, "code_intelligence_for_root", None)
-        if callable(resolver):
-            try:
-                provider = resolver(resolved)
-            except Exception:
-                provider = None
-            if provider is not None:
-                return provider
-        from lemoncrow.core.service.code_map_lite import LiteCodeMapEngine
-
-        if isinstance(engine, LiteCodeMapEngine):
-            return engine.provider()
-        from lemoncrow.core.service.review_code_intelligence import LegacyReviewCodeIntelligence
-
-        return LegacyReviewCodeIntelligence(resolved)
-
-    def _code_paths(engine: Any, resolved: Path) -> list[str]:
+    @app.get("/v1/code-map/overview", tags=["code-map"], dependencies=[Depends(verify_api_key)])
+    def get_code_map_overview(project_root: str | None = Query(default=None)) -> dict[str, Any]:
         from lemoncrow.core.service import code_map
 
-        return [str(row["path"]) for row in code_map.list_file_nodes(engine, resolved)["files"]]
+        engine, resolved = _code_map_context(project_root)
+        return code_map.build_overview(engine, resolved)
 
-    def _repo_relative(resolved: Path, path: str) -> str:
-        candidate = Path(path.strip()).expanduser()
-        if not candidate.is_absolute():
-            candidate = resolved / candidate
-        try:
-            return confine_to_root(candidate, resolved).relative_to(resolved).as_posix()
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail="Code paths must stay inside the selected project.") from exc
-
-    @app.get("/v1/code-map/relationships", tags=["code-map"], dependencies=[Depends(verify_api_key)])
-    def get_code_map_relationships(
-        path: str | None = Query(default=None, max_length=4096),
-        symbol_id: str | None = Query(default=None, max_length=240),
-        project_root: str | None = Query(default=None),
-    ) -> dict[str, Any]:
-        """Used by / Uses for one file or one symbol, from the shared provider."""
-
-        from lemoncrow.core.service import code_map, code_surface
+    @app.get("/v1/code-map/full", tags=["code-map"], dependencies=[Depends(verify_api_key)])
+    def get_code_map_full(project_root: str | None = Query(default=None)) -> dict[str, Any]:
+        from lemoncrow.core.service import code_map
 
         engine, resolved = _code_map_context(project_root)
-        provider = _code_provider(resolved, engine)
-        if symbol_id:
-            try:
-                symbol = code_map.symbol_row(engine, symbol_id)
-            except LookupError as exc:
-                raise HTTPException(status_code=404, detail=str(exc)) from exc
-            return code_surface.symbol_relationships(provider, engine, resolved, symbol)
-        if not path:
-            raise HTTPException(status_code=400, detail="Pass a file path or a symbol id.")
-        return code_surface.file_relationships(provider, _repo_relative(resolved, path))
-
-    @app.get("/v1/code-map/modules", tags=["code-map"], dependencies=[Depends(verify_api_key)])
-    def get_code_map_modules(project_root: str | None = Query(default=None)) -> dict[str, Any]:
-        """Module overview: modules, counts, and module-to-module dependencies."""
-
-        from lemoncrow.core.service import code_surface
-
-        engine, resolved = _code_map_context(project_root)
-        provider = _code_provider(resolved, engine)
-        return code_surface.modules_overview(
-            provider,
-            engine,
-            resolved,
-            _code_paths(engine, resolved),
-            code_surface.uncommitted_files(resolved),
-        )
-
-    @app.get("/v1/code-map/focus", tags=["code-map"], dependencies=[Depends(verify_api_key)])
-    def get_code_map_focus(
-        level: Literal["module", "file", "symbol"] = Query(default="file"),
-        id: str = Query(default="", max_length=4096),
-        project_root: str | None = Query(default=None),
-    ) -> dict[str, Any]:
-        """One subject's lanes (used by, subject, uses) as a map payload."""
-
-        from lemoncrow.core.service import code_map, code_surface
-
-        engine, resolved = _code_map_context(project_root)
-        provider = _code_provider(resolved, engine)
-        changed = code_surface.uncommitted_files(resolved)
-        try:
-            if level == "module":
-                module = id.strip().strip("/")
-                return code_surface.module_focus(provider, resolved, module, _code_paths(engine, resolved), changed)
-            if level == "symbol":
-                symbol = code_map.symbol_row(engine, id)
-                return code_surface.symbol_focus(provider, engine, resolved, symbol, changed)
-            if not id.strip():
-                raise HTTPException(status_code=400, detail="Pass the file path to focus.")
-            return code_surface.file_focus(provider, engine, resolved, _repo_relative(resolved, id), changed)
-        except LookupError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    @app.get("/v1/code-map/file-changes", tags=["code-map"], dependencies=[Depends(verify_api_key)])
-    def get_code_map_file_changes(
-        path: str = Query(min_length=1, max_length=4096),
-        project_root: str | None = Query(default=None),
-    ) -> dict[str, Any]:
-        """Uncommitted line ranges of one file, for the Source gutter."""
-
-        from lemoncrow.core.service import code_surface
-
-        _engine, resolved = _code_map_context(project_root)
-        return code_surface.changed_line_ranges(resolved, _repo_relative(resolved, path))
-
-    @app.get("/v1/code-map/changes", tags=["code-map"], dependencies=[Depends(verify_api_key)])
-    def get_code_map_changes(project_root: str | None = Query(default=None)) -> dict[str, Any]:
-        """Uncommitted files grouped by the agent session that edited them."""
-
-        from lemoncrow.core.service import code_surface
-
-        _engine, resolved = _code_map_context(project_root)
-        return code_surface.changes_by_session(store_path, resolved)
-
-    @app.get("/v1/code-map/hotspots", tags=["code-map"], dependencies=[Depends(verify_api_key)])
-    def get_code_map_hotspots(project_root: str | None = Query(default=None)) -> dict[str, Any]:
-        """Files agents re-edited most this week, from recorded edits only."""
-
-        from lemoncrow.core.service import code_surface
-
-        engine, resolved = _code_map_context(project_root)
-        return code_surface.edit_hotspots(store_path, resolved, _code_paths(engine, resolved))
-
-    @app.post("/v1/code-map/module-purpose", tags=["code-map"], dependencies=[Depends(verify_api_key)])
-    def post_code_map_module_purpose(payload: CodeMapModulePurposeRequest) -> dict[str, Any]:
-        """Generate one labelled purpose line for a module, on the reader's request."""
-
-        from lemoncrow.core.service import code_surface
-
-        engine, resolved = _code_map_context(payload.project_root, lite=False)
-        try:
-            return code_surface.generate_module_purpose(
-                engine, resolved, payload.module.strip().strip("/"), _code_paths(engine, resolved)
-            )
-        except LookupError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except code_surface.PurposeUnavailable as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return code_map.build_full_graph(engine, resolved)
 
     @app.get("/v1/code-map/files", tags=["code-map"], dependencies=[Depends(verify_api_key)])
-    def get_code_map_files(
-        project_root: str | None = Query(default=None),
-        include_ignored: bool = Query(default=False),
-    ) -> dict[str, Any]:
+    def get_code_map_files(project_root: str | None = Query(default=None)) -> dict[str, Any]:
         from lemoncrow.core.service import code_map
 
         engine, resolved = _code_map_context(project_root)
-        return code_map.list_file_nodes(engine, resolved, include_ignored=include_ignored)
+        return code_map.list_file_nodes(engine, resolved)
 
     @app.get("/v1/code-map/file-content", tags=["code-map"], dependencies=[Depends(verify_api_key)])
     def get_code_map_file_content(
@@ -7988,17 +7372,30 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         limit: int = Query(default=60, ge=1),
     ) -> dict[str, Any]:
         from lemoncrow.core.service import code_map
-        from lemoncrow.core.service.code_map_lite import LiteCodeMapEngine
 
         engine, _ = _code_map_context(project_root)
-        if isinstance(engine, LiteCodeMapEngine):
-            # Import-level links are not references; precise ones need the private engine.
-            raise HTTPException(
-                status_code=501,
-                detail="Precise references need LemonCrow Hosted; this index records import-level relationships only.",
-            )
         try:
             return code_map.find_references(engine, symbol_id, limit=min(limit, 120))
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/v1/code-map/neighborhood", tags=["code-map"], dependencies=[Depends(verify_api_key)])
+    def get_code_map_neighborhood(
+        symbol_id: str = Query(min_length=1, max_length=240),
+        project_root: str | None = Query(default=None),
+        depth: int = Query(default=1, ge=1),
+        limit: int = Query(default=80, ge=4),
+    ) -> dict[str, Any]:
+        from lemoncrow.core.service import code_map
+
+        engine, _ = _code_map_context(project_root)
+        try:
+            return code_map.build_neighborhood(
+                engine,
+                symbol_id,
+                depth=min(depth, 2),
+                limit=min(limit, 160),
+            )
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -8049,7 +7446,6 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
                 line=payload.line,
                 column=payload.column,
                 repo_root=resolved,
-                editor_id=payload.editor,
             )
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -8068,34 +7464,6 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
 
         try:
             resolved = code_map.resolve_project_root(payload.project_root)
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        scope_paths: tuple[str, ...] = ()
-        review_scope = ""
-        scope_session = ""
-        scope_title = ""
-        if payload.session:
-            from lemoncrow.core.service import code_surface
-
-            changes = code_surface.changes_by_session(store_path, resolved)
-            match = next((row for row in changes["sessions"] if row["id"] == payload.session), None)
-            if match is None:
-                raise HTTPException(
-                    status_code=409,
-                    detail="That session has no uncommitted edits recorded in this worktree. Refresh Code and retry.",
-                )
-            scope_paths = tuple(match["files"])
-            scope_session = str(match["session_id"])
-            review_scope = "session:" + re.sub(r"[^A-Za-z0-9._:@/-]", "-", str(match["id"]))[:180]
-            label = str(match["title"] or "").strip()
-            scope_title = f"{match['host'] or 'Agent'} session: {label}" if label else ""
-        elif payload.paths:
-            import hashlib
-
-            scope_paths = tuple(sorted({_repo_relative(resolved, path) for path in payload.paths}))
-            digest = hashlib.sha1("\0".join(scope_paths).encode("utf-8", errors="surrogateescape")).hexdigest()[:16]
-            review_scope = f"paths:{digest}"
-        try:
             review_range = resolve_rev_range(resolved)
             client_config = load_client_config(cwd=resolved)
             captured = capture_server_review(
@@ -8103,14 +7471,11 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
                 resolved,
                 review_range,
                 store_root=store_path,
-                session_id=scope_session or None,
+                session_id=None,
                 limit=40,
                 with_impact=True,
                 with_provenance=True,
-                advance_claimed_binding=not review_scope,
-                title_override=scope_title,
-                paths=scope_paths,
-                review_scope=review_scope,
+                advance_claimed_binding=True,
             )
         except ClientError as exc:
             raise HTTPException(status_code=502, detail=str(exc.message)) from exc
@@ -8135,92 +7500,6 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             "revision_created": bool(captured.response.get("revision_created")),
         }
 
-    @app.get("/v1/code-map/ask/options", tags=["code-map"], dependencies=[Depends(verify_api_key)])
-    def get_code_map_ask_options() -> dict[str, str]:
-        from lemoncrow.pro.capabilities.review.intelligence_policy import ask_route_options
-
-        # The route the effective intelligence policy resolves (what Ask will run), with its status.
-        return ask_route_options()
-
-    @app.post("/v1/code-map/ask/stream", tags=["code-map"], dependencies=[Depends(verify_api_key)])
-    async def post_code_map_ask_stream(payload: CodeMapAskRequest) -> Any:
-        import asyncio
-        from collections.abc import AsyncIterator
-
-        from fastapi.responses import StreamingResponse
-
-        from lemoncrow.core.service import code_map
-        from lemoncrow.core.service.code_ask import answer_code_ask
-
-        try:
-            resolved = code_map.resolve_project_root(payload.project_root)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        event_loop = asyncio.get_running_loop()
-        deltas: asyncio.Queue[str] = asyncio.Queue()
-
-        def on_delta(chunk: str) -> None:
-            if chunk:
-                event_loop.call_soon_threadsafe(deltas.put_nowait, chunk)
-
-        async def events() -> AsyncIterator[bytes]:
-            def line(event: dict[str, Any]) -> bytes:
-                return (json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
-
-            yield line({"type": "accepted", "driver": payload.driver, "model": payload.model})
-            task = asyncio.create_task(
-                asyncio.to_thread(
-                    answer_code_ask,
-                    root=resolved,
-                    path=payload.path,
-                    question=payload.question.strip(),
-                    line=payload.line,
-                    end_line=payload.end_line,
-                    symbol=payload.symbol,
-                    selected_text=payload.selected_text,
-                    mentioned_paths=payload.mentioned_paths,
-                    attachments=[item.model_dump() for item in payload.attachments],
-                    history=[item.model_dump() for item in payload.history],
-                    backend=None if payload.driver == "configured" else payload.driver,
-                    model=payload.model or None,
-                    on_delta=on_delta,
-                )
-            )
-            started = event_loop.time()
-            while not task.done() or not deltas.empty():
-                try:
-                    chunk = await asyncio.wait_for(deltas.get(), timeout=1.0)
-                except TimeoutError:
-                    if not task.done():
-                        yield line(
-                            {
-                                "type": "working",
-                                "elapsed_ms": int((event_loop.time() - started) * 1000),
-                                "driver": payload.driver,
-                                "model": payload.model,
-                            }
-                        )
-                    continue
-                chunks = [chunk]
-                while not deltas.empty():
-                    chunks.append(deltas.get_nowait())
-                yield line({"type": "delta", "text": "".join(chunks)})
-            try:
-                result = task.result()
-            except (ValueError, OSError) as exc:
-                yield line({"type": "error", "status": 400, "detail": str(exc)})
-                return
-            except Exception as exc:
-                yield line({"type": "error", "status": 500, "detail": str(exc)})
-                return
-            yield line({"type": "result", "result": result})
-
-        return StreamingResponse(
-            events(),
-            media_type="application/x-ndjson",
-            headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
-        )
-
     @app.post("/v1/code-map/agent-handoff", tags=["code-map"], dependencies=[Depends(verify_api_key)])
     def post_code_map_agent_handoff(payload: CodeMapAgentHandoffRequest) -> dict[str, Any]:
         from lemoncrow.core.service import code_map
@@ -8229,7 +7508,7 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             direct_delivery_supported,
         )
 
-        _engine, resolved = _code_map_context(payload.project_root, lite=False)
+        engine, resolved = _code_map_context(payload.project_root)
 
         requested_path = payload.path.strip()
         candidate_path = Path(requested_path).expanduser()
@@ -8338,17 +7617,14 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
                 "message": message,
             }
 
-        sessions = code_map.activity_sessions(Path(cfg.lemoncrow_root), resolved)
-        chosen = next(
-            (
-                row
-                for row in sessions
-                if payload.expected_session_id and row["session_id"] == payload.expected_session_id
-            ),
-            sessions[0] if sessions else None,
+        activity = code_map.recent_activity(
+            Path(cfg.lemoncrow_root),
+            resolved,
+            limit=1,
+            engine=engine,
         )
-        session_id = str(chosen["session_id"] if chosen else "").strip()
-        host = str(chosen["host"] if chosen else "").strip().lower()
+        session_id = str(activity.get("session_id") or "").strip()
+        host = str(activity.get("host") or "").strip().lower()
         if not session_id or not host:
             raise HTTPException(status_code=409, detail="No exact coding-agent session is available for this project.")
         if payload.expected_session_id and payload.expected_session_id != session_id:
@@ -8377,7 +7653,6 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
         project_root: str | None = Query(default=None),
         after: str | None = Query(default=None, max_length=80),
         limit: int = Query(default=60, ge=1),
-        session: str | None = Query(default=None, max_length=300),
     ) -> dict[str, Any]:
         from lemoncrow.core.service import code_map
         from lemoncrow.pro.capabilities.review.delivery import direct_delivery_supported
@@ -8389,7 +7664,6 @@ def create_app(store_root: str | Path | None = None, store: StoreBundle | None =
             after=after,
             limit=min(limit, 200),
             engine=engine,
-            session=session,
         )
         host = str(payload.get("host") or "").strip().lower()
         payload["handoff_supported"] = bool(payload.get("session_id") and host and direct_delivery_supported(host))
@@ -8429,89 +7703,6 @@ def _is_loopback(host: str) -> bool:
     return host.strip().lower() in _LOOPBACK_HOSTS
 
 
-def service_loopback_hosts(port: int) -> frozenset[str]:
-    """Exact ``Host`` values a loopback-bound service answers to."""
-
-    return frozenset({f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"})
-
-
-def ensure_service_api_key() -> str:
-    """Read, or mint once, the 0600 bearer for the HTTP service."""
-
-    import secrets
-    import stat
-
-    path = service_token_path()
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600)
-    except FileExistsError:
-        info = path.lstat()
-        if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077:
-            raise RuntimeError(f"{path} must be a regular file readable only by its owner (chmod 600)") from None
-        token = path.read_text(encoding="utf-8").strip()
-        if len(token) >= 32:
-            return token
-        raise RuntimeError(f"{path} holds no usable API key; delete it to mint a new one") from None
-    token = secrets.token_urlsafe(32)
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        handle.write(token + "\n")
-    return token
-
-
-class _ServiceHostGuard:
-    """Refuse requests whose ``Host`` is not this loopback listener (DNS rebinding)."""
-
-    __slots__ = ("_allowed", "_app")
-
-    def __init__(self, app: Any, allowed: frozenset[str]) -> None:
-        self._app = app
-        self._allowed = allowed
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._app, name)
-
-    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
-        if scope.get("type") in {"http", "websocket"}:
-            host = ""
-            for key, value in scope.get("headers") or ():
-                if key == b"host":
-                    host = value.decode("latin-1").strip().lower()
-                    break
-            if host not in self._allowed:
-                if scope["type"] == "websocket":
-                    await send({"type": "websocket.close", "code": 1008})
-                    return
-                body = b'{"detail":"Host header is not this LemonCrow service"}'
-                await send(
-                    {
-                        "type": "http.response.start",
-                        "status": 421,
-                        "headers": [
-                            (b"content-type", b"application/json"),
-                            (b"content-length", str(len(body)).encode("ascii")),
-                        ],
-                    }
-                )
-                await send({"type": "http.response.body", "body": body})
-                return
-        await self._app(scope, receive, send)
-
-
-def create_service_app() -> Any:
-    """The ``lc service start`` listener: :func:`create_app` behind a Host guard.
-
-    The in-process Dashboard embedding calls :func:`create_app` directly; only
-    the standalone HTTP listener needs DNS-rebinding protection. A non-loopback
-    bind is reached by name, so it relies on its (always required) bearer.
-    """
-
-    app = create_app()
-    if _is_loopback(cfg.host):
-        return _ServiceHostGuard(app, service_loopback_hosts(cfg.port))
-    return app
-
-
 def main(
     host: str | None = None,
     port: int | None = None,
@@ -8520,7 +7711,7 @@ def main(
 ) -> None:
     """Launch the service with uvicorn.
 
-    Used by ``lc rt service start`` CLI command and the ``lemoncrow-service``
+    Used by ``lc service start`` CLI command and the ``lemoncrow-service``
     entrypoint.
 
     Binding a non-loopback interface fails closed: auth is required (requests
@@ -8540,29 +7731,26 @@ def main(
     # LEMONCROW_REQUIRE_AUTH still wins in either direction.
     os.environ["LEMONCROW_SERVICE_HOST"] = _host
     os.environ["LEMONCROW_SERVICE_PORT"] = str(_port)
-    # Loopback is not a trust boundary: any local process, a DNS-rebinding page
-    # or a reviewed PR's web preview can reach it. The HTTP listener therefore
-    # requires a bearer on every bind unless the operator explicitly opts out.
-    os.environ.setdefault("LEMONCROW_REQUIRE_AUTH", "true")
 
-    if not cfg.require_auth:
-        sys.stderr.write(
-            f"\nWarning: LEMONCROW_REQUIRE_AUTH was explicitly disabled for host={_host!r}.\n"
-            "Any local process or web page that reaches this port can drive the service.\n"
-            "Remove the LEMONCROW_REQUIRE_AUTH override to require the service API key.\n"
-        )
-    elif not cfg.api_key:
-        try:
-            os.environ["LEMONCROW_API_KEY"] = ensure_service_api_key()
-        except (OSError, RuntimeError) as exc:
-            raise SystemExit(f"Could not prepare the service API key: {exc}") from exc
-        sys.stderr.write(
-            f"LemonCrow service API key: {service_token_path()} (send it as 'Authorization: Bearer <key>'; "
-            "LemonCrow clients read it automatically).\n"
-        )
+    if not _is_loopback(_host):
+        if not cfg.require_auth:
+            sys.stderr.write(
+                f"\nWarning: host={_host!r} is non-loopback and LEMONCROW_REQUIRE_AUTH "
+                "was explicitly disabled.\n"
+                "Local memory, traces, and configuration will be exposed to the network.\n"
+                "Remove the LEMONCROW_REQUIRE_AUTH override and set "
+                "LEMONCROW_API_KEY=<a-long-random-secret> for authenticated access.\n"
+            )
+        elif not cfg.api_key:
+            sys.stderr.write(
+                f"\nNote: host={_host!r} is non-loopback, so auth is required, "
+                "but LEMONCROW_API_KEY is empty.\n"
+                "All protected routes will return 503 until "
+                "LEMONCROW_API_KEY=<a-long-random-secret> is set.\n"
+            )
 
     uvicorn.run(
-        "lemoncrow.core.service.api:create_service_app",
+        "lemoncrow.core.service.api:create_app",
         factory=True,
         host=_host,
         port=_port,

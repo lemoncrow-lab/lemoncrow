@@ -119,13 +119,12 @@ def candidate_session_ids(root: Path) -> list[str]:
     no report is built, because this only has to answer "which ids exist".
     """
 
+    from lemoncrow.infra.runtime.session_report import list_run_files
+
     root = Path(root)
     ids: set[str] = set()
-    # Resolve identity from the filesystem shape, not from parsed snapshots. A
-    # corrupt run.json still proves that a session directory exists and should
-    # resolve to a degraded report rather than being misreported as "no run".
     try:
-        for run_path in (root / "sessions").glob("**/run.json"):
+        for run_path in list_run_files(root):
             name = run_path.parent.name
             if name:
                 ids.add(name)

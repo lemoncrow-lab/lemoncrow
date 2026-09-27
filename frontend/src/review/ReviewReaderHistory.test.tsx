@@ -5,19 +5,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import ReviewReader from "./ReviewReader";
 
-vi.mock("./reviewEnvironment", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./reviewEnvironment")>();
-  const local = actual.fallbackReviewEnvironment("local");
-  return {
-    ...actual,
-    useReviewEnvironment: () => ({
-      ...local,
-      discovered: true,
-      review: { ...local.review, brief: false },
-    }),
-  };
-});
-
 const api = vi.hoisted(() => ({
   fetchHistoricalOverview: vi.fn(),
   fetchHistoricalTargets: vi.fn(),
@@ -25,14 +12,11 @@ const api = vi.hoisted(() => ({
   fetchHistoricalFile: vi.fn(),
   fetchHistoricalReviewJournal: vi.fn(),
   fetchOverview: vi.fn(),
-  fetchStartupOverview: vi.fn(),
   fetchReviewJournal: vi.fn(),
   fetchReviewDevelopment: vi.fn(),
   fetchHistoricalReviewDevelopment: vi.fn(),
-  nextLiveState: vi.fn(),
+  fetchReviewLiveState: vi.fn(),
   fetchTargets: vi.fn(),
-  fetchStartupTargets: vi.fn(),
-  fetchTargetsForPath: vi.fn(),
   fetchAnnotations: vi.fn(),
   fetchFile: vi.fn(),
   fetchRevisionLocator: vi.fn(),
@@ -54,7 +38,6 @@ const api = vi.hoisted(() => ({
   createChangeProposal: vi.fn(),
   applyChangeProposal: vi.fn(),
   postMark: vi.fn(),
-  fetchFixLines: vi.fn(),
 }));
 
 vi.mock("./ReviewStream", async () => {
@@ -72,7 +55,6 @@ vi.mock("./ReviewStream", async () => {
 });
 
 vi.mock("./reviewApi", () => ({
-  authenticatedFetch: vi.fn(async () => Response.json({ notes: [] })),
   adoptBootstrapFragment: () => ({ token: "t", reviewId: "rev-history" }),
   selectReviewId: vi.fn(),
   reviewDirectoryHref: () => "/reviews#t=t",
@@ -88,27 +70,12 @@ vi.mock("./reviewApi", () => ({
   fetchHistoricalFile: api.fetchHistoricalFile,
   fetchHistoricalReviewJournal: api.fetchHistoricalReviewJournal,
   fetchOverview: api.fetchOverview,
-  fetchStartupOverview: api.fetchStartupOverview,
   fetchReviewJournal: api.fetchReviewJournal,
   fetchReviewDevelopment: api.fetchReviewDevelopment,
   fetchHistoricalReviewDevelopment: api.fetchHistoricalReviewDevelopment,
   fetchReviewDevelopmentEvents: vi.fn(async () => ({ events: [], next_before: null })),
-  nextLiveState: api.nextLiveState,
-  subscribeLiveState: (_id: string, onState: (state: any) => Promise<void>) => {
-    let live = true;
-    const feed = async () => {
-      while (live) {
-        const state = await api.nextLiveState();
-        if (!live) return;
-        try { await onState(state); } catch { /* reconnect from fresh authoritative state */ }
-      }
-    };
-    void feed();
-    return () => { live = false; };
-  },
+  fetchReviewLiveState: api.fetchReviewLiveState,
   fetchTargets: api.fetchTargets,
-  fetchStartupTargets: api.fetchStartupTargets,
-  fetchTargetsForPath: api.fetchTargetsForPath,
   fetchAnnotations: api.fetchAnnotations,
   fetchFile: api.fetchFile,
   fetchRevisionLocator: api.fetchRevisionLocator,
@@ -122,18 +89,6 @@ vi.mock("./reviewApi", () => ({
   fetchReviewOutcome: api.fetchReviewOutcome,
   fetchReviewSurfaces: api.fetchReviewSurfaces,
   fetchSourceState: api.fetchSourceState,
-  subscribeSourceState: (_id: string, onState: (state: any) => void, retryMs = 2000) => {
-    let live = true;
-    let timer = 0;
-    const feed = async () => {
-      const state = await api.fetchSourceState();
-      if (!live) return;
-      onState(state);
-      timer = window.setTimeout(() => void feed(), retryMs);
-    };
-    void feed();
-    return () => { live = false; window.clearTimeout(timer); };
-  },
   fetchChangeProposals: api.fetchChangeProposals,
   fetchProposalSelection: api.fetchProposalSelection,
   fetchReviewPreparation: api.fetchReviewPreparation,
@@ -143,7 +98,6 @@ vi.mock("./reviewApi", () => ({
   fetchHistoricalRelatedSource: vi.fn(),
   postMark: api.postMark,
   postBulkReviewed: vi.fn(),
-  undoBulkReviewed: vi.fn(),
   postRefresh: vi.fn(),
   postReviewOutcome: vi.fn(),
   postAnnotation: vi.fn(),
@@ -156,7 +110,6 @@ vi.mock("./reviewApi", () => ({
   uploadReviewEvidence: vi.fn(),
   linkReviewEvidence: vi.fn(),
   runReviewSurface: vi.fn(),
-  fetchFixLines: api.fetchFixLines,
 }));
 
 const target = {
@@ -212,18 +165,12 @@ describe("ReviewReader historical route", () => {
     vi.clearAllMocks();
     window.history.replaceState(null, "", "/");
     api.fetchHistoricalOverview.mockResolvedValue(overview);
-    api.fetchStartupOverview.mockImplementation((id: string) => api.fetchOverview(id));
     api.fetchHistoricalTargets.mockResolvedValue({ revision_id: "11111111111171118111111111111111", historical: true, order: "recommended", targets: [target], progress: overview.progress, outline: overview.outline });
-    api.fetchStartupTargets.mockImplementation((id: string, order?: "recommended" | "file") => api.fetchTargets(id, order));
-    api.fetchTargetsForPath.mockImplementation((id: string, _path: string, order?: "recommended" | "file") => api.fetchTargets(id, order));
     api.fetchHistoricalAnnotations.mockResolvedValue({ revision_id: "11111111111171118111111111111111", historical: true, annotations: [], counts: {} });
     api.fetchHistoricalFile.mockResolvedValue({ path: "src/app.py", status: "modified", language: "py", additions: 1, deletions: 0, patch: "diff --git a/src/app.py b/src/app.py\n@@ -1 +1 @@\n-old\n+historical\n", renderable: true, refusal: "", detail: "", symbols: [], provenance: overview.provenance, evidence: [], degraded: [] });
     api.fetchHistoricalReviewJournal.mockResolvedValue({ available: false, reason: "", review_id: overview.session.id, revision_id: overview.revision.id, revision_number: overview.revision.revision_number, session_id: "", host: "", entries: [] });
-    api.fetchHistoricalReviewDevelopment.mockResolvedValue(null);
-    api.fetchReviewDevelopment.mockResolvedValue(null);
     api.fetchReviewJournal.mockResolvedValue({ available: false, reason: "", review_id: overview.session.id, revision_id: overview.latest_revision.id, revision_number: overview.latest_revision.revision_number, session_id: "", host: "", entries: [] });
-    api.fetchFixLines.mockResolvedValue({ fix_lines: [], fix_of: null });
-    api.nextLiveState.mockImplementation(() => new Promise(() => {}));
+    api.fetchReviewLiveState.mockImplementation(() => new Promise(() => {}));
     api.fetchReviewPreparation.mockResolvedValue({ state: "ready", detail: "" });
     api.fetchReviewEvidence.mockResolvedValue({ evidence: [] });
     api.fetchReviewSurfaces.mockResolvedValue({ surfaces: [] });
@@ -342,7 +289,7 @@ describe("ReviewReader historical route", () => {
     api.fetchReviewOutcome.mockResolvedValue({ current: null });
     api.fetchReviewSurfaces.mockResolvedValue({ surfaces: [] });
     api.fetchChangeProposals.mockResolvedValue({ revision_id: latest.revision.id, source_mutation_supported: false, proposals: [] });
-    api.fetchSourceState.mockResolvedValue({ supported: true, changed: true, settled: true, fingerprint: "worktree-ahead", path_count: 3, paths: ["a", "b", "c"], reason: "" });
+    api.fetchSourceState.mockResolvedValue({ supported: true, changed: true, fingerprint: "worktree-ahead", path_count: 3, paths: ["a", "b", "c"], reason: "" });
     api.fetchReviewJournal.mockResolvedValue({ available: true, reason: "", review_id: latest.session.id, revision_id: latest.revision.id, revision_number: 2, session_id: "", host: "", entries: [] });
 
     render(
@@ -356,7 +303,7 @@ describe("ReviewReader historical route", () => {
     await waitFor(() => expect(api.fetchOverview).toHaveBeenCalledWith(latest.session.id));
     await waitFor(() => expect(screen.queryByTestId("historical-revision-banner")).toBeNull());
     await waitFor(() => expect(api.fetchSourceState.mock.calls.length).toBeGreaterThanOrEqual(2));
-    expect(await screen.findByRole("button", { name: "Capture current source" })).toBeTruthy();
+    expect(await screen.findByText("New Snapshot available")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "Capture current source" }).length).toBeGreaterThanOrEqual(1);
   });
 

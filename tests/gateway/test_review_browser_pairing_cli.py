@@ -69,26 +69,3 @@ def test_hosted_open_does_not_use_local_pairing(monkeypatch: pytest.MonkeyPatch)
     )
 
     assert opened == ["https://lemoncrow.example/reviews/r-12345678"]
-
-
-def test_console_open_arms_the_local_origin_only(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
-    """`lc dashboard open` / `lc map --web` pair before opening (SL-1)."""
-
-    from lemoncrow.gateway.cli.commands.review import arm_local_browser_url
-    from lemoncrow.pro.capabilities.review import hosted as review_server
-
-    paired: list[str] = []
-    monkeypatch.setattr(
-        review_server,
-        "pair_local_review_browser",
-        lambda _config, path: paired.append(path) or {"state": "armed"},
-    )
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("LEMONCROW_URL", "http://127.0.0.1:7420")
-    monkeypatch.setenv("LEMONCROW_TOKEN", "lc_local_machine_token_0123456789")
-
-    arm_local_browser_url("http://127.0.0.1:7420/")
-    arm_local_browser_url("http://127.0.0.1:7420/code?repo=/x")
-    arm_local_browser_url("http://127.0.0.1:9999/")  # another origin: never armed
-
-    assert paired == ["/", "/code"]

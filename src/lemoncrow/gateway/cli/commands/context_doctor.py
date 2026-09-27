@@ -74,7 +74,7 @@ _DECLARED_WIDTH = 13
 _USED_WIDTH = 8
 
 
-@click.group("context", short_help="What your agent context declares vs. what sessions use.")
+@click.group("context")
 def context_group() -> None:
     """Inspect what your agent context declares, and what your sessions use."""
     # "is actually spending" promised a measured spend on the one surface whose
@@ -266,10 +266,7 @@ def _render_doctor_table(
         key=lambda pair: (-(pair[1] if pair[1] is not None else -1.0), -pair[0].est_context_tokens, pair[0].name),
     )
 
-    def dim(text: str) -> str:
-        return text if no_color else click.style(text, dim=True)
-
-    lines = [dim(f"{'SOURCE':<{_SOURCE_WIDTH}} {'DECLARED':>{_DECLARED_WIDTH}} {'USED':>{_USED_WIDTH}}    ACTION")]
+    lines = [f"{'SOURCE':<{_SOURCE_WIDTH}} {'DECLARED':>{_DECLARED_WIDTH}} {'USED':>{_USED_WIDTH}}    ACTION"]
     for item, pct in ordered:
         declared = f"~{item.est_context_tokens:,} tok"
         used = "—" if pct is None else f"{pct:.0f}%"
@@ -286,20 +283,19 @@ def _render_doctor_table(
     lines.append("")
     if sessions:
         lines.append(f"Observed over {len(sessions)} session{'' if len(sessions) == 1 else 's'}.")
-        lines.append(dim("USED = share of those sessions with at least one matching tool call."))
+        lines.append("USED = share of those sessions with at least one matching tool call.")
     else:
         window = "the look-back window" if days is None else f"the last {days} day{'' if days == 1 else 's'}"
         lines.append(
-            f"0 sessions observed in {window} -- USED is unknown, not zero, so no ACTION is recommended for any row."
+            f"0 sessions observed in {window} -- USED is unknown, not zero, " "so no ACTION is recommended for any row."
         )
-    lines.append(dim(_DECLARED_LEGEND))
+    lines.append(_DECLARED_LEGEND)
 
     flagged = [item for item, pct in ordered if pct == 0.0 and item.est_context_tokens >= threshold]
     if flagged:
         wasted = sum(item.est_context_tokens for item in flagged)
-        mark = "⚠" if no_color else click.style("⚠", fg="yellow")
         lines.append(
-            f"{mark} {len(flagged)} unused source{'' if len(flagged) == 1 else 's'} "
+            f"{len(flagged)} unused source{'' if len(flagged) == 1 else 's'} "
             f"≥{threshold:,} declared tok -- {wasted:,} declared tok/turn recoverable if disabled."
         )
 

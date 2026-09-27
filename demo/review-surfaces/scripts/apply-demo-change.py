@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import argparse
-import shutil
 from pathlib import Path
+import shutil
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -12,13 +11,13 @@ ROOT = Path(__file__).resolve().parents[1]
 REPLACEMENTS = [
     (
         "README.md",
-        "A compact billing and collaboration application used to exercise LemonCrow Review's built-in product surfaces and runtimes.",
-        "A compact billing and collaboration application used by LemonCrow Cloud across product surfaces and runtimes.",
+        "A deliberately small application that exercises LemonCrow Review's built-in review surfaces and runtimes.",
+        "A deliberately small application that demonstrates LemonCrow Review across product surfaces and runtimes.",
     ),
     (
         "docs/architecture.md",
-        "The product has two application processes and two review-only verification paths.",
-        "The product has two application processes, two review-only verification paths, and one intentionally shared runtime model.",
+        "The demo has two product processes and two review-only verification paths.",
+        "The demo has two product processes, two review-only verification paths, and one intentionally shared runtime model.",
     ),
     # Frontend, large: /pricing gets a featured plan, a price change, and a new plan.
     (
@@ -117,25 +116,14 @@ REPLACEMENTS = [
     (
         "compose.yml",
         'PORT: "8000"',
-        'PORT: "8000"\n      APP_REVISION: "reviewed"',
+        'PORT: "8000"\n      DEMO_REVISION: "reviewed"',
     ),
 ]
 
 
-INITIAL_PATHS = frozenset({"README.md", "docs/architecture.md"})
-
-
 def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--phase", choices=("initial", "final", "all"), default="all")
-    args = parser.parse_args()
-
     changed: set[str] = set()
     for relative, before, after in REPLACEMENTS:
-        if args.phase == "initial" and relative not in INITIAL_PATHS:
-            continue
-        if args.phase == "final" and relative in INITIAL_PATHS:
-            continue
         path = ROOT / relative
         text = path.read_text(encoding="utf-8")
         if after in text:
@@ -145,18 +133,17 @@ def main() -> None:
         path.write_text(text.replace(before, after, 1), encoding="utf-8")
         changed.add(relative)
 
-    if args.phase != "initial":
-        media_after = ROOT / ".fixtures" / "media" / "after"
-        media_target = ROOT / "media"
-        media_target.mkdir(parents=True, exist_ok=True)
-        for source in sorted(media_after.iterdir()):
-            if not source.is_file():
-                continue
-            target = media_target / source.name
-            shutil.copyfile(source, target)
-            changed.add(target.relative_to(ROOT).as_posix())
+    media_after = ROOT / ".fixtures" / "media" / "after"
+    media_target = ROOT / "media"
+    media_target.mkdir(parents=True, exist_ok=True)
+    for source in sorted(media_after.iterdir()):
+        if not source.is_file():
+            continue
+        target = media_target / source.name
+        shutil.copyfile(source, target)
+        changed.add(target.relative_to(ROOT).as_posix())
 
-    print(f"Applied demo review change ({args.phase}):")
+    print("Applied demo review change:")
     for relative in sorted(changed):
         print(f"  {relative}")
 

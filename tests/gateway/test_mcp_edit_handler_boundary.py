@@ -1,6 +1,27 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from lemoncrow.gateway.adapters import mcp_server
+from lemoncrow.gateway.adapters.mcp import tools_edit
+from lemoncrow.gateway.tools.registry import tool_spec
+
+
+def test_edit_handler_is_registered_from_extracted_module() -> None:
+    spec = tool_spec("edit")
+    assert spec is not None
+    assert spec["handler"] is tools_edit.tool_smart_edit
+    assert mcp_server.tool_smart_edit is tools_edit.tool_smart_edit
+    assert mcp_server.EDIT_TOOL_INPUT_SCHEMA is tools_edit.EDIT_TOOL_INPUT_SCHEMA
+    assert mcp_server._lift_flattened_edit_args is tools_edit.recover_edit_args
+
+
+def test_mcp_server_no_longer_defines_edit_registration() -> None:
+    repo = Path(__file__).resolve().parents[2]
+    source = (repo / "src/lemoncrow/gateway/adapters/mcp_server.py").read_text(encoding="utf-8")
+    assert 'name="edit"' not in source
+    assert "def tool_smart_edit(" not in source
+    assert "def _lift_flattened_edit_args(" not in source
 
 
 def test_edit_hooks_late_bind_worktree_and_caps(monkeypatch) -> None:

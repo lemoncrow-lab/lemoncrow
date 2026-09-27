@@ -5,7 +5,7 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from lemoncrow.gateway.cli.developer_tools import developer_tools as cli
+from lemoncrow.gateway.cli import cli
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

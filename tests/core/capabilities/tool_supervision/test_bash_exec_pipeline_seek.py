@@ -71,27 +71,30 @@ def test_short_dash_count_form(files: dict[str, Path]) -> None:
     assert (a.rewrite_payload or {}).get("command") == (b.rewrite_payload or {}).get("command")
 
 
-def test_bail_cases_run_untouched(files: dict[str, Path]) -> None:
-    for shape in [
-        "od -A d -t x1 {big} {small} | tail -60",
-        "od -A d -t x1 {small} | tail -60",
-        "od -A d -t x1 {big} | wc -l",
-        "od -A d -t x1 {big} | head -60",
-        "od -A d -w32 -t x1 {big} | tail -60",
-        "od -A d -t x1 -j 100 {big} | tail -60",
-        "od -A d -t x1 -N 500 {big} | tail -60",
-        "od -A d -t x1 {big} | grep 00 | tail -60",
-        "od -A d -t x1 {big} | tail -f",
-        "od -A d -t x1 {big} | tail -c 1k",
-        "od -A d -t x1 {big} > /tmp/pv_out",
-        "od -A d -t x1 {big} | tail -60 ; echo hi",
-        "od -A d -t x1 {big} && tail -60 {big}",
-        "od -A d -t x1 {big}",
-        "cat {big} | tail -60",
-        "hexdump -C {big} | tail -60",
-    ]:
-        cmd = shape.format(big=files["big"], small=files["small"])
-        assert not _is_seek(_rewrote(cmd, files["dir"]))
+@pytest.mark.parametrize(
+    "shape",
+    [
+        "od -A d -t x1 {big} {small} | tail -60",  # multi-file: od concatenates, seek can't
+        "od -A d -t x1 {small} | tail -60",  # below size threshold
+        "od -A d -t x1 {big} | wc -l",  # consumer needs the whole stream
+        "od -A d -t x1 {big} | head -60",  # head already SIGPIPE-aborts od
+        "od -A d -w32 -t x1 {big} | tail -60",  # row geometry override
+        "od -A d -t x1 -j 100 {big} | tail -60",  # already seeking
+        "od -A d -t x1 -N 500 {big} | tail -60",  # already length-limited
+        "od -A d -t x1 {big} | grep 00 | tail -60",  # 3-stage pipeline
+        "od -A d -t x1 {big} | tail -f",  # follow -- not a bounded tail
+        "od -A d -t x1 {big} | tail -c 1k",  # suffixed count -- geometry unclear
+        "od -A d -t x1 {big} > /tmp/pv_out",  # redirect, not a pipe
+        "od -A d -t x1 {big} | tail -60 ; echo hi",  # chained
+        "od -A d -t x1 {big} && tail -60 {big}",  # && not a pipe
+        "od -A d -t x1 {big}",  # not a pipeline at all
+        "cat {big} | tail -60",  # producer isn't od
+        "hexdump -C {big} | tail -60",  # hexdump not handled (only od)
+    ],
+)
+def test_bail_cases_run_untouched(files: dict[str, Path], shape: str) -> None:
+    cmd = shape.format(big=files["big"], small=files["small"])
+    assert not _is_seek(_rewrote(cmd, files["dir"]))
 
 
 def test_glob_operand_not_rewritten(files: dict[str, Path]) -> None:

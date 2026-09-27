@@ -8,10 +8,6 @@ look required even after the loopback-server migration.
 from __future__ import annotations
 
 import json
-import os
-import shutil
-import sys
-from pathlib import Path
 
 import click
 
@@ -48,32 +44,6 @@ def service_config() -> None:
     from lemoncrow.core.service.config import cfg
 
     click.echo(json.dumps(cfg.as_dict(), indent=2))
-
-
-@service_group.command("log")
-@click.option("--follow", "-f", is_flag=True, help="Follow new output after the last 100 lines.")
-def service_log(follow: bool) -> None:
-    """Print the last 100 lines of the local LemonCrow service logs."""
-    supervisor = os.environ.get("LEMONCROW_LOCAL_SERVER_SUPERVISOR", "auto")
-    unit = "lemoncrow-local-server.service"
-    unit_path = Path.home() / ".config" / "systemd" / "user" / unit
-    if supervisor == "systemd" or (supervisor == "auto" and sys.platform.startswith("linux") and unit_path.exists()):
-        cmd = ["journalctl", "--user", "-u", unit, "-n", "100", "--no-pager"]
-    else:
-        home = Path(os.environ.get("LEMONCROW_HOME") or Path.home() / ".lemoncrow").expanduser()
-        state_dir = Path(os.environ.get("LEMONCROW_LOCAL_SERVER_DIR") or home / "server").expanduser()
-        cmd = ["tail", "-n", "100"]
-        if follow:
-            cmd.append("-f")
-        cmd.append(str(state_dir / "server.log"))
-    if follow and cmd[0] == "journalctl":
-        cmd.append("-f")
-    if shutil.which(cmd[0]) is None:
-        raise click.ClickException(f"{cmd[0]} is required to read service logs")
-    try:
-        os.execvp(cmd[0], cmd)
-    except OSError as exc:
-        raise click.ClickException(f"Could not read service logs: {exc}") from exc
 
 
 @click.group("worker")

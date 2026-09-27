@@ -15,18 +15,14 @@ import os
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from lemoncrow.core.foundation.identity import get_anon_id
 from lemoncrow.core.foundation.telemetry_cadence import TELEMETRY_PUSH_INTERVAL_SECONDS
-
-if TYPE_CHECKING:
-    from lemoncrow.core.service.telemetry.config import TelemetryDestination
 
 logger = logging.getLogger("lemoncrow.product.telemetry.public_rollup")
 
@@ -113,15 +109,16 @@ def publish_public_savings_rollup(
     """
 
     try:
-        from lemoncrow.core.service.telemetry.config import auth_headers, resolve_destination
+        from lemoncrow.core.service.telemetry.config import remote_enabled
 
         # Opt-out gate: the public savings rollup is remote telemetry, on by
         # default but suppressed the moment the user disables it
-        # (`lc rt telemetry remote off`, DO_NOT_TRACK=1, LEMONCROW_TELEMETRY=off)
-        # or an administrator policy sets the destination to off. Covers both
-        # the session-end hook and the daily daemon flush.
-        destination = resolve_destination(with_token=True)
-        endpoint = public_rollup_endpoint(destination)
+        # (`lc telemetry remote off`, DO_NOT_TRACK=1, LEMONCROW_TELEMETRY=off).
+        # Covers both the session-end hook and the daily daemon flush.
+        if not remote_enabled():
+            return False
+
+        endpoint = public_rollup_endpoint()
         if not endpoint:
             return False
 
@@ -152,21 +149,20 @@ def publish_public_savings_rollup(
             payload,
             timeout_s=public_rollup_timeout_seconds() if timeout_s is None else max(0.1, float(timeout_s)),
             attempts=max(1, int(attempts)),
-            headers=auth_headers(destination, endpoint),
         )
     except Exception as exc:
         logger.debug("public_rollup.publish_failed", extra={"error": str(exc)})
         return False
 
 
-def public_rollup_endpoint(destination: TelemetryDestination | None = None) -> str:
-    """The savings rollup URL on the telemetry destination; "" when remote
-    telemetry is off. LEMONCROW_PUBLIC_TELEMETRY_ENDPOINT overrides it for local
-    development unless an administrator policy manages the destination.
-    """
-    from lemoncrow.core.service.telemetry.config import ROLLUP_PATH, destination_url, resolve_destination
+def public_rollup_endpoint() -> str:
+    """Return the rollup endpoint URL.
 
-    return destination_url(destination or resolve_destination(), ROLLUP_PATH, "LEMONCROW_PUBLIC_TELEMETRY_ENDPOINT")
+    Override via LEMONCROW_PUBLIC_TELEMETRY_ENDPOINT (useful for self-hosting
+    or local dev).  Falls back to the production endpoint.
+    """
+    raw = os.environ.get("LEMONCROW_PUBLIC_TELEMETRY_ENDPOINT", DEFAULT_PUBLIC_ROLLUP_ENDPOINT).strip()
+    return raw if raw else DEFAULT_PUBLIC_ROLLUP_ENDPOINT
 
 
 def public_rollup_timeout_seconds() -> float:
@@ -276,14 +272,7 @@ def _payload(
     }
 
 
-def _post_json(
-    endpoint: str,
-    payload: dict[str, Any],
-    *,
-    timeout_s: float,
-    attempts: int = 1,
-    headers: dict[str, str] | None = None,
-) -> bool:
+def _post_json(endpoint: str, payload: dict[str, Any], *, timeout_s: float, attempts: int = 1) -> bool:
     data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     # The User-Agent is load-bearing, not cosmetic: the production endpoint
     # sits behind a bot filter that 403s the default `Python-urllib/x.y`.
@@ -293,7 +282,6 @@ def _post_json(
         headers={
             "Content-Type": "application/json",
             "User-Agent": f"lemoncrow/{payload.get('lemoncrow_version', 'unknown')}",
-            **(headers or {}),
         },
         method="POST",
     )
@@ -442,18 +430,18 @@ def _day_midpoint(day: str) -> datetime:
 # ---------------------------------------------------------------------------
 
 
-def _state_path(root: Path, relpath: tuple[str, ...] = _STATE_RELPATH) -> Path:
-    return root.joinpath(*relpath)
+def _state_path(root: Path) -> Path:
+    return root.joinpath(*_STATE_RELPATH)
 
 
-def _lock_path(root: Path, relpath: tuple[str, ...] = _LOCK_RELPATH) -> Path:
-    return root.joinpath(*relpath)
+def _lock_path(root: Path) -> Path:
+    return root.joinpath(*_LOCK_RELPATH)
 
 
-def read_flush_state(root: str | Path, relpath: tuple[str, ...]) -> dict[str, Any]:
+def read_public_rollup_state(root: str | Path) -> dict[str, Any]:
     """Persisted flush state; ``{}`` when absent or unreadable (fail-open:
     a corrupt file must degrade to "flush now", never to "never flush")."""
-    path = _state_path(Path(root), relpath)
+    path = _state_path(Path(root))
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -461,12 +449,8 @@ def read_flush_state(root: str | Path, relpath: tuple[str, ...]) -> dict[str, An
     return payload if isinstance(payload, dict) else {}
 
 
-def read_public_rollup_state(root: str | Path) -> dict[str, Any]:
-    return read_flush_state(root, _STATE_RELPATH)
-
-
-def _write_state(root: Path, payload: dict[str, Any], relpath: tuple[str, ...] = _STATE_RELPATH) -> None:
-    path = _state_path(root, relpath)
+def _write_state(root: Path, payload: dict[str, Any]) -> None:
+    path = _state_path(root)
     with suppress(OSError):
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
@@ -484,11 +468,11 @@ def _parse_iso(value: Any) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
-def _acquire_lock(root: Path, now: datetime, relpath: tuple[str, ...] = _LOCK_RELPATH) -> bool:
+def _acquire_lock(root: Path, now: datetime) -> bool:
     """Best-effort cross-process lock so two hosts/daemons cannot post the same
     day twice. A lock older than ``_LOCK_STALE_SECONDS`` (crashed holder) is
     reclaimed rather than wedging the flush forever."""
-    path = _lock_path(root, relpath)
+    path = _lock_path(root)
     with suppress(OSError):
         path.parent.mkdir(parents=True, exist_ok=True)
     for _ in range(2):
@@ -514,9 +498,9 @@ def _acquire_lock(root: Path, now: datetime, relpath: tuple[str, ...] = _LOCK_RE
     return False
 
 
-def _release_lock(root: Path, relpath: tuple[str, ...] = _LOCK_RELPATH) -> None:
+def _release_lock(root: Path) -> None:
     with suppress(OSError):
-        _lock_path(root, relpath).unlink()
+        _lock_path(root).unlink()
 
 
 def _next_delay_seconds(failures: int) -> int:
@@ -525,35 +509,32 @@ def _next_delay_seconds(failures: int) -> int:
     return int(min(_RETRY_MAX_SECONDS, _RETRY_BASE_SECONDS * (2 ** (failures - 1))))
 
 
-def run_scheduled_flush(
+def maybe_flush_public_rollup(
     root: str | Path,
     *,
-    flush: Callable[[Path, str | None], tuple[dict[str, Any], str | None]],
-    state_relpath: tuple[str, ...],
-    lock_relpath: tuple[str, ...],
     force: bool = False,
     legacy_checkpoint_day: str | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Run a checkpointed daily flush if it is due, and reschedule it durably.
+    """Run the daily flush if it is due, and reschedule it durably.
 
     Owns everything the caller used to own (when to run, what the checkpoint
     is, what to do after a failure) so a flush is safe to trigger from any
-    process -- the local server's maintenance, a worker tick, a CLI command --
-    without two of them double-posting a day.
+    process -- the servicectl tick, a CLI command, a hook -- without two of
+    them double-posting a day.
 
     Scheduling: success -> next attempt in 1 h (``FLUSH_INTERVAL_SECONDS``, so a
-    day that finishes elapsing mid-cycle surfaces within the hour instead of
-    sitting a day behind). Failure -> 15 min, doubling to a 6 h ceiling,
-    because the old "mark it done and try again tomorrow" behaviour turned one
-    dropped POST (a flaky network, a laptop suspending mid-request) into a
-    whole lost day, and a machine that is only awake in bursts could miss the
-    window indefinitely. ``next_attempt_at`` is wall-clock and persisted, so a
-    sleeping laptop simply flushes on wake.
+    day that finishes elapsing mid-cycle surfaces on the public page within
+    the hour instead of sitting a day behind). Failure -> 15 min, doubling to
+    a 6 h ceiling, because the old "mark it done and try again tomorrow"
+    behaviour turned one dropped POST (a flaky network, a laptop suspending
+    mid-request) into a whole lost day, and a machine that is only awake in
+    bursts could miss the window indefinitely. ``next_attempt_at`` is wall-clock
+    and persisted, so a sleeping laptop simply flushes on wake.
     """
     root_path = Path(root)
     now = now or datetime.now(UTC)
-    state = read_flush_state(root_path, state_relpath)
+    state = read_public_rollup_state(root_path)
     checkpoint_day = state.get("checkpoint_day")
     if not isinstance(checkpoint_day, str) or not checkpoint_day:
         # One-time migration from the servicectl-owned state key, so the
@@ -569,16 +550,16 @@ def run_scheduled_flush(
             "next_attempt_at": next_attempt_at.isoformat(),
         }
 
-    if not _acquire_lock(root_path, now, lock_relpath):
+    if not _acquire_lock(root_path, now):
         return {"flushed": False, "reason": "locked", "checkpoint_day": checkpoint_day}
 
     try:
-        result, checkpoint_day = flush(root_path, checkpoint_day)
+        result, checkpoint_day = flush_daily_public_rollup(root_path, checkpoint_day=checkpoint_day)
     except Exception as exc:  # never raise into a hook or the daemon tick
         logger.debug("public_rollup.flush_failed", extra={"error": str(exc)})
         result = {"flushed": False, "reason": "error", "error": str(exc)}
     finally:
-        _release_lock(root_path, lock_relpath)
+        _release_lock(root_path)
 
     failures = int(state.get("consecutive_failures") or 0) + 1 if result.get("reason") in _FAILURE_REASONS else 0
     delay = _next_delay_seconds(failures)
@@ -591,7 +572,6 @@ def run_scheduled_flush(
             "next_attempt_at": (now + timedelta(seconds=delay)).isoformat(),
             "last_result": result,
         },
-        state_relpath,
     )
     return {
         **result,
@@ -599,23 +579,3 @@ def run_scheduled_flush(
         "consecutive_failures": failures,
         "next_attempt_at": (now + timedelta(seconds=delay)).isoformat(),
     }
-
-
-def maybe_flush_public_rollup(
-    root: str | Path,
-    *,
-    force: bool = False,
-    legacy_checkpoint_day: str | None = None,
-    now: datetime | None = None,
-) -> dict[str, Any]:
-    """Run the daily savings flush if it is due (see :func:`run_scheduled_flush`)."""
-    return run_scheduled_flush(
-        root,
-        # Late-bound so tests (and callers) can swap the module attribute.
-        flush=lambda root_path, checkpoint: flush_daily_public_rollup(root_path, checkpoint_day=checkpoint),
-        state_relpath=_STATE_RELPATH,
-        lock_relpath=_LOCK_RELPATH,
-        force=force,
-        legacy_checkpoint_day=legacy_checkpoint_day,
-        now=now,
-    )

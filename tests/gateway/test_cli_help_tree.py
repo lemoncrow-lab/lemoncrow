@@ -65,9 +65,8 @@ def test_full_help_tree_renders_deterministically() -> None:
 def test_help_tree_contains_expected_public_groups() -> None:
     """Core public groups must appear in the rendered tree."""
     tree = render_help_tree()
-    assert "lc ledger\n" in tree
-    for group in ("benchmark", "service", "worker"):
-        assert f"lc runtime {group}\n" in tree, f"missing Runtime group: {group}"
+    for group in ("benchmark", "ledger", "service", "worker"):
+        assert f"lc {group}\n" in tree, f"missing group: {group}"
     for retired in ("stack", "servicectl", "background", "systemd"):
         assert f"lc {retired}\n" not in tree
 
@@ -102,11 +101,10 @@ def test_help_tree_excludes_mcp_only_entries() -> None:
     ):
         assert mcp_only not in tree, f"leaked MCP-only command: {mcp_only!r}"
 
-    # The live ``route``/``memory`` groups remain brand-level compatibility
-    # surfaces; ``context`` is Runtime-owned and lives under the product namespace.
+    # The live ``route``/``memory``/``context`` groups must remain present.
     assert "lc route\n" in tree
     assert "lc memory\n" in tree
-    assert "lc runtime context\n" in tree
+    assert "lc context\n" in tree
 
 
 def test_top_level_help_still_succeeds() -> None:

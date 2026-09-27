@@ -2,20 +2,15 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import shutil
 import sqlite3
 import subprocess
 from contextlib import suppress
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import click
 
-if TYPE_CHECKING:
-    from lemoncrow_client.lite.index import LiteIndexReport
-
-from lemoncrow.gateway.cli import style
 from lemoncrow.gateway.cli.commands._shared import _emit, require_pro
 from lemoncrow.gateway.integrations.openmemory_lifecycle import project_root as _project_root
 
@@ -261,16 +256,10 @@ def zoekt_reset(ctx: click.Context, yes: bool) -> None:
 
 
 def _code_context_engine(repo_root: str, db_path: Path | None = None) -> Any:
-    from lemoncrow.core.capabilities.code_intelligence_provider import (
-        ProEngineUnavailable,
-        create_code_intelligence_provider,
-    )
+    from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 
-    # One-shot CLI commands don't need background autosync threads.
-    try:
-        return create_code_intelligence_provider(repo_root, db_path=db_path, autosync_enabled=False)
-    except ProEngineUnavailable as exc:
-        raise click.ClickException(str(exc)) from exc
+    # One-shot CLI commands don't need background autosync threads
+    return CodeContextEngine(repo_root, db_path=db_path, autosync_enabled=False)
 
 
 def _index_repo_with_progress(
@@ -481,44 +470,83 @@ def _trigger_zoekt_with_progress(repo_root: Path, frame_prefix: str = "", *, qui
 
 @click.group("code", invoke_without_command=True)
 @click.option(
-    "--internal-private",
-    "internal_private",
-    is_flag=True,
-    hidden=True,
-    help="Internal LemonCrow private-runtime development path.",
-)
-@click.option(
     "--engine",
-    type=str,
+    type=click.Choice(["auto", "lemoncode", "pi", "codex", "claude", "native"]),
     default="auto",
     show_default=True,
-    help="Internal private-development frontend selector.",
-    hidden=True,
+    help="Frontend engine; auto prefers LemonCode, then managed Pi, Codex, and Claude.",
 )
-@click.option("--provider", default="", hidden=True)
-@click.option("--model", default="", hidden=True)
-@click.option("--budget", type=click.Choice(["cheap", "balanced", "best"]), default="balanced", hidden=True)
-@click.option("--cache-policy", type=click.Choice(["auto", "5m", "1h", "off"]), default="auto", hidden=True)
-@click.option("--max-cost", type=float, default=None, hidden=True)
-@click.option("--optimization-mode", type=click.Choice(["off", "shadow", "enforce"]), default="shadow", hidden=True)
-@click.option("--local-retrieval", type=click.Choice(["off", "auto", "force"]), default="auto", hidden=True)
-@click.option("--local-retrieval-model", default="", hidden=True)
-@click.option("--yolo", is_flag=True, hidden=True)
-@click.option("-p", "--prompt", default=None, help="Run one prompt with LemonCrow's Hosted coding agent and exit.")
-@click.option("--resume", default=None, metavar="SESSION_ID", help="Resume a Hosted coding-agent session.")
+@click.option(
+    "--provider",
+    default="",
+    help="Preferred model provider (optional), e.g. anthropic, openai, ollama, zen.",
+)
+@click.option(
+    "--model",
+    default="",
+    help=(
+        "Fixed LiteLLM model; omit for phase-aware auto routing (which may pick local "
+        "or Zen models without asking). Pins the model for every turn -- "
+        "e.g. '--provider zen --model big-pickle' for a free, keyless Zen model, or "
+        "'--provider ollama --model llama3' for a local model."
+    ),
+)
+@click.option(
+    "--budget",
+    type=click.Choice(["cheap", "balanced", "best"]),
+    default="balanced",
+    show_default=True,
+)
+@click.option(
+    "--cache-policy",
+    type=click.Choice(["auto", "5m", "1h", "off"]),
+    default="auto",
+    show_default=True,
+)
+@click.option("--max-cost", type=float, default=None, help="Stop before another turn exceeds this USD cap.")
+@click.option(
+    "--optimization-mode",
+    type=click.Choice(["off", "shadow", "enforce"]),
+    default="shadow",
+    show_default=True,
+    help="Observe or enforce the owned-runtime savings policies.",
+)
+@click.option(
+    "--local-retrieval",
+    type=click.Choice(["off", "auto", "force"]),
+    default="auto",
+    show_default=True,
+    help="Bounded local evidence loop; auto skips explicit-path and small tasks.",
+)
+@click.option(
+    "--local-retrieval-model",
+    default="",
+    help="Optional local-only planner model (ollama/, lm_studio/, or local/).",
+)
+@click.option(
+    "--yolo",
+    is_flag=True,
+    help="Approve edit and shell tools in the native fallback (managed gateways auto-approve).",
+)
+@click.option("-p", "--prompt", default=None, help="Run one prompt, print the final answer, and exit.")
+@click.option("--resume", default=None, metavar="SESSION_ID", help="Resume a saved owned session.")
 @click.option(
     "--project-root",
     type=click.Path(path_type=Path, file_okay=False),
     default=None,
-    hidden=True,
-    help="Internal private-development workspace root.",
+    help="Workspace root (default: current directory).",
 )
-@click.option("--mcp/--no-mcp", "mcp_enabled", default=True, hidden=True)
-@click.option("--mcp-schema-mode", type=click.Choice(["auto", "eager", "focused"]), default="auto", hidden=True)
+@click.option("--mcp/--no-mcp", "mcp_enabled", default=True, show_default=True)
+@click.option(
+    "--mcp-schema-mode",
+    type=click.Choice(["auto", "eager", "focused"]),
+    default="auto",
+    show_default=True,
+    help="Auto focuses only on explicit server/tool names; ambiguous tasks stay eager.",
+)
 @click.pass_context
 def code_group(
     ctx: click.Context,
-    internal_private: bool,
     engine: str,
     provider: str,
     model: str,
@@ -535,63 +563,32 @@ def code_group(
     mcp_enabled: bool,
     mcp_schema_mode: str,
 ) -> None:
-    """Code with LemonCrow's Hosted coding agent."""
-
-    if internal_private and os.environ.get("LEMONCROW_INTERNAL_PRIVATE_RUNTIME", "").strip() != "1":
-        raise click.ClickException(
-            "local private Runtime execution is internal LemonCrow development tooling; "
-            "set LEMONCROW_INTERNAL_PRIVATE_RUNTIME=1 only for engineering, benchmarks, or private-runtime development"
-        )
+    """Run a mature coding CLI over LemonCrow, or manage code indexes."""
     if ctx.invoked_subcommand is not None:
         return
 
+    from lemoncrow.gateway.cli.coding_engine import run_coding_engine
+
     root_obj = ctx.find_root().obj if isinstance(ctx.find_root().obj, dict) else {}
     store_root = Path(root_obj.get("root", Path.home() / ".lemoncrow"))
-    resolved_project = (project_root or Path.cwd()).resolve()
-
-    if not internal_private:
-        raise click.ClickException(
-            "`lc code` is the Hosted LemonCrow coding agent, not a local Runtime Lite launcher. "
-            "The OSS Runtime keeps local agent integrations under `lc with ...` and public host lifecycle under `lc host`. "
-            "Hosted owned-loop transport is not wired in this build yet."
-        )
-
-    from lemoncrow.core.capabilities.code_intelligence_provider import (
-        ProEngineUnavailable,
-        require_private_code_intelligence,
+    return_code = run_coding_engine(
+        store_root=store_root,
+        project_root=(project_root or Path.cwd()).resolve(),
+        engine=engine,  # type: ignore[arg-type]
+        provider=provider,
+        model=model,
+        budget=budget,
+        cache_policy=cache_policy,
+        max_cost=max_cost,
+        yolo=yolo,
+        prompt=prompt,
+        resume=resume,
+        mcp_enabled=mcp_enabled,
+        mcp_schema_mode=mcp_schema_mode,
+        optimization_mode=optimization_mode,
+        local_retrieval=local_retrieval,
+        local_retrieval_model=local_retrieval_model,
     )
-
-    try:
-        require_private_code_intelligence()
-    except ProEngineUnavailable as exc:
-        raise click.ClickException(str(exc)) from exc
-
-    from lemoncrow.core.capabilities.private_runtime_provider import (
-        PrivateRuntimeUnavailable,
-        run_private_coding_engine,
-    )
-
-    try:
-        return_code = run_private_coding_engine(
-            store_root=store_root,
-            project_root=resolved_project,
-            engine=engine,  # type: ignore[arg-type]
-            provider=provider,
-            model=model,
-            budget=budget,
-            cache_policy=cache_policy,
-            max_cost=max_cost,
-            yolo=yolo,
-            prompt=prompt,
-            resume=resume,
-            mcp_enabled=mcp_enabled,
-            mcp_schema_mode=mcp_schema_mode,
-            optimization_mode=optimization_mode,
-            local_retrieval=local_retrieval,
-            local_retrieval_model=local_retrieval_model,
-        )
-    except PrivateRuntimeUnavailable as exc:
-        raise click.ClickException(str(exc)) from exc
     if return_code:
         raise SystemExit(return_code)
 
@@ -601,35 +598,9 @@ def _code_store_root(ctx: click.Context) -> Path:
     return Path(root_obj.get("root", Path.home() / ".lemoncrow"))
 
 
-def _code_group_params(ctx: click.Context) -> dict[str, Any]:
-    current: click.Context | None = ctx
-    while current is not None:
-        if current.command is code_group:
-            return dict(current.params)
-        current = current.parent
-    return {}
-
-
-def _code_subcommand_uses_internal_private(ctx: click.Context) -> bool:
-    return bool(_code_group_params(ctx).get("internal_private"))
-
-
-def _require_code_subcommand_internal_private(ctx: click.Context, name: str) -> None:
-    if not _code_subcommand_uses_internal_private(ctx):
-        raise click.ClickException(
-            f"lc code {name} is internal private-development tooling, not a public Hosted command; "
-            "advanced private-runtime maintenance is internal to LemonCrow"
-        )
-    if os.environ.get("LEMONCROW_INTERNAL_PRIVATE_RUNTIME", "").strip() != "1":
-        raise click.ClickException(
-            "local private Runtime execution is internal LemonCrow development tooling; "
-            "set LEMONCROW_INTERNAL_PRIVATE_RUNTIME=1 only for engineering, benchmarks, or private-runtime development"
-        )
-
-
-@click.group("host")
-def host_group() -> None:
-    """Manage public LemonCrow-supported coding-agent hosts."""
+@code_group.group("host")
+def code_host_group() -> None:
+    """Manage LemonCrow-controlled frontend binaries."""
 
 
 def _host_engine_module(engine: str) -> tuple[Any, str]:
@@ -637,8 +608,6 @@ def _host_engine_module(engine: str) -> tuple[Any, str]:
         from lemoncrow.gateway.cli import pi_host
 
         return pi_host, "Pi"
-    if engine != "lemoncode":
-        raise click.ClickException("public host management supports LemonCode or Pi")
     from lemoncrow.gateway.cli import lemoncode_host
 
     return lemoncode_host, "LemonCode"
@@ -650,69 +619,49 @@ def _host_engine_option(function: Any) -> Any:
         type=click.Choice(["lemoncode", "pi"]),
         default="lemoncode",
         show_default=True,
-        help="Public coding-agent host managed by LemonCrow.",
+        help="Managed frontend host.",
     )(function)
 
 
-@host_group.command("status")
+@code_host_group.command("status")
 @_host_engine_option
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def code_host_status_cmd(ctx: click.Context, engine: str, as_json: bool) -> None:
-    """Show whether the managed host is installed, where, and at which version."""
     module, label = _host_engine_module(engine)
     value = module.host_status(_code_store_root(ctx))
     if as_json:
         click.echo(json.dumps(value, sort_keys=True))
         return
-    installed = bool(value["installed"])
-    click.echo(style.title(f"{label} host", "installed" if installed else "not installed"))
+    click.echo(f"  Host:      {label}")
+    click.echo(f"  Installed: {value['installed']}")
+    click.echo(f"  Resolved:  {value['resolved_path'] or 'not installed'}")
+    click.echo(f"  Policy:    {value['update_policy']}")
     metadata = value["metadata"]
     if metadata:
-        click.echo(style.row(None, "Version", str(metadata.get("tag", "unknown")), width=9))
-    if resolved := value["resolved_path"]:
-        click.echo(style.row(None, "Path", style.home_relative(resolved), width=9))
-    click.echo(style.row(None, "Updates", str(value["update_policy"]), width=9))
-    if not installed:
-        click.echo("")
-        click.echo(style.next_step("Install it with", f"lc host install --engine {engine}"))
+        click.echo(f"  Version:   {metadata.get('tag', 'unknown')}")
+        click.echo(f"  Commit:    {metadata.get('commit', 'unknown')}")
 
 
-def _install_pi_integration(engine: str) -> None:
-    if engine != "pi":
-        return
-    from lemoncrow_client import pi_integration
-
-    try:
-        settings = pi_integration.install()
-    except (OSError, RuntimeError) as exc:
-        raise click.ClickException(str(exc)) from exc
-    click.echo(style.row(None, "Pi settings", style.home_relative(settings), width=12))
-
-
-@host_group.command("install")
+@code_host_group.command("install")
 @_host_engine_option
 @click.pass_context
 def code_host_install_cmd(ctx: click.Context, engine: str) -> None:
-    """Download and install the managed host release."""
     module, label = _host_engine_module(engine)
     path = module.install_host_release(_code_store_root(ctx))
-    _install_pi_integration(engine)
-    click.echo(style.success(f"{label} host installed {style.dim(style.home_relative(path))}"))
+    click.echo(f"  ✓ {label} host installed: {path}")
 
 
-@host_group.command("update")
+@code_host_group.command("update")
 @_host_engine_option
 @click.pass_context
 def code_host_update_cmd(ctx: click.Context, engine: str) -> None:
-    """Update the managed host to its latest release."""
     module, label = _host_engine_module(engine)
     path = module.install_host_release(_code_store_root(ctx))
-    _install_pi_integration(engine)
-    click.echo(style.success(f"{label} host updated {style.dim(style.home_relative(path))}"))
+    click.echo(f"  ✓ {label} host updated: {path}")
 
 
-@host_group.command("build")
+@code_host_group.command("build")
 @_host_engine_option
 @click.option(
     "--source",
@@ -722,187 +671,47 @@ def code_host_update_cmd(ctx: click.Context, engine: str) -> None:
 )
 @click.pass_context
 def code_host_build_cmd(ctx: click.Context, engine: str, source: Path | None) -> None:
-    """Build the host from a source checkout and install it."""
     module, label = _host_engine_module(engine)
     if source is None:
         if engine == "pi":
             raise click.ClickException("--source is required for Pi source builds")
         source = Path("lemoncode")
     path = module.build_host_from_source(_code_store_root(ctx), source)
-    _install_pi_integration(engine)
-    click.echo(style.success(f"{label} host built and installed {style.dim(style.home_relative(path))}"))
+    click.echo(f"  ✓ {label} host built and installed: {path}")
 
 
-@host_group.command("remove")
+@code_host_group.command("remove")
 @_host_engine_option
 @click.option("--yes", is_flag=True, help="Confirm removal without prompting.")
 @click.pass_context
 def code_host_remove_cmd(ctx: click.Context, engine: str, yes: bool) -> None:
-    """Remove the managed host and its LemonCrow integration."""
     module, label = _host_engine_module(engine)
-    if not yes and not click.confirm(f"Remove the managed {label} host and its LemonCrow integration?"):
+    if not yes and not click.confirm(f"Remove the managed {label} host binary?"):
         return
-    removed = False
-    if engine == "pi":
-        from lemoncrow_client import pi_integration
-
-        try:
-            removed = pi_integration.remove()
-        except (OSError, RuntimeError) as exc:
-            raise click.ClickException(str(exc)) from exc
-    removed = module.remove_host(_code_store_root(ctx)) or removed
-    click.echo(style.success(f"{label} host removed" if removed else f"{label} host was not installed"))
+    removed = module.remove_host(_code_store_root(ctx))
+    click.echo(f"  ✓ {label} host removed." if removed else f"  ✓ {label} host was not installed.")
 
 
-@click.command("index", short_help="Build or refresh this repository's Runtime Lite index.")
+@code_group.command("index")
 @click.option(
     "--repo-root",
     default=None,
     help="Repository root to index (default: git root of the current directory, else cwd).",
 )
-@click.option("--reindex", is_flag=True, help="Full rebuild from scratch (default: incremental).")
-@click.option("--json", "as_json", is_flag=True)
-@click.option("--frame-prefix", default="", hidden=True)
-@click.option("--no-stats", is_flag=True, hidden=True)
-def runtime_index_cmd(
-    repo_root: str | None,
-    reindex: bool,
-    as_json: bool,
-    frame_prefix: str,
-    no_stats: bool,
-) -> None:
-    """Build or refresh the local open-source Runtime Lite repository index."""
-    del no_stats  # Lite output is already compact; accepted for background callers.
-    if repo_root is None:
-        from lemoncrow.core.foundation.paths import resolve_workspace_root
-
-        lite_root = Path(resolve_workspace_root()).resolve()
-    else:
-        lite_root = Path(repo_root).expanduser().resolve()
-    from lemoncrow_client.lite.index import LiteIndex
-
-    if as_json:
-        _emit(LiteIndex(lite_root).prepare(force=reindex).to_dict(), as_json=True)
-        return
-    report = _lite_index_with_progress(lite_root, force=reindex, frame_prefix=frame_prefix)
-    prefix_markup = style.dim(frame_prefix) if frame_prefix else ""
-    took = _format_lite_duration(report.elapsed_s)
-    files = style.plural(report.files_seen, "file")
-    if report.files_changed or report.files_deleted:
-        headline = "Runtime Lite index ready"
-        summary = f"{files} · {report.files_changed:,} indexed · {report.files_deleted:,} deleted · {took}"
-    else:
-        headline = "Runtime Lite index up to date"
-        summary = f"{files} checked, nothing changed · {took}"
-    line = f"{style.success(style.bold(headline))}: {summary}\n  {style.dim(style.home_relative(report.path))}"
-    click.echo(f"{prefix_markup}{line}" if frame_prefix else line)
-
-
-def _format_lite_duration(seconds: float) -> str:
-    if seconds < 60:
-        return f"{seconds:.1f}s"
-    minutes, rest = divmod(round(seconds), 60)
-    return f"{minutes}m{rest:02d}s"
-
-
-_LITE_PHASES: dict[str, str] = {
-    "seed": "Preparing",
-    "lock": "Waiting for another lc to finish",
-    "scan": "Indexing files",
-    "prune": "Cleaning up",
-    "commit": "Saving",
-    "done": "Done",
-}
-
-
-def _lite_index_with_progress(lite_root: Path, *, force: bool, frame_prefix: str) -> LiteIndexReport:
-    """Run a Runtime Lite prepare with a live progress bar on stderr."""
-
-    from lemoncrow_client.lite.index import LiteIndex, LiteIndexProgress
-    from rich.console import Console
-    from rich.markup import escape
-    from rich.progress import (
-        BarColumn,
-        MofNCompleteColumn,
-        Progress,
-        SpinnerColumn,
-        TaskProgressColumn,
-        TextColumn,
-        TimeRemainingColumn,
-    )
-    from rich.table import Column
-
-    console = Console(stderr=True, highlight=False)
-    prefix = f"[dim]{escape(frame_prefix)}[/dim]" if frame_prefix else ""
-    mode = "Rebuilding" if force else "Updating"
-    brand = f"color({style.BRAND})"
-    console.print(
-        f"{prefix}[{brand}]◆[/{brand}] [bold]{mode} Runtime Lite index[/bold] [dim]for "
-        f"{escape(style.home_relative(lite_root))}[/dim]",
-        soft_wrap=True,
-    )
-    # The bar takes whatever width the terminal has. The label and the changed
-    # count get fixed widths so the bar does not twitch as they change.
-    # The rare lock-wait label may push the bar once; sizing for it would leave a gap every run.
-    label_width = max(len(label) for phase, label in _LITE_PHASES.items() if phase != "lock") + len(frame_prefix)
-    progress = Progress(
-        SpinnerColumn("dots", style=brand, finished_text="[green]✓[/green]"),
-        TextColumn(f"{prefix}{{task.description}}", table_column=Column(min_width=label_width, no_wrap=True)),
-        BarColumn(
-            bar_width=None,
-            style="grey30",
-            complete_style=brand,
-            finished_style="green",
-            pulse_style=brand,
-        ),
-        MofNCompleteColumn(),
-        TaskProgressColumn(),
-        TextColumn("[dim]eta[/dim]"),
-        TimeRemainingColumn(compact=True, elapsed_when_finished=True),
-        TextColumn("[dim]{task.fields[changed]}[/dim]", table_column=Column(min_width=18, no_wrap=True)),
-        console=console,
-        transient=True,
-        expand=True,
-        disable=not console.is_terminal,
-    )
-    task_id = progress.add_task(_LITE_PHASES["seed"], total=None, changed="")
-
-    def on_progress(seen: LiteIndexProgress) -> None:
-        progress.update(
-            task_id,
-            description=_LITE_PHASES.get(seen.phase, seen.phase),
-            completed=seen.done,
-            total=seen.total or None,
-            changed=f"· {seen.changed:,} changed" if seen.changed else "",
-        )
-
-    # An up-to-date index returns in well under a second and should not flash a bar.
-    with style.after_delay(progress.start, progress.stop):
-        return LiteIndex(lite_root).prepare(force=force, progress=on_progress)
-
-
-@code_group.command("index", hidden=True)
-@click.option(
-    "--repo-root",
-    default=None,
-    help="Repository root to index (default: git root of the current directory, else cwd).",
-)
-@click.option("--include", "include_globs", multiple=True, hidden=True)
-@click.option("--exclude", "exclude_globs", multiple=True, hidden=True)
+@click.option("--include", "include_globs", multiple=True)
+@click.option("--exclude", "exclude_globs", multiple=True)
 @click.option("--reindex", is_flag=True, help="Full rebuild from scratch (default: incremental).")
 @click.option(
     "--force",
     "steal_lock",
     is_flag=True,
-    hidden=True,
+    help="Deprecated compatibility flag; a live SQLite writer is never bypassed.",
 )
 @click.option("--json", "as_json", is_flag=True)
 @click.option("--frame-prefix", default="", hidden=True, help="Prefix for progress output (used by dev.sh)")
-@click.option("--no-stats", is_flag=True, hidden=True)
-@click.option("--db-path", default=None, type=click.Path(), hidden=True)
-@click.pass_context
+@click.option("--no-stats", is_flag=True, help="Do not print indexing statistics.")
+@click.option("--db-path", default=None, type=click.Path(), help="Override default SQLite DB path.")
 def code_index_cmd(
-    ctx: click.Context,
     repo_root: str | None,
     include_globs: tuple[str, ...],
     exclude_globs: tuple[str, ...],
@@ -913,8 +722,11 @@ def code_index_cmd(
     frame_prefix: str,
     db_path: str | None,
 ) -> None:
-    """Build or refresh the private development index."""
-    _require_code_subcommand_internal_private(ctx, "index")
+    """Index a repository into the SQLite FTS5 symbol store.
+
+    Incremental by default (only re-indexes changed files). Use --reindex
+    for a full rebuild from scratch.
+    """
     if repo_root is None:
         # Resolve the same way the MCP code_search / read tools do
         # (LEMONCROW_WORKSPACE_ROOT / host env / git root / cwd) so the index the
@@ -932,12 +744,6 @@ def code_index_cmd(
             include_globs=list(include_globs) or None,
             exclude_globs=list(exclude_globs) or None,
         ).model_dump(mode="json")
-        # A successfully indexed repository is a durable LemonCrow project.
-        # Persist it in the shared registry so service surfaces such as `/code`
-        # can discover it even when no MCP process for this workspace is alive.
-        from lemoncrow.core.service.project_registry import register_project
-
-        register_project(Path(repo_root).resolve())
         try:
             engine._deleted_history_adapter()._ensure_history_ready()
         except Exception:
@@ -959,13 +765,6 @@ def code_index_cmd(
         success_description="Indexed code",
         frame_prefix=frame_prefix,
     )
-
-    # Keep project discovery independent from transient MCP-session liveness.
-    # This also backfills repositories initialized by older LemonCrow versions
-    # the next time their existing index is refreshed.
-    from lemoncrow.core.service.project_registry import register_project
-
-    register_project(Path(repo_root).resolve())
 
     git_summary = _index_git_history_with_progress(engine, frame_prefix=frame_prefix)
     _trigger_zoekt_with_progress(Path(repo_root).resolve(), frame_prefix=frame_prefix)
@@ -1023,7 +822,7 @@ def _entry_age_days(entry: Path, now: float) -> float:
     return max(0.0, (now - newest) / 86_400.0)
 
 
-@code_group.command("prune", hidden=True)
+@code_group.command("prune")
 @click.option(
     "--store-root",
     default=None,
@@ -1041,15 +840,8 @@ def _entry_age_days(entry: Path, now: float) -> float:
     help="Print what would be deleted without deleting anything.",
 )
 @click.option("--json", "as_json", is_flag=True, help="Emit a JSON summary instead of human-readable lines.")
-@click.pass_context
-def code_prune_cmd(
-    ctx: click.Context,
-    store_root: str | None,
-    max_age_days: int | None,
-    dry_run: bool,
-    as_json: bool,
-) -> None:
-    """Internal cleanup for private-development workspace store dirs.
+def code_prune_cmd(store_root: str | None, max_age_days: int | None, dry_run: bool, as_json: bool) -> None:
+    """Remove stale workspace store dirs.
 
     Always removes dirs that are orphaned (no ``session_state.json``), came from
     a ``/tmp`` benchmark run, or whose source repo no longer exists.  With
@@ -1059,8 +851,6 @@ def code_prune_cmd(
 
     Use --dry-run to preview what would be removed.
     """
-    _require_code_subcommand_internal_private(ctx, "prune")
-
     import json
     import time
 
@@ -1169,12 +959,10 @@ def _print_index_stats(engine: Any, frame_prefix: str = "") -> None:
     kinds = c.execute("SELECT kind, COUNT(*) FROM symbols GROUP BY kind ORDER BY COUNT(*) DESC").fetchall()
 
     # Embedding stats
-    from lemoncrow.core.capabilities.code_intelligence_provider import (
-        advanced_code_intelligence_helper,
-    )
+    from lemoncrow.pro.capabilities.code_context.ann_symbol_index import ann_retrieval_enabled
 
     ranker_configured = getattr(engine._semantic_ranker, "available", False)
-    flag_enabled = bool(advanced_code_intelligence_helper("ann_retrieval_enabled"))
+    flag_enabled = ann_retrieval_enabled()
     should_show_embeddings = ranker_configured or flag_enabled
 
     embedding_count = 0
@@ -1396,7 +1184,7 @@ def _print_index_stats(engine: Any, frame_prefix: str = "") -> None:
     conn.close()
 
 
-@code_group.command("train", hidden=True)
+@code_group.command("train")
 @click.option(
     "--name",
     "name",
@@ -1425,9 +1213,7 @@ def _print_index_stats(engine: Any, frame_prefix: str = "") -> None:
 @click.option("--learning-rate", type=float, default=2e-5, show_default=True)
 @click.option("--dry-run", is_flag=True, help="Print the pipeline plan and exit without training.")
 @click.option("--json", "as_json", is_flag=True)
-@click.pass_context
 def code_train_cmd(
-    ctx: click.Context,
     name: str,
     repo_root: str,
     base_model: str,
@@ -1440,40 +1226,28 @@ def code_train_cmd(
     dry_run: bool,
     as_json: bool,
 ) -> None:
-    """Internal private-development per-repo embedder training.
+    """[EXPERIMENTAL] Finetune a per-repo code embedder.
 
     Pipeline (GPU-bound steps run on CUDA when available):
       1. mine synthetic (query -> gold-file) pairs from the repo source;
-      2. build the private embedder's train/test/corpus split;
-      3. finetune the base model and report held-out base-vs-finetuned MRR.
+      2. build a SentenceTransformer train/test/corpus split;
+      3. finetune BGE-Code-v1 with MultipleNegativesRankingLoss (bf16 + gradient
+         checkpointing) and report held-out base-vs-finetuned MRR.
 
-    Steps 2-3 are supplied by the private enterprise runtime (its ``semantic``
-    extra provides the model dependencies); without it this command fails with
-    the private-code-intelligence-unavailable message.
+    Requires the ``semantic`` extra::  pip install -e '.[semantic]'
 
     Measured lift on the grep-style retrieval benchmark is ~0: the bench
     queries are lexical, so lexical+zoekt already wins. This command is the productised shape, wired for
     NL-query training data where the embedder is expected to help.
     """
-    _require_code_subcommand_internal_private(ctx, "train")
     import sys
 
-    from lemoncrow.core.capabilities.code_intelligence_provider import (
-        ProEngineUnavailable,
-        advanced_code_intelligence_helper,
-    )
-
-    try:
-        scripts = advanced_code_intelligence_helper("code_embedder_training_scripts")
-    except ProEngineUnavailable as exc:
-        raise click.ClickException(str(exc)) from exc
-
-    # The pair miner is public benchmark tooling in the LemonCrow source tree,
-    # resolved relative to this module: src/lemoncrow/gateway/cli/commands/code.py -> repo root.
+    # Pipeline scripts live in the LemonCrow source tree (dev tooling), resolved
+    # relative to this module: src/lemoncrow/gateway/cli/commands/code.py -> repo root.
     src_root = Path(__file__).resolve().parents[5]
     miner = src_root / "benchmarks/codebench/synthetic_pair_miner.py"
-    prep = Path(scripts["prepare"])
-    trainer = Path(scripts["train"])
+    prep = src_root / "benchmarks/embedding/prepare_train_data.py"
+    trainer = src_root / "benchmarks/embedding/train_embedding.py"
     missing = [str(p) for p in (miner, prep, trainer) if not p.is_file()]
     if missing:
         raise click.ClickException(
@@ -1534,12 +1308,13 @@ def code_train_cmd(
         _emit(plan, as_json=as_json)
         return
 
-    missing_dependencies = advanced_code_intelligence_helper("missing_code_embedder_training_dependencies")
-    if missing_dependencies:
+    try:
+        import torch  # noqa: F401
+    except ImportError as exc:
         raise click.ClickException(
-            "Code-embedder training needs the private runtime's `semantic` extra "
-            f"(missing: {', '.join(missing_dependencies)})."
-        )
+            "The `semantic` extra is required: pip install -e '.[semantic]' "
+            "(torch + sentence-transformers + accelerate + datasets)."
+        ) from exc
 
     work.mkdir(parents=True, exist_ok=True)
     for i, step in enumerate(steps, 1):
@@ -1549,11 +1324,4 @@ def code_train_cmd(
     _emit({"name": name, "repo": str(repo), "model": str(out)}, as_json=as_json)
 
 
-__all__ = [
-    "_code_context_engine",
-    "_index_repo_with_progress",
-    "code_group",
-    "host_group",
-    "runtime_index_cmd",
-    "zoekt_group",
-]
+__all__ = ["_code_context_engine", "_index_repo_with_progress", "code_group", "zoekt_group"]

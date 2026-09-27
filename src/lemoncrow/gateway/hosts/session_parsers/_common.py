@@ -472,7 +472,7 @@ def persist_imported_run_snapshot(
     run_dir.mkdir(parents=True, exist_ok=True)
 
     calls: list[dict[str, Any]] = []
-    priced_cost_usd = 0.0
+    total_cost_usd = 0.0
     for entry in trace.usage_entries:
         if entry.kind != "llm":
             continue
@@ -503,61 +503,7 @@ def persist_imported_run_snapshot(
                 "source_id": entry.source_id,
             }
         )
-        priced_cost_usd += cost_usd
-
-    telemetry = dict(trace.telemetry)
-    usage_source = str(telemetry.get("usage_measurement_source") or "").strip()
-    if not usage_source:
-        usage_source = "host_transcript" if calls else "unavailable"
-
-    actual_cost_source = str(telemetry.get("actual_cost_source") or "").strip()
-    actual_cost_value = telemetry.get("actual_cost_usd")
-    if not actual_cost_source and "host_reported_cost_usd" in telemetry:
-        actual_cost_source = "host_reported"
-        actual_cost_value = telemetry.get("host_reported_cost_usd")
-
-    authoritative_cost: float | None = None
-    if actual_cost_source and actual_cost_value is not None and not isinstance(actual_cost_value, bool):
-        try:
-            authoritative_cost = max(0.0, float(actual_cost_value))
-        except (TypeError, ValueError):
-            authoritative_cost = None
-
-    priced_override: float | None = None
-    raw_priced_override = telemetry.get("priced_cost_usd")
-    if not isinstance(raw_priced_override, bool) and raw_priced_override is not None:
-        try:
-            priced_override = max(0.0, float(raw_priced_override))
-        except (TypeError, ValueError):
-            priced_override = None
-
-    if authoritative_cost is not None:
-        total_cost_usd = authoritative_cost
-        cost_status = "recorded"
-        cost_source = actual_cost_source
-        if priced_cost_usd > 0:
-            scale = authoritative_cost / priced_cost_usd
-            for call in calls:
-                call["cost_usd"] = round(float(call["cost_usd"]) * scale, 8)
-    elif priced_override is not None:
-        total_cost_usd = priced_override
-        cost_status = "estimated"
-        cost_source = "priced"
-        if priced_cost_usd > 0:
-            scale = priced_override / priced_cost_usd
-            for call in calls:
-                call["cost_usd"] = round(float(call["cost_usd"]) * scale, 8)
-    elif priced_cost_usd > 0:
-        total_cost_usd = priced_cost_usd
-        cost_status = "estimated"
-        cost_source = "priced"
-    else:
-        total_cost_usd = 0.0
-        cost_status = "unavailable"
-        cost_source = "unavailable"
-
-    telemetry["usage_measurement_source"] = usage_source
-    telemetry["actual_cost_source"] = cost_source
+        total_cost_usd += cost_usd
 
     payload = {
         "session_id": trace.session_id or trace.id,
@@ -570,15 +516,11 @@ def persist_imported_run_snapshot(
         "updated_at": ended_at.isoformat(),
         "agent_settings": dict(trace.agent_settings),
         "skills": list(trace.skills),
-        "telemetry": telemetry,
+        "telemetry": dict(trace.telemetry),
         "raw_artifact_ids": list(trace.raw_artifact_ids),
-        "cost_status": cost_status,
         "cost": {
             "calls": calls,
             "total_cost_usd": round(total_cost_usd, 6),
-            "status": cost_status,
-            "source": cost_source,
-            "usage_source": usage_source,
             "total_input_tokens": sum(int(call["input_tokens"]) for call in calls),
             "total_output_tokens": sum(int(call["output_tokens"]) for call in calls),
             "total_cache_read_tokens": sum(int(call["cache_read_tokens"]) for call in calls),
@@ -648,10 +590,6 @@ def _build_trace_from_normalized_content(
     user_prompt_tokens = 0
     model_seen = ""
     usage_entries: list[UsageEntry] = []
-    host_reported_cost_total = 0.0
-    host_reported_cost_seen = False
-    usage_measurement_source_override = ""
-    priced_cost_override: float | None = None
     created_at = source_mtime or utcnow()
     task_text = task or ""
     first_user_text = ""
@@ -710,23 +648,12 @@ def _build_trace_from_normalized_content(
                 synthetic_count += 1
             if not provider_id:
                 provider_id = data.get("providerID") or data.get("provider") or ""
-            source_hint = str(data.get("usageMeasurementSource") or event.get("usageMeasurementSource") or "").strip()
-            if source_hint:
-                usage_measurement_source_override = source_hint
-            raw_priced_cost = data.get("pricedCostUsd")
-            if not isinstance(raw_priced_cost, bool) and raw_priced_cost is not None:
-                try:
-                    priced_cost_override = max(0.0, float(raw_priced_cost))
-                except (TypeError, ValueError):
-                    pass
 
         if event_type != "message":
             continue
 
         message = event.get("message") or event.get("data") or {}
         role = str(message.get("role") or "")
-        if not provider_id:
-            provider_id = str(message.get("provider") or message.get("providerID") or "")
 
         # Scrape for skills/settings in system messages or context
         if role == "user" or role == "system":
@@ -784,21 +711,6 @@ def _build_trace_from_normalized_content(
         cache_read = int(usage.get("cacheRead", 0) or 0)
         cache_write = int(usage.get("cacheWrite", 0) or 0)
         thinking_tokens = int(usage.get("thinking", 0) or 0)
-        raw_cost = usage.get("cost")
-        message_provider = str(message.get("provider") or provider_id or "").strip().lower()
-        measured_tokens = any((input_tokens, output_tokens, thinking_tokens, cache_read, cache_write))
-        if message_provider != "lc" and isinstance(raw_cost, dict) and "total" in raw_cost:
-            try:
-                cost_value = float(raw_cost.get("total") or 0.0)
-            except (TypeError, ValueError):
-                cost_value = 0.0
-            else:
-                # A zero-cost record with no token usage is usually a carrier or
-                # placeholder, not evidence that the host truly measured a free
-                # request. A real token-bearing request may legitimately cost $0.
-                if measured_tokens or cost_value > 0:
-                    host_reported_cost_seen = True
-                    host_reported_cost_total += max(0.0, cost_value)
 
         total_input += input_tokens
         total_output += output_tokens
@@ -810,24 +722,16 @@ def _build_trace_from_normalized_content(
         if model:
             model_seen = model
 
-        # Managed Pi's outer `lc` provider is a zero-usage carrier. Do not let
-        # that placeholder model create a second zero-token model bucket beside
-        # the real gateway usage event appended by PiImporter.
-        has_usage = any((input_tokens, output_tokens, thinking_tokens, cache_read, cache_write))
-        usage_entry = (
-            make_llm_usage_entry(
-                model=model,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                thinking_tokens=thinking_tokens,
-                cached_input_tokens=cache_read,
-                cache_creation_input_tokens=cache_write,
-                source_type="normalized.message",
-                source_id=str(event.get("id") or ""),
-                created_at=timestamp,
-            )
-            if has_usage or message_provider != "lc"
-            else None
+        usage_entry = make_llm_usage_entry(
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            thinking_tokens=thinking_tokens,
+            cached_input_tokens=cache_read,
+            cache_creation_input_tokens=cache_write,
+            source_type="normalized.message",
+            source_id=str(event.get("id") or ""),
+            created_at=timestamp,
         )
         if usage_entry is not None:
             usage_entries.append(usage_entry)
@@ -888,21 +792,7 @@ def _build_trace_from_normalized_content(
 
     telemetry: dict[str, Any] = {
         "synthetic_messages_count": synthetic_count,
-        "usage_measurement_source": (
-            usage_measurement_source_override
-            or (
-                "host_transcript"
-                if any((total_input, total_output, total_thinking, total_cache_read, total_cache_write))
-                else "unavailable"
-            )
-        ),
     }
-    if host_reported_cost_seen:
-        telemetry["host_reported_cost_usd"] = round(host_reported_cost_total, 6)
-        telemetry["actual_cost_usd"] = round(host_reported_cost_total, 6)
-        telemetry["actual_cost_source"] = "host_reported"
-    if priced_cost_override is not None:
-        telemetry["priced_cost_usd"] = round(priced_cost_override, 6)
     if provider_id:
         telemetry["provider_id"] = provider_id
 
@@ -1006,7 +896,7 @@ def _elide_long_strings(value: Any, max_chars: int, state: dict[str, int]) -> An
             return value
         dropped = len(value) - max_chars
         state["elided"] += dropped
-        return f"{value[:max_chars]}...[lc: elided {dropped} chars]"
+        return f"{value[:max_chars]}...[lemoncrow: elided {dropped} chars]"
     if isinstance(value, dict):
         return {key: _elide_long_strings(item, max_chars, state) for key, item in value.items()}
     if isinstance(value, list):

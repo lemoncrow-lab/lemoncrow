@@ -47,7 +47,6 @@ TOKEN = "test-token"
 PORT = 45998
 BASE = f"http://127.0.0.1:{PORT}"
 PR = PullRequestRef(owner="acme", repo="widgets", number=7)
-REPO_ID = 4242
 PATCH = "@@ -1,6 +1,6 @@\n line 1\n line 2\n-line 3\n+line three\n line 4\n line 5\n line 6"
 
 _EVENT_STATE = {"APPROVE": "APPROVED", "REQUEST_CHANGES": "CHANGES_REQUESTED", "COMMENT": "COMMENTED"}
@@ -72,8 +71,6 @@ class FakeGitHub:
         self.posts: list[dict[str, Any]] = []
         self.fail_post = ""
         self.lose_response = False
-        self.repository_id: Any = REPO_ID
-        self.html_url: Any = PR.url
 
     def __call__(self, args: Any, stdin: str | None = None, *, cwd: Path | None = None) -> str:
         call = list(args)
@@ -81,12 +78,7 @@ class FakeGitHub:
         if call == ["api", "user"]:
             return json.dumps({"login": self.viewer})
         if call == ["api", api]:
-            pull: dict[str, Any] = {"head": {"sha": self.head_sha}, "user": {"login": self.author}, "state": self.state}
-            if self.repository_id is not None:
-                pull["base"] = {"repo": {"id": self.repository_id, "full_name": PR.slug}}
-            if self.html_url is not None:
-                pull["html_url"] = self.html_url
-            return json.dumps(pull)
+            return json.dumps({"head": {"sha": self.head_sha}, "user": {"login": self.author}, "state": self.state})
         if call[:3] == ["api", "--paginate", "--slurp"]:
             endpoint = call[3]
             comments = re.match(rf"{api}/reviews/(\d+)/comments", endpoint)
@@ -410,7 +402,7 @@ def test_publish_posts_one_review_and_records_each_comment(tmp_path: Path, githu
 
     sent_inline = ws.store.list_deliveries(inline)
     assert [(item.target_type, item.target_ref, item.state, item.remote_ref) for item in sent_inline] == [
-        ("github_review", f"github-repo:{REPO_ID}#7@github.com", "sent", "github-comment:1000")
+        ("github_review", PR.source_ref, "sent", "github-comment:1000")
     ]
     assert ws.store.list_deliveries(folded)[0].remote_ref == "github-review:100"
 
@@ -491,49 +483,6 @@ def test_a_refused_post_records_failure_and_can_be_published_again(tmp_path: Pat
     _plan, published = ws.publish()
     assert published.status_code == 200, published.text
     assert len(github.reviews) == 1
-
-
-@pytest.mark.parametrize(
-    ("repository_id", "html_url"),
-    [
-        (None, PR.url),
-        ("4242", PR.url),
-        (True, PR.url),
-        (0.5, PR.url),
-        (REPO_ID, None),
-        (REPO_ID, ""),
-        (REPO_ID, 7),
-        (REPO_ID, "ftp://github.com/acme/widgets/pull/7"),
-        (REPO_ID, "https://user@github.com/acme/widgets/pull/7"),
-        (REPO_ID, "http://[::1/acme/widgets/pull/7"),
-    ],
-)
-def test_publishing_comments_needs_the_repositorys_durable_id_and_host_and_never_records_its_name(
-    tmp_path: Path, github: FakeGitHub, repository_id: Any, html_url: Any
-) -> None:
-    ws = _workspace(tmp_path)
-    github.head_sha = ws.head_sha
-    github.repository_id = repository_id
-    github.html_url = html_url
-    annotation = ws.comment(3, "why three?")
-    _plan, refused = ws.publish()
-    assert refused.status_code == 409
-    assert "repository id and host" in refused.json()["detail"]
-    assert "nothing was published" in refused.json()["detail"]
-    assert github.posts == [] and ws.store.list_deliveries(annotation) == ()
-
-
-def test_published_comments_record_the_enterprise_host_that_served_the_pull_request(
-    tmp_path: Path, github: FakeGitHub
-) -> None:
-    ws = _workspace(tmp_path)
-    github.head_sha = ws.head_sha
-    github.html_url = "https://GHE.Example.com/acme/widgets/pull/7"
-    annotation = ws.comment(3, "why three?")
-    _plan, published = ws.publish()
-    assert published.status_code == 200, published.text
-    [sent] = ws.store.list_deliveries(annotation)
-    assert sent.target_ref == f"github-repo:{REPO_ID}#7@ghe.example.com"
 
 
 def test_new_commits_on_the_pr_block_publishing_until_refresh(tmp_path: Path, github: FakeGitHub) -> None:
@@ -667,7 +616,7 @@ def test_a_clone_of_another_repository_is_refused_with_the_repo_to_clone(tmp_pat
     ("args", "message"),
     [
         (["--publish"], "--publish needs --pr"),
-        (["--dry-run"], "use it with --pr NUMBER|URL and --ai, --publish-bot or --publish"),
+        (["--dry-run"], "--dry-run only applies to --publish"),
         (["--pr", "7", "--base", "main"], "--pr picks the range itself"),
     ],
 )

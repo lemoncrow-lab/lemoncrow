@@ -112,25 +112,14 @@ def _main_body(command: str, raw: str, exit_code: int) -> str:
     return rendered.removeprefix(f"exit_code={exit_code}") if exit_code else rendered
 
 
-@pytest.mark.parametrize("batch_index", range(10), ids=lambda value: f"batch-{value + 1}")
-def test_client_and_main_bash_show_the_same_output(context: LocalContext, batch_index: int) -> None:
-    # Keep the exact deterministic 300-case corpus, but expose ten independent
-    # chunks to xdist instead of pinning one worker on a ~10 second monolith.
-    # Replaying the seeded generator to a batch boundary costs <50 ms even for
-    # the final batch and avoids materializing ~14 MB of parameters at collect time.
-    batch_size = 30
-    start = batch_index * batch_size
-    cases = list(_cases(start + batch_size))[start:]
+def test_client_and_main_bash_show_the_same_output(context: LocalContext) -> None:
     diverged = []
     spilled = 0
-    for offset, (command, raw, exit_code) in enumerate(cases):
+    for index, (command, raw, exit_code) in enumerate(_cases(300)):
         client = shell._present(context, command, raw, exit_code, context.repo_root, "")
         main = _main_body(command, raw, exit_code)
         spilled += "[lc: shrunk " in main
         if _normalized(client) != _normalized(main):
-            diverged.append((start + offset, command, exit_code))
+            diverged.append((index, command, exit_code))
     assert not diverged, f"{len(diverged)} cases diverge, first: {diverged[:5]}"
-    # Every deterministic batch currently has 9-15 spill cases. Requiring five
-    # in each batch preserves the original corpus-wide >=50 spill guarantee while
-    # making each independently scheduled test prove it exercised that path.
-    assert spilled >= 5, "each corpus batch must exercise the trim-and-spill path"
+    assert spilled >= 50, "the corpus must exercise the trim-and-spill path"

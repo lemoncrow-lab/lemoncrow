@@ -17,37 +17,8 @@ defaults:
     shell: bash
 
 jobs:
-  metadata:
-    name: Validate release metadata
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Verify tag matches package versions
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          # RC artifacts carry the base package version until stable release.
-          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc[0-9]+$ ]]; then
-            VERSION="${VERSION%%-rc*}"
-          fi
-          python scripts/release_version.py check "$VERSION"
-
-      - name: Verify release notes can be rendered
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          python scripts/release_notes.py "${VERSION%%-rc*}" >/dev/null
-
   hosted-client-build:
-    needs: [metadata]
-    name: Build Review and Runtime clients
+    name: Build hosted thin client
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -65,81 +36,19 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Build architecture-neutral Review and Runtime products
-        run: |
-          bash scripts/build_review_client.sh
-          bash scripts/build_review_engine.sh
-          bash scripts/build_runtime_client.sh
+      - name: Build architecture-neutral hosted client
+        run: bash scripts/build_hosted.sh
 
-      - name: Upload product clients
+      - name: Upload hosted client
         uses: actions/upload-artifact@v4
         with:
           name: hosted-client
           path: |
-            dist/lemoncrow-review-client.tar.gz
-            dist/lemoncrow-review-client.tar.gz.sha256
-            dist/lemoncrow-review-engine.tar.gz
-            dist/lemoncrow-review-engine.tar.gz.sha256
-            dist/lemoncrow-runtime-client.tar.gz
-            dist/lemoncrow-runtime-client.tar.gz.sha256
+            dist/lemoncrow-hosted-client.tar.gz
+            dist/lemoncrow-hosted-client.tar.gz.sha256
           if-no-files-found: error
 
-  install-rehearsal:
-    name: Rehearse installer against staged assets
-    needs: [hosted-client-build]
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-
-      - name: Download Review and Runtime clients
-        uses: actions/download-artifact@v4
-        with:
-          name: hosted-client
-          path: dist/
-
-      - name: Stage release assets
-        run: bash scripts/stage_release.sh "$RUNNER_TEMP/stage"
-
-      - name: Verify clean installs and host migrations from release packages
-        run: python scripts/verify_client_distribution.py "$RUNNER_TEMP/stage"
-
-      - name: Install both products from the staged assets
-        run: |
-          STAGE="$RUNNER_TEMP/stage"
-          LEMONCROW_RELEASE_BASE_URL="file://$STAGE" \
-          LEMONCROW_HOME="$RUNNER_TEMP/h" \
-          LEMONCROW_BIN_DIR="$RUNNER_TEMP/h/bin" \
-          LEMONCROW_LOCAL_SERVER_PORT=7499 \
-            bash "$STAGE/install.sh" --product both --local
-
-      - name: Smoke the installed commands
-        run: |
-          export LEMONCROW_HOME="$RUNNER_TEMP/h" LEMONCROW_LOCAL_SERVER_PORT=7499
-          "$RUNNER_TEMP/h/bin/lc" --version
-          "$RUNNER_TEMP/h/bin/lcr" --help >/dev/null
-          "$RUNNER_TEMP/h/bin/lc" status
-
-      - name: Stop the local server
-        if: always()
-        run: |
-          LEMONCROW_HOME="$RUNNER_TEMP/h" LEMONCROW_LOCAL_SERVER_PORT=7499 \
-            bash "$RUNNER_TEMP/h/install/scripts/local_server.sh" stop || true
-
   binary-build:
-    needs: [metadata]
     name: Build release archive (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -166,7 +75,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --frozen
+        run: uv sync
 
       - name: Build release archive
         run: LEMONCROW_ENABLE_MYPYC=1 bash scripts/build.sh
@@ -178,51 +87,9 @@ jobs:
           path: dist/lemoncrow-distribution-*.tar.gz
           if-no-files-found: error
 
-  upgrade-smoke:
-    name: Upgrade smoke from latest published release
-    needs: [binary-build]
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    permissions:
-      contents: read
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-
-      - name: Download Linux x86_64 candidate
-        uses: actions/download-artifact@v4
-        with:
-          name: binaries-ubuntu-latest
-          path: candidate/
-
-      - name: Upgrade previous release in place
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          archive="$(find candidate -maxdepth 1 -name 'lemoncrow-distribution-linux-x86_64.tar.gz' -print -quit)"
-          test -n "$archive"
-          # A tag's release object may already be published when a slow job
-          # starts, especially when rerunning CI. `latest` would install the
-          # current candidate and falsely test a self-upgrade. Always use the
-          # highest prior *published stable* semver instead.
-          previous="$(python scripts/release_previous_tag.py "$GITHUB_REF_NAME")"
-          echo "Verifying actual release upgrade: $previous -> $GITHUB_REF_NAME"
-          bash scripts/verify_release_upgrade.sh "$previous" "$archive"
-
   release:
     name: Create GitHub Release
-    needs: [hosted-client-build, install-rehearsal, binary-build, upgrade-smoke]
+    needs: [hosted-client-build, binary-build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -232,11 +99,6 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-
       - name: Download release archives
         uses: actions/download-artifact@v4
         with:
@@ -244,28 +106,40 @@ jobs:
           merge-multiple: true
           path: binaries/
 
-      - name: Download Review and Runtime clients
+      - name: Download hosted thin client
         uses: actions/download-artifact@v4
         with:
           name: hosted-client
           path: hosted/
 
       - name: Generate release notes
+        id: release_notes
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          # A stable release's notes carry the GitHub Action pin line with this tag's commit; a candidate's do not.
-          pin=(--action-sha "$GITHUB_SHA")
-          if [[ "$VERSION" == *-rc* ]]; then pin=(); fi
-          python scripts/release_notes.py "${VERSION%%-rc*}" "${pin[@]}" > RELEASE_NOTES.md
-          if [[ "$VERSION" == *-rc* ]]; then
-            sed -i '1iPRE-RELEASE: release candidate for testing. Full release qualification is pending.\n' RELEASE_NOTES.md
-          fi
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          cat <<EOF > RELEASE_NOTES.md
+          ## LemonCrow ${VERSION}
+
+          ### Installation
+
+          \`\`\`bash
+          curl -fsSL https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download/hosted.sh | LEMONCROW_HOSTED_URL=https://your-lemoncrow-server bash
+          \`\`\`
+
+          ### Assets
+          - \`hosted.sh\` — hosted thin-client installer
+          - \`lemoncrow-hosted-client.tar.gz\` — architecture-neutral zero-dependency hosted client
+          - \`install.sh\` — local/full-distribution installer (\`--hosted\` redirects to \`hosted.sh\`)
+          - \`sessions.sh\` — session management utility for full local distributions
+          - \`lemoncrow-distribution-*.tar.gz\` — full local-mode bundles for supported platforms
+          EOF
 
       # This workflow runs directly on THIS (public) repo: scripts/mirror.py
       # rewrites it from .github/public-workflows/release.yml (private repo)
       # to .github/workflows/release.yml here. The public server core is mirrored,
-      # so platform distributions remain complete local-mode bundles. Review and
-      # Runtime publish separate architecture-neutral client artifacts.
+      # so platform distributions remain complete local-mode bundles. Hosted mode
+      # is the separate architecture-neutral lemoncrow-hosted-client.tar.gz built
+      # once above; it contains only the audited thin-client wheel.
       #
       # `make release` (private repo) pushes the release tag to this repo's
       # mirrored SHA before this workflow's trigger can fire, so the tag
@@ -284,41 +158,25 @@ jobs:
             shasum -a 256 "$f" | awk '{print $1}' > "${f}.sha256"
           done
 
-          # Product-client builders already produced sidecars. Verify the canonical
-          # Review and Runtime artifacts again before publication.
-          for product in review runtime; do
-            archive="hosted/lemoncrow-${product}-client.tar.gz"
-            sidecar="${archive}.sha256"
-            test -s "$archive" -a -s "$sidecar"
-            expected="$(tr -d '[:space:]' < "$sidecar")"
-            actual="$(shasum -a 256 "$archive" | awk '{print $1}')"
-            test "$expected" = "$actual" || { echo "::error::${product} client checksum mismatch"; exit 1; }
-          done
-          review_engine="hosted/lemoncrow-review-engine.tar.gz"
-          review_engine_sidecar="${review_engine}.sha256"
-          test -s "$review_engine" -a -s "$review_engine_sidecar"
-          expected="$(tr -d '[:space:]' < "$review_engine_sidecar")"
-          actual="$(shasum -a 256 "$review_engine" | awk '{print $1}')"
-          test "$expected" = "$actual" || { echo "::error::Review engine checksum mismatch"; exit 1; }
-
-          # Single source of the published installer-script and product-archive list.
-          # The staged install.sh pins this tag and the SHA-256 of every asset.
-          LEMONCROW_RELEASE_TAG="${TAG}" bash scripts/stage_release.sh stage hosted binaries
+          # build_hosted.sh already produced this sidecar. Verify it again here
+          # before publication so a workflow/artifact mix-up fails the release.
+          hosted_archive="hosted/lemoncrow-hosted-client.tar.gz"
+          hosted_sidecar="${hosted_archive}.sha256"
+          test -s "$hosted_archive" -a -s "$hosted_sidecar"
+          expected="$(tr -d '[:space:]' < "$hosted_sidecar")"
+          actual="$(shasum -a 256 "$hosted_archive" | awk '{print $1}')"
+          test "$expected" = "$actual" || { echo "::error::Hosted client checksum mismatch"; exit 1; }
 
           shopt -s nullglob
-          assets=(binaries/* stage/*)
+          assets=(binaries/* hosted/* scripts/install.sh scripts/hosted.sh scripts/sessions.sh)
 
           if (( ${#assets[@]} == 0 )); then
             echo "::error::No release assets were found."
             exit 1
           fi
 
-          release_flags=(--latest)
-          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc[0-9]+$ ]]; then
-            release_flags=(--prerelease --latest=false)
-          fi
           gh release create "${TAG}" \
-            "${release_flags[@]}" \
+            --latest \
             --title "LemonCrow ${TAG}" \
             --notes-file RELEASE_NOTES.md \
             "${assets[@]}"
@@ -339,8 +197,8 @@ jobs:
           # context so it never tries to discover a .git directory.
           GH_REPO: ${{ github.repository }}
         run: |
-          RELEASES=$(gh release list --limit 100 --json tagName,createdAt,isPrerelease \
-            | jq -r '[.[] | select(.isPrerelease == false)] | sort_by(.createdAt) | reverse | .[3:] | .[].tagName')
+          RELEASES=$(gh release list --limit 100 --json tagName,createdAt \
+            | jq -r 'sort_by(.createdAt) | reverse | .[3:] | .[].tagName')
 
           for tag in $RELEASES; do
             echo "Deleting old release: $tag"

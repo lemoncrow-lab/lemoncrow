@@ -1,9 +1,20 @@
 from __future__ import annotations
 
+import inspect
+
+from lemoncrow_client.kit.read_path import split_file_opts
+
+from lemoncrow.gateway.adapters import mcp_server
 from lemoncrow.gateway.cli import runtime
 from lemoncrow.gateway.tools import dedup
 from lemoncrow.gateway.tools.dedup import DedupResult
 from lemoncrow.pro.capabilities import context_dedup
+
+
+def test_mcp_server_reexports_canonical_read_dedup_helpers() -> None:
+    assert mcp_server._DEDUP_TOOLS is dedup.MCP_DEDUP_TOOLS
+    assert mcp_server._read_dedup_resource is dedup.read_dedup_resource
+    assert mcp_server._split_file_opts is split_file_opts
 
 
 def test_shared_dedup_policy_preserves_salt_and_saved_chars(monkeypatch) -> None:
@@ -55,3 +66,10 @@ def test_cli_renderer_uses_shared_dedup_policy(monkeypatch) -> None:
     # Preserve existing CLI semantics: exact-repeat lookup did not use the MCP
     # read-resource salt; only delta lookup receives the resource key.
     assert seen.get("salt", "") == ""
+
+
+def test_cli_renderer_no_longer_implements_context_dedup_directly() -> None:
+    source = inspect.getsource(runtime._render_tool_result)
+    assert "context_dedup.registry" not in source
+    assert "mcp_server import _read_dedup_resource" not in source
+    assert "dedup_output(" in source

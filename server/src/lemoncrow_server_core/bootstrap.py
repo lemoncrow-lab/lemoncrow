@@ -7,16 +7,18 @@ import secrets
 import stat
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, cast
+
+from lemoncrow.core.foundation.paths import default_store_root
 
 from .config import LocalServerConfig
-from .dispatch import UnavailableDispatcher
 from .index.deferred import DeferredIndexWorker, MemoryDeferredJobStore
 from .index.repositories import build_repository_backend
+from .index.search import IndexSearchDispatcher
 from .local_app import LocalServerApp, build_local_app
 from .local_maintenance import LocalMaintenance
 from .server import LocalServer
-from .wiring import build_backend, build_workspace
+from .tracing import TracingDispatcher
+from .wiring import build_backend, build_dispatcher, build_workspace
 
 __all__ = ["build_local_server", "ensure_local_token", "read_local_token"]
 
@@ -96,7 +98,6 @@ def ensure_local_token(path: Path) -> str:
 
 
 def build_local_server(config: LocalServerConfig, *, token: str | None = None) -> tuple[LocalServer, LocalServerApp]:
-    assert config.state_root is not None
     config.state_root.mkdir(parents=True, exist_ok=True)
     index_path = config.resolved_index_path
     if index_path is not None:
@@ -109,8 +110,8 @@ def build_local_server(config: LocalServerConfig, *, token: str | None = None) -
             raise RuntimeError("local server requires token_file unless local_no_auth is enabled")
         resolved_token = ensure_local_token(config.token_file)
     engine_config = replace(config, index_path=index_path, workspace_root=workspace_root)
-    # The loopback server keeps one database per repository. A hosting
-    # composition may instead keep one shared file.
+    # The loopback server keeps one database per repository. Enterprise keeps
+    # the shared file its backup, purge and preflight tooling operate on.
     backend = (
         build_backend(engine_config)
         if index_path is None
@@ -126,9 +127,22 @@ def build_local_server(config: LocalServerConfig, *, token: str | None = None) -
         backend = replace(backend, deferred_jobs=MemoryDeferredJobStore())
     index_worker = DeferredIndexWorker(backend, max_files=config.limits.max_deferred_index_files)
     workspace = build_workspace(engine_config, backend)
-    # Runtime tools run in the agent's own MCP process (Runtime Lite); the
-    # local server serves Review and the Dashboard and never executes a tool.
-    dispatcher = UnavailableDispatcher("Runtime tools run in Runtime Lite, not in the local server")
+    # Thin-client mode must keep server-side code intelligence on the
+    # revision-bound server index. Enterprise composition already installs this
+    # wrapper; local loopback must do the same or `code_search` falls through to
+    # the legacy per-worktree registry implementation and rejects client-only
+    # hydration metadata.
+    # Loopback: the operator's own machine, so traces keep raw queries/paths
+    # (never source text) for replay. See lemoncrow.core.foundation.runtime_trace.
+    dispatcher = TracingDispatcher(
+        IndexSearchDispatcher(
+            backend,
+            build_dispatcher(trace_mode="raw"),
+            content_size_cap=engine_config.limits.max_indexed_content_bytes,
+            timeout_s=engine_config.limits.tool_deadline_s,
+        ),
+        mode="raw",
+    )
     state, app = build_local_app(
         config=engine_config,
         backend=backend,
@@ -136,28 +150,13 @@ def build_local_server(config: LocalServerConfig, *, token: str | None = None) -
         dispatcher=dispatcher,
         workspace=workspace,
     )
-    if not engine_config.isolate_services:
-        # Isolated, the Review worker runs the landing watch and the Dashboard
-        # worker the session import and telemetry; the core keeps the index.
-        if engine_config.dashboard_enabled:
-            from lemoncrow.core.foundation.paths import default_store_root
-
-            runtime_root = default_store_root()
-        else:
-            assert engine_config.state_root is not None
-            runtime_root = engine_config.state_root / "runtime-disabled"
-        assert engine_config.state_root is not None
-        state.maintenance = cast(
-            Any,
-            LocalMaintenance(
-                state.maintenance,
-                runtime_root=runtime_root,
-                state_root=engine_config.state_root,
-                import_interval_s=30 * 60.0 if engine_config.dashboard_enabled else 0.0,
-                flush_telemetry=engine_config.dashboard_enabled,
-                # Merge-when-ready belongs to Review and stays active in Review-only mode.
-                landing_watch=state.review_repository.reconcile_landings if engine_config.review_enabled else None,
-            ),
-        )
-    cast(Any, state).index_worker = index_worker
+    state.maintenance = LocalMaintenance(
+        state.maintenance,
+        runtime_root=default_store_root(),
+        state_root=engine_config.state_root,
+        # Merge-when-ready for local GitHub pull requests lands only through
+        # this watch (exact reviewed head, never provider auto-merge).
+        landing_watch=state.review_repository.reconcile_landings,
+    )
+    state.index_worker = index_worker
     return LocalServer(state, app, config), state

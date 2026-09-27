@@ -1,0 +1,3 @@
+sentence-transformers
+torch
+accelerate>=1.1.0

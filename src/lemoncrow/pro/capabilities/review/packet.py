@@ -26,8 +26,6 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-from lemoncrow.core.foundation.optional_modules import skip_if_absent
-
 from .gitdiff import (
     MAX_HUNK_PATCH_BYTES,
     BlobPair,
@@ -52,10 +50,6 @@ from .models import (
     ReviewPacket,
     unknown_provenance,
 )
-
-#: Its reader of the author's session records, which Runtime writes: a build without it
-#: (the Review-only engine) builds packets with no journal, as when there is no session.
-REVIEW_JOURNAL = "lemoncrow.pro.capabilities.review.journal"
 
 
 def _collect_impact(
@@ -400,15 +394,14 @@ def attach_provenance(
     journal: tuple[ReviewJournalEntry, ...] = ()
     if provenance.certainty == "exact" and provenance.session_id and provenance.host:
         try:
-            with skip_if_absent(REVIEW_JOURNAL):
-                from .journal import collect_review_journal
+            from .journal import collect_review_journal
 
-                journal = collect_review_journal(
-                    store_root,
-                    repo_root,
-                    provenance,
-                    [item.path for item in packet.files],
-                )
+            journal = collect_review_journal(
+                store_root,
+                repo_root,
+                provenance,
+                [item.path for item in packet.files],
+            )
         except (OSError, TypeError, ValueError):
             journal = ()
 
@@ -614,15 +607,14 @@ def _build(
     journal: tuple[ReviewJournalEntry, ...] = ()
     if provenance.certainty == "exact" and provenance.session_id and provenance.host:
         try:
-            with skip_if_absent(REVIEW_JOURNAL):
-                from .journal import collect_review_journal
+            from .journal import collect_review_journal
 
-                journal = collect_review_journal(
-                    store_root,
-                    repo_root,
-                    provenance,
-                    [item.path for item in files],
-                )
+            journal = collect_review_journal(
+                store_root,
+                repo_root,
+                provenance,
+                [item.path for item in files],
+            )
         except (OSError, TypeError, ValueError):
             # Review journaling is enrichment over an already-complete packet.
             # A malformed/missing live ledger may never make source review fail.
@@ -672,13 +664,11 @@ def _build(
         stats=stats,
         journal=journal,
         attributions=attributions,
-        scope_paths=tuple(rng.paths),
     )
     return PacketBuild(packet=packet, blobs=blobs, source_fingerprint=source_fingerprint)
 
 
 __all__ = [
-    "REVIEW_JOURNAL",
     "PacketBuild",
     "attach_changed_symbols",
     "attach_impact",

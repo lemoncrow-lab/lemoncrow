@@ -1,15 +1,12 @@
-import { Button as UiButton } from "../../components/ui/button";
 import { useEffect, useState, useMemo } from "react";
 import { ExternalLink, ChevronRight, X } from "lucide-react";
 import {
   api,
-  apiUrl,
   type Trace,
   type SessionReport,
   type RunInspectorData,
 } from "../../api";
 import { cx } from "../../components/WorkbenchUI";
-import { useRuntimeCapabilities } from "../../lib/RuntimeCapabilities";
 import {
   fmtUsd,
   fmtTok,
@@ -38,27 +35,27 @@ function HeaderStat({
 }: {
   label: string;
   value: string;
-  tone?: "warning" | "success" | "neutral";
+  tone?: "amber" | "emerald" | "violet";
   title?: string;
 }) {
   return (
     <div
-      className="group flex min-w-0 items-center justify-between gap-3 rounded-md border border-border/70 bg-background/60 px-2.5 py-1.5 transition-colors hover:bg-muted/50"
+      className="flex min-w-0 items-center justify-between gap-3 border border-neutral-800/40 bg-black/15 px-2.5 py-1.5 transition-colors hover:bg-neutral-800/20 group"
       title={title}
     >
-      <div className="truncate text-caption text-muted-foreground uppercase font-semibold tracking-tag group-hover:text-muted-foreground transition-colors">
+      <div className="truncate text-[10px] text-neutral-400 uppercase font-black tracking-[0.18em] group-hover:text-neutral-400 transition-colors">
         {label}
       </div>
       <div
         className={cx(
-          "truncate text-caption font-semibold font-mono leading-none",
-          tone === "warning"
+          "truncate text-[10px] font-bold font-mono leading-none",
+          tone === "amber"
             ? "text-amber-300"
-            : tone === "success"
+            : tone === "emerald"
               ? "text-emerald-300"
-              : tone === "neutral"
-                ? "text-ai"
-                : "text-muted-foreground"
+              : tone === "violet"
+                ? "text-violet-300"
+                : "text-neutral-400"
         )}
       >
         {value}
@@ -74,7 +71,7 @@ function HeaderStat({
 function SidebarMetric({
   label,
   value,
-  color = "text-muted-foreground",
+  color = "text-neutral-400",
 }: {
   label: string;
   value: string;
@@ -82,10 +79,10 @@ function SidebarMetric({
 }) {
   return (
     <div className="flex items-center justify-between gap-4">
-      <span className="text-caption text-muted-foreground font-mono uppercase font-semibold">
+      <span className="text-[10px] text-neutral-400 font-mono uppercase font-bold">
         {label}
       </span>
-      <span className={cx("text-caption font-mono font-semibold", color)}>
+      <span className={cx("text-[10px] font-mono font-black", color)}>
         {value}
       </span>
     </div>
@@ -95,15 +92,13 @@ function SidebarMetric({
 function SidebarList({
   title,
   items,
-  color = "text-muted-foreground",
+  color = "text-neutral-400",
 }: {
   title: string;
   items: Array<string | { path: string; artifact_id?: string }>;
   color?: string;
 }) {
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
-  // Raw files and artifacts live on the developer machine; a hosted server has no route for them.
-  const localFiles = useRuntimeCapabilities().localMachine;
 
   const copyToClipboard = async (text: string) => {
     try {
@@ -132,21 +127,19 @@ function SidebarList({
 
   return (
     <section className="space-y-3">
-      <h3 className="text-caption font-semibold uppercase tracking-widest text-muted-foreground">
+      <h3 className="text-[10px] font-black uppercase tracking-widest text-neutral-400">
         {title}
       </h3>
-      <div className="space-y-1.5 font-mono text-caption">
+      <div className="space-y-1.5 font-mono text-[10px]">
         {items.map((item) => {
           const p = typeof item === "string" ? item : item.path;
           const artId = typeof item === "string" ? null : item.artifact_id;
           const isPath = p.startsWith("/");
-          const canOpenRaw = localFiles && Boolean(artId || isPath);
-          const rawUrl = !localFiles
-            ? undefined
-            : artId
-              ? apiUrl(`/raw-artifacts/${artId}/content`)
-              : apiUrl(`/v1/files/content?path=${encodeURIComponent(p)}`);
-          const projectionUrl = localFiles && isPath
+          const canOpenRaw = Boolean(artId || isPath);
+          const rawUrl = artId
+            ? `/api/raw-artifacts/${artId}/content`
+            : `/api/v1/files/content?path=${encodeURIComponent(p)}`;
+          const projectionUrl = isPath
             ? api.fileProjectionInspectUrl(p, { view: "compact" })
             : null;
           // Absolute filesystem path → let Chrome try to open it directly.
@@ -159,7 +152,7 @@ function SidebarList({
             <div
               key={p}
               className={cx(
-                "group/item flex items-center justify-between border-l border-border/60 pl-2 transition-colors",
+                "group/item flex items-center justify-between border-l border-neutral-800/60 pl-2 transition-colors",
                 color
               )}
             >
@@ -168,39 +161,39 @@ function SidebarList({
                   href={fileUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="truncate flex-1 hover:text-foreground hover:underline decoration-dotted underline-offset-2"
+                  className="truncate flex-1 hover:text-neutral-200 hover:underline decoration-dotted underline-offset-2"
                   title={`Open ${p}`}
                 >
                   {p}
                 </a>
               ) : (
                 <span
-                  className="truncate flex-1 hover:text-subtle cursor-default"
+                  className="truncate flex-1 hover:text-neutral-300 cursor-default"
                   title={p}
                 >
                   {p}
                 </span>
               )}
               <div className="flex items-center gap-2 ml-2 opacity-0 group-hover/item:opacity-100 transition-opacity flex-shrink-0 bg-surface px-1">
-                <UiButton unstyled
+                <button
                   type="button"
                   onClick={() => copyToClipboard(p)}
                   className={cx(
-                    "text-meta uppercase font-semibold flex items-center gap-1",
+                    "text-[10px] uppercase font-black flex items-center gap-1",
                     justCopied
                       ? "text-emerald-300"
-                      : "text-muted-foreground hover:text-cyan-300"
+                      : "text-neutral-400 hover:text-sky-300"
                   )}
                   title={`Copy path: ${p}`}
                 >
                   {justCopied ? "Copied" : "Copy"}
-                </UiButton>
+                </button>
                 {projectionUrl && (
                   <a
                     href={projectionUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-meta text-muted-foreground hover:text-cyan-300 uppercase font-semibold"
+                    className="text-[10px] text-neutral-400 hover:text-cyan-300 uppercase font-black"
                     title="Inspect compact projection metadata"
                   >
                     Projection
@@ -211,10 +204,10 @@ function SidebarList({
                     href={rawUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-meta text-muted-foreground hover:text-emerald-300 uppercase font-semibold flex items-center gap-1"
+                    className="text-[10px] text-neutral-400 hover:text-emerald-300 uppercase font-black flex items-center gap-1"
                     title="View raw content"
                   >
-                    Raw <ExternalLink size={14} />
+                    Raw <ExternalLink size={10} />
                   </a>
                 )}
               </div>
@@ -239,27 +232,27 @@ function MetaPill({
 }: {
   label: string;
   value: string;
-  tone?: "neutral" | "neutral" | "warning";
+  tone?: "neutral" | "violet" | "amber";
   /** When set, the pill truncates `value` and copies this on click. */
   copyValue?: string;
 }) {
   const [copied, setCopied] = useState(false);
   const toneClass =
-    tone === "neutral"
-      ? "border-ai-line bg-background/60 text-ai"
-      : tone === "warning"
-        ? "border-amber-900/40 bg-background/60 text-amber-300"
-        : "border-border bg-background/60 text-muted-foreground";
+    tone === "violet"
+      ? "border-violet-900/30 bg-violet-950/25 text-violet-200"
+      : tone === "amber"
+        ? "border-amber-900/30 bg-amber-950/25 text-amber-200"
+        : "border-neutral-800 bg-black/20 text-neutral-400";
 
   if (copyValue === undefined) {
     return (
       <span
         className={cx(
-          "inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-caption font-mono uppercase tracking-tag",
+          "inline-flex items-center gap-1 rounded-sm border px-2.5 py-1 text-[10px] font-mono uppercase tracking-[0.2em]",
           toneClass
         )}
       >
-        <span className="text-muted-foreground">{label}</span>
+        <span className="text-neutral-400">{label}</span>
         <span className="normal-case tracking-normal text-current">
           {value}
         </span>
@@ -278,51 +271,21 @@ function MetaPill({
   };
 
   return (
-    <UiButton unstyled
+    <button
       type="button"
       onClick={handleCopy}
       title={`Copy: ${copyValue}`}
       className={cx(
-        "inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-meta font-mono uppercase tracking-tag transition hover:bg-muted/50",
+        "inline-flex items-center gap-1 rounded-sm border px-2.5 py-1 text-[10px] font-mono uppercase tracking-[0.2em] transition hover:border-neutral-600",
         toneClass
       )}
     >
-      <span className="text-muted-foreground">{label}</span>
+      <span className="text-neutral-400">{label}</span>
       <span className="normal-case tracking-normal text-current">
         {copied ? "Copied" : truncateMiddle(value)}
       </span>
-    </UiButton>
+    </button>
   );
-}
-
-function usageSourceLabel(source?: string): string {
-  switch (source) {
-    case "claude_mod":
-      return "Claude Code measured";
-    case "host_transcript":
-      return "Host transcript measured";
-    case "lemoncrow_gateway":
-      return "LemonCrow gateway measured";
-    case "unavailable":
-      return "Unavailable from host";
-    default:
-      return source ? source.replaceAll("_", " ") : "Recorded session";
-  }
-}
-
-function costSourceLabel(source?: string): string {
-  switch (source) {
-    case "claude_mod":
-    case "host_reported":
-      return "Host measured";
-    case "priced":
-    case "claude_mod_tokens_priced":
-      return "Priced from measured usage";
-    case "unavailable":
-      return "Unavailable from host";
-    default:
-      return source ? source.replaceAll("_", " ") : "Recorded session";
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -330,7 +293,6 @@ function costSourceLabel(source?: string): string {
 // ---------------------------------------------------------------------------
 
 export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
-  const localFiles = useRuntimeCapabilities().localMachine;
   const [report, setReport] = useState<SessionReport | null>(null);
   const [trace, setTrace] = useState<Trace | null>(null);
   const [inspectorData, setInspectorData] = useState<RunInspectorData | null>(
@@ -343,8 +305,6 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
 
   useEffect(() => {
-    // A late response for the previous run must not overwrite this one.
-    let cancelled = false;
     setLoading(true);
     setErr(null);
     setAllExpanded(false);
@@ -355,12 +315,6 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
       api.outcomesForSession(sessionId).catch(() => []),
     ])
       .then(([rep, tr, led, outcomeEntries]) => {
-        if (cancelled) return;
-        if (!rep && !tr && !led) {
-          setErr("This run is not available.");
-          setLoading(false);
-          return;
-        }
         setReport(rep);
         setTrace(tr);
         if (led) setInspectorData(parseInspectorData(sessionId, led));
@@ -368,13 +322,9 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
         setLoading(false);
       })
       .catch((e) => {
-        if (cancelled) return;
-        setErr(e instanceof Error ? e.message : String(e));
+        setErr(String(e));
         setLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
   }, [sessionId]);
 
   // Average outcome_window.outcome_score across all entries of one kind
@@ -512,8 +462,8 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
   if (loading)
     return (
       <div className="flex flex-col items-center justify-center h-full space-y-4 bg-surface">
-        <div className="w-10 h-10 border border-input/20 border-t-neutral-500 rounded-full animate-spin" />
-        <div className="text-caption text-muted-foreground uppercase tracking-tag font-mono animate-pulse">
+        <div className="w-10 h-10 border border-brand-500/20 border-t-brand-500 rounded-full animate-spin" />
+        <div className="text-[10px] text-neutral-400 uppercase tracking-[0.3em] font-mono animate-pulse">
           Reconstructing Ledger...
         </div>
       </div>
@@ -521,12 +471,12 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
 
   if (err)
     return (
-      <div className="h-full flex items-center justify-center bg-surface px-6 py-8 text-center">
+      <div className="h-full flex items-center justify-center bg-surface p-12 text-center">
         <div className="max-w-xs space-y-3">
-          <div className="text-red-300 text-heading font-mono font-semibold uppercase tracking-widest">
+          <div className="text-red-300 text-sm font-mono font-bold uppercase tracking-widest">
             Load Failure
           </div>
-          <div className="text-muted-foreground text-body font-mono leading-relaxed">
+          <div className="text-neutral-400 text-xs font-mono leading-relaxed">
             {err}
           </div>
         </div>
@@ -536,11 +486,11 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
   return (
     <div className="flex flex-col h-full bg-surface relative animate-in fade-in duration-500">
       {/* Header */}
-      <header className="sticky top-0 z-20 flex-shrink-0 border-b border-border/80 bg-background/95 px-4 py-2.5 backdrop-blur-md">
-        <div className="space-y-2">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-            <div className="min-w-0 flex-1 space-y-1.5">
-              <h1 className="text-heading font-semibold tracking-wide text-foreground truncate uppercase">
+      <header className="flex-shrink-0 px-8 py-4 border-b border-neutral-800/80 bg-surface-raised/95 backdrop-blur-md sticky top-0 z-20 shadow-2xl">
+        <div className="space-y-3">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div className="min-w-0 flex-1 space-y-2">
+              <h1 className="text-sm font-bold tracking-wide text-neutral-100 font-mono truncate uppercase">
                 {trace && (
                   <span
                     className="inline-flex items-center px-1"
@@ -562,76 +512,72 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                   value={fmtDate(report?.started_at || trace?.created_at)}
                 />
                 {startedModel && (
-                  <MetaPill label="Model" value={startedModel} tone="neutral" />
+                  <MetaPill label="Model" value={startedModel} tone="violet" />
                 )}
                 <MetaPill
                   label="Agent"
                   value={`@${trace?.agent || "unknown"}`}
-                  tone="warning"
+                  tone="amber"
                 />
               </div>
             </div>
 
             <div className="flex items-center gap-3 self-start">
-              {localFiles && report?.raw_artifact_ids &&
+              {report?.raw_artifact_ids &&
                 report.raw_artifact_ids.length > 0 && (
                   <a
-                    href={apiUrl(`/raw-artifacts/${report.raw_artifact_ids[0]}/content`)}
+                    href={`/api/raw-artifacts/${report.raw_artifact_ids[0]}/content`}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/80 bg-muted/55 px-2.5 text-meta font-medium text-muted-foreground transition-colors hover:bg-accent/80 hover:text-foreground"
+                    className="px-3 py-1.5 border border-neutral-700 hover:border-neutral-500 hover:text-neutral-100 transition-all text-[10px] font-mono text-neutral-400 uppercase tracking-widest flex items-center gap-2"
                   >
-                    <ExternalLink size={14} />
+                    <ExternalLink size={10} />
                     Raw Link
                   </a>
                 )}
-              <UiButton
+              <button
                 onClick={() => setAllExpanded(!allExpanded)}
-                size="xs"
-                variant="outline"
+                className="px-3 py-1.5 border border-neutral-700 hover:border-neutral-500 hover:text-neutral-100 transition-all text-[10px] font-mono text-neutral-400 uppercase tracking-widest"
               >
                 {allExpanded ? "Collapse View" : "Expand All"}
-              </UiButton>
-              <UiButton
+              </button>
+              <button
                 onClick={() => setRightPanelOpen(!rightPanelOpen)}
-                size="icon"
-                variant="outline"
-                active={rightPanelOpen}
-                aria-label="Toggle Detailed Metrics"
-                tooltip="Toggle Detailed Metrics"
+                className={cx(
+                  "w-8 h-8 flex items-center justify-center border transition-all text-sm font-mono",
+                  rightPanelOpen
+                    ? "bg-brand-600 border-brand-500 text-white"
+                    : "border-neutral-700 text-neutral-400 hover:border-neutral-500 hover:text-neutral-100"
+                )}
+                title="Toggle Detailed Metrics"
               >
                 {rightPanelOpen ? <X size={14} /> : <ChevronRight size={14} />}
-              </UiButton>
+              </button>
             </div>
           </div>
 
           <div className="grid grid-cols-5 gap-1.5">
             <HeaderStat
-              label={report?.actual_cost_source === "priced" ? "Priced Cost" : "Cost"}
+              label="Cost"
               value={
-                report?.actual_cost_source === "unavailable"
-                  ? "—"
-                  : report
-                    ? fmtUsd(report.total_cost_usd)
-                    : trace?.input_tokens
-                      ? "..."
-                      : "—"
+                report
+                  ? fmtUsd(report.total_cost_usd)
+                  : trace?.input_tokens
+                    ? "..."
+                    : "—"
               }
-              title={report ? costSourceLabel(report.actual_cost_source) : undefined}
-              tone="warning"
+              tone="amber"
             />
             <HeaderStat
-              label="Est. Saved"
+              label="Saved"
               value={report ? fmtUsd(report.total_lemoncrow_savings_usd) : "—"}
-              tone="success"
+              tone="emerald"
             />
             <HeaderStat
               label="Tokens"
               value={
-                report?.usage_measurement_source === "unavailable"
-                  ? "—"
-                  : report || trace || inspectorData
-                    ? (() => {
+                report || trace || inspectorData
+                  ? (() => {
                       // "Input" = bytes the model freshly processed this
                       // session = new input + cache writes. Anthropic's
                       // raw `input_tokens` excludes cW even though cW is
@@ -664,16 +610,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
             />
             <HeaderStat
               label="Turns"
-              value={
-                report
-                  ? String(report.measured_total_turns || report.total_turns)
-                  : "—"
-              }
-              title={
-                report?.measured_subagent_count
-                  ? `${report.measured_main_turns ?? 0} main · ${report.measured_subagent_turns ?? 0} subagent`
-                  : undefined
-              }
+              value={report ? String(report.total_turns) : "—"}
             />
             <HeaderStat
               label="Time"
@@ -694,16 +631,16 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
         <div className="flex h-full">
           {/* Scrollable timeline */}
           <div className="flex-1 overflow-y-auto custom-scrollbar bg-surface">
-            <div className="space-y-4 p-4 pb-16">
-              <section className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <h2 className="whitespace-nowrap text-caption font-semibold uppercase tracking-tag text-muted-foreground">
+            <div className="p-10 space-y-16 pb-48">
+              <section className="space-y-12">
+                <div className="flex items-center gap-6">
+                  <h2 className="text-[10px] font-black uppercase tracking-[0.5em] text-neutral-400 whitespace-nowrap">
                     Execution Flow
                   </h2>
-                  <div className="h-px w-full bg-accent/80" />
+                  <div className="h-px w-full bg-gradient-to-r from-neutral-800 to-transparent" />
                 </div>
 
-                <div className="space-y-4">
+                <div className="space-y-12">
                   {enrichedConversations.length > 0 ? (
                     (() => {
                       const seen = new Map<string, number>();
@@ -729,16 +666,16 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                       });
                     })()
                   ) : (
-                    <div className="space-y-4">
+                    <div className="space-y-8">
                       {trace?.reasoning && trace.reasoning.length > 0 && (
                         <div className="space-y-4">
-                          <h3 className="text-caption font-semibold uppercase tracking-widest text-muted-foreground px-1">
+                          <h3 className="text-[10px] font-bold uppercase tracking-widest text-neutral-400 px-1">
                             Strategy
                           </h3>
                           {trace.reasoning.map((r, i) => (
                             <div
                               key={i}
-                              className="rounded-lg border border-border/70 bg-background/60 p-3 font-mono text-label leading-relaxed text-muted-foreground whitespace-pre-wrap"
+                              className="bg-brand-950/[0.03] border border-brand-900/10 p-5 text-[11px] leading-relaxed text-brand-400/60 font-mono whitespace-pre-wrap rounded-sm shadow-inner"
                             >
                               {r}
                             </div>
@@ -746,10 +683,10 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                         </div>
                       )}
                       <div className="space-y-4">
-                        <h3 className="text-caption font-semibold uppercase tracking-widest text-muted-foreground px-1">
+                        <h3 className="text-[10px] font-bold uppercase tracking-widest text-neutral-400 px-1">
                           Events
                         </h3>
-                        <div className="space-y-2">
+                        <div className="space-y-3">
                           {trace?.tools_called.map((t, i) => (
                             <ToolCallDetail
                               key={i}
@@ -772,13 +709,13 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
               </section>
 
               {ledgerFilesTouched.length > 0 && (
-                <section className="space-y-4 border-t border-border/70 pt-4">
-                  <div className="flex items-center gap-3">
-                    <h2 className="whitespace-nowrap text-caption font-semibold uppercase tracking-tag text-muted-foreground">
+                <section className="space-y-6 pt-12 border-t border-neutral-900/50">
+                  <div className="flex items-center gap-6">
+                    <h2 className="text-[10px] font-black uppercase tracking-[0.5em] text-neutral-400 whitespace-nowrap">
                       File Changes
                     </h2>
-                    <div className="h-px w-full bg-accent/80" />
-                    <span className="flex-shrink-0 font-mono text-caption font-medium text-muted-foreground">
+                    <div className="h-px w-full bg-gradient-to-r from-neutral-800 to-transparent" />
+                    <span className="text-[10px] text-neutral-400 font-mono font-bold uppercase tracking-widest flex-shrink-0">
                       {ledgerFilesTouched.length} file
                       {ledgerFilesTouched.length !== 1 ? "s" : ""} · from
                       session
@@ -800,51 +737,23 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
 
           {/* Right rail — detailed metrics */}
           {rightPanelOpen && (
-            <aside className="w-96 flex-shrink-0 space-y-4 overflow-y-auto border-l border-border/70 bg-background/70 p-4 custom-scrollbar animate-in slide-in-from-right duration-300">
+            <aside className="w-96 flex-shrink-0 border-l border-neutral-800/60 bg-surface-raised/40 overflow-y-auto custom-scrollbar p-6 space-y-10 animate-in slide-in-from-right duration-300">
               <section className="space-y-4">
-                <h3 className="border-b border-border pb-2 text-caption font-semibold uppercase tracking-tag text-muted-foreground">
+                <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-400 border-b border-neutral-800 pb-2">
                   Session Blueprint
                 </h3>
-                <div className="grid gap-3">
+                <div className="grid gap-4">
                   <SidebarMetric
                     label="Input Cost"
-                    value={
-                      report?.actual_cost_source === "unavailable"
-                        ? "—"
-                        : report
-                          ? fmtUsd(report.input_token_cost_usd)
-                          : "—"
-                    }
+                    value={report ? fmtUsd(report.input_token_cost_usd) : "—"}
                   />
                   <SidebarMetric
                     label="Output Cost"
-                    value={
-                      report?.actual_cost_source === "unavailable"
-                        ? "—"
-                        : report
-                          ? fmtUsd(report.output_token_cost_usd)
-                          : "—"
-                    }
+                    value={report ? fmtUsd(report.output_token_cost_usd) : "—"}
                   />
                   <SidebarMetric
                     label="Cache Read Cost"
-                    value={
-                      report?.actual_cost_source === "unavailable"
-                        ? "—"
-                        : report
-                          ? fmtUsd(report.cache_read_cost_usd)
-                          : "—"
-                    }
-                  />
-                  <SidebarMetric
-                    label="Cache Write Cost"
-                    value={
-                      report?.actual_cost_source === "unavailable"
-                        ? "—"
-                        : report
-                          ? fmtUsd(report.cache_write_cost_usd)
-                          : "—"
-                    }
+                    value={report ? fmtUsd(report.cache_read_cost_usd) : "—"}
                   />
                 </div>
                 {(routeScore !== null || compactScore !== null) && (
@@ -853,70 +762,36 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                       <MetaPill
                         label="Route outcome"
                         value={routeScore.toFixed(2)}
-                        tone="neutral"
+                        tone="violet"
                       />
                     )}
                     {compactScore !== null && (
                       <MetaPill
                         label="Compact outcome"
                         value={compactScore.toFixed(2)}
-                        tone="warning"
+                        tone="amber"
                       />
                     )}
                   </div>
                 )}
               </section>
 
-              {report && (
-                <section className="space-y-4">
-                  <h3 className="border-b border-border pb-2 text-caption font-semibold uppercase tracking-tag text-muted-foreground">
-                    Measurement
-                  </h3>
-                  <div className="grid gap-3">
-                    <SidebarMetric
-                      label="Usage"
-                      value={usageSourceLabel(report.usage_measurement_source)}
-                    />
-                    <SidebarMetric
-                      label="Cost"
-                      value={costSourceLabel(report.actual_cost_source)}
-                    />
-                    {report.usage_measurement_source === "claude_mod" && (
-                      <>
-                        <SidebarMetric
-                          label="Measured Requests"
-                          value={String(report.measured_request_steps ?? 0)}
-                        />
-                        <SidebarMetric
-                          label="Main"
-                          value={`${report.measured_main_turns ?? 0} turns`}
-                        />
-                        <SidebarMetric
-                          label="Subagents"
-                          value={`${report.measured_subagent_count ?? 0} agents · ${report.measured_subagent_turns ?? 0} turns`}
-                        />
-                      </>
-                    )}
-                  </div>
-                </section>
-              )}
-
               {report?.top_tools_by_cost &&
                 report.top_tools_by_cost.length > 0 && (
                   <section className="space-y-4">
-                    <h3 className="border-b border-border pb-2 text-caption font-semibold uppercase tracking-tag text-muted-foreground">
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-400 border-b border-neutral-800 pb-2">
                       Tool Breakdown
                     </h3>
                     <div className="space-y-2">
                       {report.top_tools_by_cost.map((t, i) => (
                         <div
                           key={i}
-                          className="flex items-center justify-between text-caption font-mono border-b border-border/40 pb-1 last:border-0"
+                          className="flex items-center justify-between text-[10px] font-mono border-b border-neutral-800/40 pb-1 last:border-0"
                         >
-                          <span className="text-cyan-300 truncate pr-4">
+                          <span className="text-blue-300 truncate pr-4">
                             {t.tool} ({t.calls})
                           </span>
-                          <span className="text-muted-foreground">
+                          <span className="text-neutral-400">
                             {fmtUsd(t.cost_usd)}
                           </span>
                         </div>
@@ -927,19 +802,19 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
 
               {report?.tool_savings && report.tool_savings.length > 0 && (
                 <section className="space-y-4">
-                  <h3 className="border-b border-border pb-2 text-caption font-semibold uppercase tracking-tag text-muted-foreground">
+                  <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-400 border-b border-neutral-800 pb-2">
                     Context Savings by Tool
                   </h3>
                   <div className="space-y-2">
                     {report.tool_savings.map((row, i) => (
                       <div
                         key={i}
-                        className="flex items-center justify-between text-caption font-mono border-b border-border/40 pb-1 last:border-0"
+                        className="flex items-center justify-between text-[10px] font-mono border-b border-neutral-800/40 pb-1 last:border-0"
                       >
                         <span className="text-emerald-300 truncate pr-4">
                           {row.tool}
                         </span>
-                        <span className="text-muted-foreground">
+                        <span className="text-neutral-400">
                           {(row.tokens_saved / 1000).toFixed(1)}k tok ·{" "}
                           {fmtUsd(row.cost_saved_usd)}
                         </span>
@@ -952,20 +827,20 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
               {report?.models_used &&
                 Object.keys(report.models_used).length > 0 && (
                   <section className="space-y-4">
-                    <h3 className="border-b border-border pb-2 text-caption font-semibold uppercase tracking-tag text-muted-foreground">
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-400 border-b border-neutral-800 pb-2">
                       Models Involved
                     </h3>
-                    <div className="space-y-2 text-caption font-mono">
+                    <div className="space-y-2 text-[10px] font-mono">
                       {Object.entries(report.models_used).map(
                         ([model, count], i) => (
                           <div
                             key={i}
-                            className="flex items-center justify-between border-b border-border/40 pb-1 last:border-0"
+                            className="flex items-center justify-between border-b border-neutral-800/40 pb-1 last:border-0"
                           >
-                            <span className="text-ai truncate pr-4">
+                            <span className="text-violet-300 truncate pr-4">
                               {model}
                             </span>
-                            <span className="text-muted-foreground">
+                            <span className="text-neutral-400">
                               {count} calls
                             </span>
                           </div>
@@ -978,20 +853,20 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
               {report?.agent_settings &&
                 Object.keys(report.agent_settings).length > 0 && (
                   <section className="space-y-4">
-                    <h3 className="border-b border-border pb-2 text-caption font-semibold uppercase tracking-tag text-muted-foreground">
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-400 border-b border-neutral-800 pb-2">
                       Agent Config
                     </h3>
-                    <div className="space-y-2 text-caption font-mono">
+                    <div className="space-y-2 text-[10px] font-mono">
                       {Object.entries(report.agent_settings).map(
                         ([key, val], i) => (
                           <div
                             key={i}
-                            className="flex flex-col border-b border-border/40 pb-1 last:border-0 gap-0.5"
+                            className="flex flex-col border-b border-neutral-800/40 pb-1 last:border-0 gap-0.5"
                           >
-                            <span className="text-muted-foreground uppercase font-semibold tracking-tighter text-caption">
+                            <span className="text-neutral-400 uppercase font-bold tracking-tighter text-[10px]">
                               {key}
                             </span>
-                            <span className="text-muted-foreground truncate">
+                            <span className="text-neutral-400 truncate">
                               {String(val)}
                             </span>
                           </div>
@@ -1023,7 +898,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                       path: `${artifact.label || (artifact.scope === "subagent" ? "subagent" : "main")} · ${artifact.relative_path.split("/").pop() || artifact.relative_path}`,
                       artifact_id: artifact.id,
                     }))}
-                    color="text-cyan-300"
+                    color="text-sky-300"
                   />
                 )}
               {inspectorData?.pinned_blocks &&
@@ -1031,7 +906,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                   <SidebarList
                     title="Pinned Logic"
                     items={inspectorData.pinned_blocks}
-                    color="text-muted-foreground/70"
+                    color="text-brand-400/70"
                   />
                 )}
               {inspectorData?.recalled_passages &&
@@ -1043,26 +918,26 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                   />
                 )}
 
-              <section className="space-y-3 opacity-60 hover:opacity-100 transition-opacity pt-4 border-t border-border">
-                <h3 className="text-caption font-semibold uppercase tracking-widest text-muted-foreground">
+              <section className="space-y-3 opacity-60 hover:opacity-100 transition-opacity pt-4 border-t border-neutral-800">
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-neutral-400">
                   Audit Telemetry
                 </h3>
-                <div className="space-y-1.5 text-caption font-mono text-muted-foreground">
+                <div className="space-y-1.5 text-[10px] font-mono text-neutral-400">
                   {report?.telemetry &&
                     Object.entries(report.telemetry).map(([key, val], i) => (
                       <div
                         key={i}
-                        className="flex justify-between border-b border-border/20 pb-0.5 last:border-0"
+                        className="flex justify-between border-b border-neutral-800/20 pb-0.5 last:border-0"
                       >
-                        <span className="uppercase text-caption font-semibold">
+                        <span className="uppercase text-[10px] font-bold">
                           {key}
                         </span>
-                        <span className="text-muted-foreground">{String(val)}</span>
+                        <span className="text-neutral-400">{String(val)}</span>
                       </div>
                     ))}
                   {inspectorData?.summarized_events_count ? (
-                    <div className="flex justify-between border-b border-border/20 pb-0.5 last:border-0">
-                      <span className="uppercase text-caption font-semibold text-amber-600/80">
+                    <div className="flex justify-between border-b border-neutral-800/20 pb-0.5 last:border-0">
+                      <span className="uppercase text-[10px] font-bold text-amber-600/80">
                         Compressed_Events
                       </span>
                       <span className="text-amber-300">
@@ -1071,18 +946,18 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                     </div>
                   ) : null}
                   {inspectorData?.tokens_pre && (
-                    <div className="flex justify-between border-b border-border/20 pb-0.5 last:border-0">
-                      <span className="uppercase text-caption font-semibold">
+                    <div className="flex justify-between border-b border-neutral-800/20 pb-0.5 last:border-0">
+                      <span className="uppercase text-[10px] font-bold">
                         Context_Pre
                       </span>
-                      <span className="text-muted-foreground">
+                      <span className="text-neutral-400">
                         {fmtTok(inspectorData.tokens_pre)}
                       </span>
                     </div>
                   )}
                   {inspectorData?.tokens_post && (
-                    <div className="flex justify-between border-b border-border/20 pb-0.5 last:border-0">
-                      <span className="uppercase text-caption font-semibold text-emerald-600/80">
+                    <div className="flex justify-between border-b border-neutral-800/20 pb-0.5 last:border-0">
+                      <span className="uppercase text-[10px] font-bold text-emerald-600/80">
                         Context_Post
                       </span>
                       <span className="text-emerald-300">

@@ -1,7 +1,3 @@
-import { Badge } from "../components/ui/badge";
-import { Button as UiButton } from "../components/ui/button";
-import { Input as UiInput } from "../components/ui/input";
-import { Textarea as UiTextarea } from "../components/ui/textarea";
 /**
  * A comment thread, drawn inside the diff at the line its anchor points to.
  *
@@ -24,42 +20,23 @@ import { Textarea as UiTextarea } from "../components/ui/textarea";
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Check, LoaderCircle, MessageSquareText, PencilLine, Reply, RotateCcw, Sparkles, X } from "lucide-react";
+import { Check, LoaderCircle, MessageSquareText, Reply, RotateCcw, Sparkles, X } from "lucide-react";
 
 import "./reviewUi.css";
 
 import {
-  annotationRail,
-  annotationSeverity,
-  annotationSourceTone,
   KIND_ACCENTS,
-  KIND_BADGE_TONES,
   KIND_LABELS,
-  SEVERITY_LABELS,
-  severityTone,
   KIND_ORDER,
-  annotationIdentityLabel,
-  annotationProducerDetail,
-  annotationProducerTitle,
+  SOURCE_ACCENTS,
+  SOURCE_LABELS,
   anchorAccent,
   annotationSource,
   isHumanJudgment,
   locationLabel,
   repliesFor,
 } from "./annotationModel";
-import { BelowThresholdList } from "./findingThreshold";
-import type { Annotation, AnnotationKind, FindingDismissalReason, FindingDisposition } from "./types";
-import { useReviewCorrectionsContext } from "./reviewCorrections";
-import { actionProvenance, isActionInFlight, type ActionTone } from "./reviewActionsModel";
-import { PublishedFeedbackControls } from "./feedbackSync";
-import { ThreadSummary } from "./ThreadSummary";
-
-const ACTION_TONE: Record<ActionTone, string> = {
-  progress: "border-p2-line bg-p2-bg text-p2",
-  done: "border-ok-line bg-ok-bg text-ok",
-  warning: "border-p1-line bg-p1-bg text-p1",
-  muted: "border-border text-muted-foreground",
-};
+import type { Annotation, AnnotationKind } from "./types";
 
 export interface AnnotationCardProps {
   comments: Annotation[];
@@ -83,10 +60,6 @@ export interface AnnotationCardProps {
   onCancel(): void;
   onResolve(id: string): void;
   onReopen(id: string): void;
-  onFindingDisposition?(id: string, disposition: FindingDisposition, reason?: FindingDismissalReason): void;
-  onFindingRequestChange?(comment: Annotation): void;
-  onFindingFix?(comment: Annotation): void;
-  onFindingAsk?(comment: Annotation): void;
 }
 
 function Composer({
@@ -130,12 +103,7 @@ function Composer({
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       const input = inputRef.current;
-      if (!input || document.activeElement === input) return;
-      input.focus({ preventScroll: true });
-      // A composer opened from a target header anchors at the end of its
-      // change, which can be off-screen; bring it into view without the jump
-      // a focus scroll makes.
-      (input.closest(".review-composer") ?? input).scrollIntoView?.({ block: "nearest" });
+      if (input && document.activeElement !== input) input.focus({ preventScroll: true });
     });
     return () => window.cancelAnimationFrame(frame);
   }, [focusKey]);
@@ -161,14 +129,13 @@ function Composer({
   return (
     <div className="review-composer" aria-busy={busy}>
       <div className="review-composer-heading">
-        <MessageSquareText size={16} className="text-muted-foreground" aria-hidden="true" />
-        <span>Draft · {label}</span>
+        <MessageSquareText size={16} className="text-neutral-400" aria-hidden="true" />
+        <span>{label}</span>
       </div>
-      <UiTextarea
-        unstyled
+      <textarea
         ref={inputRef}
         autoFocus
-        rows={2}
+        rows={3}
         aria-label={parentId ? "Reply text" : "Comment text"}
         aria-keyshortcuts="Control+Enter Meta+Enter"
         value={body}
@@ -178,11 +145,7 @@ function Composer({
         }}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
-            // Escape cancels an IME candidate; it must never reach the draft.
-            if (event.nativeEvent.isComposing) return;
             event.preventDefault();
-            // Escape is a reflex key: typed text is discarded only on purpose.
-            if (body.trim() !== "" && !window.confirm("Discard this unsent comment?")) return;
             onCancel();
             return;
           }
@@ -192,11 +155,11 @@ function Composer({
           }
         }}
         placeholder={placeholder}
-        className="review-composer-input"
+        className="review-field review-composer-input"
       />
       <div className="review-composer-options" role="group" aria-label="Feedback type">
         {KIND_ORDER.filter((option) => option !== "suggestion" || !(onSuggestEdit || onEditSource)).map((option) => (
-          <UiButton unstyled
+          <button
             key={option}
             type="button"
             aria-pressed={kind === option}
@@ -205,79 +168,77 @@ function Composer({
               if (parentId === "") onDraftChange?.({ kind: option });
             }}
             className={`review-composer-kind ${
-              kind === option ? KIND_ACCENTS[option] : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
+              kind === option ? KIND_ACCENTS[option] : "border-transparent text-neutral-400 hover:bg-neutral-800/50 hover:text-neutral-100"
             }`}
           >
             {KIND_LABELS[option]}
-          </UiButton>
+          </button>
         ))}
         {!parentId && onAsk && (
-          <UiButton unstyled
+          <button
             type="button"
             onClick={onAsk}
-            className="review-composer-kind border-border text-muted-foreground hover:text-foreground"
-            tooltip="Ask LemonCrow about the selected code without creating review feedback"
+            className="review-composer-kind border-violet-900/70 text-violet-300"
+            title="Ask LemonCrow about the selected code without creating review feedback"
           >
-            <Sparkles size={14} aria-hidden="true" />
+            <Sparkles size={11} aria-hidden="true" />
             Ask
-          </UiButton>
+          </button>
         )}
         {!parentId && (onSuggestEdit || onEditSource) && (
           <div className="review-composer-source-actions" role="group" aria-label="Source actions">
             {onSuggestEdit && (
-              <UiButton unstyled
+              <button
                 type="button"
                 onClick={onSuggestEdit}
-                className="review-composer-kind review-composer-kind-source border-border text-muted-foreground"
-                tooltip="Save a concrete patch without changing the working source"
+                className="review-composer-kind review-composer-kind-source border-violet-900/70 text-violet-300"
+                title="Save a concrete patch without changing the working source"
               >
-                <PencilLine size={14} aria-hidden="true" />
                 Suggest edit
-              </UiButton>
+              </button>
             )}
             {onEditSource && (
-              <UiButton unstyled
+              <button
                 type="button"
                 onClick={onEditSource}
-                className="review-composer-kind review-composer-kind-source border-cyan-900/70 text-cyan-300"
-                tooltip="Edit the trusted working source through the guarded proposal path"
+                className="review-composer-kind review-composer-kind-source border-sky-900/70 text-sky-300"
+                title="Edit the trusted working source through the guarded proposal path"
               >
                 Edit source
-              </UiButton>
+              </button>
             )}
           </div>
         )}
       </div>
         {canMarkTarget && (
           <label className="review-composer-mark">
-            <UiInput unstyled
+            <input
               type="checkbox"
               checked={markTarget}
               onChange={(event) => {
                 setMarkTarget(event.target.checked);
                 if (parentId === "") onDraftChange?.({ markTarget: event.target.checked });
               }}
-              className="accent-red-500"
+              className="accent-rose-500"
             />
             Also mark target needs changes
           </label>
         )}
       <div className="review-composer-footer">
-        <span className="review-composer-shortcut"><kbd>Ctrl/⌘</kbd> + <kbd>Enter</kbd> to add</span>
-        <UiButton size="xs" type="button" onClick={onCancel}>
+        <span className="review-composer-shortcut"><kbd>Ctrl/⌘</kbd> + <kbd>Enter</kbd> to send</span>
+        <button type="button" onClick={onCancel} className="review-toolbar-button">
           <X size={14} aria-hidden="true" />
           Cancel
-        </UiButton>
-        <UiButton
-          variant="solid"
-          size="xs"
+        </button>
+        <button
           type="button"
           disabled={busy || body.trim() === ""}
           onClick={submit}
+          className="review-toolbar-button-primary"
         >
           {busy ? <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}
           {busy ? "Saving…" : submitLabel}
-        </UiButton>
+        </button>
       </div>
     </div>
   );
@@ -290,10 +251,6 @@ function Comment({
   onResolve,
   onReopen,
   onReply,
-  onFindingDisposition,
-  onFindingRequestChange,
-  onFindingFix,
-  onFindingAsk,
 }: {
   comment: Annotation;
   replies: Annotation[];
@@ -301,62 +258,30 @@ function Comment({
   onResolve(id: string): void;
   onReopen(id: string): void;
   onReply(id: string): void;
-  onFindingDisposition?(id: string, disposition: FindingDisposition, reason?: FindingDismissalReason): void;
-  onFindingRequestChange?(comment: Annotation): void;
-  onFindingFix?(comment: Annotation): void;
-  onFindingAsk?(comment: Annotation): void;
 }) {
   const resolved = comment.state === "resolved";
-  const [dismissing, setDismissing] = useState(false);
   const source = annotationSource(comment);
   const human = isHumanJudgment(comment);
-  const sourceDetail = annotationProducerDetail(comment);
-  const severity = annotationSeverity(comment);
-  const aiFinding = source === "ai_review";
-  const findingDisposition = comment.finding_disposition || (comment.anchored ? "open" : "superseded_stale");
-  // Which controlled action addressed this finding, if any. Fix routes through
-  // that preview (exact author -> preferred agent -> copied prompt) when the
-  // reader has a writable current Snapshot; the action never sets a disposition.
-  const corrections = useReviewCorrectionsContext();
-  const latestAction = corrections?.byFinding.get(comment.id);
-  const fixInFlight = latestAction ? isActionInFlight(latestAction) : false;
-  const provenance = latestAction ? actionProvenance(latestAction) : null;
-  const fix = corrections?.canFix
-    ? () => corrections.openFix([comment.id])
-    : onFindingFix
-      ? () => onFindingFix(comment)
-      : undefined;
+  const sourceDetail = comment.source_id || comment.created_by;
+  const blocking = human && comment.kind === "request_change" && !resolved;
   return (
-    <article
-      className={`review-thread review-thread-src-${source} ${resolved ? "review-thread-resolved" : ""}`}
-      data-rail={annotationRail(comment)}
-    >
+    <article className={`review-thread ${blocking ? "review-thread-blocking" : ""} ${resolved ? "review-thread-resolved" : ""}`}>
       <div className="review-thread-heading">
-        {severity && <Badge tone={severityTone(severity)} data-testid="annotation-severity">{SEVERITY_LABELS[severity]}</Badge>}
+        <span className={`review-thread-source ${SOURCE_ACCENTS[source].split(" ").at(-1) ?? "text-neutral-400"}`}>{SOURCE_LABELS[source]}</span>
+        {sourceDetail && <span className="review-thread-author">{sourceDetail}</span>}
         {human && comment.kind !== "comment" && (
-          <Badge tone={KIND_BADGE_TONES[comment.kind]}>{KIND_LABELS[comment.kind]}</Badge>
+          <span className={`rounded-md border px-1.5 py-0.5 ${KIND_ACCENTS[comment.kind]}`}>{KIND_LABELS[comment.kind]}</span>
         )}
-        <Badge tone={annotationSourceTone(comment)} data-testid="annotation-source">{annotationIdentityLabel(comment)}</Badge>
-        {sourceDetail && <span className="review-thread-author" title={annotationProducerTitle(comment)}>{sourceDetail}</span>}
         {comment.origin_revision_number != null && (
           <span
             className="review-thread-symbol font-mono"
-            title={`Created on Snapshot ${comment.origin_revision_number}`}
+            title={`Created on immutable Snapshot ${comment.origin_revision_number}`}
           >
             {comment.relation_to_revision === "inherited" ? "from " : ""}Snapshot {comment.origin_revision_number}
           </span>
         )}
         {!comment.file_level && comment.end_line > comment.start_line && (
           <span className="review-thread-symbol font-mono">{locationLabel(comment.start_line, comment.end_line)}</span>
-        )}
-        {comment.owning_change && (
-          <span
-            className="review-thread-symbol"
-            title={`${comment.owning_change.reason}. Feedback and fixes for this code belong to that Change.`}
-            data-testid="annotation-owning-change"
-          >
-            belongs to {comment.owning_change.change_ref.slice(0, 10)}
-          </span>
         )}
         {comment.symbol ? (
           <span className="review-thread-symbol">in {comment.symbol}</span>
@@ -368,8 +293,8 @@ function Comment({
         <span className="flex-1" />
         {comment.created_at && <time dateTime={comment.created_at} className="review-thread-date">{new Date(comment.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time>}
         {resolved && (
-          <span className="inline-flex items-center gap-1 text-ok">
-            <Check size={14} aria-hidden="true" />
+          <span className="inline-flex items-center gap-1 text-emerald-400">
+            <Check size={13} aria-hidden="true" />
             Resolved{comment.resolved_revision_number != null ? ` · Snapshot ${comment.resolved_revision_number}` : ""}
           </span>
         )}
@@ -378,20 +303,18 @@ function Comment({
       {comment.title && <div className="review-thread-title">{comment.title}</div>}
       <div className="review-thread-body">{comment.body}</div>
       {/*
-        Anchor provenance is useful only when the comment had to be re-found.
-        An unchanged file is the normal case and does not deserve UI chrome.
-        Surface relocation uncertainty; keep exact/unchanged anchoring silent.
+        How this comment got to this line remains visible on every card, but it
+        follows the human message instead of interrupting it. The relocation
+        contract is trust metadata; the comment itself is the thing to read.
       */}
-      {!comment.anchor_exact && (
-        <div
-          title={comment.anchor_detail}
-          className={`review-thread-anchor ${anchorAccent(comment)}`}
-        >
-          Re-anchored · {comment.anchor_method_label || comment.anchor_method}
-        </div>
-      )}
+      <div
+        title={comment.anchor_detail}
+        className={`review-thread-anchor ${anchorAccent(comment)}`}
+      >
+        anchor: {comment.anchor_method_label || comment.anchor_method}
+      </div>
       {human && comment.author_response === "addressed" && !resolved && (
-        <div className="w-fit rounded-md border border-p2-line bg-p2-bg px-2 py-1 text-meta font-medium text-p2">
+        <div className="w-fit rounded-md border border-sky-900/55 bg-sky-950/15 px-2 py-1 text-[10px] font-medium text-sky-300">
           marked addressed{comment.author_addressed_revision_number != null ? ` in Snapshot ${comment.author_addressed_revision_number}` : ""} · re-review
         </div>
       )}
@@ -403,26 +326,11 @@ function Comment({
           </ul>
         </details>
       )}
-      {comment.rule_refs && comment.rule_refs.length > 0 && (
-        <details className="review-thread-evidence">
-          <summary className="cursor-pointer">review rules · {comment.rule_refs.length}</summary>
-          <ul className="pl-4 pt-1">
-            {comment.rule_refs.map((item) => <li key={item} className="break-all font-mono">{item}</li>)}
-          </ul>
-        </details>
-      )}
-      {aiFinding && (comment.agent_host || comment.agent_model || comment.confidence != null) && (
-        <details className="review-thread-evidence">
-          <summary className="cursor-pointer">Run details</summary>
-          <div className="pt-1 text-caption text-muted-foreground">
-            {comment.agent_host && <div>Provider: {comment.agent_host}</div>}
-            {comment.agent_model && <div>Model: {comment.agent_model}</div>}
-            {comment.confidence != null && <div>Internal confidence: {Math.round(comment.confidence * 100)}%</div>}
-          </div>
-        </details>
+      {comment.confidence != null && (
+        <div className="text-[11px] text-neutral-400">confidence {Math.round(comment.confidence * 100)}%</div>
       )}
       {human && comment.author_response === "addressed" && !resolved && comment.author_response_source_id && (
-        <div className="font-mono text-caption text-muted-foreground">
+        <div className="font-mono text-[10px] text-sky-500/80">
           addressed by {comment.author_response_source_id}; only you can resolve this comment
         </div>
       )}
@@ -430,11 +338,10 @@ function Comment({
         <div className="review-thread-replies">
           {replies.map((reply) => (
             <div key={reply.id} className="review-thread-reply">
-              <div className="mb-1 flex items-center gap-2 text-body font-medium text-muted-foreground">
-                <Badge tone={annotationSourceTone(reply)}>{annotationIdentityLabel(reply)}</Badge>
-                <span title={annotationProducerTitle(reply)}>{annotationProducerDetail(reply)}</span>
+              <div className="mb-1 flex items-center gap-2 text-[12px] font-medium text-neutral-400">
+                <span>{reply.created_by}</span>
                 {reply.kind !== "comment" && (
-                  <Badge tone={KIND_BADGE_TONES[reply.kind]}>{KIND_LABELS[reply.kind]}</Badge>
+                  <span className={`rounded-md border px-1.5 py-0.5 text-[10px] ${KIND_ACCENTS[reply.kind]}`}>{KIND_LABELS[reply.kind]}</span>
                 )}
               </div>
               <div className="review-thread-body">{reply.body}</div>
@@ -442,157 +349,28 @@ function Comment({
           ))}
         </div>
       )}
-      {replies.length >= 2 && comment.review_id && (
-        <ThreadSummary reviewId={comment.review_id} threadId={comment.id} messages={[comment, ...replies]} />
-      )}
-      {latestAction && provenance && (
-        <div
-          className={`flex w-fit flex-wrap items-center gap-2 rounded-md border px-2 py-1 text-caption font-medium ${ACTION_TONE[provenance.tone]}`}
-          data-testid="finding-action-provenance"
-          title={latestAction.events.map((event) => `${event.kind}${event.detail ? `: ${event.detail}` : ""}`).join("\n")}
-        >
-          <span>{provenance.text}</span>
-          {fixInFlight && corrections && (
-            <UiButton
-              variant="ghost"
-              size="compact"
-              className="h-5"
-              type="button"
-              disabled={busy}
-              onClick={() => corrections.cancel(latestAction.id)}
-            >
-              Cancel
-            </UiButton>
-          )}
-        </div>
-      )}
-      {aiFinding && (
-        <div className="review-thread-actions" aria-label="AI finding actions">
-          <span className="mr-1 text-caption text-muted-foreground">
-            {findingDisposition === "confirmed_by_reviewer" ? "Confirmed"
-              : findingDisposition === "dismissed" ? "Dismissed"
-              : findingDisposition === "fixed" ? "Fixed"
-              : findingDisposition === "superseded_stale" ? "Needs revalidation"
-              : "Open"}
-          </span>
-          {findingDisposition !== "dismissed" && findingDisposition !== "fixed" && findingDisposition !== "superseded_stale" && (
-            <>
-              {onFindingRequestChange && (
-                <UiButton
-                  variant="ghost"
-                  size="compact"
-                  className="h-6"
-                  type="button"
-                  disabled={busy}
-                  onClick={() => onFindingRequestChange(comment)}
-                >
-                  Request change
-                </UiButton>
-              )}
-              <UiButton
-                variant="ghost"
-                size="compact"
-                className="h-6"
-                type="button"
-                disabled={busy}
-                onClick={() => setDismissing((current) => !current)}
-                aria-expanded={dismissing}
-              >
-                Dismiss
-              </UiButton>
-              {fix && (
-                <UiButton
-                  variant="ghost"
-                  size="compact"
-                  className="h-6"
-                  type="button"
-                  disabled={busy || fixInFlight}
-                  onClick={fix}
-                >
-                  Fix
-                </UiButton>
-              )}
-              {onFindingAsk && (
-                <UiButton
-                  variant="ghost"
-                  size="compact"
-                  className="h-6"
-                  type="button"
-                  disabled={busy}
-                  onClick={() => onFindingAsk(comment)}
-                >
-                  Ask
-                </UiButton>
-              )}
-            </>
-          )}
-          {findingDisposition === "dismissed" && onFindingDisposition && (
-            <UiButton
-              variant="ghost"
-              size="compact"
-              className="h-6"
-              type="button"
-              disabled={busy}
-              onClick={() => onFindingDisposition(comment.id, "open")}
-            >
-              Reopen
-            </UiButton>
-          )}
-        </div>
-      )}
-      {aiFinding && dismissing && onFindingDisposition && (
-        <div className="mt-1 flex flex-wrap items-center gap-1 rounded-md border border-border/80 px-2 py-1.5" role="group" aria-label="Dismiss finding reason">
-          <span className="mr-1 text-caption text-muted-foreground">Why dismiss?</span>
-          {([
-            ["incorrect", "Incorrect"],
-            ["accepted_risk", "Accepted risk"],
-            ["duplicate", "Duplicate"],
-            ["not_applicable", "Not applicable"],
-          ] as const).map(([reason, label]) => (
-            <UiButton
-              key={reason}
-              variant="ghost"
-              size="compact"
-              className="h-6"
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                setDismissing(false);
-                onFindingDisposition(comment.id, "dismissed", reason);
-              }}
-            >
-              {label}
-            </UiButton>
-          ))}
-        </div>
-      )}
       {human && (
         <div className="review-thread-actions">
-          <UiButton
-            variant="ghost"
-            size="compact"
-            className="h-6"
+          <button
             type="button"
             disabled={busy}
             onClick={() => onReply(comment.id)}
+            className="review-compact-action"
           >
             <Reply size={14} aria-hidden="true" />
             Reply
-          </UiButton>
-          <UiButton
-            variant="ghost"
-            size="compact"
-            className="h-6"
+          </button>
+          <button
             type="button"
             disabled={busy}
             onClick={() => (resolved ? onReopen(comment.id) : onResolve(comment.id))}
+            className="review-compact-action"
           >
             {resolved ? <RotateCcw size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}
             {resolved ? "Reopen" : "Resolve"}
-          </UiButton>
+          </button>
         </div>
       )}
-      {human && !comment.parent_id && <PublishedFeedbackControls comment={comment} busy={busy} />}
       </div>
     </article>
   );
@@ -616,32 +394,21 @@ export default function AnnotationCard({
   onCancel,
   onResolve,
   onReopen,
-  onFindingDisposition,
-  onFindingRequestChange,
-  onFindingFix,
-  onFindingAsk,
 }: AnnotationCardProps) {
   const [replyTo, setReplyTo] = useState("");
   return (
     <div className="review-annotations">
-      <BelowThresholdList
-        items={comments}
-        render={(comment) => (
-          <Comment
-            key={comment.id}
-            comment={comment}
-            replies={repliesFor(all, comment.id)}
-            busy={busy}
-            onResolve={onResolve}
-            onReopen={onReopen}
-            onReply={setReplyTo}
-            onFindingDisposition={onFindingDisposition}
-            onFindingRequestChange={onFindingRequestChange}
-            onFindingFix={onFindingFix}
-            onFindingAsk={onFindingAsk}
-          />
-        )}
-      />
+      {comments.map((comment) => (
+        <Comment
+          key={comment.id}
+          comment={comment}
+          replies={repliesFor(all, comment.id)}
+          busy={busy}
+          onResolve={onResolve}
+          onReopen={onReopen}
+          onReply={setReplyTo}
+        />
+      ))}
       {/*
         The composer is keyed to the comment it answers because React would
         otherwise keep one instance across a change of parent: a top-level draft
@@ -700,46 +467,27 @@ export default function AnnotationCard({
  * colleague wrote it, and whether it is still open, is all that is left to
  * judge it by.
  */
-export function OrphanedComments({
-  comments,
-  onSetState,
-}: {
-  comments: Annotation[];
-  /** Resolve/reopen only; the anchor stays lost. Absent when the reader cannot take judgments. */
-  onSetState?(id: string, state: "open" | "resolved"): void;
-}) {
+export function OrphanedComments({ comments }: { comments: Annotation[] }) {
   if (comments.length === 0) return null;
   return (
-    <div className="border-b border-p1-line bg-p1-bg px-3 py-2.5">
-      <div className="review-kicker text-p1">
+    <div className="border-b border-amber-900/50 bg-amber-950/15 px-3 py-2.5">
+      <div className="review-kicker text-amber-300">
         {comments.length === 1 ? "1 comment lost its anchor" : `${comments.length} comments lost their anchor`}
       </div>
-      <BelowThresholdList items={comments} render={(comment) => (
-        <div key={comment.id} className="mt-2 rounded-md border border-border bg-card px-3 py-2 text-label text-subtle">
-          <div className="flex flex-wrap items-center gap-2 font-mono text-caption text-muted-foreground">
-            <Badge tone={annotationSourceTone(comment)}>{annotationIdentityLabel(comment)}</Badge>
+      {comments.map((comment) => (
+        <div key={comment.id} className="mt-2 rounded-md border border-amber-900/35 bg-amber-950/10 px-3 py-2 text-[11px] text-amber-200/80">
+          <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] text-amber-300/75">
+            <span>{SOURCE_LABELS[annotationSource(comment)]}</span>
             <span>{comment.file_level ? "file" : locationLabel(comment.start_line, comment.end_line)}</span>
             <span>{comment.state}</span>
-            <span>not anchored</span>
           </div>
-          {comment.title && <div className="pt-0.5 font-sans font-semibold text-foreground">{comment.title}</div>}
+          {comment.title && <div className="pt-0.5 font-sans font-semibold text-amber-100">{comment.title}</div>}
           <div className="whitespace-pre-wrap font-sans">{comment.body}</div>
-          <div className="font-mono text-caption text-muted-foreground">
+          <div className="font-mono text-[10px] text-amber-200/50">
             {comment.anchor_method_label || comment.anchor_method}: {comment.anchor_detail || "no reason recorded"}
           </div>
-      {onSetState && comment.state !== "obsolete" && (
-            <UiButton
-              type="button"
-              variant="ghost"
-              size="compact"
-              className="mt-1.5"
-              onClick={() => onSetState(comment.id, comment.state === "resolved" ? "open" : "resolved")}
-            >
-              {comment.state === "resolved" ? "Reopen" : "Resolve"}
-            </UiButton>
-          )}
         </div>
-      )} />
+      ))}
     </div>
   );
 }

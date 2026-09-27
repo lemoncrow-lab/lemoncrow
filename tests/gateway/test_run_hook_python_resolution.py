@@ -1,5 +1,5 @@
 """_run_hook.sh: the cached hook-interpreter resolution must self-heal when a
-reinstall (make oss-dev / make oss-prod / install.sh) moves `lc` to a new venv.
+reinstall (make dev / make prod / install.sh) moves `lc` to a new venv.
 
 Regression for a real bug: the cache used to be keyed only on "does `import
 lemoncrow` still succeed", which a stale-but-still-valid old install always

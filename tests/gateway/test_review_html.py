@@ -48,6 +48,7 @@ def _no_astgrep_download(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     would try to *download* a binary into each throwaway repo. ``sg`` is the one
     candidate name ``_reject_reason`` refuses outright.
     """
+
     monkeypatch.setenv("LEMONCROW_AST_GREP_BIN", str(tmp_path / "sg"))
 
 
@@ -61,12 +62,16 @@ def _no_review_server(monkeypatch: pytest.MonkeyPatch) -> None:
     verify the documented static fallback instead of contacting a developer's
     real local server.
     """
+
     from lemoncrow.pro.capabilities.review import hosted as hosted_mod
 
     def _unavailable(*args: Any, **kwargs: Any) -> Any:
         raise ValueError("Review server unavailable in standalone HTML test")
 
     monkeypatch.setattr(hosted_mod, "capture_server_review", _unavailable)
+
+
+# --- packet fixtures --------------------------------------------------------
 
 
 def _packet(
@@ -164,16 +169,14 @@ def _default_files() -> tuple[ChangedFile, ...]:
 
 def _default_order(files: tuple[ChangedFile, ...]) -> tuple[ReviewOrderEntry, ...]:
     return tuple(
-        (
-            ReviewOrderEntry(
-                path=item.path,
-                rank=rank,
-                score=round(10.0 - rank, 4),
-                reasons=(f"+{item.additions} -{item.deletions}", "public contract changed"),
-                group=item.category,
-            )
-            for rank, item in enumerate(files, start=1)
+        ReviewOrderEntry(
+            path=item.path,
+            rank=rank,
+            score=round(10.0 - rank, 4),
+            reasons=(f"+{item.additions} -{item.deletions}", "public contract changed"),
+            group=item.category,
         )
+        for rank, item in enumerate(files, start=1)
     )
 
 
@@ -209,9 +212,12 @@ def _reaching_impact() -> tuple[ImpactSite, ...]:
     )
 
 
-def test_review_html_document_contract() -> None:
-    """case: test_html_is_self_contained"""
+# --- self-containment -------------------------------------------------------
+
+
+def test_html_is_self_contained() -> None:
     page = render_html(_packet(impact=_reaching_impact()))
+
     assert "http://" not in page
     assert "https://" not in page
     assert "<script src=" not in page
@@ -220,24 +226,41 @@ def test_review_html_document_contract() -> None:
     assert "fetch(" not in page
     assert "XMLHttpRequest" not in page
     assert "WebSocket" not in page
+    # A remote font or image would arrive as one of these two.
     assert "@font-face" not in page
     assert "<img" not in page
-    "case: test_html_is_one_complete_document"
+
+
+def test_html_is_one_complete_document() -> None:
     page = render_html(_packet())
+
     assert page.startswith("<!doctype html>")
     assert page.rstrip().endswith("</html>")
     assert page.count("<style>") == 1
     assert page.count("<script>") == 1
-    "case: test_html_styles_both_colour_schemes"
+
+
+def test_html_styles_both_colour_schemes() -> None:
     page = render_html(_packet())
+
+    # The media query carries the OS preference; the attribute rules let the
+    # in-page toggle override it in *both* directions.
     assert "@media(prefers-color-scheme:dark)" in page
     assert ":root[data-theme=dark]" in page
     assert ":root[data-theme=light]" in page
-    "case: test_html_escapes_diff_content"
+
+
+# --- escaping ---------------------------------------------------------------
+
+
+def test_html_escapes_diff_content() -> None:
     page = render_html(_packet())
+
     assert _XSS not in page
     assert "&lt;script&gt;alert(&quot;1&quot;)&lt;/script&gt;" in page
-    "case: test_html_escapes_every_untrusted_field"
+
+
+def test_html_escapes_every_untrusted_field() -> None:
     hostile = _XSS
     packet = _packet(
         title=hostile,
@@ -267,62 +290,106 @@ def test_review_html_document_contract() -> None:
         evidence=(EvidenceRecord(name=hostile, status="FAIL", detail=hostile, source=hostile),),
         degraded=(hostile,),
     )
+
     page = render_html(packet)
+
     assert "<script>alert" not in page
+    # ...and the payload is still *there*, just inert.
     assert page.count("&lt;script&gt;") >= 10
-    "case: test_packet_json_block_cannot_close_its_own_script_tag"
+
+
+def test_packet_json_block_cannot_close_its_own_script_tag() -> None:
     page = render_html(_packet())
+
+    # The embedded packet is escaped text inside <pre>, not a live script, so a
+    # "</script>" hiding in a diff cannot end the document early.
     assert page.count("</script>") == 1
+    # The JSON is escaped like every other untrusted string, quotes included.
     assert "&quot;schema_version&quot;: 2" in page
 
 
-def test_review_html_navigation_contract() -> None:
-    """case: test_html_includes_every_ordered_file"""
+# --- navigation -------------------------------------------------------------
+
+
+def test_html_includes_every_ordered_file() -> None:
     packet = _packet()
     page = render_html(packet)
+
     for entry in packet.order:
         assert entry.path in page, entry.path
-    "case: test_a_file_the_ranker_dropped_is_still_in_the_document"
-    "``--limit`` truncates the order; it must not truncate the review."
+
+
+def test_a_file_the_ranker_dropped_is_still_in_the_document() -> None:
+    """``--limit`` truncates the order; it must not truncate the review."""
+
     files = _default_files()
     packet = _packet(files=files, order=_default_order(files)[:1])
+
     page = render_html(packet)
+
     for item in files:
         assert item.path in page, item.path
-    "case: test_every_jump_link_resolves_to_an_element_on_the_page"
+
+
+def test_every_jump_link_resolves_to_an_element_on_the_page() -> None:
     page = render_html(_packet(impact=_reaching_impact()))
-    targets = set(re.findall('id="([^"]+)"', page))
-    hrefs = {href for href in re.findall('href="#([^"]+)"', page)}
+
+    targets = set(re.findall(r'id="([^"]+)"', page))
+    hrefs = {href for href in re.findall(r'href="#([^"]+)"', page)}
     assert hrefs, "the page has no internal navigation at all"
     assert hrefs <= targets, hrefs - targets
-    "case: test_file_anchors_are_positional_not_path_derived"
-    "A path is user data; user data does not belong in an ``id``."
+
+
+def test_file_anchors_are_positional_not_path_derived() -> None:
+    """A path is user data; user data does not belong in an ``id``."""
+
     page = render_html(_packet())
-    ids = re.findall('<section class="file" id="([^"]+)"', page)
+
+    ids = re.findall(r'<section class="file" id="([^"]+)"', page)
     assert ids == ["f1", "f2", "f3", "f4"]
-    "case: test_navigation_lists_files_in_review_order"
+
+
+def test_navigation_lists_files_in_review_order() -> None:
     page = render_html(_packet())
-    listed = re.findall('<li data-path="([^"]+)"', page)
+
+    listed = re.findall(r'<li data-path="([^"]+)"', page)
     assert listed == ["src/session/refresh.py", "src/session/store.py", "tests/test_refresh.py", "assets/logo.png"]
-    "case: test_wide_content_scrolls_inside_its_own_container"
+
+
+def test_wide_content_scrolls_inside_its_own_container() -> None:
     page = render_html(_packet())
+
     assert ".scroll{overflow-x:auto}" in page
     assert page.count('<div class="scroll">') >= 3
 
 
-def test_review_html_findings_contract() -> None:
-    """case: test_html_and_terminal_report_the_same_findings"""
+# --- content parity with the terminal ---------------------------------------
+
+
+def test_html_and_terminal_report_the_same_findings() -> None:
     packet = _packet(impact=_reaching_impact())
+
     page = render_html(packet)
     text = render_review(packet, no_color=True)
+
     assert "refresh(session) now requires: context" in text
     assert "refresh(session) now requires: context" in page
+    # One finding, two locations -- in both renderings.
     assert page.count("refresh(session) now requires: context") == 1
     for site in ("src/adapters/mcp/session.py:L58", "src/sdk/middleware.py:L42"):
         assert site in page
         assert site in text
-    "case: test_a_qualified_finding_is_qualified_in_both_renderings"
-    "The page must not be the one surface where the doubt gets dropped.\n\n    A method call site the detector could not attribute to the changed class ships\n    with the reason attached. If the HTML printed it under the confident heading\n    the two renderings would disagree about what is a fact -- which this module's\n    whole parity rule exists to prevent.\n    "
+
+
+def test_a_qualified_finding_is_qualified_in_both_renderings() -> None:
+    """The page must not be the one surface where the doubt gets dropped.
+
+    A method call site the detector could not attribute to the changed class ships
+    with the reason attached. If the HTML printed it under the confident heading
+    the two renderings would disagree about what is a fact -- which this module's
+    whole parity rule exists to prevent.
+    """
+
     doubt = "unverified: at least 4 definitions named refresh() in this repo"
     packet = _packet(
         impact=tuple(
@@ -331,42 +398,57 @@ def test_review_html_findings_contract() -> None:
             if site.kind == "signature_change"
         )
     )
+
     page = render_html(packet)
     text = render_review(packet, no_color=True)
+
     for rendering in (page, text):
         assert doubt in rendering
         assert "possible call sites:" in rendering
         assert "untouched call sites:" not in rendering
+    # The terminal drops the warning glyph; the page drops the warning styling.
     assert "⚠" not in text
     assert 'class="finding unsure"' in page
-    "case: test_in_patch_sites_are_kept_but_demoted_behind_a_disclosure"
+
+
+def test_in_patch_sites_are_kept_but_demoted_behind_a_disclosure() -> None:
     packet = _packet(impact=_reaching_impact())
+
     page = render_html(packet)
     text = render_review(packet, no_color=True)
+
+    # The terminal drops in-patch sites entirely; the page keeps them folded.
     assert "_legacy_refresh no longer defined here" not in text
     assert "_legacy_refresh no longer defined here" in page
     assert "1 impacted site inside the patch" in page
+    # ...and the out-of-patch findings still come first.
     assert page.index("now requires: context") < page.index("1 impacted site inside the patch")
-    "case: test_hunk_headers_and_counts_are_rendered_per_file"
+
+
+def test_hunk_headers_and_counts_are_rendered_per_file() -> None:
     page = render_html(_packet())
+
     assert "@@ -88,20 +94,26 @@ class SessionRefresher:" in page
     assert "L94-119" in page
     assert ">+33<" in page and ">-14<" in page
     assert "binary file" in page
 
 
-def test_review_html_evidence_contract() -> None:
-    """case: test_provenance_and_evidence_panes_report_gaps_as_gaps"""
+def test_provenance_and_evidence_panes_report_gaps_as_gaps() -> None:
     packet = _packet(
         provenance=ProvenanceRecord(status="unknown", match_reason="no session overlapped this range"),
         evidence=(EvidenceRecord(name="Full suite", status="NOT_RUN", detail="", source="none"),),
     )
+
     page = render_html(packet)
+
     assert "unknown" in page
     assert "no session overlapped this range" in page
     assert "NOT_RUN" in page
     assert "Generated with" in page
-    "case: test_agent_reads_that_were_never_recorded_are_not_reported_as_zero"
+
+
+def test_agent_reads_that_were_never_recorded_are_not_reported_as_zero() -> None:
     packet = _packet(
         provenance=ProvenanceRecord(
             status="matched",
@@ -378,10 +460,14 @@ def test_review_html_evidence_contract() -> None:
             match_reason="workspace path",
         )
     )
+
     page = render_html(packet)
+
     assert "not recorded for this host" in page
     assert "0 files" not in page
-    "case: test_the_uninspected_list_is_not_truncated_the_way_the_terminal_truncates_it"
+
+
+def test_the_uninspected_list_is_not_truncated_the_way_the_terminal_truncates_it() -> None:
     paths = tuple(f"src/mod_{index:02d}.py" for index in range(14))
     packet = _packet(
         provenance=ProvenanceRecord(
@@ -394,24 +480,37 @@ def test_review_html_evidence_contract() -> None:
             match_reason="workspace path",
         )
     )
+
     page = render_html(packet)
     text = render_review(packet, no_color=True)
+
     assert "and 4 more" in text
     for path in paths:
         assert path in page, path
-    "case: test_footer_states_the_index_status_the_degradations_and_the_verdict_ban"
+
+
+def test_footer_states_the_index_status_the_degradations_and_the_verdict_ban() -> None:
     packet = _packet(degraded=("centrality", "provenance_ambiguous"))
+
     page = render_html(packet)
+
     assert "Human review  REQUIRED" in page
     assert "index: fresh" in page
     assert "centrality" in page
     assert "provenance_ambiguous" in page
-    "case: test_an_empty_range_still_renders_a_whole_document"
+
+
+def test_an_empty_range_still_renders_a_whole_document() -> None:
     packet = _packet(files=(), order=())
+
     page = render_html(packet)
+
     assert page.startswith("<!doctype html>")
     assert "no changes in this range" in page
     assert "Human review  REQUIRED" in page
+
+
+# --- CLI --------------------------------------------------------------------
 
 
 def _signature(offset: int) -> pygit2.Signature:
@@ -433,9 +532,11 @@ def _fixture_repo(tmp_path: Path) -> Path:
     repo = pygit2.init_repository(str(root), initial_head="main")
     repo.config["user.name"] = "Fixture Tester"
     repo.config["user.email"] = "fixture@example.com"
+
     (root / "src").mkdir()
     (root / "src" / "app.py").write_text("def one():\n    return 1\n", encoding="utf-8")
     _commit(repo, "seed", 0)
+
     (root / "src" / "app.py").write_text("def one():\n    return 2\n", encoding="utf-8")
     _commit(repo, "change the return value", 60)
     return root
@@ -449,7 +550,9 @@ def _invoke(tmp_path: Path, args: list[str]) -> Any:
 def test_cli_html_flag_writes_file(tmp_path: Path) -> None:
     repo_root = _fixture_repo(tmp_path)
     out = tmp_path / "reports" / "review.html"
+
     result = _invoke(tmp_path, ["--repo-root", str(repo_root), "HEAD~1", "--no-color", "--html", str(out)])
+
     assert result.exit_code == 0, result.output
     assert out.exists(), "the parent directory should have been created"
     page = out.read_text(encoding="utf-8")
@@ -461,6 +564,7 @@ def test_cli_html_flag_writes_file(tmp_path: Path) -> None:
 def test_cli_html_and_json_keep_stdout_parseable(tmp_path: Path) -> None:
     repo_root = _fixture_repo(tmp_path)
     out = tmp_path / "review.html"
+
     runner = CliRunner()
     result = runner.invoke(
         cli,
@@ -477,8 +581,10 @@ def test_cli_html_and_json_keep_stdout_parseable(tmp_path: Path) -> None:
         ],
         catch_exceptions=False,
     )
+
     assert result.exit_code == 0, result.output
     assert out.exists()
+    # The report path is progress output, so it must not land in the payload.
     assert json.loads(result.stdout)["schema_version"] == SCHEMA_VERSION
 
 
@@ -486,9 +592,12 @@ def test_cli_html_reports_an_unwritable_path_without_a_traceback(tmp_path: Path)
     repo_root = _fixture_repo(tmp_path)
     blocker = tmp_path / "blocker"
     blocker.write_text("not a directory", encoding="utf-8")
+
     result = _invoke(
-        tmp_path, ["--repo-root", str(repo_root), "HEAD~1", "--no-color", "--html", str(blocker / "out.html")]
+        tmp_path,
+        ["--repo-root", str(repo_root), "HEAD~1", "--no-color", "--html", str(blocker / "out.html")],
     )
+
     assert result.exit_code != 0
     assert "cannot write" in result.output
     assert "Traceback" not in result.output
@@ -509,18 +618,22 @@ def test_server_reader_open_never_raises_headless(
 
     monkeypatch.setattr(webbrowser, "open", boom)
     monkeypatch.setattr(subprocess, "Popen", no_launcher)
-    monkeypatch.delenv("LEMONCROW_NO_BROWSER", raising=False)
     monkeypatch.delenv("DISPLAY", raising=False)
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
     from lemoncrow.pro.capabilities.review import hosted as review_server
 
-    monkeypatch.setattr(review_server, "pair_local_review_browser", lambda _config, _path: {"state": "armed"})
+    monkeypatch.setattr(
+        review_server,
+        "pair_local_review_browser",
+        lambda _config, _path: {"state": "armed"},
+    )
     _open_server_review(
         "http://127.0.0.1:7420/reviews/rev-test",
         config=SimpleNamespace(hosted=False, token="local-test-token"),
         review_id="rev-test",
         open_browser=True,
     )
+
     assert "could not open a browser" in capsys.readouterr().err
 
 
@@ -528,9 +641,11 @@ def test_cli_open_without_a_review_server_fails_instead_of_substituting_static_h
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Any server-backed Review failure is fatal; HTML is never an automatic substitute."""
+
     repo_root = _fixture_repo(tmp_path)
     opened: list[str] = []
     monkeypatch.setattr(webbrowser, "open", lambda url, *a, **k: opened.append(url) or True)
+
     out = tmp_path / "explicit.html"
     for args in (
         ["--repo-root", str(repo_root), "HEAD~1", "--no-color", "--open"],
@@ -539,6 +654,7 @@ def test_cli_open_without_a_review_server_fails_instead_of_substituting_static_h
         result = _invoke(tmp_path, args)
         assert result.exit_code != 0
         assert "Review server unavailable in standalone HTML test" in result.output
+
     assert not out.exists()
     assert not list((tmp_path / "store" / "review").glob("*.html"))
     assert opened == []
@@ -546,11 +662,14 @@ def test_cli_open_without_a_review_server_fails_instead_of_substituting_static_h
 
 def test_cli_review_html_is_stable_across_runs(tmp_path: Path) -> None:
     """Same range, same document: a diffable artefact beats a fresh one."""
+
     repo_root = _fixture_repo(tmp_path)
     first = tmp_path / "a.html"
     second = tmp_path / "b.html"
+
     for out in (first, second):
         result = _invoke(tmp_path, ["--repo-root", str(repo_root), "HEAD~1", "--no-color", "--html", str(out)])
         assert result.exit_code == 0, result.output
-    stamp = re.compile("generated_at&quot;: &quot;[^&]+|generated [0-9T:+.-]+")
+
+    stamp = re.compile(r"generated_at&quot;: &quot;[^&]+|generated [0-9T:+.-]+")
     assert stamp.sub("", first.read_text(encoding="utf-8")) == stamp.sub("", second.read_text(encoding="utf-8"))

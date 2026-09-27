@@ -89,7 +89,7 @@ class WindowSpend:
         """Return the JSON payload for this window.
 
         ``since`` is deliberately NOT in it. It is a wall-clock instant, and
-        ``lc runtime savings --json`` is contractually a pure function of the store --
+        ``lc savings --json`` is contractually a pure function of the store --
         two invocations a second apart must produce byte-identical payloads
         (``test_build_savings_payload_matches_the_cli_json``). ``window_days``
         states the window in the terms every surface labels it with anyway, and
@@ -123,7 +123,7 @@ def _since(days: int, now: datetime | None = None) -> datetime:
 
 _HISTORY_DB_NAME = "lemoncrow_history.db"
 """``HistoryStore``'s file name, spelled out rather than imported: this probe
-runs on the ``lc runtime savings`` / statusline path and pulling in the store package
+runs on the ``lc savings`` / statusline path and pulling in the store package
 to read one constant is not worth it.
 ``test_the_probed_history_db_name_is_the_one_the_store_uses`` guards the
 duplication against drift."""
@@ -220,7 +220,7 @@ def _readability_probe(root: Path) -> Callable[[], bool]:
     The probe costs a full walk of ``sessions/`` and does not depend on the
     window, so the windows :func:`spend_by_window` collects share one instead
     of walking the tree once each. On a store with 4,530 session directories
-    that walk measured ~0.1s, and ``lc runtime savings`` and the ``statusline_segment``
+    that walk measured ~0.1s, and ``lc savings`` and the ``statusline_segment``
     MCP path both ask for three windows.
     """
 

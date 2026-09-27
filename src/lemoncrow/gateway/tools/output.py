@@ -228,10 +228,10 @@ def read_path_arg(args: dict[str, Any]) -> str:
 
 def is_spill_path(path: str) -> bool:
     """True when ``path`` resolves to a file inside the shared spill directory."""
-    from lemoncrow_client.kit.spill import resolve_spill_dir
+    from lemoncrow.pro.capabilities.tool_supervision.tool_output_spill import _spill_dir
 
     try:
-        return Path(path).resolve().parent == resolve_spill_dir()
+        return Path(path).resolve().parent == _spill_dir().resolve()
     except (ValueError, OSError):
         return False
 

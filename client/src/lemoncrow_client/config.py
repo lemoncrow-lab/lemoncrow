@@ -12,10 +12,9 @@ origin, so neither discovery document can create arbitrary egress.
 
 **One writable directory outside the repository.** ``~/.lemoncrow`` (or
 ``LEMONCROW_HOME``). It holds four things and nothing else: the IT-provisioned
-``token``; product-owned ``review/env`` / ``runtime/env`` files of
-``LEMONCROW_*`` settings (plus the legacy shared ``env`` as read-only migration
-input) -- the real environment always wins, so a session can override what is on
-disk and never the other way round -- ``walk-cache/``, one
+``token``; an ``env`` file of ``LEMONCROW_*`` settings that ``lemoncrow-client
+target`` writes -- the real environment always wins over it, so a session can
+override what is on disk and never the other way round -- ``walk-cache/``, one
 file per worktree recording which files were unchanged when they were last hashed,
 and ``live-views/`` containing rebuildable, credential-free View lease metadata
 that lets another local LemonCrow process reuse an already-synced source View (see :mod:`lemoncrow_client.walkcache`). The cache holds
@@ -52,27 +51,22 @@ from urllib.parse import urlsplit
 
 from .credentials import managed_credentials_path, read_managed_credentials
 from .errors import AgentAction, ClientError, ErrorCode
-from .memory_budget import cache_budget_bytes
-from .workspace_paths import LOCAL_FS_PROOF_PATH, REVIEW_CONFIG_PATH
+from .resolution_cache import cache_budget_bytes
 
 __all__ = [
     "DEFAULT_URL",
-    "LOCAL_FS_PROOF_PATH",
-    "REVIEW_CONFIG_PATH",
     "ClientConfig",
     "RepoIdentity",
     "load_config",
-    "product_settings_path",
     "resolve_token",
 ]
 
-#: Compatibility endpoint for server-backed local/hosted client paths. Runtime
-#: Lite has an explicit lite install mode and does not consume this endpoint.
+#: The loopback deployment a solo developer runs. "Local" is a server bound to
+#: loopback, not a different code path.
 DEFAULT_URL: Final[str] = "http://127.0.0.1:7420"
 
 _TOKEN_ENV: Final[str] = "LEMONCROW_TOKEN"
 _TOKEN_FILE_ENV: Final[str] = "LEMONCROW_TOKEN_FILE"
-_LOCAL_TOKEN_PREFIX: Final[str] = "lc_local_"  # the local server machine credential (bootstrap.py)
 _URL_ENV: Final[str] = "LEMONCROW_URL"
 _MODE_ENV: Final[str] = "LEMONCROW_INSTALL_MODE"
 _HOME_ENV: Final[str] = "LEMONCROW_HOME"
@@ -80,6 +74,16 @@ _MIN_TOKEN_LEN: Final[int] = 16
 _MAX_TOKEN_BYTES: Final[int] = 4096
 _MAX_SETTINGS_BYTES: Final[int] = 8192
 _MAX_SETTINGS_LINES: Final[int] = 64
+
+#: The one file the client writes under the worktree, and only when the
+#: operator opted into the same-host optimization. Named so a repository can
+#: ``.gitignore`` it once.
+LOCAL_FS_PROOF_PATH: Final[str] = ".lemoncrow-local-fs-proof"
+
+#: ``.lemoncrow/`` is local LemonCrow state and never part of a View, except
+#: this committed file: server-side Review reads its surface providers and
+#: runtimes from the captured source tree, so the config must travel with it.
+REVIEW_CONFIG_PATH: Final[str] = ".lemoncrow/review.yaml"
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,28 +149,6 @@ class ClientConfig:
     #: How long a pure/idempotent server call waits for a vanished server to
     #: come back before failing. Zero disables transparent reconnect.
     reconnect_budget_s: float = 8.0
-    #: Product whose persisted endpoint/settings this process resolved.
-    product: str = "core"
-
-    @property
-    def account_state_dir(self) -> Path:
-        """Target Core/account state root under the shared LemonCrow home.
-
-        Existing credentials/env remain readable at their legacy locations while
-        the state migration is phased in. New product-specific writers should not
-        add more files directly under ``state_dir``.
-        """
-        return self.state_dir / "account"
-
-    @property
-    def review_state_dir(self) -> Path:
-        """Review-owned local state and rebuildable capture scratch."""
-        return self.state_dir / "review"
-
-    @property
-    def runtime_state_dir(self) -> Path:
-        """Target Runtime-owned state root for caches, traces and live views."""
-        return self.state_dir / "runtime"
 
     @property
     def endpoint_origin(self) -> tuple[str, str, int]:
@@ -215,23 +197,6 @@ def read_settings_file(state_dir: Path) -> dict[str, str]:
             # somewhere else from inside itself is a loop, not a setting.
             settings[key] = value.strip().strip("'\"")
     return settings
-
-
-def product_settings_path(state_dir: Path, product: str) -> Path:
-    """Persisted settings file owned by one product.
-
-    Review and Runtime own independent files so one product can be hosted while
-    the other is local. The legacy shared ``env`` is deliberately read-only.
-    """
-    if product not in {"review", "runtime"}:
-        raise ValueError(f"product-owned settings require review or runtime, got: {product}")
-    return state_dir / product / "env"
-
-
-def _read_product_settings(state_dir: Path, product: str) -> dict[str, str]:
-    if product == "core":
-        return read_settings_file(state_dir)
-    return read_settings_file(state_dir / product)
 
 
 def _validated_url(raw: str) -> str:
@@ -359,7 +324,7 @@ def is_index_candidate(repo_root: Path) -> bool:
     ``.git`` exists above it. Indexing that directory -- a home or a folder of
     projects -- would copy every repository beneath it into one oversized view.
     """
-    return (repo_root / ".git").exists() and _run_git(repo_root, "rev-parse", "--is-inside-work-tree") == "true"
+    return (repo_root / ".git").exists()
 
 
 def not_indexed_error(repo_root: Path, tool: str) -> ClientError:
@@ -376,66 +341,21 @@ def not_indexed_error(repo_root: Path, tool: str) -> ClientError:
     )
 
 
-_UNBORN_REPO_IDENTITY_FILE = "lemoncrow-unborn-repo-id"
-
-
-def _persistent_unborn_repo_fingerprint(repo_root: Path) -> str:
-    """Return a checkout-stable identity only for repos first seen before commit 1.
-
-    Existing committed repositories continue to use their root commit.  The
-    marker lives inside Git metadata (never the worktree), and is created only
-    while HEAD is unborn so ordinary repositories do not migrate identities.
-    """
-
-    import hashlib
-
-    git_dir_raw = _run_git(repo_root, "rev-parse", "--git-dir")
-    if not git_dir_raw:
-        return ""
-    git_dir = Path(git_dir_raw)
-    if not git_dir.is_absolute():
-        git_dir = repo_root / git_dir
-    marker = git_dir.resolve(strict=False) / _UNBORN_REPO_IDENTITY_FILE
-    try:
-        existing = marker.read_text(encoding="utf-8").strip().lower()
-    except OSError:
-        existing = ""
-    if len(existing) == 64 and all(ch in "0123456789abcdef" for ch in existing):
-        return existing
-
-    # Never introduce a marker for an already committed repository -- including
-    # one whose HEAD is only an unborn orphan branch (``--all`` includes HEAD).
-    if _run_git(repo_root, "rev-list", "-n", "1", "--all"):
-        return ""
-    fingerprint = hashlib.sha256(str(repo_root.resolve()).encode("utf-8")).hexdigest()
-    try:
-        marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.write_text(fingerprint + "\n", encoding="utf-8")
-    except OSError:
-        # Preserve the old path-hash fallback if Git metadata is read-only.
-        return fingerprint
-    return fingerprint
-
-
 def repo_identity(repo_root: Path, env: dict[str, str] | None = None) -> RepoIdentity:
     """A claim the server can canonicalize into an org-scoped ``repo_id``.
 
     Canonical SCM identity when the deployment provisioned one, otherwise the
     root-commit digest: stable across clones, mirrors and forks, and it names
-    no host and carries no credential. A repository first seen before commit 1
-    keeps a Git-metadata-local path fingerprint across that first commit so an
-    already-created local Review does not move repositories underneath the
-    reviewer; that rare fallback is checkout-stable rather than clone-stable.
-    A directory with no usable Git identity gets the same opaque path digest.
+    no host and carries no credential. A repository with neither -- an
+    unversioned directory -- gets a digest over its absolute path, which is
+    stable for that checkout and meaningless anywhere else.
     """
     environment = env if env is not None else dict(os.environ)
     provider = environment.get("LEMONCROW_SCM_PROVIDER", "").strip()
     scm_repo = environment.get("LEMONCROW_SCM_REPO_ID", "").strip()
-    has_canonical_scm = bool(provider and scm_repo)
-    persistent_unborn = "" if has_canonical_scm else _persistent_unborn_repo_fingerprint(repo_root)
     roots = _run_git(repo_root, "rev-list", "--max-parents=0", "HEAD")
-    fingerprint = persistent_unborn
-    if not fingerprint and roots:
+    fingerprint = ""
+    if roots:
         # A repository with several root commits (a merged history) still has
         # one canonical first line in ``rev-list`` order.
         fingerprint = roots.splitlines()[0].strip()
@@ -456,7 +376,6 @@ def load_config(
     env: dict[str, str] | None = None,
     *,
     cwd: Path | None = None,
-    product: str = "core",
 ) -> ClientConfig:
     """Resolve configuration. Raises only for a *misconfiguration*.
 
@@ -468,46 +387,23 @@ def load_config(
     supplied = env if env is not None else dict(os.environ)
     home = supplied.get(_HOME_ENV, "").strip()
     state_dir = Path(home) if home else Path(supplied.get("HOME", str(Path.home()))) / ".lemoncrow"
-    if product not in {"core", "review", "runtime"}:
-        raise ValueError(f"unknown LemonCrow product: {product}")
-    # Migration precedence: legacy shared settings < product-owned settings <
-    # process environment. Existing installs keep working, while Review and
-    # Runtime can now point at independent deployment modes/endpoints.
-    environment = {
-        **read_settings_file(state_dir),
-        **_read_product_settings(state_dir, product),
-        **supplied,
-    }
+    # The process environment wins over the persisted file, so a session can
+    # point at a different endpoint for one run without rewriting anything.
+    environment = {**read_settings_file(state_dir), **supplied}
     url = _validated_url(environment.get(_URL_ENV, "").strip() or DEFAULT_URL)
-    install_mode = _runtime_mode(environment, url, product)
+    install_mode = _runtime_mode(environment, url)
     repo_root = discover_repo_root(cwd if cwd is not None else Path.cwd())
     token, source = resolve_token(environment, state_dir)
-    if install_mode == "hosted" and token:
-        # The default token file is the local server's machine credential. It
-        # must never reach a hosted origin, nor shadow the managed login: only
-        # an explicit LEMONCROW_TOKEN / LEMONCROW_TOKEN_FILE overrides it, and a
-        # local machine token is never sent to a hosted origin at all.
-        explicit = source in {_TOKEN_ENV, environment.get(_TOKEN_FILE_ENV, "").strip()}
-        if not explicit or token.startswith(_LOCAL_TOKEN_PREFIX):
-            token, source = "", ""
     refresh_token = ""
     refresh_token_source = ""
     if install_mode == "hosted" and not token:
-        account_state_dir = state_dir / "account"
-        managed_access, managed_refresh = read_managed_credentials(account_state_dir)
-        managed_path = managed_credentials_path(account_state_dir)
-        if not managed_access and not managed_refresh:
-            # Compatibility: pre-isolation clients stored the managed Authward
-            # pair directly below LEMONCROW_HOME/auth. Read it without eagerly
-            # rewriting state; the next login/refresh migrates into account/.
-            managed_access, managed_refresh = read_managed_credentials(state_dir)
-            managed_path = managed_credentials_path(state_dir)
+        managed_access, managed_refresh = read_managed_credentials(state_dir)
         if managed_access:
             token = managed_access
-            source = str(managed_path)
+            source = str(managed_credentials_path(state_dir))
         if managed_refresh:
             refresh_token = managed_refresh
-            refresh_token_source = str(managed_path)
+            refresh_token_source = str(managed_credentials_path(state_dir))
     return ClientConfig(
         url=url,
         token=token,
@@ -527,29 +423,22 @@ def load_config(
         refresh_token=refresh_token,
         refresh_token_source=refresh_token_source,
         reconnect_budget_s=_float_env(environment, "LEMONCROW_RECONNECT_BUDGET_S", 8.0),
-        product=product,
     )
 
 
-def _runtime_mode(environment: dict[str, str], url: str, product: str = "core") -> str:
-    """Resolve Lite/local/hosted, with a compatibility fallback for older installs.
-
-    Runtime has no ``local`` mode: the local server does not execute Runtime
-    tools, so a pre-Lite local Runtime install resolves to Runtime Lite.
-    """
+def _runtime_mode(environment: dict[str, str], url: str) -> str:
+    """Resolve local vs hosted, with a compatibility fallback for older installs."""
     explicit = environment.get(_MODE_ENV, "").strip().lower()
     if explicit:
-        if explicit not in {"lite", "local", "hosted"}:
+        if explicit not in {"local", "hosted"}:
             raise ClientError(
                 ErrorCode.NOT_CONFIGURED,
-                f"{_MODE_ENV} must be 'lite', 'local', or 'hosted', got {explicit!r}",
+                f"{_MODE_ENV} must be 'local' or 'hosted', got {explicit!r}",
                 action=AgentAction.FIX_REQUEST,
             )
-        mode = explicit
-    else:
-        host = (urlsplit(url).hostname or "").strip("[]").lower()
-        mode = "local" if host in {"127.0.0.1", "localhost", "::1"} else "hosted"
-    return "lite" if product == "runtime" and mode == "local" else mode
+        return explicit
+    host = (urlsplit(url).hostname or "").strip("[]").lower()
+    return "local" if host in {"127.0.0.1", "localhost", "::1"} else "hosted"
 
 
 def _float_env(env: dict[str, str], name: str, default: float) -> float:

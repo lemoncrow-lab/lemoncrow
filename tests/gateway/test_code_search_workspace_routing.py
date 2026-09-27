@@ -35,7 +35,6 @@ def _write_workspace(root: Path) -> Path:
     return billing
 
 
-@pytest.mark.private_engine
 def test_code_search_routes_across_workspace_repos_and_keeps_paths_readable(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -35,7 +35,7 @@ from lemoncrow.pro.capabilities.prefix_cache.planner import PrefixCachePlan
 
 ModelTier = Literal["cheap", "medium", "expensive"]
 
-# Semantic 5-tier route type:
+# Semantic 5-tier route type aligned with enterprise routing language:
 #   deterministic  - pure function / regex / rule, no LLM call needed
 #   local_slm      - small local model via Ollama (free, private)
 #   cheap_llm      - small hosted model (Haiku, Flash, gpt-4.1-mini)

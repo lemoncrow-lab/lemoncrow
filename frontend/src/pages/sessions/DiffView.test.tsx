@@ -1,27 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { NO_LOCAL_RUNTIME_CAPABILITIES, RuntimeCapabilitiesProvider } from "../../lib/RuntimeCapabilities";
-import { FileDetail, InlineFileDiff } from "./DiffView";
-
-describe("file links follow where the file lives", () => {
-  const diff = ["--- a/a.ts", "+++ b/a.ts", "@@ -1 +1 @@", "-old", "+new"].join("\n");
-
-  it("links the raw file and its projection on the developer machine", () => {
-    render(<FileDetail file={{ path: "/repo/a.ts", diff } as never} forceExpand />);
-    expect(screen.getByRole("link", { name: /Raw/ })).toHaveAttribute("href", "/api/v1/files/content?path=%2Frepo%2Fa.ts");
-    expect(screen.getByRole("link", { name: "Projection" })).toBeInTheDocument();
-  });
-
-  it("offers no raw-file or projection link when the files are not local (hosted)", () => {
-    render(
-      <RuntimeCapabilitiesProvider value={NO_LOCAL_RUNTIME_CAPABILITIES}>
-        <FileDetail file={{ path: "/repo/a.ts", diff } as never} forceExpand />
-        <InlineFileDiff path="/repo/b.ts" diff={diff} forceExpand />
-      </RuntimeCapabilitiesProvider>
-    );
-    expect(screen.getByText("/repo/a.ts")).toBeInTheDocument();
-    expect(screen.queryByRole("link")).toBeNull();
-  });
-});
+import { InlineFileDiff } from "./DiffView";
 
 describe("InlineFileDiff — unified diff parsing", () => {
   it("treats a removed line whose content starts with -- as content, not a file header, and keeps line numbers stable", () => {

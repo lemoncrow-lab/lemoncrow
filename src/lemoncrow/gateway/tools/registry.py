@@ -111,7 +111,7 @@ def advertised_tools(
         for name, spec in registered_tools().items()
         if tool_profile_exposes(name) and visible(name, spec)
     ]
-    if mcp_tool_profile() == "core" and tool_visible_to_llm("tool"):
+    if mcp_tool_profile() == "core":
         tools.append(deepcopy(TOOL_BROKER_SURFACE_SPEC))
     tools.sort(key=lambda item: str(item["name"]))
     return tools

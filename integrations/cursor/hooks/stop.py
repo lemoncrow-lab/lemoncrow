@@ -9,7 +9,7 @@ Runs when the Cursor agent finishes a turn. Two jobs:
 2. Emit a one-line savings recap for the session to stderr. Cursor's ``stop``
    hook output contract only supports ``followup_message`` (cursor.com/docs/
    agent/hooks), so -- unlike Claude's in-chat recap -- the user-facing savings
-   surface for Cursor is ``lc runtime savings`` / ``lc rt dashboard``; this recap is a
+   surface for Cursor is ``lc savings`` / ``lc dashboard``; this recap is a
    diagnostic breadcrumb only.
 
 Self-contained: Cursor runs hooks with no PYTHONPATH guarantee, so LemonCrow
@@ -131,7 +131,7 @@ def _recap(session_id: str, workspace: str) -> str:
         return ""
     if s.saved_usd <= 0 and s.smart_calls <= 0 and s.ctx_saved <= 0:
         return ""
-    line = f"est. savings: {_fmt_usd(s.saved_usd)} · {_fmt_tok(s.ctx_saved)} tok · {s.smart_calls} calls avoided"
+    line = f"savings: {_fmt_usd(s.saved_usd)} · {_fmt_tok(s.ctx_saved)} tok · {s.smart_calls} calls avoided"
     faster = s.time_saved_seconds
     if faster >= 60:
         line += f" · ~{fmt_duration(faster)} faster"
@@ -156,7 +156,7 @@ def main() -> int:
 
     recap = _recap(session_id, workspace)
     if recap:
-        sys.stderr.write(f"[lc:cursor] session complete. {recap}\n")
+        sys.stderr.write(f"[lemoncrow:cursor] session complete. {recap}\n")
 
     # Cursor `stop` output only supports `followup_message`; emit an empty
     # object so we never accidentally re-trigger the agent loop.

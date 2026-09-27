@@ -15,7 +15,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry-run) DRY_RUN=true ;;
         --workspace)
-            echo "[lc:uninstall:hermes] WARN: --workspace not supported (Hermes is global-only)" >&2
+            echo "[lemoncrow:uninstall:hermes] WARN: --workspace not supported (Hermes is global-only)" >&2
             exit 0
             ;;
         *) echo "Unknown option: $1" >&2; exit 1 ;;
@@ -26,7 +26,7 @@ done
 HERMES_HOME="${HERMES_HOME:-${HOME}/.hermes}"
 CONFIG_FILE="${HERMES_HOME}/config.yaml"
 
-info()  { echo "[lc:uninstall:hermes] $*"; }
+info()  { echo "[lemoncrow:uninstall:hermes] $*"; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 # PyYAML is not guaranteed in the system python; prefer the project env.
 if command -v uv >/dev/null 2>&1; then

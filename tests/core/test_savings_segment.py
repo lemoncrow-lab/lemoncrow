@@ -169,13 +169,12 @@ def _runway_frames(
     *,
     turns: int = 20,
     ctx_saved: int = 30_000,
-    input_saved: int = 0,
     ctx_pct: float = 35.0,
     ctx_tok: int = 60_000,
 ) -> list[str]:
     from lemoncrow.core.capabilities.savings_summary import SavingsSummary, savings_frames
 
-    summary = SavingsSummary(saved_usd=1.0, ctx_saved=ctx_saved, input_saved_tokens=input_saved, turns=turns)
+    summary = SavingsSummary(saved_usd=1.0, ctx_saved=ctx_saved, turns=turns)
     monkeypatch.setattr(
         "lemoncrow.core.capabilities.savings_summary.compute_savings_summary",
         lambda *a, **k: summary,
@@ -199,11 +198,10 @@ def test_runway_frame_reports_turns_left_and_the_share_lemoncrow_bought(
     18 -- so 19 of the 37 remaining turns are lc's."""
     frames = _runway_frames(lemoncrow_root, monkeypatch)
 
-    runway = [f for f in frames if " left" in f]
+    runway = [f for f in frames if "turns left" in f]
     assert runway, f"expected a runway frame in {frames!r}"
-    assert "~37 left" in runway[0]
-    assert "20 turns" in runway[0]
-    assert "(~19 with lc)" in runway[0]
+    assert "~37 turns left" in runway[0]
+    assert "(+19 from lc)" in runway[0]
 
 
 def test_runway_frame_carries_the_same_weight_as_the_savings_frame(
@@ -213,8 +211,8 @@ def test_runway_frame_carries_the_same_weight_as_the_savings_frame(
 
     assert frames[0] == frames[1] == frames[2]  # savings frame: 3 slots
     assert frames[3] == frames[4] == frames[5]  # runway frame: 3 slots
-    assert " left" in frames[3]
-    assert " left" not in frames[0]
+    assert "turns left" in frames[3]
+    assert "turns left" not in frames[0]
 
 
 def test_runway_suppressed_until_the_burn_rate_has_enough_samples(
@@ -223,7 +221,7 @@ def test_runway_suppressed_until_the_burn_rate_has_enough_samples(
     """Below the minimum turn count the extrapolation swings wildly; omit it."""
     frames = _runway_frames(lemoncrow_root, monkeypatch, turns=4)
 
-    assert not any(" left" in f for f in frames)
+    assert not any("turns left" in f for f in frames)
     assert frames[0] == frames[1] == frames[2]
     # Weighting falls back to frame 0 alone holding the 3 slots.
     assert frames == [frames[0]] * 3
@@ -234,37 +232,8 @@ def test_runway_omits_the_lemoncrow_share_when_nothing_was_saved(
 ) -> None:
     frames = _runway_frames(lemoncrow_root, monkeypatch, ctx_saved=0)
 
-    runway = [f for f in frames if " left" in f]
-    assert runway and "with lc" not in runway[0]
-
-
-def test_runway_marks_a_saturated_lemoncrow_contribution_as_an_included_estimate(
-    lemoncrow_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    frames = _runway_frames(lemoncrow_root, monkeypatch, ctx_saved=200_000)
-
-    runway = next(f for f in frames if " left" in f)
-    assert "20 turns" in runway
-    assert "~37 left (~37 with lc)" in runway
-
-
-def test_runway_excludes_recurring_input_savings_from_context_credit(
-    lemoncrow_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    frames = _runway_frames(lemoncrow_root, monkeypatch, ctx_saved=230_000, input_saved=200_000)
-
-    runway = next(f for f in frames if " left" in f)
-    assert "~37 left (~19 with lc)" in runway
-
-
-def test_runway_omits_credit_when_all_savings_are_recurring(
-    lemoncrow_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    frames = _runway_frames(lemoncrow_root, monkeypatch, ctx_saved=200_000, input_saved=200_000)
-
-    runway = next(f for f in frames if " left" in f)
-    assert "20 turns" in runway
-    assert "with lc" not in runway
+    runway = [f for f in frames if "turns left" in f]
+    assert runway and "from lc" not in runway[0]
 
 
 def test_runway_falls_back_to_the_state_file_statusline_parks(
@@ -283,11 +252,10 @@ def test_runway_falls_back_to_the_state_file_statusline_parks(
 
     frames = savings_frames("sidecar-session", lemoncrow_root=lemoncrow_root, no_color=True)
 
-    runway = [f for f in frames if " left" in f]
+    runway = [f for f in frames if "turns left" in f]
     assert runway, f"expected a runway frame from the parked state in {frames!r}"
-    assert "~37 left" in runway[0]
-    assert "20 turns" in runway[0]
-    assert "(~19 with lc)" in runway[0]
+    assert "~37 turns left" in runway[0]
+    assert "(+19 from lc)" in runway[0]
 
 
 def test_runway_state_file_missing_or_malformed_is_not_fatal(
@@ -304,7 +272,7 @@ def test_runway_state_file_missing_or_malformed_is_not_fatal(
 
     frames = savings_frames("bad-session", lemoncrow_root=lemoncrow_root, no_color=True)
 
-    assert frames and not any(" left" in f for f in frames)
+    assert frames and not any("turns left" in f for f in frames)
 
 
 def test_burn_rate_tracks_recent_turns_not_the_session_average() -> None:
@@ -415,45 +383,3 @@ def test_segment_pins_review_needs_fix(lemoncrow_root: Path) -> None:
         state.write_text(json.dumps({"counter": i, "ts": time.time()}))
         seg = savings_segment(sid, lemoncrow_root=lemoncrow_root, no_color=True)
         assert "NEEDS_FIX" in seg, f"frame {i}: {seg!r}"
-
-
-def test_statusline_prefers_claude_mod_measured_cost_and_usage(lemoncrow_root: Path) -> None:
-    from lemoncrow.core.capabilities.savings_summary import compute_savings_summary, savings_frames
-
-    sid = "mod-statusline"
-    (lemoncrow_root / f"claude-mod-usage-{sid}.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "source": "claude_mod",
-                "session_id": sid,
-                "started_at_ms": 1,
-                "updated_at_ms": 2,
-                "session_usage": {"cost": {"usd": 42.5}},
-                "totals": {
-                    "steps": 3,
-                    "turns": 2,
-                    "duration_ms": 100,
-                    "input_tokens": 100,
-                    "output_tokens": 300,
-                    "cache_read_input_tokens": 20_000,
-                    "cache_creation_input_tokens": 2_000,
-                },
-                "main": {"kind": "main", "steps": 3, "turns": 2},
-                "subagents": {},
-                "models": {"claude-opus-5-5": 3},
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    summary = compute_savings_summary(sid, lemoncrow_root=lemoncrow_root)
-    assert summary.est_cost_usd == 42.5
-    assert summary.turns == 2
-    assert summary.display_input_tokens == 2_100
-    assert summary.display_cache_tokens == 20_000
-    assert summary.display_output_tokens == 300
-
-    frame0 = savings_frames(sid, lemoncrow_root=lemoncrow_root, no_color=True)[0]
-    assert "$42.50" in frame0
-    assert "I:2.1k C:20.0k O:300" in frame0

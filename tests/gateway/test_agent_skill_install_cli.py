@@ -1,4 +1,4 @@
-"""Tests for the on-demand Runtime agent/skill install CLI (`lc runtime agent|skill|install`).
+"""Tests for the on-demand agent/skill install CLI (`lc agent|skill|install`).
 
 Covers: list's installed/available split and token costs; install/remove at
 Claude/Codex/OpenCode workspace scope (direct Python calls, no real host CLI
@@ -23,8 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 def _invoke(*args: str) -> object:
     runner = CliRunner()
-    with patch.object(m, "_repo_root", return_value=REPO_ROOT):
-        return runner.invoke(cli, ["runtime", *args], catch_exceptions=False)
+    return runner.invoke(cli, list(args), catch_exceptions=False)
 
 
 # --------------------------------------------------------------------------- #

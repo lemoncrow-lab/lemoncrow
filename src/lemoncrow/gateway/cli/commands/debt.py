@@ -1,4 +1,4 @@
-"""``lc rt debt`` — harvest deferred-simplification markers into a ledger.
+"""``lc debt`` — harvest deferred-simplification markers into a ledger.
 
 The coding guidelines tell agents to mark a deliberately cut corner with an
 ``lc-debt: <ceiling>; <upgrade path>`` comment. This command greps tracked files
@@ -59,7 +59,7 @@ def _harvest(root: Path) -> list[dict[str, object]]:
     return items
 
 
-@click.command("debt", short_help="Collect lc-debt: markers (deferred simplifications).")
+@click.command("debt")
 @click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
 @click.option(
     "--fail-on-no-trigger",

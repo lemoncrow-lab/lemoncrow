@@ -1,6 +1,6 @@
 """The ``providers.json`` writer: register self-hosted OpenAI-compatible endpoints.
 
-Why this module exists: until ``lc runtime model add`` there was no writer at all.
+Why this module exists: until ``lc model add`` there was no writer at all.
 Every provider path in the repo *reads* ``providers.json``; the only thing that
 ever wrote anything was ``discovery._write_example``, and it writes
 ``providers.json.example``. Introducing the first real writer means honouring
@@ -42,7 +42,6 @@ from .models import (
     MODEL_TIER_VALUES,
     CustomEndpoint,
     CustomModel,
-    EndpointLocus,
     ModelTier,
     ProbeResult,
     custom_model_id,
@@ -86,22 +85,6 @@ def write_providers_config(root: Path | None, mutate: Callable[[dict[str, Any]],
     return path
 
 
-def infer_endpoint_locus(base_url: str) -> EndpointLocus:
-    """Infer only what is safe: loopback is local; everything else is unknown."""
-    parsed = urlparse(normalize_base_url(base_url))
-    host = (parsed.hostname or "").strip().lower()
-    if host == "localhost" or host.endswith(".localhost"):
-        return "local"
-    try:
-        import ipaddress
-
-        if ipaddress.ip_address(host).is_loopback:
-            return "local"
-    except ValueError:
-        pass
-    return "unknown"
-
-
 def add_endpoint(
     root: Path | None,
     base_url: str,
@@ -112,7 +95,6 @@ def add_endpoint(
     models: Sequence[str] | None = None,
     tier: ModelTier = "cheap",
     context_window: int | None = None,
-    locus: EndpointLocus | None = None,
     timeout: float = 10.0,
 ) -> CustomEndpoint:
     """Register one OpenAI-compatible endpoint and the models it serves.
@@ -153,10 +135,8 @@ def add_endpoint(
             f"Pass --model ID to register without discovery"
         )
 
-    resolved_locus: EndpointLocus = locus or infer_endpoint_locus(normalized)
     entry: dict[str, Any] = {
         "base_url": normalized,
-        "locus": resolved_locus,
         # Present-but-empty when the key lives in the environment: the shape
         # documented in providers.json.example stays stable either way.
         "api_key": api_key or "",
@@ -406,18 +386,6 @@ def _endpoints_from_disk(root: Path | None) -> dict[str, Any]:
     return {name: entry for name, entry in endpoints.items() if isinstance(entry, dict)}
 
 
-def inline_api_keys(root: Path | None) -> tuple[str, ...]:
-    """The literal ``api_key`` values kept in ``providers.json`` (never the environment-variable ones).
-
-    For redaction only: a caller that must keep these out of what it prints (the diagnostic
-    bundle) reads them here. Degrades to ``()``, never raises.
-    """
-
-    return tuple(
-        key for entry in _endpoints_from_disk(root).values() if isinstance(key := entry.get("api_key"), str) and key
-    )
-
-
 def _endpoint_from_entry(name: str, entry: dict[str, Any]) -> CustomEndpoint:
     models_raw = entry.get(_MODELS_KEY)
     models_map: dict[str, Any] = models_raw if isinstance(models_raw, dict) else {}
@@ -425,16 +393,8 @@ def _endpoint_from_entry(name: str, entry: dict[str, Any]) -> CustomEndpoint:
         name=name,
         base_url=str(entry.get("base_url") or ""),
         api_key_env=(str(entry.get("api_key_env")) if entry.get("api_key_env") else None),
-        locus=_endpoint_locus(entry.get("locus"), base_url=str(entry.get("base_url") or "")),
         models=tuple(_model_from_entry(raw_id, models_map[raw_id]) for raw_id in sorted(models_map)),
     )
-
-
-def _endpoint_locus(value: Any, *, base_url: str) -> EndpointLocus:
-    text = str(value or "").strip().lower()
-    if text in {"local", "remote", "unknown"}:
-        return text  # type: ignore[return-value]
-    return infer_endpoint_locus(base_url)
 
 
 def _model_from_entry(raw_id: str, entry: Any) -> CustomModel:
@@ -550,7 +510,6 @@ __all__ = [
     "derive_endpoint_name",
     "discover_endpoint_models",
     "get_endpoint",
-    "inline_api_keys",
     "list_endpoints",
     "normalize_base_url",
     "record_probe",

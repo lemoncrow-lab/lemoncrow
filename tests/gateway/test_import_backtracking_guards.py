@@ -385,8 +385,9 @@ def test_adversarial_multi_megabyte_session_imports_quickly(store: StoreBundle, 
 # ---------------------------------------------------------------------------
 
 
-def test_extract_task_wrapper_still_extracts_normal_input() -> None:
-    for text, expected in [
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
         ("<task>do the thing</task>", "do the thing"),
         ("<task id='1' priority='high'>do the thing</task>", "do the thing"),
         ("<PROMPT>\nmulti\nline\n</PROMPT>", "multi\nline"),
@@ -394,8 +395,10 @@ def test_extract_task_wrapper_still_extracts_normal_input() -> None:
         ("<question>why?</question>", "why?"),
         ("no wrapper at all", None),
         ("<task>never closed", None),
-    ]:
-        assert extract_task_wrapper(text) == expected
+    ],
+)
+def test_extract_task_wrapper_still_extracts_normal_input(text: str, expected: str | None) -> None:
+    assert extract_task_wrapper(text) == expected
 
 
 def test_extract_task_wrapper_is_fast_on_dense_unclosed_openers() -> None:
@@ -419,14 +422,17 @@ def test_extract_task_wrapper_still_matches_alongside_a_wall_of_openers() -> Non
     assert extract_task_wrapper(blob) == "real payload"
 
 
-def test_extract_user_query_still_extracts_normal_input() -> None:
-    for text, expected in [
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
         ("<user_query>fix the bug</user_query>", "fix the bug"),
         ("<user_query>\nmulti\nline\n</user_query>", "multi\nline"),
         ("plain text", None),
         ("<user_query>never closed", None),
-    ]:
-        assert _extract_user_query(text) == expected
+    ],
+)
+def test_extract_user_query_still_extracts_normal_input(text: str, expected: str | None) -> None:
+    assert _extract_user_query(text) == expected
 
 
 def test_extract_user_query_is_fast_on_dense_unclosed_openers() -> None:

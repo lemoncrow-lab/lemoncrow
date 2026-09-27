@@ -20,7 +20,7 @@ from typing import Any
 from ..errors import ErrorCode, ServerError
 from .contracts import IndexBackend, SweepResult
 from .deferred import SqliteDeferredJobStore
-from .layers import _COLD_LINK, _COLD_SEMANTIC, DEFAULT_INLINE_REBUILD_BUDGET, StatusTable
+from .layers import DEFAULT_INLINE_REBUILD_BUDGET
 from .ops import IndexOpsMetrics
 from .sqlite import SqliteIndex, SqliteRepoIdentityService, _Db
 
@@ -441,14 +441,9 @@ class _LayerRouter:
                 view_id = args[1] if len(args) > 1 else kwargs["view_id"]
             try:
                 backend = self._owner.route(org_id, view_id)
-            except ServerError as exc:
+            except ServerError:
                 if name in {"forget", "forget_view"}:
                     return None
-                if name == "status" and exc.code is ErrorCode.VIEW_UNKNOWN:
-                    # Layer status is a flag here too, as on a single backend: a
-                    # View with no route (never opened, foreign, or reclaimed)
-                    # reports cold instead of failing a degradation check.
-                    return StatusTable(_COLD_LINK if self._layer == "links" else _COLD_SEMANTIC).cold()
                 raise
             return getattr(getattr(backend, self._layer), name)(*args, **kwargs)
 
@@ -518,8 +513,7 @@ class _ContentRouter:
     def mark_unreferenced(self, referenced: Mapping[str, frozenset[str]], now: float) -> int:
         return sum(index.backend.content.mark_unreferenced(referenced, now) for index in self._owner.indexes())
 
-    def sweep_marked(self, before: float, *, limit: int | None = None, dry_run: bool = False) -> SweepResult:
-        del before, limit, dry_run
+    def sweep_marked(self, before: float) -> SweepResult:
         raise RuntimeError("garbage collection must run separately in each repository partition")
 
 
@@ -556,23 +550,8 @@ class _AnalysisRouter:
     def lexical_matches(self, *args: Any, **kwargs: Any) -> Any:
         raise RuntimeError("select a repository backend before searching")
 
-    def stored_semantic_units(self, *args: Any, **kwargs: Any) -> Any:
-        raise RuntimeError("select a repository backend before reading semantic units")
-
-    def store_semantic_units(self, *args: Any, **kwargs: Any) -> Any:
-        raise RuntimeError("select a repository backend before writing semantic units")
-
     def definitions_named(self, *args: Any, **kwargs: Any) -> Any:
         raise RuntimeError("select a repository backend before searching")
-
-    def lexical_candidates(self, *args: Any, **kwargs: Any) -> Any:
-        raise RuntimeError("select a repository backend before searching")
-
-    def definition_candidates(self, *args: Any, **kwargs: Any) -> Any:
-        raise RuntimeError("select a repository backend before searching")
-
-    def restore(self, *args: Any, **kwargs: Any) -> Any:
-        raise RuntimeError("select a repository backend before restoring analysis")
 
     def nearest(self, *args: Any, **kwargs: Any) -> Any:
         raise RuntimeError("select a repository backend before searching")

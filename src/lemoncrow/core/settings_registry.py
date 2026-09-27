@@ -40,13 +40,6 @@ class SettingSpec:
     category: str
     description: str
     settable: bool = True
-    choices: tuple[str, ...] = ()
-    """Allowed values for a ``str`` setting (empty means free text, or unset)."""
-    int_range: tuple[int, int] | None = None
-    """Inclusive ``(low, high)`` bounds an ``int`` setting must lie in (``None``: unbounded)."""
-    yields_to: str | None = None
-    """An exported variable (the vendor's own name, ``ANTHROPIC_API_KEY``) that wins over the saved value: when it is
-    set, the saved value is not put into the environment at all."""
 
 
 SETTINGS: list[SettingSpec] = [
@@ -113,7 +106,7 @@ SETTINGS: list[SettingSpec] = [
         "bool",
         None,
         "service",
-        "Force Bearer-auth on/off for the service (`lc service start` default: on, minting <root>/service/api-token).",
+        "Force Bearer-auth on/off for the service (default: on unless bound to loopback).",
     ),
     SettingSpec(
         "service.api_key",
@@ -121,7 +114,7 @@ SETTINGS: list[SettingSpec] = [
         "str",
         "",
         "service",
-        "Bearer API key required by the service when auth is enforced (minted when unset).",
+        "Bearer API key required by the service when auth is enforced.",
     ),
     SettingSpec(
         "service.host",
@@ -201,7 +194,7 @@ SETTINGS: list[SettingSpec] = [
         "int",
         7700,
         "service",
-        "Port used to build local session-share links.",
+        "Port used to build local share links (lc share).",
     ),
     SettingSpec(
         "service.code_warm",
@@ -530,8 +523,7 @@ SETTINGS: list[SettingSpec] = [
         "int",
         None,
         "code_context",
-        "Interval (ms) between the code index autosync's full-tree checks for changes: default 300000 "
-        "(5 minutes), minimum 60000. A git HEAD move reindexes within a minute without waiting for it.",
+        "Poll interval (ms) the code index autosync uses to check for changes.",
     ),
     SettingSpec(
         "code_context.file_watcher",
@@ -837,6 +829,22 @@ SETTINGS: list[SettingSpec] = [
         None,
         "embeddings",
         "Timeout (seconds) for Ollama-backed embedding requests.",
+    ),
+    SettingSpec(
+        "embeddings.rerank_batch",
+        "LEMONCROW_RERANK_BATCH",
+        "int",
+        32,
+        "embeddings",
+        "Batch size for the cross-encoder reranker.",
+    ),
+    SettingSpec(
+        "embeddings.rerank_max_seq",
+        "LEMONCROW_RERANK_MAX_SEQ",
+        "int",
+        1024,
+        "embeddings",
+        "Max sequence length for the cross-encoder reranker.",
     ),
     SettingSpec(
         "embeddings.code_reranker_enabled",
@@ -1151,12 +1159,7 @@ SETTINGS: list[SettingSpec] = [
         "Character threshold above which an MCP result is written to a spill file instead of inlined.",
     ),
     SettingSpec(
-        "mcp.spill_dir",
-        "LEMONCROW_MCP_SPILL_DIR",
-        "str",
-        "",
-        "mcp",
-        "Override the ephemeral directory for large tool-output spills (default: user-scoped OS runtime/temp directory).",
+        "mcp.spill_dir", "LEMONCROW_MCP_SPILL_DIR", "str", "", "mcp", "Directory large tool outputs are spilled to."
     ),
     SettingSpec(
         "mcp.additional_edit_dirs",
@@ -1401,24 +1404,7 @@ SETTINGS: list[SettingSpec] = [
         "str",
         "https://lemoncrow.com/api/telemetry/rollup",
         "telemetry",
-        "Development override for the savings rollup URL; ignored under an administrator telemetry policy.",
-    ),
-    SettingSpec(
-        "telemetry.event_endpoint",
-        "LEMONCROW_EVENT_TELEMETRY_ENDPOINT",
-        "str",
-        "https://lemoncrow.com/api/telemetry/events",
-        "telemetry",
-        "Development override for the event-count rollup URL; ignored under an administrator telemetry policy.",
-    ),
-    SettingSpec(
-        "telemetry.policy_path",
-        "LEMONCROW_TELEMETRY_POLICY",
-        "str",
-        None,
-        "telemetry",
-        "Administrator telemetry policy file, honored only where no system policy "
-        "(/etc/lemoncrow/telemetry.toml, or the macOS/Windows equivalent) is installed.",
+        "Endpoint the opt-in public savings rollup is posted to.",
     ),
     SettingSpec(
         "telemetry.public_timeout_ms",
@@ -1729,162 +1715,6 @@ SETTINGS: list[SettingSpec] = [
         "bench",
         "Parallel token slots per OAuth token during benchmarking.",
     ),
-    # -- verified_work: verifier-triggered local repair --
-    SettingSpec(
-        "verified_work.mode",
-        "LEMONCROW_VERIFIED_WORK_MODE",
-        "str",
-        "off",
-        "verified_work",
-        "Verified local work mode: off, shadow, or enforce. enforce promotes only in repositories "
-        "opted in with `lc rt savings auto`; elsewhere it behaves like shadow.",
-        choices=("off", "shadow", "enforce"),
-    ),
-    SettingSpec(
-        "verified_work.model",
-        "LEMONCROW_VERIFIED_WORK_MODEL",
-        "str",
-        "auto",
-        "verified_work",
-        "Registered model id used for verified local repairs, or auto.",
-    ),
-    SettingSpec(
-        "verified_work.model_policy",
-        "LEMONCROW_VERIFIED_WORK_MODEL_POLICY",
-        "str",
-        "local_only",
-        "verified_work",
-        "Worker model policy: local_only, local_first, or explicit.",
-        choices=("local_only", "local_first", "explicit"),
-    ),
-    SettingSpec(
-        "verified_work.max_attempts",
-        "LEMONCROW_VERIFIED_WORK_MAX_ATTEMPTS",
-        "int",
-        2,
-        "verified_work",
-        "Maximum model repair attempts per verifier failure.",
-    ),
-    SettingSpec(
-        "verified_work.max_files",
-        "LEMONCROW_VERIFIED_WORK_MAX_FILES",
-        "int",
-        4,
-        "verified_work",
-        "Maximum implicated files in one local repair.",
-    ),
-    SettingSpec(
-        "verified_work.max_diff_lines",
-        "LEMONCROW_VERIFIED_WORK_MAX_DIFF_LINES",
-        "int",
-        120,
-        "verified_work",
-        "Maximum changed diff lines accepted from a local worker.",
-    ),
-    SettingSpec(
-        "verified_work.timeout_s",
-        "LEMONCROW_VERIFIED_WORK_TIMEOUT_S",
-        "int",
-        90,
-        "verified_work",
-        "Wall-clock verifier timeout per local repair attempt.",
-    ),
-    SettingSpec(
-        "verified_work.memory_mb",
-        "LEMONCROW_VERIFIED_WORK_MEMORY_MB",
-        "int",
-        2048,
-        "verified_work",
-        "Memory budget metadata for local repair execution.",
-    ),
-    SettingSpec(
-        "verified_work.max_parallel",
-        "LEMONCROW_VERIFIED_WORK_MAX_PARALLEL",
-        "int",
-        1,
-        "verified_work",
-        "Maximum concurrent local repair workers.",
-    ),
-    SettingSpec(
-        "verified_work.max_repairs_session",
-        "LEMONCROW_VERIFIED_WORK_MAX_REPAIRS_SESSION",
-        "int",
-        8,
-        "verified_work",
-        "Maximum local repair work items per host session.",
-    ),
-    SettingSpec(
-        "verified_work.max_seconds_session",
-        "LEMONCROW_VERIFIED_WORK_MAX_SECONDS_SESSION",
-        "int",
-        300,
-        "verified_work",
-        "Maximum cumulative local repair wall time per host session.",
-    ),
-    SettingSpec(
-        "verified_work.kinds",
-        "LEMONCROW_VERIFIED_WORK_KINDS",
-        "str",
-        "lint,typecheck",
-        "verified_work",
-        "Comma-separated repair kinds eligible for local work.",
-    ),
-    SettingSpec(
-        "verified_work.allow_test_edits",
-        "LEMONCROW_VERIFIED_WORK_ALLOW_TEST_EDITS",
-        "bool",
-        False,
-        "verified_work",
-        "Allow verified local work to edit test files.",
-    ),
-    SettingSpec(
-        "verified_work.allow_manifest_edits",
-        "LEMONCROW_VERIFIED_WORK_ALLOW_MANIFEST_EDITS",
-        "bool",
-        False,
-        "verified_work",
-        "Allow verified local work to edit dependency manifests or lockfiles.",
-    ),
-    SettingSpec(
-        "verified_work.require_isolation",
-        "LEMONCROW_VERIFIED_WORK_REQUIRE_ISOLATION",
-        "bool",
-        True,
-        "verified_work",
-        "Require qualified network isolation and resource limits before automatic promotion.",
-    ),
-    SettingSpec(
-        "verified_work.calibration_min_pairs",
-        "LEMONCROW_VERIFIED_WORK_CALIBRATION_MIN_PAIRS",
-        "int",
-        20,
-        "verified_work",
-        "Minimum clean paired Learning baselines before claiming or auto-using calibrated savings.",
-    ),
-    SettingSpec(
-        "verified_work.auto_min_samples",
-        "LEMONCROW_VERIFIED_WORK_AUTO_MIN_SAMPLES",
-        "int",
-        20,
-        "verified_work",
-        "Minimum outcomes before an auto-selected model may enforce repairs.",
-    ),
-    SettingSpec(
-        "verified_work.auto_min_success_rate",
-        "LEMONCROW_VERIFIED_WORK_AUTO_MIN_SUCCESS_RATE",
-        "float",
-        0.9,
-        "verified_work",
-        "Minimum verifier-pass rate for auto-selected models in enforce mode.",
-    ),
-    SettingSpec(
-        "verified_work.auto_max_avg_latency_ms",
-        "LEMONCROW_VERIFIED_WORK_AUTO_MAX_AVG_LATENCY_MS",
-        "int",
-        20000,
-        "verified_work",
-        "Maximum average repair latency for an auto-selected model in enforce mode.",
-    ),
     # -- routing: model tier/host routing --
     SettingSpec(
         "routing.tier_routing",
@@ -1996,17 +1826,7 @@ SETTINGS: list[SettingSpec] = [
         "str",
         "",
         "llm",
-        "OpenAI API key for `lc review --ai` and LemonCrow's other model calls. An exported OPENAI_API_KEY wins over it.",
-        yields_to="OPENAI_API_KEY",
-    ),
-    SettingSpec(
-        "llm.anthropic_api_key",
-        "LEMONCROW_ANTHROPIC_API_KEY",
-        "str",
-        "",
-        "llm",
-        "Anthropic API key for `lc review --ai`. An exported ANTHROPIC_API_KEY wins over it.",
-        yields_to="ANTHROPIC_API_KEY",
+        "OpenAI API key for internal LLM calls (falls back to OPENAI_API_KEY).",
     ),
     SettingSpec(
         "llm.openai_base_url",
@@ -2031,56 +1851,6 @@ SETTINGS: list[SettingSpec] = [
         "",
         "llm",
         "Model id used for Ollama-backed internal LLM calls.",
-    ),
-    # -- intelligence: the effective intelligence route policy (BI0,
-    # ``review/intelligence_policy.py``). No env var: the policy is the product
-    # contract and is read fresh on every route resolution, so a stale process
-    # env never overrides it. ``driver: auto`` still reads LEMONCROW_LLM_BACKEND.
-    SettingSpec(
-        "intelligence.enabled",
-        None,
-        "bool",
-        True,
-        "intelligence",
-        "Allow model routes at all (Review Intelligence, Ask and background intelligence); false refuses every route.",
-    ),
-    SettingSpec(
-        "intelligence.driver",
-        None,
-        "str",
-        "auto",
-        "intelligence",
-        "Model route: auto uses the configured provider (llm.backend / LEMONCROW_LLM_BACKEND); or name a driver.",
-        choices=("auto", "claude", "codex", "opencode", "ollama", "openai", "litellm"),
-    ),
-    SettingSpec(
-        "intelligence.model",
-        None,
-        "str",
-        "auto",
-        "intelligence",
-        "Model: auto lets the driver choose (its configured default; a CLI's own default is never guessed), "
-        "or an explicit model id, which requires an explicit driver.",
-    ),
-    SettingSpec(
-        "intelligence.run_on",
-        None,
-        "str",
-        "auto",
-        "intelligence",
-        "Where background intelligence runs: auto, local, worker or managed, as this deployment allows. "
-        "Never degraded: an explicit locus not offered here refuses background work (route_unavailable); "
-        "automatic AI Review runs where its run plan says, and an explicit value must agree.",
-        choices=("auto", "local", "worker", "managed"),
-    ),
-    SettingSpec(
-        "intelligence.background.enabled",
-        None,
-        "bool",
-        True,
-        "intelligence",
-        "Allow autonomous background intelligence (automatic AI Review today; Project Knowledge and "
-        "discussion summaries when they land). Off: none is scheduled; explicit requests still run.",
     ),
     # -- lessons --
     SettingSpec(
@@ -2180,7 +1950,6 @@ SETTINGS: list[SettingSpec] = [
         "ultra",
         "cli",
         "Reply-register level baked into installed agent personas: ultra (default, maximal readable compression) | lite | off. Setting it regenerates installed host agents (see lemoncrow.core.reply_register).",
-        choices=("ultra", "lite", "off"),
     ),
     # -- core: bootstrap/location knobs (read-only through this surface) --
     SettingSpec(
@@ -2275,95 +2044,6 @@ SETTINGS: list[SettingSpec] = [
         4096,
         "review",
         "Memory ceiling per sandboxed Review job in MB (256-65536); 0 disables the ceiling.",
-    ),
-    # Personal: the agent CLI `lc review --ai` uses when no API key is set. Written only by
-    # `lc review --ai --agent NAME --remember` (the person names it once); no env var.
-    SettingSpec(
-        "review.agent",
-        None,
-        "str",
-        "",
-        "review",
-        "Agent CLI `lc review --ai` uses when no API key is set (claude, codex, opencode); empty means none. "
-        "Set by `lc review --ai --agent NAME --remember`.",
-        choices=("claude", "codex", "opencode"),
-    ),
-    # Personal, never policy (plan §3.22/§3.23): which local coding agent a Review
-    # Fix starts when the exact authoring session is unavailable. Read fresh on
-    # every Fix preview; no env var, so a stale process env never overrides it.
-    SettingSpec(
-        "review.fix_agent",
-        None,
-        "str",
-        "",
-        "review",
-        "Preferred fixing agent for Review Fix after the original author's session (claude, codex, opencode, "
-        "lemoncode); empty means none.",
-        choices=("claude", "codex", "opencode", "lemoncode"),
-    ),
-    # Personal, explicit opt-in (Phase 10 item 19): the reviewer's own Ed25519
-    # key for signing local review records. The file must be owner-only and
-    # outside any Git work tree; unset means records export labeled UNSIGNED.
-    SettingSpec(
-        "review.record_signing_key",
-        None,
-        "str",
-        "",
-        "review",
-        "Path to your personal Ed25519 key (PEM) for signing local review records; set by "
-        "`lc review record-key init`. Empty means local records are exported UNSIGNED.",
-    ),
-    # Opt-in, default OFF (Phase 12 item 14): risky agent actions in a switched-on
-    # class pause in the agent host's hook until a human decides in the Review.
-    # Read by the hook and the local server; no env var, so an agent's shell
-    # cannot turn a class off by exporting one.
-    *(
-        SettingSpec(
-            f"review.approval.{name}",
-            None,
-            "bool",
-            False,
-            "review",
-            f"Pause the coding agent for a human decision in the Review before {label}.",
-        )
-        for name, label in (
-            ("dependency_install", "installing or upgrading dependencies"),
-            ("schema_migration", "running database schema or migration commands"),
-            ("network_cloud", "network calls and cloud CLIs"),
-            ("secret_access", "reading secrets or credential files"),
-            ("git_push", "git push or force-push"),
-            ("outside_write", "writing outside the workspace"),
-        )
-    ),
-    SettingSpec(
-        "review.approval.wait_seconds",
-        None,
-        "int",
-        120,
-        "review",
-        "How long the agent waits for an approval decision before the action is blocked (5-900 seconds).",
-    ),
-    # -- intelligence.background: the shared background budget envelope (BI1,
-    # ``review/background_budget.py``). Read fresh at every admission; explicit
-    # Ask, manual Review and fresh re-runs are metered but never limited by it.
-    SettingSpec(
-        "intelligence.background.monthly_model_calls",
-        None,
-        "int",
-        200,
-        "intelligence",
-        "Model calls autonomous background intelligence may make per calendar month (UTC); -1 for no ceiling. "
-        "Setting either call ceiling also limits automatic AI Review (unset, it is metered but not limited).",
-        int_range=(-1, 1_000_000_000),
-    ),
-    SettingSpec(
-        "intelligence.background.daily_model_calls",
-        None,
-        "int",
-        -1,
-        "intelligence",
-        "Optional daily guard on background model calls (UTC day); -1 for none.",
-        int_range=(-1, 1_000_000_000),
     ),
     # -- internal: process-managed, mostly informational --
     SettingSpec(

@@ -17,6 +17,24 @@ def markdown_files() -> list[Path]:
     return sorted(DOCS_ROOT.rglob("*.md"))
 
 
+def test_docs_directory_exists() -> None:
+    assert DOCS_ROOT.exists()
+    assert DOCS_ROOT.is_dir()
+
+
+def test_required_live_docs_exist() -> None:
+    for path in REQUIRED_DOCS:
+        assert path.exists(), f"Missing required live doc: {path.relative_to(ROOT)}"
+
+
+def test_markdown_files_are_non_empty() -> None:
+    files = markdown_files()
+    assert files, "No markdown files found in docs/"
+    for path in files:
+        text = path.read_text(encoding="utf-8")
+        assert text.strip(), f"{path.relative_to(ROOT)} is empty"
+
+
 def test_internal_links_resolve() -> None:
     broken: list[str] = []
     for md_file in markdown_files():
@@ -91,3 +109,26 @@ def test_cli_reference_shows_only_a_usage_basis_the_code_can_produce() -> None:
     assert cells, "no `lc usage` sample table found in the CLI reference"
     offenders = [cell for cell in cells if not set(cell.split("+")) <= producible]
     assert not offenders, "CLI reference shows a BASIS the code cannot produce: " + ", ".join(sorted(set(offenders)))
+
+
+def test_cli_reference_does_not_call_a_usage_figure_a_vendor_invoice() -> None:
+    """No dollar figure `lc usage` prints was ever charged by a vendor.
+
+    Every total it shows is summed from LemonCrow's own rate card -- per
+    recorded call when a run ledger has one, over the session aggregate
+    otherwise. Telling a reader that one of them "is a figure the vendor
+    charged" invites them to reconcile it against an invoice it is not.
+    """
+
+    text = CLI_REFERENCE.read_text(encoding="utf-8")
+    offenders = [line.strip() for line in text.splitlines() if re.search(r"vendor (charged|billed)", line)]
+    assert not offenders, "CLI reference claims a usage figure came from a vendor:\n" + "\n".join(offenders)
+
+
+def test_live_docs_do_not_reference_removed_internal_path() -> None:
+    offenders: list[str] = []
+    for md_file in markdown_files():
+        text = md_file.read_text(encoding="utf-8")
+        if "docs/internal/" in text:
+            offenders.append(str(md_file.relative_to(ROOT)))
+    assert not offenders, "Live docs still reference removed docs/internal paths:\n" + "\n".join(offenders)

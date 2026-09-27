@@ -271,10 +271,7 @@ function componentsFor(
     details: ({ node, className, ...props }) => <details {...props} {...attrs(node, className)} />,
     hr: ({ node, className, ...props }) => <hr {...props} {...attrs(node, className)} />,
     img: ({ node: _node, ...props }) => <MarkdownImage {...props} revisionId={revisionId} documentPath={documentPath} side={side} />,
-    // A `<picture><source srcset>` would have the browser fetch that URL itself,
-    // bypassing the Snapshot-bound image route; the proxied `<img>` fallback renders instead.
-    source: () => null,
-    a:({ node: _node, onClick, ...props }) => (
+    a: ({ node: _node, onClick, ...props }) => (
       <a
         {...props}
         target="_blank"
@@ -349,11 +346,17 @@ export default function MarkdownReviewPreview({
     ensureGithubMarkdownThemeStyles();
   }, []);
   const ranges = changedMarkdownRanges(patch);
+  const snapshotBadge = revisionId ? (
+    <div className="border-b border-neutral-800 bg-neutral-950 px-3 py-1.5 font-mono text-[9px] text-violet-300" title={revisionId}>
+      Snapshot {revisionId} · rendered Markdown
+    </div>
+  ) : null;
 
   if (mode === "preview") {
     const deleted = status === "deleted";
     return (
       <div className={`lc-markdown-review lc-markdown-preview lc-md-theme-${theme}`} data-testid="markdown-review-preview" data-preview-theme={theme}>
+        {snapshotBadge}
         <div className="lc-markdown-preview-canvas">
           <DocumentSide
             label={deleted ? "Before" : "After"}
@@ -407,6 +410,7 @@ export default function MarkdownReviewPreview({
 
   return (
     <div className={`lc-markdown-review lc-md-theme-${theme}`} data-testid="markdown-review-preview" data-preview-theme={theme}>
+      {snapshotBadge}
       <div className={`lc-markdown-columns ${columns.length === 1 ? "lc-markdown-single" : ""}`}>{columns}</div>
     </div>
   );

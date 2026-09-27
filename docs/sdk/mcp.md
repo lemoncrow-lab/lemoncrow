@@ -1,136 +1,114 @@
-# Protocol / MCP reference
+# LemonCrow MCP
 
-> **Integration-author reference.** Normal users should use the LemonCrow plugin/integration instructions for their coding agent. You do not need to start or manage an MCP server for normal Runtime use.
+LemonCrow's MCP server is the host-neutral transport for context retrieval,
+rescue, trace recording, rubric gates, memory, and code-aware helper tools.
 
-This page documents the underlying Model Context Protocol transport used by host adapters and the explicit remote-workspace feature.
+## Start Modes
 
-## Local protocol adapter
-
-Run the low-level adapter directly with:
-
-```bash
-lc runtime mcp
-```
-
-`lc rt mcp` is the short alias.
-
-For source-checkout development:
+### Installed product
 
 ```bash
-uv run lc runtime mcp
+lc mcp
 ```
 
-Use diagnostics rather than manually speaking JSON-RPC when checking an installation:
+### Source checkout
 
 ```bash
-lc rt mcp check --json
-lc rt mcp stats
+cd lemoncrow
+uv run lemoncrow mcp
 ```
 
-## Core visible tool surface
+### Remote service-backed mode
 
-The normal model-facing core allowlist is intentionally small:
+Set `LEMONCROW_SERVICE_URL` (plus `LEMONCROW_API_KEY` if the service requires auth)
+to route the supported core calls through the HTTP service. Remote mode is
+enabled whenever `LEMONCROW_SERVICE_URL` is set; unset it to run fully local.
 
-- `bash`
-- `code_search`
-- `edit`
+## Active vs. Passive Mode
+
+LemonCrow distinguishes between developer mode and passive compatibility mode.
+
+- With `LEMONCROW_DEV_MODE=1`, the stdio MCP server exposes the full active tool surface.
+- Without developer mode, `record` remains active and the host may still see some
+  compatibility tools as passive `noop` surfaces, but context/retrieval/edit
+  workflows are intentionally not active.
+- Older host templates may use previous-generation tool names; the list below is
+  the current public stdio MCP surface.
+
+## Active Tool Names
+
+With `LEMONCROW_DEV_MODE=1`, the current stdio MCP registry exposes these tool
+names:
+
+- `context`
+- `route`
+- `rescue`
+- `trace`
+- `verify`
+- `memory`
 - `read`
-- `web_fetch`
+- `edit`
+- `sql`
+- `search`
+- `compact`
+- `code`
+- `bash`
 
-Registration does not imply visibility. The allowlist in `src/lemoncrow/core/environment.py` is the authority for the standard public surface, and product-specific profiles can narrow it further.
+## Structured Tool Operations
 
-Review Ask and other trust boundaries use narrower profiles where appropriate.
+- `memory` uses an `op` field such as `block_upsert`, `block_get`, `archive`, and `recall`.
+- `compact` uses `op=output`, `op=session`, or `op=advise`.
+- `route` uses `op=decide` and `op=verify`.
+- `code` uses `op=index`, `op=search`, `op=blame`, `op=hover`, `op=symbol`, `op=outline`, `op=files`, `op=explore`, `op=routes`, `op=status`, `op=context`, `op=pattern`, `op=rename`, `op=cache_status`, or `op=cache_invalidate`. (LemonGraph — call-graph and reference relations — callers, callees, usages — are returned folded into `op=explore`.)
 
-## Host configuration shape
+## Remote Mode Coverage
 
-A host that accepts executable + argument arrays should configure LemonCrow like this:
+In remote MCP mode, LemonCrow currently forwards the core service-backed flows for:
+
+- context retrieval via `/v1/reasoning/context`
+- rescue via `/v1/reasoning/rescue`
+- rubric evaluation via `/v1/rubrics/run`
+- trace recording via `/v1/traces`
+- memory block/archive/recall operations via `/v1/memory/*`
+
+## Host Example
+
+Installed-product config:
 
 ```json
 {
   "mcpServers": {
     "lc": {
-      "command": "lc",
-      "args": ["runtime", "mcp", "--host", "example-host"],
+      "command": "lc mcp",
       "env": {
-        "LEMONCROW_WORKSPACE_ROOT": "/absolute/path/to/repo"
+        "LEMONCROW_ROOT": "~/.lemoncrow",
+        "LEMONCROW_WORKSPACE_ROOT": "."
       }
     }
   }
 }
 ```
 
-For a source checkout using `uv`:
+Source-checkout config:
 
 ```json
 {
   "mcpServers": {
     "lc": {
       "command": "uv",
-      "args": ["run", "lc", "runtime", "mcp", "--host", "example-host"],
-      "cwd": "/absolute/path/to/lemoncrow",
+      "args": ["run", "lc mcp"],
+      "cwd": "/abs/path/to/lemoncrow",
       "env": {
-        "LEMONCROW_WORKSPACE_ROOT": "/absolute/path/to/repo"
+        "LEMONCROW_ROOT": "~/.lemoncrow",
+        "LEMONCROW_WORKSPACE_ROOT": "."
       }
     }
   }
 }
 ```
 
-Actual host installers may use host-specific keys, absolute executable paths, plugin bundles, hooks, or additional environment values. Prefer the host installer over hand-written config.
+## Embedding via SDK
 
-## Runtime Lite host adapter
-
-Claude Code, Codex, and OpenCode use a lighter local adapter for their normal local Runtime plugin path. Their installers configure the appropriate Runtime Lite entry point automatically; users should not reproduce that configuration manually.
-
-Cursor likewise has a dedicated installer that owns its config and lifecycle hooks.
-
-See [`docs/hosts/`](../hosts/all-agent-clis.md) for the supported integration paths.
-
-## Remote MCP
-
-Remote MCP is a separate, explicit feature for publishing the current workspace to compatible remote clients such as ChatGPT, Claude, Cursor, VS Code, or Zed.
-
-```bash
-lc rt mcp serve
-```
-
-The command serves the streamable-HTTP MCP endpoint at `/mcp` behind OAuth and can create a public tunnel when requested by its options.
-
-This feature is deliberately called **Remote MCP** because here the protocol/server boundary is the feature. It should not be used as the mental model for the normal local coding-agent plugin.
-
-Inspect the exact options with:
-
-```bash
-lc rt mcp serve --help
-```
-
-## Managed connectors
-
-For persistent remote MCP connectors/tunnels:
-
-```bash
-lc rt mcp service --help
-```
-
-For a stable OAuth client identifier when a remote client asks for one:
-
-```bash
-lc rt mcp client
-```
-
-## Protocol diagnostics
-
-Useful commands:
-
-```bash
-lc rt mcp check --json
-lc rt mcp list
-lc rt mcp debug --help
-lc rt mcp stats
-```
-
-These are integration/debug surfaces. They are not required for normal local Runtime usage.
-
-## SDK embedding
-
-When an integration needs LemonCrow in-process rather than through a host protocol process, use the Python client/SDK surfaces documented in [Python SDK](python.md). Keep the product tool visibility/trust policy intact instead of constructing an independent tool list.
+When you want the MCP contract in-process, use `LemonCrowClient.mcp()` from the
+Python SDK. It mirrors the same tool semantics and dev-mode gating rules as the
+stdio server.

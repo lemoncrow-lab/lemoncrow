@@ -1,98 +1,78 @@
 # LemonCrow Documentation
 
-LemonCrow is infrastructure around coding agents: repository intelligence and tools while the agent works, plus a Review surface for understanding what changed afterwards.
+Welcome to [LemonCrow](https://github.com/lemoncrow-lab/lemoncrow) — the open-source (Apache-2.0), local-first context and execution runtime for coding agents. LemonCrow is a fully local, account-free tool in low-maintenance mode.
 
-The product has three public layers:
+LemonCrow keeps existing agents sharp on real codebases with a ranked code graph, exact-range tools, bounded output, durable memory, verification, and auditable runtime controls across Claude Code, Codex, Copilot, opencode, LemonCode, LangChain, and MCP-compatible hosts.
 
-- **Runtime** — use LemonCrow with the coding agent you already have. Claude Code, Codex, OpenCode, and Cursor are supported external integrations.
-- **Review** — inspect agent-written changes, evidence, discussion, and durable human review state.
-- **Enterprise** — shared infrastructure, policy, managed workspaces, organization-wide visibility, and broader agent workloads.
+## Setup & Troubleshooting
 
-Runtime Lite stays local through existing-agent integrations and `lc runtime index`. `lc code` is the Hosted LemonCrow-owned coding agent. A Pro plan grants Hosted Runtime access; advanced private intelligence and owned execution are Hosted/Enterprise capabilities, not a second local engine.
+| Document                        | Description                                                                        |
+| ------------------------------- | ---------------------------------------------------------------------------------- |
+| [Installation](./setup/installation.md) | Install script, background services, modes, storage, and uninstall          |
+| [Privacy & Network](./setup/privacy.md) | What runs locally, network behavior, and telemetry (on by default; `lc telemetry remote off`) |
+| [Troubleshooting](./setup/troubleshooting.md) | Common install, runtime, and background service issues                  |
 
-## Start here
+## Host Integrations
 
-Install LemonCrow:
+| Host                                                        | Document                                |
+| ----------------------------------------------------------- | --------------------------------------- |
+| [All Hosts Overview](./hosts/all-agent-clis.md)             | Overview of supported host integrations |
+| [Host Capability Matrix](./hosts/host-capability-matrix.md) | Cross-host capability contract          |
+| [Claude Code](./hosts/claude-code-install.md)               | Claude Code setup                       |
+| [Copilot](./hosts/copilot-install.md)                       | Copilot setup                           |
+| [Codex CLI](./hosts/codex-install.md)                       | Codex CLI setup                         |
+| [opencode](./hosts/opencode-install.md)                     | opencode setup                          |
+| [LemonCode](./hosts/lemoncode-install.md)                   | LemonCode setup (opencode fork)         |
+| [Antigravity](./hosts/antigravity-install.md)               | Antigravity setup                       |
+| [Cursor](./hosts/cursor-install.md)                         | Cursor setup                            |
+| [Hermes Agent](./hosts/hermes-install.md)                   | Hermes Agent setup                      |
 
-```bash
-curl -fsSL https://lemoncrow.com/install.sh | bash
-```
+## SDK & API
 
-Use it with an existing agent:
+| Document                      | Description                |
+| ----------------------------- | -------------------------- |
+| [Python SDK](./sdk/python.md) | Embedded Python client     |
+| [MCP Server](./sdk/mcp.md)    | Current MCP server surface |
 
-```bash
-lc with claude
-lc with codex
-lc with opencode
-```
+## Reference
 
-Those commands add LemonCrow to that launch without changing the agent's saved model, credentials, or settings. Cursor uses its installed LemonCrow integration instead of `lc with`.
+| Document                                      | Description                                              |
+| --------------------------------------------- | -------------------------------------------------------- |
+| [`lc review`](./reference/review.md)          | What the review command is for and the core loop         |
+| [`lc review` walkthrough](./reference/review-walkthrough.md) | Hands-on, ten-minute tour on a scratch repo |
+| [CLI Reference](./reference/cli.md)           | Current public CLI reference                             |
+| [Architecture](./reference/architecture.md)   | System architecture                                     |
+| [OpenAI Gateway](./reference/openai-gateway.md) | OpenAI-compatible gateway surface                     |
 
-To use LemonCrow's Hosted owned coding agent, the CLI entry point is:
+## Benchmarks
 
-```bash
-lc code
-```
+| Document                              | Description                                                             |
+| ------------------------------------- | ----------------------------------------------------------------------- |
+| [Benchmark Results](./benchmarks/results.md) | Every suite, every number, every raw-run link — and the retrieval eval vs 10 named code-search tools |
 
-For local Runtime Lite, use `lc with claude|codex|opencode|pi`, Cursor's installed integration, or a persistent `lc rt enable <host>` integration.
+## Legal & Licensing
 
-Get an AI review of your own change in your terminal (a key, or an agent you are signed in to; [details](./setup/ai-review.md)):
+| Document                                            | Description                                                     |
+| --------------------------------------------------- | --------------------------------------------------------------- |
+| [Licensing](./legal/licensing.md)                  | Apache-2.0 in full and the optional (gates-nothing) account     |
+| [Licensing report](./legal/licensing-report.md)    | Licensing position for the maintenance-mode / open-source transition |
+| [Runtime dependency licenses](./legal/dependency-licenses.md) | Auto-generated SPDX dependency license list              |
 
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...      # or OPENAI_API_KEY; or skip it and add --agent claude below
-cd your-project && lc review --ai        # lc review --ai --agent claude uses Claude Code instead of a key
-```
+## Roadmap & Savings
 
-Or look at the change in the browser first (no model is called):
+| Document                                                      | Description                                                     |
+| ------------------------------------------------------------- | --------------------------------------------------------------- |
+| [Roadmap](./planning/roadmap.md)                              | Shipped capabilities and possible technical directions          |
+| [Savings optimization status](./planning/savings-optimization-roadmap.md) | Six-lever implementation audit, evidence, acceptance gates, and next work |
+| [Pi host migration plan](./planning/pi-host-migration-plan.md) | Adapter-first Pi migration, parity gates, rollout, and rollback plan |
 
-```bash
-lc review --open
-```
+## Operations
 
-## Product docs
-
-| Document | What it covers |
-| --- | --- |
-| [Your first AI review](./setup/ai-review.md) | Install, a key or `--agent`, `lc review --ai`: three steps, what it says when something is missing, saving a key |
-| [Installation](./setup/installation.md) | Install, first run, external-agent integrations, `lc code`, and uninstall |
-| [LemonCrow Pro: Hosted Runtime](./setup/pro-hosted-runtime.md) | Pro onboarding: install, `lc rt enable --hosted`, sign-in, device approval, and checking hosted search |
-| [Privacy & network](./setup/privacy.md) | What stays local, what can make network calls, and telemetry |
-| [Troubleshooting](./setup/troubleshooting.md) | Common installation and runtime problems |
-| [Runtime Lite architecture](./architecture/runtime-lite.md) | Local repository intelligence and the local/managed boundary |
-| [OSS/private intelligence boundary](./architecture/oss-private-code-intelligence.md) | Which code-intelligence capabilities are public versus private |
-| [Review authority map](./architecture/review-authority-map.md) | Which code owns each Review decision, and the rule that trust features never add a second authority |
-| [`lc review`](./reference/review.md) | Review concepts and the core review loop |
-| [Review walkthrough](./reference/review-walkthrough.md) | Hands-on Review tour |
-| [CLI reference](./reference/cli.md) | Current public CLI |
-| [Support matrix](./reference/support-matrix.md) | What is supported today, and where: capabilities, platforms, browsers, source hosts and deployment |
-
-## Coding-agent integrations
-
-| Integration | How LemonCrow fits |
-| --- | --- |
-| [Claude Code](./hosts/claude-code-install.md) | LemonCrow plugin; temporary `lc with claude` or persistent integration |
-| [Codex](./hosts/codex-install.md) | LemonCrow plugin; temporary `lc with codex` or persistent integration |
-| [OpenCode](./hosts/opencode-install.md) | LemonCrow plugin; temporary `lc with opencode` or persistent integration |
-| [Cursor](./hosts/cursor-install.md) | Installed IDE/CLI integration with lifecycle hooks |
-| [Pi](./hosts/pi-install.md) | Public managed coding-agent host; install with `lc rt host ... --engine pi`, try with `lc with pi` |
-| [LemonCode](./hosts/lemoncode-install.md) | Alternative LemonCrow-managed frontend |
-| [All integrations](./hosts/all-agent-clis.md) | Full integration overview |
-| [Capability matrix](./hosts/host-capability-matrix.md) | Technical differences between hosts |
-
-## Advanced and developer reference
-
-| Document | What it covers |
-| --- | --- |
-| [Architecture reference](./reference/architecture.md) | Detailed internal architecture |
-| [Python SDK](./sdk/python.md) | Embedded Python client |
-| [Protocol / MCP reference](./sdk/mcp.md) | Low-level protocol surface for integration authors |
-| [Production/self-hosting notes](./operations/production-readiness.md) | Running shared services and production deployments |
-| [Benchmark results](./benchmarks/results.md) | Published evaluations and raw-run links |
-
-## Historical documents
-
-`docs/planning/` and `docs/reports/` are implementation history. They intentionally preserve the architecture and terminology that existed when each plan or report was written. Use the current setup, host, architecture, and reference docs above for present product behavior.
+| Document                                                            | Description                                              |
+| ------------------------------------------------------------------- | -------------------------------------------------------- |
+| [Self-hosting notes](./operations/production-readiness.md)          | Optional operational notes for running the local service  |
+| [Maintenance-mode transition](./legal/licensing-report.md) | Public record of the move to a fully local, fully open-source runtime |
 
 ---
 
-[GitHub](https://github.com/lemoncrow-lab/lemoncrow) · [Runtime](https://lemoncrow.com/runtime) · [Review](https://lemoncrow.com/review) · [Enterprise](https://lemoncrow.com/enterprise) · [Privacy](./setup/privacy.md)
+**Links:** [GitHub](https://github.com/lemoncrow-lab/lemoncrow) · [Privacy](./setup/privacy.md) · [License](../LICENSE)

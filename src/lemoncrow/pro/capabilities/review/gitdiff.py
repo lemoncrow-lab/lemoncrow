@@ -16,15 +16,11 @@ value plus a ``degraded`` signal rather than an exception.
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import re
 import stat
-import threading
-import time
-from collections import OrderedDict
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -62,8 +58,6 @@ MAX_HUNK_PATCH_BYTES = 64 * 1024
 
 # Named in ``DiffResult.degraded`` when at least one hunk body exceeded the cap.
 HUNK_PATCH_TRUNCATED_SIGNAL = "hunk_patch_truncated"
-SYMLINK_CHANGE_SIGNAL = "symlink_change"
-FILE_MODE_CHANGE_SIGNAL = "file_mode_change"
 
 # Bound the classification blob peek so a 10k-file diff cannot turn into 10k
 # odb lookups just to check for an ``@generated`` banner.
@@ -82,17 +76,13 @@ _STATUS_CHAR_TO_STATUS: dict[str, FileStatus] = {
     "?": "added",
 }
 
-#: Test code, and the example and playground apps that only demonstrate the product: neither ships to users.
-_TEST_SEGMENTS = frozenset(
-    {"tests", "test", "__tests__", "spec", "e2e", "examples", "example", "playground", "playgrounds"}
-)
-_TEST_BASENAME_RE = re.compile(r"^test_|_test\.|\.test\.|\.spec\.|\.e2e\.")
+_TEST_SEGMENTS = frozenset({"tests", "test", "__tests__", "spec"})
+_TEST_BASENAME_RE = re.compile(r"^test_|_test\.|\.test\.|\.spec\.")
 _VENDOR_SEGMENTS = frozenset({"vendor", "node_modules", "third_party", "3rdparty", ".venv", "site-packages", "bundle"})
 _GENERATED_BASENAME_RE = re.compile(r"(\.lock|\.min\.js|\.pb\.go|_pb2\.py|\.generated\.[a-z]+)$")
 _GENERATED_BASENAMES = frozenset({"uv.lock", "package-lock.json", "poetry.lock", "Cargo.lock"})
 _GENERATED_MARKERS = ("@generated", "DO NOT EDIT")
-#: Prose, MDX pages and Cursor rules files (``.mdc``).
-_DOC_SUFFIXES = frozenset({".md", ".mdx", ".mdc", ".rst", ".txt", ".adoc"})
+_DOC_SUFFIXES = frozenset({".md", ".rst", ".txt", ".adoc"})
 _CONFIG_SUFFIXES = frozenset({".json", ".yaml", ".yml", ".toml", ".ini", ".cfg"})
 _CONFIG_BASENAMES = frozenset({"Makefile", "Dockerfile"})
 
@@ -114,9 +104,6 @@ class RevRange:
     # count the reviewer saw "working tree clean" over a `git status` that says
     # otherwise. `collect_diff` turns it back into the `submodule_dirty` signal.
     submodule_dirt_discounted: int = 0
-    # A session-scoped Review of a shared worktree: only these repo-relative
-    # paths belong to the Change. Empty means the whole range.
-    paths: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -188,91 +175,9 @@ def _open_repo(repo_root: Path) -> Any:
     except GitHistoryBootstrapError as exc:
         raise ValueError(f"pygit2 is required for `lc review`: {exc}") from exc
     try:
-        repo = pygit2.Repository(str(repo_root))
+        return pygit2.Repository(str(repo_root))
     except Exception as exc:
         raise ValueError(f"not a git repository: {repo_root}") from exc
-    _apply_sparse_ignore_rules(repo)
-    return repo
-
-
-_SKIP_WORKTREE_FLAG = 1 << 14  # GIT_INDEX_ENTRY_SKIP_WORKTREE, in flags_extended
-_libgit2_add_rule: Any = None
-
-
-def _sparse_gitignore_rules(repo: Any) -> str:
-    """Ignore rules git reads from the index that libgit2 would not see.
-
-    In a sparse checkout a ``.gitignore`` outside the cone is skip-worktree: not
-    on disk, but git still reads it from the index. libgit2 does not, so a sparse
-    checkout's ``node_modules`` (145k files in one measured submodule) read as
-    untracked, were hashed on every source check and made the Review report
-    phantom dirt. Returns them as repository-root rules (nested files keep their
-    directory scope); empty for any repository that is not sparse.
-    """
-
-    try:
-        if not repo.config.get_bool("core.sparseCheckout"):
-            return ""
-    except Exception:
-        return ""
-    from pygit2 import C, ffi
-
-    handle = repo.index._index
-    lines: list[str] = []
-    for position in range(int(C.git_index_entrycount(handle))):
-        entry = C.git_index_get_byindex(handle, position)
-        if entry == ffi.NULL or not (int(entry.flags_extended) & _SKIP_WORKTREE_FLAG):
-            continue
-        path = str(ffi.string(entry.path).decode("utf-8", errors="replace"))
-        if path != ".gitignore" and not path.endswith("/.gitignore"):
-            continue
-        blob = repo.get(repo.index[path].id)
-        if blob is None:
-            continue
-        base = path[: -len(".gitignore")].rstrip("/")
-        for raw in blob.data.decode("utf-8", errors="replace").splitlines():
-            rule = raw.rstrip()
-            if not rule or rule.startswith("#"):
-                continue
-            negated = rule.startswith("!")
-            pattern = rule[1:] if negated else rule
-            if base:
-                anchored = "/" in pattern.rstrip("/")
-                pattern = f"{base}/{pattern.lstrip('/')}" if anchored else f"{base}/**/{pattern}"
-            lines.append(("!" if negated else "") + pattern)
-    return "\n".join(lines)
-
-
-def _apply_sparse_ignore_rules(repo: Any) -> None:
-    """Give libgit2 the index-only ignore rules of a sparse checkout. Best effort."""
-
-    global _libgit2_add_rule
-    try:
-        rules = _sparse_gitignore_rules(repo)
-        if not rules:
-            return
-        if _libgit2_add_rule is None:
-            # lc-debt: pygit2 does not bind git_ignore_add_rule; call the libgit2 it
-            # already loaded. Drop this when pygit2 exposes it.
-            import ctypes
-
-            with open("/proc/self/maps", encoding="utf-8") as maps:
-                loaded = next((line.split()[-1] for line in maps if "/libgit2" in line), "")
-            if not loaded:
-                _libgit2_add_rule = False
-                return
-            function = ctypes.CDLL(loaded).git_ignore_add_rule
-            function.argtypes = (ctypes.c_void_p, ctypes.c_char_p)
-            function.restype = ctypes.c_int
-            _libgit2_add_rule = function
-        if _libgit2_add_rule is False:
-            return
-        from pygit2 import ffi
-
-        pointer = int(ffi.cast("uintptr_t", repo._repo))
-        _libgit2_add_rule(pointer, rules.encode("utf-8"))
-    except Exception:
-        return
 
 
 # ---------------------------------------------------------------------------
@@ -481,253 +386,6 @@ def _fallback_discount(
     return discounted if parents and base_sha == parents[0] else 0
 
 
-# ---------------------------------------------------------------------------
-# mutable branch Review base
-# ---------------------------------------------------------------------------
-
-_INTEGRATION_REMOTES: tuple[str, ...] = ("origin", "upstream")
-_INTEGRATION_BRANCHES: tuple[str, ...] = ("main", "master")
-
-
-def _branch_ref(repo: Any) -> str:
-    try:
-        if repo.head_is_unborn:
-            name = str(repo.lookup_reference("HEAD").target or "")
-            return name if name.startswith("refs/heads/") else ""
-        if not repo.head_is_detached:
-            name = str(repo.head.name or "")
-            return name if name.startswith("refs/heads/") else ""
-    except Exception:
-        return ""
-    # A rebase detaches HEAD for its whole duration. Routing those captures by
-    # commit would open a new Review per replayed commit.
-    gitdir = Path(str(repo.path))
-    for state in ("rebase-merge", "rebase-apply"):
-        try:
-            name = (gitdir / state / "head-name").read_text(encoding="utf-8").strip()
-        except OSError:
-            continue
-        if name.startswith("refs/heads/"):
-            return name
-    return ""
-
-
-def current_branch_ref(repo_root: Path) -> str:
-    """``refs/heads/<name>`` HEAD is on, or the branch a paused rebase is rewriting."""
-
-    try:
-        return _branch_ref(_open_repo(repo_root))
-    except ValueError:
-        return ""
-
-
-def _integration_tips(repo: Any) -> tuple[Any, ...]:
-    """Tips of the remote branches this repository integrates into.
-
-    Only remote-tracking refs count. A local ``main`` may carry the Review's
-    own unpushed commits (a Review started on ``main`` and continued on a
-    branch), so treating it as upstream would drop the Review's own work.
-    """
-
-    pygit2 = require_pygit2()
-    names: list[str] = []
-    for remote in _INTEGRATION_REMOTES:
-        try:
-            symbolic = repo.references.get(f"refs/remotes/{remote}/HEAD")
-        except Exception:
-            symbolic = None
-        if symbolic is not None and isinstance(symbolic.target, str):
-            names.append(symbolic.target)
-        names.extend(f"refs/remotes/{remote}/{branch}" for branch in _INTEGRATION_BRANCHES)
-    tips: list[Any] = []
-    for name in dict.fromkeys(names):
-        try:
-            reference = repo.references.get(name)
-            if reference is None:
-                continue
-            oid = reference.resolve().peel(pygit2.Commit).id
-        except Exception:
-            continue
-        if oid not in tips:
-            tips.append(oid)
-    return tuple(tips)
-
-
-def _advance_review_base(repo: Any, frozen_base: str, head_id: Any, tips: Sequence[Any]) -> str:
-    anchor: Any | None = None
-    if frozen_base != EMPTY_TREE_SHA:
-        try:
-            anchor = _commit_for(repo, frozen_base).id
-        except ValueError:
-            return frozen_base
-        if anchor != head_id and not repo.descendant_of(head_id, anchor):
-            rewound = repo.merge_base(head_id, anchor)
-            if rewound is None:
-                return frozen_base
-            anchor = rewound
-    for tip in tips:
-        point = repo.merge_base(head_id, tip)
-        if point is None:
-            continue
-        if anchor is None or point == anchor or repo.descendant_of(point, anchor):
-            anchor = point
-    return frozen_base if anchor is None else str(anchor)
-
-
-def review_branch_base(repo_root: Path, frozen_base: str, *, head: str = "", advance: bool = True) -> str:
-    """The base a mutable branch Review diffs *head* (default ``HEAD``) against.
-
-    ``frozen_base`` is where the Review started and stays a floor. Work the
-    branch later absorbs from its remote integration branch (``git pull``,
-    merging ``origin/main`` in, rebasing onto it) is someone else's change, so
-    the base advances to ``merge-base(head, integration tip)`` whenever that
-    point descends from the floor. History rewritten below the floor falls
-    back to ``merge-base(head, frozen_base)``. Blank *frozen_base* returns
-    blank: the Review has no branch base and the caller keeps its own range.
-    ``advance=False`` (the ``fixed`` policy) keeps the floor as it is.
-
-    A clone that no longer has the frozen base commit (pruned after a reword,
-    shallow, or never fetched) also returns blank: the capture keeps ``HEAD``
-    as its base rather than diffing from a commit it cannot read.
-
-    Committing directly on ``main`` and pushing makes those commits integrated
-    work too, so they leave the Draft (their checkpoints stay in history).
-    """
-
-    frozen = frozen_base.strip()
-    if not frozen:
-        return ""
-    try:
-        repo = _open_repo(repo_root)
-        head_commit = _commit_for(repo, head) if head else _head_commit(repo)
-    except ValueError:
-        return frozen
-    if frozen != EMPTY_TREE_SHA:
-        try:
-            _commit_for(repo, frozen)
-        except ValueError:
-            return ""
-    if head_commit is None or not advance:
-        return frozen
-    return _advance_review_base(repo, frozen, head_commit.id, _integration_tips(repo))
-
-
-def with_review_base(repo_root: Path, frozen_base: str, rng: RevRange, *, advance: bool = False) -> RevRange:
-    """*rng* re-based onto its Review's branch base; commit ranges pass through."""
-
-    if rng.mode not in {"working_tree", "staged"}:
-        return rng
-    base = review_branch_base(repo_root, frozen_base) if advance else frozen_base.strip()
-    if not base or base == rng.base_sha:
-        return rng
-    return replace(rng, base_rev="(empty tree)" if base == EMPTY_TREE_SHA else base, base_sha=base)
-
-
-def review_branch_commits(
-    repo_root: Path,
-    frozen_base: str,
-    *,
-    limit: int,
-    advance: bool = True,
-) -> tuple[tuple[str, str], ...] | None:
-    """First-parent commits a branch Review owns, oldest first, as ``(sha, base)``.
-
-    Commits reachable from an integration branch are hidden: upstream work that
-    was pulled, merged or rebased in is not a checkpoint of this Review. Each
-    ``base`` is :func:`review_branch_base` at that commit. ``None`` means more
-    than *limit* commits qualified and the caller should not backfill. A clone
-    without the frozen base commit owns none it can name: without the floor
-    every ancestor would qualify, each diffed from a commit it cannot read.
-    """
-
-    frozen = frozen_base.strip()
-    if not frozen:
-        return ()
-    pygit2 = require_pygit2()
-    repo = _open_repo(repo_root)
-    head_commit = _head_commit(repo)
-    if head_commit is None:
-        return ()
-    if frozen != EMPTY_TREE_SHA:
-        try:
-            _commit_for(repo, frozen)
-        except ValueError:
-            return ()
-    tips = _integration_tips(repo) if advance else ()
-    walker = repo.walk(head_commit.id, pygit2.enums.SortMode.TOPOLOGICAL)
-    walker.simplify_first_parent()
-    bases = (frozen, _advance_review_base(repo, frozen, head_commit.id, tips)) if advance else (frozen,)
-    for hidden in dict.fromkeys(bases):
-        if hidden == EMPTY_TREE_SHA:
-            continue
-        try:
-            walker.hide(_commit_for(repo, hidden).id)
-        except ValueError:
-            continue
-    for tip in tips:
-        walker.hide(tip)
-    owned: list[Any] = []
-    for commit in walker:
-        owned.append(commit.id)
-        if len(owned) > limit:
-            return None
-    owned.reverse()
-    return tuple((str(oid), _advance_review_base(repo, frozen, oid, tips) if advance else frozen) for oid in owned)
-
-
-def commits_in_head(repo_root: Path, shas: Sequence[str]) -> frozenset[str]:
-    """The members of *shas* that are ``HEAD`` or one of its ancestors."""
-
-    repo = _open_repo(repo_root)
-    head_commit = _head_commit(repo)
-    if head_commit is None:
-        return frozenset()
-    present: set[str] = set()
-    for sha in shas:
-        try:
-            oid = _commit_for(repo, sha).id
-        except ValueError:
-            continue
-        if oid == head_commit.id or repo.descendant_of(head_commit.id, oid):
-            present.add(sha)
-    return frozenset(present)
-
-
-def resolve_new_review_range(repo_root: Path, *, base: str | None = None, staged: bool = False) -> RevRange:
-    """Freeze --new at origin/<branch>, its default-branch fork point, or HEAD.
-
-    Remote-tracking refs are local Git state; opening a Review never waits for
-    a network fetch. An explicit base names one exact commit.
-    """
-
-    repo = _open_repo(repo_root)
-    head = _head_commit(repo)
-    rng = resolve_rev_range(repo_root, staged=staged, working_tree=not staged)
-    if base is not None:
-        frozen = str(_commit_for(repo, base).id)
-    else:
-        frozen = str(head.id) if head is not None else EMPTY_TREE_SHA
-        branch = _branch_ref(repo).removeprefix("refs/heads/")
-        remote = repo.references.get(f"refs/remotes/origin/{branch}") if branch else None
-        if remote is not None:
-            frozen = str(remote.resolve().peel(require_pygit2().Commit).id)
-        elif head is not None:
-            default_ref = repo.references.get("refs/remotes/origin/HEAD")
-            candidates = [default_ref.target] if default_ref is not None and isinstance(default_ref.target, str) else []
-            candidates.extend(f"refs/remotes/origin/{name}" for name in _INTEGRATION_BRANCHES)
-            for name in dict.fromkeys(candidates):
-                reference = repo.references.get(name)
-                if reference is None:
-                    continue
-                tip = reference.resolve().peel(require_pygit2().Commit)
-                point = repo.merge_base(head.id, tip.id)
-                if point is None:
-                    raise ValueError("origin's default branch has no common ancestor; choose --new --base <commit>")
-                frozen = str(point)
-                break
-    return replace(rng, base_rev="(empty tree)" if frozen == EMPTY_TREE_SHA else frozen, base_sha=frozen)
-
-
 def resolve_rev_range(
     repo_root: Path,
     rev: str | None = None,
@@ -775,7 +433,7 @@ def resolve_rev_range(
             mode="staged",
             base_rev="HEAD" if head_commit is not None else "(empty tree)",
             head_rev="INDEX",
-            base_sha=head_sha or EMPTY_TREE_SHA,
+            base_sha=head_sha,
             head_sha="",
             merge_base_sha="",
             dirty=dirty,
@@ -787,7 +445,7 @@ def resolve_rev_range(
             mode="working_tree",
             base_rev="HEAD" if head_commit is not None else "(empty tree)",
             head_rev="WORKDIR",
-            base_sha=head_sha or EMPTY_TREE_SHA,
+            base_sha=head_sha,
             head_sha="",
             merge_base_sha="",
             dirty=dirty,
@@ -1290,19 +948,6 @@ SUBMODULE_DIRTY_SIGNAL = "submodule_dirty"
 # force-added `.lemoncrow/` file becomes a change nobody can see.
 STORE_DIR_EXCLUDED_SIGNAL = "lemoncrow_store_excluded"
 
-
-def _review_policy_path_inside_store(path: str) -> bool:
-    """Repository-owned Review authority that must remain visible as Change content.
-
-    ``.lemoncrow`` is also LemonCrow's local scratch root, so working-tree diffs
-    normally exclude it. Phase 6 makes the repository Review policy and scoped
-    rule-document namespace an explicit exception: these files can change future
-    Review behavior and therefore must be captured in the immutable Snapshot.
-    """
-
-    return path == ".lemoncrow/review.yaml" or path.startswith(".lemoncrow/rules/")
-
-
 # libgit2's ``GIT_DELTA_CONFLICTED``. Its ``status_char()`` is a space, so the
 # char table cannot see it and the row falls through to the ``modified``
 # default; the numeric delta status is the only place the fact survives.
@@ -1676,7 +1321,6 @@ def collect_diff(
     skipped_submodule_dirty = 0
     skipped_store_dir = 0
     conflicted_paths = 0
-    scope = frozenset(rng.paths)
 
     for patch in diff:
         delta = patch.delta
@@ -1693,13 +1337,7 @@ def collect_diff(
         old_path_raw = str(delta.old_file.path or "")
         path = old_path_raw if status == "deleted" else (new_path or old_path_raw)
         old_path = old_path_raw if status in ("renamed", "copied", "deleted") else None
-        if scope and path not in scope and (old_path or "") not in scope:
-            continue
-        if (
-            path.startswith(f"{DEFAULT_STORE_DIRNAME}/")
-            and rng.mode != "commit_range"
-            and not _review_policy_path_inside_store(path)
-        ):
+        if path.startswith(f"{DEFAULT_STORE_DIRNAME}/") and rng.mode != "commit_range":
             # Same reasoning as `is_dirty`: the code index this very command
             # builds lives here, so a working-tree review of a repo that has not
             # gitignored it would otherwise open with four untracked sqlite
@@ -1715,15 +1353,6 @@ def collect_diff(
             # count is reported below rather than dropped silently.
             skipped_intent_to_add += 1
             continue
-        old_mode = int(getattr(delta.old_file, "mode", 0) or 0)
-        new_mode = int(getattr(delta.new_file, "mode", 0) or 0)
-        if old_mode == 0o120000 or new_mode == 0o120000:
-            degraded.add(SYMLINK_CHANGE_SIGNAL)
-        elif (old_mode and new_mode and old_mode != new_mode) or (
-            status in {"added", "renamed", "copied"} and new_mode == 0o100755
-        ):
-            degraded.add(FILE_MODE_CHANGE_SIGNAL)
-
         is_submodule = _is_gitlink(delta)
         if is_submodule and _gitlink_unmoved(delta):
             # Same commit on both sides: the only thing that changed is the
@@ -1768,6 +1397,8 @@ def collect_diff(
             elif not hunks:
                 # A pure rename has no textual hunk and is already named by its
                 # status/old_path. Calling it `mode_only` invents the wrong cause.
+                old_mode = int(getattr(delta.old_file, "mode", 0) or 0)
+                new_mode = int(getattr(delta.new_file, "mode", 0) or 0)
                 if status != "renamed" or old_mode != new_mode:
                     degraded.add("mode_only")
 
@@ -1793,10 +1424,6 @@ def collect_diff(
                 hunks=hunks,
                 submodule_pointer=_gitlink_pointer(delta) if is_submodule else None,
                 diff_omitted_reason=oversized_diff_reason(MAX_DIFF_FILE_BYTES) if oversized else "",
-                # libgit2 reports 0 for a side that does not exist, which is
-                # exactly the packet's "not recorded" sentinel.
-                old_mode=old_mode,
-                new_mode=new_mode,
             )
         )
 
@@ -1892,7 +1519,7 @@ def load_blobs(
             # A gitlink has no blob on either side: the old side resolves to a
             # commit this repository does not contain, and the new side is a
             # directory on disk. Both reads fail, and the `blob_unreadable` they
-            # used to raise carried a remedy -- `lc runtime index` -- that cannot
+            # used to raise carried a remedy -- `lc code index` -- that cannot
             # apply to a pointer, sending the reviewer to rebuild an index that
             # would never have held this row. Skipped like a binary: the row
             # still renders, carrying the two commit ids that *are* its content.
@@ -1935,38 +1562,6 @@ class SourceState:
 
     fingerprint: str
     paths: tuple[str, ...] = ()
-    legacy_fingerprint: str = ""
-    """The same source under the identity used before the base was named by its tree.
-
-    The old form hashed the base commit id, so a reword (or a clone that lost
-    the recorded base and fell back to an identical ``HEAD``) read as a new
-    source. Blank for commit ranges, whose identity did not change.
-    """
-
-    def matches(self, stored: str) -> bool:
-        """Whether a stored source identity names this source, in either form."""
-
-        # lc-debt: accepts the commit-id form Snapshots recorded before the tree-id identity
-        # (2026-10-13). Remove with legacy_fingerprint, legacy_source_fingerprint and the
-        # capture's legacy_source_fingerprint field no earlier than 2027-01-13, the window in
-        # which a Review opened before the upgrade is expected to be captured again or finished.
-        return bool(stored) and stored in {self.fingerprint, self.legacy_fingerprint}
-
-
-def legacy_source_fingerprint(repo_root: Path, rng: RevRange, fingerprint: str) -> str:
-    """The old-form identity of the source *fingerprint* names; ``""`` once that source moved on.
-
-    Read from the current source and kept only when its new-form identity is
-    *fingerprint*, so the two forms always describe the same moment.
-    """
-
-    if not fingerprint or rng.mode == "commit_range":
-        return ""
-    try:
-        state = source_state(repo_root, rng)
-    except (OSError, RuntimeError, ValueError):
-        return ""
-    return state.legacy_fingerprint if state.fingerprint == fingerprint else ""
 
 
 def _worktree_identity(repo_root: Path, path: str) -> str:
@@ -1990,147 +1585,8 @@ def _worktree_identity(repo_root: Path, path: str) -> str:
 
 _SOURCE_STATE_ATTEMPTS = 3
 
-# A working-tree file modified this recently may still change without moving its
-# mtime/size (coarse timestamps, in-place rewrite), so it is never trusted from cache.
-_SOURCE_STATE_SETTLE_NS = 2_000_000_000
-_SOURCE_STATE_CACHE_MAX = 16
-_source_state_cache: OrderedDict[tuple[str, str, str, str], tuple[tuple[Any, ...], SourceState]] = OrderedDict()
-_source_state_cache_lock = threading.Lock()
-
-
-def _workdir_signature(repo_root: Path, rng: RevRange) -> tuple[Any, ...] | None:
-    """Cheap identity of the working tree, or ``None`` when it cannot be trusted.
-
-    ``diff_to_workdir`` against the base tree re-reads the workdir (~1s on a
-    modest repository, far more on a large one) and ``lc review``, the live
-    worker and the Reader each ask for the source state several times. libgit2's
-    ``status`` is answered from the index stat cache in milliseconds; when every
-    changed path still has the same (mtime, size, inode) and none is fresh enough
-    to be mid-write, the previous full answer is still exact.
-    """
-
-    try:
-        repo = _open_repo(repo_root)
-        entries = repo.status(untracked_files="all", ignored=False)
-        now = time.time_ns()
-        rows: list[tuple[Any, ...]] = []
-        for path in sorted(entries):
-            try:
-                st = os.lstat(repo_root / path)
-            except FileNotFoundError:
-                rows.append((path, int(entries[path]), None))
-                continue
-            if stat.S_ISDIR(st.st_mode) and (repo_root / path / ".git").exists():
-                # A submodule's own dirt is part of the parent's state.
-                sub_root = (repo_root / path).resolve()
-                nested = _workdir_signature(sub_root, resolve_rev_range(sub_root, working_tree=True))
-                if nested is None:
-                    return None
-                rows.append((path, int(entries[path]), "submodule", nested))
-                continue
-            if (
-                not (stat.S_ISREG(st.st_mode) or stat.S_ISLNK(st.st_mode))
-                or now - st.st_mtime_ns < _SOURCE_STATE_SETTLE_NS
-            ):
-                return None  # a directory, or a file that may still be written
-            rows.append((path, int(entries[path]), st.st_mtime_ns, st.st_size, st.st_ino))
-        index = os.stat(repo.path + "index") if os.path.exists(repo.path + "index") else None
-        head = "" if repo.head_is_unborn else str(repo.head.target)
-        return (
-            head,
-            rng.base_sha,
-            rng.merge_base_sha,
-            None if index is None else (index.st_mtime_ns, index.st_size),
-            tuple(rows),
-        )
-    except Exception:
-        return None
-
 
 def source_state(repo_root: Path, rng: RevRange) -> SourceState:
-    """Content-sensitive identity, reusing the last exact answer while the tree is unchanged."""
-
-    if rng.mode != "working_tree":
-        return _source_state_uncached(repo_root, rng)
-    signature = _workdir_signature(repo_root, rng)
-    if signature is None:
-        return _source_state_uncached(repo_root, rng)
-    key = (str(repo_root), rng.mode, rng.base_sha, rng.merge_base_sha)
-    with _source_state_cache_lock:
-        hit = _source_state_cache.get(key)
-        if hit is not None and hit[0] == signature:
-            _source_state_cache.move_to_end(key)
-            return hit[1]
-    stamp = hashlib.sha256(repr((key, signature)).encode("utf-8", "surrogatepass")).hexdigest()
-    state = _read_shared_source_state(repo_root, stamp)
-    if state is None:
-        state = _source_state_uncached(repo_root, rng)
-        # Only remember it if nothing moved while it was computed.
-        if _workdir_signature(repo_root, rng) != signature:
-            return state
-        _write_shared_source_state(repo_root, stamp, state)
-    with _source_state_cache_lock:
-        _source_state_cache[key] = (signature, state)
-        _source_state_cache.move_to_end(key)
-        while len(_source_state_cache) > _SOURCE_STATE_CACHE_MAX:
-            _source_state_cache.popitem(last=False)
-    return state
-
-
-def _shared_source_state_path(repo_root: Path) -> Path:
-    # One small file per worktree, overwritten in place: `lc review`, its
-    # background finalize job, the live worker and the server are separate
-    # processes that each asked for the same answer.
-    # lc-debt: files for deleted worktrees are never removed; sweep by age if they pile up.
-    from lemoncrow.core.foundation.paths import default_store_root
-
-    digest = hashlib.sha256(str(repo_root).encode("utf-8", "surrogateescape")).hexdigest()[:32]
-    return default_store_root() / "review" / "source-state" / f"{digest}.json"
-
-
-def _read_shared_source_state(repo_root: Path, stamp: str) -> SourceState | None:
-    try:
-        payload = json.loads(_shared_source_state_path(repo_root).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    if not isinstance(payload, dict) or payload.get("stamp") != stamp:
-        return None
-    fingerprint, paths = payload.get("fingerprint"), payload.get("paths")
-    # A file without the legacy form was written before the tree-id identity:
-    # its fingerprint is the old form, so it is not this answer.
-    legacy = payload.get("legacy_fingerprint")
-    if (
-        not isinstance(fingerprint, str)
-        or not isinstance(legacy, str)
-        or not isinstance(paths, list)
-        or not all(isinstance(p, str) for p in paths)
-    ):
-        return None
-    return SourceState(fingerprint, tuple(paths), legacy)
-
-
-def _write_shared_source_state(repo_root: Path, stamp: str, state: SourceState) -> None:
-    target = _shared_source_state_path(repo_root)
-    try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        tmp = target.with_name(f".{target.name}.{os.getpid()}.{threading.get_ident()}")
-        tmp.write_text(
-            json.dumps(
-                {
-                    "stamp": stamp,
-                    "fingerprint": state.fingerprint,
-                    "legacy_fingerprint": state.legacy_fingerprint,
-                    "paths": list(state.paths),
-                }
-            ),
-            encoding="utf-8",
-        )
-        os.replace(tmp, target)
-    except OSError:
-        return
-
-
-def _source_state_uncached(repo_root: Path, rng: RevRange) -> SourceState:
     """Content-sensitive identity for change detection, without building a packet.
 
     libgit2 refuses a file that changes while it hashes it -- an editor or
@@ -2216,26 +1672,10 @@ def _source_state_once(repo_root: Path, rng: RevRange) -> SourceState:
     # The reviewed patch is a function of both the mutable side and its Git
     # base. A commit can move HEAD while leaving the same working-tree bytes in
     # place; hashing only those bytes would then claim the review is unchanged
-    # even though every hunk is now relative to a different base tree. The base
-    # is named by its tree, not its commit: a reworded base, or a clone that
-    # lost the recorded base and fell back to an identical HEAD, is the same patch.
-    ordered = sorted(rows)
-    base_tree, merge_base_tree = _tree_id(repo, rng.base_sha), _tree_id(repo, rng.merge_base_sha)
-    payload = "\n".join((f"range:{rng.mode}:{base_tree}:{merge_base_tree}", *ordered))
-    legacy = "\n".join((f"range:{rng.mode}:{rng.base_sha}:{rng.merge_base_sha}", *ordered))
-    return SourceState(
-        hashlib.sha256(payload.encode()).hexdigest(),
-        tuple(sorted(set(paths))),
-        hashlib.sha256(legacy.encode()).hexdigest(),
-    )
-
-
-def _tree_id(repo: Any, sha: str) -> str:
-    """The tree a base commit names; blank stays blank and the empty tree is itself."""
-
-    if not sha or sha == EMPTY_TREE_SHA:
-        return sha
-    return str(_tree_for_sha(repo, sha).id)
+    # even though every hunk is now relative to a different base tree.
+    payload = "\n".join((f"range:{rng.mode}:{rng.base_sha}:{rng.merge_base_sha}", *sorted(rows)))
+    fingerprint = hashlib.sha256(payload.encode()).hexdigest()
+    return SourceState(fingerprint, tuple(sorted(set(paths))))
 
 
 __all__ = [
@@ -2256,15 +1696,9 @@ __all__ = [
     "classify_path",
     "collect_diff",
     "commit_datetime",
-    "commits_in_head",
-    "current_branch_ref",
     "detect_repo_root",
     "is_dirty",
-    "legacy_source_fingerprint",
     "load_blobs",
     "resolve_rev_range",
-    "review_branch_base",
-    "review_branch_commits",
     "source_state",
-    "with_review_base",
 ]

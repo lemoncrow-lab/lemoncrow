@@ -1,7 +1,5 @@
 # Savings Optimization Status and Roadmap
 
-> **Status:** active — all six runtime levers implemented; controlled benchmark evidence pending.
->
 > Last implementation audit: 2026-08-02.
 >
 > **Implementation state: all six runtime levers implemented.** Redacted
@@ -84,7 +82,7 @@ The delivered control plane includes:
 - Automated upstream synchronization, tests, and multi-platform release
   verification for the fork.
 
-See [the CLI reference](../reference/cli.md#use-lemoncrow-with-an-existing-agent) for current commands and controls.
+See [the CLI reference](../reference/cli.md#lemoncode) for current commands and controls.
 
 ### Why a fork is the right boundary
 
@@ -179,7 +177,7 @@ direct cost + P(failure) * escalation cost + cache-break cost
   proposals; a pinned `--model` or `--optimization-mode off` is the rollback.
 
 Implementation:
-the private Hosted/Enterprise owned Runtime,
+[`runtime.py`](../../src/lemoncrow/gateway/cli/runtime.py),
 [`runtime_policy.py`](../../src/lemoncrow/pro/capabilities/owned_agent_session/runtime_policy.py), and
 [`routing_calibration.py`](../../src/lemoncrow/pro/capabilities/optimization/routing_calibration.py).
 

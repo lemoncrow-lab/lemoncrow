@@ -1,12 +1,4 @@
-"""Embedding backend factory.
-
-Public OSS owns the neutral :class:`Embedder` protocol, the null embedder and
-auditable clients for user-configured embedding services (OpenAI, Letta,
-Ollama). Local neural code embedders (BGE / Nomic / generic SentenceTransformers)
-are private advanced code intelligence: the ``bge``/``nomic``/``hf`` pins are
-resolved through :mod:`lemoncrow.core.capabilities.code_intelligence_provider`
-and fail with ``Pro engine is not installed/available.`` when it is absent.
-"""
+"""Embedding backend factory."""
 
 from __future__ import annotations
 
@@ -19,7 +11,9 @@ from lemoncrow.core.environment import resolve_memory_backend
 from lemoncrow.core.foundation.paths import default_store_root
 
 from .base import Embedder
+from .bge import BgeEmbedder
 from .letta_embedder import LettaEmbedder
+from .nomic import NomicEmbedder
 from .null_embedder import NullEmbedder
 from .ollama_embedder import DEFAULT_CODE_EMBED_MODEL, OllamaEmbedder
 from .openai_embedder import OpenAIEmbedder
@@ -27,9 +21,7 @@ from .openai_embedder import OpenAIEmbedder
 logger = logging.getLogger(__name__)
 
 _PIN_CHOICES = frozenset({"openai", "letta", "null"})
-#: Code-embedder pins implemented by the private provider, never in OSS source.
-_PRIVATE_CODE_PINS = frozenset({"bge", "nomic", "hf"})
-_CODE_PIN_CHOICES = frozenset({"openai", "letta", "null", "ollama"}) | _PRIVATE_CODE_PINS
+_CODE_PIN_CHOICES = frozenset({"openai", "letta", "null", "ollama", "bge", "nomic", "hf"})
 
 
 @runtime_checkable
@@ -98,12 +90,11 @@ def _default_code_model(model: str | None = None) -> str:
     ).strip() or DEFAULT_CODE_EMBED_MODEL
 
 
-def _private_code_embedder(pin: str, model: str | None) -> Embedder:
-    """Resolve a local neural code embedder through the single private seam."""
-    from lemoncrow.core.capabilities.code_intelligence_provider import advanced_code_intelligence_helper
+@lru_cache(maxsize=4)
+def _cached_bge_code_embedder(model: str) -> BgeEmbedder:
+    """Share one lazy BGE model per process/model across repository engines."""
 
-    embedder: Embedder = advanced_code_intelligence_helper("make_local_code_embedder", pin, model)
-    return embedder
+    return BgeEmbedder(model_name=model)
 
 
 @lru_cache(maxsize=8)
@@ -127,10 +118,6 @@ def make_code_embedder(pin: str | None = None, model: str | None = None) -> Embe
     Semantic embedding is strictly opt-in: without an explicit pin
     (``LEMONCROW_CODE_EMBEDDER`` / ``LEMONCROW_EMBEDDER``), returns the null
     embedder (FTS-only) regardless of which extras are installed.
-
-    Raises :class:`~lemoncrow.core.capabilities.code_intelligence_provider.ProEngineUnavailable`
-    for an explicit local-model pin (``bge``/``nomic``/``hf``) when the private
-    provider is not installed.
     """
     chosen = (pin or os.getenv("LEMONCROW_CODE_EMBEDDER") or os.getenv("LEMONCROW_EMBEDDER") or "").strip().lower()
     if chosen and chosen not in _CODE_PIN_CHOICES:
@@ -139,8 +126,24 @@ def make_code_embedder(pin: str | None = None, model: str | None = None) -> Embe
         return OpenAIEmbedder()
     if chosen == "letta":
         return LettaEmbedder()
-    if chosen in _PRIVATE_CODE_PINS:
-        return _private_code_embedder(chosen, model)
+    if chosen == "nomic":
+        return NomicEmbedder(model or "nomic-ai/nomic-embed-code")
+    if chosen == "hf":
+        # Generic SentenceTransformer pin — model required via LEMONCROW_CODE_EMBED_MODEL.
+        # Prefixes: LEMONCROW_HF_QUERY_PREFIX / LEMONCROW_HF_DOC_PREFIX (default: empty).
+        from .nomic import NomicEmbedder as _ST  # same ST wrapper, model-agnostic
+
+        hf_model = model or os.getenv("LEMONCROW_CODE_EMBED_MODEL", "")
+        if not hf_model:
+            raise ValueError("LEMONCROW_CODE_EMBED_MODEL must be set when LEMONCROW_CODE_EMBEDDER=hf")
+        return _ST(
+            hf_model,
+            query_prefix=os.getenv("LEMONCROW_HF_QUERY_PREFIX", ""),
+            doc_prefix=os.getenv("LEMONCROW_HF_DOC_PREFIX", ""),
+            use_cache=True,  # use_cache kwarg currently unused; DynamicCache compat is handled in _load()
+        )
+    if chosen == "bge":
+        return _cached_bge_code_embedder(model or "BAAI/bge-code-v1")
     if chosen == "ollama":
         if os.getenv("LEMONCROW_OFFLINE"):
             return NullEmbedder()
@@ -159,30 +162,15 @@ def make_code_embedder(pin: str | None = None, model: str | None = None) -> Embe
 
 
 def get_code_embedder() -> Embedder:
-    """Ambient code embedder: a configured private pin without the provider is FTS-only."""
-    from lemoncrow.core.capabilities.code_intelligence_provider import ProEngineUnavailable
-
-    try:
-        return make_code_embedder(
-            pin=os.getenv("LEMONCROW_CODE_EMBEDDER") or os.getenv("LEMONCROW_EMBEDDER") or None,
-            model=os.getenv("LEMONCROW_CODE_EMBED_MODEL") or None,
-        )
-    except ProEngineUnavailable as exc:
-        logger.warning("configured code embedder needs the private provider; using FTS-only: %s", exc)
-        return NullEmbedder()
+    return make_code_embedder(
+        pin=os.getenv("LEMONCROW_CODE_EMBEDDER") or os.getenv("LEMONCROW_EMBEDDER") or None,
+        model=os.getenv("LEMONCROW_CODE_EMBED_MODEL") or None,
+    )
 
 
 def _clear_code_embedder_cache() -> None:
-    from lemoncrow.core.capabilities.code_intelligence_provider import (
-        ProEngineUnavailable,
-        advanced_code_intelligence_helper,
-    )
-
+    _cached_bge_code_embedder.cache_clear()
     _cached_ollama_code_embedder.cache_clear()
-    try:
-        advanced_code_intelligence_helper("clear_local_code_embedder_cache")
-    except ProEngineUnavailable:
-        pass
 
 
 make_code_embedder.cache_clear = _clear_code_embedder_cache  # type: ignore[attr-defined]
@@ -191,6 +179,7 @@ make_code_embedder.cache_clear = _clear_code_embedder_cache  # type: ignore[attr
 __all__ = [
     "DEFAULT_CODE_EMBED_MODEL",
     "LettaEmbedder",
+    "NomicEmbedder",
     "NullEmbedder",
     "OllamaEmbedder",
     "OpenAIEmbedder",

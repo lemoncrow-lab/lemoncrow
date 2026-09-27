@@ -42,7 +42,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import Any
 
 from lemoncrow.pro.capabilities.review.session_models import (
     Annotation,
@@ -79,27 +78,12 @@ class Reconciliation:
     notes: tuple[str, ...] = ()
     aliases: tuple[tuple[str, str], ...] = ()
     """Old unit key -> current unit key for rename-preserved identities."""
-    rebased: tuple[ReviewMark, ...] = ()
-    """Judgments carried across *base-only* movement (Phase 9 item 34).
-
-    The unit's bytes moved only because the diff base moved underneath an
-    authored patch that is patch-equivalent on both sides. The state is kept and
-    the fingerprint is re-stamped to the current unit, so the caller persists
-    each one with an explicit, audited reconciliation reason. Never produced
-    without a deterministic base-only classification from the caller.
-    """
-    reasons: tuple[tuple[str, str, str], ...] = ()
-    """``(reviewer_id, unit_key, reason code)`` for every carried, rebased and reopened mark.
-
-    Keyed by the mark's unit key on the new revision; the code is the rule that
-    decided it, in the :mod:`validity` vocabulary. Explanatory only.
-    """
 
     @property
     def marks(self) -> tuple[ReviewMark, ...]:
-        """Every mark that still applies to the new revision: carried, rebased and reopened."""
+        """Every mark that still applies to the new revision, carried and reopened."""
 
-        return self.carried + self.rebased + self.reopened
+        return self.carried + self.reopened
 
 
 @dataclass(frozen=True)
@@ -282,8 +266,8 @@ def _next_state(
     unit: ReviewUnit,
     previous: ReviewUnit | None,
     rehunked: Mapping[str, tuple[int, int]],
-) -> tuple[MarkState, str]:
-    """The state *mark* has on the revision *unit* belongs to, and the rule that decided it.
+) -> MarkState:
+    """The state *mark* has on the revision *unit* belongs to.
 
     Only the two states that make a claim about *content having been seen* are
     re-derived. ``needs_changes`` is a request a human made and this function
@@ -296,36 +280,32 @@ def _next_state(
     The ``unknown`` downgrade mirrors ``sources.local.effective_mark_state``
     exactly: what cannot be fingerprinted cannot be recorded as reviewed, at
     mark time or at reconcile time. One rule, two doors.
-
-    The second value is the :mod:`validity` reason code of the branch taken.
     """
 
     # Human requests are durable input, not content attestations. A re-hunk or
     # temporary fingerprint failure has no standing to withdraw them.
     if mark.state == "needs_changes":
-        return mark.state, "human_request_kept"
+        return mark.state
     # `unknown` can be a temporary downgrade of a prior reviewed attestation.
     # The downgrade deliberately preserves the fingerprint the human actually
     # saw. Once identity becomes knowable again, compare against that preserved
     # fingerprint so UNKNOWN is not a one-way ratchet.
     if mark.state == "unknown" and previous is not None and previous.fingerprint_method == "unknown":
         if unit.fingerprint_method == "unknown":
-            return "unknown", "fingerprint_unknown"
-        if unit.content_fingerprint == mark.content_fingerprint:
-            return "reviewed", "fingerprint_restored"
-        return "changed_since_review", "content_changed"
+            return "unknown"
+        return "reviewed" if unit.content_fingerprint == mark.content_fingerprint else "changed_since_review"
     if mark.state not in ("reviewed", "changed_since_review"):
-        return mark.state, "fingerprint_unknown" if mark.state == "unknown" else "no_attestation"
+        return mark.state
     if unit.kind == "hunk" and unit.path in rehunked:
-        return "unreviewed", "hunks_renumbered"
+        return "unreviewed"
     if unit.fingerprint_method == "unknown" or (previous is not None and previous.fingerprint_method == "unknown"):
-        return "unknown", "fingerprint_unknown"
+        return "unknown"
     if unit.content_fingerprint == mark.content_fingerprint:
         # Includes the revert case: content that moved away and came back is
         # content this reviewer did look at, and saying otherwise would make
         # "changed since review" a one-way ratchet nobody can clear.
-        return "reviewed", "content_unchanged"
-    return "changed_since_review", "content_changed"
+        return "reviewed"
+    return "changed_since_review"
 
 
 def _rename_aliases(
@@ -367,27 +347,14 @@ def _rename_aliases(
     return aliases
 
 
-# ``behavior.BEHAVIOR_KEY_PREFIX``, spelled here so this derivation root does not
-# import the behavior contract (a test pins the two equal).
-_BEHAVIOR_MARK_PREFIX = "beh:"
-
-
 def reconcile(
     previous_units: Sequence[ReviewUnit],
     next_units: Sequence[ReviewUnit],
     marks: Sequence[ReviewMark],
     *,
     renames: Sequence[tuple[str, str]] = (),
-    base_only: frozenset[str] = frozenset(),
 ) -> Reconciliation:
     """Carry *marks* from *previous_units* onto *next_units*, or refuse to.
-
-    *base_only* names next-revision unit keys a deterministic classifier
-    (:mod:`rebase_classification`) proved moved only with the diff base. A
-    ``reviewed``/``needs_changes`` mark on such a unit is carried with a
-    re-stamped fingerprint instead of reopening -- but only when the mark was
-    current on *previous_units* (it attested exactly the bytes being compared);
-    a mark already stale there keeps its normal reconciliation.
 
     Keyed on ``unit_key`` throughout -- position-independent, so ten lines
     inserted above a function move nothing -- and decided on
@@ -413,18 +380,9 @@ def reconcile(
     arrivals = set(aliases.values())
 
     carried: list[ReviewMark] = []
-    rebased: list[ReviewMark] = []
     reopened: list[ReviewMark] = []
     dropped: list[ReviewMark] = []
-    reasons: list[tuple[str, str, str]] = []
     for mark in marks:
-        if mark.unit_key.startswith(_BEHAVIOR_MARK_PREFIX):
-            # Behavior judgments are not unit verdicts: the behavior target is
-            # re-observed after capture, and its fingerprint decides on read
-            # (``behavior.behavior_targets``) whether the judgment still holds.
-            carried.append(mark)
-            reasons.append((mark.reviewer_id, mark.unit_key, "behavior_mark_kept"))
-            continue
         key = aliases.get(mark.unit_key, mark.unit_key)
         unit = next_by_key.get(key)
         if unit is None:
@@ -433,24 +391,7 @@ def reconcile(
             # a verdict on something that no longer exists.
             dropped.append(mark)
             continue
-        previous = prev_by_key.get(mark.unit_key)
-        if (
-            key == mark.unit_key
-            and key in base_only
-            and previous is not None
-            and mark.state in ("reviewed", "needs_changes")
-            and previous.fingerprint_method != "unknown"
-            and unit.fingerprint_method != "unknown"
-            and mark.content_fingerprint == previous.content_fingerprint
-            and unit.content_fingerprint != mark.content_fingerprint
-        ):
-            # The judged bytes moved only with the base under a patch-equivalent
-            # authored change: same verdict, re-stamped to what is now on screen.
-            rebased.append(replace(mark, content_fingerprint=unit.content_fingerprint))
-            reasons.append((mark.reviewer_id, key, "base_only_equivalent"))
-            continue
-        state, reason = _next_state(mark, unit, previous, rehunked)
-        reasons.append((mark.reviewer_id, key, reason))
+        state = _next_state(mark, unit, prev_by_key.get(mark.unit_key), rehunked)
         if state == mark.state and key == mark.unit_key:
             carried.append(mark)
             continue
@@ -473,8 +414,6 @@ def reconcile(
         dropped=tuple(dropped),
         notes=notes,
         aliases=tuple(sorted(aliases.items())),
-        rebased=tuple(rebased),
-        reasons=tuple(reasons),
     )
 
 
@@ -587,51 +526,6 @@ def compare_revision_units(
         units=tuple(changed_units),
         files=tuple(files),
     )
-
-
-def snapshot_history_numbers(
-    previous: tuple[Sequence[ReviewUnit], Sequence[Any]] | None,
-    current: tuple[Sequence[ReviewUnit], Sequence[Any]],
-) -> dict[str, Any]:
-    """One Snapshot history row's numbers, from each Snapshot's units and Review targets.
-
-    ``review_area_*`` count the non-overlapping Review areas the Reader shows
-    (targets, by ``unit_key``); ``delta`` counts raw units. Kept here, beside
-    ``compare_revision_units``, so the stored-result stamp covers this code.
-    """
-
-    units, targets = current
-    if previous is None:
-        return {
-            "review_area_count": len(targets),
-            "review_area_delta": {"added": len(targets), "changed": 0, "removed": 0},
-            "delta": {"added": len(units), "changed": 0, "removed": 0},
-        }
-    previous_units, previous_targets = previous
-    before_units = {unit.unit_key: unit for unit in previous_units}
-    after_units = {unit.unit_key: unit for unit in units}
-    before_keys = {target.unit_key for target in previous_targets}
-    after_keys = {target.unit_key for target in targets}
-    changed = 0
-    for key in before_keys & after_keys:
-        before = before_units.get(key)
-        after = after_units.get(key)
-        if before is None or after is None:
-            changed += 1
-            continue
-        known_identity = before.fingerprint_method != "unknown" and after.fingerprint_method != "unknown"
-        if not known_identity or before.content_fingerprint != after.content_fingerprint:
-            changed += 1
-    comparison = compare_revision_units(previous_units, units)
-    return {
-        "review_area_count": len(targets),
-        "review_area_delta": {
-            "added": len(after_keys - before_keys),
-            "changed": changed,
-            "removed": len(before_keys - after_keys),
-        },
-        "delta": {"added": comparison.added, "changed": comparison.changed, "removed": comparison.removed},
-    }
 
 
 def compute_frontier(

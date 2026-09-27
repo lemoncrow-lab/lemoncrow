@@ -1,19 +1,6 @@
-import type { MapPayload } from "./map/types";
 import { authenticatedFetch } from "./review/reviewApi";
 
-let BASE = "/api";
-
-export function configureApiBase(base: string): void {
-  const trimmed = base.trim().replace(/\/+$/, "");
-  if (!trimmed.startsWith("/") || trimmed.startsWith("//") || trimmed.includes("://")) {
-    throw new Error("LemonCrow API base must be a same-origin absolute path");
-  }
-  BASE = trimmed;
-}
-
-export function apiUrl(path: string): string {
-  return `${BASE}${path.startsWith("/") ? path : `/${path}`}`;
-}
+const BASE = "/api";
 
 export class ApiError extends Error {
   status: number;
@@ -25,23 +12,15 @@ export class ApiError extends Error {
   }
 }
 
-async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const res = await authenticatedFetch(apiUrl(path), signal ? { signal } : undefined);
-  if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    const message = body?.error?.message;
-    throw new ApiError(
-      res.status,
-      typeof message === "string" && message.trim()
-        ? message
-        : `${res.status} ${res.statusText}`,
-    );
-  }
+async function get<T>(path: string): Promise<T> {
+  const res = await authenticatedFetch(`${BASE}${path}`);
+  if (!res.ok)
+    throw new ApiError(res.status, `${res.status} ${res.statusText}`);
   return res.json();
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await authenticatedFetch(apiUrl(path), {
+  const res = await authenticatedFetch(`${BASE}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -52,14 +31,14 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     const detail = await res.text().catch(() => "");
     throw new ApiError(
       res.status,
-      detail ? `${res.status} ${detail}` : `${res.status} ${res.statusText}`,
+      detail ? `${res.status} ${detail}` : `${res.status} ${res.statusText}`
     );
   }
   return res.json();
 }
 
 async function getText(path: string, signal?: AbortSignal): Promise<string> {
-  const res = await authenticatedFetch(apiUrl(path), { signal });
+  const res = await authenticatedFetch(`${BASE}${path}`, { signal });
   if (!res.ok)
     throw new ApiError(res.status, `${res.status} ${res.statusText}`);
   return res.text();
@@ -767,9 +746,6 @@ export interface SavingsBenchmark {
 }
 
 export interface SavingsSummaryV2 {
-  spend_available?: boolean;
-  savings_available?: boolean;
-  spend?: { available: boolean; rows: number; unpriced_rows: number; total_usd: number };
   window_days: number;
   total_naive_tokens: number;
   total_actual_tokens: number;
@@ -1333,8 +1309,6 @@ export interface SessionSummary {
   vendor: string;
   started_model?: string | null;
   cost_status?: "recorded" | "estimated" | "unavailable";
-  usage_measurement_source?: string;
-  actual_cost_source?: string;
   agent_settings?: Record<string, any>;
   skills?: string[];
   telemetry?: Record<string, any>;
@@ -1384,19 +1358,6 @@ export interface SessionReport extends SessionSummary {
   context_compression_tool_calls: number;
   tool_savings: ToolSavingsRow[];
   top_tools_by_cost: TopTool[];
-  usage_measurement_source?: string;
-  actual_cost_source?: string;
-  cost_estimated?: boolean;
-  measured_request_steps?: number;
-  measured_total_turns?: number;
-  measured_main_turns?: number;
-  measured_subagent_count?: number;
-  measured_subagent_turns?: number;
-  main_attributed_cost_usd?: number;
-  subagent_attributed_cost_usd?: number;
-  main_usage?: Record<string, number>;
-  subagent_usage?: Record<string, number>;
-  savings_estimated?: boolean;
 }
 
 export interface MemoryFact {
@@ -1725,14 +1686,8 @@ export interface RawArtifact {
   [key: string]: unknown;
 }
 
-/** A /traces list row: per-turn arrays are omitted; api.trace(id) returns them. */
-export type TraceSummary = Omit<
-  Trace,
-  "files_touched" | "tools_called" | "commands_run" | "reasoning"
->;
-
 export interface TraceListResponse {
-  items: TraceSummary[];
+  items: Trace[];
   metrics: {
     stats: {
       total: number;
@@ -1777,11 +1732,7 @@ export interface CodeMapNode {
   provenance?: string;
   node_type?: "symbol" | "file" | "community";
   file_type?: string;
-  ignored?: boolean;
   aggregate_count?: number;
-  /** Parent folder. */
-  module?: string;
-  /** Legacy graph clustering key, retained for the restored Sigma/3D views. */
   community?: string;
   color?: string;
 }
@@ -1793,14 +1744,50 @@ export interface CodeMapEdge {
   kind: "calls" | string;
   depth: number;
   weight?: number;
-  /** Optional semantic edge color for specialized projections. */
+  /** Optional semantic edge color for specialized projections; generic Code Map leaves it unset. */
   color?: string;
+}
+
+export interface CodeMapGraph {
+  repo_id?: string;
+  focus: string | null;
+  nodes: CodeMapNode[];
+  edges: CodeMapEdge[];
+  truncated: boolean;
+  depth?: number;
+}
+
+export interface CodeMapOverview {
+  project: { root: string; label: string };
+  index: {
+    files_indexed?: number;
+    symbols_indexed?: number;
+    imports_indexed?: number;
+    last_indexed_at?: string | null;
+    index_age_seconds?: number | null;
+  };
+  graph: CodeMapGraph;
+}
+
+export interface CodeMapFacet {
+  id: string;
+  label: string;
+  count: number;
+  color?: string;
+}
+
+export interface CodeMapFull extends CodeMapOverview {
+  total_symbols: number;
+  total_files: number;
+  truncated: boolean;
+  groups: CodeMapFacet[];
+  file_types: CodeMapFacet[];
+  languages: CodeMapFacet[];
 }
 
 export interface CodeMapFiles {
   project: { root: string; label: string };
   total_files: number;
-  ignored_truncated?: boolean;
   files: CodeMapNode[];
 }
 
@@ -1861,16 +1848,6 @@ export interface CodeMapActivityEvent {
   symbol_ids?: string[];
 }
 
-export interface CodeMapActivitySession {
-  /** `host:session_id`, the id every /code surface uses for a session. */
-  id: string;
-  host: string;
-  session_id: string;
-  status: string;
-  last_at: string;
-  live: boolean;
-}
-
 export interface CodeMapActivityResponse {
   session_id: string | null;
   host?: string | null;
@@ -1879,170 +1856,6 @@ export interface CodeMapActivityResponse {
   status: string;
   cursor?: string | null;
   events: CodeMapActivityEvent[];
-  sessions?: CodeMapActivitySession[];
-  selected_session?: string | null;
-}
-
-export interface CodeIndexContext {
-  source: string;
-  backend: string;
-  exactness: "current_index";
-  fallback: boolean;
-  readiness: {
-    backend?: string;
-    reason?: string;
-    graph?: { state?: string; reason?: string };
-  };
-  /** "imports": Runtime Lite's import-level links, never precise calls or references. */
-  relationship_basis?: string;
-  degraded?: boolean;
-  degraded_reason?: string;
-}
-
-export interface CodeRelationshipRow {
-  path: string;
-  kind: "calls" | "imports" | "references" | string;
-  kinds: Record<string, number>;
-  weight: number;
-  symbols: string[];
-  lines: number[];
-}
-
-export interface CodeRelationships {
-  subject: { kind: "file" | "symbol"; path: string; symbol?: string; line?: number; end_line?: number };
-  used_by: CodeRelationshipRow[];
-  uses: CodeRelationshipRow[];
-  used_by_total: number;
-  uses_total: number;
-  filtered: Record<string, number>;
-  truncated: boolean;
-  degraded_reason: string;
-  /** Symbol calls out were attributable to the symbol's exact span. */
-  uses_attributed: boolean;
-  context: CodeIndexContext;
-}
-
-export interface CodeModule {
-  id: string;
-  path: string;
-  label: string;
-  parent: string;
-  kind: "module" | "file";
-  files: number;
-  symbols: number;
-  changed: number;
-  purpose: string;
-  /** Declared: the module's README or manifest. File: its most connected file's own statement. Generated: a model, on request. */
-  purpose_source: string;
-  purpose_kind: CodePurposeKind;
-  /** Generated purposes only: when, and the files the model was shown. */
-  purpose_at?: string;
-  purpose_evidence?: string[];
-  collapsed: boolean;
-  package: boolean;
-  top_files: string[];
-}
-
-export type CodePurposeKind = "declared" | "file" | "generated" | "";
-
-export interface CodeModulePurpose {
-  module: string;
-  purpose: string;
-  purpose_kind: "generated";
-  purpose_source: string;
-  purpose_at: string;
-  purpose_evidence: string[];
-}
-
-export interface CodeModuleEdge {
-  source: string;
-  target: string;
-  weight: number;
-  kinds: Record<string, number>;
-  examples: { source_path: string; target_path: string; kind: string; symbol: string }[];
-}
-
-export interface CodeModulesOverview {
-  project: { root: string; label: string };
-  level: "module" | "file";
-  total_files: number;
-  modules: CodeModule[];
-  edges: CodeModuleEdge[];
-  edges_total: number;
-  /** The repository links behind the edges were cut at a bound: the map is partial. */
-  links_truncated?: boolean;
-  filtered: Record<string, number>;
-  degraded_reason: string;
-  context: CodeIndexContext;
-  /** Whether a configured internal model can describe a module on request. */
-  purpose_generation?: { available: boolean; model: string };
-}
-
-export type CodeFocusLevel = "module" | "file" | "symbol";
-
-export interface CodeFocusPayload extends MapPayload {
-  subject: { kind: CodeFocusLevel; id: string; path: string; label: string };
-  context: CodeIndexContext;
-}
-
-export interface CodeChangedFile {
-  path: string;
-  status: "M" | "A" | "D" | "R";
-  old_path: string;
-  additions: number;
-  deletions: number;
-  sessions: string[];
-  shared: boolean;
-}
-
-export interface CodeChangeSession {
-  id: string;
-  host: string;
-  session_id: string;
-  model: string;
-  title: string;
-  started_at: string;
-  files: string[];
-  shared_files: string[];
-}
-
-export interface CodeFileChanges {
-  path: string;
-  status: "" | "M" | "A" | "D" | "R";
-  added: [number, number][];
-  modified: [number, number][];
-  deleted: number[];
-}
-
-export interface CodeChanges {
-  project: { root: string; label: string };
-  files: CodeChangedFile[];
-  sessions: CodeChangeSession[];
-  unattributed: string[];
-  total: number;
-  rule: string;
-}
-
-/** A file agents edited more than once in the window, from recorded edits only. */
-export interface CodeHotspot {
-  path: string;
-  edits: number;
-  /** Session ids ("host:session_id") that recorded an edit. */
-  sessions: string[];
-  last_at: string;
-}
-
-export interface CodeHotspots {
-  project: { root: string; label: string };
-  days: number;
-  since: string;
-  files: CodeHotspot[];
-  reedited_total: number;
-  edited_total: number;
-  sessions: number;
-  ledgers_scanned: number;
-  truncated: boolean;
-  rule: string;
 }
 
 export interface CodeMapReviewResponse {
@@ -2073,6 +1886,26 @@ export interface CodeMapEditorOpenResponse {
   line: number;
   column: number;
   pid: number;
+}
+
+export interface CodeMapAgentHandoffRequest {
+  project_root?: string;
+  expected_session_id?: string;
+  engine?: "auto" | "lemoncode" | "pi" | "codex" | "claude";
+  path: string;
+  line?: number;
+  end_line?: number;
+  symbol?: string;
+  message: string;
+}
+
+export interface CodeMapAgentHandoffResponse {
+  state: "sent" | "blocked" | "failed" | "uncertain" | string;
+  host: string;
+  session_id: string;
+  target_ref: string;
+  remote_ref: string;
+  message: string;
 }
 
 export const api = {
@@ -2140,7 +1973,6 @@ export const api = {
     const params = new URLSearchParams();
     params.set("limit", String(limit));
     params.set("offset", String(offset));
-    params.set("summary", "true");
     if (domain && domain !== "all") params.set("domain", domain);
     if (host && host !== "all") params.set("host", host);
     if (workspace && workspace !== "all") params.set("workspace", workspace);
@@ -2152,43 +1984,23 @@ export const api = {
   ledger: (session_id: string) => get<any>(`/ledgers/${session_id}`),
   codeMapProjects: () =>
     get<{ projects: CodeMapProject[] }>("/v1/code-map/projects"),
-  codeMapRelationships: (
-    target: { path: string } | { symbolId: string },
-    projectRoot?: string,
-    signal?: AbortSignal
-  ) => {
-    const params = new URLSearchParams(
-      "path" in target ? { path: target.path } : { symbol_id: target.symbolId }
+  codeMapOverview: (projectRoot?: string) => {
+    const params = new URLSearchParams();
+    if (projectRoot) params.set("project_root", projectRoot);
+    const query = params.toString();
+    return get<CodeMapOverview>(
+      `/v1/code-map/overview${query ? `?${query}` : ""}`
     );
-    if (projectRoot) params.set("project_root", projectRoot);
-    return get<CodeRelationships>(`/v1/code-map/relationships?${params.toString()}`, signal);
   },
-  codeMapModules: (projectRoot?: string, signal?: AbortSignal) => {
+  codeMapFull: (projectRoot?: string) => {
     const params = new URLSearchParams();
     if (projectRoot) params.set("project_root", projectRoot);
     const query = params.toString();
-    return get<CodeModulesOverview>(`/v1/code-map/modules${query ? `?${query}` : ""}`, signal);
+    return get<CodeMapFull>(`/v1/code-map/full${query ? `?${query}` : ""}`);
   },
-  codeMapFocus: (level: CodeFocusLevel, id: string, projectRoot?: string, signal?: AbortSignal) => {
-    const params = new URLSearchParams({ level, id });
-    if (projectRoot) params.set("project_root", projectRoot);
-    return get<CodeFocusPayload>(`/v1/code-map/focus?${params.toString()}`, signal);
-  },
-  codeMapFileChanges: (path: string, projectRoot?: string, signal?: AbortSignal) => {
-    const params = new URLSearchParams({ path });
-    if (projectRoot) params.set("project_root", projectRoot);
-    return get<CodeFileChanges>(`/v1/code-map/file-changes?${params.toString()}`, signal);
-  },
-  codeMapChanges: (projectRoot?: string) => {
+  codeMapFiles: (projectRoot?: string) => {
     const params = new URLSearchParams();
     if (projectRoot) params.set("project_root", projectRoot);
-    const query = params.toString();
-    return get<CodeChanges>(`/v1/code-map/changes${query ? `?${query}` : ""}`);
-  },
-  codeMapFiles: (projectRoot?: string, includeIgnored = false) => {
-    const params = new URLSearchParams();
-    if (projectRoot) params.set("project_root", projectRoot);
-    if (includeIgnored) params.set("include_ignored", "true");
     const query = params.toString();
     return get<CodeMapFiles>(`/v1/code-map/files${query ? `?${query}` : ""}`);
   },
@@ -2230,6 +2042,20 @@ export const api = {
     if (projectRoot) params.set("project_root", projectRoot);
     return get<CodeMapReferences>(`/v1/code-map/references?${params.toString()}`);
   },
+  codeMapNeighborhood: (
+    symbolId: string,
+    projectRoot?: string,
+    depth = 1,
+    limit = 80
+  ) => {
+    const params = new URLSearchParams({
+      symbol_id: symbolId,
+      depth: String(depth),
+      limit: String(limit),
+    });
+    if (projectRoot) params.set("project_root", projectRoot);
+    return get<CodeMapGraph>(`/v1/code-map/neighborhood?${params.toString()}`);
+  },
   codeMapSymbol: (symbolId: string, projectRoot?: string) => {
     const params = new URLSearchParams({ symbol_id: symbolId });
     if (projectRoot) params.set("project_root", projectRoot);
@@ -2241,40 +2067,28 @@ export const api = {
     projectRoot: string | undefined,
     path: string,
     line = 1,
-    column = 1,
-    editor?: string
+    column = 1
   ) =>
     post<CodeMapEditorOpenResponse>("/v1/code-map/editor", {
       project_root: projectRoot || null,
       path,
       line,
       column,
-      editor,
     }),
-  codeMapReview: (projectRoot?: string, scope?: { session?: string; paths?: string[] }) =>
+  codeMapReview: (projectRoot?: string) =>
     post<CodeMapReviewResponse>("/v1/code-map/review", {
       project_root: projectRoot || null,
-      ...(scope?.session ? { session: scope.session } : {}),
-      ...(scope?.paths?.length ? { paths: scope.paths } : {}),
     }),
-  codeMapHotspots: (projectRoot?: string) => {
-    const params = new URLSearchParams();
-    if (projectRoot) params.set("project_root", projectRoot);
-    const query = params.toString();
-    return get<CodeHotspots>(`/v1/code-map/hotspots${query ? `?${query}` : ""}`);
-  },
-  codeMapModulePurpose: (module: string, projectRoot?: string) =>
-    post<CodeModulePurpose>("/v1/code-map/module-purpose", { project_root: projectRoot || null, module }),
+  codeMapAgentHandoff: (payload: CodeMapAgentHandoffRequest) =>
+    post<CodeMapAgentHandoffResponse>("/v1/code-map/agent-handoff", payload),
   codeMapActivity: (
     projectRoot?: string,
     after?: string | null,
-    limit = 60,
-    session?: string | null
+    limit = 60
   ) => {
     const params = new URLSearchParams({ limit: String(limit) });
     if (projectRoot) params.set("project_root", projectRoot);
     if (after) params.set("after", after);
-    if (session) params.set("session", session);
     return get<CodeMapActivityResponse>(
       `/v1/code-map/activity?${params.toString()}`
     );

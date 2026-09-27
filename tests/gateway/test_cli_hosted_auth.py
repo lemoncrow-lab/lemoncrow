@@ -135,24 +135,18 @@ def test_logout_never_deletes_a_default_path_operator_token(monkeypatch, tmp_pat
     token_file = state / "token"
     token_file.write_text("operator_access_token_0123456789\n", encoding="utf-8")
     token_file.chmod(0o600)
-    environment = {
-        "LEMONCROW_URL": "https://api.lemoncrow.com",
-        "LEMONCROW_INSTALL_MODE": "hosted",
-        "LEMONCROW_HOME": str(state),
-        "HOME": str(tmp_path),
-    }
-    # Hosted mode ignores the default-path file (it is the local server's
-    # machine credential), so logout has nothing operator-provided to refuse.
-    monkeypatch.setattr(hosted_auth, "_config", lambda: load_config(environment, cwd=tmp_path))
-    result = CliRunner().invoke(hosted_auth.auth_group, ["logout"])
-    assert result.exit_code == 0, result.output
-    assert "Already signed out" in result.output
-    assert token_file.read_text().strip() == "operator_access_token_0123456789"
-
-    # Named explicitly, the same file is an operator credential logout never removes.
-    config = load_config({**environment, "LEMONCROW_TOKEN_FILE": str(token_file)}, cwd=tmp_path)
+    config = load_config(
+        {
+            "LEMONCROW_URL": "https://api.lemoncrow.com",
+            "LEMONCROW_INSTALL_MODE": "hosted",
+            "LEMONCROW_HOME": str(state),
+            "HOME": str(tmp_path),
+        },
+        cwd=tmp_path,
+    )
     monkeypatch.setattr(hosted_auth, "_config", lambda: config)
 
     result = CliRunner().invoke(hosted_auth.auth_group, ["logout"])
     assert result.exit_code != 0
     assert "operator-provided" in result.output
+    assert token_file.read_text().strip() == "operator_access_token_0123456789"

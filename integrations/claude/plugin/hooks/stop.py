@@ -229,61 +229,6 @@ def _read_transcript_stats(transcript_path: str) -> dict[str, Any] | None:
     }
 
 
-def _apply_claude_mod_measurement(stats: dict[str, Any] | None, session_id: str) -> tuple[dict[str, Any] | None, bool]:
-    """Overlay exact Mod usage on transcript stats when available.
-
-    Returns ``(stats, host_cost_is_measured)``. Tool counts stay transcript
-    based because the Mod intentionally observes model requests only; the new
-    fields make that scope explicit instead of mixing main-thread activity with
-    all-agent spend.
-    """
-    if stats is None or not session_id:
-        return stats, False
-    try:
-        from lemoncrow.core.capabilities.claude_mod_usage import (
-            bucket_cost_usd,
-            load_claude_mod_usage,
-        )
-
-        measured = load_claude_mod_usage(_lemoncrow_root(), session_id)
-    except Exception:
-        return stats, False
-    if measured is None or measured.total_steps <= 0:
-        return stats, False
-
-    out = dict(stats)
-    out.update(
-        {
-            "input_tokens": measured.input_tokens,
-            "output_tokens": measured.output_tokens,
-            "cache_read_tokens": measured.cache_read_tokens,
-            "cache_write_tokens": measured.cache_write_tokens,
-            "total_tokens": measured.total_tokens,
-            "measurement_source": "claude_mod",
-            "measured_request_steps": measured.total_steps,
-            "measured_total_turns": measured.total_turns,
-            "measured_main_turns": measured.main.turns,
-            "measured_subagent_count": len(measured.subagents),
-            "measured_subagent_turns": measured.subagent_turns,
-        }
-    )
-    main_raw = bucket_cost_usd(measured.main)
-    sub_raw = sum(bucket_cost_usd(bucket) for bucket in measured.subagents.values())
-    priced_total = main_raw + sub_raw
-    host_cost = measured.measured_cost_usd
-    if host_cost is not None:
-        out["est_cost_usd"] = host_cost
-        scale = host_cost / priced_total if priced_total > 0 else 1.0
-        out["main_attributed_cost_usd"] = main_raw * scale
-        out["subagent_attributed_cost_usd"] = sub_raw * scale
-        return out, True
-    if priced_total > 0:
-        out["est_cost_usd"] = priced_total
-        out["main_attributed_cost_usd"] = main_raw
-        out["subagent_attributed_cost_usd"] = sub_raw
-    return out, False
-
-
 def _extract_session_title(transcript_path: str) -> str | None:
     """Return the first real user message from the transcript as session title.
 
@@ -644,13 +589,6 @@ def _write_session_cost(
         fh.write(json.dumps(row) + "\n")
 
 
-def _ensure_savings_sidecar(session_id: str, stats: dict[str, Any]) -> None:
-    """Create the ledger when this Claude session used lc but earned no tool rows."""
-    from lemoncrow.core.capabilities.plugin_runtime import ensure_stop_hook_savings_sidecar
-
-    ensure_stop_hook_savings_sidecar(_lemoncrow_root(), session_id, stats.get("tools_used"), agent="claude")
-
-
 def _sidecar_path(session_id: str) -> Path | None:
     try:
         from lemoncrow.core.foundation.paths import session_dir
@@ -865,7 +803,7 @@ def _load_session_savings(session_id: str, transcript_path: str = "") -> dict[st
     """Return session savings summary for the Claude session.
 
     Delegates to ``compute_savings_summary`` — the same function behind the
-    statusline's ``lc runtime savings --segment`` — so the statusline
+    statusline's ``lc savings --segment`` — so the statusline
     figure and this stop-hook summary are always derived from the same
     source (``sessions/<session_id>/savings.jsonl``, priced per-row
     at the model captured when each row was written).
@@ -887,9 +825,6 @@ def _load_session_savings(session_id: str, transcript_path: str = "") -> dict[st
         summary = compute_savings_summary(session_id, lemoncrow_root=_lemoncrow_root())
         return {
             "saved_usd": float(summary.saved_usd),
-            "total_saved_usd": float(summary.total_saved_usd),
-            "input_usd": float(summary.input_saved_usd),
-            "input_tokens": int(summary.input_saved_tokens),
             "routing_usd": float(summary.routing_saved_usd),
             "tokens_saved": int(summary.ctx_saved),
             "calls_avoided": int(summary.smart_calls),
@@ -952,6 +887,7 @@ def _format_stats(
     out = int(stats.get("output_tokens", 0) or 0)
     cache_read = int(stats.get("cache_read_tokens", 0) or 0)
     cache_write = int(stats.get("cache_write_tokens", 0) or 0)
+    total = inp + out + cache_read + cache_write
     calls = int(stats.get("tool_calls", 0) or 0)
     turns = int(stats.get("turns", 0) or 0)
     cost = float(stats.get("est_cost_usd", 0.0) or 0.0)
@@ -961,27 +897,30 @@ def _format_stats(
     tools_str = " · ".join(f"{n}×{c}" for n, c in top) if top else "none"  # noqa: RUF001
 
     cost_prefix = "cost: " if real_cost else "est. cost: "
+    # One-line tokens with all 4 Anthropic billing categories. No separate
+    # cache line — cW (cache write, expensive at ~$6.25/M for Opus) and cR
+    # (cache read, cheap at $0.50/M) get equal billing prominence so users
+    # see the real cost structure at a glance.
+    # "input processed" = new uncached input + tokens written to cache this
+    # session. Anthropic's `input_tokens` field only counts the non-cached
+    # delta per turn, which collapses to near-zero on cache-friendly sessions
+    # and confuses readers. cW is also "new input the model processed"; only
+    # cR is recycled content. So we surface (in+cW) as the meaningful
+    # cumulative input figure and keep the raw breakdown for transparency.
     fresh_in = inp + cache_write
     calls_str = f"{calls} tool call{'s' if calls != 1 else ''}"
     turns_str = f"{turns} turn{'s' if turns != 1 else ''}" if turns > 0 else ""
-    measured = stats.get("measurement_source") == "claude_mod"
-    subagent_count = int(stats.get("measured_subagent_count", 0) or 0)
-    if measured:
-        main_turns = int(stats.get("measured_main_turns", turns) or 0)
-        main_activity = (
-            f"{main_turns} main turn{'s' if main_turns != 1 else ''} · "
-            f"{calls} main tool call{'s' if calls != 1 else ''}"
-        )
-        lines = [main_activity]
-        if subagent_count:
-            subagent_turns = int(stats.get("measured_subagent_turns", 0) or 0)
-            subagent_cost = float(stats.get("subagent_attributed_cost_usd", 0.0) or 0.0)
-            share = 100.0 * subagent_cost / cost if cost > 0 else 0.0
-            lines.append(f"{subagent_count} subagents · {subagent_turns} child turns · " f"{share:.1f}% of spend")
-    else:
-        activity = " · ".join(p for p in (turns_str, calls_str) if p)
-        lines = [activity]
-    token_part = f"(I:{_fmt_tok(fresh_in)} C:{_fmt_tok(cache_read)} O:{_fmt_tok(out)})"
+    activity = " · ".join(p for p in (turns_str, calls_str) if p)
+    # One dense line per metric. Cost is omitted when negligible (<$0.01) -- the
+    # exact sub-cent figure is noise. tokens stays a single line with the 4
+    # Anthropic billing categories (cW/cR weighted by their real $ prominence).
+    tokens_line = (
+        f"tokens: {_fmt_tok(fresh_in)} in ({_fmt_tok(inp)} new + {_fmt_tok(cache_write)} cW) · "
+        f"{_fmt_tok(cache_read)} cR · {_fmt_tok(out)} out · {_fmt_tok(total)} total"
+    )
+    lines = [activity, tokens_line]
+    if cost >= 0.01:
+        lines.append(f"{cost_prefix}${cost:.4f}")
 
     # Always show savings — even at $0 — so the stop output shape is stable
     # across sessions. No display-time clamps; each saving was priced at the
@@ -995,63 +934,23 @@ def _format_stats(
     carry_tokens = int(savings.get("carry_tokens", 0) or 0)
     output_usd = float(savings.get("output_usd", 0.0) or 0.0)
     output_tokens = int(savings.get("output_tokens", 0) or 0)
-    total_saved = float(savings.get("total_saved_usd", saved_usd + carry_usd))
-    saved_parts = [f"I:{_fmt_tok(tokens_saved)}"]
-    if carry_usd >= 0.001:
-        saved_parts.append(f"K:{_fmt_tok(carry_tokens)}")
-    if output_usd >= 0.001:
-        saved_parts.append(f"O:{_fmt_tok(output_tokens)}")
-    if float(savings.get("input_usd", 0.0) or 0.0) >= 0.001:
-        saved_parts.append(f"C:{_fmt_tok(int(savings.get('input_tokens', 0) or 0))}")
+    savings_line = f"savings: {_fmt_usd(saved_usd)} · {_fmt_tok(tokens_saved)} tok · {calls_avoided} calls avoided"
+    if output_usd > 0:
+        out_tokens_str = f"/{_fmt_tok(output_tokens)} tok" if output_tokens > 0 else ""
+        savings_line += f" · O {_fmt_usd(output_usd)}{out_tokens_str}"
+    if carry_usd > 0:
+        carry_tokens_str = f"/{_fmt_tok(carry_tokens)} tok" if carry_tokens > 0 else ""
+        savings_line += f" · carry {_fmt_usd(carry_usd)}{carry_tokens_str}"
     if routing_usd > 0:
-        saved_parts.append(f"R:{_fmt_usd(routing_usd)}")
-    if measured:
-        measured_cost_prefix = "Claude cost: " if real_cost else "priced cost: "
-        lines.append(f"{measured_cost_prefix}${cost:.4f}{token_part}")
-        baseline = cost + total_saved
-        reduction = 100.0 * total_saved / baseline if baseline > 0 else 0.0
-        savings_line = (
-            f"est. LC savings: {_fmt_usd(total_saved)}({' '.join(saved_parts)}) · "
-            f"~{reduction:.1f}% lower · {calls_avoided} calls avoided"
-        )
-    else:
-        savings_line = (
-            f"{cost_prefix}${cost:.4f}{token_part} ↓ {_fmt_usd(total_saved)}"
-            f"({' '.join(saved_parts)}) · {calls_avoided} calls avoided"
-        )
+        savings_line += f" · routing {_fmt_usd(routing_usd)}"
     faster_s = estimate_time_saved_seconds(calls_avoided=calls_avoided, output_saved_tokens=output_tokens)
     if faster_s >= 60:
         savings_line += f" · ~{fmt_duration(faster_s)} faster"
     lines.append(savings_line)
 
-    tools_label = "top main tools" if measured and subagent_count else "top tools"
-    lines.append(f"{tools_label}: {tools_str}")
+    lines.append(f"top tools: {tools_str}")
 
     return "\n".join(lines)
-
-
-def _format_verified_local_savings(session_id: str) -> str:
-    """One session-specific paired Local Savings line, kept separate from modelled savings."""
-    if not session_id:
-        return ""
-    try:
-        from lemoncrow.pro.capabilities.verified_work.calibration import session_calibrated_savings
-
-        row = session_calibrated_savings(session_id, root=_lemoncrow_root())
-    except Exception:
-        return ""
-    promoted = int(row.get("promoted_repairs") or 0)
-    if promoted <= 0:
-        return ""
-    qualified = int(row.get("qualified_repairs") or 0)
-    net = row.get("calibrated_net_savings_usd")
-    if qualified > 0 and net is not None:
-        qualifier = f"{qualified}/{promoted} calibrated" if qualified != promoted else f"{promoted} calibrated"
-        return (
-            f"\nverified local: {promoted} promoted · {qualifier} · "
-            f"net ${float(net):.2f} paired (separate from est. LC savings)"
-        )
-    return f"\nverified local: {promoted} promoted · savings not calibrated"
 
 
 def _format_review_findings(session_id: str) -> str:
@@ -1106,32 +1005,24 @@ def main() -> int:
     stats = _read_transcript_stats(transcript_path)
     session_aggregate = _load_session_aggregate(session_id)
     stats = _merge_session_aggregate(stats, session_aggregate)
-    stats, mod_cost_measured = _apply_claude_mod_measurement(stats, session_id)
     # Claude's Stop payload usually omits total_cost; fall back to the
     # transcript-derived estimate already computed in _read_transcript_stats.
     payload_cost: float = float(payload.get("total_cost_usd") or payload.get("total_cost") or 0.0)
-    real_cost = mod_cost_measured
+    real_cost = False
     if stats is not None and payload_cost > 0:
         stats["est_cost_usd"] = payload_cost
         real_cost = True
 
-    # Capture all new visible messages, including intermediate commentary.
-    # Thinking/tool blocks stay private; the message identity dedupes repeated Stop.
+    # Visible assistant output belongs in the observable author journal. The
+    # parser above accepts only text blocks; provider-private thinking is never
+    # copied into run.json. Re-scans are content-deduped by the shared helper.
     with contextlib.suppress(Exception):
-        from lemoncrow.core.capabilities.session_comment_capture import capture_session_comment
-
-        capture_session_comment(_lemoncrow_root(), payload, host="claude")
+        _write_visible_assistant_messages(session_id, transcript_path)
 
     # ── Always write token/cost summary to RunLedger (fail-open) ─────────────
     if stats and stats.get("total_tokens", 0) > 0:
         with contextlib.suppress(Exception):
             _write_token_event(stats, session_id)
-
-    # MCP calls can be entirely exact reads, edits, or shell executions, none of
-    # which creates a per-call savings row. Seed the ledger for sessions that
-    # actually used LemonCrow so the calibrated Stop credits can still run.
-    with contextlib.suppress(Exception):
-        _ensure_savings_sidecar(session_id, stats or {})
 
     # ── Fold output-style + input-style + external-compactor (rtk) savings into
     # the ledger FIRST, so this Stop's own summary already includes them.
@@ -1176,13 +1067,10 @@ def main() -> int:
         if session_title or user_prompts:
             _write_session_enrichment(session_id, session_title, user_prompts, transcript_path)
 
-    # ── Surface unconsumed live-reviewer findings + session Local Savings ─────
+    # ── Surface unconsumed live-reviewer findings (advisory) ─────────────────
     review_suffix = ""
     with contextlib.suppress(Exception):
         review_suffix = _format_review_findings(session_id)
-    local_savings_suffix = ""
-    with contextlib.suppress(Exception):
-        local_savings_suffix = _format_verified_local_savings(session_id)
 
     # Transcript JSONL stays as the source of truth even after stop —
     # cost, tokens, and savings are all derivable from it. No snapshot needed.
@@ -1192,7 +1080,7 @@ def main() -> int:
     if not _is_task_session(stats, session_aggregate):
         if stats and stats["total_tokens"] > 0:
             summary = _format_stats(stats, savings, real_cost=real_cost)
-            print(json.dumps({"systemMessage": f"Session stats:\n{summary}{local_savings_suffix}{review_suffix}"}))
+            print(json.dumps({"systemMessage": f"Session stats:\n{summary}{review_suffix}"}))
         return 0
 
     # ── Code work happened: show the session-complete summary ────────────────
@@ -1200,7 +1088,7 @@ def main() -> int:
     # valid here, unlike PreToolUse/PostToolUse/UserPromptSubmit/PostToolBatch.)
     if stats and stats["total_tokens"] > 0:
         summary = _format_stats(stats, savings, real_cost=real_cost)
-        print(json.dumps({"systemMessage": f"lc session complete.\n{summary}{local_savings_suffix}{review_suffix}"}))
+        print(json.dumps({"systemMessage": f"lc session complete.\n{summary}{review_suffix}"}))
     return 0
 
 

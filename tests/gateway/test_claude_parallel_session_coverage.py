@@ -142,6 +142,23 @@ def test_claude_import_accumulates_tools_across_main_and_subagent_files(tmp_path
     assert tool_counts == {"mcp__lc__read": 1, "mcp__lc__grep": 1, "Bash": 1}
 
 
+def test_claude_parallel_coverage_matrix_doc_exists_and_has_required_rows() -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    # Engineering docs were relocated to docs-internal/ on the bench refactor.
+    matrix = repo_root / "docs-internal" / "engineering" / "claude-parallel-session-harvest-matrix.md"
+    if not matrix.exists():
+        matrix = repo_root / "docs" / "engineering" / "claude-parallel-session-harvest-matrix.md"
+
+    content = matrix.read_text(encoding="utf-8")
+
+    assert "| Foreground |" in content
+    assert "| Subagent |" in content
+    assert "| Background / agent-view |" in content
+    assert "| Teammate |" in content
+    assert "| Workflow agent |" in content
+    assert "Do not add `~/.claude/jobs/*` scanning" in content
+
+
 def test_snapshot_edited_files_normalizes_absolute_content_path(tmp_path: Path) -> None:
     store = build_sqlite_store_bundle(tmp_path / "lemoncrow")
     store.init()
@@ -163,39 +180,3 @@ def test_snapshot_edited_files_normalizes_absolute_content_path(tmp_path: Path) 
     assert len(snapshots) == 1
     assert snapshots[0].content_path.startswith("raw/claude/snapshots/sess-123/")
     assert not snapshots[0].content_path.startswith("/")
-
-
-def test_claude_import_captures_latest_complete_host_cost_state(tmp_path: Path) -> None:
-    store = build_sqlite_store_bundle(tmp_path / "lemoncrow")
-    store.init()
-    importer = ClaudeImporter(store)
-
-    workspace_slug = "workspace-cost"
-    session_id = "cost-session"
-    root_jsonl = tmp_path / workspace_slug / f"{session_id}.jsonl"
-    _write_jsonl(
-        root_jsonl,
-        [
-            {"type": "meta", "sessionId": session_id},
-            {
-                "type": "assistant",
-                "message": {
-                    "id": "msg-cost",
-                    "model": "claude-opus-5-5",
-                    "usage": {"input_tokens": 10, "output_tokens": 4},
-                    "content": [{"type": "text", "text": "done"}],
-                },
-            },
-            {"type": "cost-state", "totalCostUSD": 1.25, "hasUnknownModelCost": False},
-            {"type": "cost-state", "totalCostUSD": 2.75, "hasUnknownModelCost": False},
-            # An incomplete later snapshot must not replace the last complete one.
-            {"type": "cost-state", "totalCostUSD": 9.99, "hasUnknownModelCost": True},
-        ],
-    )
-
-    result = importer.import_session(workspace_slug, root_jsonl, force=True)
-
-    assert result is not None
-    traces = [trace for trace in store.history.list_traces(host="claude", limit=10) if trace.session_id == session_id]
-    assert len(traces) == 1
-    assert traces[0].telemetry["host_reported_cost_usd"] == 2.75

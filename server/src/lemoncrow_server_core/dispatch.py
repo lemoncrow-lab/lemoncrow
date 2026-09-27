@@ -6,7 +6,7 @@ JSON-RPC dispatcher that the stdio and HTTP MCP transports use, so "parity with
 current stdio behaviour" is a property of the code path rather than a test we
 have to keep writing.
 
-This module owns the vocabulary; the hosted ``lemoncrow_server.registry_dispatch`` owns the binding.
+This module owns the vocabulary; :mod:`.registry_dispatch` owns the binding.
 """
 
 from __future__ import annotations

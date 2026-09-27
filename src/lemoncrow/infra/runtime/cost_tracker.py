@@ -69,19 +69,13 @@ def estimate_cost(
     cache_read_tokens: int = 0,
     cache_write_tokens: int = 0,
     thinking_tokens: int = 0,
-) -> float | None:
-    """Return estimated USD, or None when the model has no billable rate card.
+) -> float:
+    """Compute USD cost using the shared LiteLLM-backed pricing table.
 
-    In particular, an unknown model or zero-priced local model is *not* free:
-    its usage is known, but its provider/compute cost cannot be inferred.
+    Unknown models fall back to the zero-cost default until LiteLLM or a test
+    override provides pricing data for them.
     """
-    pricing = _get_model_pricing(model)
-    if not pricing.known or not any(
-        float(getattr(pricing, axis, 0.0) or 0.0) > 0.0
-        for axis in ("input", "output", "cache_read", "cache_write", "cache_write_1h", "thinking")
-    ):
-        return None
-    return pricing.cost_usd(
+    return _get_model_pricing(model).cost_usd(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         cache_read_tokens=cache_read_tokens,
@@ -126,7 +120,7 @@ class CallRecord:
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
     thinking_tokens: int = 0
-    cost_usd: float | None = None
+    cost_usd: float = 0.0
     lessons_used: list[str] = field(default_factory=list)
     op_key: str = ""
     at: str = ""
@@ -317,30 +311,6 @@ class CostTracker:
 
     # ----- savings -------------------------------------------------------- #
 
-    @staticmethod
-    def _recorded_cost(call: dict[str, Any]) -> float | None:
-        raw = call.get("cost_usd")
-        if raw is None:
-            return None
-        try:
-            value = float(raw)
-        except (TypeError, ValueError):
-            return None
-        # Older ledgers erroneously wrote zero for unknown-priced models.
-        # Even those historical rows must not establish a free baseline.
-        if value == 0.0 and any(
-            int(call.get(field) or 0)
-            for field in (
-                "input_tokens",
-                "output_tokens",
-                "cache_read_tokens",
-                "cache_write_tokens",
-            )
-        ):
-            if estimate_cost(str(call.get("model") or ""), 1, 1) is None:
-                return None
-        return value
-
     def savings_for(self, op_key: str) -> dict[str, Any]:
         """Compute savings vs. (a) prior call of same op and (b) baseline.
 
@@ -367,29 +337,20 @@ class CostTracker:
                 "calls_count": 0,
             }
         calls = entry["calls"]
-        baseline = self._recorded_cost(calls[0])
-        current = self._recorded_cost(calls[-1])
-        last = self._recorded_cost(calls[-2]) if len(calls) >= 2 else current
-        comparable = baseline is not None and current is not None and last is not None
-        pct_base = (
-            (baseline - current) / baseline * 100.0
-            if comparable and baseline is not None and current is not None and baseline > 0
-            else None
-        )
+        baseline = float(calls[0].get("cost_usd", 0.0))
+        current = float(calls[-1].get("cost_usd", 0.0))
+        last = float(calls[-2].get("cost_usd", current)) if len(calls) >= 2 else current
+        pct_base = ((baseline - current) / baseline * 100.0) if baseline > 0 else 0.0
         return {
             "op_key": op_key,
             "domain": entry.get("domain"),
             "task_sample": entry.get("task_sample"),
-            "baseline_cost_usd": round(baseline, 6) if baseline is not None else None,
-            "last_cost_usd": round(last, 6) if last is not None else None,
-            "current_cost_usd": round(current, 6) if current is not None else None,
-            "delta_vs_last_usd": (
-                round(last - current, 6) if comparable and last is not None and current is not None else None
-            ),
-            "delta_vs_base_usd": (
-                round(baseline - current, 6) if comparable and baseline is not None and current is not None else None
-            ),
-            "pct_vs_base": round(pct_base, 2) if pct_base is not None else None,
+            "baseline_cost_usd": round(baseline, 6),
+            "last_cost_usd": round(last, 6),
+            "current_cost_usd": round(current, 6),
+            "delta_vs_last_usd": round(last - current, 6),
+            "delta_vs_base_usd": round(baseline - current, 6),
+            "pct_vs_base": round(pct_base, 2),
             "calls_count": len(calls),
         }
 
@@ -399,7 +360,6 @@ class CostTracker:
         ops = history.get("operations", {}) or {}
         total_baseline = 0.0
         total_current = 0.0
-        unpriced_calls = 0
         total_calls = 0
         per_op: list[dict[str, Any]] = []
 
@@ -419,14 +379,10 @@ class CostTracker:
             if not filtered_calls:
                 continue
 
-            baseline = self._recorded_cost(calls[0])
-            priced = [self._recorded_cost(c) for c in filtered_calls]
-            unpriced_calls += sum(value is None for value in priced)
-            if baseline is None:
-                unpriced_calls += sum(value is not None for value in priced)
-            else:
-                total_baseline += baseline * sum(value is not None for value in priced)
-                total_current += sum(value for value in priced if value is not None)
+            baseline = float(calls[0].get("cost_usd", 0.0) or 0.0)
+            actual_total = sum(float(c.get("cost_usd", 0.0) or 0.0) for c in filtered_calls)
+            total_baseline += baseline * len(filtered_calls)
+            total_current += actual_total
             total_calls += len(filtered_calls)
 
             # Note: savings_for still looks at latest call, but here we only
@@ -434,17 +390,16 @@ class CostTracker:
             s = self.savings_for(op_key)
             per_op.append(s)
 
-        delta = max(0.0, total_baseline - total_current) if unpriced_calls == 0 else None
-        pct = None if delta is None else (delta / total_baseline * 100.0 if total_baseline > 0 else 0.0)
+        delta = max(0.0, total_baseline - total_current)
+        pct = (delta / total_baseline * 100.0) if total_baseline > 0 else 0.0
         return {
             "operations_tracked": len(ops),
             "total_calls": total_calls,
-            "unpriced_calls": unpriced_calls,
-            "would_have_cost_usd": round(total_baseline, 6) if delta is not None else None,
-            "actually_cost_usd": round(total_current, 6) if delta is not None else None,
-            "saved_usd": round(delta, 6) if delta is not None else None,
-            "saved_pct": round(pct, 2) if pct is not None else None,
-            "per_operation": sorted(per_op, key=lambda x: -(x["delta_vs_base_usd"] or 0.0)),
+            "would_have_cost_usd": round(total_baseline, 6),
+            "actually_cost_usd": round(total_current, 6),
+            "saved_usd": round(delta, 6),
+            "saved_pct": round(pct, 2),
+            "per_operation": sorted(per_op, key=lambda x: -x["delta_vs_base_usd"]),
         }
 
     # ----- per-tool breakdown -------------------------------------------- #
@@ -482,12 +437,9 @@ class CostTracker:
     # ----- ledger snapshot helpers --------------------------------------- #
 
     def snapshot(self) -> dict[str, Any]:
-        unpriced = sum(c.cost_usd is None for c in self.calls)
         return {
             "calls": [c.to_dict() for c in self.calls],
-            # Do not price a partially unknown session at the known-cost floor.
-            "total_cost_usd": (None if unpriced else round(sum(c.cost_usd or 0.0 for c in self.calls), 6)),
-            "unpriced_calls": unpriced,
+            "total_cost_usd": round(sum(c.cost_usd for c in self.calls), 6),
             "total_input_tokens": sum(c.input_tokens for c in self.calls),
             "total_output_tokens": sum(c.output_tokens for c in self.calls),
             "total_cache_read_tokens": sum(c.cache_read_tokens for c in self.calls),

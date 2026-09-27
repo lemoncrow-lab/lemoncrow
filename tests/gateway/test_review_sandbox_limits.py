@@ -66,38 +66,38 @@ def test_concurrent_sandbox_work_never_exceeds_the_slot_pool(slots) -> None:  # 
     assert peak == 2
 
 
-def test_concurrency_setting_is_clamped_and_zero_means_automatic(monkeypatch: pytest.MonkeyPatch) -> None:
-    for _case_index, (raw, expected) in enumerate(
-        [("3", 3), ("99", 16), ("0", "auto"), ("many", "auto"), (None, "auto")]
-    ):
-        with monkeypatch.context() as case_monkeypatch:
-            if raw is None:
-                case_monkeypatch.delenv(sandbox_limits.CONCURRENCY_ENV, raising=False)
-            else:
-                case_monkeypatch.setenv(sandbox_limits.CONCURRENCY_ENV, raw)
-            automatic = max(1, min(4, (os.cpu_count() or 2) // 2))
-            assert sandbox_limits.sandbox_concurrency() == (automatic if expected == "auto" else expected)
+@pytest.mark.parametrize(("raw", "expected"), [("3", 3), ("99", 16), ("0", "auto"), ("many", "auto"), (None, "auto")])
+def test_concurrency_setting_is_clamped_and_zero_means_automatic(
+    monkeypatch: pytest.MonkeyPatch, raw: str | None, expected: int | str
+) -> None:
+    if raw is None:
+        monkeypatch.delenv(sandbox_limits.CONCURRENCY_ENV, raising=False)
+    else:
+        monkeypatch.setenv(sandbox_limits.CONCURRENCY_ENV, raw)
+    automatic = max(1, min(4, (os.cpu_count() or 2) // 2))
+    assert sandbox_limits.sandbox_concurrency() == (automatic if expected == "auto" else expected)
 
 
-def test_memory_ceiling_is_clamped_and_zero_is_an_explicit_opt_out(monkeypatch: pytest.MonkeyPatch) -> None:
-    for _case_index, (raw, expected) in enumerate(
-        [(None, 4096), ("2048", 2048), ("10", 256), ("999999", 65536), ("lots", 4096), ("0", 0)]
-    ):
-        with monkeypatch.context() as case_monkeypatch:
-            if raw is None:
-                case_monkeypatch.delenv(MEMORY_ENV, raising=False)
-            else:
-                case_monkeypatch.setenv(MEMORY_ENV, raw)
-            assert sandbox_memory_mb() == expected
-            if expected == 0:
-                assert limit_prefix() == []
-                assert limit_note(137) == ""
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [(None, 4096), ("2048", 2048), ("10", 256), ("999999", 65536), ("lots", 4096), ("0", 0)],
+)
+def test_memory_ceiling_is_clamped_and_zero_is_an_explicit_opt_out(
+    monkeypatch: pytest.MonkeyPatch, raw: str | None, expected: int
+) -> None:
+    if raw is None:
+        monkeypatch.delenv(MEMORY_ENV, raising=False)
+    else:
+        monkeypatch.setenv(MEMORY_ENV, raw)
+    assert sandbox_memory_mb() == expected
+    if expected == 0:
+        assert limit_prefix() == []
+        assert limit_note(137) == ""
 
 
 def test_cgroup_scope_caps_the_whole_tree_and_the_fallback_caps_each_process(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setenv(MEMORY_ENV, "1024")
     runner = ("/usr/bin/env", "XDG_RUNTIME_DIR=/run/user/1000", "/usr/bin/systemd-run")
     monkeypatch.setattr(sandbox_limits, "_cgroup_scope_runner", lambda: runner)
@@ -117,8 +117,7 @@ def test_cgroup_scope_caps_the_whole_tree_and_the_fallback_caps_each_process(
 def test_the_memory_ceiling_is_enforced_on_this_host(monkeypatch: pytest.MonkeyPatch) -> None:
     """Real processes: whichever mechanism this host supports must actually bite."""
     monkeypatch.setenv(MEMORY_ENV, "256")
-    # Darwin uses RSS sampling, so keep the allocation alive until the monitor observes it.
-    grab = "import time; b = bytearray({}); b[::4096] = b'x' * len(b[::4096]); time.sleep(.15); print('allocated')"
+    grab = "b = bytearray({}); b[::4096] = b'x' * len(b[::4096]); print('allocated')"
 
     over = run_limited(
         [sys.executable, "-c", grab.format(700 * 1024 * 1024)], timeout=60, capture_output=True, text=True
@@ -205,23 +204,12 @@ def test_reinstalling_checkout_dependencies_invalidates_a_shared_build(tmp_path:
     assert _root(tmp_path, revision, "old") not in {before}
 
 
-def test_builds_are_shared_across_reviews(tmp_path: Path) -> None:
-    first = _revision("r1")
-    other_review = SimpleNamespace(**{**vars(_revision("r9")), "review_id": "review-2"})
-
-    # Same base content in another Review: the same build, not a per-Review copy.
-    assert _root(tmp_path, first, "old") == _root(tmp_path, other_review, "old")
-    assert _root(tmp_path, first, "old").parent == tmp_path / "review" / "web-previews" / "builds"
-
-
 def test_the_build_cache_keeps_recent_builds_and_drops_idle_and_retired_ones(tmp_path: Path) -> None:
-    from lemoncrow.pro.capabilities.review.scratch_cache import wait_for_retired
-
-    previews_root = tmp_path / "review" / "web-previews"
-    builds = previews_root / "builds"
+    review_root = tmp_path / "review" / "web-previews" / "review-1"
+    builds = review_root / "builds"
     now = time.time()
     entries = []
-    for index in range(web_preview.KEEP_BUILDS + 3):
+    for index in range(web_preview.KEEP_BUILDS_PER_REVIEW + 3):
         entry = builds / f"build-{index}"
         entry.mkdir(parents=True)
         age = 7200 + index  # all idle; lower index = more recently used
@@ -229,29 +217,21 @@ def test_the_build_cache_keeps_recent_builds_and_drops_idle_and_retired_ones(tmp
         entries.append(entry)
     fresh_extra = builds / "in-use"
     fresh_extra.mkdir()
-    # Retired layouts: builds under each Review id, and before that each Snapshot.
-    per_review = previews_root / "review-1"
-    (per_review / "builds" / "old-key").mkdir(parents=True)
-    os.utime(per_review, (now - 7200, now - 7200))
-    per_snapshot = previews_root / "rev-1"
-    (per_snapshot / "rrv-1").mkdir(parents=True)
-    os.utime(per_snapshot, (now - 7200, now - 7200))
+    retired = review_root / "01a0-old-per-snapshot-layout"
+    retired.mkdir()
+    os.utime(retired, (now - 7200, now - 7200))
     current = entries[-1]
 
-    web_preview._prune_web_preview_cache(tmp_path, current)
+    web_preview._prune_web_preview_cache(tmp_path, SimpleNamespace(review_id="review-1"), current)  # type: ignore[arg-type]
 
-    survivors = {path.name for path in builds.iterdir() if not path.name.startswith(".trash-")}
+    survivors = {path.name for path in builds.iterdir()}
     assert current.name in survivors  # the build being served is never pruned
     assert "in-use" in survivors  # recently used, even beyond the keep count
-    assert len(survivors) == web_preview.KEEP_BUILDS
-    assert not per_review.exists()
-    assert not per_snapshot.exists()
-    wait_for_retired()
-    assert not [path for path in builds.iterdir() if path.name.startswith(".trash-")]
+    assert len(survivors) == web_preview.KEEP_BUILDS_PER_REVIEW
+    assert not retired.exists()
 
 
 def test_the_limiter_wraps_real_subprocess_calls(monkeypatch: pytest.MonkeyPatch, slots) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.setattr(sys, "platform", "linux")
     slots(1)
     seen: list[list[str]] = []
 

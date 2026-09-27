@@ -11,13 +11,6 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
-from lemoncrow.pro.capabilities.review.execution import verification_row
-from lemoncrow.pro.capabilities.review.freshness import (
-    EvidenceFreshness,
-    format_timestamp,
-    freshness_class,
-    observation_time,
-)
 from lemoncrow.pro.capabilities.review.session_models import ReviewEvidence, ReviewRevision
 from lemoncrow.pro.capabilities.review.supply_chain import parse_evidence_metadata
 
@@ -26,53 +19,6 @@ if TYPE_CHECKING:
 
 _STATES = frozenset({"PASS", "FAIL", "NOT_RUN", "UNKNOWN"})
 _SUPPLY_CHAIN_KINDS = frozenset({"sbom", "provenance", "vulnerability_scan"})
-# Typed attestations no other observation may stand in for. A human, agent or
-# untyped row titled exactly like a LemonCrow-executed or provider check is a
-# different check, never a newer result of that one (Phase 14 item 38).
-_AUTHORITATIVE_CLASSES = frozenset(
-    {"lemoncrow_verification", "provider_ci", "trusted_security_feed", "signed_attestation"}
-)
-_HUMAN_CLASSES = frozenset({"human_observation", "human_waiver"})
-#: Prefix of ``ReviewEvidence.waived_requirement_key`` for a waiver of one typed
-#: verification row (hosted policy waivers use ``check:<sha256>``).
-TYPED_ROW_WAIVER_PREFIX = "attested:"
-
-
-def check_key(item: ReviewEvidence) -> str:
-    """Typed identity of an authoritative attestation; ``""`` for anything else.
-
-    The display title is presentation only: two provider checks with the same
-    title are two checks, and a renamed check is still the same check.
-    """
-
-    if item.attestation_class not in _AUTHORITATIVE_CLASSES or not item.stable_key.strip():
-        return ""
-    return "|".join(
-        (item.attestation_class, item.provider, item.integration_id, item.environment, item.stable_key.strip())
-    )
-
-
-def evidence_authority(item: ReviewEvidence) -> str:
-    """``attested`` (typed authority), ``human`` (supports review only) or ``reported``."""
-
-    if check_key(item):
-        return "attested"
-    if item.attestation_class in _HUMAN_CLASSES or item.source == "human":
-        return "human"
-    return "reported"
-
-
-def _identity(item: ReviewEvidence) -> tuple[str, str]:
-    # The authority lane is part of identity: a human or untyped row can never
-    # be a newer result of a typed attestation, and a human upload can never be
-    # a newer result of a reported CI/test row, whatever it is titled.
-    typed = check_key(item)
-    if typed:
-        return "attested", typed
-    name = item.title.strip() or "Verification"
-    if evidence_authority(item) == "human":
-        return "human", item.stable_key.strip() or name
-    return "reported", name
 
 
 def _status(value: object) -> str:
@@ -90,7 +36,7 @@ def _lane(source: str) -> str:
 
 
 def _row(item: ReviewEvidence, *, number: int | None, state: str) -> dict[str, Any]:
-    row = {
+    return {
         "name": item.title.strip() or "Verification",
         "kind": item.kind,
         "status": _status(item.verification_status),
@@ -100,15 +46,8 @@ def _row(item: ReviewEvidence, *, number: int | None, state: str) -> dict[str, A
         "source": item.source,
         "source_ref": item.source_ref,
         "lane": _lane(item.source),
-        "attestation_class": item.attestation_class,
-        "authority": evidence_authority(item),
-        "check_key": check_key(item),
-        "stable_key": item.stable_key,
-        "evidence_id": item.id,
-        "freshness_class": freshness_class(item),
         "path": item.path,
         "detail": item.detail,
-        "executor_class": item.executor_class,
         "observed_at": item.created_at,
         "artifact": (
             {
@@ -122,11 +61,6 @@ def _row(item: ReviewEvidence, *, number: int | None, state: str) -> dict[str, A
             else None
         ),
     }
-    # Where an executed result was verified and what that environment could not verify.
-    execution = verification_row(item.execution_verification)
-    if execution is not None:
-        row["execution"] = execution
-    return row
 
 
 def build_verification_projection(
@@ -139,28 +73,16 @@ def build_verification_projection(
     changed_paths: Sequence[str] = (),
     web_routes: Sequence[str] | None = None,
     read_artifact: Callable[[ReviewEvidence], bytes | None] | None = None,
-    freshness: Mapping[str, EvidenceFreshness] | None = None,
 ) -> dict[str, Any]:
-    """Project checks/artifacts for one Snapshot.
-
-    ``freshness`` (evidence id -> assessment at one instant) annotates rows
-    with their freshness state; readiness enforces expiry, this projection
-    only displays it and never rewrites an observed status.
-    """
-
     from lemoncrow.pro.capabilities.review.browser_checks import build_browser_projection, is_browser_evidence
 
     def snapshot_number(item: ReviewRevision) -> int:
         return max(0, item.revision_number - 1)
 
     numbers = {item.id: snapshot_number(item) for item in revisions}
-    # Intent captures and pre-merge model results are neither checks nor
-    # artifacts; pre-merge checks project them (``premerge_checks``).
-    # Deployment observations are post-merge outcomes (``outcomes``), never checks.
-    evidence = tuple(item for item in evidence if item.kind not in {"intent", "premerge_check", "deployment"})
     browser_evidence = tuple(item for item in evidence if is_browser_evidence(item))
     evidence = tuple(item for item in evidence if not is_browser_evidence(item))
-    current: dict[tuple[str, str], dict[str, Any]] = {}
+    current: dict[str, dict[str, Any]] = {}
     session: dict[str, dict[str, Any]] = {}
 
     # Packet evidence is what provenance recorded from the authoring session:
@@ -194,35 +116,27 @@ def build_verification_projection(
 
     # Newest exact-Snapshot observation for a name is the current result.
     exact = sorted(
-        (
-            item
-            for item in evidence
-            if item.revision_id == revision.id
-            and item.verification_status
-            and item.execution_intent != "explicit_historical"
-        ),
+        (item for item in evidence if item.revision_id == revision.id and item.verification_status),
         key=lambda item: (item.created_at, item.id),
         reverse=True,
     )
     for item in exact:
-        identity = _identity(item)
-        if identity in current:
+        name = item.title.strip() or "Verification"
+        if name in current:
             continue
-        current[identity] = _row(item, number=numbers.get(item.revision_id), state="current")
+        current[name] = _row(item, number=numbers.get(item.revision_id), state="current")
     # A real observation of the same check supersedes the session's claim.
-    current_names = {str(row["name"]) for row in current.values()}
-    session = {name: row for name, row in session.items() if name not in current_names}
+    session = {name: row for name, row in session.items() if name not in current}
 
     # Only the latest prior result per missing check is shown. It is explicitly
     # stale and never contributes to PASS/FAIL for the requested Snapshot.
-    stale: dict[tuple[str, str], dict[str, Any]] = {}
+    stale: dict[str, dict[str, Any]] = {}
     prior = sorted(
         (
             item
             for item in evidence
             if item.revision_id != revision.id
             and item.verification_status
-            and item.execution_intent != "explicit_historical"
             and (captured := next((row for row in revisions if row.id == item.revision_id), None)) is not None
             and captured.revision_number < revision.revision_number
         ),
@@ -230,10 +144,10 @@ def build_verification_projection(
         reverse=True,
     )
     for item in prior:
-        identity = _identity(item)
-        if identity in current or identity in stale:
+        name = item.title.strip() or "Verification"
+        if name in current or name in stale:
             continue
-        stale[identity] = _row(item, number=numbers.get(item.revision_id), state="stale")
+        stale[name] = _row(item, number=numbers.get(item.revision_id), state="stale")
 
     def read_record(item: ReviewEvidence) -> Mapping[str, Any] | None:
         import json
@@ -261,46 +175,20 @@ def build_verification_projection(
     # Snapshot. It never changes the observed status; it only marks a row that
     # blocks without a current failure (a carried non-PASS or a current
     # NOT_RUN/UNKNOWN). A current FAIL outranks any waiver.
-    # A typed row is waived only by a waiver naming its typed key; a title
-    # waiver (the legacy form) reaches untyped rows only, so copying a
-    # provider/LemonCrow check's title can never waive that check.
-    from lemoncrow.pro.capabilities.review.readiness import SUPPLY_CHAIN_REQUIREMENT_KEY
-
     waivers: dict[str, ReviewEvidence] = {}
-    typed_waivers: dict[str, ReviewEvidence] = {}
-    supply_chain_waiver: dict[str, Any] | None = None
     for item in sorted(
         (item for item in evidence if item.kind == "waiver" and item.revision_id == revision.id),
         key=lambda item: (item.created_at, item.id),
         reverse=True,
     ):
-        if item.waived_requirement_key.startswith(TYPED_ROW_WAIVER_PREFIX):
-            typed_waivers.setdefault(item.waived_requirement_key.removeprefix(TYPED_ROW_WAIVER_PREFIX), item)
-        elif item.waived_requirement_key == SUPPLY_CHAIN_REQUIREMENT_KEY:
-            # The newest explicit human waiver of the supply-chain policy on
-            # this exact Snapshot; readiness decides what it may unblock.
-            if supply_chain_waiver is None and item.attestation_class == "human_waiver":
-                supply_chain_waiver = {
-                    "evidence_id": item.id,
-                    "reason": item.detail,
-                    "actor": item.attested_by or item.source_ref,
-                    "snapshot_id": item.revision_id,
-                    "observed_at": item.created_at,
-                }
-        elif not item.waived_requirement_key:
-            waivers.setdefault(item.title.strip(), item)
+        waivers.setdefault(item.title.strip(), item)
     latest = all(item.revision_number <= revision.revision_number for item in revisions)
     for row in (*current.values(), *stale.values()):
         blocking = row["kind"] not in _SUPPLY_CHAIN_KINDS and (
             (row["state"] == "stale" and row["status"] != "PASS")
             or (row["state"] == "current" and row["status"] in {"NOT_RUN", "UNKNOWN"})
         )
-        if not blocking:
-            waiver = None
-        elif row["check_key"]:
-            waiver = typed_waivers.get(str(row["check_key"]))
-        else:
-            waiver = waivers.get(str(row["name"]))
+        waiver = waivers.get(str(row["name"])) if blocking else None
         if waiver is not None:
             row["waiver"] = {
                 "evidence_id": waiver.id,
@@ -311,12 +199,6 @@ def build_verification_projection(
             }
         row["waivable"] = blocking and waiver is None and latest
 
-    if freshness is not None:
-        for row in current.values():
-            known = freshness.get(str(row["evidence_id"]))
-            if known is not None:
-                row["freshness"] = known.to_wire()
-
     checks = [*current.values(), *session.values(), *stale.values(), *browser_checks]
     checks.sort(
         key=lambda row: (
@@ -325,18 +207,7 @@ def build_verification_projection(
             str(row["name"]),
         )
     )
-
-    def summary_status(row: Mapping[str, Any]) -> str:
-        # An expired (or unassessable) observation is not a current PASS: the
-        # summary counts it as UNKNOWN, as readiness does, while the row keeps
-        # its observed status and names its freshness.
-        status = str(row["status"])
-        fresh = row.get("freshness")
-        if status == "PASS" and isinstance(fresh, Mapping) and str(fresh.get("state") or "") != "current":
-            return "UNKNOWN"
-        return status
-
-    statuses = [summary_status(row) for row in checks if row["state"] == "current"]
+    statuses = [str(row["status"]) for row in checks if row["state"] == "current"]
 
     artifacts: list[dict[str, Any]] = []
     for item in evidence:
@@ -349,21 +220,12 @@ def build_verification_projection(
         if not item.content_hash and item.kind not in _SUPPLY_CHAIN_KINDS:
             continue
         metadata = parse_evidence_metadata(item.detail) if item.kind in _SUPPLY_CHAIN_KINDS else {}
-        observed = observation_time(item)
-        state = "current" if item.revision_id == revision.id else "stale"
-        known = freshness.get(item.id) if freshness is not None and state == "current" else None
         artifacts.append(
             {
                 "id": item.id,
                 "kind": item.kind,
                 "title": item.title,
-                "state": state,
-                "authority": evidence_authority(item),
-                "check_key": check_key(item),
-                "freshness_class": freshness_class(item),
-                "source_observed_at": format_timestamp(observed) if observed is not None else "",
-                "source_revision": str(metadata.get("source_revision") or metadata.get("database_revision") or ""),
-                **({"freshness": known.to_wire()} if known is not None else {}),
+                "state": "current" if item.revision_id == revision.id else "stale",
                 "snapshot_id": item.revision_id,
                 "snapshot_number": number,
                 "digest": item.content_hash,
@@ -400,8 +262,7 @@ def build_verification_projection(
         },
         "artifacts": artifacts,
         "browser": browser_summary,
-        "supply_chain_waiver": supply_chain_waiver,
     }
 
 
-__all__ = ["TYPED_ROW_WAIVER_PREFIX", "build_verification_projection", "check_key", "evidence_authority"]
+__all__ = ["build_verification_projection"]

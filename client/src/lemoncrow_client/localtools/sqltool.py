@@ -42,18 +42,18 @@ def run_sql(context: LocalContext, arguments: Mapping[str, Any]) -> LocalResult:
         write=bool_arg("sql", args, "write", False),
         repo_root=context.repo_root,
         env=context.environment,
-        hooks=SqlHooks(cell_spill=_spill_to()),
+        hooks=SqlHooks(cell_spill=_spill_to(context.config.state_dir)),
     )
     payload = strip_empty_values(payload)
     text = payload_text(payload, render_sql_text(payload))
     return LocalResult(content=({"type": "text", "text": text},), is_error=bool(payload.get("isError")))
 
 
-def _spill_to() -> Callable[[str], Path | None]:
+def _spill_to(state_dir: Path) -> Callable[[str], Path | None]:
     def spill(full_text: str) -> Path | None:
         from .shell import spill_text
 
-        return spill_text(full_text, kind="sql")
+        return spill_text(full_text, state_dir, kind="sql")
 
     return spill
 

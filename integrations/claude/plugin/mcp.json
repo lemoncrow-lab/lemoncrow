@@ -2,7 +2,7 @@
   "mcpServers": {
     "lemoncrow": {
       "command": "lc",
-      "args": ["runtime", "mcp", "--host", "claude"],
+      "args": ["mcp", "--host", "claude"],
       "env": {
         "LEMONCROW_MCP_TOOL_PROFILE": "core"
       },

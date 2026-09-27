@@ -6,30 +6,8 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
 
-from lemoncrow_client.protocol import CAPTURE_OPTIONS, PROTOCOL_VERSION, REVIEW_FEATURES, parse_review_manifest
 from lemoncrow_client.session import RemoteSession
 from lemoncrow_client.transport import Response
-
-
-def _handshaken(session: RemoteSession) -> RemoteSession:
-    """What the handshake records against a server declaring every Review feature."""
-
-    session.state.protocol_version = PROTOCOL_VERSION
-    session.state.review_manifest = parse_review_manifest(
-        PROTOCOL_VERSION,
-        {
-            "product_capabilities": {
-                "review": {
-                    "manifest": 1,
-                    **dict.fromkeys(REVIEW_FEATURES, True),
-                    "schemas": {"packet": [2], "evidence": [1], "policy": [1], "record": [1]},
-                    "capture_modes": ["derived", "packet"],
-                    "capture_options": sorted(CAPTURE_OPTIONS),
-                }
-            }
-        },
-    )
-    return session
 
 
 class _RecordingTransport:
@@ -83,7 +61,7 @@ class _RecordingTransport:
 
 def test_capture_review_posts_the_diff_to_the_bound_hosted_view(config: Any) -> None:
     transport = _RecordingTransport()
-    session = _handshaken(RemoteSession(config, transport=transport))  # type: ignore[arg-type]
+    session = RemoteSession(config, transport=transport)  # type: ignore[arg-type]
     session.state.session_id = "session-1"
     session.state.view_id = "view-1"
     session.state.view_revision = 7
@@ -92,7 +70,7 @@ def test_capture_review_posts_the_diff_to_the_bound_hosted_view(config: Any) -> 
         repo_id="repo-1",
         source_ref="client:working_tree",
         title="Working tree",
-        packet={"schema_version": 2, "files": []},
+        packet={"schema_version": 1, "files": []},
         new_blobs={"pkg/a.py": "print('new')\n"},
         workspace_branch="main",
     )
@@ -107,7 +85,7 @@ def test_capture_review_posts_the_diff_to_the_bound_hosted_view(config: Any) -> 
         "source_ref": "client:working_tree",
         "title": "Working tree",
         "restore_archived": False,
-        "packet": {"schema_version": 2, "files": []},
+        "packet": {"schema_version": 1, "files": []},
         "new_blobs": {"pkg/a.py": "print('new')\n"},
         "base_view_id": "",
         "base_view_revision": 0,
@@ -121,7 +99,7 @@ def test_capture_review_posts_the_diff_to_the_bound_hosted_view(config: Any) -> 
 
 def test_thin_capture_posts_only_view_and_range_identity(config: Any) -> None:
     transport = _RecordingTransport()
-    session = _handshaken(RemoteSession(config, transport=transport))  # type: ignore[arg-type]
+    session = RemoteSession(config, transport=transport)  # type: ignore[arg-type]
     session.state.session_id = "session-1"
     session.state.view_id = "view-head"
     session.state.repo_id = "repo-1"
@@ -215,7 +193,7 @@ def test_remote_session_publishes_and_advances_live_view_binding(config: Any, wo
     report = session.bootstrap(deadline_s=10.0)
     assert report.ok, report.reason
 
-    binding = load_live_view_binding(config.runtime_state_dir, worktree, server_url=config.url)
+    binding = load_live_view_binding(state_dir, worktree, server_url=config.url)
     assert binding is not None
     assert binding.repo_id == session.state.repo_id
     assert binding.view_id == session.state.view_id
@@ -225,17 +203,15 @@ def test_remote_session_publishes_and_advances_live_view_binding(config: Any, wo
     previous_revision = binding.view_revision
     (worktree / "pkg" / "alpha.py").write_text("def alpha():\n    return 'changed'\n", encoding="utf-8")
     session.push_paths(("pkg/alpha.py",))
-    # A path-specific push cannot prove other editor changes are synchronized.
-    session.sync_if_changed()
 
-    advanced = load_live_view_binding(config.runtime_state_dir, worktree, server_url=config.url)
+    advanced = load_live_view_binding(state_dir, worktree, server_url=config.url)
     assert advanced is not None
     assert advanced.view_id == binding.view_id
     assert advanced.view_revision > previous_revision
     assert advanced.workspace_fingerprint == workspace_state_fingerprint(worktree)
 
     session.close()
-    assert load_live_view_binding(config.runtime_state_dir, worktree, server_url=config.url) is None
+    assert load_live_view_binding(state_dir, worktree, server_url=config.url) is None
 
 
 def test_fresh_remote_session_can_adopt_live_view_without_opening_it(config: Any) -> None:

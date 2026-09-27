@@ -29,25 +29,23 @@
     <meta name="twitter:image:alt" content="LemonCrow" />
     <title>LemonCrow</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180" />
     <link rel="manifest" href="/site.webmanifest" />
 </head>
-<body class="bg-background text-foreground">
+<body class="bg-neutral-950 text-neutral-100">
     <div id="root">
-      <!-- Shown until the app mounts: tokens only (the theme class is applied by main.tsx before the first render). -->
       <div
         data-lemoncrow-boot-fallback
-        class="flex min-h-screen items-center justify-center bg-background p-6 font-sans text-subtle"
+        style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0a0a0a;color:#d4d4d8;padding:24px;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif"
       >
-        <div class="w-full max-w-[430px] rounded-lg border border-border bg-card p-5">
-          <div class="font-mono text-tag uppercase text-muted-foreground">LemonCrow Review</div>
-          <div class="mt-3.5 text-heading font-semibold text-foreground">Starting Review…</div>
-          <div class="mt-2 text-label text-muted-foreground">Loading the Review Reader. If startup cannot complete, this page will show an explicit error instead of a blank screen.</div>
+        <div style="width:100%;max-width:430px;border:1px solid #27272a;border-radius:10px;background:rgba(24,24,27,.72);padding:20px;box-shadow:0 18px 50px rgba(0,0,0,.35)">
+          <div style="font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#71717a">LemonCrow Review</div>
+          <div style="margin-top:14px;font-size:14px;font-weight:600;color:#f4f4f5">Starting Review…</div>
+          <div style="margin-top:7px;font-size:11px;line-height:1.5;color:#71717a">Loading the Review Reader. If startup cannot complete, this page will show an explicit error instead of a blank screen.</div>
         </div>
       </div>
     </div>
     <noscript>
-      <div class="p-6 font-sans text-p0">LemonCrow Review requires JavaScript.</div>
+      <div style="padding:24px;background:#0a0a0a;color:#fca5a5;font-family:ui-sans-serif,system-ui,sans-serif">LemonCrow Review requires JavaScript.</div>
     </noscript>
     <script type="module" src="/src/main.tsx"></script>
 </body>

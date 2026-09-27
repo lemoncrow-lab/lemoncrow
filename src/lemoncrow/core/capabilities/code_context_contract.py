@@ -5,13 +5,12 @@ Layering boundary: these are the SHARED types the public trust surface and the
 not algorithms. Keeping them here lets the rest of the runtime depend on the
 contract without depending on the engine implementation.
 
-Neutral compatibility modules may re-export these names, while the private
-enterprise provider consumes the same public schemas.
+The Pro modules ``lemoncrow.pro.capabilities.code_context.{models, call_graph,
+intel_store}`` re-export these names, so existing imports keep working.
 """
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
@@ -282,7 +281,7 @@ class IndexLockTimeout(RuntimeError):
     """A required index-write lock could not be acquired before the timeout.
 
     Raised only when a caller passes ``require_lock=True`` (e.g. the CLI
-    ``lc runtime index`` prewarm), so a contended/failed build fails loudly
+    ``lc code index`` prewarm), so a contended/failed build fails loudly
     instead of silently returning a stale snapshot.
     """
 
@@ -297,77 +296,12 @@ class UnsupportedWorkspaceOperationError(ValueError):
     """Raised when a workspace-wide op is not supported by the router."""
 
 
-def workspace_repo_id(repo_root: str | Path) -> str:
-    """Stable repository identity shared by public callers and the private engine.
-
-    Bootstrap memory and job payloads are keyed by this id, so public code can
-    compute it without constructing (or requiring) the advanced engine.
-    """
-
-    return hashlib.sha256(str(Path(repo_root).resolve()).encode("utf-8")).hexdigest()[:16]
-
-
-@runtime_checkable
-class CodeIntelligenceProvider(Protocol):
-    """Narrow public contract implemented by the private advanced engine.
-
-    Runtime Lite is intentionally separate and does not implement this protocol.
-    The contract exists so public gateway/core code can remain importable when
-    the private enterprise runtime is absent.
-    """
-
-    @property
-    def repo_id(self) -> str: ...
-
-    @property
-    def source_id(self) -> str: ...
-
-    @property
-    def db_path(self) -> Path: ...
-
-    def close(self) -> None: ...
-
-    def retrieve(
-        self,
-        query: str,
-        *,
-        budget_tokens: int = 2000,
-        max_items: int = 8,
-        seeds: list[str] | None = None,
-    ) -> dict[str, Any]: ...
-
-    def index_repo(self, *args: Any, **kwargs: Any) -> Any: ...
-
-    def tool_status(self, *args: Any, **kwargs: Any) -> dict[str, Any]: ...
-
-    def tool_explore(self, *args: Any, **kwargs: Any) -> dict[str, Any]: ...
-
-    def repo_map(self, *args: Any, **kwargs: Any) -> Any: ...
-
-    def file_outline(self, *args: Any, **kwargs: Any) -> Any: ...
-
-    def search_symbols(self, *args: Any, **kwargs: Any) -> Any: ...
-
-    def search_text(self, *args: Any, **kwargs: Any) -> Any: ...
-
-    def find_references(self, *args: Any, **kwargs: Any) -> Any: ...
-
-    def tool_callers(self, *args: Any, **kwargs: Any) -> Any: ...
-
-    def tool_callees(self, *args: Any, **kwargs: Any) -> Any: ...
-
-    def get_symbol(self, *args: Any, **kwargs: Any) -> Any: ...
-
-    def connection(self) -> Any: ...
-
-
 __all__ = [
     "CallGraphDataStatus",
     "CallGraphDirection",
     "CallGraphEdge",
     "CallGraphNode",
     "CallGraphTraversalResult",
-    "CodeIntelligenceProvider",
     "ContextPack",
     "CrossLangReference",
     "IndexLockTimeout",
@@ -380,5 +314,4 @@ __all__ = [
     "TextMatch",
     "UnsupportedWorkspaceOperationError",
     "UsageReference",
-    "workspace_repo_id",
 ]

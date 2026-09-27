@@ -44,8 +44,6 @@ packet is evidence, not a verdict — there is no AI opinion anywhere in it.
 from __future__ import annotations
 
 import io
-import shutil
-import sys
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -60,10 +58,10 @@ _STATUS_CHAR = {
     "typechange": "T",
 }
 
-# Only these degradations are fixable by indexing; suggesting `lc runtime index`
+# Only these degradations are fixable by indexing; suggesting `lc code index`
 # for an unreadable submodule pointer would be noise.
 _INDEX_SIGNALS = frozenset({"centrality", "symbol_relations", "symbol_line_ranges"})
-_INDEX_HINT = "run `lc runtime index` for caller and centrality signals"
+_INDEX_HINT = "run `lc code index` for caller and centrality signals"
 
 # `--staged` drops `git add -N` placeholders to agree with `git diff --cached`.
 # Dropping them silently would be its own lie -- a reviewer who ran `git status`
@@ -126,18 +124,9 @@ _MAX_UNINSPECTED = 10
 # undoes it. One convention, so a reader learns it once.
 _ALL_FLAG = "lc review --all"
 # A `THEN` line is a one-liner or it is not doing its job. Reasons are appended
-# only while they fit; the rest are counted. Off a terminal (agents, hooks,
-# files) the screen is a stable 110 columns; on one it is the terminal's width.
-_PIPED_WIDTH = 110
-_COMPACT_MARGIN = 10
-
-
-def _render_width() -> int:
-    if not sys.stdout.isatty():
-        return _PIPED_WIDTH
-    return shutil.get_terminal_size((_PIPED_WIDTH, 24)).columns
-
-
+# only while they fit; the rest are counted. 100 leaves margin inside the Rich
+# console's 110 columns for the two-space indent and a narrow terminal.
+_COMPACT_WIDTH = 100
 # The terminal is a triage surface, not a second file browser. One starting
 # point plus seven follow-ups establishes a queue without charging the reviewer
 # for forty paths before they have inspected the first one.
@@ -272,7 +261,7 @@ def _compact_order_line(rank: int, path: str, delta: str, reasons: Sequence[str]
     """``2. path  +12 -3  · 6 known callers`` — one line, reasons truncated honestly.
 
     Reasons are kept whole and appended only while the line stays inside
-    the screen width; whatever does not fit is counted rather than dropped. A
+    ``_COMPACT_WIDTH``; whatever does not fit is counted rather than dropped. A
     reason cut in half would be a claim the ranker never made.
     """
 
@@ -286,7 +275,7 @@ def _compact_order_line(rank: int, path: str, delta: str, reasons: Sequence[str]
         # Reserve room for the elision unless this reason is the last one.
         tail = 0 if left == 1 else len(f" · {_more_line(left - 1)}")
         cost = len(f" · {reason}") + (1 if not kept else 0)
-        if width + cost + tail > _render_width() - _COMPACT_MARGIN:
+        if width + cost + tail > _COMPACT_WIDTH:
             break
         width += cost
         kept.append(reason)
@@ -612,7 +601,7 @@ def _render_rich(packet: ReviewPacket, *, show_all: bool = False) -> str:
     from rich.table import Table
 
     buffer = io.StringIO()
-    console = Console(file=buffer, force_terminal=True, width=_render_width(), legacy_windows=False, highlight=False)
+    console = Console(file=buffer, force_terminal=True, width=110, legacy_windows=False, highlight=False)
 
     story = _change_story(packet)
     if story:

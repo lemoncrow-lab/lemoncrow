@@ -21,9 +21,6 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import stat
-import threading
-from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -208,7 +205,7 @@ def _read_host_sidecar_savings(session_id: str, root: Path) -> tuple[int, float,
 
     Each sidecar row is priced through
     :func:`savings_summary._price_savings_row` — the single rule the statusline,
-    stop hook, ``lc runtime savings`` CLI, dashboard, and web Savings page all use
+    stop hook, ``lc savings`` CLI, dashboard, and web Savings page all use
     — so this session-detail total reconciles exactly with the live figure.
     Synthesises context_savings-shaped rows so downstream renderers can treat
     both sources uniformly.
@@ -258,44 +255,6 @@ def _read_host_sidecar_savings(session_id: str, root: Path) -> tuple[int, float,
     return count, round(total_saved, 6), rows
 
 
-# The dashboard totals every session's sidecar per load. The file is
-# append-only and its rows are priced at read time, so a total is reused while
-# the file state and the pricing table are both unchanged.
-_SIDECAR_TOTAL_MEMO_MAX = 4096
-_sidecar_total_memo: OrderedDict[tuple[str, int, int, int], tuple[object, float]] = OrderedDict()
-_sidecar_total_lock = threading.Lock()
-
-
-def _host_sidecar_total(session_id: str, root: Path) -> float:
-    """``_read_host_sidecar_savings(session_id, root)[1]``, memoized per file state."""
-    from lemoncrow.core.capabilities.pricing import _load_pricing_table
-    from lemoncrow.core.foundation.paths import find_session_dir, flat_session_dir
-
-    session_root = find_session_dir(root, session_id) or flat_session_dir(root, session_id)
-    if session_root is None:
-        return 0.0
-    try:
-        st = (session_root / "savings.jsonl").stat()
-    except OSError:
-        return 0.0
-    if not stat.S_ISREG(st.st_mode):
-        return 0.0
-    key = (str(session_root / "savings.jsonl"), st.st_ino, st.st_mtime_ns, st.st_size)
-    pricing_table = _load_pricing_table()
-    with _sidecar_total_lock:
-        hit = _sidecar_total_memo.get(key)
-        if hit is not None and hit[0] is pricing_table:
-            _sidecar_total_memo.move_to_end(key)
-            return hit[1]
-    _, total, _ = _read_host_sidecar_savings(session_id, root)
-    with _sidecar_total_lock:
-        _sidecar_total_memo[key] = (pricing_table, total)
-        _sidecar_total_memo.move_to_end(key)
-        if len(_sidecar_total_memo) > _SIDECAR_TOTAL_MEMO_MAX:
-            _sidecar_total_memo.popitem(last=False)
-    return total
-
-
 def read_total_savings_from_events(session_id: str, root: Path) -> float:
     """Total LemonCrow savings for *session_id* across all sources.
 
@@ -325,7 +284,8 @@ def read_total_savings_from_events(session_id: str, root: Path) -> float:
     _, _, total = _live_savings_for_session(session_id, root)
 
     # 2. host sidecar savings (priced per-row by the helper)
-    total += _host_sidecar_total(session_id, root)
+    _, compression_saved, _ = _read_context_compression_savings(session_id, root)
+    total += compression_saved
 
     # 3. persisted carry credit, if this session has Stopped at least once
     persisted_carry = read_session_end_carry(session_id, root)
@@ -435,21 +395,6 @@ class SessionReport:
     # total_cost_usd was backfilled from the pricing-derived bucket sum --
     # i.e. the total is an estimate, not a recorded figure.
     cost_estimated: bool = False
-    # Claude Mods can provide host-owned per-request usage plus Claude's own
-    # cumulative session cost. These fields keep actual measurement separate
-    # from LemonCrow's counterfactual savings estimate.
-    usage_measurement_source: str = "ledger"
-    actual_cost_source: str = "ledger"
-    measured_request_steps: int = 0
-    measured_total_turns: int = 0
-    measured_main_turns: int = 0
-    measured_subagent_count: int = 0
-    measured_subagent_turns: int = 0
-    main_attributed_cost_usd: float = 0.0
-    subagent_attributed_cost_usd: float = 0.0
-    main_usage: dict[str, int] = dataclasses.field(default_factory=dict)
-    subagent_usage: dict[str, int] = dataclasses.field(default_factory=dict)
-    savings_estimated: bool = True
 
     @property
     def is_running(self) -> bool:
@@ -536,11 +481,6 @@ def build_report(snapshot: dict[str, Any], root: Path, *, include_carry_credit: 
     cost_data = snapshot.get("cost") or {}
     calls: list[dict[str, Any]] = cost_data.get("calls") or []
     total_cost = float(cost_data.get("total_cost_usd") or 0.0)
-    snapshot_cost_status = str(cost_data.get("status") or snapshot.get("cost_status") or "").strip()
-    snapshot_cost_source = str(cost_data.get("source") or "").strip()
-    snapshot_usage_source = str(
-        cost_data.get("usage_source") or (snapshot.get("telemetry") or {}).get("usage_measurement_source") or ""
-    ).strip()
 
     # models_used: group calls by model
     models_used: dict[str, int] = {}
@@ -573,7 +513,7 @@ def build_report(snapshot: dict[str, Any], root: Path, *, include_carry_credit: 
 
     # Use total_cost from snapshot as ground truth; attribute remainder to input if needed
     cost_sum = in_cost + out_cost + cr_cost + cw_cost
-    cost_estimated = snapshot_cost_status == "estimated"
+    cost_estimated = False
     if cost_sum > 0 and total_cost > 0:
         ratio = total_cost / cost_sum
         in_cost = round(in_cost * ratio, 6)
@@ -587,95 +527,6 @@ def build_report(snapshot: dict[str, Any], root: Path, *, include_carry_credit: 
         # flag the total as estimated (the buckets are pricing-derived).
         total_cost = round(cost_sum, 6)
         cost_estimated = True
-
-    # --- Claude Mod exact usage measurement ---
-    # Prefer host-owned request/token/cache measurements over the RunLedger when
-    # available. The Mod is observational only, so this cannot perturb the
-    # session it is measuring. Claude's own cumulative cost is authoritative
-    # when exposed; parent/subagent cost split is attributed from exact per-model
-    # token buckets and scaled to that host total.
-    usage_measurement_source = snapshot_usage_source or "ledger"
-    if snapshot_cost_source:
-        actual_cost_source = snapshot_cost_source
-    elif snapshot_cost_status == "unavailable":
-        actual_cost_source = "unavailable"
-    else:
-        actual_cost_source = "priced" if cost_estimated else "ledger"
-    measured_request_steps = 0
-    measured_total_turns = 0
-    measured_main_turns = 0
-    measured_subagent_count = 0
-    measured_subagent_turns = 0
-    main_attributed_cost_usd = 0.0
-    subagent_attributed_cost_usd = 0.0
-    main_usage: dict[str, int] = {}
-    subagent_usage: dict[str, int] = {}
-    try:
-        from lemoncrow.core.capabilities.claude_mod_usage import (
-            bucket_cost_breakdown_usd,
-            bucket_cost_usd,
-            load_claude_mod_usage,
-        )
-
-        mod_usage = load_claude_mod_usage(root, session_id)
-    except Exception:
-        mod_usage = None
-    if mod_usage is not None and mod_usage.total_steps > 0:
-        usage_measurement_source = "claude_mod"
-        measured_request_steps = mod_usage.total_steps
-        measured_total_turns = mod_usage.total_turns
-        measured_main_turns = mod_usage.main.turns
-        measured_subagent_count = len(mod_usage.subagents)
-        measured_subagent_turns = mod_usage.subagent_turns
-        in_tok = mod_usage.input_tokens
-        out_tok = mod_usage.output_tokens
-        cr_tok = mod_usage.cache_read_tokens
-        cw_tok = mod_usage.cache_write_tokens
-        main_usage = {
-            "input_tokens": mod_usage.main.input_tokens,
-            "cache_write_tokens": mod_usage.main.cache_write_tokens,
-            "cache_read_tokens": mod_usage.main.cache_read_tokens,
-            "output_tokens": mod_usage.main.output_tokens,
-        }
-        subagent_usage = {
-            "input_tokens": sum(item.input_tokens for item in mod_usage.subagents.values()),
-            "cache_write_tokens": sum(item.cache_write_tokens for item in mod_usage.subagents.values()),
-            "cache_read_tokens": sum(item.cache_read_tokens for item in mod_usage.subagents.values()),
-            "output_tokens": sum(item.output_tokens for item in mod_usage.subagents.values()),
-        }
-
-        breakdown = {"input": 0.0, "cache_read": 0.0, "cache_write": 0.0, "output": 0.0}
-        for bucket in (mod_usage.main, *mod_usage.subagents.values()):
-            part = bucket_cost_breakdown_usd(bucket)
-            for key in breakdown:
-                breakdown[key] += float(part.get(key) or 0.0)
-        in_cost = round(breakdown["input"], 6)
-        cr_cost = round(breakdown["cache_read"], 6)
-        cw_cost = round(breakdown["cache_write"], 6)
-        out_cost = round(breakdown["output"], 6)
-        priced_total = in_cost + cr_cost + cw_cost + out_cost
-        measured_total = mod_usage.measured_cost_usd
-        if measured_total is not None:
-            total_cost = round(measured_total, 6)
-            actual_cost_source = "claude_mod"
-            cost_estimated = False
-            if priced_total > 0:
-                scale = total_cost / priced_total
-                in_cost = round(in_cost * scale, 6)
-                cr_cost = round(cr_cost * scale, 6)
-                cw_cost = round(cw_cost * scale, 6)
-                out_cost = round(out_cost * scale, 6)
-        elif priced_total > 0:
-            total_cost = round(priced_total, 6)
-            actual_cost_source = "claude_mod_tokens_priced"
-            cost_estimated = True
-
-        main_raw = bucket_cost_usd(mod_usage.main)
-        sub_raw = sum(bucket_cost_usd(item) for item in mod_usage.subagents.values())
-        attributed_raw = main_raw + sub_raw
-        attribution_scale = total_cost / attributed_raw if attributed_raw > 0 and total_cost > 0 else 1.0
-        main_attributed_cost_usd = round(main_raw * attribution_scale, 6)
-        subagent_attributed_cost_usd = round(sub_raw * attribution_scale, 6)
 
     # --- routing savings ---
     routing_downtiered, routing_saved, lesson_applications, cost_cap_fired = _read_routing_savings(raw_events)
@@ -773,18 +624,6 @@ def build_report(snapshot: dict[str, Any], root: Path, *, include_carry_credit: 
         carry_usd=carry_usd,
         carry_tokens=carry_tokens,
         cost_estimated=cost_estimated,
-        usage_measurement_source=usage_measurement_source,
-        actual_cost_source=actual_cost_source,
-        measured_request_steps=measured_request_steps,
-        measured_total_turns=measured_total_turns,
-        measured_main_turns=measured_main_turns,
-        measured_subagent_count=measured_subagent_count,
-        measured_subagent_turns=measured_subagent_turns,
-        main_attributed_cost_usd=main_attributed_cost_usd,
-        subagent_attributed_cost_usd=subagent_attributed_cost_usd,
-        main_usage=main_usage,
-        subagent_usage=subagent_usage,
-        savings_estimated=True,
         top_tools_by_cost=top_tools[:5],
     )
 
@@ -795,88 +634,32 @@ def build_report_from_ledger(ledger: RunLedger, root: Path, *, include_carry_cre
 
 
 def load_report(session_id: str, root: Path, *, include_carry_credit: bool = False) -> SessionReport | None:
-    """Load a logical session, including its older date partitions."""
-    for path, snapshot in list_run_snapshots(root, session_id=session_id):
-        if str(snapshot.get("session_id") or snapshot.get("run_id") or path.parent.name) == session_id:
-            return build_report(snapshot, root, include_carry_credit=include_carry_credit)
-    return None
+    """Load and build a report from a persisted run file, or *None* if not found."""
+    from lemoncrow.core.foundation.paths import find_session_dir, flat_session_dir
 
-
-def _merge_partition_rows(snapshots: list[dict[str, Any]], field: str) -> list[dict[str, Any]]:
-    """Union snapshots, preserving repeated identical rows within one partition."""
-    rows: dict[tuple[str, int], dict[str, Any]] = {}
-    for snapshot in reversed(snapshots):  # newest values win for stable source ids
-        counts: dict[str, int] = {}
-        source = (snapshot.get("cost") or {}).get("calls", []) if field == "calls" else snapshot.get(field, [])
-        for row in source or []:
-            if not isinstance(row, dict):
-                continue
-            source_id = row.get("source_id") or row.get("id")
-            key = f"id:{source_id}" if source_id else json.dumps(row, sort_keys=True)
-            occurrence = counts.get(key, 0)
-            counts[key] = occurrence + 1
-            rows[(key, occurrence)] = row
-    return sorted(rows.values(), key=lambda row: str(row.get("at") or ""))
-
-
-@lru_cache(maxsize=2048)
-def _read_run_partition(path: str, mtime_ns: int, size: int, ctime_ns: int) -> dict[str, Any]:
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    if not isinstance(payload, dict):
-        raise ValueError("run snapshot must be an object")
-    return payload
-
-
-def list_run_snapshots(
-    root: Path, *, since: datetime | None = None, session_id: str | None = None
-) -> list[tuple[Path, dict[str, Any]]]:
-    """Read each logical session once, merging calls across date partitions.
-
-    File mtime selects active sessions, never individual partitions: an older
-    partition can contain unique calls from a session that resumed this week.
-    """
-    groups: dict[str, list[tuple[Path, dict[str, Any], float]]] = {}
-    for path in (root / "sessions").glob("**/run.json"):
-        if session_id is not None and path.parent.name != session_id:
-            continue
-        try:
-            info = path.stat()
-            snapshot = _read_run_partition(str(path), info.st_mtime_ns, info.st_size, info.st_ctime_ns)
-        except (OSError, ValueError, TypeError):
-            continue
-        sid = str(snapshot.get("session_id") or snapshot.get("run_id") or path.parent.name)
-        groups.setdefault(sid, []).append((path, snapshot, info.st_mtime))
-    result: list[tuple[float, Path, dict[str, Any]]] = []
-    for partitions in groups.values():
-        partitions.sort(key=lambda item: (item[2], str(item[0])), reverse=True)
-        path, latest, mtime = partitions[0]
-        if since is not None and mtime < since.timestamp():
-            continue
-        snapshots = [item[1] for item in partitions]
-        merged = dict(latest)
-        if len(snapshots) > 1:
-            calls = _merge_partition_rows(snapshots, "calls")
-            merged["events"] = _merge_partition_rows(snapshots, "events")
-            cost = dict(latest.get("cost") or {})
-            cost["calls"] = calls
-            if calls and all(call.get("cost_usd") is not None for call in calls):
-                cost["total_cost_usd"] = round(sum(float(call["cost_usd"]) for call in calls), 6)
-            else:
-                cost["total_cost_usd"] = max(
-                    float((snap.get("cost") or {}).get("total_cost_usd") or 0) for snap in snapshots
-                )
-            merged["cost"] = cost
-            starts = [str(snap["created_at"]) for snap in snapshots if snap.get("created_at")]
-            if starts:
-                merged["created_at"] = min(starts)
-        result.append((mtime, path, merged))
-    result.sort(key=lambda item: (item[0], str(item[1])), reverse=True)
-    return [(path, snapshot) for _, path, snapshot in result]
+    session_root = find_session_dir(root, session_id) or flat_session_dir(root, session_id)
+    if session_root is None:
+        return None
+    run_path = session_root / "run.json"
+    if not run_path.exists():
+        return None
+    try:
+        snapshot = json.loads(run_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return build_report(snapshot, root, include_carry_credit=include_carry_credit)
 
 
 def list_run_files(root: Path, *, since: datetime | None = None) -> list[Path]:
-    """Return one newest run file per session, before any caller paginates."""
-    return [path for path, _ in list_run_snapshots(root, since=since)]
+    """Return run JSON files sorted newest-first, optionally filtered by *since*."""
+    runs_dir = root / "sessions"
+    if not runs_dir.exists():
+        return []
+    files = sorted(runs_dir.glob("**/run.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    if since is None:
+        return files
+    cutoff = since.timestamp()
+    return [f for f in files if f.stat().st_mtime >= cutoff]
 
 
 # --------------------------------------------------------------------------- #
@@ -884,7 +667,9 @@ def list_run_files(root: Path, *, since: datetime | None = None) -> list[Path]:
 # --------------------------------------------------------------------------- #
 
 
-def _fmt_duration(seconds: float) -> str:
+def _fmt_duration(seconds: float, running: bool) -> str:
+    if running:
+        return "(ongoing)"
     if seconds < 60:
         return f"{int(seconds)}s"
     if seconds < 3600:
@@ -895,132 +680,124 @@ def _fmt_duration(seconds: float) -> str:
     return f"{h}h {m}m"
 
 
-ReportLine = tuple[str, str]
-"""``(tag, text)``: tag ``heading``, ``total``, ``dim`` or ``""``; the CLI styles by tag."""
-
-_LABEL_W = 26
-_VALUE_W = 12
-
-
-def report_title(report: SessionReport) -> tuple[str, str]:
-    """``("Session 1a2b3c", "2h 14m · claude")``: a report's name and its one-line detail."""
+def render_text(report: SessionReport, *, no_color: bool = False) -> str:
+    """Render a human-readable session report with Unicode box-drawing."""
     sid_short = report.session_id[:6] if report.session_id else "?"
-    duration = "running" if report.is_running else _fmt_duration(report.duration_seconds)
-    return f"Session {sid_short}", " · ".join(part for part in (duration, report.vendor) if part)
+    duration_str = _fmt_duration(report.duration_seconds, report.is_running)
+    lines: list[str] = []
 
+    # header
+    lines.append(f"Session {sid_short} ({duration_str})")
+    lines.append("─" * 49)
 
-def report_lines(report: SessionReport) -> list[ReportLine]:
-    """A session report's body, line by line, each tagged for styling."""
-    lines: list[ReportLine] = []
+    # metadata
+    def row(label: str, value: str) -> str:
+        return f"  {label:<22}{value}"
 
-    def add(text: str = "", tag: str = "") -> None:
-        lines.append((tag, text))
-
-    def row(label: str, value: str, note: str = "", tag: str = "") -> None:
-        text = f"    {label:<{_LABEL_W}}{value:>{_VALUE_W}}"
-        add(f"{text}  {note}" if note else text, tag)
-
-    def fact(label: str, value: str) -> None:
-        add(f"    {label:<{_LABEL_W - 6}}{value}")
-
-    def plural(count: int, noun: str) -> str:
-        return f"{count} {noun}{'' if count == 1 else 's'}"
-
-    started = report.started_at.astimezone()
-    fact("Started:", f"{started:%a} {started.day} {started:%b %Y, %H:%M}")
-    models = sorted(report.models_used.items(), key=lambda item: -item[1])
-    fact("Models used:", ", ".join(f"{model} ({plural(count, 'turn')})" for model, count in models) or "none")
-    if report.usage_measurement_source == "claude_mod":
-        fact("Measured requests:", str(report.measured_request_steps))
-        fact("Main turns:", str(report.measured_main_turns))
-        if report.measured_subagent_count:
-            fact("Subagents:", f"{report.measured_subagent_count} · {plural(report.measured_subagent_turns, 'turn')}")
-    else:
-        fact("Turns:", str(report.total_turns))
-    fact("Tool calls:", str(report.tool_call_count))
-    if report.workflow_step or report.review_decision or report.task_progress_task_id:
-        fact("Workflow step:", report.workflow_step or "n/a")
-        if report.review_decision:
-            fact("Review decision:", report.review_decision)
-        if report.task_progress_task_id:
-            fact(
-                "Task progress:",
-                f"{report.task_progress_task_id} ({report.completed_tasks} done/{report.remaining_tasks} remaining)",
-            )
-
-    add()
-    add("  Cost", "heading")
-    if report.usage_measurement_source == "unavailable":
-        fact("Usage:", "unavailable from host")
-    else:
-        buckets = [("Input tokens:", report.input_tokens, report.input_token_cost_usd)]
-        if report.cache_write_tokens or report.cache_write_cost_usd:
-            buckets.append(("Cache writes:", report.cache_write_tokens, report.cache_write_cost_usd))
-        buckets.append(("Cache reads:", report.cache_read_tokens, report.cache_read_cost_usd))
-        buckets.append(("Output tokens:", report.output_tokens, report.output_token_cost_usd))
-        for label, tokens, cost in buckets:
-            add(f"    {label:<{_LABEL_W - 10}}{_fmt_tok(tokens):>10}{_fmt_usd(cost):>{_VALUE_W}}")
-    if report.actual_cost_source == "unavailable":
-        fact("Cost:", "unavailable from host")
-    else:
-        cost_label = (
-            "Priced total:"
-            if report.actual_cost_source == "priced"
-            else "Measured total:" if report.actual_cost_source in {"claude_mod", "host_reported"} else "Total:"
+    # models used
+    models_str = (
+        ", ".join(
+            f"{m} ({c} turn{'s' if c != 1 else ''})" for m, c in sorted(report.models_used.items(), key=lambda x: -x[1])
         )
-        row(cost_label, _fmt_usd(report.total_cost_usd), tag="total")
-    if report.usage_measurement_source == "claude_mod" and report.measured_subagent_count:
-        attributed = report.main_attributed_cost_usd + report.subagent_attributed_cost_usd
-        share = 100.0 * report.subagent_attributed_cost_usd / attributed if attributed > 0 else 0.0
-        row("Subagent share:", f"{share:.1f}%")
+        or "none"
+    )
 
-    # Savings are a counterfactual estimate. The Mod makes actual usage exact,
-    # but there is still no simultaneous no-LemonCrow version of the same run.
-    add()
-    add("  Estimated LemonCrow savings", "heading")
+    lines.append(row("Vendor:", report.vendor))
+    lines.append(row("Models used:", models_str))
+    lines.append(row("Total turns:", str(report.total_turns)))
+    lines.append(row("Tool calls:", str(report.tool_call_count)))
+    if report.workflow_step or report.review_decision or report.task_progress_task_id:
+        lines.append(row("Workflow step:", report.workflow_step or "n/a"))
+        if report.review_decision:
+            lines.append(row("Review decision:", report.review_decision))
+        if report.task_progress_task_id:
+            lines.append(
+                row(
+                    "Task progress:",
+                    f"{report.task_progress_task_id} ({report.completed_tasks} done/{report.remaining_tasks} remaining)",
+                )
+            )
+    lines.append("")
+
+    # cost breakdown
+    lines.append("Cost breakdown")
+    col_w = 10  # token column width
+    cost_w = 8  # cost column width
+
+    def cost_row(label: str, tok: int, cost: float, *, show: bool = True) -> str:
+        if not show:
+            return ""
+        tok_str = _fmt_tok(tok).rjust(col_w)
+        cost_str = _fmt_usd(cost).rjust(cost_w)
+        return f"  {label:<20}{tok_str}  →  {cost_str}"
+
+    lines.append(cost_row("Input tokens:", report.input_tokens, report.input_token_cost_usd))
+    if report.cache_write_tokens or report.cache_write_cost_usd:
+        lines.append(cost_row("Cache writes:", report.cache_write_tokens, report.cache_write_cost_usd))
+    lines.append(cost_row("Cache reads:", report.cache_read_tokens, report.cache_read_cost_usd))
+    lines.append(cost_row("Output tokens:", report.output_tokens, report.output_token_cost_usd))
+    lines.append("  " + "─" * 37)
+    lines.append(f"  {'Total:':<32}{_fmt_usd(report.total_cost_usd).rjust(cost_w)}")
+    lines.append("")
+
+    # savings
+    lines.append("LemonCrow savings")
     if report.context_compression_savings_usd > 0 or report.context_compression_tool_calls > 0:
-        calls = plural(report.context_compression_tool_calls, "tool call")
-        row("Context compression:", _fmt_usd(report.context_compression_savings_usd), f"({calls})")
+        n_comp = report.context_compression_tool_calls
+        lines.append(
+            f"  Context compression:     {_fmt_usd(report.context_compression_savings_usd)}"
+            f"  ({n_comp} tool call{'s' if n_comp != 1 else ''})"
+        )
         # read/output are informational subcomponents already folded inside
         # context compression (see build_report's KNOWN DUPLICATION note) --
         # indent them so the top-level items visibly sum to the total.
         if report.read_saved_usd > 0:
-            row("  of which read:", _fmt_usd(report.read_saved_usd), tag="dim")
+            lines.append(f"    of which read:         {_fmt_usd(report.read_saved_usd)}")
         if report.output_saved_usd > 0:
-            row("  of which output:", _fmt_usd(report.output_saved_usd), tag="dim")
+            lines.append(f"    of which output:       {_fmt_usd(report.output_saved_usd)}")
     if report.carry_usd > 0:
-        row("Carry credit:", _fmt_usd(report.carry_usd), f"({_fmt_tok(report.carry_tokens)} tok)")
+        lines.append(f"  Carry credit:            {_fmt_usd(report.carry_usd)}  ({_fmt_tok(report.carry_tokens)} tok)")
     if report.routing_downtiered_turns:
-        turns = plural(report.routing_downtiered_turns, "turn")
-        row("Routing recommendations:", _fmt_usd(report.routing_savings_usd), f"({turns} downtiered)")
+        lines.append(
+            f"  Routing recommendations: {report.routing_downtiered_turns} turn"
+            f"{'s' if report.routing_downtiered_turns != 1 else ''} downtiered"
+            f"  →  saved {_fmt_usd(report.routing_savings_usd)}"
+        )
     else:
-        row("Routing recommendations:", "none", tag="dim")
+        lines.append("  Routing recommendations: none this session")
     if report.routing_lesson_applications:
-        row("Active lessons applied:", str(report.routing_lesson_applications), "recommendations")
+        lines.append(
+            f"  Active lessons applied: {report.routing_lesson_applications} recommendation"
+            f"{'s' if report.routing_lesson_applications != 1 else ''}"
+        )
     if report.cost_cap_fired_turns:
-        row("Cost cap fired:", str(report.cost_cap_fired_turns), "turns")
+        lines.append(
+            f"  Cost cap fired: {report.cost_cap_fired_turns} turn{'s' if report.cost_cap_fired_turns != 1 else ''}"
+        )
+
     if report.compact_events:
-        events = plural(report.compact_events, "event")
-        row("Compaction:", f"~{_fmt_usd(report.compact_savings_estimate_usd)}", f"({events}, avoided resend cost)")
+        lines.append(
+            f"  Compaction ({report.compact_events} event"
+            f"{'s' if report.compact_events != 1 else ''})"
+            f"  →  avoided ~{_fmt_usd(report.compact_savings_estimate_usd)} in resend cost"
+        )
     else:
-        row("Compaction:", "none", tag="dim")
-    row("Estimated saved:", _fmt_usd(report.total_lemoncrow_savings_usd), tag="total")
-    baseline = report.total_cost_usd + report.total_lemoncrow_savings_usd
-    if baseline > 0:
-        row("Estimated reduction:", f"{100.0 * report.total_lemoncrow_savings_usd / baseline:.1f}%")
+        lines.append("  Compaction: none this session")
 
+    lines.append("  " + "─" * 37)
+    lines.append(f"  {'Total saved this session:':<32}{_fmt_usd(report.total_lemoncrow_savings_usd).rjust(cost_w)}")
+    lines.append("")
+
+    # top tools
     if report.top_tools_by_cost:
-        add()
-        add("  Costliest tools", "heading")
+        n = len(report.top_tools_by_cost)
+        lines.append(f"Top {n} costliest tool{'s' if n != 1 else ''} this session")
         for tool_name, count, cost in report.top_tools_by_cost:
-            add(f"    {tool_name:<{_LABEL_W - 10}}{plural(count, 'call'):>10}{_fmt_usd(cost):>{_VALUE_W}}")
-    return lines
+            lines.append(
+                f"  {tool_name:<16}{count:>5} call{'s' if count != 1 else ''}   {_fmt_usd(cost).rjust(cost_w)}"
+            )
 
-
-def render_text(report: SessionReport, *, no_color: bool = False) -> str:
-    """Render a human-readable session report as plain text."""
-    name, detail = report_title(report)
-    return "\n".join([f"{name}  {detail}", "", *(text for _tag, text in report_lines(report))])
+    return "\n".join(lines)
 
 
 def render_json(report: SessionReport) -> str:
@@ -1042,6 +819,4 @@ __all__ = [
     "load_report",
     "render_json",
     "render_text",
-    "report_lines",
-    "report_title",
 ]

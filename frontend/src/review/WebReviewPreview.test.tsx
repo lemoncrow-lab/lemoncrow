@@ -116,23 +116,20 @@ describe("WebReviewPreview", () => {
       "/Δ 20.0% pixels",
       "/scanΔ 10.0% pixels",
     ]);
-    // Close the route picker before reading the rest of the toolbar.
-    await userEvent.keyboard("{Escape}");
-    expect(screen.getByRole("radio", { name: "Preview" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("button", { name: "Preview mode" }).getAttribute("aria-pressed")).toBe("true");
     const openSurface = screen.getByRole("button", { name: "Open web surface / in dedicated tab" });
     expect(openSurface.textContent).toContain("Web · app");
     await userEvent.click(openSurface);
     expect(first.onOpenDedicated).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("radio", { name: "Compare" })).toBeTruthy();
-    expect(screen.queryByRole("radio", { name: "Source" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Compare mode" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Source mode" })).toBeNull();
     const viewOptions = screen.getByRole("button", { name: "Web preview options" });
-    expect(screen.queryByRole("button", { name: "Desktop viewport" })).toBeNull();
+    const desktop = screen.getByRole("button", { name: "Desktop viewport" });
+    expect(desktop.closest("details")?.hasAttribute("open")).toBe(false);
     await userEvent.click(viewOptions);
-    const desktop = await screen.findByRole("button", { name: "Desktop viewport" });
+    expect(desktop.closest("details")?.hasAttribute("open")).toBe(true);
     expect(desktop.getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByRole("button", { name: /Preview theme: Auto/ })).toBeTruthy();
-    expect(screen.getByText("Shortcuts")).toBeTruthy();
-    expect(screen.getByText(/1\/2\/3 modes/)).toBeTruthy();
     expect(screen.getByText("Affected files · 2")).toBeTruthy();
 
     await userEvent.click(screen.getByRole("button", { name: "Mobile viewport" }));
@@ -151,7 +148,7 @@ describe("WebReviewPreview", () => {
 
   it("renders an inspectable frozen before/after screenshot diff for the exact Snapshot", async () => {
     render(<WebReviewPreview {...props()} />);
-    await userEvent.click(screen.getByRole("radio", { name: "Pixels" }));
+    await userEvent.click(screen.getByRole("button", { name: "Screenshot diff mode" }));
 
     await waitFor(() => expect(api.fetchWebPreview).toHaveBeenCalledTimes(2));
     expect(api.fetchWebPreview).toHaveBeenCalledWith("review-1", "src/Hero.tsx", "old", "/", 1440, 5000, "rrv-1");
@@ -224,37 +221,12 @@ describe("WebReviewPreview", () => {
     expect(screen.queryByText("Browser PASS")).toBeNull();
   });
 
-  it("keeps two same-titled browser scenarios on one route apart by typed identity", async () => {
-    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-    api.fetchReviewVerification.mockResolvedValue({
-      checks: [
-        {
-          name: "Home regression", status: "FAIL", state: "current", required: true, detail: "",
-          check_key: "browser|reported|home|",
-          browser: { scenario: "home", route: "/", configured: true, applicability: "", run: null, baseline: null },
-        },
-        {
-          name: "Home regression", status: "PASS", state: "current", required: true, detail: "",
-          check_key: "browser|reported|home-legacy|",
-          browser: { scenario: "home-legacy", route: "/", configured: true, applicability: "", run: null, baseline: null },
-        },
-      ],
-      summary: {},
-      artifacts: [],
-    });
-    render(<WebReviewPreview {...props()} />);
-    expect(await screen.findByText("Browser FAIL")).toBeTruthy();
-    expect(screen.getByText("Browser PASS")).toBeTruthy();
-    expect(errors.mock.calls.some((call) => String(call[0]).includes("same key"))).toBe(false);
-    errors.mockRestore();
-  });
-
   it("filters routes without clearing the search after selection", async () => {
     const onNavigateSurface = vi.fn();
     render(<WebReviewPreview {...props({ onNavigateSurface })} />);
 
     await userEvent.click(screen.getByRole("button", { name: "Rendered route" }));
-    const search = screen.getByRole("combobox", { name: "Rendered route search" });
+    const search = screen.getByRole("searchbox", { name: "Rendered route search" });
     await userEvent.type(search, "scan");
     expect(screen.getAllByRole("option")).toHaveLength(1);
     expect(screen.getByRole("option").textContent).toContain("/scan");
@@ -262,14 +234,14 @@ describe("WebReviewPreview", () => {
     expect(onNavigateSurface).toHaveBeenCalledWith("web:/scan");
 
     await userEvent.click(screen.getByRole("button", { name: "Rendered route" }));
-    expect((screen.getByRole("combobox", { name: "Rendered route search" }) as HTMLInputElement).value).toBe("scan");
+    expect((screen.getByRole("searchbox", { name: "Rendered route search" }) as HTMLInputElement).value).toBe("scan");
     expect(screen.getAllByRole("option")).toHaveLength(1);
     expect(window.localStorage.getItem("lemoncrow-review-surface-filter:review-1:web")).toBe("scan");
   });
 
   it("fits Compare into one pane, shows scale, and can link or unlink scrolling", async () => {
     render(<WebReviewPreview {...props()} />);
-    await userEvent.click(screen.getByRole("radio", { name: "Compare" }));
+    await userEvent.click(screen.getByRole("button", { name: "Compare mode" }));
 
     await waitFor(() => expect(screen.getByTestId("web-live-frame-old")).toBeTruthy());
     const shell = screen.getByTestId("web-live-compare-shell");
@@ -303,7 +275,7 @@ describe("WebReviewPreview", () => {
     await waitFor(() => expect(screen.getByTestId("web-live-frame-new")).toBeTruthy());
 
     await userEvent.keyboard("2");
-    expect(screen.getByRole("radio", { name: "Compare" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("button", { name: "Compare mode" }).getAttribute("aria-pressed")).toBe("true");
     await userEvent.keyboard("m");
     await userEvent.click(screen.getByRole("button", { name: "Web preview options" }));
     expect(screen.getByRole("button", { name: "Mobile viewport" }).getAttribute("aria-pressed")).toBe("true");

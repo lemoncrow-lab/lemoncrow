@@ -56,23 +56,6 @@ TRACE_FTS_SNIPPETS = [
     (10, "Run"),
 ]
 
-#: Per-turn arrays no list row renders. They are ~95% of stored trace bytes
-#: (usage_entries alone reaches megabytes per trace); list_traces(summary=True)
-#: drops them before validation, and get_trace() still returns them.
-TRACE_SUMMARY_OMITTED_FIELDS = ("usage_entries", "reasoning", "commands_run", "files_touched", "tools_called")
-
-
-def _listed_trace(payload: str, *, summary: bool) -> Trace:
-    if summary:
-        with contextlib.suppress(json.JSONDecodeError):
-            data = json.loads(payload)
-            if isinstance(data, dict):
-                for field in TRACE_SUMMARY_OMITTED_FIELDS:
-                    data.pop(field, None)
-                payload = json.dumps(data, ensure_ascii=False)
-    return Trace.model_validate_json(coerce_trace_json(payload))
-
-
 TRACE_FTS_DDL = """
 CREATE VIRTUAL TABLE traces_fts USING fts5(
     id UNINDEXED,
@@ -104,9 +87,6 @@ CREATE TABLE IF NOT EXISTS traces (
 );
 CREATE INDEX IF NOT EXISTS idx_traces_domain ON traces(domain);
 CREATE INDEX IF NOT EXISTS idx_traces_status ON traces(status);
--- list_traces() orders by created_at and filters on it; without this index each
--- page sorts the whole table, full payloads included, in a temp B-tree.
-CREATE INDEX IF NOT EXISTS idx_traces_created_at ON traces(created_at);
 -- get_trace()'s session_id fallback does json_extract(payload, '$.session_id')
 -- per miss; without this expression index that's a full-table scan per call.
 CREATE INDEX IF NOT EXISTS idx_traces_session_id ON traces(json_extract(payload, '$.session_id'));
@@ -429,19 +409,6 @@ class HistoryStore(SqliteTableStore):
                 (session_id, synced_at, payload_hash),
             )
 
-    def synced_payload_hashes(self, session_ids: list[str]) -> dict[str, str]:
-        """``{session_id: payload_hash}`` for those of *session_ids* already marked synced."""
-        hashes: dict[str, str] = {}
-        with self._transaction() as conn:
-            for start in range(0, len(session_ids), 500):
-                chunk = session_ids[start : start + 500]
-                marks = ",".join("?" * len(chunk))
-                rows = conn.execute(
-                    f"SELECT session_id, payload_hash FROM sync_status WHERE session_id IN ({marks})", chunk
-                ).fetchall()
-                hashes.update((row[0], row[1]) for row in rows)
-        return hashes
-
     def list_traces(
         self,
         *,
@@ -453,7 +420,6 @@ class HistoryStore(SqliteTableStore):
         since: datetime | None = None,
         limit: int = 100,
         offset: int = 0,
-        summary: bool = False,
     ) -> list[Trace]:
         if query and query.strip():
             search_query = self._build_fts_prefix_query(query)
@@ -500,7 +466,7 @@ class HistoryStore(SqliteTableStore):
 
             results = []
             for row in rows:
-                trace = _listed_trace(row["payload"], summary=summary)
+                trace = Trace.model_validate_json(coerce_trace_json(row["payload"]))
                 trace.snippets = self._trace_search_snippets(row)
                 results.append(trace)
             return results
@@ -528,7 +494,7 @@ class HistoryStore(SqliteTableStore):
         params.append(offset)
         with self._transaction() as conn:
             rows = conn.execute(sql, params).fetchall()
-        return [_listed_trace(r["payload"], summary=summary) for r in rows]
+        return [Trace.model_validate_json(coerce_trace_json(r["payload"])) for r in rows]
 
     def get_traces_metrics(
         self,

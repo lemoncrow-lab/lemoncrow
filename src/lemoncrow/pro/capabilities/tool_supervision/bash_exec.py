@@ -918,13 +918,6 @@ def start_managed_command(
         "status": "running",
         "session_id": session_id,
         "pid": proc.pid,
-        # This is the first status snapshot. Keep the same timing vocabulary as
-        # peek_managed_command() so detached callers do not need to poll just to
-        # learn their initial budget -- polling a fast bg command can reap it and
-        # lose the very handle bg=True promised to return.
-        "duration_ms": 0,
-        "timeout_remaining_ms": max(0, timeout * 1000),
-        "over_budget": timeout <= 0,
         "timeout": timeout,
         "explicit_background": managed.explicit_background,
     }

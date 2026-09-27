@@ -271,23 +271,6 @@ def test_classify_path_detects_generated_banner() -> None:
     assert classify_path("src/api_types.py", head_preview="x = 1\n") == "production"
 
 
-@pytest.mark.parametrize(
-    ("path", "category"),
-    [
-        ("docs/guide/install.mdx", "docs"),
-        (".cursor/rules/review.mdc", "docs"),
-        ("apps/web/playwright/booking.e2e.ts", "test"),
-        ("apps/web/e2e/login.ts", "test"),
-        ("packages/platform/examples/base/src/app.tsx", "test"),
-        ("packages/embed-core/playground/index.ts", "test"),
-        ("packages/embed-core/src/embed.ts", "production"),
-        ("src/example_parser.py", "production"),
-    ],
-)
-def test_classify_path_knows_mdx_rules_files_end_to_end_tests_and_example_apps(path: str, category: str) -> None:
-    assert classify_path(path) == category
-
-
 def test_changed_files_single_pass_no_subprocess(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     root, _repo, _shas = _linear_repo(tmp_path)
 
@@ -669,7 +652,7 @@ def test_submodule_pointer_bump_names_its_commits_and_claims_no_unreadable_blob(
     reads necessarily fail (the old side is a commit this repository does not
     contain, the new side is a directory on disk), so a perfectly ordinary
     submodule bump raised ``blob_unreadable`` -- a degraded signal whose only
-    published remedy is ``lc runtime index``, which cannot help: there is no blob to
+    published remedy is ``lc code index``, which cannot help: there is no blob to
     read and no index that would ever have held one. Telling a reviewer to
     rebuild an index to recover content that does not exist is worse than saying
     nothing. The row instead carries the two commit ids, which *are* the change,

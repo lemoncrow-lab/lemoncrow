@@ -23,7 +23,6 @@ from lemoncrow.core.capabilities import (
     SemanticFileMemoryCapability,
     ToolSupervisionCapability,
 )
-from lemoncrow.core.capabilities.code_context_contract import workspace_repo_id
 from lemoncrow.core.capabilities.retrieval import Retriever, default_retriever_factory
 from lemoncrow.core.environment import bool_env
 from lemoncrow.core.foundation.paths import (
@@ -143,13 +142,7 @@ class LemonCrowRuntimeCore:
             from lemoncrow.infra.storage.factory import make_memory_store
 
             workspace_root = resolve_workspace_root(self.root)
-            # The default code vertical keys bootstrap memory by the neutral
-            # workspace id (no engine needed); an injected corpus names its own.
-            bootstrap_repo_id = (
-                workspace_repo_id(workspace_root)
-                if self.retriever_factory is default_retriever_factory
-                else self.retriever_factory(workspace_root).source_id
-            )
+            bootstrap_repo_id = self.retriever_factory(workspace_root).source_id
             memory_store = make_memory_store(self.root)
             bootstrap_state = bootstrap_status(memory_store, bootstrap_repo_id)
             bootstrap_context, bootstrap_blocks = render_bootstrap_context(memory_store, bootstrap_repo_id)

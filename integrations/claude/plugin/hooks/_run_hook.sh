@@ -18,7 +18,7 @@ set -u
 _PYTHON_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/lemoncrow/hook_python"
 
 # Cheap fingerprint of "where would lemoncrow resolve right now" -- a PATH
-# lookup, no python subprocess. A reinstall (make oss-dev / make oss-prod /
+# lookup, no python subprocess. A reinstall (make dev / make prod /
 # install.sh) can move lemoncrow to a new venv without removing the old one
 # (e.g. ~/.local/...uv/tools vs ~/.lemoncrow/uv-tools); the old interpreter
 # still happily satisfies "import lemoncrow" (it's a real, just stale, install),

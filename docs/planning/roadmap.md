@@ -1,7 +1,5 @@
 # LemonCrow Roadmap
 
-> **Status:** active — living roadmap; nothing here is a commitment.
->
 > LemonCrow has no committed release schedule. The current product priority is
 > **human-attention compression in software review**: reduce the amount of human
 > attention required to understand each change without outsourcing engineering
@@ -14,21 +12,22 @@ be pursued on a best-effort basis. Nothing here is a commitment.
 For implementation-level status, evidence, acceptance gates, and sequencing of
 the six cost levers, see the
 [savings optimization status and roadmap](./savings-optimization-roadmap.md).
-The September 2026 product plan — narrowed for LemonCrow's current low-user,
+For the September 2026 product plan — narrowed for LemonCrow's current low-user,
 fully-open-source stage around human review intelligence, AI usage visibility, and
-bring-your-own/self-hosted models — is tracked in LemonCrow's internal product and
-execution plan, which is not published.
+bring-your-own/self-hosted models — see the
+[LemonCrow product and execution plan](./2026-09-07-agent-runtime-competitive-plan.md).
 
-The review-first product design — including the attention-compression framework,
+For the review-first product design — including the attention-compression framework,
 priority list, Review Chapters, unified annotations, revision-aware feedback loop,
-and later peer-review/inbox work — is tracked in LemonCrow's internal Review
-product, UX, and execution plan, which is not published.
+and later peer-review/inbox work — see the
+[LemonCrow Review product, UX, and execution plan](./2026-09-08-review-first-developer-workspace.md).
 
 ## Shipped capabilities
 
 ### Human review, AI usage, and bring-your-own models
 
-PR-1 through PR-12 of the September 2026 product and execution plan
+PR-1 through PR-12 of the
+[September 2026 product and execution plan](./2026-09-07-agent-runtime-competitive-plan.md)
 have landed on the `feat/review-usage-model` branch. This is a status record, not
 a commitment to anything beyond it.
 

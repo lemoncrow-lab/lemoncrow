@@ -100,7 +100,7 @@ def _trace(
 
 
 def _invoke(root: Path, *args: str) -> Any:
-    return CliRunner().invoke(cli, ["--root", str(root), "runtime", "run", "explain", *args], catch_exceptions=False)
+    return CliRunner().invoke(cli, ["--root", str(root), "run", "explain", *args], catch_exceptions=False)
 
 
 def _ctx() -> click.Context:
@@ -114,18 +114,33 @@ def _categories(report: Any) -> set[str]:
 # ----- registration -------------------------------------------------------- #
 
 
-def test_run_group_is_public_inspection_only() -> None:
-    """OSS `lc run` explains evidence; owned execution is private-only."""
+def test_run_explain_registered() -> None:
+    ctx = _ctx()
+    assert "run" in cli.list_commands(ctx)
+    group = cli.get_command(ctx, "run")
+    assert isinstance(group, click.Group)
+    assert group.get_command(click.Context(group, info_name="run"), "explain") is not None
+
+    result = CliRunner().invoke(cli, ["run", "explain", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "--limit" in result.output
+    assert "--json" in result.output
+
+
+def test_run_group_visible_but_start_hidden() -> None:
+    """`lc run` graduates to the visible surface; the unlaunched trio does not."""
 
     ctx = _ctx()
-    runtime = cli.get_command(ctx, "runtime")
-    assert isinstance(runtime, click.Group)
-    group = runtime.get_command(click.Context(runtime, info_name="runtime"), "run")
+    group = cli.get_command(ctx, "run")
     assert isinstance(group, click.Group)
     assert group.hidden is False
 
     sub_ctx = click.Context(run_group, info_name="run")
-    assert run_group.list_commands(sub_ctx) == ["explain"]
+    for name in ("start", "resume", "report"):
+        command = run_group.get_command(sub_ctx, name)
+        assert command is not None, name
+        assert command.hidden is True, name
+
     explain = run_group.get_command(sub_ctx, "explain")
     assert explain is not None
     assert explain.hidden is False

@@ -3,32 +3,22 @@
 #
 # This is the main entrypoint for CI and local release builds.
 set -euo pipefail
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/terminal.sh"
 
-# Production builds default to mypyc, but development deliberately uses this
-# exact same distribution builder with compilation disabled. Keeping both modes
-# on one path means the frontend, wheel inputs, bundled server/client, scripts,
-# integrations, dependency constraints and release-boundary audit cannot drift.
-# Only the representation of the main LemonCrow wheel differs.
-LEMONCROW_ENABLE_MYPYC="${LEMONCROW_ENABLE_MYPYC:-1}"
-case "$LEMONCROW_ENABLE_MYPYC" in
-    0|1) ;;
-    *) echo "ERROR: LEMONCROW_ENABLE_MYPYC must be 0 or 1" >&2; exit 2 ;;
-esac
-export LEMONCROW_ENABLE_MYPYC
-if [[ "$LEMONCROW_ENABLE_MYPYC" == "1" ]]; then
-    BUILD_FLAVOR="mypyc"
-else
-    BUILD_FLAVOR="pure-python"
-fi
-lc_log step "Local distribution mode: ${BUILD_FLAVOR}"
+# Force the mypyc-compiled build. This is the release entrypoint: hatch_build.py
+# compiles ~440 modules with mypyc for runtime performance and ships a much
+# smaller, stripped wheel. It only compiles when LEMONCROW_ENABLE_MYPYC=1, so
+# hard-set it here: a bare `bash scripts/build.sh` (or a CI job that forgets the
+# prefix) can never accidentally produce the far larger pure-Python wheel, and
+# there is no skip escape hatch. For a pure-Python artifact, run
+# `uv build --wheel` directly instead of this script.
+export LEMONCROW_ENABLE_MYPYC=1
 
 # 1. Clean ONLY local build/dist/bundle artifacts so the wheel and release
 #    archive are rebuilt fresh. The uv cache at ~/.cache/uv is deliberately left
 #    untouched — we want a rebuild that REUSES the cache, never a cold
 #    re-download. Do not add --no-cache/--refresh/--upgrade to any uv command
 #    below.
-lc_log step "Cleaning local build artifacts (uv cache preserved)..."
+echo "◆ Cleaning local build artifacts (uv cache preserved)..."
 rm -rf build/ dist/ bundle/
 mkdir -p build/ dist/ bundle/bin bundle/frontend bundle/scripts
 
@@ -37,12 +27,12 @@ mkdir -p build/ dist/ bundle/bin bundle/frontend bundle/scripts
 # locked wheels into ~/.cache/uv first so the build resolves from cache instead
 # of stalling on a PyPI "resolving packages" round-trip.
 if [ -f "uv.lock" ]; then
-    lc_log step "Priming uv cache from uv.lock (uv sync --frozen)..."
+    echo "◆ Priming uv cache from uv.lock (uv sync --frozen)..."
     uv sync --frozen || echo "  (uv sync --frozen skipped; continuing)"
 fi
 
 # 2. Build Frontend
-lc_log step "Building Frontend..."
+echo "◆ Building Frontend..."
 if [ -d "frontend" ]; then
     (cd frontend && (npm ci --silent || npm install --silent) && npm run build)
     rm -rf bundle/frontend
@@ -50,18 +40,18 @@ if [ -d "frontend" ]; then
     cp -r frontend/dist/. bundle/frontend/
 fi
 
-# 3. Build the main wheel.
-# With LEMONCROW_ENABLE_MYPYC=1 hatch_build.py compiles the supported modules and
-# strips their .py twins. With =0 it emits the pure-Python wheel from the exact
-# same isolated source snapshot. Everything after this point is identical.
+# 3. Build mypyc-compiled wheel
+# hatch_build.py compiles ~440 modules with mypyc (LEMONCROW_ENABLE_MYPYC=1, forced
+# above), strips the .py source for every compiled module, and fails the build if any
+# source (or the whole uncompiled wheel) would leak.
 # Refresh the model pricing snapshot from the litellm version pinned in uv.lock.
 # This runs before the wheel build so the wheel ships the freshest data available
 # without requiring litellm at runtime.
-lc_log step "Refreshing model prices from litellm..."
+echo "◆ Refreshing model prices from litellm..."
 uv run --with "litellm>=1.83.14" python scripts/refresh_model_prices.py || \
     echo "  (refresh skipped; bundled snapshot will be used)"
 
-lc_log step "Building ${BUILD_FLAVOR} wheel from isolated staging tree..."
+echo "◆ Building mypyc wheel from isolated staging tree (this takes a few minutes)..."
 rm -rf dist/
 mkdir -p dist
 
@@ -70,7 +60,7 @@ mkdir -p dist
 # copy only the wheel-build inputs to a disposable tree and compile there.
 # SIGINT/SIGTERM/SIGKILL can therefore at worst leave/delete temporary files.
 REPO_ROOT="$(pwd -P)"
-BUILD_STAGE="$(mktemp -d "${TMPDIR:-/tmp}/lemoncrow-build.XXXXXX")"
+BUILD_STAGE="$(mktemp -d "${TMPDIR:-/tmp}/lemoncrow-mypyc.XXXXXX")"
 cleanup_build_stage() {
     [[ -n "${BUILD_STAGE:-}" && -d "$BUILD_STAGE" ]] && rm -rf "$BUILD_STAGE"
 }
@@ -90,19 +80,6 @@ cp -a \
     src/lemoncrow/sdk \
     "$BUILD_STAGE/src/lemoncrow/"
 cp -a integrations "$BUILD_STAGE/"
-rm -f "$BUILD_STAGE/integrations/pi/managed.mjs"
-# The private monorepo contains LemonCrow-owned execution for engineering and
-# Hosted/Enterprise packaging. The public local distribution must not ship it.
-rm -f \
-    "$BUILD_STAGE/src/lemoncrow/gateway/cli/coding_engine.py" \
-    "$BUILD_STAGE/src/lemoncrow/gateway/cli/interactive.py" \
-    "$BUILD_STAGE/src/lemoncrow/gateway/cli/runtime.py" \
-    "$BUILD_STAGE/src/lemoncrow/gateway/cli/commands/_private_run.py" \
-    "$BUILD_STAGE/src/lemoncrow/pro/capabilities/owned_agent_session/gemini_cache.py" \
-    "$BUILD_STAGE/src/lemoncrow/pro/capabilities/owned_agent_session/keepalive.py" \
-    "$BUILD_STAGE/src/lemoncrow/pro/capabilities/owned_agent_session/phase_runner.py" \
-    "$BUILD_STAGE/src/lemoncrow/pro/capabilities/owned_agent_session/stem_prompt.py"
-rm -rf "$BUILD_STAGE/src/lemoncrow/gateway/openai_gateway"
 if [[ -d vendor ]]; then
     mkdir -p "$BUILD_STAGE/vendor"
     cp -a vendor/babel-stub vendor/babel-99.0.0-py3-none-any.whl "$BUILD_STAGE/vendor/"
@@ -126,21 +103,20 @@ fi
 echo "  $(du -sh "$WHEEL_PATH" | awk '{print $1}')  $WHEEL_PATH"
 
 # 4. Place wheel in bundle/bin/ (install.sh picks it up by glob)
-lc_log step "Staging wheel..."
+echo "◆ Staging wheel..."
 rm -rf bundle/bin/
 mkdir -p bundle/bin
 cp "$WHEEL_PATH" bundle/bin/
 
 # 5. Include distribution scripts
-lc_log step "Including distribution scripts..."
+echo "◆ Including distribution scripts..."
 cp -f scripts/install.sh bundle/scripts/install.sh
-cp -f scripts/engine_install.sh bundle/scripts/engine_install.sh
+cp -f scripts/hosted.sh bundle/scripts/hosted.sh
 cp -f scripts/local_server.sh bundle/scripts/local_server.sh
 cp -f scripts/cleanup_legacy_runtime.sh bundle/scripts/cleanup_legacy_runtime.sh
 cp -f scripts/sessions.sh bundle/scripts/sessions.sh
 cp -f scripts/bundle.sh bundle/scripts/bundle.sh
 cp -f scripts/uninstall.sh bundle/scripts/uninstall.sh
-cp -f scripts/uninstall_product.sh bundle/scripts/uninstall_product.sh
 
 # Export the locked registry dependency set as a constraints file. The bundle
 # ships a prebuilt wheel (no uv.lock / source), so on a cold end-user machine
@@ -149,7 +125,7 @@ cp -f scripts/uninstall_product.sh bundle/scripts/uninstall_product.sh
 # contain named registry requirements only. Their wheels are staged in
 # bundle/vendor below and supplied to uv via --find-links at install time.
 if [ -f "uv.lock" ]; then
-    lc_log step "Exporting dependency constraints (uv export)..."
+    echo "◆ Exporting dependency constraints (uv export)..."
     uv export --frozen --no-emit-project --no-emit-local --no-hashes \
         --extra mcp \
         --extra memory \
@@ -172,7 +148,7 @@ fi
 # ./client` in constraints (uv correctly rejects unnamed/local constraints).
 # Babel is another local wheel override. Keep all local artifacts together so
 # every installer can discover them through one --find-links directory.
-lc_log step "Staging local dependency wheels..."
+echo "◆ Staging local dependency wheels..."
 mkdir -p bundle/vendor
 uv build --wheel --package lemoncrow-client --out-dir bundle/vendor >/dev/null
 cp vendor/babel-*.whl bundle/vendor/
@@ -180,14 +156,14 @@ cp vendor/babel-*.whl bundle/vendor/
 # The public loopback server is part of every distribution. Hosted installs do
 # not install this wheel, but the release artifact must always be capable of a
 # complete local install without reaching into the private enterprise tree.
-lc_log step "Staging public LemonCrow server wheel..."
+echo "◆ Staging public LemonCrow server wheel..."
 [[ -f server/pyproject.toml ]] \
     || { echo "✗ server/pyproject.toml is missing — cannot build the local server" >&2; exit 1; }
 mkdir -p bundle/server
 uv build --wheel server --out-dir bundle/server >/dev/null
 
 # Bundle all host integration scripts so install.sh can run them after binary install.
-lc_log step "Bundling host integration scripts..."
+echo "◆ Bundling host integration scripts..."
 for s in scripts/install_hosts.sh scripts/install_agents.sh \
           scripts/install_antigravity.sh scripts/install_claude.sh \
           scripts/install_codex.sh scripts/install_copilot.sh \
@@ -196,9 +172,8 @@ for s in scripts/install_hosts.sh scripts/install_agents.sh \
           scripts/uninstall_antigravity.sh scripts/uninstall_claude.sh \
           scripts/uninstall_codex.sh scripts/uninstall_copilot.sh \
           scripts/uninstall_cursor.sh scripts/uninstall_hermes.sh \
-          scripts/uninstall_pi.sh scripts/uninstall_lemoncode.sh scripts/uninstall_opencode.sh \
-          scripts/build_host_skills.sh scripts/sync_agent_context.py \
-           scripts/opencode_v2_config.py; do
+          scripts/uninstall_lemoncode.sh scripts/uninstall_opencode.sh \
+          scripts/build_host_skills.sh scripts/sync_agent_context.py; do
     # Not `[[ -f ]] && cp`: a silent skip here is how a script goes missing from
     # the tarball unnoticed (the public mirror omitted five of these once).
     [[ -f "$s" ]] || { echo "✗ $s is missing from this tree — cannot bundle it" >&2; exit 1; }
@@ -229,11 +204,10 @@ mkdir -p bundle/scripts/lib
 cp -f scripts/lib/common.sh bundle/scripts/lib/common.sh
 cp -f scripts/lib/managed_context.sh bundle/scripts/lib/managed_context.sh
 cp -f scripts/lib/python_bootstrap.sh bundle/scripts/lib/python_bootstrap.sh
-cp -f client/src/lemoncrow_client/pi_integration.py bundle/scripts/lib/pi_integration.py
 cp -f scripts/lib/versions.sh bundle/scripts/lib/versions.sh
 
 # Bundle integration files (pre-generated .md/.json/.sh per-host configs).
-lc_log step "Bundling host integration configs..."
+echo "◆ Bundling host integration configs..."
 mkdir -p bundle/integrations
 for host in agents antigravity claude codex copilot copilot-cli cursor hermes lemoncode opencode shared skills; do
     [[ -d "integrations/$host" ]] && cp -r "integrations/$host" "bundle/integrations/$host"
@@ -243,13 +217,13 @@ done
 
 # Pre-generate host context files in the staged bundle so install scripts work
 # without uv/Python, without rewriting generated files in the source checkout.
-lc_log step "Pre-generating bundled host context files..."
+echo "◆ Pre-generating bundled host context files..."
 uv run python3 bundle/scripts/sync_agent_context.py >/dev/null 2>&1 || true
 
 chmod +x bundle/scripts/*.sh 2>/dev/null || true
 
 # 6. Create Archive
-lc_log step "Creating Archive..."
+echo "◆ Creating Archive..."
 mkdir -p dist
 OS_NAME="$(uname -s | tr '[:upper:]' '[:lower:]')"
 ARCH="$(uname -m)"
@@ -263,10 +237,6 @@ esac
 ARCHIVE_NAME="dist/lemoncrow-distribution-${OS_NAME}-${ARCH}.tar.gz"
 
 rm -f "$ARCHIVE_NAME"
-# bsdtar stores macOS extended attributes as AppleDouble `._*` members, which would
-# leak into the published local payload. Disable copyfile metadata while keeping
-# the default archive format, which supports long dependency paths.
-COPYFILE_DISABLE=1 tar -czf "$ARCHIVE_NAME" -C bundle .
-uv run python scripts/audit_release_boundary.py local "$ARCHIVE_NAME"
-lc_log success "Local ${BUILD_FLAVOR} distribution complete: $ARCHIVE_NAME"
+tar -czf "$ARCHIVE_NAME" -C bundle .
+echo "✓ Production bundle complete: $ARCHIVE_NAME"
 echo "  $(du -sh "$ARCHIVE_NAME" | awk '{print $1}')  (wheel + scripts)"

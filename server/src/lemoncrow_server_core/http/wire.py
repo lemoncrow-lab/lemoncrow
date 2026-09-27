@@ -50,9 +50,9 @@ SSE_MEDIA_TYPE: Final[str] = "text/event-stream"
 _ENCODER: Final[json.JSONEncoder] = json.JSONEncoder(ensure_ascii=False, separators=(",", ":"))
 
 
-def json_response(payload: Mapping[str, Any] | list[Any], *, status: int = 200) -> web.Response:
+def json_response(payload: Mapping[str, Any], *, status: int = 200) -> web.Response:
     return web.json_response(
-        dict(payload) if isinstance(payload, Mapping) else payload,
+        dict(payload),
         status=status,
         dumps=lambda value: json.dumps(value, ensure_ascii=False, separators=(",", ":")),
     )

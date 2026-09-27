@@ -5,7 +5,6 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 from lemoncrow_server_core.local_maintenance import LocalMaintenance
 
 
@@ -41,7 +40,7 @@ def test_local_maintenance_imports_sessions_at_most_every_interval(monkeypatch, 
 
     assert maintenance.run_once() is base.last_report
     assert len(calls) == 1
-    assert calls[0][1:] == ["-m", "lemoncrow.core.service.session_import", "--root", str(runtime_root)]
+    assert calls[0][-4:] == ["--root", str(runtime_root), "import", "--json"]
 
     maintenance.run_once()
     assert len(calls) == 1
@@ -99,30 +98,6 @@ def test_a_failing_landing_watch_never_breaks_maintenance(tmp_path: Path, caplog
     assert "landing watch failed" in caplog.text
 
 
-def test_a_failed_index_pass_still_watches_landings(tmp_path: Path) -> None:
-    watched = 0
-
-    class FailingMaintenance(_BaseMaintenance):
-        def run_once(self) -> object:
-            raise OSError("index is unavailable")
-
-    def watch() -> None:
-        nonlocal watched
-        watched += 1
-
-    maintenance = LocalMaintenance(
-        FailingMaintenance(),
-        runtime_root=tmp_path / "runtime",
-        state_root=tmp_path / "server",
-        import_interval_s=0,
-        landing_watch=watch,
-    )
-
-    with pytest.raises(OSError, match="index is unavailable"):
-        maintenance.run_once()
-    assert watched == 1
-
-
 def test_local_maintenance_retries_failed_import_after_five_minutes(monkeypatch, tmp_path: Path) -> None:
     now = [2_000.0]
     calls = 0
@@ -151,23 +126,3 @@ def test_local_maintenance_retries_failed_import_after_five_minutes(monkeypatch,
     now[0] += 1
     maintenance.run_once()
     assert calls == 2
-
-
-def test_local_maintenance_flushes_both_daily_rollups(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    from lemoncrow.core.service.telemetry import event_rollup, public_rollup
-
-    calls: list[tuple[str, Path]] = []
-    monkeypatch.setattr(public_rollup, "maybe_flush_public_rollup", lambda root: calls.append(("savings", root)))
-
-    def boom(root: Path) -> None:
-        calls.append(("events", root))
-        raise RuntimeError("network down")
-
-    monkeypatch.setattr(event_rollup, "maybe_flush_event_rollup", boom)
-    base = SimpleNamespace(run_once=lambda: "report", last_report=None)
-    maintenance = LocalMaintenance(
-        base, runtime_root=tmp_path / "runtime", state_root=tmp_path / "server", import_interval_s=0
-    )
-
-    assert maintenance.run_once() == "report"  # a failing flush never breaks maintenance
-    assert calls == [("savings", tmp_path / "runtime"), ("events", tmp_path / "runtime")]

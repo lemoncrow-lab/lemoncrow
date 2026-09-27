@@ -247,27 +247,25 @@ def test_installer_asks_once_and_offers_auto_notify_or_no_check(tmp_path: Path) 
     assert "check=[0] auto=[0]" in disabled
 
 
-def test_installer_stays_quiet_when_already_decided_or_non_interactive(tmp_path: Path) -> None:
-    for case_index, env in enumerate(
-        [
-            {"LEMONCROW_NON_INTERACTIVE": "1"},
-            {"LEMONCROW_AUTO_UPDATE": "1"},
-            {"LEMONCROW_UPDATE_CHECK": "1"},
-            {"LEMONCROW_UPDATE_CHECK": "0"},
-        ]
-    ):
-        case_tmp_path = tmp_path / f"case-{case_index}"
-        case_tmp_path.mkdir()
-        result = _run_installer_snippet(case_tmp_path, _prompt_body(0), env)
-        assert result.returncode == 0, result.stderr
-        assert "ASKED" not in result.stdout
+@pytest.mark.parametrize(
+    "env",
+    [
+        {"LEMONCROW_NON_INTERACTIVE": "1"},
+        {"LEMONCROW_AUTO_UPDATE": "1"},
+        {"LEMONCROW_UPDATE_CHECK": "1"},
+        {"LEMONCROW_UPDATE_CHECK": "0"},
+    ],
+)
+def test_installer_stays_quiet_when_already_decided_or_non_interactive(tmp_path: Path, env: dict[str, str]) -> None:
+    result = _run_installer_snippet(tmp_path, _prompt_body(0), env)
+    assert result.returncode == 0, result.stderr
+    assert "ASKED" not in result.stdout
 
 
-def test_installer_never_re_asks_a_saved_answer(tmp_path: Path) -> None:
-    for case_index, saved in enumerate(
-        [{un.KEY_AUTO: False}, {un.KEY_AUTO: True}, {un.KEY_CHECK: False}, {un.KEY_CHECK: True}]
-    ):
-        case_tmp_path = tmp_path / f"case-{case_index}"
-        case_tmp_path.mkdir()
-        _opt_in(case_tmp_path, **saved)
-        assert "ASKED" not in _prompt(case_tmp_path, 0)
+@pytest.mark.parametrize(
+    "saved",
+    [{un.KEY_AUTO: False}, {un.KEY_AUTO: True}, {un.KEY_CHECK: False}, {un.KEY_CHECK: True}],
+)
+def test_installer_never_re_asks_a_saved_answer(tmp_path: Path, saved: dict[str, bool]) -> None:
+    _opt_in(tmp_path, **saved)
+    assert "ASKED" not in _prompt(tmp_path, 0)

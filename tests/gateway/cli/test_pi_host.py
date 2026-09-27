@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import io
-import json
 import tarfile
 from pathlib import Path
 
@@ -97,48 +96,3 @@ def test_override_must_be_executable(tmp_path: Path, monkeypatch: pytest.MonkeyP
     monkeypatch.setenv("LEMONCROW_PI_HOST_BIN", str(binary))
     with pytest.raises(Exception, match="not executable"):
         pi_host.resolve_host_binary(tmp_path)
-
-
-@pytest.mark.parametrize("action", ["install", "update", "build"])
-def test_full_cli_configures_and_removes_native_pi_integration(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, action: str
-) -> None:
-    from click.testing import CliRunner
-
-    from lemoncrow.gateway.cli import cli
-
-    directory = tmp_path / "pi"
-    directory.mkdir()
-    settings = directory / "settings.json"
-    settings.write_text('{"defaultModel":"custom","extensions":["other.ts"]}')
-    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(directory))
-    monkeypatch.setattr(pi_host, "install_host_release", lambda _root: tmp_path / "pi-host")
-    monkeypatch.setattr(pi_host, "build_host_from_source", lambda _root, _source: tmp_path / "pi-host")
-    monkeypatch.setattr(pi_host, "remove_host", lambda _root: True)
-    args = ["--root", str(tmp_path / "state"), "host", action, "--engine", "pi"]
-    if action == "build":
-        args.extend(["--source", str(tmp_path)])
-    result = CliRunner().invoke(cli, args)
-    assert result.exit_code == 0, result.output
-    assert json.loads(settings.read_text())["extensions"] == ["other.ts", str(directory / "lemoncrow" / "lite.mjs")]
-    removed = CliRunner().invoke(cli, ["--root", str(tmp_path / "state"), "host", "remove", "--engine", "pi", "--yes"])
-    assert removed.exit_code == 0, removed.output
-    assert json.loads(settings.read_text()) == {"defaultModel": "custom", "extensions": ["other.ts"]}
-    assert not (directory / "lemoncrow" / "lite.mjs").exists()
-
-
-def test_full_and_thin_pi_managers_pin_the_same_release(monkeypatch: pytest.MonkeyPatch) -> None:
-    from lemoncrow_client import pi_host as thin_pi_host
-
-    for module in (pi_host, thin_pi_host):
-        monkeypatch.setattr(module.platform, "system", lambda: "Linux")
-        monkeypatch.setattr(module.platform, "machine", lambda: "x86_64")
-
-    full = pi_host.pinned_release()
-    thin = thin_pi_host.pinned_release()
-    assert (full.tag, full.commit, full.asset_name, full.checksum) == (
-        thin.tag,
-        thin.commit,
-        thin.asset_name,
-        thin.checksum,
-    )

@@ -10,8 +10,7 @@ Chrome. Every sandboxed job therefore passes through this one gate:
 * each command runs in its own transient cgroup (``systemd-run --user
   --scope``) with a memory, swap, and task ceiling when the host supports it,
   and otherwise under a per-process ``RLIMIT_DATA`` ceiling set by a tiny exec
-  shim. macOS monitors descendant RSS because Darwin rejects RLIMIT_DATA;
-  its ceiling can briefly overshoot between samples.
+  shim, so a runaway build is killed instead of exhausting the host.
 """
 
 from __future__ import annotations
@@ -41,69 +40,6 @@ _RLIMIT_SHIM: Final[str] = (
     "import os,resource,sys;n=int(sys.argv[1]);"
     "resource.setrlimit(resource.RLIMIT_DATA,(n,n));os.execvp(sys.argv[2],sys.argv[2:])"
 )
-
-
-# Darwin rejects finite RLIMIT_DATA limits. Monitor resident memory for the
-# entire descendant tree instead; kill it on excess memory or deadline.
-# lc-debt: macOS RSS sampling permits brief overshoot; use a kernel job limit when available.
-_MACOS_MEMORY_SHIM: Final[str] = """
-import os, signal, subprocess, sys, time
-ceiling = int(sys.argv[1])
-deadline = time.monotonic() + float(sys.argv[2])
-child = subprocess.Popen(sys.argv[3:], start_new_session=True)
-known = {child.pid}
-def sample():
-    rows = subprocess.check_output(
-        ["/bin/ps", "-axo", "pid=,ppid=,rss="], text=True, timeout=2
-    ).splitlines()
-    processes = [tuple(map(int, row.split())) for row in rows if len(row.split()) == 3]
-    children = {}
-    rss = {}
-    for pid, parent, size in processes:
-        children.setdefault(parent, []).append(pid)
-        rss[pid] = size * 1024
-    pending = [child.pid]
-    current = set()
-    while pending:
-        pid = pending.pop()
-        if pid in current:
-            continue
-        current.add(pid)
-        pending.extend(children.get(pid, ()))
-    known.update(current)
-    return sum(rss.get(pid, 0) for pid in current)
-def stop(*args):
-    # Include descendants that started a new session (the HTTP supervisor does).
-    try:
-        sample()
-    except Exception:
-        pass
-    for pid in reversed(sorted(known)):
-        try:
-            os.kill(pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-signal.signal(signal.SIGTERM, stop)
-signal.signal(signal.SIGINT, stop)
-code = 1
-try:
-    while child.poll() is None:
-        if sample() > ceiling:
-            stop()
-            code = 137
-            break
-        if time.monotonic() >= deadline:
-            stop()
-            code = 124
-            break
-        time.sleep(.02)
-    else:
-        code = child.returncode
-finally:
-    stop()
-    child.wait()
-sys.exit(code if code >= 0 else 128 - code)
-"""
 
 
 class SandboxCapacityBusy(RuntimeError):
@@ -214,30 +150,22 @@ def _scope_prefix(runner: Sequence[str], memory_bytes: int, tasks: int) -> list[
     ]
 
 
-def limit_prefix_for(*, memory_mb: int, timeout: float = 180, tasks: int = TASKS_MAX) -> list[str]:
-    """Command prefix for an explicit memory/task budget.
+def limit_prefix() -> list[str]:
+    """Command prefix that bounds one sandboxed process tree's memory and tasks.
 
-    Shared by Review and other local sandboxed runtimes so cgroup/RLIMIT
-    behavior does not fork into subtly different implementations.
+    The cgroup scope caps the whole tree (every build worker and Chrome process
+    together) and also caps its task count. The fallback ceiling applies to each
+    process separately; the slot pool still bounds how many trees run at once.
     """
 
+    memory_mb = sandbox_memory_mb()
     if memory_mb <= 0:
         return []
-    bounded_mb = max(MIN_MEMORY_MB, min(int(memory_mb), MAX_MEMORY_MB))
-    bounded_tasks = max(1, min(int(tasks), TASKS_MAX))
-    memory_bytes = bounded_mb * 1024 * 1024
-    if sys.platform == "darwin":
-        return [sys.executable, "-I", "-S", "-c", _MACOS_MEMORY_SHIM, str(memory_bytes), str(timeout)]
+    memory_bytes = memory_mb * 1024 * 1024
     runner = _cgroup_scope_runner()
     if runner:
-        return _scope_prefix(runner, memory_bytes, bounded_tasks)
+        return _scope_prefix(runner, memory_bytes, TASKS_MAX)
     return [sys.executable, "-I", "-S", "-c", _RLIMIT_SHIM, str(memory_bytes)]
-
-
-def limit_prefix(*, timeout: float = 180) -> list[str]:
-    """Command prefix that bounds one sandboxed process tree's memory and tasks."""
-
-    return limit_prefix_for(memory_mb=sandbox_memory_mb(), timeout=timeout, tasks=TASKS_MAX)
 
 
 def limit_note(returncode: int) -> str:
@@ -256,11 +184,4 @@ def run_limited(command: Sequence[str], *, timeout: float, **kwargs: Any) -> sub
     """Run one sandboxed command in a capacity slot and under the memory ceiling."""
 
     with sandbox_slot(timeout):
-        proc = subprocess.run(
-            [*limit_prefix(timeout=timeout), *command],
-            timeout=timeout + 3 if sys.platform == "darwin" and sandbox_memory_mb() else timeout,
-            **kwargs,
-        )
-        if sys.platform == "darwin" and proc.returncode == 124:
-            raise subprocess.TimeoutExpired(command, timeout, output=proc.stdout, stderr=proc.stderr)
-        return proc
+        return subprocess.run([*limit_prefix(), *command], timeout=timeout, **kwargs)

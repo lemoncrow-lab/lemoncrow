@@ -1,10 +1,12 @@
-"""The ``tool`` broker: canonical advertisement, separate exact-name calls.
+"""The ``tool`` broker for canonically visible tools omitted by a profile.
 
 Mirrors the public server broker in ``lemoncrow.gateway.tools.broker`` while
-keeping the dependency-free thin client self-contained. Selecting the core
-profile must not expose a broker excluded by the generated allowlist. Calls
-still flow through the normal :class:`~lemoncrow_client.dispatcher.Dispatcher`;
-this module adds discovery, not a parallel execution path.
+keeping the dependency-free thin client self-contained. Baseline-hidden,
+admin, and internal tools are never discoverable here. Under
+``LEMONCROW_MCP_TOOL_PROFILE=core`` the broker can discover only canonically
+visible routed tools omitted by that profile. Calls still flow through the
+normal :class:`~lemoncrow_client.dispatcher.Dispatcher`; this module adds
+discovery, not a parallel execution path.
 """
 
 from __future__ import annotations
@@ -15,9 +17,9 @@ from typing import Any, Final
 from .dispatcher import Dispatcher, ToolOutcome
 from .errors import AgentAction, ClientError, ErrorCode, error_block
 from .routing import ROUTES
-from .surface import _mcp_tool_profile, load_surface, served_spec, tool_list
+from .surface import _mcp_tool_profile, load_surface, tool_list
 
-__all__ = ["BROKER_TOOL_NAME", "broker_advertised", "broker_enabled", "broker_spec", "handle"]
+__all__ = ["BROKER_TOOL_NAME", "broker_enabled", "broker_spec", "handle"]
 
 BROKER_TOOL_NAME: Final[str] = "tool"
 
@@ -44,13 +46,8 @@ _INPUT_SCHEMA: Final[dict[str, Any]] = {
 
 
 def broker_enabled(env: Mapping[str, str] | None = None) -> bool:
-    """Whether exact-name broker calls are supported in the active profile."""
+    """Whether ``tools/list`` and ``tools/call`` should recognize the broker."""
     return _mcp_tool_profile(env) == "core"
-
-
-def broker_advertised(env: Mapping[str, str] | None = None) -> bool:
-    """Advertisement honors canonical visibility independently of callability."""
-    return broker_enabled(env) and bool(load_surface().get(BROKER_TOOL_NAME, {}).get("visibleToLlm", False))
 
 
 def broker_spec() -> dict[str, Any]:
@@ -59,50 +56,27 @@ def broker_spec() -> dict[str, Any]:
 
 
 def _hidden_names(env: Mapping[str, str] | None = None) -> frozenset[str]:
-    """Routed tools hidden from ``tools/list`` by the active profile.
+    """Canonically visible routed tools hidden only by the active profile.
 
-    Allows discovering and calling any routed tool not already exposed in tools/list.
+    Baseline-hidden/admin/internal tools never become broker-discoverable merely
+    because they are absent from ``tools/list``.
     """
+    surface = load_surface()
+    advertisable = {name for name in ROUTES if bool(surface.get(name, {}).get("visibleToLlm", False))}
     visible = {entry["name"] for entry in tool_list(env=env)}
-    return frozenset(set(ROUTES) - visible)
-
-
-def _format_schema(schema: Any) -> str:
-    """Render an inputSchema dict as a compact readable parameter list."""
-    if not isinstance(schema, Mapping):
-        return ""
-    props = schema.get("properties")
-    if not isinstance(props, Mapping) or not props:
-        return ""
-    required: set[str] = set(schema.get("required") or [])
-    lines = []
-    for param, info in props.items():
-        if not isinstance(info, Mapping):
-            continue
-        typ = str(info.get("type") or "any")
-        desc = str(info.get("description") or "")
-        req = " (required)" if param in required else ""
-        line = f"    {param}: {typ}{req}"
-        if desc:
-            line += f" — {desc}"
-        lines.append(line)
-    return "\n".join(lines)
+    return frozenset(advertisable - visible)
 
 
 def _search(query: str, env: Mapping[str, str] | None) -> ToolOutcome:
     surface = load_surface()
     needle = query.strip().lower()
-    parts: list[str] = []
+    matches = []
     for name in sorted(_hidden_names(env)):
-        description, schema = served_spec(name, surface.get(name, {}))
+        description = str(surface.get(name, {}).get("description") or "")
         haystack = f"{name} {description}".lower()
         if not needle or needle in haystack:
-            schema_text = _format_schema(schema)
-            entry = f"{name}: {description}"
-            if schema_text:
-                entry += f"\n  arguments:\n{schema_text}"
-            parts.append(entry)
-    text = "\n\n".join(parts) if parts else "no hidden tool matches that query"
+            matches.append(f"{name}: {description}")
+    text = "\n".join(matches) if matches else "no hidden tool matches that query"
     return ToolOutcome(content=({"type": "text", "text": text},))
 
 

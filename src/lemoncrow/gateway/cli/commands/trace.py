@@ -14,17 +14,12 @@ from lemoncrow.core.foundation.runtime_trace import TraceStore
 
 
 def trace_stores(root: Path) -> list[TraceStore]:
-    """The runtime store plus the clients' (full client and Runtime Lite), deduplicated.
-
-    Clients write under ``<LEMONCROW_HOME>/runtime``; ``<LEMONCROW_HOME>`` itself
-    is kept for records written before the Review/Runtime state split.
-    """
+    """The runtime store plus the thin client's, when they differ."""
+    roots = [Path(root).expanduser()]
     home = os.environ.get("LEMONCROW_HOME", "").strip()
     client_root = Path(home).expanduser() if home else Path.home() / ".lemoncrow"
-    roots: list[Path] = []
-    for candidate in (Path(root).expanduser(), client_root / "runtime", client_root):
-        if all(candidate.resolve() != seen.resolve() for seen in roots):
-            roots.append(candidate)
+    if client_root.resolve() != roots[0].resolve():
+        roots.append(client_root)
     return [TraceStore(r) for r in roots]
 
 
@@ -49,7 +44,7 @@ def _call(root: Path, trace_id: str) -> Any:
     return assemble_calls(records)[0]
 
 
-@click.group("trace", short_help="Inspect per-call Runtime traces (lt_…).")
+@click.group("trace")
 def trace_group() -> None:
     """Per-call runtime traces (lt_…): request, decisions, retrieval, outcome."""
 

@@ -137,15 +137,18 @@ class _FlakyForbiddenHandler(BaseHTTPRequestHandler):
 # --------------------------------------------------------------------------- #
 
 
-def test_async_blocks_private_ip_literal() -> None:
-    for url in [
+@pytest.mark.parametrize(
+    "url",
+    [
         "http://10.0.0.1/",
         "http://192.168.1.1/",
         "http://169.254.169.254/latest/meta-data/",
         "http://0.0.0.0/",
-    ]:
-        with pytest.raises(ValueError, match="private/local"):
-            asyncio.run(web_fetch.async_fetch_url(url, output_format="text"))
+    ],
+)
+def test_async_blocks_private_ip_literal(url: str) -> None:
+    with pytest.raises(ValueError, match="private/local"):
+        asyncio.run(web_fetch.async_fetch_url(url, output_format="text"))
 
 
 # --------------------------------------------------------------------------- #

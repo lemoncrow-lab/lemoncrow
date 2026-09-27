@@ -486,50 +486,55 @@ def test_user_prompt_skips_compaction_credit_when_delta_not_visible(
 # --------------------------------------------------------------------------
 # PermissionRequest auto-deny (Codex-exclusive)
 # --------------------------------------------------------------------------
-def test_permission_request_denies_destructive_commands(tmp_path: Path) -> None:
-    for case_index, command in enumerate(
-        [
-            "rm -rf /",
-            "rm -rf /*",
-            "rm -rf ~",
-            "rm -rf $HOME",
-            "sudo rm -rf /",
-            "rm -rf /usr",
-            "rm -rf /etc/",
-            "rm --recursive --force /",
-            "git push --force origin main",
-            "git push -f",
-            "git push -f origin main",
-            "dd if=/dev/zero of=/dev/sda",
-            ":(){ :|:& };:",
-        ]
-    ):
-        case_tmp_path = tmp_path / f"case-{case_index}"
-        case_tmp_path.mkdir()
-        payload = {"hook_event_name": "PermissionRequest", "tool_name": "shell", "tool_input": {"command": command}}
-        out = plugin_runtime.build_codex_permission_request_output(case_tmp_path / ".lemoncrow", payload)
-        assert (out.get("hookSpecificOutput") or {}).get("behavior") == "deny", command
+@pytest.mark.parametrize(
+    "command",
+    [
+        "rm -rf /",
+        "rm -rf /*",
+        "rm -rf ~",
+        "rm -rf $HOME",
+        "sudo rm -rf /",
+        "rm -rf /usr",
+        "rm -rf /etc/",
+        "rm --recursive --force /",
+        "git push --force origin main",
+        "git push -f",
+        "git push -f origin main",
+        "dd if=/dev/zero of=/dev/sda",
+        ":(){ :|:& };:",
+    ],
+)
+def test_permission_request_denies_destructive_commands(tmp_path: Path, command: str) -> None:
+    payload = {
+        "hook_event_name": "PermissionRequest",
+        "tool_name": "shell",
+        "tool_input": {"command": command},
+    }
+    out = plugin_runtime.build_codex_permission_request_output(tmp_path / ".lemoncrow", payload)
+    assert (out.get("hookSpecificOutput") or {}).get("behavior") == "deny", command
 
 
-def test_permission_request_allows_safe_commands(tmp_path: Path) -> None:
-    for case_index, command in enumerate(
-        [
-            "rm -rf build/",
-            "rm -rf ./node_modules",
-            "rm -rf /usr/local/foo",
-            "git push --force-with-lease",
-            "git push origin main",
-            "ls -la",
-            "pytest -q",
-        ]
-    ):
-        case_tmp_path = tmp_path / f"case-{case_index}"
-        case_tmp_path.mkdir()
-        payload = {"hook_event_name": "PermissionRequest", "tool_name": "shell", "tool_input": {"command": command}}
-        assert (
-            plugin_runtime.build_codex_permission_request_output(case_tmp_path / ".lemoncrow", payload).get("no_output")
-            is True
-        )
+@pytest.mark.parametrize(
+    "command",
+    [
+        "rm -rf build/",
+        "rm -rf ./node_modules",
+        "rm -rf /usr/local/foo",
+        "git push --force-with-lease",
+        "git push origin main",
+        "ls -la",
+        "pytest -q",
+    ],
+)
+def test_permission_request_allows_safe_commands(tmp_path: Path, command: str) -> None:
+    payload = {
+        "hook_event_name": "PermissionRequest",
+        "tool_name": "shell",
+        "tool_input": {"command": command},
+    }
+    assert (
+        plugin_runtime.build_codex_permission_request_output(tmp_path / ".lemoncrow", payload).get("no_output") is True
+    )
 
 
 def test_permission_request_ignores_non_bash_tools(tmp_path: Path) -> None:
@@ -647,7 +652,6 @@ def test_codex_hooks_manifest_includes_new_lifecycle_events() -> None:
     data = json.loads((ROOT / "integrations" / "codex" / "hooks" / "hooks.json").read_text(encoding="utf-8"))
     for event in (
         "SessionStart",
-        "SessionEnd",
         "UserPromptSubmit",
         "PreToolUse",
         "PostToolUse",

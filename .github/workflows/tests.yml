@@ -37,7 +37,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.11"
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
@@ -64,15 +64,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.11"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-
-      - name: Verify package version synchronization
-        run: python scripts/release_version.py check
 
       - name: Install dependencies
         run: uv sync --frozen --group dev
@@ -95,7 +92,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.11"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
@@ -116,7 +113,7 @@ jobs:
       fail-fast: false
       matrix:
         python-version:
-          - "3.12"
+          - "3.11"
           - "3.13"
 
     steps:
@@ -151,7 +148,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.11"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
@@ -183,13 +180,14 @@ jobs:
 
       - name: Run installer and local-server syntax checks with macOS bash
         run: |
+          bash -n scripts/local.sh
           bash -n scripts/install.sh
-          bash -n scripts/engine_install.sh
           bash -n scripts/local_server.sh
 
       - name: Run installer dry-runs
         run: |
-          bash scripts/install.sh --dry-run --non-interactive
+          bash scripts/local.sh --dry-run --no-hosts --no-stack --non-interactive --verbose
+          bash scripts/install.sh --dry-run --no-hosts --non-interactive
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -209,6 +207,6 @@ jobs:
           uv run pytest -q
           tests/gateway/test_local_server_lifecycle.py
           tests/gateway/test_review_browser_pairing_cli.py
-          tests/gateway/test_macos_review_sandbox.py
-          client/tests/test_remote_cli.py
+          tests/gateway/test_mcp_serve_tunnel.py
+          tests/gateway/test_mcp_serve_service.py
           tests/gateway/test_review_impact.py

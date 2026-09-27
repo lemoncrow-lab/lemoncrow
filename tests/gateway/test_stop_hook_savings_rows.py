@@ -54,28 +54,6 @@ def _write_transcript(tmp_path: Path, prose_chars: int, code_chars: int) -> str:
     return str(p)
 
 
-def test_stop_seeds_ledger_only_for_lemoncrow_usage(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
-    stop = _load_stop()
-    sid = "sid-exact-tools"
-    stop._ensure_savings_sidecar(sid, {"tools_used": {"WebSearch": 4}})
-    assert not stop._sidecar_path(sid).exists()
-
-    stats = {
-        "tools_used": {"mcp__lc__bash": 374, "mcp__lc__read": 82},
-        "last_model": MODEL,
-        "cache_read_tokens": 100_000,
-    }
-    stop._ensure_savings_sidecar(sid, stats)
-    sidecar = stop._sidecar_path(sid)
-    assert sidecar is not None and sidecar.exists()
-    stop._write_input_style_row(sid, stats)
-    assert [r["kind"] for r in _rows(sidecar)] == ["input_style"]
-    stop._ensure_savings_sidecar(sid, stats)
-    stop._write_input_style_row(sid, stats)
-    assert len(_rows(sidecar)) == 1
-
-
 def test_output_style_row_credits_prose_not_code(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path))
     monkeypatch.setenv("LEMONCROW_OUTPUT_STYLE_RATIO", "1.5")

@@ -1,11 +1,10 @@
-import { Button as UiButton } from "../components/ui/button";
 import { useEffect, useState, useMemo } from "react";
 import {
   api,
   type GranularToolUsage,
   type AnalyticsDashboard,
 } from "../api";
-import { EmptyState, MetricCard, ToggleGroup } from "../components/WorkbenchUI";
+import { EmptyState, MetricCard } from "../components/WorkbenchUI";
 import { fmtPct, fmtTok, fmtUsd } from "../lib/format";
 import { useTimeRange } from "../lib/TimeRangeContext";
 
@@ -44,7 +43,7 @@ function OverviewBar({
 }) {
   const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
   return (
-    <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+    <div className="h-1.5 w-full bg-neutral-900 rounded-full overflow-hidden">
       <div className={`h-full ${color}`} style={{ width: `${pct}%` }} />
     </div>
   );
@@ -64,12 +63,12 @@ function CompactLeaderboard({
   const maxValue = Math.max(...rows.map((row) => row.barValue), 0.0001);
 
   return (
-    <section className="rounded-lg border border-border/70 bg-background/60 p-4 space-y-4">
+    <section className="border border-neutral-800 bg-neutral-950/40 p-4 space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <div className="text-caption uppercase tracking-widest text-muted-foreground font-semibold">
+        <div className="text-[10px] uppercase tracking-widest text-neutral-400 font-bold">
           {title}
         </div>
-        <div className="text-caption font-mono text-muted-foreground">
+        <div className="text-[10px] font-mono text-neutral-400">
           Top {rows.length}
         </div>
       </div>
@@ -81,25 +80,25 @@ function CompactLeaderboard({
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="w-5 shrink-0 font-mono text-caption text-muted-foreground">
+                    <span className="w-5 shrink-0 font-mono text-[10px] text-neutral-400">
                       {String(index + 1).padStart(2, "0")}
                     </span>
-                    <span className="truncate text-heading text-foreground">
+                    <span className="truncate text-sm text-neutral-200">
                       {row.label}
                     </span>
                   </div>
                   {row.sublabel && (
-                    <div className="pl-7 pt-0.5 text-caption text-muted-foreground truncate">
+                    <div className="pl-7 pt-0.5 text-[10px] text-neutral-400 truncate">
                       {row.sublabel}
                     </div>
                   )}
                 </div>
                 <div className="shrink-0 text-right">
-                  <div className="font-mono text-heading text-foreground">
+                  <div className="font-mono text-sm text-neutral-100">
                     {row.value}
                   </div>
                   {row.detail && (
-                    <div className="text-caption text-muted-foreground">
+                    <div className="text-[10px] text-neutral-400">
                       {row.detail}
                     </div>
                   )}
@@ -116,7 +115,7 @@ function CompactLeaderboard({
           ))}
         </div>
       ) : (
-        <div className="text-muted-foreground italic text-body">{emptyMessage}</div>
+        <div className="text-neutral-400 italic text-xs">{emptyMessage}</div>
       )}
     </section>
   );
@@ -228,7 +227,7 @@ function SpendTimelineChart({
       : fillDailyBuckets(dashboard.daily, days);
   if (!buckets.length)
     return (
-      <div className="text-muted-foreground italic text-body p-4">
+      <div className="text-neutral-400 italic text-xs p-4">
         No timeline data.
       </div>
     );
@@ -239,26 +238,36 @@ function SpendTimelineChart({
   const isHourly = breakdown === "hourly";
 
   return (
-    <section className="rounded-lg border border-border/70 bg-background/60 p-4 space-y-4">
+    <section className="border border-neutral-800 bg-neutral-950/40 p-5 space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <div className="text-caption uppercase tracking-widest text-muted-foreground font-semibold">
+          <div className="text-[10px] uppercase tracking-widest text-neutral-400 font-bold">
             {breakdown === "hourly" ? "Hourly" : "Daily"} Activity
           </div>
-          <div className="mt-1 text-heading text-muted-foreground">
+          <div className="mt-1 text-sm text-neutral-400">
             Last {buckets.length} {unitLabel} snapshots in the selected window.
           </div>
         </div>
-        <ToggleGroup
-          aria-label="Activity breakdown"
-          value={breakdown}
-          onChange={(value) => onBreakdownChange(value as TimelineBreakdownValue)}
-          size="xs"
-          options={TIMELINE_BREAKDOWN_OPTIONS.map((option) => ({
-            value: option.value,
-            label: option.label,
-          }))}
-        />
+        <div className="flex shrink-0 items-center gap-1">
+          {TIMELINE_BREAKDOWN_OPTIONS.map((option) => {
+            const selected = option.value === breakdown;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => onBreakdownChange(option.value)}
+                className={`border px-2 py-1 text-[10px] font-bold uppercase tracking-widest transition-colors ${
+                  selected
+                    ? "border-emerald-500/60 bg-emerald-500/15 text-emerald-200"
+                    : "border-neutral-800 bg-neutral-950 text-neutral-400 hover:border-neutral-700 hover:text-neutral-300"
+                }`}
+                aria-pressed={selected}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div
@@ -280,8 +289,8 @@ function SpendTimelineChart({
             >
               <div
                 className={`max-w-full truncate font-mono ${
-                  d.cost > 0 ? "text-emerald-300" : "text-muted-foreground"
-                } ${isHourly ? "text-caption" : "text-caption"}`}
+                  d.cost > 0 ? "text-emerald-300" : "text-neutral-400"
+                } ${isHourly ? "text-[10px]" : "text-[10px]"}`}
               >
                 {timelineValueLabel(d.cost)}
               </div>
@@ -290,15 +299,15 @@ function SpendTimelineChart({
                   className={`rounded-t-sm transition-colors cursor-default ${
                     d.sessions > 0
                       ? "bg-emerald-500/60 hover:bg-emerald-400/80"
-                      : "bg-accent/70"
+                      : "bg-neutral-800/70"
                   } ${isHourly ? "w-5" : "w-7"}`}
                   style={{ height: `${h}px` }}
                 />
               </div>
               <div
                 className={`max-w-full truncate font-mono ${
-                  d.sessions > 0 ? "text-muted-foreground" : "text-muted-foreground"
-                } ${isHourly ? "h-3 text-caption" : "text-caption"}`}
+                  d.sessions > 0 ? "text-neutral-400" : "text-neutral-400"
+                } ${isHourly ? "h-3 text-[10px]" : "text-[10px]"}`}
               >
                 {timelineBucketLabel(d.date, breakdown)}
               </div>
@@ -306,20 +315,20 @@ function SpendTimelineChart({
           );
         })}
       </div>
-      <div className="grid grid-cols-2 gap-3 pt-2 border-t border-border/60">
+      <div className="grid grid-cols-2 gap-3 pt-2 border-t border-neutral-800/60">
         <div>
-          <div className="text-caption uppercase text-muted-foreground mb-0.5">
+          <div className="text-[10px] uppercase text-neutral-400 mb-0.5">
             Total
           </div>
-          <div className="text-heading font-mono text-emerald-300">
+          <div className="text-sm font-mono text-emerald-300">
             ${totalCost.toFixed(2)}
           </div>
         </div>
         <div>
-          <div className="text-caption uppercase text-muted-foreground mb-0.5">
+          <div className="text-[10px] uppercase text-neutral-400 mb-0.5">
             Avg/Bucket
           </div>
-          <div className="text-heading font-mono text-emerald-300">
+          <div className="text-sm font-mono text-emerald-300">
             ${(totalCost / buckets.length).toFixed(2)}
           </div>
         </div>
@@ -347,37 +356,19 @@ export default function Analytics({
   }, [range]);
 
   useEffect(() => {
-    // A slower response for the previous range must not overwrite this one.
-    let cancelled = false;
     setLoading(true);
-    setErr(null);
     api
       .granularAnalytics(undefined, undefined, 5000, days)
-      .then((rows) => {
-        if (!cancelled) setData(rows);
-      })
-      .catch((e) => {
-        if (!cancelled) setErr(e instanceof Error ? e.message : String(e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+      .then(setData)
+      .catch((e) => setErr(String(e)))
+      .finally(() => setLoading(false));
 
     setDashLoading(true);
     api
       .analyticsDashboard(days)
-      .then((next) => {
-        if (!cancelled) setDashboard(next);
-      })
-      .catch(() => {
-        if (!cancelled) setDashboard(null);
-      })
-      .finally(() => {
-        if (!cancelled) setDashLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+      .then(setDashboard)
+      .catch(() => setDashboard(null))
+      .finally(() => setDashLoading(false));
   }, [days]);
 
   const costDriversData = useMemo(() => {
@@ -443,32 +434,26 @@ export default function Analytics({
     }));
   }, [costDriversData]);
 
-  if (err) {
-    return (
-      <div role="alert" className="p-4 text-body leading-6 text-muted-foreground">
-        {err}
-      </div>
-    );
-  }
+  if (err) return <div className="text-red-300 p-6">Error: {err}</div>;
   if (loading && data.length === 0)
     return <EmptyState title="Loading analytics…" className="m-6" />;
 
   return (
-    <div className="space-y-4 text-foreground">
-      <div className="space-y-4">
+    <div className="space-y-4 text-neutral-200">
+      <div className="space-y-6">
           {/* Summary metrics */}
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <MetricCard
               label="Sessions"
               value={dashboard ? dashboard.summary.total_sessions.toLocaleString() : "—"}
-              tone="info"
+              tone="cyan"
             />
             <MetricCard
               label="Cost"
               value={dashboard ? fmtUsd(dashboard.summary.total_cost) : "—"}
-              tone="warning"
+              tone="amber"
             />
-            <UiButton unstyled
+            <button
               type="button"
               onClick={onInspectSavings}
               disabled={!onInspectSavings}
@@ -483,10 +468,10 @@ export default function Analytics({
                     : "—"
                 }
                 detail={onInspectSavings ? "View evidence →" : undefined}
-                tone="success"
+                tone="emerald"
               />
-            </UiButton>
-            <UiButton unstyled
+            </button>
+            <button
               type="button"
               onClick={onInspectSavings}
               disabled={!onInspectSavings}
@@ -509,15 +494,15 @@ export default function Analytics({
                     : "—"
                 }
                 detail={onInspectSavings ? "How this is measured →" : undefined}
-                tone="neutral"
+                tone="violet"
               />
-            </UiButton>
+            </button>
           </section>
 
           {/* Timeline */}
-          <div className="space-y-4">
+          <div className="space-y-6">
               {dashLoading ? (
-                <EmptyState title="Loading…" />
+                <EmptyState title="Loading…" className="p-4" />
               ) : dashboard ? (
                 <>
                   <SpendTimelineChart
@@ -528,12 +513,12 @@ export default function Analytics({
                   />
                 </>
               ) : (
-                <div className="text-muted-foreground italic text-heading">
+                <div className="text-neutral-400 italic text-sm">
                   Data unavailable.
                 </div>
               )}
           </div>
-          <div className="grid gap-4 xl:grid-cols-2">
+          <div className="grid gap-6 xl:grid-cols-2">
             <CompactLeaderboard
               title="Top Hosts"
               rows={topHostRows}
@@ -552,11 +537,11 @@ export default function Analytics({
             />
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-2">
+          <div className="grid gap-6 xl:grid-cols-2">
             <CompactLeaderboard
               title="Top Domains"
               rows={topDomainRows}
-              color="bg-muted-foreground/60"
+              color="bg-neutral-500/60"
               emptyMessage={
                 dashLoading ? "Loading dashboard..." : "No domain data."
               }

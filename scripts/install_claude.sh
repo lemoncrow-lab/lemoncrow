@@ -31,7 +31,6 @@ PLUGIN_REF="lemoncrow@lemoncrow"
 DRY_RUN=false
 PRINT_ONLY=false
 STRICT=false
-HOSTED=false
 WORKSPACE=""
 WORKSPACE_SET=false
 PROJECT_ENFORCE=""      # path to project dir to write enforcement deny list, empty = don't
@@ -44,7 +43,6 @@ while [[ $# -gt 0 ]]; do
         --dry-run)    DRY_RUN=true ;;
         --print-only) PRINT_ONLY=true ;;
         --strict)     STRICT=true ;;
-        --hosted)     HOSTED=true ;;
         --workspace)
             if [ $# -lt 2 ]; then
                 echo "Missing value for --workspace" >&2
@@ -86,8 +84,6 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 IFS=',' read -ra ROLES_ARR <<< "$ROLES"
-MCP_ACTION="lite-mcp"
-$HOSTED && MCP_ACTION="mcp"
 
 if $WORKSPACE_SET; then
     WORKSPACE="$(cd "$WORKSPACE" && pwd)"
@@ -103,8 +99,8 @@ fi
 CLAUDE_SETTINGS="${CLAUDE_SETTINGS_DIR}/settings.json"
 CLAUDE_LOCAL_SETTINGS="${CLAUDE_SETTINGS_DIR}/settings.local.json"
 
-info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lc:claude] $*" || true; }
-warn()  { echo "[lc:claude] WARN: $*" >&2; }
+info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lemoncrow:claude] $*" || true; }
+warn()  { echo "[lemoncrow:claude] WARN: $*" >&2; }
 run()   { if $DRY_RUN; then echo "  [dry-run] $*"; else "$@"; fi; }
 
 # --print-only must not mutate anything (no staging rm/copy, no config writes),
@@ -129,7 +125,7 @@ if $PRINT_ONLY; then
         echo "Step 4 - Project local Claude agents are projected into ${WORKSPACE}/.claude/agents"
     else
         echo "Step 3 - Register MCP in Claude user scope:"
-        echo "  claude mcp add-json --scope user lc '{\"type\":\"stdio\",\"command\":\"lc\",\"args\":[\"runtime\",\"${MCP_ACTION}\",\"--host\",\"claude\"],\"env\":{},\"alwaysLoad\":true}'"
+        echo "  claude mcp add-json --scope user lc '{\"type\":\"stdio\",\"command\":\"lc\",\"args\":[\"mcp\",\"--host\",\"claude\"],\"env\":{\"LEMONCROW_MCP_TOOL_PROFILE\":\"core\"},\"alwaysLoad\":true}'"
     fi
     echo ""
     echo "After install, in Claude Code: /lemoncrow:explore"
@@ -211,7 +207,7 @@ for t in LEMONCROW_MCP_TOOLS + BASH_ALLOWS:
 
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 print(
-    f"[lc:claude] enforcement merged → {path} "
+    f"[lemoncrow:claude] enforcement merged → {path} "
     f"(deny +{len(added_deny)}, allow +{len(added_allow)})"
 )
 PYEOF
@@ -259,7 +255,7 @@ else:
         data.pop("env", None)
     action = "disabled"
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-print(f"[lc:claude] Headroom dev apply {action} → {path}")
+print(f"[lemoncrow:claude] Headroom dev apply {action} → {path}")
 PYEOF
 }
 
@@ -372,7 +368,7 @@ fi
 
 if ! command -v claude &>/dev/null; then
     if $STRICT; then
-        echo "[lc:claude] ERROR: 'claude' CLI not found on PATH. Install from https://claude.ai/download" >&2
+        echo "[lemoncrow:claude] ERROR: 'claude' CLI not found on PATH. Install from https://claude.ai/download" >&2
         exit 1
     fi
     warn "'claude' CLI not found on PATH - SKIPPING Claude install."
@@ -390,7 +386,7 @@ info "Running structural validation on plugin package at ${SOURCE_PLUGIN_DIR}"
 
 STRUCT_FAIL=0
 struct_pass() { info "PASS: $*"; }
-struct_fail() { echo "[lc:claude] FAIL: $*" >&2; STRUCT_FAIL=1; }
+struct_fail() { echo "[lemoncrow:claude] FAIL: $*" >&2; STRUCT_FAIL=1; }
 
 if [ -d "${SOURCE_PLUGIN_DIR}" ]; then
     struct_pass "plugin directory exists: integrations/claude/plugin/"
@@ -454,7 +450,7 @@ else
 fi
 
 if [ "$STRUCT_FAIL" -ne 0 ]; then
-    echo "[lc:claude] ERROR: Structural validation failed. Fix the above issues before installing." >&2
+    echo "[lemoncrow:claude] ERROR: Structural validation failed. Fix the above issues before installing." >&2
     exit 1
 fi
 info "Structural validation passed"
@@ -467,7 +463,7 @@ if $DRY_RUN; then
 else
     info "Validating plugin package with Claude CLI at ${PLUGIN_DIR}"
     if ! claude plugin validate "${PLUGIN_DIR}" 2>&1 | grep -q "Validation passed"; then
-        echo "[lc:claude] ERROR: Plugin validation failed. Run: claude plugin validate ${PLUGIN_DIR}" >&2
+        echo "[lemoncrow:claude] ERROR: Plugin validation failed. Run: claude plugin validate ${PLUGIN_DIR}" >&2
         exit 1
     fi
     info "Plugin package valid (Claude CLI)"
@@ -479,7 +475,7 @@ else
     elif echo "$INSTALL_SOURCE_OUT" | grep -q "Successfully added"; then
         info "Claude plugin source 'lemoncrow' registered"
     else
-        echo "[lc:claude] ERROR: plugin source add failed: $INSTALL_SOURCE_OUT" >&2
+        echo "[lemoncrow:claude] ERROR: plugin source add failed: $INSTALL_SOURCE_OUT" >&2
         exit 1
     fi
 
@@ -489,7 +485,7 @@ else
     if echo "$INSTALL_OUT" | grep -qiE "Successfully installed|Installed"; then
         info "Plugin ${PLUGIN_REF} installed"
     else
-        echo "[lc:claude] ERROR: plugin install failed: $INSTALL_OUT" >&2
+        echo "[lemoncrow:claude] ERROR: plugin install failed: $INSTALL_OUT" >&2
         exit 1
     fi
 fi
@@ -506,7 +502,7 @@ if $WORKSPACE_SET; then
     else
         run mkdir -p "$(dirname "${MCP_JSON}")"
         [[ -f "${MCP_JSON}" ]] || echo "{}" > "${MCP_JSON}"
-        LEMONCROW_MCP_JSON_PATH="${MCP_JSON}" LEMONCROW_MCP_ACTION="${MCP_ACTION}" python3 - <<'PYEOF'
+        LEMONCROW_MCP_JSON_PATH="${MCP_JSON}" python3 - <<'PYEOF'
 import json
 import os
 from pathlib import Path
@@ -516,21 +512,21 @@ data = json.loads(path.read_text(encoding="utf-8") or "{}")
 data.setdefault("mcpServers", {})["lc"] = {
     "type": "stdio",
     "command": "lemoncrow",
-    "args": ["runtime", os.environ["LEMONCROW_MCP_ACTION"], "--host", "claude"],
-    "env": {},
+    "args": ["mcp", "--host", "claude"],
+    "env": {"LEMONCROW_MCP_TOOL_PROFILE": "core"},
     "alwaysLoad": True,
 }
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-print(f"[lc:claude] lc MCP server merged → {path}")
+print(f"[lemoncrow:claude] lc MCP server merged → {path}")
 PYEOF
     fi
 else
     if $DRY_RUN; then
-        echo "  [dry-run] claude mcp add-json --scope user lc '{\"type\":\"stdio\",\"command\":\"lc\",\"args\":[\"runtime\",\"${MCP_ACTION}\",\"--host\",\"claude\"],\"env\":{},\"alwaysLoad\":true}'"
+        echo "  [dry-run] claude mcp add-json --scope user lc '{\"type\":\"stdio\",\"command\":\"lc\",\"args\":[\"mcp\",\"--host\",\"claude\"],\"env\":{\"LEMONCROW_MCP_TOOL_PROFILE\":\"core\"},\"alwaysLoad\":true}'"
     else
         info "Registering always-loaded lc MCP server in Claude user scope"
         claude mcp remove --scope user lc 2>/dev/null || true
-        claude mcp add-json --scope user lc "{\"type\":\"stdio\",\"command\":\"lc\",\"args\":[\"runtime\",\"${MCP_ACTION}\",\"--host\",\"claude\"],\"env\":{},\"alwaysLoad\":true}"
+        claude mcp add-json --scope user lc '{"type":"stdio","command":"lc","args":["mcp","--host","claude"],"env":{"LEMONCROW_MCP_TOOL_PROFILE":"core"},"alwaysLoad":true}'
     fi
 fi
 
@@ -553,7 +549,7 @@ path = Path(os.environ['LEMONCROW_CLAUDE_LOCAL_SETTINGS'])
 data = json.loads(path.read_text(encoding='utf-8') or '{}')
 data.setdefault('env', {})['CLAUDE_WORKSPACE_ROOT'] = os.environ['LEMONCROW_WORKSPACE']
 path.write_text(json.dumps(data, indent=2) + '\n', encoding='utf-8')
-print(f"[lc:claude] CLAUDE_WORKSPACE_ROOT written to {path}")
+print(f"[lemoncrow:claude] CLAUDE_WORKSPACE_ROOT written to {path}")
 PYEOF
     fi
 
@@ -570,7 +566,7 @@ from pathlib import Path
 from lemoncrow.core.capabilities.workspace_host_overrides import write_workspace_claude_overrides
 
 written = write_workspace_claude_overrides(Path("${WORKSPACE}"), repo_root=Path("${LEMONCROW_REPO}"), role_ids=tuple(r for r in "${ROLES}".split(",") if r))
-print(f"[lc:claude] projected {len(written)} workspace-local Claude files into ${WORKSPACE}/.claude")
+print(f"[lemoncrow:claude] projected {len(written)} workspace-local Claude files into ${WORKSPACE}/.claude")
 PYEOF
     fi
 fi
@@ -625,15 +621,15 @@ if changed:
     stamp = time.strftime("%Y%m%d-%H%M%S")
     backup = path.with_name(path.name + ".bak." + stamp)
     shutil.copy2(path, backup)
-    print(f"[lc:claude] backed up settings → {backup}")
+    print(f"[lemoncrow:claude] backed up settings → {backup}")
     data.update(changed)
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 for key in desired:
     if key not in skipped:
-        print(f"[lc:claude] {key} set → " + (desired[key] if isinstance(desired[key], str) else desired[key]["command"]))
+        print(f"[lemoncrow:claude] {key} set → " + (desired[key] if isinstance(desired[key], str) else desired[key]["command"]))
 if skipped:
-    print("[lc:claude] NOTICE: kept your existing settings for: " + ", ".join(skipped))
-    print("[lc:claude] To switch them to LemonCrow, merge this into ${CLAUDE_SETTINGS}:")
+    print("[lemoncrow:claude] NOTICE: kept your existing settings for: " + ", ".join(skipped))
+    print("[lemoncrow:claude] To switch them to LemonCrow, merge this into ${CLAUDE_SETTINGS}:")
     print(json.dumps({k: desired[k] for k in skipped}, indent=2))
 PYEOF2
 else

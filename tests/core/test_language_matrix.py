@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
+
 from lemoncrow.infra.code_intel.languages import LANGUAGES, language_for_path
 from lemoncrow.infra.tree_sitter.tags import Tag, extract_tags_from_text
 from lemoncrow.pro.capabilities.semantic_file_memory import SemanticFileMemoryCapability
@@ -68,39 +70,49 @@ def test_language_fixture_matrix_covers_canonical_registry() -> None:
     assert all(fixture.path.is_file() for fixture in FIXTURES)
 
 
-def test_language_detection_matrix(tmp_path: Path) -> None:
-    for fixture in FIXTURES:
-        language = language_for_path(fixture.path)
-        assert language is not None
-        assert language.name == fixture.language
-        cap = SemanticFileMemoryCapability(tmp_path / fixture.language)
-        payload = cap.smart_read(fixture.path, outline_threshold=0)
-        assert payload["language"] == fixture.language
+@pytest.mark.parametrize("fixture", FIXTURES, ids=_fixture_ids)
+def test_language_detection_matrix(fixture: LanguageFixture, tmp_path: Path) -> None:
+    language = language_for_path(fixture.path)
+    assert language is not None
+    assert language.name == fixture.language
+
+    cap = SemanticFileMemoryCapability(tmp_path)
+    payload = cap.smart_read(fixture.path, outline_threshold=0)
+
+    assert payload["language"] == fixture.language
 
 
-def test_tree_sitter_outline_matrix_honors_guard(tmp_path: Path) -> None:
-    for fixture in [fixture for fixture in FIXTURES if fixture.language in SUPPORTED_LANGUAGES]:
-        source = fixture.path.read_text(encoding="utf-8")
-        dedicated_outline = outline_text(fixture.language, source)
-        assert dedicated_outline
-        cap = SemanticFileMemoryCapability(tmp_path / fixture.language)
-        payload = cap.smart_read(fixture.path, outline_threshold=0)
-        guard_passes = _outline_saves_enough(dedicated_outline, source)
-        if fixture.language in AST_OUTLINE_LANGUAGES:
-            assert payload["mode"] == "outline"
-            assert payload["outline"]["language"] in {fixture.language, "tsx"}
-        elif guard_passes:
-            assert payload["mode"] == "outline"
-            assert payload["outline"]["kind"] == "treesitter"
-        else:
-            outline = payload.get("outline")
-            assert not (isinstance(outline, dict) and outline.get("kind") == "treesitter")
+@pytest.mark.parametrize(
+    "fixture",
+    [fixture for fixture in FIXTURES if fixture.language in SUPPORTED_LANGUAGES],
+    ids=_fixture_ids,
+)
+def test_tree_sitter_outline_matrix_honors_guard(fixture: LanguageFixture, tmp_path: Path) -> None:
+    source = fixture.path.read_text(encoding="utf-8")
+    dedicated_outline = outline_text(fixture.language, source)
+
+    assert dedicated_outline
+
+    cap = SemanticFileMemoryCapability(tmp_path)
+    payload = cap.smart_read(fixture.path, outline_threshold=0)
+    guard_passes = _outline_saves_enough(dedicated_outline, source)
+
+    if fixture.language in AST_OUTLINE_LANGUAGES:
+        assert payload["mode"] == "outline"
+        assert payload["outline"]["language"] in {fixture.language, "tsx"}
+    elif guard_passes:
+        assert payload["mode"] == "outline"
+        assert payload["outline"]["kind"] == "treesitter"
+    else:
+        outline = payload.get("outline")
+        assert not (isinstance(outline, dict) and outline.get("kind") == "treesitter")
 
 
-def test_language_definition_tag_matrix() -> None:
-    for fixture in FIXTURES:
-        tags = extract_tags_from_text(fixture.path.read_text(encoding="utf-8"), fixture.path)
-        if fixture.expected_definitions:
-            assert fixture.expected_definitions <= _definitions(tags)
-        else:
-            assert _definitions(tags) == set()
+@pytest.mark.parametrize("fixture", FIXTURES, ids=_fixture_ids)
+def test_language_definition_tag_matrix(fixture: LanguageFixture) -> None:
+    tags = extract_tags_from_text(fixture.path.read_text(encoding="utf-8"), fixture.path)
+
+    if fixture.expected_definitions:
+        assert fixture.expected_definitions <= _definitions(tags)
+    else:
+        assert _definitions(tags) == set()

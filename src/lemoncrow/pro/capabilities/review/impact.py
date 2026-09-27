@@ -31,10 +31,7 @@ named legacy compatibility adapter; they are enrichment, not Review target truth
 from __future__ import annotations
 
 import ast
-import hashlib
 import re
-import threading
-from collections import OrderedDict
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
@@ -64,7 +61,7 @@ _MAX_CALLER_QUERIES = 20
 _CALLERS_PER_SYMBOL = 20
 
 # Degradation names. The first two are what `render.py::_INDEX_SIGNALS` looks
-# for when deciding to print the ``run `lc runtime index``` hint, so the spelling
+# for when deciding to print the ``run `lc code index``` hint, so the spelling
 # is load-bearing.
 _SIGNAL_RELATIONS = "symbol_relations"
 _SIGNAL_CENTRALITY = "centrality"
@@ -528,34 +525,7 @@ def _python_definition_analysis(text: str, path: str) -> _DefinitionAnalysis:
     return _DefinitionAnalysis(definitions=kept, dropped=dropped, body_spans=tuple(spans))
 
 
-#: Parsed definitions per (path, content digest). Every capture of a live
-#: worktree re-derives units for every changed file; a 64-entry LRU keyed by the
-#: text thrashed on a 388-file change and skipped files over 64 KB entirely,
-#: so each new Snapshot re-parsed all of them (~5 s of tree-sitter per capture).
-_DEFINITION_CACHE_MAX = 4096
-_definition_cache: OrderedDict[tuple[str, bytes], _DefinitionAnalysis] = OrderedDict()
-_definition_cache_lock = threading.Lock()
-
-
 def _definition_analysis(text: str, path: str) -> _DefinitionAnalysis:
-    # Source identity includes path (language and tag filenames) and exact text;
-    # the digest keeps the cache from retaining the text itself.
-    key = (path, hashlib.blake2b(text.encode("utf-8", "surrogatepass"), digest_size=20).digest())
-    with _definition_cache_lock:
-        hit = _definition_cache.get(key)
-        if hit is not None:
-            _definition_cache.move_to_end(key)
-            return hit
-    analysis = _uncached_definition_analysis(text, path)
-    with _definition_cache_lock:
-        _definition_cache[key] = analysis
-        _definition_cache.move_to_end(key)
-        while len(_definition_cache) > _DEFINITION_CACHE_MAX:
-            _definition_cache.popitem(last=False)
-    return analysis
-
-
-def _uncached_definition_analysis(text: str, path: str) -> _DefinitionAnalysis:
     if not text:
         return _DefinitionAnalysis()
     if Path(path).suffix.lower() in _PYTHON_SUFFIXES:
@@ -1993,8 +1963,7 @@ def _untouched_caller_sites(
 
     sites: list[ImpactSite] = []
     seen: set[tuple[str, str]] = set()
-    queried = candidates[:_MAX_CALLER_QUERIES]
-    for rank, symbol in enumerate(queried):
+    for symbol in candidates[:_MAX_CALLER_QUERIES]:
         resolution = cached.get(symbol.symbol_name) or _resolve_name(engine, symbol.symbol_name)
         if resolution is None:
             continue
@@ -2005,11 +1974,7 @@ def _untouched_caller_sites(
         related = resolution.payload.get("related")
         if not isinstance(related, list):
             continue
-        if len(related) >= _CALLERS_PER_SYMBOL and symbol.caller_count > len(related):
-            # The per-symbol query bound cut this symbol's callers: say so, never
-            # present the first page as the whole set.
-            degraded.add(_SIGNAL_CALLER_QUERIES_TRUNCATED)
-        for position, node in enumerate(related):
+        for node in related:
             if not isinstance(node, Mapping):
                 continue
             # MCP payloads ship field-name-shortened keys (file_path -> path,
@@ -2068,9 +2033,6 @@ def _untouched_caller_sites(
                 )
             )
             if len(sites) >= limit:
-                if position + 1 < len(related) or rank + 1 < len(queried):
-                    # Stopped at the site budget with callers left unexamined.
-                    degraded.add(_SIGNAL_SITE_CAP)
                 return sites, degraded
     return sites, degraded
 

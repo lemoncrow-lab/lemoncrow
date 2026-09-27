@@ -104,7 +104,6 @@ def test_human_feedback_to_agent_revision_reopens_only_changed_work(
     build = PacketBuild(packet=replace(built.packet, provenance=exact), blobs=built.blobs)
     session = open_or_create_session(store, repo_root, rng, title=build.packet.title)
     first = snapshot_revision(store, session, repo_root, rng, store_root=store_root, build=build)
-    store.publish_snapshot(session.id, first.id)
 
     app = FastAPI()
     register_review_api(

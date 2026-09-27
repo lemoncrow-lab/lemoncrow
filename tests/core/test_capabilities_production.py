@@ -13,7 +13,6 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
-import pytest
 from click.testing import CliRunner
 
 from lemoncrow.core.foundation.models import Playbook
@@ -29,13 +28,21 @@ def _init_root(root: Path) -> None:
 def _make_rt(tmp_path: Path) -> tuple[LemonCrowRuntimeCore, Path]:
     root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
-    return (LemonCrowRuntimeCore(root), root)
+    return LemonCrowRuntimeCore(root), root
+
+
+# --------------------------------------------------------------------------- #
+# context_reuse                                                               #
+# --------------------------------------------------------------------------- #
 
 
 def test_context_reuse_returns_context(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
     ctx = rt.get_context(
-        task="Fix a failing live state change", domain="state.change", errors=["ConnectionError"], max_blocks=3
+        task="Fix a failing live state change",
+        domain="state.change",
+        errors=["ConnectionError"],
+        max_blocks=3,
     )
     assert isinstance(ctx, str)
 
@@ -50,6 +57,7 @@ def test_context_reuse_inject_context(tmp_path: Path) -> None:
         errors=[],
         max_blocks=5,
     )
+    # should return a dict
     assert isinstance(result, dict)
     assert "procedures" in result
     assert "dead_ends" in result
@@ -58,7 +66,10 @@ def test_context_reuse_inject_context(tmp_path: Path) -> None:
 def test_context_reuse_retrieve_includes_phase2_breakdown(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
     scored = rt.context_reuse.retrieve(
-        task="Fix a flaky live deployment flow", domain="state.change", errors=["timeout", "connection reset"], limit=5
+        task="Fix a flaky live deployment flow",
+        domain="state.change",
+        errors=["timeout", "connection reset"],
+        limit=5,
     )
     assert isinstance(scored, list)
     if scored:
@@ -71,7 +82,10 @@ def test_context_reuse_retrieve_includes_phase2_breakdown(tmp_path: Path) -> Non
 def test_context_reuse_inject_includes_rescue_chains(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
     payload = rt.context_reuse.inject_runtime_context(
-        task="Recover from failed live change", domain="state.change", errors=["api quota exceeded"], max_blocks=6
+        task="Recover from failed live change",
+        domain="state.change",
+        errors=["api quota exceeded"],
+        max_blocks=6,
     )
     assert "rescue_chains" in payload
     assert isinstance(payload["rescue_chains"], list)
@@ -108,6 +122,7 @@ def test_context_reuse_filters_to_strong_top_two(tmp_path: Path) -> None:
         ),
         write_markdown=False,
     )
+
     payload = rt.context_reuse.inject_runtime_context(
         task="deploy rollback configuration",
         domain="state.change",
@@ -116,6 +131,7 @@ def test_context_reuse_filters_to_strong_top_two(tmp_path: Path) -> None:
         errors=["ConnectionError"],
         max_blocks=5,
     )
+
     assert len(payload["procedures"]) == 2
     assert all(proc["score"] > 0.8 for proc in payload["procedures"])
     assert "weak-context" not in {proc["id"] for proc in payload["procedures"]}
@@ -133,31 +149,56 @@ def test_context_reuse_returns_empty_when_no_strong_match(tmp_path: Path) -> Non
         ),
         write_markdown=False,
     )
+
     context = rt.get_context(task="unrelated task", domain="weak.only", recall=False)
+
     assert context == "<context_procedures>\n(no relevant procedures found)\n</context_procedures>\n"
+
+
+# --------------------------------------------------------------------------- #
+# semantic_file_memory                                                        #
+# --------------------------------------------------------------------------- #
 
 
 def test_semantic_memory_ast_truncation(tmp_path: Path) -> None:
     from lemoncrow.pro.capabilities.semantic_file_memory import _ast_truncated_source
 
-    source = textwrap.dedent(
-        "        def foo(x):\n            a = 1\n            b = 2\n            c = 3\n            return a + b + c\n\n        class Bar:\n            def method(self):\n                return 42\n        "
-    )
+    source = textwrap.dedent("""\
+        def foo(x):
+            a = 1
+            b = 2
+            c = 3
+            return a + b + c
+
+        class Bar:
+            def method(self):
+                return 42
+        """)
     truncated = _ast_truncated_source(source, max_body_lines=2)
+    # function body should be stubbed to ...
     assert "..." in truncated
+    # full body lines should be gone
     assert "c = 3" not in truncated
 
 
 def test_semantic_memory_symbol_details(tmp_path: Path) -> None:
     from lemoncrow.pro.capabilities.semantic_file_memory import _python_full_ast
 
-    source = textwrap.dedent(
-        "        def compute(x: int, y: int) -> int:\n            return x + y\n\n        class Manager:\n            def run(self) -> None:\n                pass\n\n        CONSTANT = 42\n        "
-    )
+    source = textwrap.dedent("""\
+        def compute(x: int, y: int) -> int:
+            return x + y
+
+        class Manager:
+            def run(self) -> None:
+                pass
+
+        CONSTANT = 42
+        """)
     symbols, _imports, _summary = _python_full_ast(source)
     names = [s.name for s in symbols]
     assert "compute" in names
     assert "Manager" in names
+    # Check signature extraction for compute
     compute_sym = next(s for s in symbols if s.name == "compute")
     assert "compute" in compute_sym.signature
     assert compute_sym.lineno >= 1
@@ -167,8 +208,10 @@ def test_semantic_memory_cache_hit(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
     target = tmp_path / "mymod.py"
     target.write_text("def hello(): pass\n", encoding="utf-8")
+
     first = rt.smart_read(target, max_lines=50)
     second = rt.smart_read(target, max_lines=50)
+
     assert first["language"] == "python"
     assert "hello" in first["symbols"]
     assert second["cached"] is True
@@ -178,9 +221,19 @@ def test_semantic_memory_module_summary(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
     target = tmp_path / "engine.py"
     target.write_text(
-        textwrap.dedent(
-            '            """Engine module."""\n            import os\n            from pathlib import Path\n\n            EXPORTED_CONSTANT = 1\n\n            def public_func(x):\n                return x\n\n            def _private_func():\n                pass\n            '
-        ),
+        textwrap.dedent("""\
+            \"\"\"Engine module.\"\"\"
+            import os
+            from pathlib import Path
+
+            EXPORTED_CONSTANT = 1
+
+            def public_func(x):
+                return x
+
+            def _private_func():
+                pass
+            """),
         encoding="utf-8",
     )
     summary = rt.module_summary(target)
@@ -194,13 +247,20 @@ def test_semantic_memory_module_summary(tmp_path: Path) -> None:
 
 def test_semantic_memory_symbol_search(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
+    # Seed cache with a file containing a unique symbol
     target = tmp_path / "search_target.py"
     target.write_text("def zxqw_unique_symbol(a, b): return a - b\n", encoding="utf-8")
     rt.smart_read(target, max_lines=50)
+
     results = rt.symbol_search("zxqw_unique_symbol", limit=10)
     assert isinstance(results, list)
     if results:
         assert any("zxqw_unique_symbol" in r["name"] for r in results)
+
+
+# --------------------------------------------------------------------------- #
+# tool_supervision                                                            #
+# --------------------------------------------------------------------------- #
 
 
 def test_tool_supervision_token_savings(tmp_path: Path) -> None:
@@ -209,30 +269,16 @@ def test_tool_supervision_token_savings(tmp_path: Path) -> None:
     root = tmp_path / ".lemoncrow"
     _init_root(root)
     cap = ToolSupervisionCapability(root)
+
+    # First call: cache miss
     cap.observe("grep:foo", {"output": "result1"}, cache_hit=False)
+    # Second call: cache hit (avoided)
     cap.observe("grep:foo", {"output": "result1"}, cache_hit=True)
+
     status = cap.status()
     assert status["total_tool_calls"] == 2
     assert status["avoided_tool_calls"] >= 1
     assert status["token_savings"] > 0
-
-
-def test_tool_supervision_outside_a_registered_workspace_keeps_cache_available(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from lemoncrow.core.foundation import paths
-    from lemoncrow.pro.capabilities.tool_supervision import ToolSupervisionCapability
-
-    root = tmp_path / ".lemoncrow"
-    _init_root(root)
-    cap = ToolSupervisionCapability(root)
-
-    def no_workspace(_root: Path) -> Path:
-        raise paths.WorkspaceNotRegisteredError("outside a registered workspace")
-
-    monkeypatch.setattr(paths, "resolve_workspace_root", no_workspace)
-    cap.observe("read:outside", {"output": "ok"}, cache_hit=False)
-    assert cap.get("read:outside") == {"output": "ok"}
 
 
 def test_tool_supervision_tool_report_structure(tmp_path: Path) -> None:
@@ -244,6 +290,7 @@ def test_tool_supervision_tool_report_structure(tmp_path: Path) -> None:
     cap.observe("read:file.py", {"lines": 100}, cache_hit=False)
     cap.observe("read:file.py", {"lines": 100}, cache_hit=True)
     cap.observe("read:file.py", {"lines": 100}, cache_hit=True)
+
     report = cap.tool_report()
     assert "metrics" in report
     assert "redundant_patterns" in report
@@ -270,6 +317,7 @@ def test_tool_supervision_diff_context_no_crash(tmp_path: Path) -> None:
     root = tmp_path / ".lemoncrow"
     _init_root(root)
     cap = ToolSupervisionCapability(root)
+    # Should not raise even for non-existent file
     result = cap.diff_context(["nonexistent.py"], lines=3)
     assert "diffs" in result
     assert isinstance(result["diffs"], list)
@@ -285,6 +333,11 @@ def test_tool_supervision_test_context_no_crash(tmp_path: Path) -> None:
     assert "test_contexts" in result
 
 
+# --------------------------------------------------------------------------- #
+# context_compression                                                         #
+# --------------------------------------------------------------------------- #
+
+
 def test_context_compression_provenance_present(tmp_path: Path) -> None:
     from lemoncrow.infra.runtime.run_ledger import RunLedger
     from lemoncrow.pro.capabilities.context_compression import ContextCompressionCapability
@@ -292,10 +345,13 @@ def test_context_compression_provenance_present(tmp_path: Path) -> None:
     root = tmp_path / ".lemoncrow"
     _init_root(root)
     led = RunLedger(session_id="test-cc-1", task="compress me", domain="test")
+    # Add some events to compress
     for i in range(5):
         led.record(kind="tool_call", summary=f"call {i}", payload={"i": i})
+
     cap = ContextCompressionCapability()
     result = cap.compress_with_provenance(led)
+
     assert result.chars_before >= 0
     assert result.chars_after >= 0
     assert isinstance(result.preserved_facts, list)
@@ -309,33 +365,42 @@ def test_context_compression_provenance_present(tmp_path: Path) -> None:
     assert "dropped" in d
 
 
-def test_context_compression_keystone_survives_budget(tmp_path: Path, monkeypatch) -> None:
+def test_context_compression_keystone_survives_budget(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     """A keystone event below the budget cutoff must never be dropped."""
     import sys
 
+    import lemoncrow.bench.mode  # noqa: F401 — ensures the sys.modules entry exists
     from lemoncrow.infra.runtime.run_ledger import RunLedger
     from lemoncrow.pro.capabilities.context_compression import ContextCompressionCapability
 
+    # lemoncrow.bench.__init__ exports a `mode` function that shadows the submodule,
+    # so retrieve the real module via sys.modules to reset the singleton.
     _bm = sys.modules["lemoncrow.bench.mode"]
     monkeypatch.setattr(_bm, "_mode", None)
     monkeypatch.setenv("LEMONCROW_BENCH_MODE", "on")
-    grant_oauth_pro(monkeypatch)
+    grant_oauth_pro(monkeypatch)  # context_compression is Pro-gated
+
     root = tmp_path / ".lemoncrow"
     _init_root(root)
     led = RunLedger(session_id="test-cc-keystone", task="unrelated task", domain="test")
+    # Distinct, high-weight filler events (not collapsed by dedup) that exhaust the budget.
     for summary in (
         "configured database connection pooling for the analytics warehouse system today",
         "rewrote the markdown parser to support nested footnote references throughout",
         "optimized image thumbnail generation using vectorized numpy kernels everywhere",
     ):
         led.record(kind="file_edit", summary=summary, payload={"diff": summary * 4})
+    # A keystone fact recorded last; on score alone it sorts below the budget cutoff
+    # and would be evicted without keystone protection.
     led.record(
         kind="note",
         summary="do not retry this operation under any circumstances whatsoever",
         payload={"detail": "do not retry this operation under any circumstances whatsoever" * 2},
     )
+
     cap = ContextCompressionCapability()
     result = cap.compress_with_provenance(led, token_budget=40)
+
     assert any("do not retry" in fact for fact in result.preserved_facts), "keystone fact must be preserved"
     assert all("do not retry" not in d.summary for d in result.dropped), "keystone fact must not be dropped"
 
@@ -352,6 +417,11 @@ def test_context_compression_context_report(tmp_path: Path) -> None:
     assert isinstance(report, dict)
     assert "chars_before" in report
     assert "reduction_pct" in report
+
+
+# --------------------------------------------------------------------------- #
+# engine lifecycle hooks                                                      #
+# --------------------------------------------------------------------------- #
 
 
 def test_runtime_v3_alias(tmp_path: Path) -> None:
@@ -371,6 +441,7 @@ def test_runtime_pre_tool_hook(tmp_path: Path) -> None:
 
 def test_runtime_post_tool_hook(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
+    # Should not raise; returns None
     rt.post_tool("edit_file", {"path": "bar.py"}, {"status": "ok"}, output_chars=200)
 
 
@@ -383,6 +454,7 @@ def test_runtime_pre_patch_hook(tmp_path: Path) -> None:
 
 def test_runtime_post_patch_hook(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
+    # Should not raise
     rt.post_patch(["engine.py"], {"status": "ok"})
 
 
@@ -398,6 +470,7 @@ def test_runtime_finalize_returns_aggregate(tmp_path: Path) -> None:
 
 def test_runtime_loop_report_removed(tmp_path: Path) -> None:
     rt, _ = _make_rt(tmp_path)
+    # loop_report was hard-removed together with the loop_detection capability.
     assert not hasattr(rt, "loop_report")
 
 
@@ -407,7 +480,12 @@ def test_runtime_context_report_no_ledger(tmp_path: Path) -> None:
         report = rt.context_report(session_id=None)
         assert isinstance(report, dict)
     except FileNotFoundError:
-        pass
+        pass  # raising is acceptable when no ledger exists
+
+
+# --------------------------------------------------------------------------- #
+# CLI smoke tests for new commands                                            #
+# --------------------------------------------------------------------------- #
 
 
 def test_cli_tool_report_no_crash(tmp_path: Path) -> None:
@@ -418,24 +496,33 @@ def test_cli_tool_report_no_crash(tmp_path: Path) -> None:
     assert res.exit_code == 0
 
 
-def test_production_telemetry_contract() -> None:
-    """case: test_telemetry_emit_and_query"""
+# --------------------------------------------------------------------------- #
+# Phase 4 — telemetry substrate                                               #
+# --------------------------------------------------------------------------- #
+
+
+def test_telemetry_emit_and_query() -> None:
     from lemoncrow.core.capabilities.telemetry import TelemetryEvent, TelemetrySubstrate
 
     bus = TelemetrySubstrate()
     bus.emit("tool_supervision", "redundancy_score", 0.8, session_id="r1")
     bus.emit("context_reuse", "hit_quality", 0.95, session_id="r1")
     bus.emit("tool_supervision", "retry_count", 2.0, session_id="r1")
+
     all_events = bus.query()
     assert len(all_events) == 3
+
     ld_events = bus.query(capability="tool_supervision")
     assert len(ld_events) == 2
     assert all(e.capability == "tool_supervision" for e in ld_events)
+
     hp_events = bus.query(metric="hit_quality")
     assert len(hp_events) == 1
     assert hp_events[0].value == 0.95
     assert isinstance(hp_events[0], TelemetryEvent)
-    "case: test_telemetry_to_dict_shape"
+
+
+def test_telemetry_to_dict_shape() -> None:
     from lemoncrow.core.capabilities.telemetry import TelemetryEvent
 
     ev = TelemetryEvent(capability="tool_supervision", metric="token_cost", value=120.0)
@@ -445,25 +532,32 @@ def test_production_telemetry_contract() -> None:
     assert d["value"] == 120.0
     assert "timestamp" in d
     assert isinstance(d["context"], dict)
-    "case: test_telemetry_aggregates_mean_p95"
+
+
+def test_telemetry_aggregates_mean_p95() -> None:
     from lemoncrow.core.capabilities.telemetry import TelemetrySubstrate
 
     bus = TelemetrySubstrate()
-    for v in range(1, 11):
+    for v in range(1, 11):  # values 1..10
         bus.emit("compression", "token_savings", float(v))
+
     agg = bus.aggregates(capability="compression", metric="token_savings")
     assert agg["count"] == 10.0
     assert agg["mean"] == 5.5
-    assert agg["p95"] >= 9.0
+    assert agg["p95"] >= 9.0  # p95 of 1..10 is ~10
     assert agg["total"] == 55.0
-    "case: test_telemetry_aggregates_empty"
+
+
+def test_telemetry_aggregates_empty() -> None:
     from lemoncrow.core.capabilities.telemetry import TelemetrySubstrate
 
     bus = TelemetrySubstrate()
     agg = bus.aggregates(capability="nobody")
     assert agg["count"] == 0.0
     assert agg["mean"] == 0.0
-    "case: test_telemetry_clear"
+
+
+def test_telemetry_clear() -> None:
     from lemoncrow.core.capabilities.telemetry import TelemetrySubstrate
 
     bus = TelemetrySubstrate()
@@ -474,8 +568,12 @@ def test_production_telemetry_contract() -> None:
     assert len(bus) == 0
 
 
-def test_budget_optimizer_contract() -> None:
-    """case: test_budget_optimizer_empty_blocks"""
+# --------------------------------------------------------------------------- #
+# Phase 4 — prompt budget optimizer                                           #
+# --------------------------------------------------------------------------- #
+
+
+def test_budget_optimizer_empty_blocks() -> None:
     from lemoncrow.pro.capabilities.budget_optimizer import PromptBudgetOptimizer
 
     opt = PromptBudgetOptimizer()
@@ -484,7 +582,9 @@ def test_budget_optimizer_contract() -> None:
     assert plan.dropped == []
     assert plan.total_tokens == 0
     assert plan.total_utility == 0.0
-    "case: test_budget_optimizer_all_fit"
+
+
+def test_budget_optimizer_all_fit() -> None:
     from lemoncrow.pro.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
 
     blocks = [
@@ -497,8 +597,10 @@ def test_budget_optimizer_contract() -> None:
     assert "a" in selected_ids
     assert "b" in selected_ids
     assert plan.total_tokens == 80
-    assert plan.total_utility >= 1.5
-    "case: test_budget_optimizer_respects_budget"
+    assert plan.total_utility >= 1.5  # 0.9 + 0.7
+
+
+def test_budget_optimizer_respects_budget() -> None:
     from lemoncrow.pro.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
 
     blocks = [
@@ -508,12 +610,18 @@ def test_budget_optimizer_contract() -> None:
     ]
     opt = PromptBudgetOptimizer()
     plan = opt.solve(blocks, token_budget=150)
+    # Total tokens must not exceed budget
     assert plan.total_tokens <= 150
+    # Selected + dropped covers all blocks
     assert len(plan.selected) + len(plan.dropped) == 3
-    "case: test_budget_optimizer_to_dict_shape"
+
+
+def test_budget_optimizer_to_dict_shape() -> None:
     from lemoncrow.pro.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
 
-    blocks = [ContextBlock("x1", "content", token_cost=10, utility=0.5, source="tool_supervision")]
+    blocks = [
+        ContextBlock("x1", "content", token_cost=10, utility=0.5, source="tool_supervision"),
+    ]
     plan = PromptBudgetOptimizer().solve(blocks, token_budget=100)
     d = plan.to_dict()
     assert "selected_ids" in d
@@ -523,9 +631,12 @@ def test_budget_optimizer_contract() -> None:
     assert "solver_used" in d
     assert "selected_count" in d
     assert d["solver_used"] in {"ortools", "greedy"}
-    "case: test_budget_optimizer_high_utility_preferred"
+
+
+def test_budget_optimizer_high_utility_preferred() -> None:
     from lemoncrow.pro.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
 
+    # Three blocks; only room for two. High-utility block must survive.
     blocks = [
         ContextBlock("hi", "important", token_cost=60, utility=0.95, source="cap_a"),
         ContextBlock("lo", "noise", token_cost=60, utility=0.1, source="cap_b"),
@@ -534,9 +645,11 @@ def test_budget_optimizer_contract() -> None:
     opt = PromptBudgetOptimizer()
     plan = opt.solve(blocks, token_budget=120)
     selected_ids = {b.id for b in plan.selected}
-    assert "hi" in selected_ids
+    assert "hi" in selected_ids  # highest utility must always be chosen
     assert plan.total_tokens <= 120
-    "case: test_budget_optimizer_infeasible_blocks_dropped"
+
+
+def test_budget_optimizer_infeasible_blocks_dropped() -> None:
     from lemoncrow.pro.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
 
     blocks = [
@@ -548,9 +661,13 @@ def test_budget_optimizer_contract() -> None:
     dropped_ids = {b.id for b in plan.dropped}
     assert "big" in dropped_ids
     assert "ok" in selected_ids
-    "case: test_budget_optimizer_diversity_bonus"
+
+
+def test_budget_optimizer_diversity_bonus() -> None:
     from lemoncrow.pro.capabilities.budget_optimizer import ContextBlock, PromptBudgetOptimizer
 
+    # Two sources; same utility/token — diversity bonus should help
+    # include one from each source when budget allows
     blocks = [
         ContextBlock("r1", "reuse a", token_cost=50, utility=0.5, source="context_reuse"),
         ContextBlock("r2", "reuse b", token_cost=50, utility=0.5, source="context_reuse"),
@@ -558,30 +675,41 @@ def test_budget_optimizer_contract() -> None:
     ]
     plan = PromptBudgetOptimizer(diversity_bonus=0.2).solve(blocks, token_budget=100)
     sources = {b.source for b in plan.selected}
-    assert len(sources) >= 1
-    "case: test_budget_optimizer_utility_per_token_zero_cost"
+    # With 2 slots and diversity bonus, both sources should be represented
+    assert len(sources) >= 1  # at minimum one; typically both
+
+
+def test_budget_optimizer_utility_per_token_zero_cost() -> None:
     from lemoncrow.pro.capabilities.budget_optimizer import ContextBlock
 
     b = ContextBlock("z", "", token_cost=0, utility=0.5, source="x")
     assert b.utility_per_token() == 0.0
 
 
-def test_pricing_resolution_contract() -> None:
-    """case: test_pricing_known_model_exact_match"""
+# ---------------------------------------------------------------------------
+# Pricing module tests
+# ---------------------------------------------------------------------------
+
+
+def test_pricing_known_model_exact_match() -> None:
     from lemoncrow.core.capabilities.pricing import get_model_pricing
 
     p = get_model_pricing("claude-sonnet-4")
     assert p.model_id == "claude-sonnet-4"
     assert p.input == 3.0
     assert p.output == 15.0
-    assert p.cache_read == 0.3
-    "case: test_pricing_known_model_sonnet"
+    assert p.cache_read == 0.30
+
+
+def test_pricing_known_model_sonnet() -> None:
     from lemoncrow.core.capabilities.pricing import get_model_pricing
 
     p = get_model_pricing("claude-sonnet-4-6")
     assert p.output == 15.0
     assert p.known is True
-    "case: test_pricing_unknown_model_returns_known_false"
+
+
+def test_pricing_unknown_model_returns_known_false() -> None:
     from lemoncrow.core.capabilities.pricing import get_model_pricing
 
     p = get_model_pricing("some-unknown-model-xyz-9999")
@@ -589,20 +717,29 @@ def test_pricing_resolution_contract() -> None:
     assert p.known is False
     assert p.input == 0.0
     assert p.output == 0.0
-    "case: test_pricing_tokens_to_usd_output"
+
+
+def test_pricing_tokens_to_usd_output() -> None:
     from lemoncrow.core.capabilities.pricing import tokens_to_usd
 
-    usd = tokens_to_usd("claude-sonnet-4", 1000000, "output")
-    expected = (200000 * 15.0 + 800000 * 22.5) / 1000000
+    # LiteLLM exposes Anthropic long-context tiers for Claude Sonnet 4.
+    # Output tokens above 200k are billed at the higher tier.
+    usd = tokens_to_usd("claude-sonnet-4", 1_000_000, "output")
+    expected = (200_000 * 15.0 + 800_000 * 22.5) / 1_000_000
     assert abs(usd - expected) < 0.0001
-    "case: test_pricing_cost_usd_multitype"
+
+
+def test_pricing_cost_usd_multitype() -> None:
     from lemoncrow.core.capabilities.pricing import get_model_pricing
 
     p = get_model_pricing("claude-sonnet-4")
+    # 1000 input @ $3/1M + 1000 output @ $15/1M + 1000 cache @ $0.30/1M
     usd = p.cost_usd(1000, 1000, 1000)
-    expected = (3.0 + 15.0 + 0.3) / 1000
-    assert abs(usd - expected) < 1e-09
-    "case: test_pricing_all_known_models_non_empty"
+    expected = (3.0 + 15.0 + 0.30) / 1_000
+    assert abs(usd - expected) < 1e-9
+
+
+def test_pricing_all_known_models_non_empty() -> None:
     from lemoncrow.core.capabilities.pricing import all_known_models
 
     models = all_known_models()
@@ -610,97 +747,94 @@ def test_pricing_resolution_contract() -> None:
     assert "claude-sonnet-4" in models
     assert "gpt-5.4" in models
     assert "_default" not in models
-    "case: test_pricing_unknown_variant_falls_back_to_nearest_sibling"
+
+
+def test_pricing_unknown_variant_falls_back_to_nearest_sibling() -> None:
     from lemoncrow.core.capabilities.pricing import get_model_pricing
 
+    # A model variant LiteLLM has never seen prices at its nearest known
+    # sibling, flagged approximate=True. Reporting $0 instead (the old rule)
+    # zeroed out cost AND savings for entire sessions whenever the host
+    # stamped a variant tag the catalogue lacks.
     p = get_model_pricing("claude-opus-4-extended")
     assert p.known is True
     assert p.approximate is True
     assert p.model_id.startswith("claude-opus-4")
     assert p.output > 0.0
+
+    # ...but a two-segment id keeps at least family+version, so nothing
+    # collapses to a bare family word.
     assert get_model_pricing("claude-opus").known is False
-    "case: test_pricing_copilot_explicit_models"
+
+
+def test_pricing_copilot_explicit_models() -> None:
     from lemoncrow.core.capabilities.pricing import get_model_pricing
 
+    # GitHub Copilot is a flat-rate subscription product ($19-39/mo). Alias
+    # stripping must NOT resolve "copilot/<model>" through to the underlying
+    # model's real LiteLLM per-token rate -- that would massively overbill
+    # usage the subscription already covers (regression: this used to match
+    # "copilot/gpt-5.5" -> real gpt-5.5 pricing at $5/$30 per Mtok).
     p = get_model_pricing("copilot/gpt-5.5")
     assert p.known is False
     assert p.input == 0.0
     assert p.output == 0.0
     assert p.cache_read == 0.0
     assert p.model_id == "copilot/gpt-5.5"
+
+    # Unknown copilot models behave identically -- zero cost either way.
     p2 = get_model_pricing("copilot/some-new-model")
     assert p2.known is False
     assert p2.model_id == "copilot/some-new-model"
-    "case: test_pricing_cursor_placeholder_models_never_bill_real_rates"
+
+
+def test_pricing_cursor_placeholder_models_never_bill_real_rates() -> None:
     from lemoncrow.core.capabilities.pricing import get_model_pricing
 
+    # Cursor is likewise subscription-covered: cursor.py._normalize_model
+    # namespaces placeholder bubbles as "cursor/<placeholder>" precisely so
+    # they can never resolve to a real per-token rate card. Alias stripping
+    # must not undo that ("cursor/composer-2" -> LiteLLM "composer-2").
     for mid in ("cursor/unknown", "cursor/auto", "cursor/composer-2"):
         p = get_model_pricing(mid)
         assert p.known is False, mid
         assert p.input == 0.0, mid
         assert p.output == 0.0, mid
+
+    # The explicit market-value proxy entry keeps working.
     proxy = get_model_pricing("cursor-agent-auto")
     assert proxy.known is True
-    assert proxy.input == 2.5
-    "case: test_pricing_copilot_subscription_usage_is_zero_cost"
-    "Regression: copilot.py namespaces the real underlying model as\n    ``copilot/<model>`` (e.g. ``copilot/gpt-5``) so GitHub Copilot's flat\n    subscription fee is never double-billed at the model's real per-token\n    API rate. A copilot trace must always cost $0 regardless of how many\n    tokens were reported.\n    "
+    assert proxy.input == 2.50
+
+
+def test_pricing_copilot_subscription_usage_is_zero_cost() -> None:
+    """Regression: copilot.py namespaces the real underlying model as
+    ``copilot/<model>`` (e.g. ``copilot/gpt-5``) so GitHub Copilot's flat
+    subscription fee is never double-billed at the model's real per-token
+    API rate. A copilot trace must always cost $0 regardless of how many
+    tokens were reported.
+    """
     from lemoncrow.core.capabilities.pricing import usage_cost_usd
 
     cost = usage_cost_usd(
-        "copilot/gpt-5", input_tokens=50000, output_tokens=10000, cache_read_tokens=5000, cache_write_tokens=1000
+        "copilot/gpt-5",
+        input_tokens=50_000,
+        output_tokens=10_000,
+        cache_read_tokens=5_000,
+        cache_write_tokens=1_000,
     )
     assert cost == 0.0
-    "case: test_pricing_cursor_agent_auto"
+
+
+def test_pricing_cursor_agent_auto() -> None:
     from lemoncrow.core.capabilities.pricing import get_model_pricing
 
+    # cursor-agent-auto should match the market value proxy (GPT-4o rates).
     p = get_model_pricing("cursor-agent-auto")
     assert p.known is True
     assert p.input == 2.5
     assert p.output == 10.0
     assert p.model_id == "cursor-agent-auto"
-    "case: test_pricing_dot_version_normalisation"
-    from lemoncrow.core.capabilities.pricing import get_model_pricing
-
-    dot = get_model_pricing("claude-sonnet-4.6")
-    dash = get_model_pricing("claude-sonnet-4-6")
-    assert dot.known is True
-    assert dot.input == dash.input
-    assert dot.output == dash.output
-    opus_dot = get_model_pricing("claude-opus-4.7")
-    opus_dash = get_model_pricing("claude-opus-4-7")
-    assert opus_dot.known is True
-    assert opus_dot.input == opus_dash.input
-    assert opus_dot.output == opus_dash.output
-
-
-def test_tool_supervision_pricing_contract() -> None:
-    """case: test_tool_supervision_model_aware_usd"""
-    import tempfile
-    from pathlib import Path
-
-    from lemoncrow.pro.capabilities.tool_supervision import ToolSupervisionCapability
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        cap = ToolSupervisionCapability(Path(tmpdir), model="claude-sonnet-4")
-        assert cap.status()["model"] == "claude-sonnet-4"
-        cap.observe("read_file:k1", {"content": "hello"}, cache_hit=True, tool_name="read_file")
-        s = cap.status()
-        assert s["avoided_tool_calls"] == 1
-        assert s["token_savings"] > 0
-        assert s["usd_savings"] > 0.0
-        assert s["usd_savings"] < 0.01
-    "case: test_tool_supervision_default_model_fallback"
-    import tempfile
-    from pathlib import Path
-
-    from lemoncrow.pro.capabilities.tool_supervision import ToolSupervisionCapability
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        cap = ToolSupervisionCapability(Path(tmpdir))
-        cap.observe("grep:k1", {"result": "x"}, cache_hit=True, tool_name="grep")
-        s = cap.status()
-        assert s["token_savings"] > 0
-        assert s["usd_savings"] == 0.0
 
 
 def test_pricing_yaml_overrides(tmp_path: Path) -> None:
@@ -710,12 +844,14 @@ def test_pricing_yaml_overrides(tmp_path: Path) -> None:
 
     from lemoncrow.core.capabilities.pricing import _load_pricing_table, get_model_pricing
 
+    # Point LEMONCROW_ROOT to tmp_path
     old_root = os.environ.get("LEMONCROW_ROOT")
     os.environ["LEMONCROW_ROOT"] = str(tmp_path)
     try:
         overrides = {"overrides": {"yaml-model": {"input": 1.23, "output": 4.56, "cache_read": 0.1, "thinking": 9.99}}}
         (tmp_path / "pricing.yaml").write_text(yaml.dump(overrides))
         _load_pricing_table.cache_clear()
+
         p = get_model_pricing("yaml-model")
         assert p.known is True
         assert p.input == 1.23
@@ -728,3 +864,57 @@ def test_pricing_yaml_overrides(tmp_path: Path) -> None:
         else:
             del os.environ["LEMONCROW_ROOT"]
         _load_pricing_table.cache_clear()
+
+
+def test_pricing_dot_version_normalisation() -> None:
+    from lemoncrow.core.capabilities.pricing import get_model_pricing
+
+    # Dot form ("claude-sonnet-4.6") and dash form must resolve identically.
+    dot = get_model_pricing("claude-sonnet-4.6")
+    dash = get_model_pricing("claude-sonnet-4-6")
+    assert dot.known is True
+    assert dot.input == dash.input
+    assert dot.output == dash.output
+
+    # Opus dot form must resolve to the actual opus-4-7 price, not the
+    # flagship opus-4 price that the old prefix match accidentally returned.
+    opus_dot = get_model_pricing("claude-opus-4.7")
+    opus_dash = get_model_pricing("claude-opus-4-7")
+    assert opus_dot.known is True
+    assert opus_dot.input == opus_dash.input
+    assert opus_dot.output == opus_dash.output
+
+
+def test_tool_supervision_model_aware_usd() -> None:
+    import tempfile
+    from pathlib import Path
+
+    from lemoncrow.pro.capabilities.tool_supervision import ToolSupervisionCapability
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cap = ToolSupervisionCapability(Path(tmpdir), model="claude-sonnet-4")
+        assert cap.status()["model"] == "claude-sonnet-4"
+
+        # Simulate cache hit
+        cap.observe("read_file:k1", {"content": "hello"}, cache_hit=True, tool_name="read_file")
+        s = cap.status()
+        assert s["avoided_tool_calls"] == 1
+        assert s["token_savings"] > 0
+        assert s["usd_savings"] > 0.0
+        # For claude-sonnet-4 ($15/1M), 200 tokens ≈ $0.003
+        assert s["usd_savings"] < 0.01  # sanity: not astronomically high
+
+
+def test_tool_supervision_default_model_fallback() -> None:
+    import tempfile
+    from pathlib import Path
+
+    from lemoncrow.pro.capabilities.tool_supervision import ToolSupervisionCapability
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cap = ToolSupervisionCapability(Path(tmpdir))  # no model arg
+        # Should not crash; uses _default pricing
+        cap.observe("grep:k1", {"result": "x"}, cache_hit=True, tool_name="grep")
+        s = cap.status()
+        assert s["token_savings"] > 0
+        assert s["usd_savings"] == 0.0

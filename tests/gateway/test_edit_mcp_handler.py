@@ -201,6 +201,26 @@ def test_rich_overwrite_empty_string_allowed_for_new_file(workspace: Path) -> No
     assert f.read_text(encoding="utf-8") == ""
 
 
+def test_rich_line_anchor_restricts_scope(workspace: Path) -> None:
+    """file_path#line scopes the replacement to that line only."""
+    f = workspace / "scope.py"
+    f.write_text("x = 1\nx = 2\nx = 3\n", encoding="utf-8")
+
+    # Only replace the x = 2 on line 2 — the other 'x = 1' must stay
+    payload = _edit(
+        {
+            "post_edit_hooks": False,
+            "edits": [{"file_path": "scope.py:L2", "old_string": "x = 2", "new_string": "x = 99"}],
+        }
+    )
+
+    assert "failed" not in payload
+    text = f.read_text(encoding="utf-8")
+    assert "x = 99" in text
+    assert "x = 1" in text
+    assert "x = 3" in text
+
+
 def test_rich_multi_file_batch_all_applied(workspace: Path) -> None:
     """Multiple rich edits across different files succeed atomically."""
     f1 = workspace / "a.py"
@@ -347,6 +367,38 @@ def test_notebook_cell_insert_through_handler(workspace: Path) -> None:
     assert len(notebook["cells"]) == 2
     assert notebook["cells"][1]["cell_type"] == "markdown"
     assert notebook["cells"][1]["source"] == "# heading"
+
+
+def test_notebook_cell_overwrite_clears_outputs(workspace: Path) -> None:
+    """Overwriting a notebook cell via #cell=N resets its outputs."""
+    nb_path = workspace / "out.ipynb"
+    nb_path.write_text(
+        json.dumps(
+            {
+                "cells": [
+                    {
+                        "cell_type": "code",
+                        "metadata": {},
+                        "source": "print(1)",
+                        "outputs": [{"output_type": "stream", "text": "1\n"}],
+                        "execution_count": 3,
+                    }
+                ],
+                "metadata": {},
+                "nbformat": 4,
+                "nbformat_minor": 5,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = _edit({"edits": [{"file_path": "out.ipynb#cell=0", "overwrite": True, "new_string": "print(2)"}]})
+
+    assert "failed" not in payload
+    notebook = json.loads(nb_path.read_text(encoding="utf-8"))
+    assert notebook["cells"][0]["source"] == "print(2)"
+    assert notebook["cells"][0]["outputs"] == []
+    assert notebook["cells"][0]["execution_count"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -755,6 +807,94 @@ def _read(path: str) -> None:
     assert "result" in resp, resp
 
 
+def test_batch_range_edits_use_pre_batch_line_numbers(workspace: Path) -> None:
+    """Two range edits to one file: the later range must hit the lines the
+    caller READ, not coordinates shifted by the earlier splice (regression:
+    L2 growing by one line made a later L5-L5 replace pre-batch L4)."""
+    f = workspace / "seq.txt"
+    f.write_text("a1\na2\na3\na4\na5\na6\n", encoding="utf-8")
+    _read("seq.txt")
+
+    _edit(
+        {
+            "post_edit_hooks": False,
+            "edits": [
+                {"file_path": "seq.txt:L2-L2", "new_string": "B2\nB2b\n"},
+                {"file_path": "seq.txt:L5-L5", "new_string": "B5\n"},
+            ],
+        }
+    )
+
+    # a5 (pre-batch L5) replaced; a4 intact despite the +1 shift above it.
+    assert f.read_text(encoding="utf-8") == "a1\nB2\nB2b\na3\na4\nB5\na6\n"
+
+
+def test_batch_range_edits_overlap_fails_loudly(workspace: Path) -> None:
+    f = workspace / "ovl.txt"
+    f.write_text("a1\na2\na3\n", encoding="utf-8")
+    _read("ovl.txt")
+
+    payload = _edit(
+        {
+            "post_edit_hooks": False,
+            "edits": [
+                {"file_path": "ovl.txt:L1-L2", "new_string": "X\n"},
+                {"file_path": "ovl.txt:L2-L3", "new_string": "Y\n"},
+            ],
+        }
+    )
+
+    assert payload["rolled_back"] is True
+    assert "overlaps" in payload["failed"][0]["error"]
+    assert f.read_text(encoding="utf-8") == "a1\na2\na3\n"  # untouched
+
+
+def test_range_edit_after_content_edit_same_file_coapplies(workspace: Path) -> None:
+    """A content-located edit that grows the file is recorded in the ledger, so a
+    later range edit's pre-batch line number is translated and both co-apply."""
+    f = workspace / "mix.txt"
+    f.write_text("a1\na2\na3\n", encoding="utf-8")
+    _read("mix.txt")
+
+    payload = _edit(
+        {
+            "post_edit_hooks": False,
+            "edits": [
+                {"file_path": "mix.txt", "old_string": "a1\n", "new_string": "Z1\nZ1b\n"},
+                {"file_path": "mix.txt:L3-L3", "new_string": "Z3\n"},  # pre-batch L3 == 'a3'
+            ],
+        }
+    )
+
+    assert payload.get("applied"), payload
+    assert "mix.txt" in str(payload["applied"])
+    assert f.read_text(encoding="utf-8") == "Z1\nZ1b\na2\nZ3\n"
+
+
+def test_range_old_string_edit_after_content_edit_same_file_coapplies(workspace: Path) -> None:
+    """Same as test_range_edit_after_content_edit_same_file_coapplies, but the
+    second edit pairs the :Lx-Ly scope with old_string (falls into
+    _replace_in_scope). The scope is translated through the ledger, so the
+    scoped search hits the right window instead of 'old_string not found'."""
+    f = workspace / "mix2.txt"
+    f.write_text("a1\na2\na3\n", encoding="utf-8")
+    _read("mix2.txt")
+
+    payload = _edit(
+        {
+            "post_edit_hooks": False,
+            "edits": [
+                {"file_path": "mix2.txt", "old_string": "a1\n", "new_string": "Z1\nZ1b\n"},
+                {"file_path": "mix2.txt:L3-L3", "old_string": "a3\n", "new_string": "Z3\n"},
+            ],
+        }
+    )
+
+    assert payload.get("applied"), payload
+    assert "mix2.txt" in str(payload["applied"])
+    assert f.read_text(encoding="utf-8") == "Z1\nZ1b\na2\nZ3\n"
+
+
 def test_blind_range_edit_rejected_without_prior_read(workspace: Path) -> None:
     """No old anchor + file never served by read/code_search → reject, do not splice."""
     f = workspace / "unread.txt"
@@ -916,6 +1056,66 @@ def test_blind_range_edit_minified_flag_translates_explicitly(workspace: Path) -
     )
     assert payload.get("applied"), payload
     assert f.read_text(encoding="utf-8") == src.replace("return a + b\n", "return a + b + 1\n")
+
+
+def test_blind_range_edit_minified_flag_rejected_when_ambiguous(workspace: Path) -> None:
+    """`:minified` still refuses to guess through a dropped comment -- which
+    side of the removed comment did the edit mean? -- same as `apply_minified_edit`
+    already refuses via old_string. No retry_with is attached when even a
+    single-line probe can't find an honest disk anchor to show (never mislead
+    with content from the wrong lines).
+    """
+    f = workspace / "mod.py"
+    src = "import os\n\n\ndef helper():\n    # a comment worth stripping\n    x = 1\n    return x\n"
+    f.write_text(src, encoding="utf-8")
+    _read("mod.py")
+
+    # Minified view: 1 import os / 2 def helper(): / 3     x = 1 / 4     return x.
+    # Minified L3 sits immediately after the dropped comment -> ambiguous.
+    payload = _edit(
+        {"post_edit_hooks": False, "edits": [{"file_path": "mod.py:L3:minified", "new_string": "    x = 2\n"}]}
+    )
+    assert payload["rolled_back"] is True
+    assert "explicitly flagged :minified" in payload["failed"][0]["error"]
+    assert "retry_with" not in payload["failed"][0]
+    assert f.read_text(encoding="utf-8") == src
+
+    # The real disk line (shown by the gutter on a bare read) is unambiguous.
+    assert "result" in _call("read", {"path": "mod.py"})
+    _edit({"post_edit_hooks": False, "edits": [{"file_path": "mod.py:L6", "new_string": "    x = 2\n"}]})
+    assert "x = 2" in f.read_text(encoding="utf-8")
+    assert "# a comment worth stripping" in f.read_text(encoding="utf-8")
+
+
+def test_blind_range_edit_minified_flag_rejected_when_stale(workspace: Path) -> None:
+    """`:minified` must NOT be honored against a file whose ledger entry is
+    stale (changed on disk, or never read, since) -- it only picks the
+    INTERPRETATION of an already-fresh serve, not a bypass of freshness.
+
+    Regression: an earlier version translated a `:minified`-flagged range
+    against whatever is on disk NOW regardless of the ledger, so a since-
+    edited file resolved the SAME minified line number against different
+    (but structurally valid) content and silently spliced the wrong function.
+    """
+    f = workspace / "h2.py"
+    f.write_text("def old_func():\n    return 1\n", encoding="utf-8")
+    _read("h2.py")  # minified L2 == 'return 1' (inside old_func) as of THIS read
+
+    # External rewrite: a new function prepended shifts what minified L2 means
+    # -- it now falls inside brand_new(), not old_func(). Ledger's recorded
+    # size no longer matches, so the read above is stale.
+    f.write_text("def brand_new():\n    return 2\n\n\ndef old_func():\n    return 1\n", encoding="utf-8")
+
+    payload = _edit(
+        {"post_edit_hooks": False, "edits": [{"file_path": "h2.py:L2:minified", "new_string": "    return 99\n"}]}
+    )
+    assert payload["rolled_back"] is True
+    assert "wasn't read fresh" in payload["failed"][0]["error"]
+    # Neither function was touched -- no silent wrong-line splice.
+    current = f.read_text(encoding="utf-8")
+    assert "return 2" in current
+    assert "return 1" in current
+    assert "return 99" not in current
 
 
 def test_blind_range_edit_rejection_includes_retry_content(workspace: Path) -> None:
@@ -1194,26 +1394,6 @@ def test_a_worktree_of_another_repo_does_not_redirect(
     monkeypatch.setattr(mcp_server, "_last_session_cwd", str(foreign_wt))
 
     assert mcp_server._session_worktree_root(workspace) is None
-
-
-def test_absolute_main_checkout_path_survives_a_worktree_inference(
-    workspace: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """An inferred worktree must not refuse absolute paths in the main checkout."""
-    wt = _repo_with_worktree(workspace)
-    target = workspace / "main_only.txt"
-    target.write_text("MAIN\n", encoding="utf-8")
-    monkeypatch.setattr(mcp_server, "_last_session_cwd", str(wt))
-
-    payload = _edit(
-        {
-            "post_edit_hooks": False,
-            "edits": [{"file_path": str(target), "old_string": "MAIN", "new_string": "EDITED"}],
-        }
-    )
-
-    assert "failed" not in payload, payload
-    assert target.read_text(encoding="utf-8") == "EDITED\n"
 
 
 def test_bash_cwd_is_what_teaches_edit_where_the_session_is(monkeypatch: pytest.MonkeyPatch) -> None:

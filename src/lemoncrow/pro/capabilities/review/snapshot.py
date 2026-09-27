@@ -9,20 +9,14 @@ review artifacts captured when the revision was recorded.
 from __future__ import annotations
 
 import base64
-import contextlib
 import gzip
 import hashlib
 import json
-import os
 import shutil
 import stat
-import subprocess
-import threading
-import time
-from collections import OrderedDict
 from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path, PurePosixPath
-from typing import IO, TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any
 
 from lemoncrow.pro.capabilities.review.session_models import ReviewRevision
 
@@ -471,50 +465,20 @@ def _packet_submodule_pointer(
 ) -> str | None:
     """Return a recorded gitlink pointer when this review changed *scope*."""
 
-    pointers = _packet_submodule_pointers(store_root, revision, store=store)
-    pointer = pointers.get(scope)
-    if pointer is None:
-        return None
-    return pointer[0 if side == "old" else 1]
-
-
-# (store root, revision id, packet digest) -> {path: (old, new)}. The packet is
-# immutable per digest; parsing it once per file (tens of ms each) made reading
-# every changed file of a large Snapshot cost seconds.
-_SUBMODULE_POINTERS: OrderedDict[tuple[str, str, str], dict[str, tuple[str, str]]] = OrderedDict()
-_SUBMODULE_POINTERS_LOCK = threading.Lock()
-
-
-def _packet_submodule_pointers(
-    store_root: Path, revision: ReviewRevision, *, store: ReviewStore | None = None
-) -> dict[str, tuple[str, str]]:
-    digest = str(getattr(revision, "packet_sha256", "") or "")
-    key = (str(store.root if store is not None else store_root), str(getattr(revision, "id", "")), digest)
-    with _SUBMODULE_POINTERS_LOCK:
-        cached = _SUBMODULE_POINTERS.get(key) if digest else None
-        if cached is not None:
-            _SUBMODULE_POINTERS.move_to_end(key)
-            return cached
-
     from lemoncrow.pro.capabilities.review.sources.local import read_packet_json
 
     packet = read_packet_json(_artifact_store(store_root, store), revision)
     entries = packet.get("files") if isinstance(packet, Mapping) else None
-    pointers: dict[str, tuple[str, str]] = {}
-    for raw in entries if isinstance(entries, list) else ():
-        if not isinstance(raw, Mapping):
+    if not isinstance(entries, list):
+        return None
+    index = 0 if side == "old" else 1
+    for raw in entries:
+        if not isinstance(raw, Mapping) or str(raw.get("path") or "") != scope:
             continue
-        path = str(raw.get("path") or "")
         pointer = raw.get("submodule_pointer")
-        if path and path not in pointers and isinstance(pointer, (list, tuple)) and len(pointer) == 2:
-            pointers[path] = (str(pointer[0] or ""), str(pointer[1] or ""))
-    if packet is not None and digest and key[1]:
-        # An unreadable packet or an undigested revision is never remembered.
-        with _SUBMODULE_POINTERS_LOCK:
-            _SUBMODULE_POINTERS[key] = pointers
-            while len(_SUBMODULE_POINTERS) > 64:
-                _SUBMODULE_POINTERS.popitem(last=False)
-    return pointers
+        if isinstance(pointer, (list, tuple)) and len(pointer) == 2:
+            return str(pointer[index] or "")
+    return None
 
 
 def _revision_submodule_pointer(
@@ -546,149 +510,6 @@ def _revision_submodule_pointer(
     return oid if mode == 0o160000 else None
 
 
-_GIT_LIST_TIMEOUT_SECONDS = 120
-
-
-def _git_object_env() -> dict[str, str]:
-    # Read objects from exactly the repository pygit2 opened (no inherited
-    # GIT_DIR/GIT_OBJECT_DIRECTORY redirection), and never lazily fetch a
-    # partial clone's missing object from its promisor remote.
-    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
-    env["GIT_NO_LAZY_FETCH"] = "1"
-    env["GIT_TERMINAL_PROMPT"] = "0"
-    return env
-
-
-def _feed_and_close(stream: IO[bytes], payload: bytes) -> None:
-    try:
-        stream.write(payload)
-    except OSError:
-        pass
-    finally:
-        with contextlib.suppress(OSError):
-            stream.close()
-
-
-def _unsafe_tree_path(rel: str) -> bool:
-    """Whether a Git tree path could leave the target or plant repository metadata.
-
-    Git itself accepts ``..``/``.git`` tree entries when ``transfer.fsckObjects``
-    is off, so a fetched PR head can carry them.
-    """
-
-    if not rel or "\0" in rel or "\\" in rel or rel.startswith("/"):
-        return True
-    return any(part in {"", ".", ".."} or part.lower() == ".git" for part in rel.split("/"))
-
-
-def _write_tree_file(root: Path, rel: str, payload: bytes, mode: int, made: set[Path]) -> None:
-    """Write one materialized blob strictly inside *root*, never through a symlink."""
-
-    if _unsafe_tree_path(rel):
-        raise ReviewSnapshotUnavailable(f"Git tree contains an unsafe path: {rel!r}")
-    destination = root / rel
-    parent = destination.parent
-    if parent not in made:
-        # Resolve before creating anything: a symlink already in the target
-        # must not let mkdir build directories outside it.
-        resolved = parent.resolve()
-        if resolved != root and root not in resolved.parents:
-            raise ReviewSnapshotUnavailable(f"Git tree contains an unsafe path: {rel!r}")
-        parent.mkdir(parents=True, exist_ok=True)
-        made.add(parent)
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
-    try:
-        fd = os.open(destination, flags, 0o666)
-    except OSError as exc:
-        if destination.is_symlink():
-            raise ReviewSnapshotUnavailable(f"Git tree contains an unsafe path: {rel!r}") from exc
-        raise
-    with os.fdopen(fd, "wb") as handle:
-        handle.write(payload)
-        if mode & stat.S_IXUSR:
-            os.fchmod(handle.fileno(), os.fstat(handle.fileno()).st_mode | stat.S_IXUSR)
-
-
-def _stream_git_tree(repo: Any, tree_oid: str, prefix: str, target: Path) -> bool:
-    """Write every blob under *tree_oid* with one ``ls-tree`` and one ``cat-file --batch``.
-
-    Same file set and bytes as the pygit2 walk (raw objects with no clean/smudge
-    filters, gitlinks skipped, symlinks written as plain files) but several
-    times faster, because git inflates packed objects with its delta-base
-    cache. Returns False, leaving the pygit2 walk to (re)write everything, when
-    git is unavailable or the tree is incomplete locally.
-    """
-
-    git = shutil.which("git")
-    git_dir = str(getattr(repo, "path", "") or "")
-    if not git or not git_dir:
-        return False
-    env = _git_object_env()
-    try:
-        listing = subprocess.run(
-            [git, f"--git-dir={git_dir}", "ls-tree", "-r", "-z", tree_oid],
-            capture_output=True,
-            env=env,
-            timeout=_GIT_LIST_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    if listing.returncode != 0:
-        return False
-    rows: list[tuple[int, bytes, str]] = []
-    for record in listing.stdout.split(b"\0"):
-        if not record:
-            continue
-        meta, _tab, raw_path = record.partition(b"\t")
-        fields = meta.split(b" ")
-        if len(fields) != 3 or fields[1] != b"blob":
-            continue  # a gitlink is a submodule pointer, not a file
-        rel = os.fsdecode(raw_path)
-        rows.append((int(fields[0], 8), fields[2], f"{prefix}/{rel}" if prefix else rel))
-    if not rows:
-        return True
-
-    proc: subprocess.Popen[bytes] | None = None
-    try:
-        proc = subprocess.Popen(
-            [git, f"--git-dir={git_dir}", "cat-file", "--batch"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            env=env,
-        )
-        assert proc.stdin is not None and proc.stdout is not None
-        feeder = threading.Thread(
-            target=_feed_and_close,
-            args=(proc.stdin, b"".join(oid + b"\n" for _mode, oid, _rel in rows)),
-            daemon=True,
-        )
-        feeder.start()
-        out = proc.stdout
-        made: set[Path] = set()
-        root = target.resolve()
-        for mode, oid, rel in rows:
-            header = out.readline().split()
-            if len(header) == 2 and header[0] == oid and header[1] == b"missing":
-                continue  # the pygit2 walk skips objects absent from a shallow/partial clone too
-            if len(header) != 3 or header[0] != oid or header[1] != b"blob":
-                return False
-            size = int(header[2])
-            payload = out.read(size)
-            if len(payload) != size or out.read(1) != b"\n":
-                return False
-            _write_tree_file(root, rel, payload, mode, made)
-        feeder.join()
-        return proc.wait() == 0
-    except (OSError, ValueError):
-        return False
-    finally:
-        if proc is not None and proc.poll() is None:
-            proc.kill()
-            proc.wait()
-
-
 def materialize_git_revision(repo_root: Path, sha: str, target: Path, *, scope: str = ".") -> None:
     from lemoncrow.pro.capabilities.review.gitdiff import _open_repo, _tree_for_sha
 
@@ -699,9 +520,6 @@ def materialize_git_revision(repo_root: Path, sha: str, target: Path, *, scope: 
     scoped, mode, _oid = _scoped_tree_object(repo, tree, requested_scope)
     if scoped is None:
         return
-    prefix = "" if requested_scope == "." else requested_scope
-    if getattr(scoped, "type_str", "") == "tree" and _stream_git_tree(repo, str(scoped.id), prefix, target):
-        return
     rows: Iterable[tuple[str, Any, int]]
     if requested_scope == ".":
         rows = _walk_tree(repo, scoped)
@@ -709,10 +527,12 @@ def materialize_git_revision(repo_root: Path, sha: str, target: Path, *, scope: 
         rows = _walk_tree(repo, scoped, requested_scope)
     else:
         rows = ((requested_scope, scoped, mode),)
-    root = target.resolve()
-    made: set[Path] = set()
     for rel, blob, mode in rows:
-        _write_tree_file(root, rel, bytes(blob.data), mode, made)
+        destination = target / rel
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(bytes(blob.data))
+        if mode & stat.S_IXUSR:
+            destination.chmod(destination.stat().st_mode | stat.S_IXUSR)
 
 
 def _read_source_tree_artifact(
@@ -886,152 +706,11 @@ def materialize_review_side(
     return revision.source_fingerprint or revision.tree_fingerprint or revision.id
 
 
-def revision_side_identity(revision: ReviewRevision, side: str) -> str:
-    """Content identity of one Snapshot side, known before materializing it.
-
-    Two Snapshots with the same identity for a side have byte-identical content
-    on that side, so anything derived only from that content can be shared. A
-    side without a stable identity falls back to the Snapshot id (no sharing).
-    """
-
-    if side == "old":
-        return revision.base_sha or f"{revision.id}:old"
-    if revision.range_mode == "commit_range":
-        return revision.head_sha or revision.id
-    return revision.source_fingerprint or revision.tree_fingerprint or revision.id
-
-
-# Whole-side trees are ~the repository size each; a handful covers the Snapshots
-# a reviewer is actively moving between.
-SNAPSHOT_SOURCES_KEEP = 12
-
-
-def cached_review_side(
-    cache_root: Path,
-    store_root: Path,
-    repo_root: Path,
-    revision: ReviewRevision,
-    *,
-    side: str,
-    store: ReviewStore | None = None,
-) -> Path:
-    """Return a shared materialization of one whole Snapshot side.
-
-    Keyed by content identity, so every Snapshot whose side holds the same bytes
-    (usually the old side, at the Review base) shares one tree instead of each
-    Snapshot keeping its own copy. Readers treat it as read-only. It is a cache:
-    idle entries are retired and the next caller materializes again from the
-    base commit plus the Snapshot's frozen changed files.
-    """
-
-    from lemoncrow.core.foundation.run_file_io import RunFileLock
-    from lemoncrow.pro.capabilities.review.scratch_cache import (
-        HEAVY_TTL_SECONDS,
-        IDLE_GRACE_SECONDS,
-        prune_cache_entries,
-        retire_tree,
-        touch_cache_entry,
-    )
-
-    expected = revision_side_identity(revision, side)
-    payload = json.dumps({"identity": expected, "side": side}, sort_keys=True)
-    key = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
-    entry = cache_root / key
-    tree = entry / "tree"
-    marker = entry / "identity"
-    touch_cache_entry(entry)
-    # A side is immutable: materialize it once under the lock and share it.
-    # Re-materializing per request would delete a tree a concurrent reader uses.
-    with RunFileLock(entry / "materialize"):
-        try:
-            current = marker.read_text(encoding="utf-8").strip()
-        except OSError:
-            current = ""
-        if current != expected or not tree.is_dir():
-            marker.unlink(missing_ok=True)
-            retire_tree(tree, trash_dir=cache_root)
-            try:
-                identity = materialize_review_side(store_root, repo_root, revision, side=side, target=tree, store=store)
-            except BaseException:
-                retire_tree(tree, trash_dir=cache_root)
-                raise
-            marker.write_text(identity + "\n", encoding="utf-8")
-    prune_cache_entries(
-        cache_root,
-        entry,
-        keep_count=SNAPSHOT_SOURCES_KEEP,
-        idle_seconds=IDLE_GRACE_SECONDS,
-        ttl_seconds=HEAVY_TTL_SECONDS,
-    )
-    return tree
-
-
-_LEGACY_SIDE_NAMES = frozenset({"old", "new", "workspace"})
-_LEGACY_SWEEP_INTERVAL_SECONDS = 3600.0
-_LEGACY_SWEPT_AT: dict[str, float] = {}
-_LEGACY_GUARD = threading.Lock()
-
-
-def _has_legacy_snapshot_shape(review_dir: Path) -> bool:
-    try:
-        snapshots = list(review_dir.iterdir())
-        if not snapshots:
-            return False
-        for snapshot_dir in snapshots:
-            if snapshot_dir.is_symlink() or not snapshot_dir.is_dir():
-                return False
-            sides = list(snapshot_dir.iterdir())
-            if not sides or any(
-                item.name not in _LEGACY_SIDE_NAMES or item.is_symlink() or not item.is_dir() for item in sides
-            ):
-                return False
-    except OSError:
-        return False
-    return True
-
-
-def retire_legacy_snapshot_sources(roots: Iterable[Path]) -> None:
-    """Retire per-Snapshot source trees left by the layout before ``cached_review_side``.
-
-    Surfaces and dependency review each wrote ``<root>/<review>/<snapshot>/<side>``
-    and nothing removed them. Only directories with exactly that shape (every
-    child a Snapshot directory holding only ``old``/``new``/``workspace``) and
-    idle past the grace are retired; other users of a shared scratch root keep
-    their own names and shapes. Each root is swept at most once an hour.
-    """
-
-    from lemoncrow.pro.capabilities.review.scratch_cache import IDLE_GRACE_SECONDS, retire_tree
-
-    now = time.time()
-    for root in roots:
-        with _LEGACY_GUARD:
-            if now - _LEGACY_SWEPT_AT.get(str(root), 0.0) < _LEGACY_SWEEP_INTERVAL_SECONDS:
-                continue
-            _LEGACY_SWEPT_AT[str(root)] = now
-        try:
-            candidates = [item for item in root.iterdir() if not item.name.startswith(".")]
-        except OSError:
-            continue
-        for review_dir in candidates:
-            try:
-                if review_dir.is_symlink() or not review_dir.is_dir():
-                    continue
-                if now - review_dir.stat().st_mtime < IDLE_GRACE_SECONDS:
-                    continue
-            except OSError:
-                continue
-            if _has_legacy_snapshot_shape(review_dir):
-                retire_tree(review_dir)
-
-
 __all__ = [
     "ReviewSnapshotUnavailable",
-    "cached_review_side",
     "frozen_revision_overlay",
     "materialize_git_revision",
     "materialize_review_side",
-    "retire_legacy_snapshot_sources",
     "review_submodule_files",
-    "revision_side_identity",
     "submodule_files_at_parent_revision",
 ]

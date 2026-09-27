@@ -19,8 +19,8 @@ class CodeEditorSpec:
 
 
 _EDITOR_SPECS: Final[tuple[CodeEditorSpec, ...]] = (
-    CodeEditorSpec("vscode", "VS Code", "code"),
     CodeEditorSpec("cursor", "Cursor", "cursor"),
+    CodeEditorSpec("vscode", "VS Code", "code"),
 )
 _EDITOR_ALIASES: Final[dict[str, str]] = {
     "cursor": "cursor",
@@ -84,18 +84,11 @@ def open_in_editor(
     line: int = 1,
     column: int = 1,
     repo_root: Path,
-    editor_id: str | None = None,
 ) -> dict[str, object]:
-    """Open the project workspace and focus one exact local source location."""
+    """Launch the preferred allowlisted editor at one exact local source location."""
 
     capability = editor_capability()
-    preferred = capability.get("preferred") if editor_id is None else None
-    editors = capability.get("editors")
-    if editor_id is not None and isinstance(editors, list):
-        preferred = next(
-            (item for item in editors if isinstance(item, dict) and item.get("id") == editor_id),
-            None,
-        )
+    preferred = capability.get("preferred")
     if not isinstance(preferred, dict):
         raise RuntimeError(
             "No supported local editor is available. Install Cursor or VS Code, or set LEMONCROW_CODE_EDITOR."
@@ -112,7 +105,7 @@ def open_in_editor(
     bounded_column = max(1, int(column))
     location = f"{path}:{bounded_line}:{bounded_column}"
     process = subprocess.Popen(
-        [executable, str(repo_root), "--goto", location],
+        [executable, "--goto", location],
         cwd=str(repo_root),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,

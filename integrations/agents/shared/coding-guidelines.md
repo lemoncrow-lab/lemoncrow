@@ -3,5 +3,5 @@
 - **Existence ≠ wiring.** A flag, config key, table, job, or endpoint counts only once something reads or runs it — confirm the caller with `code_search`; a registry entry or a name in a list proves nothing.
 - **What you create, you close.** New durable state (table, column, file, queue, cache entry, token, flag) ships with its writer and its closer — retention, eviction, rollback, or removal date.
 - **Efficient by default.** Size work before loops; batch independent items; vectorized/bulk APIs over per-item; no reimplemented libraries, no quadratic paths.
-- **Mark cut corners.** Deliberate ceiling (global lock, O(n²) scan, naive heuristic) → `lc-debt: <ceiling>; <upgrade path>` comment; harvest with `lc rt debt`.
+- **Mark cut corners.** Deliberate ceiling (global lock, O(n²) scan, naive heuristic) → `lc-debt: <ceiling>; <upgrade path>` comment; harvest with `lc debt`.
 - Use the project's own declared toolchain (`uv.lock`, `package-lock.json`, `Cargo.lock`, etc.).

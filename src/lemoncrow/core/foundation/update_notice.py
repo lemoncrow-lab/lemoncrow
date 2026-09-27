@@ -60,7 +60,7 @@ def _flag(root: Path, env: str, key: str) -> bool:
 
 
 def notice_enabled(root: Path | None = None) -> bool:
-    """Daily check + notice on. Never for source installs (``.dev_mode``)."""
+    """Daily check + notice on. Never for ``make dev`` source installs (``.dev_mode``)."""
     root = root or lemoncrow_root()
     if (root / ".dev_mode").exists():
         return False

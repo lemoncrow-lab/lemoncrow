@@ -98,9 +98,9 @@ function MediaObject({
     return (
       <div className="flex min-h-44 items-center justify-center px-6 text-center">
         <div>
-          <div className="text-label font-medium text-amber-300">Preview unavailable</div>
-          <details className="mt-1 text-meta text-muted-foreground">
-            <summary className="cursor-pointer hover:text-foreground">Details</summary>
+          <div className="text-[11px] font-medium text-amber-300">Preview unavailable</div>
+          <details className="mt-1 text-[10px] text-neutral-600">
+            <summary className="cursor-pointer hover:text-neutral-50">Details</summary>
             <div className="mt-1 max-w-xl break-words">{error}</div>
           </details>
         </div>
@@ -108,7 +108,7 @@ function MediaObject({
     );
   }
   if (!asset) {
-    return <div className="flex min-h-44 items-center justify-center text-caption text-muted-foreground">Loading preview…</div>;
+    return <div className="flex min-h-44 items-center justify-center text-[10px] text-neutral-600">Loading preview…</div>;
   }
   if (preview.media_kind === "image") {
     return <img src={asset.url} alt={`${side === "old" ? "Before" : "After"} ${documentPath}`} className="mx-auto max-h-[70vh] max-w-full object-contain" />;
@@ -138,12 +138,12 @@ function Side({
   side: "old" | "new";
 }) {
   return (
-    <section className="min-w-0 flex-1 border-y border-border bg-surface-raised">
-      <div className="border-b border-border px-3 py-1.5 text-caption font-medium text-muted-foreground">{label}</div>
+    <section className="min-w-0 flex-1 border-y border-neutral-800 bg-surface-raised">
+      <div className="border-b border-neutral-800 px-3 py-1.5 text-[10px] font-medium text-neutral-500">{label}</div>
       <div className="flex min-h-52 items-center justify-center overflow-auto p-4">
         {available
           ? <MediaObject preview={preview} revisionId={revisionId} documentPath={documentPath} side={side} />
-          : <span className="font-mono text-caption uppercase tracking-tag text-muted-foreground">Not present</span>}
+          : <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-neutral-700">Not present</span>}
       </div>
     </section>
   );
@@ -152,12 +152,12 @@ function Side({
 export default function MediaReviewPreview({ preview, documentPath, revisionId = "", status = "modified", mode }: MediaReviewPreviewProps) {
   if (mode === "source") {
     return (
-      <div className="border-b border-border bg-surface-sunken p-4" data-testid="media-review-source">
-        <div className="mx-auto grid max-w-3xl gap-x-6 gap-y-2 border-y border-border py-3 font-mono text-caption sm:grid-cols-[100px_1fr]">
-          <span className="text-muted-foreground">Path</span><span className="break-all text-subtle">{documentPath}</span>
-          <span className="text-muted-foreground">Media type</span><span className="text-subtle">{preview.media_type}</span>
-          <span className="text-muted-foreground">Status</span><span className="text-subtle">{status}</span>
-          <span className="text-muted-foreground">Source</span><span className="text-muted-foreground">This format is reviewed as rendered media rather than a textual diff. Use Preview or Compare to inspect the recorded Snapshot.</span>
+      <div className="border-b border-neutral-900 bg-surface-sunken p-4" data-testid="media-review-source">
+        <div className="mx-auto grid max-w-3xl gap-x-6 gap-y-2 border-y border-neutral-900 py-3 font-mono text-[10px] sm:grid-cols-[100px_1fr]">
+          <span className="text-neutral-600">Path</span><span className="break-all text-neutral-300">{documentPath}</span>
+          <span className="text-neutral-600">Media type</span><span className="text-neutral-300">{preview.media_type}</span>
+          <span className="text-neutral-600">Status</span><span className="text-neutral-300">{status}</span>
+          <span className="text-neutral-600">Source</span><span className="text-neutral-500">This format is reviewed as rendered media rather than a textual diff. Use Preview or Compare to inspect the recorded Snapshot.</span>
         </div>
       </div>
     );
@@ -166,7 +166,7 @@ export default function MediaReviewPreview({ preview, documentPath, revisionId =
   if (mode === "preview") {
     const side = status === "deleted" ? "old" : "new";
     return (
-      <div className="border-b border-border bg-surface-sunken p-4" data-testid="media-review-preview">
+      <div className="border-b border-neutral-900 bg-surface-sunken p-4" data-testid="media-review-preview">
         <Side
           label={side === "old" ? "Before" : "After"}
           available
@@ -180,7 +180,7 @@ export default function MediaReviewPreview({ preview, documentPath, revisionId =
   }
 
   return (
-    <div className="grid gap-3 border-b border-border bg-surface-sunken p-4 lg:grid-cols-2" data-testid="media-review-compare">
+    <div className="grid gap-3 border-b border-neutral-900 bg-surface-sunken p-4 lg:grid-cols-2" data-testid="media-review-compare">
       <Side label="Before" available={status !== "added"} preview={preview} revisionId={revisionId} documentPath={documentPath} side="old" />
       <Side label="After" available={status !== "deleted"} preview={preview} revisionId={revisionId} documentPath={documentPath} side="new" />
     </div>

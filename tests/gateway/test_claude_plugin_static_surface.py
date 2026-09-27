@@ -18,7 +18,15 @@ EXPECTED_MODELS = {
     "review": "claude-sonnet-4.6",
     "solve": "claude-opus-4.8",
 }
-EXPECTED_TURNS = {"code": 100, "explore": 25, "execute": 100, "plan": 100, "research": 25, "review": 40, "solve": 80}
+EXPECTED_TURNS = {
+    "code": 100,
+    "explore": 25,
+    "execute": 100,
+    "plan": 100,
+    "research": 25,
+    "review": 40,
+    "solve": 80,
+}
 
 
 def _frontmatter(path: Path) -> str:
@@ -27,15 +35,53 @@ def _frontmatter(path: Path) -> str:
     return text.split("---", 2)[1]
 
 
-def test_claude_plugin_packaging_contract() -> None:
-    """case: test_plugin_does_not_bundle_its_own_mcp_server"""
-    "The plugin must NOT ship .mcp.json -- see install_claude.sh's matching\n    structural-validation guard for why (duplicate plugin:lemoncrow:lc\n    namespace / doubled token cost)."
-    assert not (
-        PLUGIN / ".mcp.json"
-    ).exists(), "integrations/claude/plugin/.mcp.json must not exist -- bundling it reintroduces the plugin:lemoncrow:lc / mcp__plugin_lemoncrow_lc__* duplicate-namespace regression"
-    "case: test_plugin_no_longer_ships_dev_agent_variants"
+def test_plugin_does_not_bundle_its_own_mcp_server() -> None:
+    """The plugin must NOT ship .mcp.json -- see install_claude.sh's matching
+    structural-validation guard for why (duplicate plugin:lemoncrow:lc
+    namespace / doubled token cost)."""
+    assert not (PLUGIN / ".mcp.json").exists(), (
+        "integrations/claude/plugin/.mcp.json must not exist -- bundling it "
+        "reintroduces the plugin:lemoncrow:lc / mcp__plugin_lemoncrow_lc__* "
+        "duplicate-namespace regression"
+    )
+
+
+def test_plugin_no_longer_ships_dev_agent_variants() -> None:
     assert not list((PLUGIN / "agents").glob("*.dev.md"))
-    "case: test_plugin_skills_are_packaged_locally"
+
+
+# Personas that edit and the read-only set. Guards the invariants that keep the
+# runtime honest across hand-rolled personas (bare) and shared partials alike —
+# the FIXME must-act channel (mcp_server.py rides "the persona's 'fix every
+# FIXME' rule") silently lost its persona teeth once when auto.md was
+# refactored onto partials; this pins it so drift fails loudly.
+EDITING_ROLES = {"auto", "bare", "code", "execute", "solve"}
+READ_ONLY_ROLES = {"explore", "plan", "research", "review"}
+
+
+def test_editing_personas_carry_fixme_must_act_rule() -> None:
+    for role in sorted(EDITING_ROLES):
+        body = (PLUGIN / "agents" / f"{role}.md").read_text(encoding="utf-8")
+        assert "FIXME" in body, f"{role}: FIXME must-act rule missing — the runtime channel depends on it"
+
+
+def test_read_only_personas_carry_no_edit_discipline() -> None:
+    for role in sorted(READ_ONLY_ROLES):
+        body = (PLUGIN / "agents" / f"{role}.md").read_text(encoding="utf-8")
+        for edit_marker in ("edits[]", "bulk edit", "lemoncrow:explore` / `"):
+            assert edit_marker not in body, f"{role}: edit-centric rule leaked into read-only persona: {edit_marker!r}"
+
+
+def test_personas_have_no_unexpanded_template_tokens() -> None:
+    for path in sorted((PLUGIN / "agents").glob("*.md")):
+        assert "{{" not in path.read_text(encoding="utf-8"), f"unexpanded token in {path.name}"
+
+
+def test_plugin_skills_are_packaged_locally() -> None:
+    # Only the canonical standalone skills are committed under the plugin.
+    # Agent-role skills (code/explore/...) are generated build artifacts that
+    # `build_host_skills.sh` writes into this directory and are gitignored, so
+    # check the git-tracked set rather than whatever a prior build left behind.
     tracked = subprocess.run(
         ["git", "ls-files", "integrations/claude/plugin/skills/*/SKILL.md"],
         cwd=ROOT,
@@ -45,56 +91,59 @@ def test_claude_plugin_packaging_contract() -> None:
     ).stdout.splitlines()
     found = {Path(line).parent.name for line in tracked if line.strip()}
     assert found == {"orchestrate", "swarm", "benchmark", "perf-review", "recall", "ux-review", "lemoncrow"}
+
     canonical = {p.parent.name for p in (ROOT / "integrations" / "skills").glob("*/SKILL.md")}
     assert found <= canonical, "plugin bundle skills must be copies of integrations/skills sources"
-    "case: test_plugin_agent_set_matches_canonical_registry"
+
+
+def test_plugin_agent_set_matches_canonical_registry() -> None:
     registry = build_default_registry(ROOT)
     expected = set(registry.surfaced_role_ids("claude_agent"))
     stable = {path.stem for path in (PLUGIN / "agents").glob("*.md")}
+
     assert expected == stable
+    # `general` was added as a first-class host role (commit c3011ba1); it is now
+    # a surfaced Claude plugin agent.
     assert "general" in expected
 
 
-def test_claude_plugin_persona_contract() -> None:
-    """case: test_editing_personas_carry_fixme_must_act_rule"""
-    for role in sorted(EDITING_ROLES):
-        body = (PLUGIN / "agents" / f"{role}.md").read_text(encoding="utf-8")
-        assert "FIXME" in body, f"{role}: FIXME must-act rule missing — the runtime channel depends on it"
-    "case: test_read_only_personas_carry_no_edit_discipline"
-    for role in sorted(READ_ONLY_ROLES):
-        body = (PLUGIN / "agents" / f"{role}.md").read_text(encoding="utf-8")
-        for edit_marker in ("edits[]", "bulk edit", "lemoncrow:explore` / `"):
-            assert edit_marker not in body, f"{role}: edit-centric rule leaked into read-only persona: {edit_marker!r}"
-    "case: test_personas_have_no_unexpanded_template_tokens"
-    for path in sorted((PLUGIN / "agents").glob("*.md")):
-        assert "{{" not in path.read_text(encoding="utf-8"), f"unexpanded token in {path.name}"
-
-
-def test_claude_plugin_generated_agent_contract() -> None:
-    """case: test_generated_host_agents_keep_lemoncrow_wording"""
+def test_generated_host_agents_keep_lemoncrow_wording() -> None:
     registry = build_default_registry(ROOT)
+
     for role_id in registry.surfaced_role_ids("claude_agent"):
         body = (PLUGIN / "agents" / f"{role_id}.md").read_text(encoding="utf-8")
         assert "Eval" not in body
         assert "Generated by `scripts/sync_agent_context.py`" not in body
+        # The "# X mode" heading was dropped when mode docs moved to shared
+        # discipline partials; the generated agent still names its role.
         assert f"name: {role_id}" in body
-    "case: test_auto_agent_keeps_bounded_delegation_and_treats_bug_reports_as_code_work"
+
+
+def test_auto_agent_keeps_bounded_delegation_and_treats_bug_reports_as_code_work() -> None:
     body = (PLUGIN / "agents" / "auto.md").read_text(encoding="utf-8")
     frontmatter = _frontmatter(PLUGIN / "agents" / "auto.md")
+
     assert '"Agent"' not in frontmatter
     assert "autonomously" in body
-    "case: test_execute_agent_includes_shared_coding_guidelines"
+
+
+def test_execute_agent_includes_shared_coding_guidelines() -> None:
     body = (PLUGIN / "agents" / "execute.md").read_text(encoding="utf-8")
+    # Guidelines are inlined as bullets (no "## Coding Guidelines" heading after
+    # the discipline-partial refactor). "Match the codebase" was dropped from the
+    # guidelines: pattern-matching advice invites extra exploration, and every
+    # persona token is re-billed on every round-trip. Anchor on a rule that earns
+    # its tokens instead.
     assert "Efficient by default" in body
-    "case: test_generated_claude_agents_project_turn_defaults_without_pinning_model"
+
+
+def test_generated_claude_agents_project_turn_defaults_without_pinning_model() -> None:
     for role_id, expected_model in EXPECTED_MODELS.items():
         frontmatter = _frontmatter(PLUGIN / "agents" / f"{role_id}.md")
+        # Frontmatter no longer pins maxTurns or model; both inherit from the
+        # runtime so a host upgrade needs no agent regeneration.
         assert "maxTurns:" not in frontmatter
         assert f"model: {expected_model}" not in frontmatter
-
-
-EDITING_ROLES = {"auto", "bare", "code", "execute", "solve"}
-READ_ONLY_ROLES = {"explore", "plan", "research", "review"}
 
 
 def test_claude_workflow_model_config_inherits_runtime_and_normalizes_ids(tmp_path: Path) -> None:
@@ -125,7 +174,11 @@ def test_claude_workflow_model_config_inherits_runtime_and_normalizes_ids(tmp_pa
         ),
         encoding="utf-8",
     )
-    script = f"import {{ resolveClaudeRoleModel }} from '{(PLUGIN / 'workflows' / 'model-config.js').as_posix()}'; console.log(resolveClaudeRoleModel('code') ?? '')"
+    script = (
+        "import { resolveClaudeRoleModel } from "
+        f"'{(PLUGIN / 'workflows' / 'model-config.js').as_posix()}'; "
+        "console.log(resolveClaudeRoleModel('code') ?? '')"
+    )
     result = subprocess.run(
         ["node", "--input-type=module", "-e", script],
         check=True,
@@ -133,4 +186,5 @@ def test_claude_workflow_model_config_inherits_runtime_and_normalizes_ids(tmp_pa
         text=True,
         env={**os.environ, "CLAUDE_WORKSPACE_ROOT": str(workspace)},
     )
+
     assert result.stdout.strip() == "claude-opus-4-8"

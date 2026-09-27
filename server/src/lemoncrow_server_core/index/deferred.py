@@ -10,8 +10,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import logging
-import sqlite3
 import threading
 import time
 from collections.abc import Callable
@@ -19,9 +17,8 @@ from dataclasses import dataclass, replace
 from typing import Any, Final, Protocol
 
 from ..errors import ErrorCode, ServerError
-from .contracts import IndexBackend, IndexLayerState, IndexLayerStatus, repository_generation_scope_id
+from .contracts import IndexBackend, IndexLayerStatus, repository_generation_scope_id
 from .layers import IndexBuildCancelled
-from .semantic import UnavailableSemanticIndex
 
 __all__ = [
     "ACTIVE_PRIORITY",
@@ -40,36 +37,6 @@ ACTIVE_PRIORITY: Final[int] = 0
 RECOVERY_PRIORITY: Final[int] = 50
 _SEMANTIC_OFFSET: Final[int] = 10
 _LAYERS: Final[frozenset[str]] = frozenset({"link", "semantic"})
-_CONTENTION_CODES: Final[frozenset[int]] = frozenset({sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED})
-_LOG = logging.getLogger(__name__)
-
-
-def _contended(exc: BaseException) -> bool:
-    """Another writer held a store: transient, and says nothing about the job.
-
-    ``database is locked`` means a second process kept the write lock past the
-    busy timeout; the WAL-budget refusal is the same thing seen from a reader.
-    Either one clears by itself, so neither may spend a job's failure budget.
-    """
-    seen: BaseException | None = exc
-    for _ in range(4):  # the error itself, then a few links of its cause chain
-        if seen is None:
-            return False
-        if isinstance(seen, ServerError) and seen.code is ErrorCode.STORAGE_LIMIT and seen.retryable:
-            return True
-        if isinstance(seen, sqlite3.OperationalError):
-            code = getattr(seen, "sqlite_errorcode", None)
-            if isinstance(code, int):
-                return (code & 0xFF) in _CONTENTION_CODES
-            text = str(seen).lower()
-            return "database is locked" in text or "database table is locked" in text or "database is busy" in text
-        seen = seen.__cause__ or seen.__context__
-    return False
-
-
-def _view_gone(exc: BaseException) -> bool:
-    return isinstance(exc, ServerError) and exc.code is ErrorCode.VIEW_UNKNOWN
-
 
 _JOB_SCHEMA = """
 CREATE TABLE IF NOT EXISTS deferred_index_jobs (
@@ -137,10 +104,6 @@ class DeferredIndexJob:
 
 
 class DeferredIndexJobStore(Protocol):
-    #: True while a :class:`DeferredIndexWorker` drains this store. Only then may
-    #: a foreground search hand a cold layer build to the queue instead of doing it.
-    worker_attached: bool
-
     def enqueue(
         self,
         *,
@@ -160,7 +123,6 @@ class DeferredIndexJobStore(Protocol):
     def complete(self, job_id: str, now: float) -> None: ...
     def obsolete(self, job_id: str, now: float, reason: str = "") -> None: ...
     def retry(self, job_id: str, now: float, *, not_before: float, error: str) -> None: ...
-    def release(self, job_id: str, now: float, *, not_before: float, error: str) -> None: ...
     def fail(self, job_id: str, now: float, error: str) -> None: ...
     def cancel_view(self, view_id: str, now: float) -> None: ...
     def recover(self, now: float) -> int: ...
@@ -176,7 +138,6 @@ class MemoryDeferredJobStore:
     def __init__(self) -> None:
         self._jobs: dict[str, DeferredIndexJob] = {}
         self._condition = threading.Condition()
-        self.worker_attached = False
 
     def enqueue(
         self,
@@ -291,22 +252,6 @@ class MemoryDeferredJobStore:
     def retry(self, job_id: str, now: float, *, not_before: float, error: str) -> None:
         self._state(job_id, now, "pending", error=error, not_before=not_before)
 
-    def release(self, job_id: str, now: float, *, not_before: float, error: str) -> None:
-        """Hand a running job back unchanged: its claim does not count as an attempt."""
-        with self._condition:
-            job = self._jobs.get(job_id)
-            if job is None or job.state != "running":
-                return
-            self._jobs[job_id] = replace(
-                job,
-                state="pending",
-                attempts=max(0, job.attempts - 1),
-                updated_at=now,
-                error=error[:2048],
-                not_before=not_before,
-            )
-            self._condition.notify_all()
-
     def fail(self, job_id: str, now: float, error: str) -> None:
         self._state(job_id, now, "failed", error=error)
 
@@ -352,7 +297,6 @@ class SqliteDeferredJobStore:
     def __init__(self, db: Any) -> None:
         self._db = db
         self._condition = threading.Condition()
-        self.worker_attached = False
         with db._lock:
             db._conn.executescript(_JOB_SCHEMA)
             columns = {str(row[1]) for row in db._conn.execute("PRAGMA table_info(deferred_index_jobs)").fetchall()}
@@ -506,16 +450,6 @@ class SqliteDeferredJobStore:
     def retry(self, job_id: str, now: float, *, not_before: float, error: str) -> None:
         self._state(job_id, now, "pending", error=error, not_before=not_before)
 
-    def release(self, job_id: str, now: float, *, not_before: float, error: str) -> None:
-        """Hand a running job back unchanged: its claim does not count as an attempt."""
-        with self._db.transaction() as conn:
-            conn.execute(
-                "UPDATE deferred_index_jobs SET state='pending', attempts=MAX(attempts-1,0), updated_at=?, "
-                "error=?, not_before=? WHERE job_id=? AND state='running'",
-                (now, error[:2048], not_before, job_id),
-            )
-        self.wake()
-
     def fail(self, job_id: str, now: float, error: str) -> None:
         self._state(job_id, now, "failed", error=error)
 
@@ -577,9 +511,6 @@ def enqueue_deferred_layer(
     state = backend.views.get(org_id, view_id)
     if not state.manifest_complete:
         return None
-    if layer == "semantic" and isinstance(backend.for_view(org_id, view_id).semantic, UnavailableSemanticIndex):
-        # Nothing can ever build it; a job would only retry forever.
-        return None
     overlay, tombstones = backend.views.overlay(org_id, view_id)
     if state.generation_id and not overlay and not tombstones:
         target_kind = "generation"
@@ -637,19 +568,13 @@ class DeferredIndexWorker:
         max_files: int = 2_000_000,
         max_attempts: int = 5,
         retry_delay_s: float = 0.5,
-        contention_delay_s: float = 2.0,
         clock: Callable[[], float] = time.time,
     ) -> None:
         store = _store(backend)
         if store is None:
             raise ValueError("deferred indexing requires a job store")
-        if max_files < 1 or max_attempts < 1 or retry_delay_s < 0 or contention_delay_s < 0:
+        if max_files < 1 or max_attempts < 1 or retry_delay_s < 0:
             raise ValueError("invalid deferred indexing worker limits")
-        self._contention_delay_s = contention_delay_s
-        #: Claims this worker could not hand back. Only this worker claimed them,
-        #: and it is alive, so it retries the release rather than leaving them
-        #: 'running' until restart recovery. Bounded by failed iterations.
-        self._unreleased: dict[str, DeferredIndexJob] = {}
         self._backend = backend
         self._store = store
         self._max_files = max_files
@@ -676,10 +601,8 @@ class DeferredIndexWorker:
             thread = threading.Thread(target=self._run, name="lc-index-deferred", daemon=True)
             self._thread = thread
             thread.start()
-            self._store.worker_attached = True
 
     def close(self) -> None:
-        self._store.worker_attached = False
         self._stop.set()
         self._store.wake()
         with self._lock:
@@ -722,36 +645,14 @@ class DeferredIndexWorker:
 
     def _run(self) -> None:
         while not self._stop.is_set():
-            job: DeferredIndexJob | None = None
-            try:
-                for stranded in tuple(self._unreleased.values()):
-                    self._release_quietly(stranded, "worker_iteration_failed")
-                self._metrics()
-                job = self._store.claim(float(self._clock()))
-                if job is None:
-                    self._store.wait(0.25)
-                    continue
-                self._metrics()
-                self._process(job)
-            except Exception:
-                # This thread is the only thing that drains the queue. If a store
-                # write failed past _process's own handling and killed it, every
-                # derived layer would stay degraded until the process restarted.
-                _LOG.exception("deferred index worker iteration failed; continuing")
-                if job is not None:
-                    self._release_quietly(job, "worker_iteration_failed")
-                self._stop.wait(max(self._contention_delay_s, 0.05))  # never a hot loop
+            self._metrics()
+            job = self._store.claim(float(self._clock()))
+            if job is None:
+                self._store.wait(0.25)
+                continue
+            self._metrics()
+            self._process(job)
         self._metrics()
-
-    def _release_quietly(self, job: DeferredIndexJob, error: str) -> None:
-        now = float(self._clock())
-        try:
-            self._store.release(job.job_id, now, not_before=now + self._contention_delay_s, error=error)
-        except Exception:
-            self._unreleased[job.job_id] = job
-            _LOG.exception("could not release deferred job %s; will retry", job.job_id)
-        else:
-            self._unreleased.pop(job.job_id, None)
 
     def _resolve_job_view(self, leaf: IndexBackend, job: DeferredIndexJob) -> tuple[str, Any] | None:
         if job.target_kind == "view":
@@ -874,9 +775,6 @@ class DeferredIndexWorker:
                     leaf.publish_generation(job.org_id, active_view_id)
                 self._store.complete(job.job_id, float(self._clock()))
                 outcome = "completed"
-            elif status.state is IndexLayerState.UNAVAILABLE:
-                self._store.obsolete(job.job_id, float(self._clock()), status.reason or "layer_unavailable")
-                outcome = "obsolete"
             elif status.reason.endswith("_content_incomplete"):
                 self._retry(job, status.reason)
                 outcome = "retry"
@@ -901,18 +799,6 @@ class DeferredIndexWorker:
             current_job = self._store.get(job.job_id)
             if current_job is None or current_job.state == "obsolete":
                 outcome = "obsolete"
-            elif _view_gone(exc) and job.target_kind == "view":
-                # The View closed or expired mid-build: there is nothing left to
-                # index, which is not a failure. (A generation job retries, and
-                # its next attempt resolves another representative View.)
-                self._store.obsolete(job.job_id, float(self._clock()), "target_gone")
-                outcome = "obsolete"
-            elif _contended(exc):
-                now = float(self._clock())
-                self._store.release(
-                    job.job_id, now, not_before=now + self._contention_delay_s, error=f"{type(exc).__name__}: {exc}"
-                )
-                outcome = "contended"
             else:
                 self._retry(job, f"{type(exc).__name__}: {exc}")
                 outcome = "retry" if job.attempts < self._max_attempts else "failed"

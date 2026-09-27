@@ -157,10 +157,10 @@ def _internal_llm_model_label() -> str:
 def _is_spill_path(path: str | Path | None) -> bool:
     if not path:
         return False
-    from lemoncrow_client.kit.spill import resolve_spill_dir
+    from lemoncrow.pro.capabilities.tool_supervision.tool_output_spill import _spill_dir
 
     try:
-        return Path(path).resolve().parent == resolve_spill_dir()
+        return Path(path).resolve().parent == _spill_dir().resolve()
     except (OSError, ValueError):
         return False
 

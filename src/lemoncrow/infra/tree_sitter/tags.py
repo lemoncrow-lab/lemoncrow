@@ -10,11 +10,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from lemoncrow.core.foundation.optional_modules import module_absent
 from lemoncrow.infra.code_intel.languages import language_for_path
 
 TagKind = Literal["definition", "reference", "call"]
-_TREE_SITTER_CONFIG = "lemoncrow.pro.capabilities.semantic_file_memory.treesitter_ast"
 _LEGACY_REGEX_LANGUAGES = frozenset({"javascript", "typescript", "go", "rust"})
 _DATA_LANGUAGES = frozenset({"json", "toml", "yaml"})
 # Markup / style / prose languages: references are not meaningful code symbols.
@@ -415,24 +413,6 @@ def detect_language(path: Path) -> str | None:
     return lang.name if lang is not None else None
 
 
-def tree_sitter_languages() -> frozenset[str] | None:
-    """Languages with tree-sitter structure, or ``None`` where their configuration is not installed.
-
-    The configuration lives with semantic file memory, which the Review-only engine does
-    not ship (nor the grammar pack): there every language reads as it does when its
-    parser is unavailable. A missing third-party module is a real fault and propagates.
-    """
-    try:
-        from lemoncrow.pro.capabilities.semantic_file_memory.treesitter_ast import (
-            supported_tree_sitter_languages,
-        )
-    except ModuleNotFoundError as exc:
-        if not module_absent(exc, _TREE_SITTER_CONFIG):
-            raise
-        return None
-    return supported_tree_sitter_languages()
-
-
 def extract_tags_from_text(text: str | bytes, file_path: str | Path, language: str | None = None) -> list[Tag]:
     """Extract definition/reference tags from source text without reading from disk."""
     if isinstance(text, bytes):
@@ -441,6 +421,10 @@ def extract_tags_from_text(text: str | bytes, file_path: str | Path, language: s
         # downstream `.encode("utf-8")` call below operates on str, not bytes
         # (bytes has no `.encode`, so that would otherwise raise).
         text = text.decode("utf-8", errors="replace")
+
+    from lemoncrow.pro.capabilities.semantic_file_memory.treesitter_ast import (
+        supported_tree_sitter_languages,
+    )
 
     path = Path(file_path)
     resolved_language = language or detect_language(path)
@@ -451,11 +435,7 @@ def extract_tags_from_text(text: str | bytes, file_path: str | Path, language: s
             return _python_tags(path, text)
         except SyntaxError:
             return []
-    tree_sitter = tree_sitter_languages()
-    if tree_sitter is None:
-        # As with an unavailable parser: the legacy readers only, never a guess.
-        return _regex_tags(path, text, resolved_language) if resolved_language in _LEGACY_REGEX_LANGUAGES else []
-    if resolved_language in tree_sitter:
+    if resolved_language in supported_tree_sitter_languages():
         tags = _treesitter_tags(path, text, resolved_language)
         if tags is not None:
             return tags
@@ -472,4 +452,4 @@ def extract_tags(file_path: str | Path, language: str | None = None) -> list[Tag
     return extract_tags_from_text(text, path, language=language)
 
 
-__all__ = ["Tag", "detect_language", "extract_tags", "extract_tags_from_text", "tree_sitter_languages"]
+__all__ = ["Tag", "detect_language", "extract_tags", "extract_tags_from_text"]

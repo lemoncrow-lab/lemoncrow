@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from lemoncrow.core.service.code_map import _tracked_files
+from lemoncrow.gateway.cli.commands.project import _get_files
 from lemoncrow.infra.code_intel.zoekt.indexer import ZoektIndexer
 from lemoncrow.pro.capabilities.repo_map.graph import iter_source_files
 
@@ -65,3 +66,9 @@ def test_code_map_tracked_files_recurses_into_submodules(repo_with_submodule: Pa
     tracked = _tracked_files(repo_with_submodule)
     assert "vendor/vendor.py" in tracked
     assert "app.py" in tracked
+
+
+def test_cli_get_files_recurses_into_submodules(repo_with_submodule: Path) -> None:
+    files = {p.relative_to(repo_with_submodule).as_posix() for p in _get_files(repo_with_submodule)}
+    assert "vendor/vendor.py" in files
+    assert "app.py" in files

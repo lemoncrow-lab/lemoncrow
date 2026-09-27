@@ -55,15 +55,16 @@ if TYPE_CHECKING:
     from lemoncrow.pro.capabilities.review.store import ReviewStore
 
 _CURSOR_VERSION = 1
-_IGNORED_ROOTS = frozenset({".git", ".claude", ".lemoncrow", ".lc-worktrees", ".venv", "node_modules", "__pycache__"})
+_IGNORED_ROOTS = frozenset({".git", ".lemoncrow", ".lc-worktrees", ".venv", "node_modules", "__pycache__"})
 _SYSTEM_HOSTS = frozenset(
     {
         "lemoncrow",
         "lemoncrow-client",
         "lemoncrow-server",
+        "lemoncrow-enterprise-server",
+        "lemoncrow-enterprise-server-test",
     }
 )
-_SYSTEM_HOST_PREFIX = "lemoncrow-"
 _PURPOSE_BY_PERSONA = {
     "review": "review",
     "reviewer": "review",
@@ -118,7 +119,7 @@ def infer_purpose(host: str, run: Mapping[str, Any]) -> str:
         text = str(value or "").strip().lower()
         if text in {"implement", "verify", "investigate", "review", "ask", "benchmark", "system"}:
             return text
-    if host in _SYSTEM_HOSTS or host.startswith(_SYSTEM_HOST_PREFIX):
+    if host in _SYSTEM_HOSTS:
         return "system"
     agent = str(run.get("agent") or "").strip().lower()
     domain = str(run.get("domain") or "").strip().lower()
@@ -315,57 +316,6 @@ def map_ledger_event(
             return make("decision", f"Plan review: {decision}")
         return None
     return None
-
-
-def map_ledger_side_effect(
-    raw: Mapping[str, Any],
-    *,
-    host: str,
-    session_id: str,
-    repo_root: str,
-    order: int,
-) -> DevelopmentDraft | None:
-    """A consequential action outside the repository, as a ``side_effect`` draft.
-
-    Package installs, network/API and cloud CLI calls, database commands,
-    secret access, git pushes and writes outside the workspace (Phase 9R item
-    17). Benign in-workspace work maps to nothing. The command is redacted and
-    bounded by ``sanitize_draft`` like every other Development text.
-    """
-
-    from lemoncrow.pro.capabilities.review.action_approval import action_digest
-    from lemoncrow.pro.capabilities.review.agent_ledger import classify_command, classify_outside_write
-
-    kind = str(raw.get("kind") or "").strip()
-    payload = _payload(raw)
-    if kind in {"command", "command_result"}:
-        command = str(payload.get("command") or raw.get("summary") or "").strip()
-        found = classify_command(command, repo_root=repo_root)
-        subject = command
-        action_kind = "command"
-    elif kind in {"file_edit", "file_revert"}:
-        subject = str(payload.get("path") or "").strip()
-        found = classify_outside_write(subject, repo_root)
-        action_kind = "write"
-    else:
-        return None
-    if found is None:
-        return None
-    return DevelopmentDraft(
-        kind="side_effect",
-        at=normalize_at(raw.get("at")),
-        source_event_id=f"ledger:{host}:{session_id}:{_identity(raw)}:side_effect",
-        host=host,
-        session_id=session_id,
-        summary=f"{found.title}: {found.label}",
-        detail=subject[:300],
-        status=found.category,
-        source="run_ledger",
-        # The exact, untruncated action identity: a human pre-approval (P12-AGENT)
-        # covers this side effect only when it matches what was approved.
-        task_id=action_digest(action_kind, subject),
-        order=order,
-    )
 
 
 def _hash_items(values: object) -> list[str]:
@@ -736,15 +686,6 @@ class DevelopmentIngestor:
             )
             if draft is not None:
                 out.append((draft, raw))
-            side_effect = map_ledger_side_effect(
-                raw,
-                host=ref.host,
-                session_id=ref.session_id,
-                repo_root=self._repo,
-                order=index,
-            )
-            if side_effect is not None:
-                out.append((side_effect, raw))
         return out
 
     def _plan_session(
@@ -831,11 +772,6 @@ class DevelopmentIngestor:
         allowed = frozenset() if role == "investigator" else ADMITTED_KINDS.get(role, frozenset())
         if purpose in {"review", "ask"}:
             allowed = allowed & REVIEW_PURPOSE_KINDS
-        if role != "excluded":
-            # Every session linked to the Change reports its consequential actions
-            # outside the repository, whatever its role: a read-only session's
-            # ``git push`` is exactly what the ledger is for (Phase 9R item 17).
-            allowed = allowed | {"side_effect"}
         if allowed:
             upgraded = role != previous_role
             if upgraded and incremental:
@@ -976,22 +912,14 @@ def _relative(path: Path, root: Path) -> str:
         return ""
 
 
-_INGESTORS: dict[tuple[str, str, str], DevelopmentIngestor] = {}
+_INGESTORS: dict[tuple[str, str], DevelopmentIngestor] = {}
 _INGESTORS_GUARD = threading.Lock()
 
 
 def ingestor_for(store: ReviewStore, *, source_store_root: Path, repo_root: Path) -> DevelopmentIngestor:
-    """One ingestor (and its caches/throttle) per (store, repository, ledger root) per process.
+    """One ingestor (and its caches/throttle) per (store, repository) per process."""
 
-    The ledger root is part of the identity: a caller naming another root must
-    never be handed (or leave behind) an ingestor reading the wrong ledgers.
-    """
-
-    key = (
-        str(store.root),
-        str(repo_root.expanduser().resolve()),
-        str(source_store_root.expanduser().resolve()),
-    )
+    key = (str(store.root), str(repo_root.expanduser().resolve()))
     with _INGESTORS_GUARD:
         found = _INGESTORS.get(key)
         if found is None:
@@ -1021,7 +949,6 @@ __all__ = [
     "infer_purpose",
     "ingestor_for",
     "map_ledger_event",
-    "map_ledger_side_effect",
     "scoped_path",
     "state_drafts",
     "sync_before_capture",

@@ -7,7 +7,7 @@ from lemoncrow_server_core.index.contracts import ManifestEntry, RepoIdentityCla
 from lemoncrow_server_core.index.manifest import chunk_manifest, manifest_root
 from lemoncrow_server_core.index.query import IndexQuery
 from lemoncrow_server_core.index.repositories import RepositoryIndex
-from lemoncrow_server_core.review_code_intelligence import NativeReviewCodeIntelligence, balanced_relationship_rows
+from lemoncrow_server_core.review_code_intelligence import NativeReviewCodeIntelligence
 
 from lemoncrow.pro.capabilities.review.review_map import _stable_id, build_review_map
 
@@ -99,16 +99,6 @@ def test_native_review_provider_uses_generation_view_and_bounded_graph(tmp_path:
         assert len(refs["references"]) <= 20
         assert any(row["path"] == "a.py" for row in refs["references"])
 
-        file_graph = provider.file_relationships(("a.py", "b.py"), limit=999)
-        assert file_graph["degraded"] is False
-        assert len(file_graph["edges"]) <= 640
-        assert any(
-            row["source_path"] == "a.py"
-            and row["target_path"] == "b.py"
-            and row["kind"] in {"calls", "imports", "references"}
-            for row in file_graph["edges"]
-        )
-
         semantic = provider.semantic_search("beta caller", limit=999)
         assert len(semantic["hits"]) <= 12
         assert semantic["view_revision"] == 0
@@ -119,30 +109,6 @@ def test_native_review_provider_uses_generation_view_and_bounded_graph(tmp_path:
         assert after.view_revision == 0
     finally:
         owner.close()
-
-
-def test_file_relationship_budget_is_shared_between_changed_and_surrounding_links() -> None:
-    def row(source: str, target: str, kind: str = "calls", weight: int = 5) -> dict[str, object]:
-        return {"source_path": source, "target_path": target, "kind": kind, "weight": weight}
-
-    seeds = {f"c{index}.py" for index in range(10)}
-    internal = [row(source, target) for source in sorted(seeds) for target in sorted(seeds) if source != target]
-    external = [row("cli.py", "c0.py", "imports", 1), row("c1.py", "util.py", "references", 1)]
-
-    picked = balanced_relationship_rows(internal + external, seeds, 10)
-    assert len(picked) == 10
-    assert {(item["source_path"], item["target_path"]) for item in picked[-2:]} == {
-        ("cli.py", "c0.py"),
-        ("c1.py", "util.py"),
-    }
-    # Unused surrounding capacity is lent back to links among the changed files.
-    assert sum(1 for item in picked if item in internal) == 8
-    # And the other way round: no changed-file links leave room for more context.
-    many_external = [row(f"x{index}.py", "c0.py") for index in range(20)]
-    assert len(balanced_relationship_rows(internal[:2] + many_external, seeds, 10)) == 10
-    assert (
-        sum(1 for item in balanced_relationship_rows(internal[:2] + many_external, seeds, 10) if item in internal) == 2
-    )
 
 
 def test_native_review_provider_fails_closed_without_owned_view(tmp_path: Path) -> None:
@@ -484,7 +450,7 @@ def test_native_readiness_reports_content_incomplete_layers_as_degraded(tmp_path
         leaf.provenance.record(ORG, repo, "alice", (digest,))
 
         assert leaf.links.refresh(ORG, view_id, budget=100).reason == "link_content_incomplete"
-        assert leaf.semantic.refresh(ORG, view_id, budget=100).reason == "semantic_engine_unavailable"
+        assert leaf.semantic.refresh(ORG, view_id, budget=100).reason == "semantic_content_incomplete"
 
         readiness = _provider(owner, repo).readiness()
         assert readiness.lexical.state == "degraded"
@@ -493,95 +459,9 @@ def test_native_readiness_reports_content_incomplete_layers_as_degraded(tmp_path
         assert readiness.structural.reason == "content_incomplete"
         assert readiness.graph.state == "degraded"
         assert readiness.graph.reason == "link_content_incomplete"
-        # The public server has no semantic engine: unavailable, never "building".
-        assert readiness.semantic.state == "unavailable"
-        assert readiness.semantic.reason == "semantic_engine_unavailable"
+        assert readiness.semantic.state == "degraded"
+        assert readiness.semantic.reason == "semantic_content_incomplete"
         assert "graph:link_content_incomplete" in readiness.degraded_reasons
-        assert "semantic:semantic_engine_unavailable" in readiness.degraded_reasons
-    finally:
-        owner.close()
-
-
-def test_native_symbol_calls_are_attributed_only_inside_an_exact_snapshot_span(tmp_path: Path) -> None:
-    owner = RepositoryIndex(tmp_path / "indexes", content_size_cap=CAP, inline_rebuild_budget=100)
-    try:
-        files = {
-            "a.py": b"from b import beta\n\n\ndef alpha():\n    return beta()\n\n\ndef gamma():\n    return 2\n",
-            "b.py": b"def beta():\n    return 1\n",
-        }
-        repo, view_id = _open(owner, files=files)
-        exact = _provider(owner, repo, preferred_view_id=view_id, preferred_view_revision=0)
-        alpha = exact.find_symbol("alpha", path="a.py")
-        gamma = exact.find_symbol("gamma", path="a.py")
-        assert alpha is not None and gamma is not None
-
-        spanned = exact.neighborhood({**alpha, "span_start": 4, "span_end": 5})
-        assert spanned["outgoing_attributed"] is True
-        callees = [node for node in spanned["nodes"] if node["kind"] == "callee"]
-        assert [(node["path"], node["label"]) for node in callees] == [("b.py", "beta")]
-        assert any(
-            edge["source"] == alpha["id"] and edge["target"] == callees[0]["id"] and edge["kind"] == "call"
-            for edge in spanned["edges"]
-        )
-
-        # The same file's other function does not inherit alpha's call.
-        other = exact.neighborhood({**gamma, "span_start": 8, "span_end": 9})
-        assert other["outgoing_attributed"] is True
-        assert not [node for node in other["nodes"] if node["kind"] == "callee"]
-
-        # Without the Snapshot's View revision a source line proves nothing.
-        unbound = _provider(owner, repo).neighborhood({**alpha, "span_start": 4, "span_end": 5})
-        assert unbound["outgoing_attributed"] is False
-        assert not [node for node in unbound["nodes"] if node["kind"] == "callee"]
-    finally:
-        owner.close()
-
-
-def test_a_busy_files_inbound_edges_do_not_crowd_out_a_symbols_calls(tmp_path: Path) -> None:
-    # The callee query read every edge touching the focused file under one
-    # 200-row budget, so 210 callers into it left the symbol with no calls.
-    owner = RepositoryIndex(tmp_path / "indexes", content_size_cap=CAP, inline_rebuild_budget=1000)
-    try:
-        callers = "from m import helper\n" + "".join(f"\n\ndef c{i}():\n    return helper()\n" for i in range(210))
-        files = {
-            "a.py": callers.encode(),
-            "m.py": b"from z import zeta\n\n\ndef helper():\n    return 1\n\n\ndef alpha():\n    return zeta()\n",
-            "z.py": b"def zeta():\n    return 0\n",
-        }
-        repo, view_id = _open(owner, files=files)
-        exact = _provider(owner, repo, preferred_view_id=view_id, preferred_view_revision=0)
-        alpha = exact.find_symbol("alpha", path="m.py")
-        assert alpha is not None
-
-        graph = exact.neighborhood({**alpha, "span_start": 8, "span_end": 9})
-        callees = [(node["path"], node["label"]) for node in graph["nodes"] if node["kind"] == "callee"]
-        assert callees == [("z.py", "zeta")]
-        assert graph["truncated"] is False
-    finally:
-        owner.close()
-
-
-def test_native_repository_links_aggregate_every_cross_file_link_and_expose_path_digests(tmp_path: Path) -> None:
-    owner = RepositoryIndex(tmp_path / "indexes", content_size_cap=CAP, inline_rebuild_budget=100)
-    try:
-        repo, view_id = _open(owner)
-        provider = _provider(owner, repo)
-        # A relations query builds the View's link layer.
-        beta = provider.find_symbol("beta", path="b.py")
-        assert beta is not None
-        provider.neighborhood(beta)
-
-        links = provider.repository_file_links()
-        assert links["degraded"] is False
-        rows = {(row["source_path"], row["target_path"], row["kind"]): row for row in links["edges"]}
-        assert ("a.py", "b.py", "calls") in rows
-        assert rows[("a.py", "b.py", "calls")]["symbols"][0]["name"] == "beta"
-        assert all(source != target for source, target, _kind in rows)
-        # Cached per View revision: the same object comes back.
-        assert provider.repository_file_links() is links
-
-        assert provider.path_digest("b.py") == sha256_hex(b"def beta():\n    return 1\n")
-        assert provider.path_digest("missing.py") == ""
-        assert view_id
+        assert "semantic:semantic_content_incomplete" in readiness.degraded_reasons
     finally:
         owner.close()

@@ -22,13 +22,12 @@ from click.testing import CliRunner, Result
 from lemoncrow.core.foundation.paths import session_dir
 from lemoncrow.gateway.cli import cli
 from lemoncrow.infra.runtime.run_ledger import RunLedger
-from tests.helpers import init_store_at
+from tests.helpers import grant_oauth_pro, init_store_at
 
 
 def _invoke(root: Path, *args: str, input: str | None = None) -> Result:
     runner = CliRunner()
-    argv = ["runtime", *args] if args and args[0] in ["session"] else list(args)
-    return runner.invoke(cli, ["--root", str(root), *argv], input=input)
+    return runner.invoke(cli, ["--root", str(root), *args], input=input)
 
 
 def _seed_ledger(root: Path, session_id: str = "run1") -> Path:
@@ -233,8 +232,43 @@ def test_search_empty_query_returns_empty(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 
+def test_savings_detail_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    grant_oauth_pro(monkeypatch)
+    root = tmp_path / ".lemoncrow"
+    init_store_at(str(root))
+    res = _invoke(root, "savings", "detail", "--json")
+    assert res.exit_code == 0
+    payload = json.loads(res.output)
+    assert "summary" in payload
+    assert "operations" in payload
+
+
+def test_savings_reset_clears_counters(tmp_path: Path) -> None:
+    root = tmp_path / ".lemoncrow"
+    init_store_at(str(root))
+    res = _invoke(root, "savings", "reset", "--force")
+    assert res.exit_code == 0
+    assert "reset" in res.output
+
+    after = json.loads(_invoke(root, "savings", "--json").output)
+    assert after["calls_avoided"] == 0
+    assert after["tokens_saved"] == 0
+
+
+def test_usage_optimize_detail_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The promoted spelling of `savings detail` (spec §5.2)."""
+    grant_oauth_pro(monkeypatch)
+    root = tmp_path / ".lemoncrow"
+    init_store_at(str(root))
+    res = _invoke(root, "usage", "optimize", "detail", "--json")
+    assert res.exit_code == 0
+    payload = json.loads(res.output)
+    assert "summary" in payload
+    assert "operations" in payload
+
+
 def test_usage_optimize_reset_clears_counters(tmp_path: Path) -> None:
-    """Reset cost history through the canonical command."""
+    """The promoted spelling of `savings reset` (spec §5.2)."""
     root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
     res = _invoke(root, "usage", "optimize", "reset", "--force")
@@ -295,6 +329,55 @@ def test_benchmark_full_runs(tmp_path: Path) -> None:
     assert "core" in payload
     assert "hosts" in payload
     assert "packs" in payload
+
+
+# --------------------------------------------------------------------------- #
+# copilot / claude / codex / opencode import (empty session dirs)            #
+# --------------------------------------------------------------------------- #
+
+
+def test_copilot_import_empty_dir(tmp_path: Path) -> None:
+    root = tmp_path / ".lemoncrow"
+    init_store_at(str(root))
+    sessions_dir = tmp_path / "copilot_sessions"
+    sessions_dir.mkdir()
+
+    res = _invoke(root, "import", "--host", "copilot", "--path", str(sessions_dir))
+    assert res.exit_code == 0
+    assert "imported" in res.output
+
+
+def test_claude_import_empty_dir(tmp_path: Path) -> None:
+    root = tmp_path / ".lemoncrow"
+    init_store_at(str(root))
+    sessions_dir = tmp_path / "claude_projects"
+    sessions_dir.mkdir()
+
+    res = _invoke(root, "import", "--host", "claude", "--path", str(sessions_dir))
+    assert res.exit_code == 0
+    assert "imported" in res.output
+
+
+def test_codex_import_empty_dir(tmp_path: Path) -> None:
+    root = tmp_path / ".lemoncrow"
+    init_store_at(str(root))
+    sessions_dir = tmp_path / "codex_sessions"
+    sessions_dir.mkdir()
+
+    res = _invoke(root, "import", "--host", "codex", "--path", str(sessions_dir))
+    assert res.exit_code == 0
+    assert "imported" in res.output
+
+
+def test_opencode_import_missing_db(tmp_path: Path) -> None:
+    root = tmp_path / ".lemoncrow"
+    init_store_at(str(root))
+    nonexistent_db = tmp_path / "opencode.db"
+
+    res = _invoke(root, "import", "--host", "opencode", "--path", str(nonexistent_db))
+    # Should either succeed with 0 imports or fail gracefully (no crash/traceback)
+    assert "imported" in res.output or res.exit_code != 0
+    assert "Traceback" not in res.output
 
 
 # --------------------------------------------------------------------------- #

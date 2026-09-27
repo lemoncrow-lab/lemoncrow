@@ -22,27 +22,58 @@ from lemoncrow.sdk.middleware import LemonCrowMiddleware
 
 
 class TestLemonCrowMiddleware:
-    def test_initial_state_and_context_manager_contract(self) -> None:
+    def test_init(self) -> None:
         mw = LemonCrowMiddleware(agent_name="test", task="do work")
-        assert (mw.agent_name, mw.task) == ("test", "do work")
-        assert mw._ledger is not None and not mw.loop_detected() and mw.watchdog_events() == []
-        summary = mw.cost_summary()
-        assert summary["turns"] == 0 and summary["cost_usd"] == 0.0 and summary["cache_hit_ratio"] == 0.0
-        with LemonCrowMiddleware(agent_name="test", task="test") as active:
-            assert active._ledger.status == "running"
-        assert active._ledger.status == "complete"
+        assert mw.agent_name == "test"
+        assert mw.task == "do work"
+        assert mw._ledger is not None
 
-    def test_adapter_surface_factories_contract(self) -> None:
-        from lemoncrow.sdk.gemini_adk import GeminiADKMiddleware
+    def test_context_manager(self) -> None:
+        with LemonCrowMiddleware(agent_name="test", task="test") as mw:
+            assert mw._ledger.status == "running"
+        assert mw._ledger.status == "complete"
+
+    def test_cost_summary_empty(self) -> None:
+        mw = LemonCrowMiddleware(agent_name="test", task="test")
+        summary = mw.cost_summary()
+        assert summary["turns"] == 0
+        assert summary["cost_usd"] == 0.0
+        assert summary["cache_hit_ratio"] == 0.0
+
+    def test_loop_not_detected_initially(self) -> None:
+        mw = LemonCrowMiddleware(agent_name="test", task="test")
+        assert not mw.loop_detected()
+
+    def test_watchdog_events_empty_initially(self) -> None:
+        mw = LemonCrowMiddleware(agent_name="test", task="test")
+        assert mw.watchdog_events() == []
+
+    def test_langchain_returns_middleware(self) -> None:
         from lemoncrow.sdk.langchain_middleware import LangChainMiddleware
+
+        mw = LemonCrowMiddleware(agent_name="test", task="test")
+        lc = mw.langchain()
+        assert isinstance(lc, LangChainMiddleware)
+
+    def test_openai_hooks_returns_hooks(self) -> None:
         from lemoncrow.sdk.openai_hooks import OpenAIAgentsHooks
 
         mw = LemonCrowMiddleware(agent_name="test", task="test")
-        assert isinstance(mw.langchain(), LangChainMiddleware)
-        assert isinstance(mw.openai_hooks(), OpenAIAgentsHooks)
-        specs, dispatch = mw.anthropic_tools()
-        assert isinstance(specs, list) and callable(dispatch)
-        assert isinstance(mw.gemini_adk(), GeminiADKMiddleware)
+        hooks = mw.openai_hooks()
+        assert isinstance(hooks, OpenAIAgentsHooks)
+
+    def test_anthropic_tools_returns_tuple(self) -> None:
+        mw = LemonCrowMiddleware(agent_name="test", task="test")
+        tool_specs, dispatch = mw.anthropic_tools()
+        assert isinstance(tool_specs, list)
+        assert callable(dispatch)
+
+    def test_gemini_adk_returns_hooks(self) -> None:
+        from lemoncrow.sdk.gemini_adk import GeminiADKMiddleware
+
+        mw = LemonCrowMiddleware(agent_name="test", task="test")
+        hooks = mw.gemini_adk()
+        assert isinstance(hooks, GeminiADKMiddleware)
 
 
 # ---------------------------------------------------------------------------
@@ -291,22 +322,38 @@ class TestLemonCrowAnthropicTools:
 
 
 class TestRunLedgerPrefixHash:
-    def test_record_call_prefix_metadata_contract(self) -> None:
+    def test_record_call_stores_prefix_hash(self) -> None:
         from lemoncrow.infra.runtime.run_ledger import RunLedger
 
-        for prefix_hash, reason in [("abc123", ""), ("xyz999", "tool_schema_changed")]:
-            ledger = RunLedger(agent="test", task="test")
-            ledger.record_call(
-                operation="chat",
-                model="claude-haiku-4-5",
-                input_tokens=100,
-                output_tokens=50,
-                stable_prefix_hash=prefix_hash,
-                prefix_invalidated_reason=reason,
-            )
-            call = next(e for e in ledger.events if e.payload.get("kind") == "llm_call")
-            assert call.payload["stable_prefix_hash"] == prefix_hash
-            assert call.payload["prefix_invalidated_reason"] == reason
+        ledger = RunLedger(agent="test", task="test")
+        ledger.record_call(
+            operation="chat",
+            model="claude-haiku-4-5",
+            input_tokens=100,
+            output_tokens=50,
+            stable_prefix_hash="abc123",
+            prefix_invalidated_reason="",
+        )
+
+        call_events = [e for e in ledger.events if e.payload.get("kind") == "llm_call"]
+        assert len(call_events) == 1
+        assert call_events[0].payload["stable_prefix_hash"] == "abc123"
+        assert call_events[0].payload["prefix_invalidated_reason"] == ""
+
+    def test_record_call_stores_invalidation_reason(self) -> None:
+        from lemoncrow.infra.runtime.run_ledger import RunLedger
+
+        ledger = RunLedger(agent="test", task="test")
+        ledger.record_call(
+            operation="chat",
+            model="claude-haiku-4-5",
+            input_tokens=200,
+            output_tokens=80,
+            stable_prefix_hash="xyz999",
+            prefix_invalidated_reason="tool_schema_changed",
+        )
+        call_events = [e for e in ledger.events if e.payload.get("kind") == "llm_call"]
+        assert call_events[0].payload["prefix_invalidated_reason"] == "tool_schema_changed"
 
 
 # ---------------------------------------------------------------------------
@@ -361,3 +408,21 @@ class TestGeminiADKMiddleware:
 # ---------------------------------------------------------------------------
 # adapters/__init__.py exports
 # ---------------------------------------------------------------------------
+
+
+class TestAdaptersExports:
+    def test_exports_all_public_symbols(self) -> None:
+        from lemoncrow.gateway.adapters import (
+            GeminiADKMiddleware,
+            LangChainMiddleware,
+            LemonCrowMiddleware,
+            OpenAIAgentsHooks,
+            make_lemoncrow_tools,
+        )
+
+        # All imports must resolve
+        assert LemonCrowMiddleware is not None
+        assert GeminiADKMiddleware is not None
+        assert LangChainMiddleware is not None
+        assert OpenAIAgentsHooks is not None
+        assert callable(make_lemoncrow_tools)

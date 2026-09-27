@@ -17,8 +17,8 @@ export default function LeverBar({ label, value, maxValue }: LeverBarProps) {
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between text-body">
-        <span className="font-mono uppercase tracking-wide text-subtle">
+      <div className="flex items-center justify-between text-xs">
+        <span className="font-mono uppercase tracking-wide text-neutral-300">
           {toTitle(label)}
         </span>
         <span className="font-mono text-emerald-300">
@@ -26,7 +26,7 @@ export default function LeverBar({ label, value, maxValue }: LeverBarProps) {
         </span>
       </div>
       <progress
-        className="h-3 w-full [&::-webkit-progress-bar]:bg-muted [&::-webkit-progress-value]:bg-gradient-to-r [&::-webkit-progress-value]:from-cyan-500 [&::-webkit-progress-value]:to-emerald-400"
+        className="h-3 w-full [&::-webkit-progress-bar]:bg-neutral-900 [&::-webkit-progress-value]:bg-gradient-to-r [&::-webkit-progress-value]:from-cyan-500 [&::-webkit-progress-value]:to-emerald-400"
         value={pct}
         max={100}
       />

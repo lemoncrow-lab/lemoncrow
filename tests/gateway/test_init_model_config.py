@@ -28,7 +28,7 @@ def test_init_can_configure_workspace_models_and_host_surfaces(tmp_path: Path, m
     user_input = "y\n" + ("\n" * 8) + "n\n"
     result = CliRunner().invoke(
         cli,
-        ["--root", str(root), "runtime", "init", "--no-seed", "--no-index", "--configure-models"],
+        ["--root", str(root), "init", "--no-seed", "--no-index", "--configure-models"],
         input=user_input,
     )
 
@@ -67,7 +67,7 @@ def test_init_accepts_auto_and_custom_host_role_values(tmp_path: Path, monkeypat
     user_input = "y\n" + ("\n" * 8) + "y\ny\nauto\nmy-copilot-execute\n" + ("\n" * 5) + ("n\n" * 6)
     result = CliRunner().invoke(
         cli,
-        ["--root", str(root), "runtime", "init", "--no-seed", "--no-index", "--configure-models"],
+        ["--root", str(root), "init", "--no-seed", "--no-index", "--configure-models"],
         input=user_input,
     )
 
@@ -96,7 +96,7 @@ def test_init_uses_progress_bootstrap_for_code_index(tmp_path: Path, monkeypatch
     monkeypatch.setattr(code_command, "_index_repo_with_progress", fake_index_repo_with_progress)
 
     root = tmp_path / ".lemoncrow-store"
-    result = CliRunner().invoke(cli, ["--root", str(root), "runtime", "init", "--no-seed"])
+    result = CliRunner().invoke(cli, ["--root", str(root), "init", "--no-seed"])
 
     assert result.exit_code == 0, result.output
     assert seen == {
@@ -120,7 +120,7 @@ def test_init_continues_when_code_index_lock_times_out(tmp_path: Path, monkeypat
     monkeypatch.setattr(code_command, "_index_repo_with_progress", fake_index_repo_with_progress)
 
     root = tmp_path / ".lemoncrow-store"
-    result = CliRunner().invoke(cli, ["--root", str(root), "runtime", "init", "--no-seed"])
+    result = CliRunner().invoke(cli, ["--root", str(root), "init", "--no-seed"])
 
     assert result.exit_code == 0, result.output
     assert "code index skipped (another LemonCrow process is indexing)" in result.output
@@ -139,7 +139,7 @@ def test_init_installs_project_agents_md_and_codex_agents(tmp_path: Path, monkey
     )
 
     root = tmp_path / ".lemoncrow-store"
-    result = CliRunner().invoke(cli, ["--root", str(root), "runtime", "init", "--no-seed", "--no-index"])
+    result = CliRunner().invoke(cli, ["--root", str(root), "init", "--no-seed", "--no-index"])
 
     assert result.exit_code == 0, result.output
     assert "agents_md updated AGENTS.md" in result.output
@@ -157,7 +157,7 @@ def test_init_registers_non_git_directory_as_workspace(tmp_path: Path, monkeypat
     monkeypatch.chdir(workspace)
 
     root = tmp_path / ".lemoncrow-store"
-    result = CliRunner().invoke(cli, ["--root", str(root), "runtime", "init", "--no-seed", "--no-index"])
+    result = CliRunner().invoke(cli, ["--root", str(root), "init", "--no-seed", "--no-index"])
 
     assert result.exit_code == 0, result.output
     assert f"registered {workspace.resolve()} as an LemonCrow workspace (no git repository detected)" in result.output
@@ -188,7 +188,7 @@ def test_init_bootstraps_non_git_directory_when_root_matches_home_store(tmp_path
     monkeypatch.chdir(workspace)
 
     root = fake_home / ".lemoncrow"
-    result = CliRunner().invoke(cli, ["--root", str(root), "runtime", "init", "--no-seed", "--no-index"])
+    result = CliRunner().invoke(cli, ["--root", str(root), "init", "--no-seed", "--no-index"])
 
     assert result.exit_code == 0, result.output
     assert (workspace / ".lemoncrow" / ".gitignore").exists()

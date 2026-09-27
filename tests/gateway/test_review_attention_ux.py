@@ -17,7 +17,6 @@ from lemoncrow.pro.capabilities.review.chapters import (
 from lemoncrow.pro.capabilities.review.models import ChangedFile, ReviewOrderEntry, ReviewPacket
 from lemoncrow.pro.capabilities.review.preparation import build_review_brief
 from lemoncrow.pro.capabilities.review.render import render_review
-from lemoncrow.pro.capabilities.review.review_priority import TargetPriority
 
 
 def test_multi_scope_commit_is_not_one_fake_concept() -> None:
@@ -120,8 +119,8 @@ def test_large_repository_change_starts_with_grounded_concepts_and_target_progre
         "tests/gateway/test_review_api.py",
         "src/lemoncrow/pro/capabilities/review/store.py",
         "tests/gateway/test_review_store.py",
-        "server/src/lemoncrow_server_core/local_reviews.py",
-        "server/tests/test_local_review.py",
+        "enterprise/server/src/lemoncrow_server/postgres_review.py",
+        "enterprise/server/tests/test_postgres_review.py",
         "src/lemoncrow/pro/capabilities/review/session_models.py",
         "src/lemoncrow/pro/capabilities/review/relationships.py",
     ]
@@ -154,7 +153,6 @@ def test_large_repository_change_starts_with_grounded_concepts_and_target_progre
             state="changed_since_review" if index == 0 else "reviewed" if index % 3 == 0 else "unreviewed",
             changed_since_mark=index == 0,
             attention_rank=index + 1,
-            priority=TargetPriority(position=index, outstanding=index == 0 or index % 3 != 0),
         )
         for index, path in enumerate(paths)
     )
@@ -162,13 +160,7 @@ def test_large_repository_change_starts_with_grounded_concepts_and_target_progre
     lenses = build_chapter_lenses(rows, {"impact": []}, repo_root=root, targets=targets)
     labels = {chapter["label"] for chapter in lenses["intent"]}
 
-    assert {
-        "Review history",
-        "Review readiness",
-        "Review API",
-        "Review store",
-        "Make Change identity durable",
-    } <= labels
+    assert {"Review history", "Review readiness", "Review API", "Review store", "Review postgres"} <= labels
     history = next(chapter for chapter in lenses["intent"] if chapter["label"] == "Review history")
     assert history["file_count"] == 2
     assert history["target_count"] == 2

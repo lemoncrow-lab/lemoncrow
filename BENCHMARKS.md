@@ -404,43 +404,7 @@ The v2–v5 registers and CLI arms were deliberately removed after the experimen
 
 ## Retrieval — local code-search quality
 
-The default benchmark uses the shipped thin client over persistent HTTP to the local server (`lemoncrow-shared`). It measures the developer-facing `code_search(force=true)` request, including client and HTTP overhead. Workspace initialization and index preparation are untimed; each timed query uses the same persistent client session. The explicit `lexical` channel measures the older engine path as a diagnostic. The historical lexical tables below do not measure the current HTTP client.
-
-### HTTP latency iteration — Requests, 2026-09-30
-
-Requests is the fast iteration fixture: 287 unique queries and 299 scored cases, using the shipped thin client, persistent HTTP, independent forced queries, and one worker. A Requests-only local server prevents the Linux rebuild from adding load to these measurements. Startup and one warmup query are untimed.
-
-Profiling found that the client parsed the same Python file repeatedly to format definition snippets. The client now caches a bounded index of definition extents by content digest, retaining neither source bytes nor ASTs. Source bytes are still verified against the server digest on every inline hydration.
-
-Six alternating sweeps compare the same code with this rendering cache disabled or enabled (three each). Entries below are medians of the three per-run metrics; **the maximum column is the median of observed run maxima, not a worst-case guarantee**.
-
-| Metric | Cache disabled | Cache enabled |
-| --- | ---: | ---: |
-| Overall MRR | 0.7783 | **0.7783** |
-| Definition MRR | 0.9528 | **0.9528** |
-| Mean latency | 15.2 ms | **7.5 ms** |
-| p95 latency | 34.2 ms | **22.7 ms** |
-| Maximum latency (p100) | 81.7 ms | **44.9 ms** |
-
-Mean latency decreased 50.7%, p95 33.6%, and the median run maximum 45.0%. Every ranked file list was identical across all six sweeps. Individual maxima varied: 59.9–97.2 ms with caching disabled and 39.2–89.2 ms with it enabled. This is a Requests-only comparison, not an all-repository result or a matched comparison with July's historical engine benchmark.
-
-Raw results and per-query timings: [`retrieval_http_requests_2026-09-30/`](benchmarks/codebench/results/retrieval_http_requests_2026-09-30/).
-
-Use the HTTP default for a quick iteration:
-
-```bash
-uv run lemoncrow eval retrieval --full --repo psf__requests --workers 1 --csv /tmp/retrieval_requests_http.csv
-```
-
-### Focused Linux latency diagnosis — 2026-09-30
-
-The earlier developer-facing Linux sweep measured 1,419 ms mean, 5,323 ms p95, and 12,868 ms maximum over 371 queries. That sweep remains the last complete Linux HTTP measurement; the Requests optimization above does not supersede it.
-
-Two repeated large-View operations were fixed: effective path counts now reuse a committed View revision, and generation membership shares the already bounded immutable manifest cache with effective membership. Generation entries cannot be mutated through the returned mapping; overlays remain separate, and incomplete manifests are never retained there. Ownership and lease checks still run before cached data is returned.
-
-A focused diagnostic reused a consistent snapshot of the existing Linux index, including its approximately 20,000 deletion overlays, and issued ten independent `code_search(force=true)` requests through the thin client and persistent HTTP. It reattached the frozen snapshot without a repository walk or C reindex; autosync was disabled for this diagnostic. The selected identifiers, pipe queries, broad semantic queries, and SWE-bench patterns completed in **35.7–377.9 ms**. The broad query `mount delay store kernel object buffer size validation` took **377.9 ms** over HTTP; its direct server diagnostic decreased from **855.8 to 477.3 ms** after manifest reuse.
-
-These focused timings confirm the selected requests avoid multi-second latency. They are **not a new Linux p95/p100** and do not establish that all 371 queries are fixed. Raw diagnostic requests and profiles: [`retrieval_http_linux_focused_2026-09-30/`](benchmarks/codebench/results/retrieval_http_linux_focused_2026-09-30/).
+LemonCrow local uses the **lexical** retrieval path. Zoekt and semantic retrieval are hosted capabilities and are intentionally excluded from the local benchmark headline.
 
 ### Current local release result — 2026-09-21
 
@@ -463,46 +427,6 @@ Representative definition MRR by repository: Django **0.8424**, Astropy **0.9550
 Raw release data and per-repo details: [`retrieval_local_lexical_2026-09-21/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/retrieval_local_lexical_2026-09-21).
 
 The current gold corpus is not identical to the older 7,213-pair competitor corpus below, so **0.6425 must not be compared directly with the historical provider scores**. The current result is the release/regression number for local LemonCrow; the table below remains the matched historical cross-tool comparison.
-
-### Current working-tree sweep — 2026-09-30
-
-Completed the full local lexical benchmark on all 14 repositories using `--full --workers 1`. The run executed 5,231 unique queries and scored 6,292 query/gold cases across definition, content, semantic intent, SWE-bench, and session golds. Source: `cd59b7cb7+` (working tree contained uncommitted changes).
-
-| Metric | July historical | 2026-09-21 release | 2026-09-30 working tree |
-| --- | ---: | ---: | ---: |
-| Scored cases | 7,213 | 6,292 | 6,292 |
-| Overall MRR | 0.676 | 0.6425 | **0.6421** |
-| hit@1 | 0.582 | 0.5701 | **0.5699** |
-| hit@3 | 0.743 | 0.7009 | **0.6996** |
-| p95 latency | 134 ms | 141 ms | **159 ms** |
-| Maximum latency | 319 ms | — | **647 ms** |
-
-The September 30 run measured 66 ms mean latency. Relative to the September release's displayed values, correctness is nearly unchanged (MRR -0.0004; hit@1 -0.02 percentage points), while p95 increased by 18 ms (12.8%). Against July's displayed values, MRR is 0.0339 lower and p95 is 25 ms higher (18.7%); **these are descriptive differences across different corpora, not a matched regression measurement**. Latency also depends on machine load; this is a single sweep.
-
-Definition MRR / p95 latency by repository:
-
-| Repository | Definition MRR | p95 |
-| --- | ---: | ---: |
-| Astropy | 0.955 | 105 ms |
-| Django | 0.838 | 174 ms |
-| LemonCrow | 0.784 | 136 ms |
-| Matplotlib | 0.985 | 115 ms |
-| Seaborn | 0.982 | 114 ms |
-| Flask | 0.735 | 77 ms |
-| Requests | 0.939 | 80 ms |
-| Xarray | 0.935 | 115 ms |
-| Pylint | 0.956 | 107 ms |
-| Pytest | 0.985 | 77 ms |
-| Scikit-learn | 0.715 | 95 ms |
-| Sphinx | 0.658 | 140 ms |
-| SymPy | 0.747 | 227 ms |
-| Linux | 0.917 | 220 ms |
-
-Raw local artifacts, including per-gold/per-repository scores and corpus SHA-256 digests: [`retrieval_local_lexical_2026-09-30/`](benchmarks/codebench/results/retrieval_local_lexical_2026-09-30/). These artifacts have not been published to the public benchmark repository.
-
-```bash
-uv run lemoncrow eval retrieval --channel lexical --full --workers 1 --csv /tmp/retrieval_mrr_2026-09-30.csv
-```
 
 ### Historical matched competitor comparison
 
@@ -527,13 +451,11 @@ The July LemonCrow lexical row is a re-run after a latency fix (an unbounded ANN
 
 Historical matched raw data: [`retrieval_2026_07_05/`](https://github.com/lemoncrow-lab/benchmarks/tree/main/codebench/results/retrieval_2026_07_05).
 
-Run the default developer-facing HTTP benchmark with the local server running:
+Run the current local benchmark:
 
 ```bash
-uv run lemoncrow eval retrieval --full --workers 1 --csv /tmp/retrieval_mrr.csv
+uv run lemoncrow eval retrieval --channel lexical --full --resume --csv /tmp/retrieval_mrr.csv
 ```
-
-Use `LEMONCROW_BENCH_SHARED_URL` to select a different local server (default `http://127.0.0.1:7420`). For a side-by-side engine diagnostic, add `--channel lemoncrow-shared --channel lexical`. p95 is the 95th percentile of timed queries; p100 is the slowest observed query, not a worst-case guarantee. July and September use different gold corpora, so their displayed scores are not a matched regression comparison.
 
 ## Hosted retrieval indexing time
 
@@ -570,7 +492,7 @@ LEMONCROW_ZOEKT_MODE=installed LEMONCROW_CODE_EMBEDDER=bge lc code index --reind
 
 ## Semantic Code Search Embedder Sweep
 
-The private Pro engine uses BGE-Code-v1 as its default semantic embedder; the open-source runtime searches lexically (see [Open-source boundary](docs/reference/open-source-boundary.md)). It had the best average MRR in the corrected sweep and indexes faster than the next-closest larger model. On CPU or GPUs below the VRAM threshold, LemonCrow falls back to SFR-Embedding-Code-400M_R.
+LemonCrow ships BGE-Code-v1 as the default semantic embedder. It had the best average MRR in the corrected sweep and indexes faster than the next-closest larger model. On CPU or GPUs below the VRAM threshold, LemonCrow falls back to SFR-Embedding-Code-400M_R.
 
 
 | Model                   | Params |   Def MRR | Content MRR | Semantic MRR |       Avg |

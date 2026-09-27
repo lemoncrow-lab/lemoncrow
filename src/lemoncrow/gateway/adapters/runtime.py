@@ -363,7 +363,7 @@ class ContextRuntime:
         *,
         domain: str,
         task: str,
-        agent: str = "lemoncrow-agent",
+        agent: str = "beseam-product-agent",
         files: list[str] | None = None,
         tools: list[str] | None = None,
     ) -> Iterator[RuntimeSession]:

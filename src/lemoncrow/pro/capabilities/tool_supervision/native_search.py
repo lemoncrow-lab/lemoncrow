@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import subprocess
+import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -19,7 +21,6 @@ from typing import Any
 
 from lemoncrow_client.kit.search import SKIP_DIRS, SearchHooks
 from lemoncrow_client.kit.search import search_workspace as _kit_search_workspace
-from lemoncrow_client.kit.spill import resolve_spill_dir
 
 from lemoncrow.core.capabilities.native_read_baseline import claude_read_baseline_text
 
@@ -41,8 +42,18 @@ def _append_rg_skip_globs(cmd: list[str]) -> None:
         cmd.extend(["--glob", f"!**/{directory}/**"])
 
 
+def _spill_dir() -> Path:
+    configured = os.environ.get("LEMONCROW_MCP_SPILL_DIR")
+    if configured:
+        path = Path(configured).expanduser().resolve()
+    else:
+        path = Path(tempfile.gettempdir()) / "lemoncrow-spill"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def _spill_response_payload(payload: dict[str, Any]) -> Path:
-    spill_path = resolve_spill_dir() / f"search-{int(time.time() * 1000)}.json"
+    spill_path = _spill_dir() / f"search-{int(time.time() * 1000)}.json"
     spill_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return spill_path
 
@@ -104,8 +115,6 @@ def _grep_candidate_files(
         # grep --include matches basenames only; a path-qualified glob like
         # "src/**/*.py" would otherwise never match anything.
         cmd.extend(["--include", Path(g).name])
-    for directory in sorted(SKIP_DIRS):
-        cmd.extend(["--exclude-dir", directory])
     cmd.extend(["--", pattern, str(base)])
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -183,8 +192,6 @@ def _grep_line_numbers(
         # grep --include matches basenames only; a path-qualified glob like
         # "src/**/*.py" would otherwise never match anything.
         cmd.extend(["--include", Path(g).name])
-    for directory in sorted(SKIP_DIRS):
-        cmd.extend(["--exclude-dir", directory])
     cmd.extend(["--", pattern, str(base)])
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)

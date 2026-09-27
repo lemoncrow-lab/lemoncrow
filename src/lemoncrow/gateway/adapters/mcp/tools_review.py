@@ -67,8 +67,8 @@ def tool_review_rationale(
     """Record the author's own rationale for later human review."""
     hooks = _hooks()
     session_id, host = hooks.resolved_host_session()
-    if not host or not session_id:
-        raise ValueError("review_rationale requires an exact host session")
+    if host != "claude" or not session_id:
+        raise ValueError("review_rationale currently requires an exact Claude Code session")
 
     from lemoncrow.pro.capabilities.review.rationale import record_author_rationales
 
@@ -109,8 +109,8 @@ def tool_review_evidence(
     """Capture author-produced proof without creating or advancing a review."""
     hooks = _hooks()
     session_id, host = hooks.resolved_host_session()
-    if not host or not session_id:
-        raise ValueError("review_evidence requires an exact host session")
+    if host != "claude" or not session_id:
+        raise ValueError("review_evidence currently requires an exact Claude Code session")
 
     from lemoncrow.pro.capabilities.review.evidence_capture import record_agent_evidence
 
@@ -130,52 +130,6 @@ def tool_review_evidence(
             {"id": record.id, "kind": record.kind, "title": record.title, "path": record.path} for record in records
         ],
         "note": "captured for the matching review revision; human review remains required",
-    }
-
-
-@mcp_tool(name="review_guidance")
-def tool_review_guidance(
-    guidance: Annotated[
-        dict[str, Any],
-        Field(
-            description=(
-                "Author guidance for the human reviewer, schema_version 1. Call once after final edits and "
-                "verification: {schema_version: 1, intent, items[{key, title, targets[{path, symbol?, start_line?, "
-                "end_line?}], behavior{before, after} or behavior{unchanged: true} when no external behavior "
-                "should change, rationale, concerns[{scope, reason}], assumptions[{key, value, "
-                "statement}], suggested_attention}], human_decisions[{key, question, options[{key, label}], "
-                "selected_option, reason_human_required, targets, assumptions, contract_scope, relied_checks}], "
-                "suggested_order, routine_candidates, supersedes}. Keys stay stable within the Change so later calls "
-                "replace earlier ones. No confidence numbers: name concrete concerns and keyed assumptions. Put a "
-                "choice in human_decisions only when it genuinely needs a human."
-            )
-        ),
-    ],
-) -> dict[str, Any]:
-    """Record structured author guidance without creating or advancing a review."""
-    hooks = _hooks()
-    session_id, host = hooks.resolved_host_session()
-
-    from lemoncrow.pro.capabilities.review.guidance import record_author_guidance
-
-    record = record_author_guidance(
-        default_store_root(),
-        _active_repo_root(hooks),
-        host=host,
-        session_id=session_id,
-        model=hooks.get_mcp_model(),
-        guidance=guidance,
-    )
-    note = "author guidance only; human review remains required"
-    if record.attribution != "exact":
-        note = f"attribution unavailable: this host session could not be identified; {note}"
-    return {
-        "status": "recorded",
-        "guidance_id": record.id,
-        "attribution": record.attribution,
-        "items": len(record.payload.items),
-        "human_decisions": len(record.payload.human_decisions),
-        "note": note,
     }
 
 

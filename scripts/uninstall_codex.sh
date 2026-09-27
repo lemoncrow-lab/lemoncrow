@@ -51,7 +51,7 @@ AGENTS_DIR="${CODEX_HOME}/agents"
 AGENT_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/integrations/AGENTS.lemoncrow.md"
 STAGING_DIRS=("${HOME}/.lemoncrow/codex-plugin" "${HOME}/.lemoncrow/codex-plugin-stable" "${HOME}/.lemoncrow/codex-plugin-dev")
 
-info()  { echo "[lc:uninstall:codex] $*"; }
+info()  { echo "[lemoncrow:uninstall:codex] $*"; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 
 codex_cmd() {
@@ -148,8 +148,8 @@ print(removed)
     info "Removed LemonCrow plugin config from $CODEX_CONFIG"
 fi
 
-# Restore Codex feature/tool values the installer changed. Only lines carrying
-# the installer's marker are removed, so a value the user set themselves survives.
+# Restore the Codex natives the installer disabled. Only lines carrying the
+# installer's marker are removed, so a value the user set themselves survives.
 CODEX_TOOL_MARKER="# lemoncrow:native-tool-substitution"
 if [ -f "$CODEX_CONFIG" ] && grep -qF "$CODEX_TOOL_MARKER" "$CODEX_CONFIG" 2>/dev/null; then
     if $DRY_RUN; then

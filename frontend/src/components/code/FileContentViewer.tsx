@@ -1,11 +1,12 @@
-import { Suspense, lazy, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
+import remarkGfm from "remark-gfm";
+import "github-markdown-css/github-markdown.css";
 
-import ReadOnlyCodeViewer, { type ChangedLines } from "./ReadOnlyCodeViewer";
+import ReadOnlyCodeViewer from "./ReadOnlyCodeViewer";
 import { authenticatedFetch } from "../../review/reviewApi";
-
-// The Markdown stack (react-markdown, rehype-raw's HTML parser, GFM, styles) is
-// ~330 KB; only a rendered .md preview needs it.
-const MarkdownFilePreview = lazy(() => import("./MarkdownFilePreview"));
 
 export type FileRenderKind = "code" | "markdown" | "html" | "image" | "pdf";
 
@@ -47,8 +48,6 @@ interface FileContentViewerProps {
   mode: "source" | "preview";
   theme: "light" | "dark";
   selectedRange?: readonly [number, number] | null;
-  changedLines?: ChangedLines | null;
-  onSelectionChange?: (selection: { start: number; end: number; text: string } | null) => void;
 }
 
 function BinaryPreview({
@@ -89,25 +88,25 @@ function BinaryPreview({
 
   if (error) {
     return (
-      <div className="flex min-h-[520px] items-center justify-center p-4 text-body text-red-300">
+      <div className="flex min-h-[520px] items-center justify-center p-6 text-xs text-red-300">
         Could not preview {path}: {error}
       </div>
     );
   }
   if (!objectUrl) {
     return (
-      <div className="flex min-h-[520px] items-center justify-center text-body text-muted-foreground">
+      <div className="flex min-h-[520px] items-center justify-center text-xs text-neutral-500">
         Loading preview…
       </div>
     );
   }
   if (kind === "image") {
     return (
-      <div className="flex h-full min-h-[520px] items-start justify-center overflow-auto bg-surface-sunken p-4">
+      <div className="flex h-full min-h-[520px] items-start justify-center overflow-auto bg-neutral-900/60 p-6">
         <img
           src={objectUrl}
           alt={path}
-          className="max-h-full max-w-full object-contain shadow-frame"
+          className="max-h-full max-w-full object-contain shadow-2xl"
         />
       </div>
     );
@@ -129,8 +128,6 @@ export default function FileContentViewer({
   mode,
   theme,
   selectedRange = null,
-  changedLines = null,
-  onSelectionChange,
 }: FileContentViewerProps) {
   if (mode === "source" || kind === "code") {
     return source === null ? null : (
@@ -139,17 +136,26 @@ export default function FileContentViewer({
         value={source}
         theme={theme}
         selectedRange={selectedRange}
-        changedLines={changedLines}
-        onSelectionChange={onSelectionChange}
       />
     );
   }
 
   if (kind === "markdown") {
     return source === null ? null : (
-      <Suspense fallback={null}>
-        <MarkdownFilePreview source={source} theme={theme} />
-      </Suspense>
+      <div className="h-full overflow-auto bg-neutral-950 px-7 py-6">
+        <article
+          className={`markdown-body mx-auto max-w-5xl ${
+            theme === "dark" ? "markdown-body-dark" : ""
+          }`}
+        >
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeRaw, rehypeSanitize]}
+          >
+            {source}
+          </ReactMarkdown>
+        </article>
+      </div>
     );
   }
 

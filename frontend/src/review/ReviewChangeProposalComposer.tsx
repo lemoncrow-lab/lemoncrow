@@ -1,12 +1,6 @@
-import { Button as UiButton } from "../components/ui/button";
-import { Textarea as UiTextarea } from "../components/ui/textarea";
-import { Check, CircleAlert, FilePenLine, LoaderCircle, Maximize2, Minimize2, PencilLine, X } from "lucide-react";
-import { Suspense, lazy, useState } from "react";
+import { Check, CircleAlert, FilePenLine, LoaderCircle, Sparkles, X } from "lucide-react";
 
 import type { ReviewChangeProposal, ReviewProposalSelection } from "./types";
-
-// CodeMirror (~350 KB) is only needed once a reviewer opens an edit.
-const EditableCodeEditor = lazy(() => import("./EditableCodeEditor"));
 
 function proposalState(proposal: ReviewChangeProposal): { label: string; tone: string; detail: string } {
   if (proposal.state === "conflicted") {
@@ -26,22 +20,13 @@ function proposalState(proposal: ReviewChangeProposal): { label: string; tone: s
   if (proposal.state === "applied") {
     return {
       label: "Awaiting review update",
-      tone: "border-cyan-900/60 bg-cyan-950/15 text-cyan-300",
+      tone: "border-sky-900/60 bg-sky-950/15 text-sky-300",
       detail: "Applied to the working source. Update the review to capture it as an immutable Snapshot.",
-    };
-  }
-  if (!proposal.can_apply) {
-    // The server refuses to apply it here: the Review has advanced past its base
-    // Snapshot, or this Reader has no local source editing.
-    return {
-      label: "Saved proposal",
-      tone: "border-border bg-muted/30 text-muted-foreground",
-      detail: "Saved as a review patch. It can only be applied from the latest Snapshot with local source editing.",
     };
   }
   return {
     label: "Ready to apply",
-    tone: "border-border bg-muted text-muted-foreground",
+    tone: "border-violet-900/60 bg-violet-950/15 text-violet-300",
     detail: "Saved against this exact Snapshot and source identity.",
   };
 }
@@ -71,7 +56,6 @@ interface ReviewChangeProposalComposerProps {
   directEdit?: boolean;
   quickEdit?: boolean;
   allowApply?: boolean;
-  theme?: "light" | "dark";
   replacementText: string;
   intent: string;
   onReplacementChange(value: string): void;
@@ -90,7 +74,6 @@ export default function ReviewChangeProposalComposer({
   directEdit = false,
   quickEdit = false,
   allowApply = false,
-  theme = "dark",
   replacementText,
   intent,
   onReplacementChange,
@@ -100,16 +83,6 @@ export default function ReviewChangeProposalComposer({
   onApply,
   onClose,
 }: ReviewChangeProposalComposerProps) {
-  const [expanded, setExpanded] = useState(false);
-  const canSubmit = Boolean(selection && !busy && !loading && replacementText !== selection.text);
-  const save = () => { if (canSubmit) onCreate(); };
-  const apply = () => { if (canSubmit) onCreateAndApply(); };
-  const expandControl = selection && !proposal ? (
-    <UiButton variant="ghost" size="compact" type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
-      {expanded ? <Minimize2 size={14} aria-hidden="true" /> : <Maximize2 size={14} aria-hidden="true" />}
-      {expanded ? "Compact editor" : "Expand editor"}
-    </UiButton>
-  ) : null;
   const state = proposal ? proposalState(proposal) : null;
   const location = selection
     ? `${selection.path}:${selection.start_line}${selection.end_line !== selection.start_line ? `-${selection.end_line}` : ""}`
@@ -124,61 +97,64 @@ export default function ReviewChangeProposalComposer({
         aria-busy={busy || loading}
       >
         <div className="review-quick-edit-heading">
-          <FilePenLine size={14} className="text-cyan-300" aria-hidden="true" />
-          <span className="font-medium text-subtle">Quick edit</span>
+          <FilePenLine size={12} className="text-sky-300" aria-hidden="true" />
+          <span className="font-medium text-neutral-300">Quick edit</span>
           {location && <span className="review-source-location" title={location}>{location}</span>}
           {proposal && state && <span className={`review-source-state ${state.tone}`}>{state.label}</span>}
           <span className="flex-1" />
-          {expandControl}
-          <UiButton variant="ghost" size="icon" type="button" onClick={onClose} aria-label="Close quick edit">
-            <X size={14} aria-hidden="true" />
-          </UiButton>
+          <button type="button" onClick={onClose} className="review-icon-button h-6 w-6" aria-label="Close quick edit">
+            <X size={12} aria-hidden="true" />
+          </button>
         </div>
 
         {!proposal ? (
           <>
-            <Suspense fallback={<div className="p-3 text-label text-muted-foreground" role="status">Loading editor…</div>}>
-              <EditableCodeEditor
-                path={selection.path}
-                value={replacementText}
-                theme={theme}
-                ariaLabel="Quick edit replacement code"
-                startLine={selection.start_line}
-                minLines={expanded ? 18 : 6}
-                maxLines={expanded ? 32 : 18}
-                readOnly={busy || loading}
-                autoFocus
-                onChange={onReplacementChange}
-                onCancel={onClose}
-                onSubmit={save}
-                onSubmitAndApply={allowApply ? apply : undefined}
-              />
-            </Suspense>
+            <textarea
+              autoFocus
+              aria-label="Quick edit replacement code"
+              value={replacementText}
+              onChange={(event) => onReplacementChange(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  onClose();
+                  return;
+                }
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault();
+                  if (event.shiftKey && allowApply) onCreateAndApply();
+                  else onCreate();
+                }
+              }}
+              rows={Math.max(2, Math.min(10, replacementText.split("\n").length + 1))}
+              spellCheck={false}
+              className="review-field review-quick-edit-input"
+            />
             <div className="review-quick-edit-footer">
               <span className="review-composer-shortcut"><kbd>Ctrl/⌘</kbd>+<kbd>Enter</kbd> suggest{allowApply ? " · Shift to apply" : ""}</span>
-              <UiButton variant="ghost" size="compact" className="h-6 px-2 text-meta" type="button" onClick={onClose}>Cancel</UiButton>
-              <UiButton size="compact" type="button" disabled={!canSubmit} onClick={save}>
-                {busy ? <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <PencilLine size={14} aria-hidden="true" />}
+              <button type="button" onClick={onClose} className="review-compact-action h-6 px-2 text-[10px]">Cancel</button>
+              <button type="button" disabled={busy || replacementText === selection.text} onClick={onCreate} className="review-toolbar-button h-6 px-2 text-[10px]">
+                {busy ? <LoaderCircle size={11} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Sparkles size={11} aria-hidden="true" />}
                 Suggest
-              </UiButton>
+              </button>
               {allowApply && (
-                <UiButton variant="solid" size="compact" type="button" disabled={!canSubmit} onClick={apply}>
-                  {busy ? <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <FilePenLine size={14} aria-hidden="true" />}
+                <button type="button" disabled={busy || replacementText === selection.text} onClick={onCreateAndApply} className="review-toolbar-button-primary h-6 px-2 text-[10px]">
+                  {busy ? <LoaderCircle size={11} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <FilePenLine size={11} aria-hidden="true" />}
                   Apply
-                </UiButton>
+                </button>
               )}
             </div>
           </>
         ) : (
           <div className="review-quick-edit-footer">
-            <span className="min-w-0 flex-1 truncate text-caption text-muted-foreground">{state?.detail}</span>
+            <span className="min-w-0 flex-1 truncate text-[10px] text-neutral-500">{state?.detail}</span>
             {allowApply && proposal.can_apply && (
-              <UiButton variant="solid" size="compact" className="h-6 px-2 text-meta" type="button" disabled={busy} onClick={onApply}>
-                {busy ? <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <FilePenLine size={14} aria-hidden="true" />}
+              <button type="button" disabled={busy} onClick={onApply} className="review-toolbar-button-primary h-6 px-2 text-[10px]">
+                {busy ? <LoaderCircle size={11} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <FilePenLine size={11} aria-hidden="true" />}
                 Apply
-              </UiButton>
+              </button>
             )}
-            <UiButton variant="ghost" size="compact" className="h-6 px-2 text-meta" type="button" onClick={onClose}>Close</UiButton>
+            <button type="button" onClick={onClose} className="review-compact-action h-6 px-2 text-[10px]">Close</button>
           </div>
         )}
       </section>
@@ -187,14 +163,14 @@ export default function ReviewChangeProposalComposer({
 
   return (
     <section
-      className={`review-composer review-source-composer ${expanded ? "review-source-expanded" : ""} ${directEdit ? "review-source-composer-edit" : "review-source-composer-proposal"}`}
+      className={`review-composer review-source-composer ${directEdit ? "review-source-composer-edit" : "review-source-composer-proposal"}`}
       aria-label="Source change proposal"
       aria-busy={busy || loading}
     >
       <div className="review-composer-heading review-source-composer-heading">
         {directEdit
-          ? <FilePenLine size={16} className="text-cyan-300" aria-hidden="true" />
-          : <PencilLine size={16} className="text-muted-foreground" aria-hidden="true" />}
+          ? <FilePenLine size={15} className="text-sky-300" aria-hidden="true" />
+          : <Sparkles size={15} className="text-violet-300" aria-hidden="true" />}
         <span>{directEdit ? "Edit source" : "Suggested change"}</span>
         {location && <span className="review-source-location" title={location}>{location}</span>}
         {state && <span className={`review-source-state ${state.tone}`}>{state.label}</span>}
@@ -202,14 +178,13 @@ export default function ReviewChangeProposalComposer({
           <span className="review-source-safety">Patch only · source unchanged</span>
         )}
         <span className="flex-1" />
-        {expandControl}
-        <UiButton variant="ghost" size="icon" type="button" onClick={onClose} aria-label="Close source editor">
+        <button type="button" onClick={onClose} className="review-icon-button h-7 w-7" aria-label="Close source editor">
           <X size={14} aria-hidden="true" />
-        </UiButton>
+        </button>
       </div>
 
       {loading && !selection && (
-        <div className="flex items-center gap-2 px-1 py-3 text-label text-muted-foreground">
+        <div className="flex items-center gap-2 px-1 py-3 text-[11px] text-neutral-500">
           <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
           Loading exact reviewed source…
         </div>
@@ -228,48 +203,37 @@ export default function ReviewChangeProposalComposer({
               <pre className="review-source-original">{selection.text}</pre>
             </div>
             <div className="review-source-pane">
-              <div className={`review-source-pane-label ${directEdit ? "text-cyan-300/80" : "text-muted-foreground"}`}>{directEdit ? "Replace with" : "Suggested replacement"}</div>
-              <Suspense fallback={<div className="p-3 text-label text-muted-foreground" role="status">Loading editor…</div>}>
-                <EditableCodeEditor
-                  path={selection.path}
-                  value={replacementText}
-                  theme={theme}
-                  ariaLabel="Replacement code"
-                  startLine={selection.start_line}
-                  minLines={expanded ? 18 : 8}
-                  maxLines={expanded ? 32 : 24}
-                  readOnly={busy || loading}
-                  autoFocus
-                  onChange={onReplacementChange}
-                  onCancel={onClose}
-                  onSubmit={directEdit ? apply : save}
-                  onSubmitAndApply={directEdit || allowApply ? apply : undefined}
-                />
-              </Suspense>
+              <div className={`review-source-pane-label ${directEdit ? "text-sky-300/80" : "text-violet-300/80"}`}>{directEdit ? "Replace with" : "Suggested replacement"}</div>
+              <textarea
+                autoFocus
+                aria-label="Replacement code"
+                value={replacementText}
+                onChange={(event) => onReplacementChange(event.currentTarget.value)}
+                rows={Math.max(4, Math.min(12, replacementText.split("\n").length + 1))}
+                spellCheck={false}
+                className="review-field review-source-replacement"
+              />
             </div>
           </div>
-          <UiTextarea
-            uiSize="xs"
+          <textarea
             aria-label="Proposal intent"
             value={intent}
             onChange={(event) => onIntentChange(event.currentTarget.value)}
             rows={2}
             placeholder={directEdit ? "Why are you changing this? Optional." : "Why is this suggestion better? Optional."}
-            className="review-source-intent focus-visible:ring-0 focus-visible:border-ring"
+            className="review-field review-source-intent"
           />
           <div className="review-composer-footer">
             <span className="review-composer-shortcut">Exact reviewed source · stale writes are blocked</span>
-            <UiButton
-              variant="solid"
-              size="xs"
-              className="px-2.5"
+            <button
               type="button"
-              disabled={!canSubmit}
-              onClick={directEdit ? apply : save}
+              disabled={busy || replacementText === selection.text}
+              onClick={directEdit ? onCreateAndApply : onCreate}
+              className="review-toolbar-button-primary"
             >
               {busy ? <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : directEdit ? <FilePenLine size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}
               {busy ? (directEdit ? "Applying…" : "Saving…") : directEdit ? "Apply to source" : "Save suggestion"}
-            </UiButton>
+            </button>
           </div>
         </>
       )}
@@ -294,10 +258,10 @@ export default function ReviewChangeProposalComposer({
           <div className="review-composer-footer">
             <span className="review-composer-shortcut">{state.detail}</span>
             {proposal.can_apply && (
-              <UiButton variant="solid" size="xs" className="px-2.5" type="button" disabled={busy} onClick={onApply}>
+              <button type="button" disabled={busy} onClick={onApply} className="review-toolbar-button-primary">
                 {busy ? <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <FilePenLine size={14} aria-hidden="true" />}
                 {busy ? "Applying…" : directEdit ? "Apply to source" : "Apply suggestion"}
-              </UiButton>
+              </button>
             )}
           </div>
         </>

@@ -29,7 +29,6 @@ WATCHED = frozenset(
     {
         "socket.bind",
         "socket.connect",
-        "socket.sendto",
         "socket.getaddrinfo",
         "socket.gethostbyname",
         "subprocess.Popen",
@@ -96,18 +95,6 @@ def _scenario_session(repo_root: str) -> dict[str, Any]:
     """Initialize once, use tools through that session, then close it."""
     server, initialized = _mcp(repo_root)
     dispatcher = server.dispatcher
-    # One call through the host's own ``tools/call`` path, so what that path
-    # starts (background sync's socket and threads) is in the transcript too.
-    hosted = server.handle(
-        {
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/call",
-            "params": {"name": "code_search", "arguments": {"query": "beta"}},
-        }
-    )
-    if hosted is None or hosted["result"]["isError"]:
-        raise AssertionError(f"the host-path call failed: {hosted}")
     outcomes = [
         dispatcher.call("read", {"files": ["pkg/alpha.py"]}),
         dispatcher.call("code_search", {"query": "alpha"}),
@@ -135,8 +122,7 @@ def _scenario_bash(repo_root: str) -> dict[str, Any]:
 
 def _scenario_offline(repo_root: str) -> dict[str, Any]:
     """No server at all: initialize still succeeds with reduced local tools."""
-    server, _initialized = _mcp(repo_root)
-    server._ensure_session(retry=True)
+    server, initialized = _mcp(repo_root)
     dispatcher = server.dispatcher
     outcomes = [
         dispatcher.call("read", {"files": ["pkg/alpha.py"]}),
@@ -145,7 +131,7 @@ def _scenario_offline(repo_root: str) -> dict[str, Any]:
     ]
     result = {
         "bootstrapped": dispatcher.session.bootstrapped,
-        "line": server._session_status(),
+        "line": str(initialized["result"].get("instructions", "")),
         "degraded": [outcome.degraded for outcome in outcomes],
         "errors": [outcome.is_error for outcome in outcomes],
     }

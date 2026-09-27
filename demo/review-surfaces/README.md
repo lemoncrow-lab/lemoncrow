@@ -1,6 +1,6 @@
-# LemonCrow Cloud billing workspace
+# LemonCrow Review demo
 
-A compact billing and collaboration application used to exercise LemonCrow Review's built-in product surfaces and runtimes.
+A deliberately small application that exercises LemonCrow Review's built-in review surfaces and runtimes.
 
 It contains:
 
@@ -28,9 +28,9 @@ uv run lc review --repo-root /tmp/lemoncrow-review-demo --setup
 uv run lc review --repo-root /tmp/lemoncrow-review-demo --open
 ```
 
-Or use `make review-demo` (create and open) and `make review-demo-diff` (show the change). Demo setup installs the CSV plugin into both the checkout and local-server environments and restarts the local server before capture. `make review-demo-plugin` can reinstall it independently.
+Or use `make review-demo` (create and open), `make review-demo-diff` (show the change), and `make review-demo-plugin` (install the CSV plugin) from the checkout root.
 
-`bootstrap.sh` creates an independent Git repository, materializes baseline media fixtures, commits the baseline, installs the frontend dependencies (React, Vite, and Storybook), and then applies a prepared uncommitted change across Markdown, frontend, Storybook, CSV, backend, media, Bruno, and Compose files. With the local LemonCrow server running, it creates the Change through the real installed `lc review` path and then seeds plan, code, test-subagent, and review sessions through LemonCrow's real Codex hook/runtime path, including visible agent messages, edit/test ledger evidence, SessionEnd lifecycle, Brief context, and imported Review annotations in that same server-owned Review.
+`bootstrap.sh` creates an independent Git repository, materializes baseline media fixtures, commits the baseline, installs the frontend dependencies (React, Vite, and Storybook), and then applies a prepared uncommitted change across Markdown, frontend, Storybook, CSV, backend, media, Bruno, and Compose files.
 
 To reset and repeat, run the bootstrap command again.
 
@@ -42,7 +42,7 @@ To reset and repeat, run the bootstrap command again.
 | `media/demo.gif`, `media/demo.mp4`, `media/demo.wav`, `media/demo.pdf` | Native media Preview / Compare / Source using exact revision-pinned bytes |
 | `frontend/src/pages/PricingPage.jsx`, `frontend/src/components/SurfaceCard.*`, `frontend/src/content.json` | Only 3 of the 5 routes are listed (`/pricing`, `/surfaces`, `/`), ranked by visual difference: large, medium, small. `/team` and `/settings` are unchanged and not shown |
 | `frontend/src/components/SurfaceCard.jsx`, `SurfaceCard.stories.jsx` | Storybook story screenshots, old vs new; the added `Components` story is reported as missing on the old side |
-| `data/plans.csv` | Old/new table preview from the demo-installed `csv-table` plugin |
+| `data/plans.csv` | Old/new table preview from the `csv-table` plugin once installed; source only until then |
 | `bruno/ReviewSummary.bru`, `bruno/Plans.bru`, `bruno/Settings.bru` | Only 3 of the 6 requests are listed, each run on both sides against a revision-pinned Python service and ranked by response difference: large, medium, small |
 | `compose.yml` | service surfaces backed by the `app-stack` Docker Compose runtime |
 | `backend/app.py` | source change plus executable `backend-tests` command surface |
@@ -55,10 +55,11 @@ The Review configuration lives in `.lemoncrow/review.yaml`. Surface providers an
 
 The `components` surface uses the built-in Storybook preview plugin. Each side's Storybook is built once inside the sandbox and the changed stories are captured as images, so it needs bubblewrap and Chrome/Chromium like the web preview.
 
-The `tables` surface uses the example third-party plugin. Demo setup installs it automatically into the checkout and the environment that runs the local Review server, then restarts that server. To reinstall independently:
+The `tables` surface uses the example third-party plugin. Until it is installed, `--setup` reports `surface 'tables' uses unavailable provider 'csv-table'` and `data/plans.csv` stays reviewable as source. Install it into the environment that runs the Review server:
 
 ```bash
-make review-demo-plugin
+uv pip install -e ./demo/review-preview-plugin
+bash scripts/local_server.sh restart   # only if the local server was already running
 uv run lc review --repo-root /tmp/lemoncrow-review-demo --setup
 ```
 

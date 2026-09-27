@@ -222,28 +222,6 @@ def pull_request_ref(repo_root: Path, spec: str, *, runner: GhRunner | None = No
     return PullRequestRef(resolved["owner"], resolved["repo"], int(resolved["number"]), resolved["host"].lower())
 
 
-def branch_pull_request(repo_root: Path, *, runner: GhRunner | None = None) -> PullRequestRef | None:
-    """The open pull request for *repo_root*'s checked-out branch, or ``None``.
-
-    ``gh`` failures other than "no pull request for this branch" propagate, so
-    a signed-out ``gh`` is reported rather than read as "no PR".
-    """
-
-    run: GhRunner = runner or (lambda args, stdin: run_gh(args, stdin, cwd=repo_root))
-    try:
-        view = gh_json(run, ["pr", "view", "--json", "url,state"])
-    except GitHubCliError as exc:
-        if "no pull requests found" in str(exc).lower():
-            return None
-        raise
-    if not isinstance(view, dict) or str(view.get("state") or "").upper() != "OPEN":
-        return None
-    match = _PR_URL.match(str(view.get("url") or ""))
-    if match is None:
-        return None
-    return PullRequestRef(match["owner"], match["repo"], int(match["number"]), match["host"].lower())
-
-
 def resolve_pull_request(
     repo_root: Path,
     spec: str,
@@ -313,7 +291,6 @@ __all__ = [
     "GitHubCliError",
     "PullRequestRef",
     "PullRequestSource",
-    "branch_pull_request",
     "find_remote",
     "gh_json",
     "gh_paginated",

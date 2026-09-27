@@ -2,8 +2,8 @@
 
 The public engine needs only stable actor identifiers and the session/view scope
 of one operation. Authentication mechanisms, roles, permissions, RBAC scopes,
-and bindings belong to hosting compositions and intentionally do not live in
-this package.
+and bindings belong to the enterprise composition and intentionally do not live
+in this package.
 """
 
 from __future__ import annotations

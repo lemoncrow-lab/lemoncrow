@@ -13,9 +13,10 @@ from lemoncrow.infra.runtime.cost_tracker import (
 )
 
 
-def test_estimate_cost_unknown_model_is_not_free() -> None:
-    # No price card is unknown cost, not a billed zero.
-    assert estimate_cost("totally-unknown-model", 1000, 500) is None
+def test_estimate_cost_unknown_model_returns_zero() -> None:
+    # Unknown models have no pricing data → cost is $0.00
+    cost = estimate_cost("totally-unknown-model", 1000, 500)
+    assert cost == 0.0
 
 
 def test_estimate_cost_known_model_pricing() -> None:
@@ -25,72 +26,19 @@ def test_estimate_cost_known_model_pricing() -> None:
 
 
 def test_estimate_cost_gpt_5_6_model_families() -> None:
-    # Keep each aggregate token category below the long-context threshold here;
-    # request-level premium semantics are covered by pricing.request_cost_usd().
     for model, input_rate, output_rate, cache_read_rate, cache_write_rate in (
-        ("gpt-5.6-sol", 4.00, 20.00, 0.40, 5.00),
-        ("gpt-5.6-terra", 2.00, 12.00, 0.20, 2.50),
-        ("gpt-5.6-luna", 0.20, 1.20, 0.02, 0.25),
+        ("gpt-5.6-sol", 5.00, 30.00, 0.50, 6.25),
+        ("gpt-5.6-terra", 2.50, 15.00, 0.25, 3.125),
+        ("gpt-5.6-luna", 1.00, 6.00, 0.10, 1.25),
     ):
-        tokens = 100_000
         cost = estimate_cost(
             model,
-            tokens,
-            tokens,
-            cache_read_tokens=tokens,
-            cache_write_tokens=tokens,
+            1_000_000,
+            1_000_000,
+            cache_read_tokens=1_000_000,
+            cache_write_tokens=1_000_000,
         )
-        expected = tokens / 1_000_000 * (input_rate + output_rate + cache_read_rate + cache_write_rate)
-        assert cost == expected
-
-
-def test_empty_cost_history_is_zero_activity_not_unknown(tmp_path: Path) -> None:
-    summary = CostTracker(tmp_path).total_savings()
-    assert summary["unpriced_calls"] == 0
-    assert summary["saved_usd"] == 0.0
-    assert summary["saved_pct"] == 0.0
-
-
-def test_unpriced_calls_do_not_create_false_savings(tmp_path: Path) -> None:
-    tracker = CostTracker(tmp_path)
-    unknown = tracker.record_call(
-        operation="plan",
-        model="totally-unknown-model",
-        input_tokens=1000,
-        output_tokens=500,
-        task="unpriced task",
-    )
-    assert unknown.cost_usd is None
-    snapshot = tracker.snapshot()
-    assert snapshot["unpriced_calls"] == 1
-    assert snapshot["total_cost_usd"] is None
-    assert snapshot["calls"][0]["cost_usd"] is None
-    summary = tracker.savings_for(unknown.op_key)
-    assert summary["baseline_cost_usd"] is None
-    assert summary["delta_vs_base_usd"] is None
-    assert summary["pct_vs_base"] is None
-    totals = tracker.total_savings()
-    assert totals["unpriced_calls"] == 1
-    assert totals["actually_cost_usd"] is None
-    assert totals["saved_usd"] is None
-
-
-def test_legacy_unknown_zero_history_is_not_treated_as_free(tmp_path: Path) -> None:
-    tracker = CostTracker(tmp_path)
-    old = tracker.record_call(
-        operation="plan",
-        model="totally-unknown-model",
-        input_tokens=1000,
-        output_tokens=500,
-        task="legacy task",
-    )
-    history = load_cost_history(tmp_path)
-    history["operations"][old.op_key]["calls"][0]["cost_usd"] = 0.0
-    from lemoncrow.infra.runtime.cost_tracker import save_cost_history
-
-    save_cost_history(tmp_path, history)
-    assert tracker.savings_for(old.op_key)["baseline_cost_usd"] is None
-    assert tracker.total_savings()["saved_usd"] is None
+        assert cost == input_rate + output_rate + cache_read_rate + cache_write_rate
 
 
 def test_operation_key_is_stable_across_numerals_and_whitespace() -> None:

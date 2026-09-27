@@ -29,7 +29,17 @@ from lemoncrow.infra.storage.vector import (
     put_cached_embedding,
     vector_cache_key,
 )
-from lemoncrow.pro.foundation.retriever import WEIGHTS, WEIGHTS_WITH_VECTOR, TaskContext, retrieve, score_block
+from lemoncrow.pro.foundation.retriever import (
+    WEIGHTS,
+    WEIGHTS_WITH_VECTOR,
+    TaskContext,
+    retrieve,
+    score_block,
+)
+
+# --------------------------------------------------------------------------- #
+# Fixtures                                                                    #
+# --------------------------------------------------------------------------- #
 
 
 def _make_block(
@@ -55,65 +65,41 @@ def _make_block(
     )
 
 
-def _make_ctx(task: str = "test task", domain: str = "test", errors: list[str] | None = None) -> TaskContext:
+def _make_ctx(
+    task: str = "test task",
+    domain: str = "test",
+    errors: list[str] | None = None,
+) -> TaskContext:
     return TaskContext(task=task, domain=domain, errors=errors or [])
 
 
-def test_retriever_vector_weight_contract() -> None:
-    """case: test_weights_sum_to_one"""
-    "Default WEIGHTS must sum to exactly 1.0."
+# --------------------------------------------------------------------------- #
+# Weight sanity                                                               #
+# --------------------------------------------------------------------------- #
+
+
+def test_weights_sum_to_one() -> None:
+    """Default WEIGHTS must sum to exactly 1.0."""
     total = sum(WEIGHTS.values())
-    assert abs(total - 1.0) < 1e-09, f"WEIGHTS sum = {total}"
-    "case: test_vector_weights_sum_to_one"
-    "WEIGHTS_WITH_VECTOR must sum to exactly 1.0."
+    assert abs(total - 1.0) < 1e-9, f"WEIGHTS sum = {total}"
+
+
+def test_vector_weights_sum_to_one() -> None:
+    """WEIGHTS_WITH_VECTOR must sum to exactly 1.0."""
     total = sum(WEIGHTS_WITH_VECTOR.values())
-    assert abs(total - 1.0) < 1e-09, f"WEIGHTS_WITH_VECTOR sum = {total}"
-    "case: test_history_weight_redistributed"
-    "history weight must be smaller in WEIGHTS_WITH_VECTOR than WEIGHTS."
+    assert abs(total - 1.0) < 1e-9, f"WEIGHTS_WITH_VECTOR sum = {total}"
+
+
+def test_history_weight_redistributed() -> None:
+    """history weight must be smaller in WEIGHTS_WITH_VECTOR than WEIGHTS."""
     assert WEIGHTS_WITH_VECTOR["history"] < WEIGHTS["history"]
     assert "vector" in WEIGHTS_WITH_VECTOR
     assert "vector" not in WEIGHTS
-    "case: test_score_block_with_vector_has_vector_key"
-    "With use_vector_weights=True, breakdown must include 'vector' key."
-    block = _make_block()
-    ctx = _make_ctx()
-    scored = score_block(block, ctx, vector_score=0.8, use_vector_weights=True)
-    assert "vector" in scored.breakdown
-    "case: test_score_block_vector_score_clamped"
-    "vector_score is clamped to [0, 1] before weighting."
-    block = _make_block()
-    ctx = _make_ctx()
-    scored_high = score_block(block, ctx, vector_score=2.0, use_vector_weights=True)
-    scored_normal = score_block(block, ctx, vector_score=1.0, use_vector_weights=True)
-    assert abs(scored_high.breakdown["vector"] - scored_normal.breakdown["vector"]) < 1e-09
-    "case: test_score_block_null_vector_score_zero"
-    "When vector_score=None with vector enabled, vector component = 0."
-    block = _make_block()
-    ctx = _make_ctx()
-    scored = score_block(block, ctx, vector_score=None, use_vector_weights=True)
-    assert scored.breakdown["vector"] == 0.0
-    "case: test_score_block_history_weight_reduced_with_vector"
-    "history weight must be halved when vector is enabled."
-    block = _make_block(success_count=1)
-    ctx = _make_ctx()
-    scored_no_vec = score_block(block, ctx, use_vector_weights=False)
-    scored_vec = score_block(block, ctx, vector_score=0.0, use_vector_weights=True)
-    assert scored_vec.breakdown["history"] < scored_no_vec.breakdown["history"]
 
 
-def test_retriever_vector_math_contract() -> None:
-    """case: test_cosine_similarity_mismatch_raises"""
-    "cosine_similarity must raise ValueError for dimension mismatch."
-    with pytest.raises(ValueError, match="dimension"):
-        cosine_similarity([1.0, 2.0], [1.0, 2.0, 3.0])
-    "case: test_get_embedding_dim_default"
-    "get_embedding_dim returns 1536 when env var is not set."
-    orig = os.environ.pop("LEMONCROW_EMBEDDING_DIM", None)
-    try:
-        assert get_embedding_dim() == 1536
-    finally:
-        if orig is not None:
-            os.environ["LEMONCROW_EMBEDDING_DIM"] = orig
+# --------------------------------------------------------------------------- #
+# score_block — vector disabled path                                         #
+# --------------------------------------------------------------------------- #
 
 
 def test_score_block_no_vector_no_vector_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -128,11 +114,59 @@ def test_score_block_no_vector_no_vector_key(monkeypatch: pytest.MonkeyPatch) ->
 def test_score_block_no_vector_uses_default_weights(monkeypatch: pytest.MonkeyPatch) -> None:
     """history weight in breakdown must equal WEIGHTS['history'] * history_score."""
     monkeypatch.delenv("LEMONCROW_VECTOR_SEARCH_ENABLED", raising=False)
+    # Block with known history: 1 success, 0 failures → history_score = 1.0
     block = _make_block(success_count=1, failure_count=0)
     ctx = _make_ctx()
     scored = score_block(block, ctx, use_vector_weights=False)
-    expected_history = WEIGHTS["history"] * 1.0
-    assert abs(scored.breakdown["history"] - expected_history) < 1e-09
+    expected_history = WEIGHTS["history"] * 1.0  # 0.10
+    assert abs(scored.breakdown["history"] - expected_history) < 1e-9
+
+
+# --------------------------------------------------------------------------- #
+# score_block — vector enabled path                                          #
+# --------------------------------------------------------------------------- #
+
+
+def test_score_block_with_vector_has_vector_key() -> None:
+    """With use_vector_weights=True, breakdown must include 'vector' key."""
+    block = _make_block()
+    ctx = _make_ctx()
+    scored = score_block(block, ctx, vector_score=0.8, use_vector_weights=True)
+    assert "vector" in scored.breakdown
+
+
+def test_score_block_vector_score_clamped() -> None:
+    """vector_score is clamped to [0, 1] before weighting."""
+    block = _make_block()
+    ctx = _make_ctx()
+    # Provide out-of-range value
+    scored_high = score_block(block, ctx, vector_score=2.0, use_vector_weights=True)
+    scored_normal = score_block(block, ctx, vector_score=1.0, use_vector_weights=True)
+    # Both should produce the same result (clamped to 1.0)
+    assert abs(scored_high.breakdown["vector"] - scored_normal.breakdown["vector"]) < 1e-9
+
+
+def test_score_block_null_vector_score_zero() -> None:
+    """When vector_score=None with vector enabled, vector component = 0."""
+    block = _make_block()
+    ctx = _make_ctx()
+    scored = score_block(block, ctx, vector_score=None, use_vector_weights=True)
+    assert scored.breakdown["vector"] == 0.0
+
+
+def test_score_block_history_weight_reduced_with_vector() -> None:
+    """history weight must be halved when vector is enabled."""
+    block = _make_block(success_count=1)
+    ctx = _make_ctx()
+    scored_no_vec = score_block(block, ctx, use_vector_weights=False)
+    scored_vec = score_block(block, ctx, vector_score=0.0, use_vector_weights=True)
+    # history component in vec mode should be 0.05 * score, not 0.10 * score
+    assert scored_vec.breakdown["history"] < scored_no_vec.breakdown["history"]
+
+
+# --------------------------------------------------------------------------- #
+# retrieve() with vector_scores parameter                                    #
+# --------------------------------------------------------------------------- #
 
 
 def test_retrieve_accepts_vector_scores(tmp_path: Path) -> None:
@@ -143,9 +177,16 @@ def test_retrieve_accepts_vector_scores(tmp_path: Path) -> None:
     store.init()
     block = _make_block(domain="shop", triggers=["checkout", "cart"])
     store.knowledge.upsert_block(block)
+
     ctx = TaskContext(task="checkout flow", domain="shop")
     vector_scores = {block.id: 0.9}
-    results = retrieve(store, ctx, vector_scores=vector_scores, use_vector_weights=True)
+    results = retrieve(
+        store,
+        ctx,
+        vector_scores=vector_scores,
+        use_vector_weights=True,
+    )
+    # Must return without error; vector component included in scores
     ids = {r.block.id for r in results}
     assert block.id in ids
     for r in results:
@@ -161,6 +202,7 @@ def test_retrieve_vector_scores_empty_dict(tmp_path: Path) -> None:
     store.init()
     block = _make_block(domain="api", triggers=["api", "endpoint"])
     store.knowledge.upsert_block(block)
+
     ctx = TaskContext(task="api endpoint", domain="api")
     results = retrieve(store, ctx, vector_scores={}, use_vector_weights=True)
     for r in results:
@@ -170,20 +212,38 @@ def test_retrieve_vector_scores_empty_dict(tmp_path: Path) -> None:
         assert r.breakdown.get("vector", 0.0) == 0.0
 
 
-def test_is_vector_enabled_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for _case_index, (value, expected) in enumerate(
-        [("1", True), ("true", True), ("yes", True), ("TRUE", True), ("0", False), ("false", False), ("", False)]
-    ):
-        with monkeypatch.context() as case_monkeypatch:
-            "is_vector_enabled() must reflect LEMONCROW_VECTOR_SEARCH_ENABLED."
-            case_monkeypatch.setenv("LEMONCROW_VECTOR_SEARCH_ENABLED", value)
-            assert is_vector_enabled() == expected
+# --------------------------------------------------------------------------- #
+# is_vector_enabled()                                                        #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("1", True),
+        ("true", True),
+        ("yes", True),
+        ("TRUE", True),
+        ("0", False),
+        ("false", False),
+        ("", False),
+    ],
+)
+def test_is_vector_enabled_env(monkeypatch: pytest.MonkeyPatch, value: str, expected: bool) -> None:
+    """is_vector_enabled() must reflect LEMONCROW_VECTOR_SEARCH_ENABLED."""
+    monkeypatch.setenv("LEMONCROW_VECTOR_SEARCH_ENABLED", value)
+    assert is_vector_enabled() == expected
 
 
 def test_is_vector_enabled_default(monkeypatch: pytest.MonkeyPatch) -> None:
     """is_vector_enabled() returns False when env var is not set."""
     monkeypatch.delenv("LEMONCROW_VECTOR_SEARCH_ENABLED", raising=False)
     assert is_vector_enabled() is False
+
+
+# --------------------------------------------------------------------------- #
+# generate_embedding and cosine_similarity                                  #
+# --------------------------------------------------------------------------- #
 
 
 def test_generate_embedding_deterministic(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -205,8 +265,18 @@ def test_playbook_embedding_cache_round_trip(tmp_path: Path) -> None:
     """Playbook embedding cache should round-trip vectors by cache key and embedder."""
     cache_key = vector_cache_key("rb-cache", "rendered content")
     assert get_cached_embedding(tmp_path, cache_key=cache_key, embedder_name="local:test") is None
-    put_cached_embedding(tmp_path, cache_key=cache_key, embedder_name="local:test", vector=[0.25, 0.75])
-    assert get_cached_embedding(tmp_path, cache_key=cache_key, embedder_name="local:test") == [0.25, 0.75]
+
+    put_cached_embedding(
+        tmp_path,
+        cache_key=cache_key,
+        embedder_name="local:test",
+        vector=[0.25, 0.75],
+    )
+
+    assert get_cached_embedding(tmp_path, cache_key=cache_key, embedder_name="local:test") == [
+        0.25,
+        0.75,
+    ]
 
 
 def test_generate_embedding_different_inputs_differ(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -222,7 +292,7 @@ def test_cosine_similarity_identical(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEMONCROW_EMBEDDING_PROVIDER", "local")
     v = generate_embedding("test text", dim=64)
     sim = cosine_similarity(v, v)
-    assert abs(sim - 1.0) < 1e-06
+    assert abs(sim - 1.0) < 1e-6
 
 
 def test_cosine_similarity_range(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -232,3 +302,19 @@ def test_cosine_similarity_range(monkeypatch: pytest.MonkeyPatch) -> None:
     v2 = generate_embedding("beta", dim=64)
     sim = cosine_similarity(v1, v2)
     assert -1.0 <= sim <= 1.0
+
+
+def test_cosine_similarity_mismatch_raises() -> None:
+    """cosine_similarity must raise ValueError for dimension mismatch."""
+    with pytest.raises(ValueError, match="dimension"):
+        cosine_similarity([1.0, 2.0], [1.0, 2.0, 3.0])
+
+
+def test_get_embedding_dim_default() -> None:
+    """get_embedding_dim returns 1536 when env var is not set."""
+    orig = os.environ.pop("LEMONCROW_EMBEDDING_DIM", None)
+    try:
+        assert get_embedding_dim() == 1536
+    finally:
+        if orig is not None:
+            os.environ["LEMONCROW_EMBEDDING_DIM"] = orig

@@ -534,11 +534,7 @@ def tool_smart_edit(
 
         from lemoncrow.pro.capabilities.tool_supervision.rich_edit import apply_rich_edits
 
-        # The same roots the confinement check above allows, not just the extras:
-        # apply_rich_edits performs its own path check against repo_root plus
-        # allowed_roots, so passing only _extra_roots drops the main checkout
-        # whenever a linked worktree is inferred.
-        result = apply_rich_edits(edits, atomic=atomic, repo_root=_edit_root, allowed_roots=_allowed_edit_roots)
+        result = apply_rich_edits(edits, atomic=atomic, repo_root=_edit_root, allowed_roots=_extra_roots)
 
         # Sync the long-lived engine's index-version cache so the next explore
         # call gets a cache miss and re-queries the FTS5 index (which the

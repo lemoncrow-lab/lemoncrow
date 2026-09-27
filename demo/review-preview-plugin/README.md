@@ -15,6 +15,7 @@ It demonstrates the whole contract in one file,
   `request.output_dir`.
 
 ## Install
+## Install
 
 Into the Python environment that runs the LemonCrow Review server:
 
@@ -24,12 +25,8 @@ uv pip install --python "$TOOL_PYTHON" ./demo/review-preview-plugin
 lc review --repo-root . --setup     # lists csv-table under installed preview renderers
 ```
 
-From a LemonCrow source checkout, demo setup installs the example automatically.
-`make review-demo-plugin` reinstalls it into both the checkout and local-server
-environments and restarts the local server.
-
-## Configure
-
+From a LemonCrow source checkout, `make review-demo-plugin` installs the example
+into both the checkout and local-server environments.
 The provider is opt-in. In the reviewed repository's `.lemoncrow/review.yaml`:
 
 ```yaml

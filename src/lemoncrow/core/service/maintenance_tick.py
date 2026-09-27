@@ -12,8 +12,9 @@ was restored.
 
 Design constraints this follows:
 
-- Session import uses an internal worker; the other duties use their existing
-  CLI or job-queue entry points.
+- No new CLI command. Every duty already has one (``lc import``,
+  ``lc session recall index``, ``lc code prune``, the job queue); this module
+  only decides *when* to call them, the way servicectl's tick used to.
 - Never blocks the caller's request. The caller (``_run_worker_tick_safe``)
   already runs in a daemon thread spawned fire-and-forget from the MCP tool
   path, so work done here never holds up a tool response. Within that
@@ -73,7 +74,6 @@ WORKSPACE_PRUNE_KEY = "prune_workspaces"
 CONSOLIDATE_KEY = "consolidate_blocks"
 RETENTION_KEY = "retention_cleanup"
 OPTIMIZE_KEY = "optimize_automation"
-RESUME_BACKGROUND_KEY = "resume_background_jobs"
 
 # Jobs table / archived-review retention window -- matches worker.py's own default.
 DEFAULT_JOB_RETENTION_DAYS = 14
@@ -289,27 +289,6 @@ def _maybe_enqueue_job_duty(
         return "error"
 
 
-def _maybe_resume_paused_jobs(store: Any, state: dict[str, Any], *, now: datetime) -> str:
-    """Return budget-paused background jobs to the queue (BI2) once they have waited an interval."""
-
-    key = RESUME_BACKGROUND_KEY
-    resume = getattr(store.jobs, "resume_paused_jobs", None)
-    if not callable(resume):
-        return "unsupported"
-    if not _due(state, key, interval_seconds=MAINTENANCE_INTERVAL_SECONDS, now=now):
-        return "not_due"
-    if _in_retry_wait(state, key, now=now):
-        return "retry_wait"
-    try:
-        resumed = int(resume(older_than_seconds=MAINTENANCE_INTERVAL_SECONDS))
-    except Exception:
-        logger.warning("resuming paused background jobs raised", exc_info=True)
-        _mark_failed(state, key, now=now)
-        return "error"
-    _mark_succeeded(state, key, now=now)
-    return f"resumed:{resumed}"
-
-
 def run_maintenance_tick(root: str | Path, *, store: Any | None = None, now: datetime | None = None) -> dict[str, Any]:
     """Run whichever of the six retired periodic duties are due.
 
@@ -332,7 +311,7 @@ def run_maintenance_tick(root: str | Path, *, store: Any | None = None, now: dat
                 key=SESSION_IMPORT_KEY,
                 interval_seconds=SESSION_IMPORT_INTERVAL_SECONDS,
                 timeout=SESSION_IMPORT_TIMEOUT_SECONDS,
-                cmd=[sys.executable, "-m", "lemoncrow.core.service.session_import", "--root", str(root_path)],
+                cmd=[sys.executable, "-m", "lemoncrow.gateway.cli", "--root", str(root_path), "import", "--json"],
                 what="session import",
                 now=now,
             ),
@@ -399,7 +378,6 @@ def run_maintenance_tick(root: str | Path, *, store: Any | None = None, now: dat
                 payload={"days": DEFAULT_JOB_RETENTION_DAYS, "source": "maintenance_tick"},
                 now=now,
             )
-            results[RESUME_BACKGROUND_KEY] = _maybe_resume_paused_jobs(store, state, now=now)
             automation_enabled = False
             with suppress(Exception):
                 from lemoncrow.pro.capabilities.optimization.policy import load_automation_config

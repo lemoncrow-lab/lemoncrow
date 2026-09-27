@@ -124,8 +124,6 @@ class FeedbackBundle:
     """Review context lines (impacted callers, verification), verbatim."""
     degraded: tuple[str, ...] = ()
     """Every reason this revision knows less than a perfect one would."""
-    request_summary: str = ""
-    """The reviewer's own "what still needs to change" for this Snapshot, verbatim."""
 
 
 def packet_context(packet: Mapping[str, object] | None) -> tuple[str, ...]:
@@ -330,12 +328,6 @@ def render_markdown(bundle: FeedbackBundle) -> str:
         header = f"{bundle.title} — {header}"
     lines.append(header)
     lines.append("")
-
-    if bundle.request_summary.strip():
-        lines.append("### What still needs to change")
-        lines.append("")
-        lines.append(bundle.request_summary.strip())
-        lines.append("")
 
     if not bundle.items and not bundle.orphaned:
         lines.append("No open comments on this Snapshot.")

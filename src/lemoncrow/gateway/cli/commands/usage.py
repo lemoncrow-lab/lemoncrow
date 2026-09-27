@@ -1,7 +1,7 @@
 """``lc usage`` — where the money and the tokens actually went.
 
 Why this command exists: LemonCrow already recorded every session's usage in
-three different stores, and the only surface that read them was `lc runtime savings`,
+three different stores, and the only surface that read them was `lc savings`,
 which answers a *counterfactual* — what you did not spend. That is the second
 question. The first one is "what did I spend, on which host, on which model,
 for which project", and until now nothing answered it.
@@ -11,7 +11,8 @@ the provenance of every dollar stated. Nothing on it requires a savings model,
 by design (plan 2026-09-07 §4.2) — the optimisation view lives behind
 ``lc usage optimize`` and is reached only when asked for.
 
-Aggregate savings and statusline rendering live under ``lc runtime savings``.
+``lc savings`` stays registered as a hidden alias: installed statusline scripts
+shell out to ``lc savings --segment`` and ship from outside this repo.
 
 Heavy imports stay inside the callbacks so ``lc --help`` stays instant.
 """
@@ -33,6 +34,35 @@ if TYPE_CHECKING:  # `from __future__ import annotations` keeps these off the ru
 _GROUP_BY_CHOICES = ("host", "provider", "model", "project", "session", "day")
 
 
+class _PromotedGroup(click.Group):
+    """A group that lists its own subcommands even when they are hidden globally.
+
+    ``optimize`` is one Click object registered under two parents: hidden at the
+    top level, where ``lc optimize`` survives only as a back-compat alias, and
+    attached here as ``lc usage optimize``, which the plan makes the promoted
+    spelling. Click stores the object once, so the top-level ``hidden`` flag
+    would also erase the promoted name from this group's help -- leaving the
+    headline optimisation surface reachable but undiscoverable.
+
+    The flag is lifted for the duration of the render and restored afterwards,
+    so ``lc --help`` is unaffected.
+    """
+
+    def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        hidden = [
+            command
+            for command in (self.get_command(ctx, name) for name in self.list_commands(ctx))
+            if command is not None and command.hidden
+        ]
+        for command in hidden:
+            command.hidden = False
+        try:
+            super().format_commands(ctx, formatter)
+        finally:
+            for command in hidden:
+                command.hidden = True
+
+
 def _store_root(ctx: click.Context) -> Path:
     """Return the store root, falling back the same way every other command does."""
 
@@ -51,11 +81,7 @@ def _window_start(since: str) -> datetime:
     return _datetime.now(UTC) - _parse_duration(since)
 
 
-@click.group(
-    "usage",
-    invoke_without_command=True,
-    short_help="Where your AI coding usage and spend went.",
-)
+@click.group("usage", cls=_PromotedGroup, invoke_without_command=True)
 @click.option("--since", default="7d", show_default=True, help="Look-back window: 7d, 12h, 30m.")
 @click.option(
     "--by",

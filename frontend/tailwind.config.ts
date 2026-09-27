@@ -1,34 +1,24 @@
 import type { Config } from "tailwindcss";
-import animate from "tailwindcss-animate";
-
-import preset from "./src/design/lc-preset.cjs";
-
-/** Semantic (shadcn) colour: an alias onto the themed ramps in src/index.css. */
-const token = (name: string) => `rgb(var(--${name}) / <alpha-value>)`;
 
 export default {
-  // Ink and Lemon: tokens, type scale, radii, shadows, widths and motion come from the shared preset
-  // (src/design/, vendored from the repository's design/ directory). This file adds only what is
-  // specific to the Review app: the legacy neutral/surface/hue ramps and the z-index scheme.
-  presets: [preset],
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
-    // Two elevation shadows exist (float for overlays, frame for the one hero artefact) plus the indicator
-    // underline from the preset. Tailwind's default shadow-sm..2xl are retired.
-    boxShadow: { none: "none" },
     extend: {
-      /* Overlays share z-50 and stack by DOM order; only the global request indicator sits above them. */
-      zIndex: { indicator: "100" },
-      /* The one tracking value for uppercase mono labels (the preset's text-tag carries it too). */
-      letterSpacing: { tag: "0.12em" },
       colors: {
-        // background, foreground, card, popover, primary, muted, accent, border, input and ring come from the
-        // preset. The status pairs and `secondary` are Review-app tokens defined in src/index.css.
-        secondary: { DEFAULT: token("secondary"), foreground: token("secondary-foreground") },
-        destructive: { DEFAULT: token("destructive"), foreground: token("destructive-foreground") },
-        success: { DEFAULT: token("success"), foreground: token("success-foreground") },
-        warning: { DEFAULT: token("warning"), foreground: token("warning-foreground") },
-        info: { DEFAULT: token("info"), foreground: token("info-foreground") },
+        brand: {
+          DEFAULT: "rgb(var(--brand-400) / <alpha-value>)",
+          50: "rgb(var(--brand-50) / <alpha-value>)",
+          100: "rgb(var(--brand-100) / <alpha-value>)",
+          200: "rgb(var(--brand-200) / <alpha-value>)",
+          300: "rgb(var(--brand-300) / <alpha-value>)",
+          400: "rgb(var(--brand-400) / <alpha-value>)",
+          500: "rgb(var(--brand-500) / <alpha-value>)",
+          600: "rgb(var(--brand-600) / <alpha-value>)",
+          700: "rgb(var(--brand-700) / <alpha-value>)",
+          800: "rgb(var(--brand-800) / <alpha-value>)",
+          900: "rgb(var(--brand-900) / <alpha-value>)",
+          950: "rgb(var(--brand-950) / <alpha-value>)",
+        },
         neutral: {
           50: "rgb(var(--n-50) / <alpha-value>)",
           100: "rgb(var(--n-100) / <alpha-value>)",
@@ -115,9 +105,125 @@ export default {
           900: "rgb(var(--violet-900) / <alpha-value>)",
           950: "rgb(var(--violet-950) / <alpha-value>)",
         },
+        blue: {
+          50: "rgb(var(--blue-50) / <alpha-value>)",
+          100: "rgb(var(--blue-100) / <alpha-value>)",
+          200: "rgb(var(--blue-200) / <alpha-value>)",
+          300: "rgb(var(--blue-300) / <alpha-value>)",
+          400: "rgb(var(--blue-400) / <alpha-value>)",
+          500: "rgb(var(--blue-500) / <alpha-value>)",
+          600: "rgb(var(--blue-600) / <alpha-value>)",
+          700: "rgb(var(--blue-700) / <alpha-value>)",
+          800: "rgb(var(--blue-800) / <alpha-value>)",
+          900: "rgb(var(--blue-900) / <alpha-value>)",
+          950: "rgb(var(--blue-950) / <alpha-value>)",
+        },
+        sky: {
+          50: "rgb(var(--sky-50) / <alpha-value>)",
+          100: "rgb(var(--sky-100) / <alpha-value>)",
+          200: "rgb(var(--sky-200) / <alpha-value>)",
+          300: "rgb(var(--sky-300) / <alpha-value>)",
+          400: "rgb(var(--sky-400) / <alpha-value>)",
+          500: "rgb(var(--sky-500) / <alpha-value>)",
+          600: "rgb(var(--sky-600) / <alpha-value>)",
+          700: "rgb(var(--sky-700) / <alpha-value>)",
+          800: "rgb(var(--sky-800) / <alpha-value>)",
+          900: "rgb(var(--sky-900) / <alpha-value>)",
+          950: "rgb(var(--sky-950) / <alpha-value>)",
+        },
+        orange: {
+          50: "rgb(var(--orange-50) / <alpha-value>)",
+          100: "rgb(var(--orange-100) / <alpha-value>)",
+          200: "rgb(var(--orange-200) / <alpha-value>)",
+          300: "rgb(var(--orange-300) / <alpha-value>)",
+          400: "rgb(var(--orange-400) / <alpha-value>)",
+          500: "rgb(var(--orange-500) / <alpha-value>)",
+          600: "rgb(var(--orange-600) / <alpha-value>)",
+          700: "rgb(var(--orange-700) / <alpha-value>)",
+          800: "rgb(var(--orange-800) / <alpha-value>)",
+          900: "rgb(var(--orange-900) / <alpha-value>)",
+          950: "rgb(var(--orange-950) / <alpha-value>)",
+        },
+        green: {
+          50: "rgb(var(--green-50) / <alpha-value>)",
+          100: "rgb(var(--green-100) / <alpha-value>)",
+          200: "rgb(var(--green-200) / <alpha-value>)",
+          300: "rgb(var(--green-300) / <alpha-value>)",
+          400: "rgb(var(--green-400) / <alpha-value>)",
+          500: "rgb(var(--green-500) / <alpha-value>)",
+          600: "rgb(var(--green-600) / <alpha-value>)",
+          700: "rgb(var(--green-700) / <alpha-value>)",
+          800: "rgb(var(--green-800) / <alpha-value>)",
+          900: "rgb(var(--green-900) / <alpha-value>)",
+          950: "rgb(var(--green-950) / <alpha-value>)",
+        },
+        yellow: {
+          50: "rgb(var(--yellow-50) / <alpha-value>)",
+          100: "rgb(var(--yellow-100) / <alpha-value>)",
+          200: "rgb(var(--yellow-200) / <alpha-value>)",
+          300: "rgb(var(--yellow-300) / <alpha-value>)",
+          400: "rgb(var(--yellow-400) / <alpha-value>)",
+          500: "rgb(var(--yellow-500) / <alpha-value>)",
+          600: "rgb(var(--yellow-600) / <alpha-value>)",
+          700: "rgb(var(--yellow-700) / <alpha-value>)",
+          800: "rgb(var(--yellow-800) / <alpha-value>)",
+          900: "rgb(var(--yellow-900) / <alpha-value>)",
+          950: "rgb(var(--yellow-950) / <alpha-value>)",
+        },
+        rose: {
+          50: "rgb(var(--rose-50) / <alpha-value>)",
+          100: "rgb(var(--rose-100) / <alpha-value>)",
+          200: "rgb(var(--rose-200) / <alpha-value>)",
+          300: "rgb(var(--rose-300) / <alpha-value>)",
+          400: "rgb(var(--rose-400) / <alpha-value>)",
+          500: "rgb(var(--rose-500) / <alpha-value>)",
+          600: "rgb(var(--rose-600) / <alpha-value>)",
+          700: "rgb(var(--rose-700) / <alpha-value>)",
+          800: "rgb(var(--rose-800) / <alpha-value>)",
+          900: "rgb(var(--rose-900) / <alpha-value>)",
+          950: "rgb(var(--rose-950) / <alpha-value>)",
+        },
+        teal: {
+          50: "rgb(var(--teal-50) / <alpha-value>)",
+          100: "rgb(var(--teal-100) / <alpha-value>)",
+          200: "rgb(var(--teal-200) / <alpha-value>)",
+          300: "rgb(var(--teal-300) / <alpha-value>)",
+          400: "rgb(var(--teal-400) / <alpha-value>)",
+          500: "rgb(var(--teal-500) / <alpha-value>)",
+          600: "rgb(var(--teal-600) / <alpha-value>)",
+          700: "rgb(var(--teal-700) / <alpha-value>)",
+          800: "rgb(var(--teal-800) / <alpha-value>)",
+          900: "rgb(var(--teal-900) / <alpha-value>)",
+          950: "rgb(var(--teal-950) / <alpha-value>)",
+        },
+        indigo: {
+          50: "rgb(var(--indigo-50) / <alpha-value>)",
+          100: "rgb(var(--indigo-100) / <alpha-value>)",
+          200: "rgb(var(--indigo-200) / <alpha-value>)",
+          300: "rgb(var(--indigo-300) / <alpha-value>)",
+          400: "rgb(var(--indigo-400) / <alpha-value>)",
+          500: "rgb(var(--indigo-500) / <alpha-value>)",
+          600: "rgb(var(--indigo-600) / <alpha-value>)",
+          700: "rgb(var(--indigo-700) / <alpha-value>)",
+          800: "rgb(var(--indigo-800) / <alpha-value>)",
+          900: "rgb(var(--indigo-900) / <alpha-value>)",
+          950: "rgb(var(--indigo-950) / <alpha-value>)",
+        },
+        fuchsia: {
+          50: "rgb(var(--fuchsia-50) / <alpha-value>)",
+          100: "rgb(var(--fuchsia-100) / <alpha-value>)",
+          200: "rgb(var(--fuchsia-200) / <alpha-value>)",
+          300: "rgb(var(--fuchsia-300) / <alpha-value>)",
+          400: "rgb(var(--fuchsia-400) / <alpha-value>)",
+          500: "rgb(var(--fuchsia-500) / <alpha-value>)",
+          600: "rgb(var(--fuchsia-600) / <alpha-value>)",
+          700: "rgb(var(--fuchsia-700) / <alpha-value>)",
+          800: "rgb(var(--fuchsia-800) / <alpha-value>)",
+          900: "rgb(var(--fuchsia-900) / <alpha-value>)",
+          950: "rgb(var(--fuchsia-950) / <alpha-value>)",
+        },
       },
     },
   },
-  // The preset registers the pointer-coarse variant (controls grow to a 44px target, WCAG 2.5.5).
-  plugins: [animate],
+  plugins: [],
 } satisfies Config;

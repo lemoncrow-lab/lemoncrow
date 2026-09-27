@@ -64,8 +64,6 @@ REVIEWS_ROUTE = "/reviews"
 _REGISTRATION_DIRNAME = "workspaces"
 _PREPARATION_DIRNAME = "preparations"
 _PREPARATION_STALE_SECONDS = 300.0
-# Stages published after the first revision is ready, while context is added.
-_PREPARATION_BACKGROUND_STAGES = frozenset({"impact_background", "finalizing_background", "enrichment_failed"})
 _SPAWN_TIMEOUT_SECONDS = 25.0
 _DEFAULT_IDLE_TIMEOUT_SECONDS = 4 * 60 * 60.0
 _MIN_IDLE_TIMEOUT_SECONDS = 30.0
@@ -231,16 +229,6 @@ def read_review_preparation(store_root: Path, review_id: str, preparation_id: st
         return None
     updated_at = data.get("updated_at")
     if not isinstance(updated_at, (int, float)) or time.time() - float(updated_at) > _PREPARATION_STALE_SECONDS:
-        if data.get("stage") in _PREPARATION_BACKGROUND_STAGES:
-            # A background job that stopped reporting (crashed, killed, or cut off
-            # from the server) leaves a Review that is already usable.
-            return {
-                "review_id": review_id,
-                "preparation_id": preparation_id,
-                "stage": "ready",
-                "detail": "background Review context stopped reporting; the Review shows its source context",
-                "updated_at": float(updated_at) if isinstance(updated_at, (int, float)) else 0.0,
-            }
         return {
             "review_id": review_id,
             "preparation_id": preparation_id,

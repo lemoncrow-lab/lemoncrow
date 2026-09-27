@@ -25,27 +25,17 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
-import logging
 import re
 import sqlite3
-from collections.abc import Callable, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from lemoncrow.core.foundation.optional_modules import module_absent, skip_if_absent
 from lemoncrow.pro.capabilities.review.anchors import AnchorResolution, blob_sha, build_anchor, resolve_anchor
-from lemoncrow.pro.capabilities.review.gitdiff import EMPTY_TREE_SHA, RevRange, source_state
-from lemoncrow.pro.capabilities.review.gitdiff import legacy_source_fingerprint as legacy_source_identity
+from lemoncrow.pro.capabilities.review.gitdiff import RevRange, source_state
 from lemoncrow.pro.capabilities.review.models import ChangedFile, ImpactSite, ReviewPacket, review_packet_from_dict
-from lemoncrow.pro.capabilities.review.packet import (
-    PacketBuild,
-    attach_changed_symbols,
-    attach_impact,
-    attach_provenance,
-    build_review_packet_with_blobs,
-)
+from lemoncrow.pro.capabilities.review.packet import PacketBuild, attach_impact, build_review_packet_with_blobs
 from lemoncrow.pro.capabilities.review.relationships import scm_identity_from_source_ref
 from lemoncrow.pro.capabilities.review.revisions import Reconciliation, compute_frontier, file_revision_delta, reconcile
 from lemoncrow.pro.capabilities.review.session_models import (
@@ -66,10 +56,6 @@ from lemoncrow.pro.capabilities.review.session_models import (
     MarkState,
     ReviewActivityEvent,
     ReviewAttribution,
-    ReviewBinding,
-    ReviewBindingSubjectKind,
-    ReviewCaptureKind,
-    ReviewCommit,
     ReviewFrontier,
     ReviewMark,
     ReviewRelationship,
@@ -82,7 +68,6 @@ from lemoncrow.pro.capabilities.review.session_models import (
 )
 from lemoncrow.pro.capabilities.review.store import AnnotationHistoryContext, ReviewStore, new_revision_id
 from lemoncrow.pro.capabilities.review.units import derive_units, tree_fingerprint, unit_key
-from lemoncrow.pro.capabilities.review.validity import mark_event_reason
 
 if TYPE_CHECKING:  # `from __future__ import annotations` keeps this import out of the runtime path.
     from lemoncrow.pro.capabilities.review.targets import ReviewTarget
@@ -154,11 +139,6 @@ def coerce_mark_state(value: str) -> MarkState:
 
 
 _NAMED_RANGE_PREFIX = "named:"
-# Readers of what Runtime writes (agent sidecars, hook-prepared builds); the
-# Review-only engine ships none of them (server/review-engine-optional.txt).
-_RATIONALE = "lemoncrow.pro.capabilities.review.rationale"
-_EVIDENCE_CAPTURE = "lemoncrow.pro.capabilities.review.evidence_capture"
-_PRECOMPUTE = "lemoncrow.pro.capabilities.review.precompute"
 
 
 def _canonical_named_ref(repo_root: Path, spec: str) -> str:
@@ -318,255 +298,6 @@ def record_scm_relationship(store: ReviewStore, session: ReviewSession, ref: str
     )
 
 
-MUTABLE_RANGE_MODES: frozenset[str] = frozenset({"working_tree", "staged"})
-
-# lc-debt: a branch that owns more commits than this since its Review base gets
-# no checkpoint backfill at all (each checkpoint is a full packet build); page
-# the backfill across captures instead of skipping it.
-_MAX_CHECKPOINT_BACKFILL = 50
-
-
-def worktree_key(repo_root: Path) -> str:
-    """Stable identity of one checkout directory."""
-
-    return hashlib.sha256(str(repo_root.resolve()).encode("utf-8", errors="surrogateescape")).hexdigest()[:32]
-
-
-@dataclass(frozen=True)
-class ReviewSubject:
-    """What a mutable Review is routed by: at most one active Review per subject."""
-
-    repository_identity: str
-    subject_kind: ReviewBindingSubjectKind
-    subject_key: str
-    worktree_key: str = ""
-
-    def binding(self, review_id: str = "") -> ReviewBinding:
-        return ReviewBinding(
-            id="",
-            repository_identity=self.repository_identity,
-            subject_kind=self.subject_kind,
-            subject_key=self.subject_key,
-            review_id=review_id,
-            worktree_key=self.worktree_key,
-        )
-
-
-def review_subject(
-    repository_identity: str,
-    *,
-    branch: str,
-    worktree_key: str,
-    range_mode: str,
-) -> ReviewSubject | None:
-    """Route a mutable capture by its branch, else by its detached worktree.
-
-    Staged and working-tree Reviews of one branch are separate subjects. A
-    detached HEAD has no branch workstream: it routes by worktree and its Review
-    never freezes a branch base (see :func:`branch_review_base_for`).
-    """
-
-    if range_mode not in MUTABLE_RANGE_MODES or not repository_identity:
-        return None
-    suffix = "#staged" if range_mode == "staged" else ""
-    ref = branch.strip()
-    if ref and not ref.startswith("refs/heads/"):
-        ref = f"refs/heads/{ref}"
-    if ref:
-        return ReviewSubject(repository_identity, "branch", f"{ref}{suffix}", worktree_key)
-    if worktree_key:
-        return ReviewSubject(repository_identity, "detached", f"worktree:{worktree_key}{suffix}", worktree_key)
-    return None
-
-
-def local_review_subject(repo_root: Path, range_mode: str) -> ReviewSubject | None:
-    """The subject of a capture read straight from *repo_root*'s Git state."""
-
-    import pygit2
-
-    from lemoncrow.pro.capabilities.review.gitdiff import current_branch_ref
-
-    resolved = repo_root.resolve()
-    try:
-        repo = pygit2.Repository(str(resolved))
-        common = Path(getattr(repo, "commondir", "") or repo.path).resolve(strict=False)
-    except Exception:
-        return None
-    repository_identity = hashlib.sha256(str(common).encode("utf-8", errors="surrogateescape")).hexdigest()
-    return review_subject(
-        repository_identity,
-        branch=current_branch_ref(resolved),
-        worktree_key=worktree_key(resolved),
-        range_mode=range_mode,
-    )
-
-
-def branch_review_base_for(subject: ReviewSubject | None, base_sha: str) -> str:
-    """The base a new Review freezes: only branch Reviews own a commit workstream."""
-
-    return base_sha if subject is not None and subject.subject_kind == "branch" else ""
-
-
-def review_base_for_adoption(store: ReviewStore, session: ReviewSession, fallback: str) -> str:
-    """Recover a legacy Review's original base from its earliest frozen revision."""
-
-    for revision in store.list_revisions(session.id):
-        if revision.base_sha:
-            return revision.base_sha
-    return fallback
-
-
-class ReviewRoutingError(ValueError):
-    """A capture asked to join a Review it cannot join."""
-
-    def __init__(self, message: str, **details: str) -> None:
-        super().__init__(message)
-        self.details: dict[str, str] = details
-
-
-def select_review(
-    store: ReviewStore,
-    *,
-    subject: ReviewSubject | None,
-    repo_root_key: str,
-    subject_type: str,
-    source_ref: str,
-    range_mode: str,
-    force_new: bool = False,
-    continue_review_id: str = "",
-    restore_archived: bool = False,
-    reuse_closed: bool = False,
-    adopt_unbound: bool = True,
-) -> ReviewSession | None:
-    """The existing Review a capture belongs to, or ``None`` to create one. Never writes.
-
-    Order: an explicit ``--continue`` target, the subject's active Review, the
-    subject's latest released Review when reopening, then a Review with the
-    same reopen key. For mutable captures that last step only adopts Reviews no
-    binding ever owned (pre-binding rows): the reopen key is shared by every
-    branch, so a Review released by ``--new`` or ``--continue`` must never leak
-    into another branch through it. ``adopt_unbound=False`` skips that step for
-    a routed subject: hosted leaves pre-binding Reviews as they are.
-    """
-
-    if continue_review_id:
-        candidate = store.resolve_session(continue_review_id)
-        if candidate is None or candidate.repo_root != repo_root_key:
-            raise ReviewRoutingError(
-                "requested Review does not belong to this repository", review_id=continue_review_id
-            )
-        if candidate.status != "open":
-            raise ReviewRoutingError("requested Review is not open", review_id=candidate.id, status=candidate.status)
-        if candidate.range_mode != range_mode:
-            raise ReviewRoutingError(
-                f"requested Review uses {candidate.range_mode}; current capture uses {range_mode}",
-                review_id=candidate.id,
-                review_range_mode=candidate.range_mode,
-                capture_range_mode=range_mode,
-            )
-        return candidate
-    if force_new:
-        return None
-    allowed = {"open"}
-    if reuse_closed or restore_archived:
-        allowed.add("finished")
-    if restore_archived:
-        allowed.add("archived")
-    mutable = range_mode in MUTABLE_RANGE_MODES
-    if mutable and subject is not None:
-        key = {
-            "repository_identity": subject.repository_identity,
-            "subject_kind": subject.subject_kind,
-            "subject_key": subject.subject_key,
-        }
-        active = store.active_binding(**key)
-        if active is not None:
-            bound = store.get_session(active.review_id)
-            # A discarded Review keeps its binding so ordinary recapture hits it
-            # and stays read-only until explicitly restored.
-            if bound is not None and bound.status in {"open", "archived"}:
-                return bound
-        if reuse_closed or restore_archived:
-            latest = store.latest_binding(**key)
-            released = None if latest is None else store.get_session(latest.review_id)
-            if released is not None and released.status in allowed:
-                return released
-        if not adopt_unbound:
-            return None
-    legacy = store.find_session(
-        repo_root=repo_root_key,
-        subject_type=subject_type,
-        source_ref=source_ref,
-        range_mode=range_mode,
-        never_bound=mutable,
-    )
-    return legacy if legacy is not None and legacy.status in allowed else None
-
-
-def claim_review(
-    store: ReviewStore,
-    template: ReviewSession,
-    subject: ReviewSubject | None,
-    *,
-    take_over: bool = False,
-) -> ReviewSession:
-    """Create the subject's Review, converging with a concurrent capture.
-
-    ``take_over`` (``--new``) always creates and displaces the subject's
-    current Review, which stays open and reachable with ``--continue``.
-    """
-
-    if subject is None:
-        if template.range_mode in MUTABLE_RANGE_MODES:
-            return store.create_session(template)
-        # An immutable range has no binding to converge on; a racing capture of
-        # the same range must still join one Review.
-        session, _created = store.find_or_create_session(template, reuse=("open",))
-        return session
-    if take_over:
-        created = store.create_session(template)
-        store.bind_subject(subject.binding(created.id))
-        return created
-    session, _created = store.create_bound_session(template, subject.binding())
-    return session
-
-
-def attach_review(
-    store: ReviewStore,
-    session: ReviewSession,
-    subject: ReviewSubject | None,
-    *,
-    move: bool = False,
-    fallback_base: str = "",
-) -> ReviewSession:
-    """Bind an existing Review to *subject* and freeze its branch base if it has none.
-
-    ``move`` (``--continue``) releases the Review's other subjects first, so it
-    follows the reviewer instead of staying active on two branches.
-    """
-
-    if subject is None:
-        return session
-    if move:
-        store.unbind_review(session.id)
-    store.bind_subject(subject.binding(session.id))
-    return freeze_branch_base(store, session, subject, fallback_base)
-
-
-def freeze_branch_base(
-    store: ReviewStore,
-    session: ReviewSession,
-    subject: ReviewSubject | None,
-    fallback_base: str,
-) -> ReviewSession:
-    """Give a Review joining a branch its frozen base if it has none yet."""
-
-    if subject is None or subject.subject_kind != "branch" or session.review_base_sha:
-        return session
-    store.update_session(session.id, review_base_sha=review_base_for_adoption(store, session, fallback_base))
-    return store.get_session(session.id) or session
-
-
 def open_or_create_session(
     store: ReviewStore,
     repo_root: Path,
@@ -574,13 +305,8 @@ def open_or_create_session(
     *,
     title: str = "",
     restore_archived: bool = False,
-    force_new: bool = False,
-    continue_review_id: str = "",
-    reuse_closed: bool = False,
 ) -> ReviewSession:
     """Reopen this durable Change, refusing a discarded one by default."""
-
-    ref = source_ref(rng, repo_root=repo_root)
 
     def _usable(session: ReviewSession) -> ReviewSession:
         if session.status != "archived":
@@ -602,40 +328,7 @@ def open_or_create_session(
 
     resolved_root = str(repo_root.resolve())
     subject_type = _SUBJECT_BY_MODE.get(rng.mode, "local_change")
-    if rng.mode in MUTABLE_RANGE_MODES:
-        subject = local_review_subject(repo_root, rng.mode)
-        selected = select_review(
-            store,
-            subject=subject,
-            repo_root_key=resolved_root,
-            subject_type=subject_type,
-            source_ref=ref,
-            range_mode=rng.mode,
-            force_new=force_new,
-            continue_review_id=continue_review_id,
-            restore_archived=restore_archived,
-            reuse_closed=reuse_closed,
-        )
-        if selected is None:
-            session = claim_review(
-                store,
-                ReviewSession(
-                    id="",
-                    subject_type=subject_type,
-                    repo_root=resolved_root,
-                    range_mode=rng.mode,
-                    title=title or rng.title,
-                    source_ref=ref,
-                    review_base_sha=branch_review_base_for(subject, rng.base_sha),
-                    review_base_policy="fixed" if force_new else "integrated",
-                ),
-                subject,
-                take_over=force_new,
-            )
-        else:
-            session = attach_review(store, selected, subject, move=bool(continue_review_id), fallback_base=rng.base_sha)
-        return _with_source_context(session)
-
+    ref = source_ref(rng, repo_root=repo_root)
     existing = store.find_session(
         repo_root=resolved_root,
         subject_type=subject_type,
@@ -656,7 +349,7 @@ def open_or_create_session(
     )
     if adopted is not None:
         return _with_source_context(adopted)
-    created, _new = store.find_or_create_session(
+    created = store.create_session(
         ReviewSession(
             id="",
             subject_type=subject_type,
@@ -664,7 +357,6 @@ def open_or_create_session(
             range_mode=rng.mode,
             title=title or rng.title,
             source_ref=ref,
-            review_base_sha=rng.base_sha,
         )
     )
     return _with_source_context(created)
@@ -1076,86 +768,6 @@ def new_side_text(repo_root: Path, session: ReviewSession, path: str, *, status:
     return blobs.new.get(path)
 
 
-def source_paths_since_revision(
-    store: ReviewStore,
-    repo_root: Path,
-    revision: ReviewRevision,
-    rng: RevRange,
-    paths: Sequence[str],
-) -> tuple[str, ...]:
-    """Compare mutable source with frozen bytes, not with the Git diff base.
-
-    Include the previous patch's paths so reverting or removing a captured file
-    is still counted. Missing frozen content is counted conservatively.
-    """
-    from lemoncrow.pro.capabilities.review.gitdiff import (
-        MAX_REVIEW_MEDIA_BYTES,
-        _blob_from_tree,
-        _decode,
-        _new_side_bytes,
-        _open_repo,
-        _tree_for_sha,
-    )
-
-    packet = read_packet_json(store, revision) or {}
-    rows = {str(row["path"]): row for row in packet.get("files", ()) if isinstance(row, Mapping) and row.get("path")}
-    deleted = {path for path, row in rows.items() if row.get("status") == "deleted"}
-    deleted.update(
-        str(row["old_path"]) for row in rows.values() if row.get("status") == "renamed" and row.get("old_path")
-    )
-    candidates = set(paths) | set(rows) | deleted
-    tree = store.read_source_tree_artifact(revision.review_id, revision.id)
-    blobs = store.read_blob_artifact(revision.review_id, revision.id) or {}
-    media = store.read_media_artifact(revision.review_id, revision.id) or {}
-    repo = _open_repo(repo_root)
-    base = _tree_for_sha(repo, revision.base_sha)
-    changed: list[str] = []
-    for path in sorted(candidates):
-        current, reason = _new_side_bytes(repo, repo_root, rng, None, path, max_bytes=MAX_REVIEW_MEDIA_BYTES)
-        # Missing paths are real deletions; other read failures remain uncertain.
-        if rng.mode == "staged":
-            try:
-                repo.index[path]
-                missing = False
-            except KeyError:
-                missing = True
-        else:
-            candidate = repo_root / path
-            missing = not candidate.exists() and not candidate.is_symlink()
-        if reason and not missing:
-            changed.append(path)
-            continue
-        if tree is not None:
-            entry = tree.get(path)
-            differs = (
-                (not missing)
-                if entry is None
-                else (missing or hashlib.sha256(current or b"").hexdigest() != entry["content_digest"])
-            )
-        elif path in deleted:
-            differs = not missing
-        elif path in media:
-            differs = missing or current != media[path]
-        elif path in blobs:
-            differs = missing or _decode(current) != blobs[path]
-        elif path in rows:
-            # A binary/oversized/gitlink without frozen bytes cannot be certified.
-            differs = True
-        else:
-            frozen, frozen_reason = _blob_from_tree(repo, base, path, max_bytes=MAX_REVIEW_MEDIA_BYTES)
-            try:
-                frozen_missing = base is None
-                if base is not None:
-                    base / path
-                    frozen_missing = False
-            except KeyError:
-                frozen_missing = True
-            differs = missing != frozen_missing or (not missing and (bool(frozen_reason) or current != frozen))
-        if differs:
-            changed.append(path)
-    return tuple(changed)
-
-
 def revision_new_side_text(
     store: ReviewStore,
     repo_root: Path,
@@ -1184,7 +796,7 @@ def revision_new_side_text(
         return None
     try:
         rng = range_for_session(repo_root, session)
-        if not source_state(repo_root, rng).matches(revision.source_fingerprint):
+        if source_state(repo_root, rng).fingerprint != revision.source_fingerprint:
             return None
     except (OSError, RuntimeError, ValueError):
         return None
@@ -1213,12 +825,6 @@ def annotate(
     created_by_actor: ActorType = "human",
     source: str = "human",
     source_id: str = "",
-    agent_role: str = "unknown",
-    agent_host: str = "",
-    agent_model: str = "",
-    parent_session_id: str = "",
-    source_message_id: str = "",
-    created_at: str = "",
     title: str = "",
     evidence: Sequence[str] = (),
     confidence: float | None = None,
@@ -1261,7 +867,7 @@ def annotate(
     units = store.list_units(revision.id)
     file_unit = next((unit for unit in units if unit.kind == "file" and unit.path == path), None)
     if file_unit is None:
-        raise ValueError(f"{path!r} is not a file in Revision {_snapshot_number(revision)} of this review")
+        raise ValueError(f"{path!r} is not a file in Snapshot {_snapshot_number(revision)} of this review")
 
     if parent_id:
         parent = store.get_annotation(parent_id)
@@ -1333,12 +939,6 @@ def annotate(
                 created_by_actor=created_by_actor,
                 source=resolved_source,
                 source_id=source_id,
-                agent_role=agent_role,
-                agent_host=agent_host,
-                agent_model=agent_model,
-                parent_session_id=parent_session_id,
-                source_message_id=source_message_id,
-                created_at=created_at,
                 title=title,
                 evidence=tuple(str(item) for item in evidence if str(item)),
                 confidence=confidence,
@@ -1429,7 +1029,7 @@ def annotate_machine_finding(
     units = store.list_units(revision.id)
     file_unit = next((unit for unit in units if unit.kind == "file" and unit.path == path), None)
     if file_unit is None:
-        raise ValueError(f"{path!r} is not a file in Revision {_snapshot_number(revision)} of this review")
+        raise ValueError(f"{path!r} is not a file in Snapshot {_snapshot_number(revision)} of this review")
     symbol_unit = None if file_level else owning_symbol_unit(units, path, start, end)
     owner = symbol_unit or file_unit
     finding = _machine_finding_fingerprint(
@@ -1532,15 +1132,6 @@ def set_review_status(
         updated = store.get_session(session.id)
         if updated is not None:
             session = updated
-    # A finished Review releases the branch so the next change can start a new
-    # Review. A discarded Review deliberately keeps its branch binding: ordinary
-    # recapture must hit the archived row and stay read-only until the reviewer
-    # explicitly restores it with --reopen-review.
-    if status_changed and status == "finished":
-        store.unbind_review(session.id)
-    # Reopening it takes the branch back, unless a newer Review now holds it.
-    if status_changed and status == "open" and prior_status == "finished":
-        store.restore_binding(session.id)
     if status_changed:
         store.record_activity(
             ReviewActivityEvent(
@@ -1677,59 +1268,21 @@ class RefreshResult:
     rather than counting ``Reconciliation.dropped`` for itself."""
 
 
-def _with_scope(rng: RevRange, scope_paths: Sequence[str]) -> RevRange:
-    from dataclasses import replace as replace_range
-
-    return replace_range(rng, paths=tuple(sorted(set(scope_paths)))) if scope_paths else rng
-
-
-def session_scope_paths(store: ReviewStore, session: ReviewSession) -> tuple[str, ...]:
-    """The paths a scoped Review (one agent session's files) covers; ``()`` is the whole range.
-
-    A scoped capture records its scope in each Snapshot's packet, so a later
-    refresh that only knows the session (the Reader's) stays scoped instead of
-    taking over the whole worktree.
-    """
-
-    if session.range_mode not in MUTABLE_RANGE_MODES:
-        return ()
-    revision = store.latest_revision(session.id)
-    packet = read_packet_json(store, revision) if revision is not None else None
-    raw = packet.get("scope_paths") if packet is not None else None
-    if not isinstance(raw, list):
-        return ()
-    return tuple(sorted({item for item in raw if isinstance(item, str) and item}))
-
-
-def range_for_session(repo_root: Path, session: ReviewSession, *, scope_paths: Sequence[str] = ()) -> RevRange:
+def range_for_session(repo_root: Path, session: ReviewSession) -> RevRange:
     """Rebuild the range a stored session reviews.
 
-    Working-tree and staged sessions follow their mutable local source, limited
-    to *scope_paths* for a scoped Review (see :func:`session_scope_paths`).
-    Legacy commit-range sessions store resolved SHAs and therefore reopen the
-    same snapshot forever. Named-range sessions intentionally store canonical
-    Git refs so a branch review follows branch-head commits inside one
-    ReviewSession.
+    Working-tree and staged sessions follow their mutable local source. Legacy
+    commit-range sessions store resolved SHAs and therefore reopen the same
+    snapshot forever. Named-range sessions intentionally store canonical Git
+    refs so a branch review follows branch-head commits inside one ReviewSession.
     """
 
-    from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range, with_review_base
+    from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range
 
     if session.range_mode == "staged":
-        staged = with_review_base(
-            repo_root,
-            session.review_base_sha,
-            resolve_rev_range(repo_root, staged=True),
-            advance=session.review_base_policy == "integrated",
-        )
-        return _with_scope(staged, scope_paths)
+        return resolve_rev_range(repo_root, staged=True)
     if session.range_mode == "working_tree":
-        working = with_review_base(
-            repo_root,
-            session.review_base_sha,
-            resolve_rev_range(repo_root, working_tree=True),
-            advance=session.review_base_policy == "integrated",
-        )
-        return _with_scope(working, scope_paths)
+        return resolve_rev_range(repo_root, working_tree=True)
     if session.source_ref.startswith(_NAMED_RANGE_PREFIX):
         spec = session.source_ref[len(_NAMED_RANGE_PREFIX) :]
         return resolve_rev_range(repo_root, spec)
@@ -1890,20 +1443,6 @@ def _persist_anchor(
     state = _STATE_FOR_STATUS.get(resolution.status)
     if state is not None:
         fields["state"] = state
-        # Binding loss is a finding lifecycle event only for unresolved AI
-        # findings. Explicit reviewer confirmation/dismissal/fixed disposition
-        # remains durable and auditable instead of being overwritten by a generic
-        # source move. A later exact AI revalidation may reopen superseded_stale.
-        if (
-            annotation.source == "ai_review"
-            and annotation.finding_disposition in {"", "open"}
-            and resolution.status in {"orphaned", "removed", "stale"}
-        ):
-            fields["finding_disposition"] = "superseded_stale"
-            fields["finding_disposition_reason"] = ""
-            fields["finding_disposition_revision_id"] = revision.id
-            fields["finding_disposition_reviewer_id"] = ""
-            fields["finding_disposition_evidence_json"] = "[]"
     elif resolution.located and annotation.state == "orphaned":
         # An orphan that has been found again is an open comment once more.
         # Leaving it orphaned would bury a live objection in the list of things
@@ -2084,25 +1623,6 @@ _INCREMENTAL_DETECTOR_CARRY = frozenset(
 )
 
 
-def _prepared_build(store_root: Path, repo_root: Path, rng: RevRange) -> PacketBuild | None:
-    """The background-prepared build of exactly the current working-tree source.
-
-    It is keyed by repository, range and source fingerprint, so a hit is
-    byte-for-byte the tree a fresh build would read now.
-    """
-
-    if rng.mode != "working_tree" or rng.paths:
-        return None
-    try:
-        from lemoncrow.pro.capabilities.review.precompute import load_source_build
-    except ModuleNotFoundError as exc:
-        # Authoring hooks prepare builds; a build without them (no Runtime) has none.
-        if not module_absent(exc, _PRECOMPUTE):
-            raise
-        return None
-    return load_source_build(store_root, repo_root, rng, source_state(repo_root, rng).fingerprint)
-
-
 def _incremental_impact_reuse(
     store: ReviewStore,
     previous: ReviewRevision,
@@ -2202,44 +1722,6 @@ def _incremental_impact_reuse(
     )
 
 
-_BASE_ONLY_CARRY_REASON = (
-    "base-only movement: the diff base moved and the authored patch is equivalent on the new base; judgment kept"
-)
-
-
-def _base_only_unit_keys(
-    store: ReviewStore,
-    baseline: ReviewRevision | None,
-    baseline_units: Sequence[ReviewUnit],
-    record: ReviewRevision,
-    stored_units: Sequence[ReviewUnit],
-    marks: Sequence[ReviewMark],
-) -> frozenset[str]:
-    """Unit keys whose judgments survive a rebase/base move (Phase 9 item 34).
-
-    Only for a reviewer with marks and a different baseline Snapshot. Any
-    failure is "none": the marks then reconcile by fingerprint, which reopens.
-    """
-
-    if baseline is None or baseline.id == record.id or not marks:
-        return frozenset()
-    from lemoncrow.pro.capabilities.review.rebase_classification import classify_movement
-
-    try:
-        classification = classify_movement(
-            baseline,
-            baseline_units,
-            read_packet_json(store, baseline),
-            record,
-            stored_units,
-            read_packet_json(store, record),
-        )
-    except Exception:  # conservative: unknown equivalence reopens
-        logging.getLogger(__name__).warning("base-only classification failed for %s", record.id, exc_info=True)
-        return frozenset()
-    return classification.base_only_unit_keys
-
-
 def record_revision(
     store: ReviewStore,
     session: ReviewSession,
@@ -2247,32 +1729,16 @@ def record_revision(
     rng: RevRange,
     *,
     store_root: Path,
-    source_store_root: Path | None = None,
     session_id: str | None = None,
     limit: int = 40,
     build: PacketBuild | None = None,
     reviewer_id: str = "local",
     project_annotations: bool = True,
     source_fingerprint_override: str = "",
-    legacy_source_fingerprint: str = "",
     source_view_id: str = "",
     source_view_revision: int = 0,
-    branch_ref_override: str = "",
-    worktree_key_override: str = "",
-    checkpoint_history: bool = False,
-    progress: Callable[[str], None] | None = None,
 ) -> RevisionRecording:
     """Persist the current state of *rng* **and** reconcile it. One operation.
-
-    *checkpoint_history* records a commit checkpoint the working tree has
-    already moved past (a partial commit, say). Such a checkpoint lacks the
-    still-uncommitted files, which have not left the Review, so a mark whose
-    unit is merely absent from it is kept for the draft capture that follows
-    instead of being discarded.
-
-    *legacy_source_fingerprint* is the commit-id form of the source identity
-    *source_fingerprint_override* names (see ``gitdiff.SourceState``), so a
-    Snapshot recorded before the tree-id identity still counts as unchanged.
 
     This is the only function in the system that writes a revision, and it is
     the only one that carries marks and comment anchors onto it. That is not a
@@ -2337,10 +1803,7 @@ def record_revision(
     supplied_build = build is not None
     if build is None:
         previous_for_reuse = store.latest_revision(session.id)
-        # Background preparation (``live_runtime``) may already hold this exact
-        # source's diff and bytes; an explicit Snapshot takes that build over.
-        prepared = _prepared_build(store_root, repo_root, rng)
-        if previous_for_reuse is None and prepared is None:
+        if previous_for_reuse is None:
             build = build_review_packet_with_blobs(
                 repo_root,
                 rng,
@@ -2354,24 +1817,17 @@ def record_revision(
             # Capture the diff/blob snapshot once without semantic impact, use
             # its exact bytes to decide reuse, then attach fresh impact to that
             # same snapshot. No second worktree read is allowed between them.
-            if prepared is not None:
-                base_build = attach_provenance(store_root, repo_root, rng, prepared, session_id=session_id)
-            else:
-                base_build = build_review_packet_with_blobs(
-                    repo_root,
-                    rng,
-                    store_root=store_root,
-                    with_impact=False,
-                    session_id=session_id,
-                    limit=limit,
-                    with_patch_text=True,
-                    unbounded_patch_text=True,
-                )
-            reuse = (
-                _incremental_impact_reuse(store, previous_for_reuse, base_build, rng)
-                if previous_for_reuse is not None
-                else None
+            base_build = build_review_packet_with_blobs(
+                repo_root,
+                rng,
+                store_root=store_root,
+                with_impact=False,
+                session_id=session_id,
+                limit=limit,
+                with_patch_text=True,
+                unbounded_patch_text=True,
             )
+            reuse = _incremental_impact_reuse(store, previous_for_reuse, base_build, rng)
             build = attach_impact(repo_root, rng, base_build, limit=limit, reuse=reuse)
     packet = build.packet
     blobs = build.blobs
@@ -2391,34 +1847,7 @@ def record_revision(
         except ReviewSnapshotUnavailable:
             nested_snapshot_degraded.add("submodule_snapshot_unavailable")
 
-    previous_projection = store.latest_revision(session.id)
-    previous_packet = None
-    previous_units: tuple[ReviewUnit, ...] = ()
-    previous_blobs = None
-    if previous_projection is not None:
-        previous_payload = read_packet_json(store, previous_projection)
-        if previous_payload is not None:
-            try:
-                previous_packet = review_packet_from_dict(previous_payload)
-            except (TypeError, ValueError):
-                pass  # A missing/legacy projection falls back to fresh derivation.
-            else:
-                previous_units = store.list_units(previous_projection.id)
-                previous_blobs = store.read_blob_artifact(session.id, previous_projection.id)
-    units = derive_units(
-        packet,
-        blobs.new,
-        previous_packet=previous_packet,
-        previous_units=previous_units,
-        previous_blobs=previous_blobs,
-        progress=(
-            (lambda completed, total: progress(f"Building review targets · {completed}/{total} files"))
-            if progress is not None
-            else None
-        ),
-    )
-    if progress is not None:
-        progress("Deriving dependency targets")
+    units = derive_units(packet, blobs.new)
     from lemoncrow.pro.capabilities.review.dependencies import dependency_capture_gaps, derive_dependency_units
 
     changed_paths = tuple(item.path for item in packet.files)
@@ -2443,21 +1872,17 @@ def record_revision(
     fingerprint = tree_fingerprint(units)
     if nested_snapshot_fingerprint:
         fingerprint = hashlib.sha256(f"{fingerprint}\0submodules\0{nested_snapshot_fingerprint}".encode()).hexdigest()
-    legacy_watch = ""
     if source_fingerprint_override:
-        # A server-backed Review has an exact source identity already: the
-        # committed View revision/manifest it verified the packet against.
+        # Hosted Review has an exact source identity already: the committed
+        # enterprise View revision/manifest it verified the packet against.
         watch_fingerprint = source_fingerprint_override
-        legacy_watch = legacy_source_fingerprint
     elif build.source_fingerprint:
         # Persist exactly the identity proven around the diff/blob capture. Do
         # not re-read a mutable worktree after the packet has already frozen it.
         watch_fingerprint = build.source_fingerprint
-        legacy_watch = legacy_source_fingerprint or legacy_source_identity(repo_root, rng, watch_fingerprint)
     else:
         try:
-            state = source_state(repo_root, rng)
-            watch_fingerprint, legacy_watch = state.fingerprint, state.legacy_fingerprint
+            watch_fingerprint = source_state(repo_root, rng).fingerprint
         except (OSError, RuntimeError, ValueError):
             # Change detection is advisory. A source we cannot fingerprint still
             # gets a fully reviewable revision; the workspace simply cannot offer
@@ -2470,7 +1895,6 @@ def record_revision(
     # while two different large/binary source states can never be described as
     # semantically equivalent merely because both were unreadable.
     has_unknown_file = any(unit.kind == "file" and unit.fingerprint_method == "unknown" for unit in units)
-    semantic_fingerprint = fingerprint
     if has_unknown_file and watch_fingerprint:
         payload = f"{fingerprint}\0source\0{watch_fingerprint}".encode()
         fingerprint = hashlib.sha256(payload).hexdigest()
@@ -2487,20 +1911,7 @@ def record_revision(
         except (OSError, RuntimeError) as exc:
             raise ValueError("could not verify captured Review source before publication") from exc
 
-    if progress is not None:
-        progress("Saving snapshot and source artifacts")
     existing = store.find_revision_by_snapshot_identity(session.id, fingerprint, watch_fingerprint)
-    if existing is None and watch_fingerprint and legacy_watch and legacy_watch != watch_fingerprint:
-        # lc-debt: a Snapshot recorded before the tree-id source identity (2026-10-13)
-        # stores the commit-id form; the same source in that form is unchanged, so an
-        # existing Review takes no extra Snapshot after the upgrade. Remove with
-        # SourceState.legacy_fingerprint no earlier than 2027-01-13 (see gitdiff).
-        legacy_tree = (
-            hashlib.sha256(f"{semantic_fingerprint}\0source\0{legacy_watch}".encode()).hexdigest()
-            if has_unknown_file
-            else fingerprint
-        )
-        existing = store.find_revision_by_snapshot_identity(session.id, legacy_tree, legacy_watch)
     # File units with an `unknown` fingerprint carry a deterministic placeholder
     # (deleted/binary/oversized/unreadable), not exact bytes. Require the
     # independent source fingerprint to agree before reusing such a revision;
@@ -2573,37 +1984,16 @@ def record_revision(
         # A new Snapshot freezes Development at the event watermark taken in
         # add_revision's transaction; catch up on observable agent work first
         # so edits that produced this source are not reported as "since".
-        from lemoncrow.pro.capabilities.review.development import sync_ledgers_before_capture
+        from lemoncrow.pro.capabilities.review.development_ingest import sync_before_capture
 
-        sync_ledgers_before_capture(store, session, repo_root=repo_root, source_store_root=store_root)
-        capture_kind: ReviewCaptureKind = "revision"
-        if session.range_mode in MUTABLE_RANGE_MODES:
-            capture_kind = "commit" if rng.mode == "commit_range" and bool(rng.head_sha) else "draft"
-        branch_ref = branch_ref_override.strip()
-        revision_worktree_key = worktree_key_override.strip()
-        if not branch_ref and capture_kind != "revision":
-            from lemoncrow.pro.capabilities.review.gitdiff import current_branch_ref
-
-            branch_ref = current_branch_ref(repo_root)
-        if capture_kind == "draft" and not revision_worktree_key:
-            revision_worktree_key = worktree_key(repo_root)
-        if capture_kind != "draft":
-            revision_worktree_key = ""
+        sync_before_capture(store, session, repo_root=repo_root, source_store_root=store_root)
         revision_id = new_revision_id()
-        # Prepare the packet while the caller freezes the independent source
-        # artifacts. Only pure encoding runs in the worker; artifact backends
-        # and SQLite stay on this thread, and publication waits for both.
-        # Every artifact written here is handed to add_revision, whose insert claims
-        # them all against hosted orphan GC (a stalled capture commits nothing dangling).
-        written: list[str] = []
-        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="review-packet") as pool:
-            packet_payload = pool.submit(encode_packet, packet)
-            written.append(store.write_blob_artifact(session.id, revision_id, blobs.new)[0])
-            if blobs.binary_new:
-                written.append(store.write_media_artifact(session.id, revision_id, blobs.binary_new)[0])
-            if nested_snapshot_payload is not None:
-                written.append(store.write_submodule_artifact(session.id, revision_id, nested_snapshot_payload)[0])
-            rel_path, sha256, size = store.write_packet_artifact(session.id, revision_id, packet_payload.result())
+        rel_path, sha256, size = store.write_packet_artifact(session.id, revision_id, encode_packet(packet))
+        store.write_blob_artifact(session.id, revision_id, blobs.new)
+        if blobs.binary_new:
+            store.write_media_artifact(session.id, revision_id, blobs.binary_new)
+        if nested_snapshot_payload is not None:
+            store.write_submodule_artifact(session.id, revision_id, nested_snapshot_payload)
         record = store.add_revision(
             ReviewRevision(
                 id=revision_id,
@@ -2627,13 +2017,8 @@ def record_revision(
                 source_fingerprint=watch_fingerprint,
                 source_view_id=source_view_id,
                 source_view_revision=max(0, int(source_view_revision)),
-                capture_kind=capture_kind,
-                commit_sha=rng.head_sha if capture_kind == "commit" else "",
-                branch_ref=branch_ref,
-                worktree_key=revision_worktree_key,
             ),
             units,
-            artifact_keys=tuple(written),
         )
         # `add_revision` may return a row this call did not create: another writer
         # committed the same exact Snapshot identity first and this one adopted it.
@@ -2643,35 +2028,7 @@ def record_revision(
         created = record.id == revision_id
         stored_units = units if created else store.list_units(record.id)
 
-    if progress is not None:
-        progress("Reconciling review marks and comments")
     store.add_revision_attributions(record.id, _revision_attributions(packet, record.id))
-    if (
-        record.capture_kind == "commit"
-        and record.commit_sha
-        and store.find_commit(session.id, record.commit_sha) is None
-    ):
-        parent_sha = ""
-        try:
-            import pygit2
-
-            repo = pygit2.Repository(str(repo_root.resolve()))
-            commit = repo.revparse_single(record.commit_sha)
-            parents = getattr(commit, "parents", ())
-            if parents:
-                parent_sha = str(parents[0].id)
-        except Exception:
-            parent_sha = ""
-        checkpoint = store.record_commit(
-            ReviewCommit(
-                review_id=session.id,
-                commit_number=0,
-                commit_sha=record.commit_sha,
-                revision_id=record.id,
-                parent_sha=parent_sha,
-            )
-        )
-        _write_review_commit_note(store, repo_root, session, checkpoint)
 
     with store.atomic_review_transition():
         current_session = store.get_session(session.id)
@@ -2698,37 +2055,22 @@ def record_revision(
         # decides on content fingerprints, so a rewrite reopens the mark whichever
         # side supplied the left hand.
         against = baseline_units if baseline is not None and record.id != baseline.id else stored_units
-        base_only = _base_only_unit_keys(store, baseline, baseline_units, record, stored_units, marks)
-        result = reconcile(against, stored_units, marks, renames=_renames(packet), base_only=base_only)
+        result = reconcile(against, stored_units, marks, renames=_renames(packet))
 
         # Writes before deletes: a renamed unit's mark is inserted under its new key
         # and only then removed from the old one, so a crash between the two leaves
         # a duplicate verdict rather than no verdict at all.
         previous_key_by_current = {new: old for old, new in result.aliases}
-        for mark in result.rebased:
-            store.set_mark(
-                mark,
-                event_kind="reconciled",
-                event_revision_id=record.id,
-                event_reason=_BASE_ONLY_CARRY_REASON,
-            )
-        # Trust T1: the audited reason names the rule that decided each mark.
-        reason_codes = {(reviewer, key): code for reviewer, key, code in result.reasons}
         for mark in result.reopened:
             prior_key = previous_key_by_current.get(mark.unit_key, "")
-            code = reason_codes.get((mark.reviewer_id, mark.unit_key), "")
             store.set_mark(
                 mark,
                 event_kind="reconciled",
                 event_revision_id=record.id,
                 event_reason=(
-                    mark_event_reason(code, renamed=bool(prior_key))
-                    if code
-                    else (
-                        "unit identity migrated across rename and its judgment was reconciled"
-                        if prior_key
-                        else "revision reconciliation changed the judgment state"
-                    )
+                    "unit identity migrated across rename and its judgment was reconciled"
+                    if prior_key
+                    else "revision reconciliation changed the judgment state"
                 ),
                 previous_unit_key=prior_key,
             )
@@ -2739,15 +2081,8 @@ def record_revision(
         # not thrown away.
         migrated = _rename_migrations(against, stored_units, _renames(packet))
         known = {unit.unit_key: unit for unit in against}
-        dropped = result.dropped
-        if checkpoint_history:
-            # Only a unit the checkpoint still carries (under a rename alias) moves
-            # its mark; one it merely lacks keeps the mark for the next draft.
-            present = {unit.unit_key for unit in stored_units}
-            alias = dict(result.aliases)
-            dropped = tuple(mark for mark in dropped if alias.get(mark.unit_key, mark.unit_key) in present)
         discarded: list[DiscardedMark] = []
-        for mark in dropped:
+        for mark in result.dropped:
             if mark.unit_key in migrated:
                 continue
             unit = known.get(mark.unit_key)
@@ -2770,7 +2105,7 @@ def record_revision(
                     )
                 )
             )
-        for mark in dropped:
+        for mark in result.dropped:
             moved = mark.unit_key in migrated
             store.clear_mark(
                 session.id,
@@ -2845,35 +2180,16 @@ def record_revision(
     # to exact file bytes. Import it only *after* this revision exists: capture
     # must never advance a human's review frontier underneath them. Rationale is
     # optional enrichment, so a malformed/old sidecar cannot make review fail.
-    # The agent-written sidecars (rationale, evidence) and their readers are
-    # Runtime's: a build without a reader skips that step.
     try:
-        with skip_if_absent(_RATIONALE):
-            from lemoncrow.pro.capabilities.review.rationale import import_author_rationales
+        from lemoncrow.pro.capabilities.review.rationale import import_author_rationales
 
-            import_author_rationales(
-                store,
-                session,
-                record,
-                store_root=store_root,
-                repo_root=repo_root,
-                new_blobs=blobs.new,
-            )
-    except (OSError, ValueError, RuntimeError):
-        pass
-
-    # Author guidance (spec §6) follows the same trust rule: recorded
-    # out-of-band, imported only after this revision exists, never a human state.
-    try:
-        from lemoncrow.pro.capabilities.review.guidance import import_author_guidance
-
-        import_author_guidance(
+        import_author_rationales(
             store,
             session,
             record,
             store_root=store_root,
             repo_root=repo_root,
-            changed_paths={path for item in packet.files for path in (item.path, item.old_path or "") if path},
+            new_blobs=blobs.new,
         )
     except (OSError, ValueError, RuntimeError):
         pass
@@ -2882,16 +2198,15 @@ def record_revision(
     # rationale: capture happens out-of-band, import happens only after this
     # exact ReviewRevision exists and its code identity matches the sidecar.
     try:
-        with skip_if_absent(_EVIDENCE_CAPTURE):
-            from lemoncrow.pro.capabilities.review.evidence_capture import import_agent_evidence
+        from lemoncrow.pro.capabilities.review.evidence_capture import import_agent_evidence
 
-            import_agent_evidence(
-                store,
-                session,
-                record,
-                store_root=store_root,
-                repo_root=repo_root,
-            )
+        import_agent_evidence(
+            store,
+            session,
+            record,
+            store_root=store_root,
+            repo_root=repo_root,
+        )
     except (OSError, ValueError, RuntimeError):
         pass
 
@@ -2912,15 +2227,6 @@ def record_revision(
             )
         except (OSError, ValueError, RuntimeError):
             pass
-
-    # Completed host replies are optional enrichment, imported without moving
-    # the human frontier. Standalone planners/reviewers need no UI handoff.
-    try:
-        from lemoncrow.pro.capabilities.review.session_comments import ingestor_for
-
-        ingestor_for(store, source_store_root or store_root).sync(session, force=True)
-    except (OSError, ValueError, RuntimeError):
-        pass
 
     if created:
         # Every capture path (CLI, live runtime, local server, hosted) funnels
@@ -3044,171 +2350,6 @@ def enrich_revision_projection(
     return record
 
 
-def _write_review_commit_note(
-    store: ReviewStore, repo_root: Path, session: ReviewSession, checkpoint: ReviewCommit
-) -> None:
-    """Best-effort Git backlink that never participates in Review correctness."""
-
-    import subprocess
-
-    try:
-        review_ref = f"r/{store.short_session_reference(session.id)}"
-        note = f"LemonCrow-Review: {review_ref}\nLemonCrow-Commit: {checkpoint.commit_number}"
-        subprocess.run(
-            [
-                "git",
-                "-C",
-                str(repo_root),
-                "notes",
-                "--ref=refs/notes/lemoncrow",
-                "add",
-                "-f",
-                "-m",
-                note,
-                checkpoint.commit_sha,
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-            timeout=2,
-        )
-    except (OSError, subprocess.SubprocessError, ValueError):
-        return
-
-
-def commit_checkpoint_range(repo_root: Path, base_sha: str, head_sha: str) -> RevRange:
-    """Return one immutable Review checkpoint range, including an empty-tree base."""
-
-    from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range
-
-    if base_sha == EMPTY_TREE_SHA:
-        return RevRange(
-            mode="commit_range",
-            base_rev="(empty tree)",
-            head_rev=head_sha,
-            base_sha=EMPTY_TREE_SHA,
-            head_sha=head_sha,
-            merge_base_sha="",
-            dirty=False,
-            title=f"commit {head_sha[:12]}",
-        )
-    resolved = resolve_rev_range(repo_root, base=base_sha, head=head_sha)
-    return RevRange(
-        mode=resolved.mode,
-        base_rev=resolved.base_rev,
-        head_rev=resolved.head_rev,
-        base_sha=resolved.base_sha,
-        head_sha=resolved.head_sha,
-        merge_base_sha=resolved.merge_base_sha,
-        dirty=False,
-        title=resolved.title,
-        submodule_dirt_discounted=resolved.submodule_dirt_discounted,
-    )
-
-
-def checkpoint_range_for(repo_root: Path, session: ReviewSession, commit_sha: str) -> RevRange:
-    """The immutable range a branch Review checkpoints *commit_sha* as."""
-
-    from lemoncrow.pro.capabilities.review.gitdiff import review_branch_base
-
-    base = session.review_base_sha
-    if session.review_base_policy == "integrated":
-        base = review_branch_base(repo_root, base, head=commit_sha) or base
-    return commit_checkpoint_range(repo_root, base, commit_sha)
-
-
-def sync_commit_checkpoints(
-    store: ReviewStore,
-    session: ReviewSession,
-    repo_root: Path,
-    *,
-    store_root: Path,
-    session_id: str | None = None,
-    limit: int = 40,
-    reviewer_id: str = "local",
-    scope_paths: Sequence[str] = (),
-    progress: Callable[[str], None] | None = None,
-) -> tuple[ReviewCommit, ...]:
-    """Capture the branch's own commits that this Review has not checkpointed yet.
-
-    Checkpoints are cumulative ``branch base -> commit`` states. Commits pulled,
-    merged or rebased in from an integration branch are not this Review's
-    work and never become checkpoints. A checkpoint whose commit is no longer
-    in ``HEAD`` (amend, rebase, reset) is kept as ``superseded``. Existing
-    commit rows make this idempotent; the mutable draft capture stays current.
-    """
-
-    from lemoncrow.pro.capabilities.review.gitdiff import commits_in_head, review_branch_commits
-
-    if session.range_mode not in MUTABLE_RANGE_MODES or not session.review_base_sha:
-        return ()
-    try:
-        existing = store.list_commits(session.id)
-        present = commits_in_head(repo_root, [checkpoint.commit_sha for checkpoint in existing])
-        for checkpoint in existing:
-            state = "active" if checkpoint.commit_sha in present else "superseded"
-            if checkpoint.state != state:
-                store.set_commit_state(session.id, checkpoint.commit_sha, state)
-        owned = review_branch_commits(
-            repo_root,
-            session.review_base_sha,
-            limit=_MAX_CHECKPOINT_BACKFILL,
-            advance=session.review_base_policy == "integrated",
-        )
-    except Exception:
-        # Checkpoints are best-effort history (shallow clones, missing objects);
-        # the draft capture that follows stays authoritative.
-        return ()
-    if not owned:
-        return ()
-
-    recorded: list[ReviewCommit] = []
-    for index, (sha, base) in enumerate(owned, 1):
-        found = store.find_commit(session.id, sha)
-        if found is not None:
-            recorded.append(found)
-            continue
-        if progress is not None:
-            progress(f"Recording commit checkpoint {index}/{len(owned)}")
-        rng = _with_scope(commit_checkpoint_range(repo_root, base, sha), scope_paths)
-        checkpoint_build = build_review_packet_with_blobs(
-            repo_root,
-            rng,
-            store_root=store_root,
-            with_impact=False,
-            with_provenance=False,
-            session_id=session_id,
-            limit=limit,
-            with_patch_text=True,
-            unbounded_patch_text=True,
-        )
-        checkpoint_build = attach_changed_symbols(repo_root, checkpoint_build, limit=limit)
-        checkpoint_label = f"Commit checkpoint {index}/{len(owned)}"
-
-        def checkpoint_progress(detail: str, prefix: str = checkpoint_label) -> None:
-            if progress is not None:
-                progress(f"{prefix} · {detail}")
-
-        record_revision(
-            store,
-            session,
-            repo_root,
-            rng,
-            store_root=store_root,
-            session_id=session_id,
-            limit=limit,
-            build=checkpoint_build,
-            reviewer_id=reviewer_id,
-            project_annotations=False,
-            checkpoint_history=True,
-            progress=checkpoint_progress if progress is not None else None,
-        )
-        item = store.find_commit(session.id, sha)
-        if item is not None:
-            recorded.append(item)
-    return tuple(recorded)
-
-
 def refresh(
     store: ReviewStore,
     session: ReviewSession,
@@ -3230,34 +2371,8 @@ def refresh(
     to look at", which every surface reads and none may disagree about.
     """
 
-    # A scoped Review stays scoped whoever refreshes it.
-    scope = tuple(rng.paths) if rng is not None and rng.paths else session_scope_paths(store, session)
     if rng is None:
-        rng = range_for_session(repo_root, session, scope_paths=scope)
-
-    if session.range_mode in MUTABLE_RANGE_MODES and session.review_base_sha:
-        sync_commit_checkpoints(
-            store,
-            session,
-            repo_root,
-            store_root=store_root,
-            session_id=session_id,
-            limit=limit,
-            reviewer_id=reviewer_id,
-            scope_paths=scope,
-        )
-        rng = range_for_session(repo_root, session, scope_paths=scope)
-        if rng.mode in MUTABLE_RANGE_MODES and not rng.dirty:
-            from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range
-
-            current_head = resolve_rev_range(repo_root, working_tree=True).base_sha
-            checkpoint = store.find_commit(session.id, current_head) if current_head else None
-            if checkpoint is not None:
-                rng = _with_scope(checkpoint_range_for(repo_root, session, current_head), scope)
-                # A supplied mutable-side packet does not describe this immutable
-                # commit range even though the bytes are identical. Rebuild the
-                # cheap exact commit packet so the existing checkpoint is reused.
-                build = None
+        rng = range_for_session(repo_root, session)
 
     recording = record_revision(
         store,
@@ -3322,7 +2437,6 @@ __all__ = [
     "resolve_mark_units",
     "resolve_unit",
     "revision_new_side_text",
-    "session_scope_paths",
     "set_review_status",
     "snapshot_revision",
     "source_ref",

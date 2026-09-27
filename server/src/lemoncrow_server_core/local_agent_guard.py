@@ -35,8 +35,6 @@ _JUDGMENT_POST = re.compile(
     r"(?:marks|marks/bulk|finish|outcome|annotations|verification/waivers|landing/arm|github/publish)$"
 )
 _JUDGMENT_PATCH = re.compile(r"^/api/annotations/[^/]+$")
-# Where a Review's fixes go: an agent must not point the feedback at itself.
-_JUDGMENT_PUT = re.compile(r"^/api/reviews/[^/]+/destination$")
 
 _MARKER_HOSTS: dict[str, str] = dict(AGENT_SESSION_ENVS)
 #: Agent CLIs by executable name (Linux ``comm`` or argv[0] basename).
@@ -52,26 +50,6 @@ _AGENT_EXECUTABLES: dict[str, str] = {
     "agy": "antigravity",
 }
 _MAX_ANCESTRY = 64
-#: The verdict for a caller that let go of its connection before it could be
-#: identified: a closed client end holds no process, and a human's CLI waits for
-#: its answer, so only a caller dodging the lookup ends up here.
-UNIDENTIFIED_CALLER = "unidentified"
-_CALLER_GONE = -1
-
-
-# Deliberately broad (any spelling that could reach the decision route).
-_APPROVAL_DECISION = re.compile(r"/agent-approvals/.*decision")
-
-
-def is_approval_decision(method: str, path: str) -> bool:
-    """Whether this request decides a risky agent action (P12-AGENT).
-
-    Stricter than :func:`is_judgment_request`: an unresolvable caller is refused
-    too (fail closed), because the agent whose action is waiting holds the same
-    machine token.
-    """
-
-    return method.upper() != "GET" and bool(_APPROVAL_DECISION.search(path))
 
 
 def is_judgment_request(method: str, path: str) -> bool:
@@ -82,8 +60,6 @@ def is_judgment_request(method: str, path: str) -> bool:
         return bool(_JUDGMENT_POST.match(path))
     if verb == "PATCH":
         return bool(_JUDGMENT_PATCH.match(path))
-    if verb == "PUT":
-        return bool(_JUDGMENT_PUT.match(path))
     return False
 
 
@@ -140,14 +116,10 @@ def caller_agent_host(pid: int, *, own: int, lookup: Callable[[int], ProcessReco
 # -- Linux: /proc ---------------------------------------------------------
 
 
-def _linux_client_inode(client_port: int, server_port: int) -> str | None:
-    """The client end's socket inode; ``""`` when no live socket holds it, None if unreadable."""
-
-    readable = False
+def _linux_client_inode(client_port: int, server_port: int) -> str:
     for table in ("/proc/net/tcp", "/proc/net/tcp6"):
         try:
             with open(table, encoding="ascii") as handle:
-                readable = True
                 next(handle, None)
                 for line in handle:
                     fields = line.split()
@@ -156,11 +128,10 @@ def _linux_client_inode(client_port: int, server_port: int) -> str | None:
                     local_port = int(fields[1].rsplit(":", 1)[1], 16)
                     remote_port = int(fields[2].rsplit(":", 1)[1], 16)
                     if local_port == client_port and remote_port == server_port:
-                        # A closed end lingers (FIN_WAIT/TIME_WAIT) with inode 0.
-                        return "" if fields[9] == "0" else fields[9]
+                        return fields[9]
         except (OSError, ValueError):
             continue
-    return "" if readable else None
+    return ""
 
 
 def _linux_owns_socket(pid: int | str, needle: str) -> bool:
@@ -179,13 +150,9 @@ def _linux_owns_socket(pid: int | str, needle: str) -> bool:
 
 
 def _linux_peer_pid(client_port: int, server_port: int) -> int | None:
-    """The process holding the client end, ``_CALLER_GONE`` once none does, None if /proc can't say."""
-
     inode = _linux_client_inode(client_port, server_port)
-    if inode is None:
+    if not inode or inode == "0":
         return None
-    if not inode:
-        return _CALLER_GONE
     needle = f"socket:[{inode}]"
     own = os.getpid()
     if _linux_owns_socket(own, needle):
@@ -195,7 +162,7 @@ def _linux_peer_pid(client_port: int, server_port: int) -> int | None:
     for entry in os.listdir("/proc"):
         if entry.isdigit() and int(entry) != own and _linux_owns_socket(entry, needle):
             return int(entry)
-    return _CALLER_GONE
+    return None
 
 
 def _linux_record(pid: int) -> ProcessRecord | None:
@@ -283,8 +250,7 @@ def peer_agent_host(transport: Any) -> str | None:
     """The agent host behind this loopback connection.
 
     ``""`` means the calling process and its ancestry show no agent evidence;
-    ``UNIDENTIFIED_CALLER`` means the caller closed its end before it could be
-    looked up; ``None`` means the caller could not be resolved on this platform.
+    ``None`` means the caller could not be resolved on this platform.
     """
 
     if transport is None:
@@ -299,11 +265,7 @@ def peer_agent_host(transport: Any) -> str | None:
         return None
     if sys.platform.startswith("linux"):
         pid = _linux_peer_pid(client_port, server_port)
-        if pid is None:
-            return None
-        if pid == _CALLER_GONE:
-            return UNIDENTIFIED_CALLER
-        return caller_agent_host(pid, own=os.getpid(), lookup=_linux_record)
+        return None if pid is None else caller_agent_host(pid, own=os.getpid(), lookup=_linux_record)
     if sys.platform == "darwin" or "bsd" in sys.platform:
         pid = _bsd_peer_pid(client_port)
         if pid is None:
@@ -315,11 +277,4 @@ def peer_agent_host(transport: Any) -> str | None:
     return None
 
 
-__all__ = [
-    "UNIDENTIFIED_CALLER",
-    "ProcessRecord",
-    "agent_host_in_ancestry",
-    "caller_agent_host",
-    "is_judgment_request",
-    "peer_agent_host",
-]
+__all__ = ["ProcessRecord", "agent_host_in_ancestry", "caller_agent_host", "is_judgment_request", "peer_agent_host"]

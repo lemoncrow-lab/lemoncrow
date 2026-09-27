@@ -72,6 +72,26 @@ def _vite_files() -> dict[str, bytes]:
     }
 
 
+def test_png_difference_score_is_deterministic_and_reports_changed_area(tmp_path: Path) -> None:
+    from PIL import Image
+
+    before = tmp_path / "before.png"
+    after = tmp_path / "after.png"
+    Image.new("RGB", (10, 10), "black").save(before)
+    changed = Image.new("RGB", (10, 10), "black")
+    changed.paste("white", (0, 0, 10, 5))
+    changed.save(after)
+
+    web_preview._png_difference_score.cache_clear()
+    score = web_preview._png_difference_score(str(before), str(after))
+
+    assert score.changed_ratio == pytest.approx(0.5)
+    assert score.mean_delta == pytest.approx(0.5)
+    assert score.width == 10
+    assert score.height == 10
+    assert web_preview._png_difference_score(str(before), str(after)) is score
+
+
 def test_vite_react_router_global_change_expands_to_all_static_routes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -96,35 +116,6 @@ def test_vite_react_router_route_component_only_affects_its_static_route(
 
     assert overview is not None and overview.routes == ("/", "/overview")
     assert review is not None and review.routes == ("/review",)
-
-
-def test_every_changed_file_of_one_snapshot_shares_one_import_graph(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # Surface discovery asks once per changed file; each ask re-scanned the
-    # whole project for imports (minutes of CPU on a ~400-file change).
-    files = _vite_files()
-    monkeypatch.setattr(web_preview, "_tree_files", lambda *_args, **_kwargs: files)
-    real = web_preview._import_graph
-    built: list[int] = []
-
-    def counting(sources: dict[str, str]) -> dict[str, tuple[str, ...]]:
-        built.append(len(sources))
-        return real(sources)
-
-    monkeypatch.setattr(web_preview, "_import_graph", counting)
-    paths = ["src/index.css", "src/pages/Overview.tsx", "src/review/ReviewReader.tsx", "src/pages/Sessions.tsx"]
-    first = [web_preview.infer_web_preview_descriptor(tmp_path, _revision(), path) for path in paths]
-    again = [web_preview.infer_web_preview_descriptor(tmp_path, _revision(), path) for path in paths]
-
-    assert len(built) == 2  # one per side (head and base), not one per side per changed file
-    assert [item.routes if item else None for item in first] == [
-        ("/", "/overview", "/sessions", "/review"),
-        ("/", "/overview"),
-        ("/review",),
-        ("/sessions",),
-    ]
-    assert again == first
 
 
 def test_tree_walk_skips_submodule_gitlinks_without_aborting_parent_preview() -> None:
@@ -405,7 +396,6 @@ def test_capture_server_serves_client_routes_of_a_spa_build(tmp_path: Path) -> N
 def test_route_captures_leave_the_shared_build_dependency_facade_alone(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(sys, "platform", "linux")
     # Every route of one side shares a content-keyed build workspace. Rebuilding
     # its node_modules facade per capture deleted it under a concurrent capture
     # of another route ("No such file or directory: .../node_modules").
@@ -529,7 +519,6 @@ def test_preview_build_can_borrow_dependencies_from_a_separate_proven_checkout(
         (output / "index.html").write_text("<html></html>", encoding="utf-8")
         return SimpleNamespace(returncode=0, stdout="")
 
-    monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(web_preview, "_materialize_review_side", fake_materialize)
     monkeypatch.setattr(web_preview, "_package_manager", lambda _root: "npm")
     monkeypatch.setattr(web_preview, "_bubblewrap_prefix", fake_prefix)
@@ -585,7 +574,6 @@ def test_preview_build_repairs_missing_checkout_dependencies_from_lockfile(
 
     commands: list[list[str]] = []
 
-    monkeypatch.setattr(sys, "platform", "linux")
     limiter = sandbox_limits.limit_prefix()
 
     def fake_run(command: list[str], **_kwargs: object) -> SimpleNamespace:
@@ -593,7 +581,7 @@ def test_preview_build_repairs_missing_checkout_dependencies_from_lockfile(
         assert command[: len(limiter)] == limiter
         command = command[len(limiter) :]
         commands.append(command)
-        if Path(command[0]).name == "npm" and command[1] == "ci":
+        if command[:2] == ["npm", "ci"]:
             (dependency_project / "node_modules" / "vite").mkdir(parents=True)
             return SimpleNamespace(returncode=0, stdout="installed")
         output = cache_root / "new" / "workspace" / "frontend" / "dist"
@@ -627,7 +615,7 @@ def test_preview_build_repairs_missing_checkout_dependencies_from_lockfile(
     )
 
     assert output.name == "dist"
-    assert Path(commands[0][0]).name == "npm" and commands[0][1] == "ci"
+    assert commands[0][:2] == ["npm", "ci"]
     assert "--ignore-scripts" in commands[0]
 
 

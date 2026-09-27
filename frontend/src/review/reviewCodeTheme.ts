@@ -1,4 +1,4 @@
-import { applyTheme, getInitialTheme, type Theme } from "../lib/theme";
+import { applyTheme, type Theme } from "../lib/theme";
 
 export type ReviewCodeTheme = "lemoncrow" | "lemoncrow-dark" | "github-dark" | "github-light";
 
@@ -23,16 +23,13 @@ export function reviewCodeThemeDefinition(id: ReviewCodeTheme): ReviewCodeThemeD
 }
 
 export function getInitialReviewCodeTheme(): ReviewCodeTheme {
-  const chromeTheme = getInitialTheme();
-  let saved: ReviewCodeTheme | null = null;
   try {
-    const value = localStorage.getItem(STORAGE_KEY);
-    if (REVIEW_CODE_THEMES.some((item) => item.id === value)) saved = value as ReviewCodeTheme;
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (REVIEW_CODE_THEMES.some((item) => item.id === saved)) return saved as ReviewCodeTheme;
   } catch {
     /* localStorage unavailable */
   }
-  if (saved?.startsWith("github")) return chromeTheme === "dark" ? "github-dark" : "github-light";
-  return chromeTheme === "dark" ? "lemoncrow-dark" : "lemoncrow";
+  return "lemoncrow";
 }
 
 export function applyReviewCodeTheme(id: ReviewCodeTheme): Theme {

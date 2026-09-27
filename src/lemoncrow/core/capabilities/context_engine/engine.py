@@ -18,7 +18,7 @@ ranked results never move.
 Mode (``LEMONCROW_CONTEXT_ENGINE_MODE``): ``shadow`` (default) computes and
 records what it would do but returns the round-0 ranking unchanged;
 ``enforce`` executes expansions; ``off`` skips assessment.  Enforcement is
-qualified offline with ``lemoncrow dev eval replay`` before it is turned on.
+qualified offline with ``lemoncrow eval replay`` before it is turned on.
 """
 
 from __future__ import annotations

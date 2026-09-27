@@ -1,15 +1,11 @@
 {
-  "description": "LemonCrow Claude integration hooks and measurement mod",
-  "modules": [
-    "./measure.js"
-  ],
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/session_start.py\""
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/session_start.py"
           }
         ]
       }
@@ -19,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/user_prompt.py\""
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/user_prompt.py"
           }
         ]
       }
@@ -29,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/pre_tool_discipline.py\""
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/pre_tool_discipline.py"
           }
         ]
       },
@@ -38,7 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/mcp_read_allow.py\""
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/mcp_read_allow.py"
           }
         ]
       },
@@ -47,17 +43,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/agent_redirect.py\""
-          }
-        ]
-      },
-      {
-        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/approval_gate.sh",
-            "timeout": 960
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/agent_redirect.py"
           }
         ]
       }
@@ -68,11 +54,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use.py\""
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use.py"
           },
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/live_review.py\""
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/live_review.py"
           }
         ]
       },
@@ -81,11 +67,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use_bash.py\""
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use_bash.py"
           },
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/bash_output_shrink.py\"",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/bash_output_shrink.py",
             "timeout": 30
           }
         ]
@@ -95,7 +81,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/mcp_output_shrink.py\"",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/mcp_output_shrink.py",
             "timeout": 30
           }
         ]
@@ -104,11 +90,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/loop_discipline_post.py\""
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/loop_discipline_post.py"
           },
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/cap_nudge.py\""
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/cap_nudge.py"
           }
         ]
       }
@@ -119,7 +105,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use_failure.py\""
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use_failure.py"
           }
         ]
       }
@@ -130,7 +116,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/compact.py\""
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/compact.py"
           }
         ]
       }
@@ -141,7 +127,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/compact.py\""
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/compact.py"
           }
         ]
       }
@@ -151,11 +137,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/verify_before_done.py\""
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/verify_before_done.py"
           },
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/stop.py\""
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/stop.py"
           }
         ]
       }
@@ -165,7 +151,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh\" \"${CLAUDE_PLUGIN_ROOT}/hooks/session_telemetry.py\""
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/_run_hook.sh ${CLAUDE_PLUGIN_ROOT}/hooks/session_telemetry.py"
           }
         ]
       }

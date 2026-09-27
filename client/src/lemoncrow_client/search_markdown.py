@@ -28,11 +28,6 @@ _LOCAL_EXTENTS: OrderedDict[tuple[str, str, str, str, int], int] = OrderedDict()
 _LOCAL_EXTENTS_LOCK = Lock()
 _MAX_LOCAL_EXTENTS = 4096
 
-# Digest-keyed Python extents retain neither source bytes nor ASTs. One parse
-# serves all definitions in the same content, including inline snippets.
-_PYTHON_EXTENTS: OrderedDict[str, Mapping[tuple[str, int], int]] = OrderedDict()
-_MAX_PYTHON_SOURCES = 16
-_MAX_PYTHON_EXTENTS = 16_384
 _MAX_INLINE_CHARS = 8_000
 _FUZZY_BEFORE = 2
 _FUZZY_AFTER = 5
@@ -387,9 +382,22 @@ def _definition_end_line(path: str, name: str, data: bytes, start_line: int) -> 
     start_line = min(max(1, start_line), len(lines))
 
     if Path(path).suffix.lower() in {".py", ".pyi"}:
-        end_line = _python_definition_extents(data, text).get((name, start_line))
-        if end_line is not None:
-            return max(start_line, min(len(lines), end_line))
+        try:
+            tree = ast.parse(text)
+        except (SyntaxError, ValueError):
+            tree = None
+        if tree is not None:
+            candidates = (
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                and node.name == name
+                and node.lineno == start_line
+            )
+            node = next(candidates, None)
+            end_line = getattr(node, "end_lineno", None)
+            if isinstance(end_line, int):
+                return max(start_line, min(len(lines), end_line))
 
     # For C/JS/TS/Go/Rust/Java-style definitions, locate the first opening brace
     # at or shortly after the declaration and stop when its block balances.
@@ -408,36 +416,6 @@ def _definition_end_line(path: str, name: str, data: bytes, start_line: int) -> 
                 return index + 1
 
     return min(len(lines), start_line + _FUZZY_AFTER)
-
-
-def _python_definition_extents(data: bytes, text: str) -> Mapping[tuple[str, int], int]:
-    digest = sha256_hex(data)
-    with _LOCAL_EXTENTS_LOCK:
-        cached = _PYTHON_EXTENTS.get(digest)
-        if cached is not None:
-            _PYTHON_EXTENTS.move_to_end(digest)
-            return cached
-    try:
-        tree = ast.parse(text)
-    except (SyntaxError, ValueError):
-        extents: dict[tuple[str, int], int] = {}
-    else:
-        extents = {
-            (node.name, node.lineno): node.end_lineno
-            for node in ast.walk(tree)
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-            and isinstance(node.end_lineno, int)
-        }
-    if len(extents) <= _MAX_PYTHON_EXTENTS:
-        with _LOCAL_EXTENTS_LOCK:
-            _PYTHON_EXTENTS[digest] = extents
-            _PYTHON_EXTENTS.move_to_end(digest)
-            while (
-                len(_PYTHON_EXTENTS) > _MAX_PYTHON_SOURCES
-                or sum(len(value) for value in _PYTHON_EXTENTS.values()) > _MAX_PYTHON_EXTENTS
-            ):
-                _PYTHON_EXTENTS.popitem(last=False)
-    return extents
 
 
 def _line_offset(data: bytes, line: int) -> int:

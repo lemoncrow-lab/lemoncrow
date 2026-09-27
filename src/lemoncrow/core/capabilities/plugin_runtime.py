@@ -12,7 +12,6 @@ import json
 import logging
 import os
 import re
-import sqlite3
 from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
@@ -227,7 +226,7 @@ def write_plugin_setting(root: str | Path, key: str, value: bool) -> dict[str, b
         raise ValueError(f"unknown plugin setting: {key}")
     settings = load_plugin_settings(root)
     settings[key] = bool(value)
-    _write_json(plugin_settings_path(root), settings, mode=0o600)  # it can hold API keys
+    _write_json(plugin_settings_path(root), settings)
     return settings
 
 
@@ -535,7 +534,7 @@ def set_recall_settings(
     if not isinstance(settings, dict):
         settings = {}
     updated = apply_recall_settings(settings, auto_index=auto_index, embedder=embedder, embed_model=embed_model)
-    _write_json(path, updated, mode=0o600)  # the file can hold API keys
+    _write_json(path, updated)
     return updated
 
 
@@ -1477,21 +1476,6 @@ def _savings_sidecar_path(root: str | Path, session_id: str, agent: str) -> Path
         return None
 
 
-def ensure_stop_hook_savings_sidecar(root: str | Path, session_id: str, tools_used: Any, *, agent: str) -> None:
-    """Let supplemental credits run after lc calls with no per-tool credit."""
-    if not session_id or session_id == "default" or not isinstance(tools_used, dict):
-        return
-    if not any(
-        _is_lemoncrow_qualified_tool_name(name) and isinstance(count, (int, float)) and count > 0
-        for name, count in tools_used.items()
-    ):
-        return
-    path = _savings_sidecar_path(root, session_id, agent)
-    if path is not None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.touch(exist_ok=True)
-
-
 def write_stop_hook_turn_cut_row(
     root: str | Path, session_id: str, stats: dict[str, Any], *, agent: str = "claude"
 ) -> int:
@@ -1505,7 +1489,7 @@ def write_stop_hook_turn_cut_row(
     immediate per-session callers -- e.g. ``build_codex_stop_output``'s public
     rollup push -- can report ``turns_avoided`` without re-reading the sidecar.
     """
-    if not session_id or stats.get("lemoncrow_tools_used") is False:
+    if not session_id:
         return 0
     try:
         ratio = float(os.environ.get("LEMONCROW_TURN_CUT_RATIO", str(_TURN_CUT_RATIO_DEFAULT)))
@@ -1579,7 +1563,7 @@ def write_stop_hook_input_style_row(
     idle handler. See ``integrations/claude/plugin/hooks/stop.py`` for the
     full derivation.
     """
-    if not session_id or stats.get("lemoncrow_tools_used") is False:
+    if not session_id:
         return
     try:
         ratio = float(os.environ.get("LEMONCROW_INPUT_STYLE_RATIO", str(_INPUT_STYLE_RATIO_DEFAULT)))
@@ -1858,9 +1842,7 @@ def _opencode_visible_reply_blocks(session_id: str, *, host: str = "opencode") -
 
             db_path = default_lemoncode_db_path()
         else:
-            from lemoncrow.core.capabilities.session_replay import _opencode_db_path
-
-            db_path = _opencode_db_path() or Path.home() / ".local/share/opencode/opencode.db"
+            db_path = Path.home() / ".local/share/opencode/opencode.db"
         if not db_path.exists():
             return []
         serialized = serialize_opencode_session(session_id, db_path, source=host_name)
@@ -1898,7 +1880,7 @@ def write_stop_hook_output_style_row(
     separately calibrated; off likewise receives none. An explicit
     ``LEMONCROW_OUTPUT_STYLE_RATIO`` still overrides the default.
     """
-    if not session_id or stats.get("lemoncrow_tools_used") is False:
+    if not session_id:
         return
     try:
         ratio = float(os.environ.get("LEMONCROW_OUTPUT_STYLE_RATIO", str(_default_output_style_ratio())))
@@ -1994,11 +1976,7 @@ def credit_rtk_gain(
     tokens are credited exactly once across that project's sessions. Pricing
     resolves per model from ``stats``. ``LEMONCROW_RTK_GAIN_CREDIT=0`` disables.
     """
-    if (
-        not session_id
-        or stats.get("lemoncrow_tools_used") is False
-        or os.environ.get("LEMONCROW_RTK_GAIN_CREDIT", "1") == "0"
-    ):
+    if not session_id or os.environ.get("LEMONCROW_RTK_GAIN_CREDIT", "1") == "0":
         return
     import shutil
     import subprocess
@@ -2083,43 +2061,6 @@ def build_opencode_stop_output(root: str | Path, payload: dict[str, Any], *, hos
     verify = build_opencode_verify_output(root, normalized, host=host_name)
     continue_prompt = str(verify.get("reason") or "") if verify.get("decision") == "block" else ""
     state = update_session_stats(root, normalized)
-    from lemoncrow.core.capabilities.host_usage import opencode_usage_calls, persist_host_usage
-
-    if host_name == "lemoncode":
-        from lemoncrow.gateway.hosts.session_parsers.lemoncode import default_lemoncode_db_path
-
-        usage_db = default_lemoncode_db_path()
-    else:
-        from lemoncrow.core.capabilities.session_replay import _opencode_db_path
-
-        usage_db = _opencode_db_path() or Path.home() / ".local/share/opencode/opencode.db"
-    with suppress(OSError, ValueError, sqlite3.Error):
-        usage_calls = opencode_usage_calls(session_id, usage_db, host=host_name)
-        persist_host_usage(
-            root, host_name, session_id, usage_calls, workspace=_opencode_workspace_root(normalized, host=host_name)
-        )
-        if usage_calls:
-            usage_totals = {
-                key: sum(int(call.get(key) or 0) for call in usage_calls)
-                for key in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens")
-            }
-            state = update_session_stats(
-                root,
-                {
-                    "session_id": session_id,
-                    "hook_event_name": "StatuslineUpdate",
-                    "model": usage_calls[-1]["model"],
-                    "llm_turns": len(usage_calls),
-                    "context_window": {
-                        "current_usage": {
-                            "input_tokens": usage_totals["input_tokens"],
-                            "output_tokens": usage_totals["output_tokens"],
-                            "cache_read_input_tokens": usage_totals["cache_read_tokens"],
-                            "cache_creation_input_tokens": usage_totals["cache_write_tokens"],
-                        }
-                    },
-                },
-            )
     append_visible_session_turns(
         root,
         host=host_name,
@@ -2133,16 +2074,11 @@ def build_opencode_stop_output(root: str | Path, payload: dict[str, Any], *, hos
     raw_usage = state.get("usage")
     usage = raw_usage if isinstance(raw_usage, dict) else {}
     stop_stats = {
-        "lemoncrow_tools_used": any(
-            _is_lemoncrow_qualified_tool_name(name) and isinstance(count, (int, float)) and count > 0
-            for name, count in _as_dict(state.get("tools_used")).items()
-        ),
         "turns": state.get("turns"),
         "cache_read_tokens": usage.get("cache_read_tokens"),
         "output_tokens": usage.get("output_tokens"),
         "last_model": state.get("last_model") or state.get("model"),
     }
-    ensure_stop_hook_savings_sidecar(root, session_id, state.get("tools_used"), agent=host_name)
     write_stop_hook_turn_cut_row(root, session_id, stop_stats, agent=host_name)
     write_stop_hook_input_style_row(root, session_id, stop_stats, agent=host_name)
     # rtk external-compactor credit: fully host-agnostic (a subprocess probe, no
@@ -2233,67 +2169,6 @@ def build_codex_subagent_output(root: str | Path, payload: dict[str, Any]) -> di
     if event not in {"SubagentStart", "SubagentStop"}:
         return {"no_output": True}
     update_session_stats(root, payload)
-    if event == "SubagentStop":
-        _capture_codex_comment(root, payload)
-    return {"no_output": True}
-
-
-def build_codex_session_end_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
-    """Close a Codex session once, after Codex has flushed its transcript."""
-
-    event = str(payload.get("hook_event_name") or payload.get("event") or "")
-    if event != "SessionEnd":
-        return {"no_output": True}
-
-    update_session_stats(root, payload)
-    _apply_codex_transcript_snapshot(root, str(payload.get("session_id") or ""), payload)
-    _capture_codex_comment(root, payload)
-
-    session_id = str(payload.get("session_id") or "").strip()
-    if not session_id:
-        return {"no_output": True}
-
-    from lemoncrow.core.foundation.paths import find_session_dir, session_dir
-    from lemoncrow.core.foundation.run_file_io import RunFileLock, atomic_write_json
-
-    now = datetime.now(UTC).isoformat()
-    directory = find_session_dir(root, session_id) or session_dir(root, "codex", session_id)
-    run_file = directory / "run.json"
-    reason = str(payload.get("status") or payload.get("exit_reason") or payload.get("reason") or "").casefold()
-    status = "failed" if any(word in reason for word in ("fail", "error", "crash")) else "completed"
-    try:
-        with RunFileLock(run_file):
-            if run_file.exists():
-                data = json.loads(run_file.read_text(encoding="utf-8"))
-                if not isinstance(data, dict):
-                    data = {}
-            else:
-                data = {}
-            data.setdefault("session_id", session_id)
-            data.setdefault("agent", "codex")
-            workspace = str(payload.get("cwd") or payload.get("workspace") or "").strip()
-            if workspace:
-                data.setdefault("workspace_path", workspace)
-            data.setdefault("events", [])
-            data.setdefault("files_touched", [])
-            data.setdefault("created_at", now)
-            if str(data.get("status") or "").casefold() not in {"done", "completed", "failed", "error"}:
-                data["status"] = status
-                data["updated_at"] = now
-            else:
-                data.setdefault("updated_at", now)
-            run_file.parent.mkdir(parents=True, exist_ok=True)
-            atomic_write_json(run_file, data)
-    except (OSError, ValueError, TypeError, json.JSONDecodeError):
-        pass
-
-    state = _read_codex_session_state(root, payload)
-    current_session = str(state.get("session_id") or state.get("active_session_id") or "").strip()
-    if current_session == session_id:
-        state["activity"] = "idle"
-        state["ended"] = True
-        state.setdefault("ended_at", now)
-        _write_codex_session_state(root, payload, state)
     return {"no_output": True}
 
 
@@ -2435,22 +2310,6 @@ def _codex_tools_text(raw: Any, *, limit: int | None = None) -> str:
     return " · ".join(f"{name}×{count}" for name, count in top) if top else "none"  # noqa: RUF001
 
 
-def _capture_codex_comment(root: str | Path, payload: dict[str, Any]) -> None:
-    from lemoncrow.core.capabilities.session_comment_capture import capture_session_comment
-
-    normalized = dict(payload)
-    sid = str(payload.get("agent_id") or payload.get("subagent_id") or payload.get("session_id") or "")
-    if not (
-        normalized.get("agent_transcript_path") or normalized.get("transcript_path") or normalized.get("session_path")
-    ):
-        paths = [path for path in _codex_transcript_paths(payload, sid) if sid and sid in path.name]
-        if paths:
-            normalized["transcript_path"] = str(paths[0])
-    normalized.setdefault("cwd", _codex_workspace_root(payload))
-    with suppress(OSError, ValueError, TypeError):
-        capture_session_comment(root, normalized, host="codex")
-
-
 def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
     event = str(payload.get("hook_event_name") or payload.get("event") or "")
     if event != "Stop":
@@ -2473,7 +2332,6 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
         turns=[("assistant", key, text) for key, text in _codex_visible_reply_blocks(payload, session_id)],
         workspace=_codex_workspace_root(payload),
     )
-    _capture_codex_comment(root, payload)
     # Supplemental bench-calibrated savings rows (plugin-level logic; pricing
     # resolves per model). Written BEFORE build_savings_report so the fresh rows
     # land in the aggregate.
@@ -2481,16 +2339,11 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
         _codex_state = json.loads(session_stats_path(root, session_id).read_text(encoding="utf-8"))
         _codex_usage = _as_dict(_codex_state.get("usage"))
         _codex_row_stats = {
-            "lemoncrow_tools_used": any(
-                _is_lemoncrow_qualified_tool_name(name) and isinstance(count, (int, float)) and count > 0
-                for name, count in _as_dict(_codex_state.get("tools_used")).items()
-            ),
             "turns": _codex_state.get("turns"),
             "cache_read_tokens": _codex_usage.get("cache_read_tokens"),
             "output_tokens": _codex_usage.get("output_tokens"),
             "last_model": _codex_state.get("last_model") or _codex_state.get("model"),
         }
-        ensure_stop_hook_savings_sidecar(root, session_id, _codex_state.get("tools_used"), agent="codex")
         # Turn-cut credit is written to the ledger (the daily rollup reads it
         # from there); nothing here consumes the returned count.
         write_stop_hook_turn_cut_row(root, session_id, _codex_row_stats, agent="codex")
@@ -2520,6 +2373,9 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
     out = int(usage.get("output_tokens", 0) or 0)
     cache_read = int(usage.get("cache_read_tokens", 0) or 0)
     cache_write = int(usage.get("cache_write_tokens", 0) or 0)
+    reasoning_out = int(usage.get("reasoning_output_tokens", 0) or 0)
+    thinking = int(usage.get("thinking_tokens", 0) or 0)
+    visible_out = max(0, out - reasoning_out)
     total_tokens = inp + out + cache_read + cache_write
 
     if (
@@ -2541,37 +2397,50 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
     model = str(session.get("last_model") or session.get("model") or _codex_payload_model(payload) or "")
     real_cost = _codex_payload_cost_usd(payload) or statusline_cost
     estimated_cost = real_cost if real_cost > 0 else _codex_estimated_cost_usd(model, usage)
+    fresh_in = inp + cache_write
     tool_source = str(session.get("tool_call_source") or "hooks")
     turn_part = f"{llm_turns} LLM turn{'s' if llm_turns != 1 else ''}"
     if llm_turns <= 0 and prompt_turns > 0:
         turn_part += f" · {prompt_turns} prompt turn{'s' if prompt_turns != 1 else ''}"
     activity = f"{turn_part} · {total_tool_calls} tool call{'s' if total_tool_calls != 1 else ''} ({tool_source})"
 
-    lines = [activity]
-    token_part = (
-        f"(I:{_codex_fmt_tokens(inp + cache_write)} C:{_codex_fmt_tokens(cache_read)} O:{_codex_fmt_tokens(out)})"
-        if total_tokens > 0
-        else ""
-    )
-    cost_prefix = "cost: " if real_cost > 0 else "priced cost: ~"
-    lines.append(f"{cost_prefix}${estimated_cost:.4f}{token_part}")
-    # Match the statusline: carry is additional; output/routing are already in saved_usd.
-    total_saved = float(cost.get("total_saved_usd", saved_usd + carry_usd))
-    saved_parts = [f"I:{_codex_fmt_tokens(tokens_saved)}"]
-    if carry_usd >= 0.001:
-        saved_parts.append(f"K:{_codex_fmt_tokens(carry_tokens)}")
-    if output_saved_usd >= 0.001:
-        saved_parts.append(f"O:{_codex_fmt_tokens(output_saved_tokens)}")
-    if float(cost.get("input_saved_usd", 0.0) or 0.0) >= 0.001:
-        saved_parts.append(f"C:{_codex_fmt_tokens(int(cost.get('input_saved_tokens', 0) or 0))}")
+    lines = [
+        "lc session complete.",
+        activity,
+    ]
+    if total_tokens > 0:
+        lines.append(
+            "tokens: "
+            f"{_codex_fmt_tokens(fresh_in)} input ({_codex_fmt_tokens(inp)} new + {_codex_fmt_tokens(cache_write)} cW) / "
+            f"{_codex_fmt_tokens(cache_read)} cR / {_codex_fmt_tokens(out)} out  ({_codex_fmt_tokens(total_tokens)} total)"
+        )
+        output_parts = [
+            f"{_codex_fmt_tokens(reasoning_out)} reasoning",
+            f"{_codex_fmt_tokens(visible_out)} visible",
+        ]
+        if thinking > 0:
+            output_parts.append(f"{_codex_fmt_tokens(thinking)} thinking")
+        lines.append(
+            "token breakdown: "
+            f"new input {_codex_fmt_tokens(inp)} · cache read {_codex_fmt_tokens(cache_read)} · "
+            f"cache write {_codex_fmt_tokens(cache_write)} · output {_codex_fmt_tokens(out)} "
+            f"({', '.join(output_parts)})"
+        )
+    cost_prefix = "cost: " if real_cost > 0 else "est. cost: ~"
+    lines.append(f"{cost_prefix}${estimated_cost:.4f}")
+    # Component set/suppression/carry-format mirror Claude Code's stop hook
+    # exactly: Output/Carry/Routing are omitted when exactly $0 (Codex used to
+    # always show routing/carry even at $0.0000, and never showed Output at
+    # all); the headline total and calls-avoided always show.
+    savings_line = f"savings: {_fmt_usd(saved_usd)} · {_codex_fmt_tokens(tokens_saved)} tokens saved · {calls_avoided} calls avoided"
+    if output_saved_usd > 0:
+        out_tok = f"/{_codex_fmt_tokens(output_saved_tokens)} tok" if output_saved_tokens > 0 else ""
+        savings_line += f" · O {_fmt_usd(output_saved_usd)}{out_tok}"
+    if carry_usd > 0:
+        carry_tok = f"/{_codex_fmt_tokens(carry_tokens)} tok" if carry_tokens > 0 else ""
+        savings_line += f" · carry {_fmt_usd(carry_usd)}{carry_tok}"
     if routing_saved_usd > 0:
-        saved_parts.append(f"R:{_fmt_usd(routing_saved_usd)}")
-    baseline = estimated_cost + total_saved
-    reduction = 100.0 * total_saved / baseline if baseline > 0 else 0.0
-    savings_line = (
-        f"est. LC savings: {_fmt_usd(total_saved)}({' '.join(saved_parts)})"
-        f" · ~{reduction:.1f}% lower · {calls_avoided} calls avoided"
-    )
+        savings_line += f" · routing {_fmt_usd(routing_saved_usd)}"
     from lemoncrow.core.capabilities.savings_summary import estimate_time_saved_seconds, fmt_duration
 
     _faster_s = estimate_time_saved_seconds(calls_avoided=calls_avoided, output_saved_tokens=output_saved_tokens)
@@ -2581,6 +2450,14 @@ def build_codex_stop_output(root: str | Path, payload: dict[str, Any]) -> dict[s
     if compactions > 0:
         lines.append(f"compactions: {compactions}")
     lines.append(f"tools: {_codex_tools_text(session.get('tools_used'))}")
+    # Codex has no rotating statusline, so show only the frame selected for
+    # this Stop event; the permanent session-savings lines already cover frame 0.
+    with suppress(Exception):
+        from lemoncrow.core.capabilities.savings_summary import dynamic_status_line
+
+        dynamic_line = dynamic_status_line(session_id, lemoncrow_root=root)
+        if dynamic_line:
+            lines.append(dynamic_line)
     return {"systemMessage": "\n".join(lines), "report": report}
 
 
@@ -3940,15 +3817,6 @@ def _codex_transcript_paths(payload: dict[str, Any], session_id: str) -> list[Pa
     return paths[:20]
 
 
-def _codex_exec_tool_names(source: str) -> list[str]:
-    """Recover direct exec invocations, inferred from source rather than runtime events."""
-    tokens = re.finditer(
-        r"""//[^\n]*|/\*[\s\S]*?\*/|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|\x60(?:\\.|[^\x60\\])*\x60|\btools\.([A-Za-z_$][\w$]*)\s*\(""",
-        source,
-    )
-    return [match.group(1) for match in tokens if match.group(1)]
-
-
 def _codex_transcript_snapshot(path: Path) -> dict[str, Any]:
     snapshot: dict[str, Any] = {
         "session_id": "",
@@ -3959,7 +3827,6 @@ def _codex_transcript_snapshot(path: Path) -> dict[str, Any]:
         "tools_used": {},
         "total_tool_calls": 0,
         "current_turn_context_tokens": 0,
-        "calls": [],
     }
     latest_usage: dict[str, Any] = {}
     # Bounded per-turn context size (this turn's input_tokens, which already
@@ -3971,7 +3838,6 @@ def _codex_transcript_snapshot(path: Path) -> dict[str, Any]:
     latest_turn_context = 0
     llm_turns = 0
     previous_total_signature: tuple[int, int, int, int] | None = None
-    previous_usage: dict[str, Any] = {}
     previous_unidentified_event = ""
     seen_event_ids: set[str] = set()
     tools_used: dict[str, int] = {}
@@ -4028,10 +3894,6 @@ def _codex_transcript_snapshot(path: Path) -> dict[str, Any]:
                 name = str(payload.get("name") or "custom_tool").strip()
                 if name:
                     tools_used[name] = int(tools_used.get(name, 0) or 0) + 1
-                    if name in {"exec", "functions.exec"}:
-                        for nested_name in _codex_exec_tool_names(str(payload.get("input") or "")):
-                            tools_used[nested_name] = tools_used.get(nested_name, 0) + 1
-                            snapshot["inferred_exec_tools"] = True
             continue
         if event.get("type") != "event_msg":
             continue
@@ -4071,25 +3933,6 @@ def _codex_transcript_snapshot(path: Path) -> dict[str, Any]:
             if not _usage_has_tokens(last_numbers) and _usage_has_tokens(total_numbers):
                 if previous_total_signature is None or total_signature != previous_total_signature:
                     llm_turns += 1
-            if total_signature != previous_total_signature:
-                numbers = {
-                    key: max(0, int(total_numbers.get(key) or 0) - int(previous_usage.get(key) or 0))
-                    for key in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens")
-                }
-                numbers["input_tokens"] = max(0, numbers["input_tokens"] - numbers["cache_read_tokens"])
-                if _usage_has_tokens(numbers):
-                    snapshot["calls"].append(
-                        {
-                            **numbers,
-                            "model": snapshot["model"],
-                            "operation": "codex.token_count",
-                            "source_id": event_id
-                            or hashlib.sha256(json.dumps(total_signature).encode()).hexdigest()[:24],
-                            "at": event.get("timestamp")
-                            or datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).isoformat(),
-                        }
-                    )
-                previous_usage = total_numbers
             previous_total_signature = total_signature
 
     total_numbers = _usage_numbers(latest_usage)
@@ -4134,8 +3977,9 @@ def _apply_codex_transcript_snapshot(root: str | Path, session_id: str, payload:
         if session_id and transcript_session_id == session_id:
             best = snapshot
             break
-        if not transcript_session_id and payload.get("transcript_path") and transcript_cwd == wanted_cwd:
+        if wanted_cwd and transcript_cwd == wanted_cwd:
             best = snapshot
+            break
     usage = _as_dict(best.get("usage"))
     if not _usage_has_tokens(usage):
         return
@@ -4163,17 +4007,11 @@ def _apply_codex_transcript_snapshot(root: str | Path, session_id: str, payload:
     if tools_used:
         status_payload["tools_used"] = tools_used
         status_payload["total_tool_calls"] = int(best.get("total_tool_calls", 0) or 0)
-        status_payload["tool_call_source"] = (
-            "transcript; nested calls inferred" if best.get("inferred_exec_tools") else "transcript"
-        )
+        status_payload["tool_call_source"] = "transcript"
     current_turn_ctx = int(best.get("current_turn_context_tokens", 0) or 0)
     if current_turn_ctx > 0:
         status_payload["current_turn_context_tokens"] = current_turn_ctx
     update_session_stats(root, status_payload)
-    from lemoncrow.core.capabilities.host_usage import persist_host_usage
-
-    with suppress(OSError, ValueError, TypeError):
-        persist_host_usage(root, "codex", session_id, best.get("calls") or [], workspace=wanted_cwd)
 
 
 def _append_session_event(root: str | Path, session_id: str, payload: dict[str, Any]) -> None:
@@ -4283,6 +4121,91 @@ def _normalize_spawn_summary_payload(raw: Any) -> dict[str, Any]:
             str(key): max(0, int(value or 0)) for key, value in host_dropped_fields.items() if str(key).strip()
         }
     return result
+
+
+def optional_usage_log_path(root: str | Path) -> Path:
+    """Append-only log of optional (non-default) agent/skill invocations.
+
+    One JSON line per use: ``{"kind": "agent"|"skill", "name": ..., "at_ms": ...}``.
+    Backs the staleness nudge (Claude statusline tip, OpenCode prompt-time
+    plugin, `lc stale-nudge`): the only durable record of "when was this
+    last used" -- session stats are per-session and don't survive across
+    sessions, and nothing else in the codebase tracks this granularity.
+    """
+    return Path(root) / "optional_usage.jsonl"
+
+
+def record_optional_use(root: str | Path, kind: str, name: str, at_ms: int) -> None:
+    """Append one usage event. Fail-open: never let logging break the caller."""
+    path = optional_usage_log_path(root)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"kind": kind, "name": name, "at_ms": at_ms}) + "\n")
+    except OSError:
+        pass
+
+
+def last_optional_use_ms(root: str | Path, kind: str, name: str) -> int | None:
+    """Most recent ``at_ms`` recorded for (kind, name), or None if never used."""
+    path = optional_usage_log_path(root)
+    if not path.exists():
+        return None
+    last: int | None = None
+    try:
+        with path.open(encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if row.get("kind") == kind and row.get("name") == name:
+                    at_ms = row.get("at_ms")
+                    if isinstance(at_ms, int) and (last is None or at_ms > last):
+                        last = at_ms
+    except OSError:
+        return None
+    return last
+
+
+def _optional_usage_event(event: str, payload: dict[str, Any]) -> tuple[str, str] | None:
+    """Return ("agent"|"skill", name) if this hook event is use of an optional
+    (non-default) LemonCrow agent role or skill; else None.
+
+    Two agent-dispatch shapes are handled: a native ``SubagentStart`` event
+    (``agent_type`` on the payload) and a ``PostToolUse`` event for the
+    ``Agent`` tool (``subagent_type`` in ``tool_input`` -- how subagent
+    dispatch is reported by hosts without a distinct SubagentStart event; see
+    test_session_telemetry_tracks_usage_compaction_and_subagents). The
+    default role (``code``) and default skill (``lemoncrow``) never match --
+    callers never nudge about either.
+    """
+    from lemoncrow.core.capabilities.default_definitions import DEFAULT_ROLE_IDS, SURFACED_ROLE_IDS
+    from lemoncrow.core.environment import DEFAULT_SKILLS
+
+    agent_type = ""
+    if event == "SubagentStart":
+        agent_type = str(payload.get("agent_type") or "")
+    elif event == "PostToolUse" and str(payload.get("tool_name") or "") == "Agent":
+        tool_input = payload.get("tool_input")
+        if isinstance(tool_input, dict):
+            agent_type = str(tool_input.get("subagent_type") or "")
+    if agent_type:
+        role_id = agent_type.split(":", 1)[1] if ":" in agent_type else agent_type
+        if role_id in SURFACED_ROLE_IDS and role_id not in DEFAULT_ROLE_IDS:
+            return "agent", role_id
+        return None
+
+    if event == "PostToolUse" and str(payload.get("tool_name") or "") == "Skill":
+        tool_input = payload.get("tool_input")
+        raw = str(tool_input.get("skill") or "") if isinstance(tool_input, dict) else ""
+        name = raw.split(":", 1)[1] if ":" in raw else raw
+        if name and name not in DEFAULT_SKILLS:
+            return "skill", name
+    return None
 
 
 def update_session_stats(root: str | Path, payload: dict[str, Any]) -> dict[str, Any]:
@@ -4447,6 +4370,9 @@ def update_session_stats(root: str | Path, payload: dict[str, Any]) -> dict[str,
         state["completed"] = True
     elif event == "Stop":
         state["completed"] = True
+    usage_event = _optional_usage_event(event, payload)
+    if usage_event is not None:
+        record_optional_use(root, usage_event[0], usage_event[1], int(state["last_event_at_ms"]))
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(state, indent=2), encoding="utf-8")
     _append_session_event(root, session_id, payload)
@@ -4779,9 +4705,6 @@ def build_savings_report(
 
     cost = {
         "saved_usd": round(saved_usd, 6),
-        "total_saved_usd": round(summary.total_saved_usd if session_id else saved_usd + carry_usd, 6),
-        "input_saved_usd": round(summary.input_saved_usd if session_id else 0.0, 6),
-        "input_saved_tokens": int(summary.input_saved_tokens) if session_id else 0,
         "live_saved_usd": round(saved_usd, 6),
         "routing_saved_usd": round(routing_saved_usd, 6),
         "carry_usd": round(carry_usd, 6),

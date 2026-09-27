@@ -30,18 +30,15 @@ from __future__ import annotations
 
 import base64
 import gzip
-import time
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final
+from typing import Any, Final
 
 from .errors import AgentAction, ClientError, ErrorCode
 from .manifest import ManifestChunk, ManifestEntry, profile_for_path, sha256_hex
+from .state import SessionState
 from .transport import HttpTransport
-
-if TYPE_CHECKING:
-    from .state import SessionState
 
 __all__ = ["BlobService", "PushReport"]
 
@@ -49,10 +46,6 @@ __all__ = ["BlobService", "PushReport"]
 _ENCODING_OVERHEAD: Final[float] = 1.40
 #: Below this, gzip costs more than it saves on a source file.
 _MIN_COMPRESS_BYTES: Final[int] = 512
-#: How long a write refused only because a server read pins its WAL is retried.
-#: The server refuses such writes at once when it runs them on its event loop
-#: (waiting there would stall every request), so the waiting happens here.
-_WAL_BACKOFF_S: Final[float] = 2.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,7 +169,6 @@ class BlobService:
         payloads: Mapping[str, tuple[bytes, str]],
         *,
         timeout_s: float | None = None,
-        completion_check: bool = True,
     ) -> tuple[int, int]:
         """Upload in-memory content for a virtual or snapshot view.
 
@@ -207,7 +199,7 @@ class BlobService:
             batch_bytes += encoded
             plaintext += len(data)
         if batch:
-            stored += self._flush(batch, timeout_s=timeout_s, completion_check=completion_check)
+            stored += self._flush(batch, timeout_s=timeout_s, completion_check=True)
         return stored, plaintext
 
     def _flush(
@@ -220,7 +212,9 @@ class BlobService:
         body: dict[str, Any] = {"blobs": batch}
         if completion_check is not None:
             body["completion_check"] = completion_check
-        payload = self._write("/v1/blobs", body, self._auth(with_revision=False), timeout_s)
+        payload = self._transport.post(
+            "/v1/blobs", body=body, headers=self._auth(with_revision=False), timeout_s=timeout_s
+        ).require()
         # A successful idempotent upload means every digest in the batch is now
         # addressable by this session whether it was newly stored or already
         # present. Remember that fact to avoid a future /missing round trip.
@@ -237,7 +231,6 @@ class BlobService:
         contents: Mapping[str, bytes],
         *,
         removed_paths: Sequence[str] = (),
-        timeout_s: float | None = None,
     ) -> PushReport:
         """Pin an already-read source snapshot into the bound View.
 
@@ -255,16 +248,10 @@ class BlobService:
             )
 
         entries: list[ManifestEntry] = []
-        removed = list(dict.fromkeys(removed_paths))
-        removed_set = set(removed)
+        removed: list[str] = []
         payloads: dict[str, tuple[str, bytes]] = {}
         skipped_oversize = 0
         for relative, data in contents.items():
-            # Review packets represent a deleted file with an empty new-side
-            # blob. Explicit snapshot deletion is authoritative: never turn
-            # that placeholder into a real zero-byte overlay entry.
-            if relative in removed_set:
-                continue
             digest = sha256_hex(data)
             current = self._state.known.get(relative)
             if current is not None and current.content_digest == digest:
@@ -283,10 +270,14 @@ class BlobService:
             else:
                 skipped_oversize += 1
 
+        for relative in dict.fromkeys(removed_paths):
+            if relative in self._state.known:
+                removed.append(relative)
+
         uploaded = 0
         sent = 0
         if payloads:
-            missing = self._missing(tuple(payloads), timeout_s=timeout_s)
+            missing = self._missing(tuple(payloads))
             batch: list[dict[str, Any]] = []
             batch_bytes = 0
             for digest in missing:
@@ -300,7 +291,7 @@ class BlobService:
                     len(batch) >= self._state.max_blobs_per_request
                     or batch_bytes + encoded > self._state.max_request_bytes
                 ):
-                    uploaded += self._flush(batch, timeout_s=timeout_s, completion_check=False)
+                    uploaded += self._flush(batch, completion_check=False)
                     batch, batch_bytes = [], 0
                 batch.append(blob)
                 batch_bytes += encoded
@@ -308,12 +299,12 @@ class BlobService:
             if batch:
                 # Snapshot metadata is committed only after these bytes, so its
                 # overlay commit owns the authoritative completion check.
-                uploaded += self._flush(batch, timeout_s=timeout_s, completion_check=False)
+                uploaded += self._flush(batch, completion_check=False)
 
         revision = self._state.view_revision
         overlaid = 0
         for window in _windows(entries, removed, self._state.max_overlay_entries):
-            revision = self._commit(window[0], window[1], timeout_s=timeout_s)
+            revision = self._commit(window[0], window[1])
             overlaid += len(window[0])
         for entry in entries:
             self._state.known[entry.path] = entry
@@ -351,8 +342,6 @@ class BlobService:
             )
         unique_entries = tuple({entry.path: entry for entry in entries}.values())
         removed = tuple(dict.fromkeys(removed_paths))
-        if not unique_entries and not removed:
-            return PushReport(0, 0, 0, 0, self._state.view_revision)
         uploaded = 0
         sent = 0
         skipped_oversize = sum(entry.size > self._state.content_size_cap for entry in unique_entries)
@@ -372,10 +361,10 @@ class BlobService:
         revision = self._state.view_revision
         overlaid = 0
         for window in _windows(unique_entries, removed, self._state.max_overlay_entries):
-            revision = self._commit(window[0], window[1], timeout_s=timeout_s)
+            revision = self._commit(window[0], window[1])
             overlaid += len(window[0])
         if upload_content and uploadable:
-            missing = self._missing(tuple(uploadable), timeout_s=timeout_s)
+            missing = self._missing(tuple(uploadable))
             if missing:
                 uploaded, sent = self.upload_digests(missing, uploadable, timeout_s=timeout_s)
         for entry in unique_entries:
@@ -391,16 +380,13 @@ class BlobService:
             skipped_oversize=skipped_oversize,
         )
 
-    def push_paths(self, paths: Sequence[str], *, trust_cache: bool = True) -> PushReport:
+    def push_paths(self, paths: Sequence[str]) -> PushReport:
         """Make the server's view current for ``paths``. The one write path.
 
         ``edit`` calls it with what it wrote; the blob-miss handler calls it
         with what the server asked for. Both need exactly the same thing --
         content uploaded, then an overlay revision committed -- so there is one
         implementation and one place where the revision advances.
-
-        ``trust_cache=False`` asks the server about every digest instead of
-        skipping the ones this process remembers it acknowledging.
         """
         if not self._state.view_bound:
             raise ClientError(
@@ -440,7 +426,7 @@ class BlobService:
 
         uploaded, sent = (0, 0)
         if sources:
-            missing = self._missing(tuple(sources), trust_cache=trust_cache)
+            missing = self._missing(tuple(sources))
             if missing:
                 uploaded, sent = self.upload_digests(missing, sources)
 
@@ -460,13 +446,7 @@ class BlobService:
             skipped_oversize=oversize,
         )
 
-    def _commit(
-        self,
-        entries: Sequence[ManifestEntry],
-        removed: Sequence[str],
-        *,
-        timeout_s: float | None = None,
-    ) -> int:
+    def _commit(self, entries: Sequence[ManifestEntry], removed: Sequence[str]) -> int:
         """One overlay write. Optimistic on revision, monotonic on ``client_seq``."""
         client_seq = self._state.next_seq()
         body = {
@@ -479,7 +459,7 @@ class BlobService:
         headers = self._auth(with_revision=False)
         replayed = False
         try:
-            payload = self._write(path, body, headers, timeout_s)
+            payload = self._transport.post(path, body=body, headers=headers).require()
         except ClientError as exc:
             if exc.code is not ErrorCode.SERVER_UNREACHABLE:
                 raise
@@ -496,7 +476,7 @@ class BlobService:
                 from_revision=self._state.view_revision,
             )
             try:
-                payload = self._write(path, body, headers, timeout_s)
+                payload = self._transport.post(path, body=body, headers=headers).require()
             except ClientError as retry_exc:
                 self._state.record_recovery(
                     "write_replay",
@@ -550,76 +530,15 @@ class BlobService:
                 details={"requested": len(need)},
                 action=AgentAction.ABANDON,
             )
-        # The server just said it lacks this content, which outranks this
-        # process's memory of having uploaded it: a digest acknowledged before a
-        # server restart or blob collection would otherwise be skipped here, and
-        # the retry refused as ``blob_missing`` with nothing ever re-sent.
-        return self.push_paths(safe, trust_cache=False)
-
-    def unfillable(self, need: Sequence[str]) -> dict[str, str]:
-        """The requested paths no fill can satisfy, each mapped to why.
-
-        :meth:`push_paths` uploads regular files only, so for a path that is
-        absent here, a directory, a symlink or a special file the fill changes
-        nothing and the retry is refused as ``blob_missing`` -- which sends the
-        agent to re-sync a workspace that is already in sync, when the real fix
-        is its argument. Unsafe paths are left to :meth:`fill` to refuse.
-        """
-        out: dict[str, str] = {}
-        for path in need:
-            if not _safe_relative(path):
-                continue
-            target = self._repo_root / path
-            try:
-                if target.is_symlink():
-                    out[path] = "symlink"
-                elif target.is_dir():
-                    out[path] = "directory"
-                elif not target.exists():
-                    out[path] = "absent"
-                elif not target.is_file():
-                    out[path] = "special"
-            except OSError:
-                # Unknowable from here; let the fill try and the server decide.
-                continue
-        return out
+        return self.push_paths(safe)
 
     # -- helpers -------------------------------------------------------- #
-
-    def _write(
-        self, path: str, body: Mapping[str, Any], headers: Mapping[str, str], timeout_s: float | None
-    ) -> Mapping[str, Any]:
-        """POST one sync write, waiting out a server read that pins its WAL.
-
-        That refusal happens before the write begins, so the identical request
-        (same ``client_seq``) is safe to send again. Bounded; then it escapes.
-        """
-        deadline = time.monotonic() + _WAL_BACKOFF_S
-        delay = 0.1
-        while True:
-            try:
-                return self._transport.post(path, body=body, headers=dict(headers), timeout_s=timeout_s).require()
-            except ClientError as exc:
-                pinned = exc.code is ErrorCode.STORAGE_LIMIT and exc.retryable and exc.details.get("kind") == "wal"
-                remaining = deadline - time.monotonic()
-                if not pinned or remaining <= 0:
-                    raise
-                time.sleep(min(delay, remaining))
-                delay = min(delay * 2, 0.8)
 
     def outstanding(self, digests: Sequence[str]) -> tuple[str, ...]:
         return self._missing(digests)
 
-    def _missing(
-        self,
-        digests: Sequence[str],
-        *,
-        timeout_s: float | None = None,
-        trust_cache: bool = True,
-    ) -> tuple[str, ...]:
-        unknown = tuple(
-            dict.fromkeys(digest for digest in digests if not (trust_cache and self._state.server_has_digest(digest)))
-        )
+    def _missing(self, digests: Sequence[str]) -> tuple[str, ...]:
+        unknown = tuple(dict.fromkeys(digest for digest in digests if not self._state.server_has_digest(digest)))
         if not unknown:
             return ()
         limit = max(1, self._state.max_blobs_per_request)
@@ -630,7 +549,6 @@ class BlobService:
                 f"/v1/views/{self._state.view_id}/missing",
                 body={"digests": list(window)},
                 headers=self._auth(with_revision=False),
-                timeout_s=timeout_s,
             ).require()
             raw = answer.get("missing_digests")
             window_missing = tuple(str(entry) for entry in raw) if isinstance(raw, list) else ()

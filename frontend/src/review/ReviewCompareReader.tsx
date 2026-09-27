@@ -1,6 +1,3 @@
-import { Button as UiButton } from "../components/ui/button";
-import { Input as UiInput } from "../components/ui/input";
-import { ToggleGroup } from "../components/ui/toggle-group";
 import { ArrowLeft, ArrowRight, GitCompareArrows } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
@@ -9,6 +6,7 @@ import "./reviewUi.css";
 import type { DiffStyle } from "./diffModel";
 import ReviewStream from "./ReviewStream";
 import { fetchSourceComparison, reviewDirectoryHref, reviewHref, sourceCompareHref } from "./reviewApi";
+import { useReviewDropdownDismissal } from "./useReviewDropdownDismissal";
 import type { FileDetail, ReviewTarget, SourceComparison } from "./types";
 
 function decodeCompareSpec(raw: string): { from: string; to: string } {
@@ -51,21 +49,16 @@ function fileTarget(path: string, additions: number, deletions: number): ReviewT
 }
 
 export default function ReviewCompareReader() {
+  useReviewDropdownDismissal();
   const params = useParams<{ "*": string; reviewRef?: string }>();
   const wildcard = params["*"] ?? "";
   const scopedReviewRef = params.reviewRef ?? "";
-  const [searchParams] = useSearchParams();
   const rawRoutePair = useMemo(() => decodeCompareSpec(wildcard), [wildcard]);
-  const queryPair = useMemo(() => {
-    const hasQueryPair = searchParams.has("from") || searchParams.has("to");
-    return hasQueryPair
-      ? { from: searchParams.get("from") ?? "", to: searchParams.get("to") ?? "" }
-      : null;
-  }, [searchParams]);
   const routePair = useMemo(() => scopedReviewRef
     ? { from: `rr/${rawRoutePair.from}`, to: `rr/${rawRoutePair.to}` }
-    : queryPair ?? rawRoutePair, [queryPair, rawRoutePair, scopedReviewRef]);
+    : rawRoutePair, [rawRoutePair, scopedReviewRef]);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const scope = scopedReviewRef ? `r/${scopedReviewRef}` : (searchParams.get("scope") ?? "");
   const [fromInput, setFromInput] = useState(routePair.from);
   const [toInput, setToInput] = useState(routePair.to);
@@ -81,8 +74,6 @@ export default function ReviewCompareReader() {
     setToInput(routePair.to);
     if (!routePair.from || !routePair.to) {
       setComparison(null);
-      // An in-flight comparison for the previous URL no longer clears this.
-      setLoading(false);
       setError("Comparison URL must contain two source specs separated by '..'.");
       return;
     }
@@ -149,72 +140,71 @@ export default function ReviewCompareReader() {
   };
 
   return (
-    <div className="flex h-screen min-h-0 flex-col bg-background text-foreground">
-      <header className="shrink-0 border-b border-border bg-background/95 px-3 py-2">
+    <div className="flex h-screen min-h-0 flex-col bg-neutral-950 text-neutral-200">
+      <header className="shrink-0 border-b border-neutral-800 bg-neutral-950/95 px-3 py-2">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <UiButton variant="ghost" size="icon" type="button" onClick={goBack} className="h-8 w-8" aria-label="Back" tooltip="Back">
+          <button type="button" onClick={goBack} className="review-icon-button h-8 w-8" aria-label="Back" title="Back">
             <ArrowLeft size={14} aria-hidden="true" />
-          </UiButton>
-          <GitCompareArrows size={16} className="shrink-0 text-cyan-300" aria-hidden="true" />
-          <span className="shrink-0 text-label font-semibold text-foreground">Compare</span>
-          <UiInput
-            uiSize="xs"
+          </button>
+          <GitCompareArrows size={15} className="shrink-0 text-sky-300" aria-hidden="true" />
+          <span className="shrink-0 text-[11px] font-semibold text-neutral-200">Compare</span>
+          <input
             aria-label="Compare from source"
             value={fromInput}
             onChange={(event) => setFromInput(event.currentTarget.value)}
             onKeyDown={(event) => { if (event.key === "Enter") runCompare(); }}
-            className="min-w-[180px] flex-1 font-mono text-meta"
+            className="review-field h-8 min-w-[180px] flex-1 font-mono text-[10px]"
             placeholder="git/HEAD~1 or rr/<revision-id>"
             spellCheck={false}
           />
-          <ArrowRight size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />
-          <UiInput
-            uiSize="xs"
+          <ArrowRight size={13} className="shrink-0 text-neutral-600" aria-hidden="true" />
+          <input
             aria-label="Compare to source"
             value={toInput}
             onChange={(event) => setToInput(event.currentTarget.value)}
             onKeyDown={(event) => { if (event.key === "Enter") runCompare(); }}
-            className="min-w-[180px] flex-1 font-mono text-meta"
+            className="review-field h-8 min-w-[180px] flex-1 font-mono text-[10px]"
             placeholder="git/HEAD, worktree, index, rr/<revision-id>"
             spellCheck={false}
           />
-          <UiButton variant="solid" type="button" onClick={runCompare} className="h-8 px-3">Compare</UiButton>
-          <ToggleGroup
-            variant="segment"
-            aria-label="Diff layout"
-            className="ml-1"
-            value={diffStyle}
-            onChange={(next) => setDiffStyle(next as DiffStyle)}
-            options={[
-              { value: "split", label: "Split" },
-              { value: "unified", label: "Unified" },
-            ]}
-          />
+          <button type="button" onClick={runCompare} className="review-toolbar-button-primary h-8">Compare</button>
+          <div className="review-segment ml-1" role="group" aria-label="Diff layout">
+            {(["split", "unified"] as const).map((style) => (
+              <button
+                key={style}
+                type="button"
+                onClick={() => setDiffStyle(style)}
+                className={`review-segment-button capitalize ${diffStyle === style ? "review-segment-button-active" : ""}`}
+              >
+                {style}
+              </button>
+            ))}
+          </div>
         </div>
         {comparison && (
-          <div className="mt-1.5 flex items-center gap-2 pl-10 text-caption text-muted-foreground">
-            <span className="font-mono text-muted-foreground">{comparison.from.label}</span>
-            <ArrowRight size={14} aria-hidden="true" />
-            <span className="font-mono text-subtle">{comparison.to.label}</span>
-            <span className="ml-auto">{comparison.summary.files} files · <span className="text-emerald-400">+{comparison.summary.additions}</span> <span className="text-red-400">-{comparison.summary.deletions}</span></span>
+          <div className="mt-1.5 flex items-center gap-2 pl-10 text-[10px] text-neutral-600">
+            <span className="font-mono text-neutral-400">{comparison.from.label}</span>
+            <ArrowRight size={10} aria-hidden="true" />
+            <span className="font-mono text-neutral-300">{comparison.to.label}</span>
+            <span className="ml-auto">{comparison.summary.files} files · <span className="text-emerald-400">+{comparison.summary.additions}</span> <span className="text-rose-400">-{comparison.summary.deletions}</span></span>
           </div>
         )}
       </header>
 
-      {loading && <div className="px-4 py-3 text-label text-muted-foreground" role="status">Comparing sources…</div>}
+      {loading && <div className="px-4 py-3 text-[11px] text-neutral-500" role="status">Comparing sources…</div>}
       {error && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-red-900/50 bg-red-950/15 px-4 py-3 text-label text-red-300" role="alert">
+        <div className="flex flex-wrap items-center gap-2 border-b border-rose-900/50 bg-rose-950/15 px-4 py-3 text-[11px] text-rose-300" role="alert">
           <span className="min-w-0 flex-1 break-words">{error}</span>
           {routePair.from && routePair.to && (
-            <UiButton type="button" onClick={() => setAttempt((value) => value + 1)} className="h-7">Retry</UiButton>
+            <button type="button" onClick={() => setAttempt((value) => value + 1)} className="review-toolbar-button h-7">Retry</button>
           )}
           {scopedReviewRef && (
-            <UiButton type="button" onClick={() => navigate(reviewHref(scopedReviewRef))} className="h-7">Back to review</UiButton>
+            <button type="button" onClick={() => navigate(reviewHref(scopedReviewRef))} className="review-toolbar-button h-7">Back to review</button>
           )}
         </div>
       )}
       {!loading && !error && comparison && comparison.files.length === 0 && (
-        <div className="px-4 py-10 text-center text-body text-muted-foreground">No source differences between these snapshots.</div>
+        <div className="px-4 py-10 text-center text-[12px] text-neutral-500">No source differences between these snapshots.</div>
       )}
       {!loading && !error && comparison && comparison.files.length > 0 && (
         <div className="min-h-0 flex-1">

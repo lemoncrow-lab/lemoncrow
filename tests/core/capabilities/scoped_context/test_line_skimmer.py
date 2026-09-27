@@ -22,7 +22,31 @@ from lemoncrow.pro.capabilities.scoped_context.line_skimmer import (
     skim_chunks,
 )
 
-_CHUNK_BODY = 'import os\nimport logging\n\n\nclass PaymentGateway:\n    def __init__(self, client):\n        self.client = client\n        self.audit_log = []\n\n    def charge_card(self, amount, currency):\n        # validate the payment amount before charging the card\n        if amount <= 0:\n            raise ValueError("amount must be positive")\n        receipt = self.client.charge(amount, currency)\n        self.audit_log.append(receipt)\n        return receipt\n\n    def render_dashboard_widget(self):\n        colors = ["red", "green", "blue"]\n        layout = compute_grid_layout(colors)\n        return layout\n'
+# A chunk body mixing goal-relevant lines, irrelevant noise, and anchors.
+_CHUNK_BODY = """\
+import os
+import logging
+
+
+class PaymentGateway:
+    def __init__(self, client):
+        self.client = client
+        self.audit_log = []
+
+    def charge_card(self, amount, currency):
+        # validate the payment amount before charging the card
+        if amount <= 0:
+            raise ValueError("amount must be positive")
+        receipt = self.client.charge(amount, currency)
+        self.audit_log.append(receipt)
+        return receipt
+
+    def render_dashboard_widget(self):
+        colors = ["red", "green", "blue"]
+        layout = compute_grid_layout(colors)
+        return layout
+"""
+
 _GOAL = "fix the charge card payment amount validation"
 
 
@@ -101,18 +125,28 @@ def _relevant_lines(text: str) -> list[str]:
     return [line.strip() for line in text.splitlines() if line.strip()]
 
 
-def test_line_skimmer_helpers_contract() -> None:
-    """case: test_is_line_skim_enabled_default_off"""
+# --- unit: helpers ----------------------------------------------------------
+
+
+def test_is_line_skim_enabled_default_off() -> None:
     assert is_line_skim_enabled(env={}) is False
     assert is_line_skim_enabled(env={"LEMONCROW_LINE_SKIM": "1"}) is True
     assert is_line_skim_enabled(env={"LEMONCROW_LINE_SKIM": "0"}) is False
-    "case: test_build_goal_text_combines_fields"
-    sub = Subtask(description="fix validation", keywords=["charge", "card"], affected_paths=["src/pay.py"])
+
+
+def test_build_goal_text_combines_fields() -> None:
+    sub = Subtask(
+        description="fix validation",
+        keywords=["charge", "card"],
+        affected_paths=["src/pay.py"],
+    )
     goal = build_goal_text(sub)
     assert "fix validation" in goal
     assert "charge" in goal and "card" in goal
     assert "src/pay.py" in goal
-    "case: test_structural_anchor_detection"
+
+
+def test_structural_anchor_detection() -> None:
     assert is_structural_anchor("def charge_card(self):")
     assert is_structural_anchor("    class Foo:")
     assert is_structural_anchor("@decorator")
@@ -121,46 +155,64 @@ def test_line_skimmer_helpers_contract() -> None:
     assert not is_structural_anchor("")
 
 
-def test_lexical_skimming_contract() -> None:
-    """case: test_lexical_skim_keeps_relevant_and_anchors_drops_noise"""
-    skimmer = LineSkimmer(ranker=None)
+# --- unit: lexical skim (no embedding model) --------------------------------
+
+
+def test_lexical_skim_keeps_relevant_and_anchors_drops_noise() -> None:
+    skimmer = LineSkimmer(ranker=None)  # no embedding model -> lexical fallback
     result = skimmer.skim(_CHUNK_BODY, _GOAL)
+
     assert result.used_embedding is False
     assert result.changed
     assert result.dropped_lines > 0
     assert result.kept_lines == result.total_lines - result.dropped_lines
+
     kept = _relevant_lines(result.text)
+    # Structural anchors always survive so the output stays parseable.
     assert "class PaymentGateway:" in kept
     assert "def charge_card(self, amount, currency):" in kept
     assert "def render_dashboard_widget(self):" in kept
+    # Goal-relevant lines survive.
     assert any("amount must be positive" in line for line in kept)
     assert any("validate the payment amount" in line for line in kept)
+    # Irrelevant noise beyond an anchor's neighbor window is dropped. The colors
+    # line is the immediate neighbor of the render_dashboard_widget anchor (and
+    # so kept by design); the lines past the window are not.
     assert not any("compute_grid_layout" in line for line in kept)
     assert not any(line == "return layout" for line in kept)
-    "case: test_lexical_skim_reduces_tokens"
+
+
+def test_lexical_skim_reduces_tokens() -> None:
     skimmer = LineSkimmer(ranker=None)
     result = skimmer.skim(_CHUNK_BODY, _GOAL)
     assert count_tokens(result.text) < count_tokens(_CHUNK_BODY)
-    "case: test_skim_output_stays_parseable"
+
+
+def test_skim_output_stays_parseable() -> None:
     import ast
 
     skimmer = LineSkimmer(ranker=None)
     result = skimmer.skim(_CHUNK_BODY, _GOAL)
+    # The pruned body still parses: anchors + indentation are preserved.
     ast.parse(result.text)
 
 
-def test_skimming_noop_contract() -> None:
-    """case: test_empty_goal_is_noop"""
+def test_empty_goal_is_noop() -> None:
     skimmer = LineSkimmer(ranker=None)
     result = skimmer.skim(_CHUNK_BODY, "   ")
     assert result.dropped_lines == 0
     assert result.text == _CHUNK_BODY
-    "case: test_no_signal_keeps_chunk_whole"
+
+
+def test_no_signal_keeps_chunk_whole() -> None:
     skimmer = LineSkimmer(ranker=None)
     result = skimmer.skim(_CHUNK_BODY, "quantum chromodynamics lattice")
+    # Nothing matches: do not gut the chunk down to anchors only.
     assert result.dropped_lines == 0
     assert result.text == _CHUNK_BODY
-    "case: test_tiny_body_is_noop"
+
+
+def test_tiny_body_is_noop() -> None:
     skimmer = LineSkimmer(ranker=None)
     body = "a = 1\nb = 2"
     result = skimmer.skim(body, _GOAL)
@@ -168,36 +220,48 @@ def test_skimming_noop_contract() -> None:
     assert result.text == body
 
 
-def test_embedding_fallback_contract() -> None:
-    """case: test_embedding_path_used_when_ranker_available"""
+# --- unit: embedding path + degrade -----------------------------------------
+
+
+def test_embedding_path_used_when_ranker_available() -> None:
     ranker = _FakeRanker(available=True)
     skimmer = LineSkimmer(ranker=ranker)
     result = skimmer.skim(_CHUNK_BODY, _GOAL)
     assert result.used_embedding is True
     assert result.changed
-    assert ranker.calls
+    assert ranker.calls  # goal was embedded
     kept = _relevant_lines(result.text)
     assert any("amount must be positive" in line for line in kept)
-    "case: test_degrades_to_lexical_when_embedding_unavailable"
+
+
+def test_degrades_to_lexical_when_embedding_unavailable() -> None:
     ranker = _FakeRanker(available=False)
     skimmer = LineSkimmer(ranker=ranker)
     result = skimmer.skim(_CHUNK_BODY, _GOAL)
+    # available=False -> never touches the embedder, scores lexically.
     assert result.used_embedding is False
     assert not ranker.calls
     assert result.changed
 
 
-def test_skim_chunks_contract() -> None:
-    """case: test_skim_chunks_mutates_snippet_in_place"""
+# --- unit: skim_chunks ------------------------------------------------------
+
+
+def test_skim_chunks_mutates_snippet_in_place() -> None:
     chunk = _FakeChunk(snippet=_CHUNK_BODY)
     before = count_tokens(chunk.snippet)
     out = skim_chunks([chunk], goal=_GOAL, ranker=None)
     assert out[0] is chunk
     assert count_tokens(chunk.snippet) < before
-    "case: test_skim_chunks_empty_goal_noop"
+
+
+def test_skim_chunks_empty_goal_noop() -> None:
     chunk = _FakeChunk(snippet=_CHUNK_BODY)
     skim_chunks([chunk], goal="  ", ranker=None)
     assert chunk.snippet == _CHUNK_BODY
+
+
+# --- integration: pull() wiring + default-off flag --------------------------
 
 
 def _records() -> list[_FakeRecord]:
@@ -208,7 +272,7 @@ def _records() -> list[_FakeRecord]:
             score=0.9,
             signature="def charge_card(self, amount, currency): ...",
             snippet=_CHUNK_BODY,
-        )
+        ),
     ]
 
 
@@ -224,6 +288,7 @@ def test_pull_unchanged_when_flag_off(monkeypatch: pytest.MonkeyPatch) -> None:
         )
     )
     assert result.chunks
+    # Flag off: chunk body is the untouched original snippet.
     assert result.chunks[0].snippet == _CHUNK_BODY
     assert "line-skim" not in result.rationale
 
@@ -243,6 +308,7 @@ def test_pull_skims_when_flag_on(monkeypatch: pytest.MonkeyPatch) -> None:
     skimmed = result.chunks[0].snippet
     assert skimmed != _CHUNK_BODY
     assert count_tokens(skimmed) < count_tokens(_CHUNK_BODY)
+    # Anchors preserved; relevant content preserved; noise dropped.
     assert "def charge_card(self, amount, currency):" in skimmed
     assert "amount must be positive" in skimmed
     assert "compute_grid_layout" not in skimmed

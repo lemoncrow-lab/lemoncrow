@@ -35,12 +35,7 @@ const RANGE_DAYS: Record<TimeRangeValue, number> = {
 
 export function TimeRangeProvider({ children }: { children: ReactNode }) {
   const [range, setRange] = useState<TimeRangeValue>(() => {
-    let saved: string | null = null;
-    try {
-      saved = localStorage.getItem("lemoncrow_time_range");
-    } catch {
-      // Blocked storage: use the default window.
-    }
+    const saved = localStorage.getItem("lemoncrow_time_range");
     if (saved && TIME_RANGE_OPTIONS.some((o) => o.value === saved)) {
       return saved as TimeRangeValue;
     }
@@ -50,11 +45,7 @@ export function TimeRangeProvider({ children }: { children: ReactNode }) {
   const seconds = days * 86_400;
 
   useEffect(() => {
-    try {
-      localStorage.setItem("lemoncrow_time_range", range);
-    } catch {
-      // Blocked storage: the choice just won't persist across reloads.
-    }
+    localStorage.setItem("lemoncrow_time_range", range);
   }, [range]);
 
   return (

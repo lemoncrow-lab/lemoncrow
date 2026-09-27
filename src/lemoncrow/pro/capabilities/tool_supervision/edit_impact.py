@@ -366,7 +366,8 @@ def _blob_language(path: str) -> str | None:
     """
     if not path:
         return "python"
-    from lemoncrow.infra.tree_sitter.tags import detect_language, tree_sitter_languages
+    from lemoncrow.infra.tree_sitter.tags import detect_language
+    from lemoncrow.pro.capabilities.semantic_file_memory.treesitter_ast import supported_tree_sitter_languages
 
     try:
         language = detect_language(Path(path))
@@ -374,8 +375,7 @@ def _blob_language(path: str) -> str | None:
         return None
     if language == "python":
         return language
-    # No tree-sitter configuration in this build (the Review-only engine): Python only.
-    if language is not None and language in (tree_sitter_languages() or ()):
+    if language is not None and language in supported_tree_sitter_languages():
         return language
     return None
 

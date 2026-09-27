@@ -100,6 +100,12 @@ def test_does_not_crash_on_string_tool_response(tmp_path: Path) -> None:
     assert proc.stdout == ""
 
 
+def test_malformed_stdin_exits_zero_with_no_output(tmp_path: Path) -> None:
+    proc = _run({}, tmp_path, env_extra=_THRESHOLD_1, stdin_text="not json at all {{{")
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == ""
+
+
 def test_unparseable_threshold_falls_back_to_default_three(tmp_path: Path) -> None:
     for i, bad_value in enumerate(("abc", "")):
         iter_path = tmp_path / f"iter{i}"

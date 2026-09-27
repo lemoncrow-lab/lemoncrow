@@ -1,4 +1,3 @@
-import { Button as UiButton } from "../components/ui/button";
 import { useEffect, useState } from "react";
 
 import ImageOverlayCompare from "./ImageOverlayCompare";
@@ -16,7 +15,7 @@ function runLabel(run: ReviewBrowserRun): string {
 
 function statusTone(status: string): string {
   if (status === "PASS") return "text-emerald-300";
-  if (status === "FAIL") return "text-red-300";
+  if (status === "FAIL") return "text-rose-300";
   return "text-amber-300";
 }
 
@@ -58,8 +57,8 @@ function ScreenshotPair({ run, baseline }: { run: ReviewBrowserRun; baseline: Re
   const before = baseline?.artifacts.screenshot;
   const { urls, error } = useEvidenceUrls([before, after]);
   if (!after) return null;
-  if (error) return <div className="text-caption text-amber-300">Screenshots unavailable: {error}</div>;
-  if (!urls[1]) return <div className="text-caption text-muted-foreground">Loading frozen screenshots…</div>;
+  if (error) return <div className="text-[10px] text-amber-300">Screenshots unavailable: {error}</div>;
+  if (!urls[1]) return <div className="text-[10px] text-neutral-600">Loading frozen screenshots…</div>;
   if (before && baseline && urls[0]) {
     return (
       <ImageOverlayCompare
@@ -71,8 +70,8 @@ function ScreenshotPair({ run, baseline }: { run: ReviewBrowserRun; baseline: Re
     );
   }
   return (
-    <figure className="overflow-hidden rounded border border-border bg-background">
-      <figcaption className="border-b border-border px-2.5 py-1.5 font-mono text-micro text-muted-foreground">
+    <figure className="overflow-hidden rounded border border-neutral-800 bg-neutral-950">
+      <figcaption className="border-b border-neutral-800 px-2.5 py-1.5 font-mono text-[9px] text-neutral-500">
         {runLabel(run)} · {shortDigest(after.digest)} · no baseline screenshot recorded
       </figcaption>
       <img src={urls[1]} alt={`Browser screenshot for ${runLabel(run)}`} className="block h-auto w-full bg-white" />
@@ -85,21 +84,21 @@ function RecordingPair({ run, baseline }: { run: ReviewBrowserRun; baseline: Rev
   const before = baseline?.artifacts.video;
   const { urls, error } = useEvidenceUrls([before, after]);
   if (!after) return null;
-  if (error) return <div className="text-caption text-amber-300">Recordings unavailable: {error}</div>;
+  if (error) return <div className="text-[10px] text-amber-300">Recordings unavailable: {error}</div>;
   const panes: Array<{ label: string; url: string; artifact: ReviewBrowserArtifact }> = [];
   if (before && baseline) panes.push({ label: `Before · ${runLabel(baseline)}`, url: urls[0] ?? "", artifact: before });
   panes.push({ label: `After · ${runLabel(run)}`, url: urls[1] ?? "", artifact: after });
   return (
     <div className={`grid gap-2 ${panes.length > 1 ? "grid-cols-2" : "grid-cols-1"}`} aria-label="Paired browser recordings">
       {panes.map((pane) => (
-        <figure key={pane.artifact.evidence_id} className="min-w-0 overflow-hidden rounded border border-border bg-background">
-          <figcaption className="truncate border-b border-border px-2 py-1 font-mono text-micro text-muted-foreground" title={pane.artifact.digest}>
+        <figure key={pane.artifact.evidence_id} className="min-w-0 overflow-hidden rounded border border-neutral-800 bg-neutral-950">
+          <figcaption className="truncate border-b border-neutral-800 px-2 py-1 font-mono text-[9px] text-neutral-500" title={pane.artifact.digest}>
             {pane.label} · {shortDigest(pane.artifact.digest)}
           </figcaption>
           {pane.url ? (
             <video src={pane.url} controls preload="metadata" className="block w-full bg-black" aria-label={pane.label} />
           ) : (
-            <div className="px-2 py-3 text-caption text-muted-foreground">Loading recording…</div>
+            <div className="px-2 py-3 text-[10px] text-neutral-600">Loading recording…</div>
           )}
         </figure>
       ))}
@@ -127,10 +126,10 @@ function TraceLink({ run, label }: { run: ReviewBrowserRun; label: string }) {
   };
   return (
     <span className="inline-flex items-center gap-1.5">
-      <UiButton type="button" variant="link" onClick={() => void download()} className="text-cyan-300 hover:text-cyan-200 hover:underline">
+      <button type="button" onClick={() => void download()} className="text-sky-300 hover:underline">
         {label} trace
-      </UiButton>
-      <span className="font-mono text-muted-foreground" title={trace.digest}>{shortDigest(trace.digest)}</span>
+      </button>
+      <span className="font-mono text-neutral-600" title={trace.digest}>{shortDigest(trace.digest)}</span>
       {error && <span className="text-amber-300">{error}</span>}
     </span>
   );
@@ -143,23 +142,23 @@ function RunFacts({ run }: { run: ReviewBrowserRun }) {
   return (
     <div className="space-y-2">
       {run.status_reasons.length > 0 && (
-        <div className={`text-caption ${statusTone(run.status)}`}>{run.status_reasons.join(" · ")}</div>
+        <div className={`text-[10px] ${statusTone(run.status)}`}>{run.status_reasons.join(" · ")}</div>
       )}
       {run.assertions.length > 0 && (
         <div>
-          <div className="mb-1 text-micro font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="mb-1 text-[9px] font-semibold uppercase tracking-wider text-neutral-700">
             Assertions · {passing.length}/{run.assertions.length} passed
           </div>
           <ul className="space-y-0.5">
             {[...failing, ...passing].slice(0, 24).map((row, index) => (
-              <li key={`${row.name}:${index}`} className="flex gap-2 text-caption">
+              <li key={`${row.name}:${index}`} className="flex gap-2 text-[10px]">
                 <span className={`w-12 shrink-0 font-mono ${statusTone(row.status)}`}>{row.status}</span>
-                <span className="min-w-0 flex-1 text-subtle">
+                <span className="min-w-0 flex-1 text-neutral-300">
                   {row.name}
                   {(row.expected || row.actual) && (
-                    <span className="text-muted-foreground"> — expected {row.expected || "∅"}, observed {row.actual || "∅"}</span>
+                    <span className="text-neutral-600"> — expected {row.expected || "∅"}, observed {row.actual || "∅"}</span>
                   )}
-                  {row.detail && <span className="block whitespace-pre-wrap break-words font-mono text-micro text-muted-foreground">{row.detail}</span>}
+                  {row.detail && <span className="block whitespace-pre-wrap break-words font-mono text-[9px] text-neutral-600">{row.detail}</span>}
                 </span>
               </li>
             ))}
@@ -167,15 +166,15 @@ function RunFacts({ run }: { run: ReviewBrowserRun }) {
         </div>
       )}
       {(run.navigation.status != null || run.navigation.ok != null) && (
-        <div className="text-caption text-muted-foreground">
+        <div className="text-[10px] text-neutral-500">
           Navigation {run.navigation.status != null ? `HTTP ${run.navigation.status}` : run.navigation.ok ? "ok" : "failed"}
-          {run.navigation.final_url && <span className="font-mono text-muted-foreground"> → {run.navigation.final_url}</span>}
+          {run.navigation.final_url && <span className="font-mono text-neutral-600"> → {run.navigation.final_url}</span>}
         </div>
       )}
       {(consoleErrors.length > 0 || run.runtime_errors.length > 0) && (
         <div>
-          <div className="mb-1 text-micro font-semibold uppercase tracking-wider text-muted-foreground">Console / runtime errors</div>
-          <ul className="space-y-0.5 font-mono text-micro text-red-300/80">
+          <div className="mb-1 text-[9px] font-semibold uppercase tracking-wider text-neutral-700">Console / runtime errors</div>
+          <ul className="space-y-0.5 font-mono text-[9px] text-rose-300/80">
             {consoleErrors.slice(0, 8).map((row, index) => (
               <li key={`console:${index}`} className="break-words">{row.text}{row.location ? ` (${row.location})` : ""}</li>
             ))}
@@ -186,7 +185,7 @@ function RunFacts({ run }: { run: ReviewBrowserRun }) {
         </div>
       )}
       {run.visual.diff_ratio != null && (
-        <div className="text-caption text-muted-foreground">
+        <div className="text-[10px] text-neutral-500">
           Visual difference {run.visual.diff_ratio.toFixed(4)}
           {run.visual.threshold != null
             ? ` · configured threshold ${run.visual.threshold.toFixed(4)}`
@@ -194,10 +193,10 @@ function RunFacts({ run }: { run: ReviewBrowserRun }) {
         </div>
       )}
       {run.observations.length > 0 && (
-        <div className="border-l border-border pl-2">
-          <div className="text-micro font-semibold uppercase tracking-wider text-muted-foreground">Observations · not verification</div>
+        <div className="border-l border-neutral-800 pl-2">
+          <div className="text-[9px] font-semibold uppercase tracking-wider text-neutral-700">Observations · not verification</div>
           {run.observations.slice(0, 6).map((row, index) => (
-            <div key={`obs:${index}`} className="text-caption leading-4 text-muted-foreground">{row}</div>
+            <div key={`obs:${index}`} className="text-[10px] leading-4 text-neutral-500">{row}</div>
           ))}
         </div>
       )}
@@ -221,16 +220,16 @@ export default function BrowserRegressionResult({ check }: { check: ReviewVerifi
     .join(" ");
   return (
     <details
-      className="mt-1.5 rounded border border-border/80 bg-background/60"
+      className="mt-1.5 rounded border border-neutral-800/80 bg-neutral-950/60"
       onToggle={(event) => setOpen((event.currentTarget as HTMLDetailsElement).open)}
     >
-      <summary className="cursor-pointer px-2 py-1.5 text-meta text-muted-foreground hover:text-foreground">
-        What the browser observed · <span className="font-mono text-muted-foreground">{browser.route}</span>
-        {environment && <span className="text-muted-foreground"> · {environment}</span>}
+      <summary className="cursor-pointer px-2 py-1.5 text-[10px] text-neutral-400 hover:text-neutral-100">
+        What the browser observed · <span className="font-mono text-neutral-600">{browser.route}</span>
+        {environment && <span className="text-neutral-600"> · {environment}</span>}
       </summary>
       {open && (
-        <div className="space-y-3 border-t border-border/80 px-2.5 py-2.5">
-          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-micro text-muted-foreground">
+        <div className="space-y-3 border-t border-neutral-800/80 px-2.5 py-2.5">
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[9px] text-neutral-600">
             <span>Tested {runLabel(run)}</span>
             <span>{run.provider} · {run.source}</span>
             {run.observed_at && <span>observed {new Date(run.observed_at).toLocaleString()}</span>}
@@ -241,11 +240,11 @@ export default function BrowserRegressionResult({ check }: { check: ReviewVerifi
           <RunFacts run={run} />
           <ScreenshotPair run={run} baseline={baseline} />
           <RecordingPair run={run} baseline={baseline} />
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-caption">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px]">
             <TraceLink run={run} label="After" />
             {baseline && <TraceLink run={baseline} label="Before" />}
           </div>
-          <div className="text-micro leading-4 text-muted-foreground">
+          <div className="text-[9px] leading-4 text-neutral-600">
             {baseline
               ? `Baseline: ${runLabel(baseline)} (${baseline.relation === "base" ? "pre-change side of this Snapshot" : "earlier Snapshot"}) · ${baseline.status}${baseline.observed_at ? ` · observed ${new Date(baseline.observed_at).toLocaleString()}` : ""}`
               : "No frozen baseline run was recorded for this scenario and viewport."}

@@ -60,20 +60,15 @@ def test_mcp_only_groups_have_live_equivalents() -> None:
     """memory/route/context are in MCP_TOOL_ONLY_GROUPS but the live groups must resolve."""
     assert set(MCP_TOOL_ONLY_GROUPS) == {"memory", "route", "context"}
     ctx = _root_ctx()
-    for name in ("memory", "route"):
+    for name in MCP_TOOL_ONLY_GROUPS:
         live = cli.get_command(ctx, name)
         assert live is not None, f"live group missing: {name}"
         assert isinstance(live, click.Group), f"live {name} is not a Group"
 
-    runtime = cli.get_command(ctx, "runtime")
-    assert isinstance(runtime, click.Group)
-    context = runtime.get_command(click.Context(runtime, info_name="runtime"), "context")
-    assert isinstance(context, click.Group)
-
-    # The live groups are resolvable end-to-end via --help at their canonical paths.
-    for argv in (["memory", "--help"], ["route", "--help"], ["runtime", "context", "--help"]):
-        result = CliRunner().invoke(cli, argv)
-        assert result.exit_code == 0, f"`lc {' '.join(argv)}' failed:\n{result.output}"
+    # The live groups are resolvable end-to-end via --help.
+    for name in MCP_TOOL_ONLY_GROUPS:
+        result = CliRunner().invoke(cli, [name, "--help"])
+        assert result.exit_code == 0, f"`lc {name} --help` failed:\n{result.output}"
 
 
 def test_dev_only_subcommands_suppressed_on_live_groups() -> None:

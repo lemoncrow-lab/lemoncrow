@@ -1,4 +1,3 @@
-import { Button as UiButton } from "../components/ui/button";
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 
@@ -30,41 +29,40 @@ export interface ContextSignal {
 }
 
 const ROW_TONE: Record<ContextSignalTone, string> = {
-  rose: "border-red-900/60 bg-red-950/35 text-red-200",
-  amber: "border-amber-700/65 bg-amber-950/55 text-amber-100",
-  sky: "border-cyan-900/60 bg-cyan-950/25 text-cyan-200",
-  neutral: "border-border/80 bg-muted/45 text-subtle",
+  rose: "border-rose-900/60 bg-rose-950/25 text-rose-200",
+  amber: "border-amber-800/50 bg-amber-950/25 text-amber-200",
+  sky: "border-sky-900/60 bg-sky-950/20 text-sky-200",
+  neutral: "border-neutral-800/80 bg-neutral-900/45 text-neutral-300",
 };
 
-// Full-strength tones: a translucent tint drops below 4.5:1 on the light theme's tinted strip.
 const DETAIL_TONE: Record<ContextSignalTone, string> = {
-  rose: "text-red-300",
-  amber: "text-amber-300",
-  sky: "text-cyan-300",
-  neutral: "text-muted-foreground",
+  rose: "text-rose-300/75",
+  amber: "text-amber-300/75",
+  sky: "text-sky-300/75",
+  neutral: "text-neutral-500",
 };
 
 const CHIP_TONE: Record<ContextSignalTone, string> = {
-  rose: "border-red-800/60 text-red-200 hover:bg-red-950/30",
-  amber: "border-amber-800/60 text-amber-200 hover:bg-amber-950/30",
-  sky: "border-cyan-800/60 text-cyan-200 hover:bg-cyan-950/30",
-  neutral: "border-border/70 text-subtle hover:bg-muted/60",
+  rose: "border-rose-800/60 text-rose-200 hover:border-rose-600",
+  amber: "border-amber-800/60 text-amber-200 hover:border-amber-600",
+  sky: "border-sky-800/60 text-sky-200 hover:border-sky-600",
+  neutral: "border-neutral-700/70 text-neutral-300 hover:border-neutral-500",
 };
 
 export function ContextChip({ signal }: { signal: ContextSignal }) {
   if (signal.chip) return <>{signal.chip}</>;
   const Icon = signal.icon;
   return (
-    <UiButton unstyled
+    <button
       type="button"
       onClick={signal.onActivate}
       disabled={!signal.onActivate}
       className={`review-context-chip ${CHIP_TONE[signal.tone]}`}
       data-testid={signal.testId}
     >
-      <Icon size={14} aria-hidden="true" />
+      <Icon size={11} aria-hidden="true" />
       <span className="truncate">{signal.chipLabel}</span>
-    </UiButton>
+    </button>
   );
 }
 
@@ -80,9 +78,8 @@ export default function ReviewContextStrip({ signals }: { signals: ContextSignal
       aria-live={live}
       data-testid={primary.testId ?? "review-context-strip"}
       data-signal={primary.id}
-      data-tone={primary.tone}
     >
-      <Icon size={14} aria-hidden="true" className="shrink-0 opacity-85" />
+      <Icon size={13} strokeWidth={1.9} aria-hidden="true" className="shrink-0 opacity-85" />
       <span className="review-context-label">{primary.label}</span>
       {primary.detail ? (
         <span className={`review-context-detail ${DETAIL_TONE[primary.tone]}`}>{primary.detail}</span>

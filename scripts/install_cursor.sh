@@ -89,8 +89,8 @@ fi
 
 CURSOR_RULES_SRC_DIR="${LEMONCROW_REPO}/integrations/cursor/rules"
 
-info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lc:cursor] $*" || true; }
-warn()  { echo "[lc:cursor] WARN: $*" >&2; }
+info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lemoncrow:cursor] $*" || true; }
+warn()  { echo "[lemoncrow:cursor] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 backup_file() {
     local f="$1"
@@ -123,7 +123,7 @@ MCP_ENTRY=$(cat <<JSON
     "lemoncrow": {
       "type": "stdio",
       "command": "$LC_BIN",
-      "args": ["runtime", "lite-mcp", "--host", "cursor"],
+      "args": ["mcp", "--host", "cursor"],
       "autoApprove": ["bash","code_search","edit","read","web_fetch"]
     }
   }
@@ -153,7 +153,7 @@ fi
 if [ ! -d "${HOME}/.cursor" ] && ! command -v cursor >/dev/null 2>&1 \
    && ! command -v cursor-agent >/dev/null 2>&1 && ! $WORKSPACE_SET && [ ! -f "$MCP_FILE" ]; then
     if $STRICT; then
-        echo "[lc:cursor] ERROR: Cursor not found (no ~/.cursor, 'cursor', or 'cursor-agent'). Is Cursor installed?" >&2
+        echo "[lemoncrow:cursor] ERROR: Cursor not found (no ~/.cursor, 'cursor', or 'cursor-agent'). Is Cursor installed?" >&2
         exit 1
     fi
     warn "Cursor not found (no ~/.cursor, 'cursor', or 'cursor-agent') - SKIPPING. Install from https://cursor.com"
@@ -184,13 +184,14 @@ existing.setdefault('mcpServers', {}).update({
     'lemoncrow': {
         'type': 'stdio',
         'command': '$LC_BIN',
-        'args': ['runtime', 'lite-mcp', '--host', 'cursor'],
-        # Kept in sync with Runtime Lite's visible surface.
+        'args': ['mcp', '--host', 'cursor'],
+        # Kept in sync with mcp_tool_visible_to_llm()'s visible surface --
+        # see the comment on the create-branch MCP_ENTRY above.
         'autoApprove': ['bash','code_search','edit','read','web_fetch'],
     }
 })
 path.write_text(json.dumps(existing, indent=2) + '\n', encoding='utf-8')
-print("[lc:cursor] merged LemonCrow entry into $MCP_FILE")
+print("[lemoncrow:cursor] merged LemonCrow entry into $MCP_FILE")
 PYEOF
     fi
 else
@@ -309,7 +310,7 @@ else:
         existing["failClosed"] = True
 path.parent.mkdir(parents=True, exist_ok=True)
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-print(f"[lc:cursor] merged {event} hook into {path}")
+print(f"[lemoncrow:cursor] merged {event} hook into {path}")
 PYEOF
         fi
     done
@@ -345,7 +346,7 @@ fi
 info "Running post-install verification..."
 VFAIL=0
 vpass() { info "PASS: $*"; }
-vfail() { echo "[lc:cursor] FAIL: $*" >&2; VFAIL=1; }
+vfail() { echo "[lemoncrow:cursor] FAIL: $*" >&2; VFAIL=1; }
 
 if [ -f "$MCP_FILE" ]; then
     HAS=$(python3 - <<PYEOF
@@ -384,7 +385,7 @@ else
 fi
 
 if [ "$VFAIL" -ne 0 ]; then
-    echo "[lc:cursor] ERROR: post-install verification failed." >&2
+    echo "[lemoncrow:cursor] ERROR: post-install verification failed." >&2
     exit 1
 fi
 info "All post-install checks passed"

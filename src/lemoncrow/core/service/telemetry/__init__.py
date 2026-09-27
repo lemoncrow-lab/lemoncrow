@@ -14,12 +14,9 @@ from contextlib import contextmanager
 from typing import Any
 
 from lemoncrow.core.service.telemetry.emit import (
-    current_telemetry_session,
     emit_product,
     emit_product_local,
     init_product_telemetry,
-    set_process_telemetry_session,
-    telemetry_session,
 )
 from lemoncrow.core.service.telemetry.exporters import shutdown_otel
 
@@ -66,13 +63,10 @@ def timed_request(endpoint: str) -> Generator[None]:
 
 
 __all__ = [
-    "current_telemetry_session",
     "emit_audit",
     "emit_product",
     "emit_product_local",
     "init_product_telemetry",
-    "set_process_telemetry_session",
     "shutdown_otel",
-    "telemetry_session",
     "timed_request",
 ]

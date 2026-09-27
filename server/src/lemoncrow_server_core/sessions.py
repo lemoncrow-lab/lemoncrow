@@ -14,11 +14,19 @@ is evaluated against a named ``view_revision``, which is what turns
   committed -- a wrong view, a replayed session or a bug -- and is refused as
   unacknowledged.
 
-Sessions are owner-scoped on lookup. A session identifier is not treated as an
-authorization credential, so a lookup receives an explicit :class:`SessionAccess`
-and an owner mismatch is answered exactly like an unknown session. The public
-engine defines only this exact-owner rule; broader deployment authorization is
-a composition concern.
+Sessions are scoped on lookup to the organization *and the subject* that
+opened them, so a valid session id is indistinguishable from a nonexistent one
+to everybody else -- including the colleague at the next desk, who holds the
+same roles and works for the same company.
+
+That second half is the part this module used to store and then ignore. The
+subject has always been recorded on :class:`Session`; every lookup compared
+``org_id`` alone. A session id is not a secret -- it travels in a header, it is
+logged, it is pasted into bug reports -- so "same tenant" was the entire gate
+on reading another engineer's session, cancelling their in-flight work and
+deleting the session out from under them. Lookup now takes a
+:class:`SessionAccess`: who is asking, and whether they hold the grant that
+lets them ask about somebody else.
 """
 
 from __future__ import annotations
@@ -45,19 +53,27 @@ _PROOF_TOKEN_BYTES: Final[int] = 32
 
 @dataclass(frozen=True, slots=True)
 class SessionAccess:
-    """Owner-scoped access token for the public single-principal engine.
+    """Who is reaching for a session, and whether they may cross subjects.
 
-    Public session storage deliberately knows only exact owner access. Other
-    compositions may extend this value with their own access policy; the shared
-    engine does not define roles, grants, or impersonation semantics.
+    Passed instead of a bare ``org_id`` so that every lookup states the subject
+    it is made on behalf of. A caller cannot forget to check the owner, because
+    there is no signature left that would let it: the registry has no method
+    that takes an organization alone.
+
+    ``cross_subject`` is never inferred. It is set by the one caller that has
+    already resolved :attr:`~.identity.Permission.ACT_AS_SUBJECT` for the
+    principal and is about to audit the crossing.
     """
 
     org_id: str
     subject: str
+    cross_subject: bool = False
 
     def reaches(self, session: Session) -> bool:
-        """Whether this exact owner may see the session."""
-        return session.org_id == self.org_id and session.subject == self.subject
+        """Whether this access may see ``session`` at all."""
+        if session.org_id != self.org_id:
+            return False
+        return self.cross_subject or session.subject == self.subject
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,10 +103,15 @@ class Session:
     def to_wire(self, *, caller: str) -> dict[str, Any]:
         """The session as ``caller`` may see it.
 
-        ``caller`` is required because the local-filesystem proof nonce is a
-        bearer credential and is emitted only to the session owner. A caller
-        that resolves the same session through a deployment-specific access
-        path receives the ordinary session metadata with that nonce withheld.
+        ``caller`` is the subject the answer is being written for, and it is a
+        required argument because the difference it makes is a secret: the
+        proof nonce is a bearer credential for the ``local_fs`` capability, so
+        it belongs to this session's owner and to nobody else. An administrator
+        holding ``subject:act_as`` can resolve another engineer's session --
+        that is a legitimate, audited act -- and gets the same payload with the
+        nonce withheld, which is what a session that never negotiated the
+        capability looks like anyway. Defaulting the argument would have made
+        forgetting it leak; leaving it out is a ``TypeError``.
         """
         return {
             "session_id": self.session_id,
@@ -191,8 +212,9 @@ class SessionRegistry:
     def get(self, access: SessionAccess, session_id: str) -> Session:
         """The session, if this access reaches it. Otherwise: it does not exist.
 
-        Unknown identifiers and owner mismatches use the same refusal so the
-        store does not expose whether an inaccessible row exists.
+        One refusal for "no such session", "another tenant's session" and
+        "another engineer's session", constructed in one place so the three
+        cannot drift apart into an oracle.
         """
         now = self._clock()
         with self._lock:
@@ -260,7 +282,8 @@ class SessionRegistry:
         """Delete the session if this access reaches it. ``False`` otherwise.
 
         ``False`` is also the answer for a session id that never existed, which
-        keeps closing idempotent without exposing inaccessible rows.
+        is what makes closing idempotent *and* keeps it from reporting whether
+        a colleague is logged in.
         """
         with self._lock:
             session = self._by_id.get(session_id)

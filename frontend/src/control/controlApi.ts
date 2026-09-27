@@ -1,17 +1,8 @@
-import { apiUrl } from "../api";
 import { requestBrowserJson } from "../review/reviewApi";
 
 export interface LocalTool {
   name: string;
   description?: string;
-}
-
-export interface LocalIntegrationComponent {
-  id: string;
-  label: string;
-  description: string;
-  present: boolean;
-  path?: string | null;
 }
 
 export interface LocalIntegrationHost {
@@ -22,8 +13,6 @@ export interface LocalIntegrationHost {
   configured: boolean;
   status: "configured" | "detected" | "not_detected";
   cached_status?: string | null;
-  support?: "supported" | "coming_soon";
-  components?: LocalIntegrationComponent[];
 }
 
 export interface LocalIntegrations {
@@ -35,5 +24,5 @@ export interface LocalIntegrations {
 }
 
 export function fetchLocalIntegrations(): Promise<LocalIntegrations> {
-  return requestBrowserJson<LocalIntegrations>(apiUrl("/local/integrations"));
+  return requestBrowserJson<LocalIntegrations>("/api/local/integrations");
 }

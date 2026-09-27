@@ -25,12 +25,7 @@ What is derived here, and why each row exists:
 ``embedding``
     A deterministic hashed bag-of-terms vector. Stdlib only, no model weights,
     no download -- the thin-client design forbids both on the client and this
-    server has no business pulling a model at import time either. It is a
-    neutral, content-keyed storage row; public queries never score it.
-``semantic_units``
-    Always empty here. Symbol/chunk retrieval units, their embeddings and
-    semantic scoring are private advanced code intelligence (see
-    :mod:`.semantic`); the private layer derives and stores them lazily.
+    server has no business pulling a model at import time either.
 
 Comments and string literals are blanked before definitions and references are
 read, so a ``def`` inside a docstring is not a definition and a word inside a
@@ -43,18 +38,18 @@ from __future__ import annotations
 
 import hashlib
 import math
-import operator
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final
 
-from .contracts import AnalysisArtifact, ImportRef, SymbolDef, SymbolRef
+from .contracts import AnalysisArtifact, ImportRef, SemanticUnit, SymbolDef, SymbolRef
 
 __all__ = [
     "DEFAULT_PROFILE",
     "EMBEDDING_DIM",
     "PARSER_PROFILES",
+    "SEMANTIC_EMBEDDING_VERSION",
     "LexicalQuery",
     "ParserProfile",
     "analyze",
@@ -67,10 +62,13 @@ __all__ = [
     "resolve_profile",
     "score_match",
     "score_weighted_match",
+    "semantic_embedding",
+    "semantic_units",
     "trigrams_of",
 ]
 
 EMBEDDING_DIM: Final[int] = 64
+SEMANTIC_EMBEDDING_VERSION: Final[str] = "hash64-symbol-chunk/1"
 DEFAULT_PROFILE: Final[str] = "lexical-1"
 
 _MAX_LEXICAL_TERMS: Final[int] = 4096
@@ -79,6 +77,9 @@ _MAX_SYMBOL_SPANS: Final[int] = 2048
 _MAX_REFERENCES: Final[int] = 4096
 _MAX_IMPORTS: Final[int] = 1024
 _MAX_EXPORTS: Final[int] = 2048
+_MAX_SEMANTIC_UNITS: Final[int] = 2048
+_SEMANTIC_CHUNK_LINES: Final[int] = 32
+_SEMANTIC_CHUNK_STRIDE: Final[int] = 24
 
 _IDENTIFIER_RE: Final[re.Pattern[str]] = re.compile(r"[A-Za-z_][A-Za-z0-9_]{1,63}")
 
@@ -115,8 +116,6 @@ class ParserProfile:
     read_imports: Callable[[str], tuple[ImportRef, ...]]
     is_exported: Callable[[str, str], bool]
     structural: bool = False
-    #: Whether a semantic engine, when installed, derives symbol/chunk units for
-    #: this profile. Public analysis never derives them itself.
     semantic_units: bool = False
 
 
@@ -591,32 +590,6 @@ PARSER_PROFILES: Final[Mapping[str, ParserProfile]] = {
         structural=True,
         semantic_units=True,
     ),
-    "c-3": ParserProfile(
-        name="c-3",
-        language="c",
-        extensions=(".c", ".h"),
-        definitions=_GENERIC_DEFS,
-        line_comments=("//",),
-        block_comments=(("/*", "*/"),),
-        quotes=('"', "'"),
-        read_imports=_no_imports,
-        is_exported=_exported_unless_underscored,
-        structural=True,
-        semantic_units=True,
-    ),
-    "cpp-3": ParserProfile(
-        name="cpp-3",
-        language="cpp",
-        extensions=(".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx"),
-        definitions=_GENERIC_DEFS,
-        line_comments=("//",),
-        block_comments=(("/*", "*/"),),
-        quotes=('"', "'"),
-        read_imports=_no_imports,
-        is_exported=_exported_unless_underscored,
-        structural=True,
-        semantic_units=True,
-    ),
 }
 
 _BY_EXTENSION: Final[Mapping[str, str]] = {
@@ -661,12 +634,12 @@ def trigrams_of(text: str, *, limit: int = _MAX_TRIGRAMS) -> tuple[str, ...]:
         # in the interpreter's tight path instead of checking its size after
         # every character. Large inputs retain the ordered early-stop behavior
         # below, preserving exactly which grams survive the bound.
-        unique = {
+        seen = {
             gram
             for index in range(candidates)
             if "\n" not in (gram := lowered[index : index + 3]) and not gram.isspace()
         }
-        return tuple(sorted(unique))
+        return tuple(sorted(seen))
 
     seen: set[str] = set()
     for index in range(candidates):
@@ -706,25 +679,128 @@ def _term_hash(term: str) -> bytes:
     return hashlib.blake2b(term.encode("utf-8"), digest_size=8).digest()
 
 
-def analyze(digest: str, parser_profile: str, data: bytes) -> AnalysisArtifact:
-    """Derive the public Layer-1 artifact for ``data`` under ``parser_profile``.
+def _semantic_identifier_terms(text: str) -> Iterable[str]:
+    """Full identifiers plus natural-language snake/camel components."""
+    for match in _IDENTIFIER_RE.finditer(text):
+        raw = match.group(0)
+        folded = raw.casefold()
+        yield folded
+        pieces: list[str] = []
+        for segment in raw.split("_"):
+            pieces.extend(
+                part.casefold() for part in re.findall(r"[A-Z]+(?=[A-Z][a-z]|$)|[A-Z]?[a-z]+|[0-9]+", segment) if part
+            )
+        for piece in pieces:
+            if piece != folded:
+                yield piece
 
-    ``semantic_units`` is always empty here: semantic retrieval units are
-    derived by the private semantic layer and kept beside the artifact through
-    :meth:`~.contracts.AnalysisStore.store_semantic_units`.
+
+def semantic_embedding(text: str) -> tuple[float, ...]:
+    """Embedding for natural-language/identifier queries in semantic space."""
+    return embed_terms(_semantic_identifier_terms(text))
+
+
+def semantic_units(text: str, definitions: Sequence[SymbolDef]) -> tuple[SemanticUnit, ...]:
+    """Create deterministic content-local symbol/chunk retrieval units.
+
+    Semantic symbol/chunk windows overlap heavily. Tokenizing and hashing every
+    window independently repeats the same work several times on large files.
+    Precompute the signed embedding-bucket contributions for each source line
+    once, then aggregate those exact contributions for each window. Because the
+    embedding is a bag of signed term hashes, this is mathematically identical
+    to calling ``embed_terms(_semantic_identifier_terms(segment))`` per window.
     """
-    return _analyze(digest, parser_profile, data)
+    lines = text.splitlines()
+    if not lines:
+        return ()
+
+    line_contributions: list[tuple[tuple[int, float], ...]] = []
+    for line in lines:
+        contributions: list[tuple[int, float]] = []
+        for term in _semantic_identifier_terms(line):
+            digest = int.from_bytes(_term_hash(term), "big")
+            contributions.append((digest % EMBEDDING_DIM, 1.0 if (digest >> 16) & 1 else -1.0))
+        line_contributions.append(tuple(contributions))
+
+    def vector_for(start_line: int, end_line: int) -> tuple[float, ...]:
+        buckets = [0.0] * EMBEDDING_DIM
+        for contributions in line_contributions[start_line - 1 : end_line]:
+            for bucket, sign in contributions:
+                buckets[bucket] += sign
+        return _normalize_embedding_buckets(buckets)
+
+    units: dict[str, SemanticUnit] = {}
+    ordered_defs = sorted(definitions, key=lambda item: (item.line, item.start, item.name))
+    for index, definition in enumerate(ordered_defs):
+        start_line = max(1, definition.line)
+        next_line = ordered_defs[index + 1].line if index + 1 < len(ordered_defs) else len(lines) + 1
+        end_line = min(len(lines), start_line + _SEMANTIC_CHUNK_LINES - 1, max(start_line, next_line - 1))
+        embedding = vector_for(start_line, end_line)
+        if not any(embedding):
+            continue
+        unit_id = f"symbol:{definition.start}:{definition.name}"
+        units[unit_id] = SemanticUnit(
+            unit_id=unit_id,
+            start_line=start_line,
+            end_line=end_line,
+            symbol=definition.name,
+            embedding_version=SEMANTIC_EMBEDDING_VERSION,
+            embedding=embedding,
+        )
+        if len(units) >= _MAX_SEMANTIC_UNITS:
+            break
+
+    if len(units) < _MAX_SEMANTIC_UNITS:
+        for start_zero in range(0, len(lines), _SEMANTIC_CHUNK_STRIDE):
+            start_line = start_zero + 1
+            end_line = min(len(lines), start_zero + _SEMANTIC_CHUNK_LINES)
+            embedding = vector_for(start_line, end_line)
+            if not any(embedding):
+                continue
+            unit_id = f"chunk:{start_line}"
+            units.setdefault(
+                unit_id,
+                SemanticUnit(
+                    unit_id=unit_id,
+                    start_line=start_line,
+                    end_line=end_line,
+                    symbol="",
+                    embedding_version=SEMANTIC_EMBEDDING_VERSION,
+                    embedding=embedding,
+                ),
+            )
+            if len(units) >= _MAX_SEMANTIC_UNITS:
+                break
+    return tuple(units[key] for key in sorted(units))
+
+
+def analyze(digest: str, parser_profile: str, data: bytes) -> AnalysisArtifact:
+    """Derive the complete Layer-1 artifact for ``data`` under ``parser_profile``."""
+    return _analyze(digest, parser_profile, data, include_semantic_units=True)
 
 
 def analyze_foreground(digest: str, parser_profile: str, data: bytes) -> AnalysisArtifact:
-    """Upload-time derivation; identical to :func:`analyze` (kept for callers)."""
-    return _analyze(digest, parser_profile, data)
+    """Derive foreground lexical/structural evidence, deferring chunk vectors.
+
+    Upload acknowledgement needs complete lexical/symbol evidence, while the
+    expensive symbol/chunk vectors are consumed only by the already-deferred
+    semantic ANN builder. The public :func:`analyze` contract remains the full
+    deterministic artifact used by direct/offline callers.
+    """
+    return _analyze(digest, parser_profile, data, include_semantic_units=False)
 
 
-def _analyze(digest: str, parser_profile: str, data: bytes) -> AnalysisArtifact:
+def _analyze(
+    digest: str,
+    parser_profile: str,
+    data: bytes,
+    *,
+    include_semantic_units: bool,
+) -> AnalysisArtifact:
     profile = resolve_profile(parser_profile)
     text = data.decode("utf-8", errors="replace")
     comment_free = _scrub(text, profile, strings=False)
+
     structural = None
     if profile.structural:
         from .structural import analyze_structural
@@ -770,6 +846,7 @@ def _analyze(digest: str, parser_profile: str, data: bytes) -> AnalysisArtifact:
         exports=exports,
         references=references,
         embedding=embed_terms(terms),
+        semantic_units=semantic_units(text, definitions) if include_semantic_units and profile.semantic_units else (),
     )
 
 
@@ -902,9 +979,7 @@ def cosine(left: Sequence[float], right: Sequence[float]) -> float:
     """
     if not left or not right or len(left) != len(right):
         return 0.0
-    # The same products summed in the same order as a generator, without its frames.
-    dot: float = sum(map(operator.mul, left, right))
-    return round(dot, 6)
+    return round(sum(a * b for a, b in zip(left, right, strict=True)), 6)
 
 
 def _read_references(scrubbed: str, defined_spans: set[tuple[int, int]]) -> tuple[SymbolRef, ...]:

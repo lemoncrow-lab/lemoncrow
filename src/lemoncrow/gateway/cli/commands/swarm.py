@@ -1,4 +1,4 @@
-"""Thin ``lc rt swarm`` command group for isolated multi-worktree attempts."""
+"""Thin ``lc swarm`` command group for isolated multi-worktree attempts."""
 
 from __future__ import annotations
 
@@ -93,12 +93,12 @@ def _resolve_run_id(root: Path, run_id: str | None, command_name: str) -> str:
     running = _list_running_swarms(root)
     if len(running) == 0:
         raise click.ClickException(
-            f"No run_id given and no running swarms found.  Usage: lc rt swarm {command_name} <RUN_ID>"
+            f"No run_id given and no running swarms found.  Usage: lc swarm {command_name} <RUN_ID>"
         )
     if len(running) == 1:
         return running[0].run_id
     lines = ["Multiple running swarms — specify one:\n", *_format_swarm_run_rows(running)]
-    lines.append(f"\nUsage: lc rt swarm {command_name} <RUN_ID>")
+    lines.append(f"\nUsage: lc swarm {command_name} <RUN_ID>")
     raise click.ClickException("\n".join(lines))
 
 

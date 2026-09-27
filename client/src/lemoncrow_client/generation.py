@@ -23,7 +23,7 @@ __all__ = ["GenerationPlan", "plan_repository_generation"]
 
 _GIT_TIMEOUT_S: Final[float] = 60.0
 _EMPTY_REVISION: Final[str] = "0" * 40
-_NEVER_GENERATION_ROOTS: Final[frozenset[str]] = frozenset({".git", ".claude", ".lc-worktrees", ".lemoncrow"})
+_NEVER_GENERATION_ROOTS: Final[frozenset[str]] = frozenset({".git", ".lc-worktrees", ".lemoncrow"})
 
 
 @dataclass(frozen=True, slots=True)

@@ -2,8 +2,6 @@
 
 Job status lifecycle:
     pending → running → succeeded | failed → dead (after max_attempts exhausted)
-    running → paused → pending (a handler raised :class:`JobPaused`; the
-    maintenance tick resumes it later without spending an attempt)
 
 All job types are strings so they can be stored in the DB and extended without
 schema changes.
@@ -40,21 +38,9 @@ JOB_RETENTION_CLEANUP = "retention_cleanup"
 JOB_BOOTSTRAP_CONTEXT = "bootstrap_context"
 JOB_INGEST_SESSION_FILE = "ingest_session_file"
 JOB_INGEST_SESSION_DIRECTORY = "ingest_session_directory"
-#: One Background Intelligence capability execution (BI2, ``review/background_local.py``).
-JOB_BACKGROUND_INTELLIGENCE = "background_intelligence"
-
-
-class JobPaused(RuntimeError):
-    """Raised by a handler whose job may not run yet (e.g. an exhausted budget): park it, spend no attempt."""
-
-    def __init__(self, reason: str) -> None:
-        super().__init__(reason)
-        self.reason = reason
-
 
 KNOWN_JOB_TYPES: frozenset[str] = frozenset(
     {
-        JOB_BACKGROUND_INTELLIGENCE,
         JOB_EXTRACT_PLAYBOOK,
         JOB_COMPUTE_EMBEDDINGS,
         JOB_CONSOLIDATE_BLOCKS,
@@ -68,7 +54,6 @@ KNOWN_JOB_TYPES: frozenset[str] = frozenset(
 
 
 __all__ = [
-    "JOB_BACKGROUND_INTELLIGENCE",
     "JOB_BOOTSTRAP_CONTEXT",
     "JOB_COMPUTE_EMBEDDINGS",
     "JOB_CONSOLIDATE_BLOCKS",
@@ -79,5 +64,4 @@ __all__ = [
     "JOB_RETENTION_CLEANUP",
     "KNOWN_JOB_TYPES",
     "Job",
-    "JobPaused",
 ]

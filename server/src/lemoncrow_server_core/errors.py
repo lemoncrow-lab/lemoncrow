@@ -88,8 +88,6 @@ class AgentAction(StrEnum):
 
     NONE = "none"
     UPGRADE_CLIENT = "upgrade_client"
-    #: The client is newer than the server's protocol window or manifest.
-    UPGRADE_SERVER = "upgrade_server"
     REAUTHENTICATE = "reauthenticate"
     REQUEST_ACCESS = "request_access"
     REOPEN_SESSION = "reopen_session"
@@ -140,9 +138,7 @@ _SPEC: Final[Mapping[ErrorCode, tuple[int, bool, AgentAction]]] = {
     ErrorCode.DEADLINE_EXCEEDED: (504, True, AgentAction.RETRY_LATER),
     ErrorCode.CANCELLED: (499, False, AgentAction.NONE),
     ErrorCode.SHUTTING_DOWN: (503, True, AgentAction.RETRY_LATER),
-    # Retryable, to agree with its action: an unhandled failure is often a race
-    # (a restart, a store handoff) that one later attempt no longer meets.
-    ErrorCode.INTERNAL: (500, True, AgentAction.RETRY_LATER),
+    ErrorCode.INTERNAL: (500, False, AgentAction.RETRY_LATER),
 }
 
 _ALLOWED_DETAIL_TYPES: Final[tuple[type, ...]] = (str, int, float, bool)

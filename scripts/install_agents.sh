@@ -54,8 +54,8 @@ WORKSPACE="$(cd "$WORKSPACE" && pwd)"
 # the repo's own AGENTS.md (that is LemonCrow's dev entrypoint, not a user persona).
 AGENTS_SOURCE="${LEMONCROW_REPO}/integrations/AGENTS.lemoncrow.md"
 
-info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lc:agents] $*" || true; }
-warn()  { echo "[lc:agents] WARN: $*" >&2; }
+info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lemoncrow:agents] $*" || true; }
+warn()  { echo "[lemoncrow:agents] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || "$@"; }
 
 if $PRINT_ONLY; then

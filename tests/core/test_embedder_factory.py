@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import json
 from urllib.request import Request
 
@@ -71,23 +70,16 @@ def test_null_embedder_dim_and_name() -> None:
     assert e.name == "null"
 
 
-def _without_private_provider(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Simulate an OSS-only install even inside the private monorepo."""
-    from lemoncrow.core.capabilities import code_intelligence_provider as seam
+def test_make_code_embedder_defaults_to_null_without_bge_extras(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without pins or BGE extras installed, defaults to NullEmbedder (FTS-only)."""
+    from lemoncrow.infra.embeddings.bge import BgeEmbedder
 
-    def _absent() -> object:
-        raise seam.ProEngineUnavailable(seam.PRO_ENGINE_UNAVAILABLE_MESSAGE)
-
-    monkeypatch.setattr(seam, "_private_provider", _absent)
-
-
-def test_make_code_embedder_no_pin_stays_null(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Without an explicit pin, semantic search stays OFF (FTS-only)."""
     make_code_embedder.cache_clear()
     monkeypatch.delenv("LEMONCROW_CODE_EMBEDDER", raising=False)
     monkeypatch.delenv("LEMONCROW_EMBEDDER", raising=False)
     monkeypatch.delenv("LEMONCROW_OFFLINE", raising=False)
     monkeypatch.setattr(OllamaEmbedder, "is_available", lambda self: True)
+    monkeypatch.setattr(BgeEmbedder, "is_available", classmethod(lambda cls: False))
 
     embedder = make_code_embedder()
 
@@ -95,67 +87,60 @@ def test_make_code_embedder_no_pin_stays_null(monkeypatch: pytest.MonkeyPatch) -
     make_code_embedder.cache_clear()
 
 
-@pytest.mark.parametrize("pin", ["bge", "nomic", "hf"])
-def test_local_model_pins_require_the_private_provider(monkeypatch: pytest.MonkeyPatch, pin: str) -> None:
-    """Local neural code embedders are private: OSS fails explicitly, never silently."""
-    from lemoncrow.core.capabilities.code_intelligence_provider import (
-        PRO_ENGINE_UNAVAILABLE_MESSAGE,
-        ProEngineUnavailable,
-    )
+def test_make_code_embedder_no_pin_stays_null_even_with_extras(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without an explicit pin, semantic search stays OFF (FTS-only) even when the torch extras are installed."""
+    from lemoncrow.infra.embeddings.bge import BgeEmbedder
 
-    _without_private_provider(monkeypatch)
-    with pytest.raises(ProEngineUnavailable) as excinfo:
-        make_code_embedder(pin=pin)
-    assert str(excinfo.value) == PRO_ENGINE_UNAVAILABLE_MESSAGE
-
-
-def test_unknown_code_pin_is_rejected_and_lists_supported_pins() -> None:
-    with pytest.raises(ValueError) as excinfo:
-        make_code_embedder(pin="faiss")
-    message = str(excinfo.value)
-    assert "'faiss'" in message
-    assert "'bge'" in message and "'ollama'" in message
-
-
-def test_ambient_private_pin_without_provider_is_fts_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    from lemoncrow.infra.embeddings.factory import get_code_embedder
-
-    _without_private_provider(monkeypatch)
-    monkeypatch.setenv("LEMONCROW_CODE_EMBEDDER", "bge")
-
-    assert isinstance(get_code_embedder(), NullEmbedder)
-
-
-def test_cache_clear_without_private_provider_is_safe(monkeypatch: pytest.MonkeyPatch) -> None:
-    _without_private_provider(monkeypatch)
-
-    assert make_code_embedder.cache_clear() is None
-
-
-def test_public_embeddings_package_has_no_local_model_implementations() -> None:
-    from pathlib import Path
-
-    import lemoncrow.infra.embeddings as embeddings
-
-    package = Path(embeddings.__file__).parent
-    names = {path.name for path in package.glob("*.py")}
-    assert not names & {"bge.py", "nomic.py", "reranker.py"}
-    imported: set[str] = set()
-    names: set[str] = set()
-    for path in package.glob("*.py"):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.Import):
-                imported.update(alias.name.split(".")[0] for alias in node.names)
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                imported.add(node.module.split(".")[0])
-            elif isinstance(node, ast.Name | ast.Attribute):
-                names.add(node.id if isinstance(node, ast.Name) else node.attr)
-    assert not imported & {"sentence_transformers", "torch", "transformers"}
-    assert not names & {"SentenceTransformer", "CrossEncoder"}
-
-
-def test_make_code_embedder_null_pin(monkeypatch: pytest.MonkeyPatch) -> None:
     make_code_embedder.cache_clear()
+    monkeypatch.delenv("LEMONCROW_CODE_EMBEDDER", raising=False)
+    monkeypatch.delenv("LEMONCROW_EMBEDDER", raising=False)
+    monkeypatch.setattr(BgeEmbedder, "is_available", classmethod(lambda cls: True))
+
+    embedder = make_code_embedder()
+
+    assert isinstance(embedder, NullEmbedder)
+    make_code_embedder.cache_clear()
+
+
+def test_bge_embedder_honors_encode_batch_size(monkeypatch: pytest.MonkeyPatch) -> None:
+    from lemoncrow.infra.embeddings.bge import BgeEmbedder
+
+    captured: dict[str, object] = {}
+
+    class _FakeModel:
+        def encode(self, texts: list[str], **kwargs: object) -> list[list[float]]:
+            captured["texts"] = texts
+            captured.update(kwargs)
+            return [[1.0, 0.0] for _ in texts]
+
+    monkeypatch.setenv("LEMONCROW_BGE_ENCODE_BATCH_SIZE", "128")
+    embedder = BgeEmbedder()
+    embedder._model = _FakeModel()
+
+    assert embedder.embed(["a", "b"]) == [[1.0, 0.0], [1.0, 0.0]]
+    assert captured["batch_size"] == 128
+    assert captured["normalize_embeddings"] is True
+    assert captured["show_progress_bar"] is False
+
+
+def test_make_code_embedder_bge_requires_explicit_pin(monkeypatch: pytest.MonkeyPatch) -> None:
+    """BGE is only selected via an explicit pin (LEMONCROW_CODE_EMBEDDER=bge)."""
+    from lemoncrow.infra.embeddings.bge import BgeEmbedder
+
+    make_code_embedder.cache_clear()
+
+    embedder = make_code_embedder(pin="bge")
+
+    assert isinstance(embedder, BgeEmbedder)
+    make_code_embedder.cache_clear()
+
+
+def test_make_code_embedder_null_pin_skips_auto_select(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Explicit null pin must NOT trigger BGE auto-select even when the extras are installed."""
+    from lemoncrow.infra.embeddings.bge import BgeEmbedder
+
+    make_code_embedder.cache_clear()
+    monkeypatch.setattr(BgeEmbedder, "is_available", classmethod(lambda cls: True))
 
     embedder = make_code_embedder(pin="null")
 
@@ -261,3 +246,11 @@ def test_ollama_embedder_is_unavailable_when_model_is_missing(
     embedder = OllamaEmbedder(model="nomic-embed-text")
 
     assert embedder.is_available() is False
+
+
+def test_make_code_embedder_reuses_pinned_bge_instance() -> None:
+    make_code_embedder.cache_clear()
+    first = make_code_embedder(pin="bge")
+    second = make_code_embedder(pin="bge")
+    assert first is second
+    make_code_embedder.cache_clear()

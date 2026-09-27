@@ -22,17 +22,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import urllib.parse
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from lemoncrow.pro.capabilities.review.github_placement import (
-    github_side,
-    hunk_ranges,
-    index_files,
-    unplaceable_reason,
-)
 from lemoncrow.pro.capabilities.review.sources.github import (
     GhRunner,
     GitHubCliError,
@@ -53,6 +47,10 @@ _KIND_PREFIX: dict[str, str] = {
     "suggestion": "**Suggestion:** ",
     "looks_good": "**Looks good:** ",
 }
+
+_SIDE: dict[str, str] = {"new": "RIGHT", "old": "LEFT"}
+
+_HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
 
 _MARKER = "<!-- lemoncrow:op={operation_id} -->"
 _MARKER_PREFIX = "<!-- lemoncrow:op="
@@ -135,10 +133,6 @@ class PullRequestState:
     open: bool
     files: tuple[PullRequestFile, ...] = field(default_factory=tuple)
     viewer_reviews: tuple[RemoteReview, ...] = field(default_factory=tuple)
-    repository_id: str = ""
-    """The base repository's durable GitHub id: what later edits and dismissals are addressed by."""
-    host: str = ""
-    """The GitHub host that served the pull request (its ``html_url``): where that id is unique."""
 
     def marked_review(self, operation_id: str) -> RemoteReview | None:
         """The viewer's review a previous attempt of *operation_id* already created."""
@@ -233,6 +227,24 @@ class GitHubReviewPlan:
         }
 
 
+def hunk_ranges(patch: str) -> dict[str, tuple[tuple[int, int], ...]]:
+    """Inclusive line spans GitHub shows per side (``LEFT``/``RIGHT``), one per hunk."""
+
+    left: list[tuple[int, int]] = []
+    right: list[tuple[int, int]] = []
+    for line in patch.splitlines():
+        match = _HUNK.match(line)
+        if match is None:
+            continue
+        old_start, old_len = int(match[1]), int(match[2]) if match[2] is not None else 1
+        new_start, new_len = int(match[3]), int(match[4]) if match[4] is not None else 1
+        if old_len > 0:
+            left.append((old_start, old_start + old_len - 1))
+        if new_len > 0:
+            right.append((new_start, new_start + new_len - 1))
+    return {"LEFT": tuple(left), "RIGHT": tuple(right)}
+
+
 def _location(candidate: PublishCandidate) -> str:
     if candidate.start_line <= 0:
         return candidate.path
@@ -257,7 +269,11 @@ def build_plan(
 ) -> GitHubReviewPlan:
     """Place every candidate inline or in the body, and pick the review event."""
 
-    files = index_files(state.files)
+    files: dict[str, PullRequestFile] = {}
+    for item in state.files:
+        files[item.path] = item
+        if item.previous_path:
+            files.setdefault(item.previous_path, item)
 
     inline: list[InlineComment] = []
     folded: list[FoldedComment] = []
@@ -267,21 +283,22 @@ def build_plan(
         if candidate.kind == "looks_good" and not candidate.body.strip():
             continue
         reason = ""
-        side = github_side(candidate.side)
+        side = _SIDE.get(candidate.side, "")
         pr_file = files.get(candidate.path)
         start = candidate.start_line
         end = max(candidate.end_line, start)
         if candidate.state == "orphaned":
             reason = candidate.anchor_detail or "its line no longer exists in this revision"
-        elif pr_file is None and start > 0 and side:
+        elif start <= 0:
+            reason = "file-level comment"
+        elif not side:
+            reason = "not anchored to a diff line"
+        elif pr_file is None:
             reason = "file is not part of the pull request diff"
-        else:
-            reason = unplaceable_reason(
-                patch=pr_file.patch if pr_file else None,
-                anchor_side=candidate.side,
-                start_line=start,
-                end_line=end,
-            )
+        elif pr_file.patch is None:
+            reason = "GitHub shows no diff for this file"
+        elif not any(low <= start and end <= high for low, high in hunk_ranges(pr_file.patch)[side]):
+            reason = "outside the lines GitHub shows in the diff"
         if reason:
             folded.append(
                 FoldedComment(
@@ -335,16 +352,6 @@ def _mapping(value: object) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _served_host(raw: object) -> str:
-    """The host of a GitHub ``html_url``; ``""`` when absent or not an http(s) URL."""
-
-    try:
-        page = urllib.parse.urlsplit(raw) if isinstance(raw, str) else None
-    except ValueError:
-        return ""
-    return page.netloc if page is not None and page.scheme in ("http", "https") else ""
-
-
 def load_pull_request_state(pr: PullRequestRef, runner: GhRunner) -> PullRequestState:
     """Live head, author, viewer, open state and per-file patches from GitHub."""
 
@@ -354,7 +361,6 @@ def load_pull_request_state(pr: PullRequestRef, runner: GhRunner) -> PullRequest
         raise GitHubCliError(f"GitHub returned an unexpected shape for {pr.url}")
     head = _mapping(pull.get("head"))
     user = _mapping(pull.get("user"))
-    repository_id = _mapping(_mapping(pull.get("base")).get("repo")).get("id")
     files = tuple(
         PullRequestFile(
             path=str(row.get("filename") or ""),
@@ -386,61 +392,6 @@ def load_pull_request_state(pr: PullRequestRef, runner: GhRunner) -> PullRequest
         open=str(pull.get("state") or "") == "open",
         files=files,
         viewer_reviews=tuple(reviews),
-        repository_id=(
-            str(repository_id) if isinstance(repository_id, int) and not isinstance(repository_id, bool) else ""
-        ),
-        host=_served_host(pull.get("html_url")),
-    )
-
-
-def load_bot_pull_request_state(pr: PullRequestRef, runner: GhRunner) -> PullRequestState:
-    """:func:`load_pull_request_state` for the bot publish path, which has no viewer.
-
-    A ``GITHUB_TOKEN`` (or any app token) cannot call ``GET /user``, and the bot has no
-    login to match reviews against. Reviews that already carry a LemonCrow marker are
-    taken from authors GitHub types as ``Bot`` instead, so a retry adopts the bot's own
-    review and a person cannot forge one to suppress it. ``viewer`` stays empty: the
-    bot never approves, so the own-pull-request rule has nothing to decide.
-    """
-
-    pull = gh_json(runner, ["api", pr.api_path])
-    if not isinstance(pull, dict):
-        raise GitHubCliError(f"GitHub returned an unexpected shape for {pr.url}")
-    head = _mapping(pull.get("head"))
-    files = tuple(
-        PullRequestFile(
-            path=str(row.get("filename") or ""),
-            patch=row.get("patch") if isinstance(row.get("patch"), str) else None,
-            previous_path=str(row.get("previous_filename") or ""),
-        )
-        for row in gh_paginated(runner, f"{pr.api_path}/files?per_page=100")
-        if row.get("filename")
-    )
-    reviews = tuple(
-        RemoteReview(
-            id=int(row["id"]),
-            body=str(row.get("body") or ""),
-            commit_id=str(row.get("commit_id") or ""),
-            state=str(row.get("state") or ""),
-            html_url=str(row.get("html_url") or ""),
-        )
-        for row in gh_paginated(runner, f"{pr.api_path}/reviews?per_page=100")
-        if isinstance(row.get("id"), int)
-        and _mapping(row.get("user")).get("type") == "Bot"
-        and _MARKER_PREFIX in str(row.get("body") or "")
-    )
-    repository_id = _mapping(_mapping(pull.get("base")).get("repo")).get("id")
-    return PullRequestState(
-        head_sha=str(head.get("sha") or ""),
-        author=str(_mapping(pull.get("user")).get("login") or ""),
-        viewer="",
-        open=str(pull.get("state") or "") == "open",
-        files=files,
-        viewer_reviews=reviews,
-        repository_id=(
-            str(repository_id) if isinstance(repository_id, int) and not isinstance(repository_id, bool) else ""
-        ),
-        host=_served_host(pull.get("html_url")),
     )
 
 
@@ -528,7 +479,6 @@ __all__ = [
     "build_plan",
     "ensure_current_head",
     "hunk_ranges",
-    "load_bot_pull_request_state",
     "load_pull_request_state",
     "publish_plan",
 ]

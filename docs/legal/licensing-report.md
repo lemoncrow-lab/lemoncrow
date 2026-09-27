@@ -12,17 +12,6 @@ licensing position after relicensing the whole project to Apache-2.0.
   compiled-only `lemoncrow.pro` engine. That split has been removed — the engine
   source is now published and Apache-2.0 licensed.
 
-### Current source boundary (2026-10)
-
-The statement above records the transition at the time. Since then the
-advanced code-context engine, the local code-embedding and cross-encoder
-reranker implementations, the learned ranking assets and the server's semantic
-ANN layer have moved to a private LemonCrow distribution and are no longer in
-this repository; see `docs/reference/open-source-boundary.md`. Everything this
-repository publishes remains Apache-2.0, and versions already published under
-Apache-2.0 (through v0.7.4 and the public repository state of 2026-09-24) keep
-that license. **Owner review recommended** for the wording of this section.
-
 ## 2. Contributor terms
 
 - `CONTRIBUTING.md` states contributions are under Apache-2.0.
@@ -64,7 +53,7 @@ compatible with Apache-2.0 redistribution. Spot check of the principal ones:
 The linking exception is designed to permit use from otherwise-licensed
 programs, so this is generally compatible, but confirm the exception's terms are
 acceptable for redistribution, or gate `pygit2` behind an optional extra if you
-prefer to avoid it. Optional extras (`letta`,
+prefer to avoid it. Optional extras (`letta`, `torch`/`sentence-transformers`,
 `ollama`, `openai`, `litellm`, `langfuse`, `psycopg`, `ortools`, `rope`, etc.)
 are not installed by default; their licenses apply only when a user opts in.
 

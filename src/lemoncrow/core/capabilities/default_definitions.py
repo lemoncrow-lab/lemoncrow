@@ -706,19 +706,19 @@ def _mcp_templates() -> dict[str, McpTemplate]:
             template_id="claude-default",
             host="claude",
             command="lc",
-            args=("runtime", "mcp", "--host", "claude"),
+            args=("mcp", "--host", "claude"),
         ),
         "codex-default": McpTemplate(
             template_id="codex-default",
             host="codex",
             command="lc",
-            args=("runtime", "mcp", "--host", "codex"),
+            args=("mcp", "--host", "codex"),
         ),
         "antigravity-default": McpTemplate(
             template_id="antigravity-default",
             host="antigravity",
             command="lc",
-            args=("runtime", "mcp", "--host", "antigravity"),
+            args=("mcp", "--host", "antigravity"),
         ),
     }
 

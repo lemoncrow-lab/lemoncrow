@@ -1,20 +1,16 @@
 from __future__ import annotations
 
 import json
-import sqlite3
-import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from lemoncrow.core.service.code_map import (
-    _git_worktrees,
-    _ignored_worktree_paths,
+    build_full_graph,
     build_neighborhood,
     classify_activity_event,
     find_references,
-    legacy_file_links,
     list_file_nodes,
     list_file_symbols,
     recent_activity,
@@ -22,6 +18,7 @@ from lemoncrow.core.service.code_map import (
     search_symbols,
     search_text,
 )
+from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 
 
 class _FakeEngine:
@@ -344,18 +341,14 @@ def test_recent_activity_uses_workspace_and_resolves_exact_live_targets(tmp_path
     assert payload["events"][0]["symbol_ids"] == ["charge"]
 
 
-@pytest.mark.private_engine
-def test_legacy_file_links_keep_imports_and_uniquely_resolved_calls(tmp_path: Path) -> None:
-    from lemoncrow.pro.capabilities.code_context import CodeContextEngine
-
+def test_build_full_graph_includes_every_symbol_file_and_resolved_call(tmp_path: Path) -> None:
     source = tmp_path / "src" / "payments.py"
     source.parent.mkdir()
     source.write_text(
-        "def send(amount: int) -> int:\n    return amount\n",
-        encoding="utf-8",
-    )
-    (tmp_path / "src" / "checkout.py").write_text(
-        "from src.payments import send\n\n\ndef charge_card(amount: int) -> int:\n    return send(amount)\n",
+        "def send(amount: int) -> int:\n"
+        "    return amount\n\n"
+        "def charge_card(amount: int) -> int:\n"
+        "    return send(amount)\n",
         encoding="utf-8",
     )
     (tmp_path / "README.md").write_text("# Payments\n", encoding="utf-8")
@@ -366,97 +359,34 @@ def test_legacy_file_links_keep_imports_and_uniquely_resolved_calls(tmp_path: Pa
     )
     engine.index_repo(force=True)
 
-    links = legacy_file_links(engine)
+    payload = build_full_graph(engine, tmp_path, max_symbols=100)
 
-    calls = [row for row in links if row["kind"] == "calls"]
+    labels = {node["label"] for node in payload["graph"]["nodes"]}
+    assert {"payments.py", "send", "charge_card"} <= labels
+    assert any(edge["kind"] == "contains" for edge in payload["graph"]["edges"])
+    call_edges = [edge for edge in payload["graph"]["edges"] if edge["kind"] == "calls"]
     assert any(
-        row["source_path"] == "src/checkout.py"
-        and row["target_path"] == "src/payments.py"
-        and row["symbols"][0]["name"] == "send"
-        for row in calls
-    ), links
-    assert all(row["source_path"] != row["target_path"] for row in links)
+        next(node for node in payload["graph"]["nodes"] if node["id"] == edge["source"])["label"] == "charge_card"
+        and next(node for node in payload["graph"]["nodes"] if node["id"] == edge["target"])["label"] == "send"
+        for edge in call_edges
+    )
+    assert payload["total_symbols"] == 3, payload["total_symbols"]
+    assert payload["truncated"] is False
+    assert payload["groups"][0]["count"] >= 1
+    readme = next(node for node in payload["graph"]["nodes"] if node["label"] == "README.md")
+    assert readme["file_type"] == "docs"
+    assert readme["language"] == "Markdown"
 
     file_symbols = list_file_symbols(engine, "src/payments.py")
-    assert file_symbols["total_symbols"] == 1
-    assert [symbol["label"] for symbol in file_symbols["symbols"]] == ["send"]
-    assert file_symbols["symbols"][0]["module"] == "src"
+    assert file_symbols["total_symbols"] == 2
+    assert [symbol["label"] for symbol in file_symbols["symbols"]] == [
+        "send",
+        "charge_card",
+    ]
     assert file_symbols["truncated"] is False
 
 
-def test_git_worktrees_discovers_sibling_checkout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    main = tmp_path / "main"
-    feature = tmp_path / "feature"
-    subprocess.run(["git", "init", "-q", str(main)], check=True)
-    (main / "main.py").write_text("pass\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(main), "add", "main.py"], check=True)
-    subprocess.run(
-        [
-            "git",
-            "-C",
-            str(main),
-            "-c",
-            "user.name=Test",
-            "-c",
-            "user.email=test@example.com",
-            "commit",
-            "-qm",
-            "initial",
-        ],
-        check=True,
-    )
-    subprocess.run(["git", "-C", str(main), "worktree", "add", "-qb", "feature", str(feature)], check=True)
-
-    assert set(_git_worktrees(main)) == {main.resolve(), feature.resolve()}
-    from lemoncrow.core.service.project_registry import project_id_for_root
-
-    monkeypatch.setenv("LEMONCROW_WORKSPACE_ROOT", str(main))
-    assert resolve_project_root(project_id_for_root(feature)) == feature.resolve()
-
-    from lemoncrow.core.service import code_map, code_warm, project_registry
-
-    monkeypatch.setattr(code_map, "_is_user_project", lambda _path: True)
-    monkeypatch.setattr(code_warm, "discover_workspaces", lambda: [main])
-    monkeypatch.setattr(project_registry, "registered_projects", lambda: [])
-    assert {row["root"] for row in code_map.list_projects()} == {str(main.resolve()), str(feature.resolve())}
-
-
-def test_source_file_listing_hides_ignored_until_requested(tmp_path: Path) -> None:
-    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
-    (tmp_path / ".gitignore").write_text("ignored/\n", encoding="utf-8")
-    (tmp_path / "main.py").write_text("pass\n", encoding="utf-8")
-    ignored = tmp_path / "ignored"
-    ignored.mkdir()
-    for name in ("one.py", "two.py", "three.py"):
-        (ignored / name).write_text("pass\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(tmp_path), "add", ".gitignore", "main.py"], check=True)
-    connection = sqlite3.connect(":memory:")
-    connection.row_factory = sqlite3.Row
-    connection.execute("CREATE TABLE symbols (file_path TEXT, end_line INTEGER)")
-    connection.execute("INSERT INTO symbols VALUES ('ignored/one.py', 1)")
-    engine = SimpleNamespace(connection=lambda: connection)
-
-    normal = list_file_nodes(engine, tmp_path)
-    assert "main.py" in {row["path"] for row in normal["files"]}
-    assert not any(row["ignored"] for row in normal["files"])
-    assert "ignored/one.py" not in {row["path"] for row in normal["files"]}
-
-    expanded = list_file_nodes(engine, tmp_path, include_ignored=True)
-    ignored_rows = {row["path"] for row in expanded["files"] if row["ignored"]}
-    assert ignored_rows == {"ignored/one.py", "ignored/two.py", "ignored/three.py"}
-    assert expanded["ignored_truncated"] is False
-    complete, truncated = _ignored_worktree_paths(tmp_path, limit=3)
-    assert len(complete) == 3
-    assert truncated is False
-    limited, truncated = _ignored_worktree_paths(tmp_path, limit=2)
-    assert len(limited) == 2
-    assert truncated is True
-
-
-@pytest.mark.private_engine
-def test_source_file_listing_lists_every_file(tmp_path: Path) -> None:
-    from lemoncrow.pro.capabilities.code_context import CodeContextEngine
-
+def test_source_file_listing_is_not_limited_by_graph_file_cap(tmp_path: Path) -> None:
     for name in ("alpha.py", "beta.py", "gamma.py"):
         (tmp_path / name).write_text(
             f"def {name.removesuffix('.py')}() -> None:\n    pass\n",
@@ -469,8 +399,11 @@ def test_source_file_listing_lists_every_file(tmp_path: Path) -> None:
     )
     engine.index_repo(force=True)
 
+    graph = build_full_graph(engine, tmp_path, max_files=1)
     listing = list_file_nodes(engine, tmp_path)
 
+    graph_files = [node for node in graph["graph"]["nodes"] if node.get("node_type") == "file"]
+    assert len(graph_files) == 1
     assert listing["total_files"] >= 3
     assert len(listing["files"]) == listing["total_files"]
     assert {"alpha.py", "beta.py", "gamma.py"} <= {file["path"] for file in listing["files"]}

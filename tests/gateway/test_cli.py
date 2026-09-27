@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -69,14 +68,7 @@ def _seed_rescue_block(root: Path) -> None:
 
 
 def test_init_handles_empty_bundled_seed_resources(tmp_path: Path, monkeypatch) -> None:
-    # Index a throwaway repository, never the checkout the suite runs from.
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    (repo / "app.py").write_text("def main():\n    return 1\n", encoding="utf-8")
-    subprocess.run(["git", "init", "-q", str(repo)], check=True)
-    monkeypatch.chdir(repo)
-    monkeypatch.delenv("LEMONCROW_WORKSPACE_ROOT", raising=False)
-    res = _invoke(tmp_path / "a", "runtime", "init")
+    res = _invoke(tmp_path / "a", "init")
     assert res.exit_code == 0, res.output
     assert "store initialized" in res.output
     assert "Code index ready" in res.output
@@ -85,14 +77,14 @@ def test_init_handles_empty_bundled_seed_resources(tmp_path: Path, monkeypatch) 
 
 def test_init_runs_locally_without_an_account(tmp_path: Path, monkeypatch) -> None:
     # Open-source runtime: init is fully local and never requires an account.
-    res = _invoke(tmp_path / "a", "runtime", "init", "--no-seed", "--no-index")
+    res = _invoke(tmp_path / "a", "init", "--no-seed", "--no-index")
     assert res.exit_code == 0, res.output
     assert "store initialized" in res.output
     assert "account is required" not in res.output
 
 
 def test_init_runs_locally_with_no_login_prompt(tmp_path: Path, monkeypatch) -> None:
-    """Open-source `lc runtime init` is fully local: it never attempts a browser login,
+    """Open-source `lc init` is fully local: it never attempts a browser login,
     and the account-free steps (store init, code index) run normally.
     """
     from lemoncrow.gateway.cli.commands import code
@@ -106,47 +98,12 @@ def test_init_runs_locally_with_no_login_prompt(tmp_path: Path, monkeypatch) -> 
     monkeypatch.setattr(code, "_code_context_engine", lambda repo_root: object())
     monkeypatch.setattr(code, "_index_repo_with_progress", _fake_index)
 
-    res = _invoke(tmp_path / "a", "runtime", "init")
+    res = _invoke(tmp_path / "a", "init")
     assert res.exit_code == 0, res.output
     assert "Aborted" not in res.output
     assert "store initialized" in res.output
     assert "account is required" not in res.output
     assert index_calls, "code index must still run"
-
-
-def test_code_index_registers_successfully_indexed_repo(tmp_path: Path, monkeypatch) -> None:
-    from lemoncrow.core.service import project_registry
-    from lemoncrow.gateway.cli.commands import code
-
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    subprocess.run(["git", "init", "-q", str(repo)], check=True)
-    registered: list[Path] = []
-
-    monkeypatch.setattr(code, "_code_context_engine", lambda repo_root, db_path=None: object())
-    monkeypatch.setattr(
-        code,
-        "_index_repo_with_progress",
-        lambda engine, **kwargs: {"files_indexed": 1, "symbols_indexed": 2, "imports_indexed": 3},
-    )
-    monkeypatch.setattr(code, "_index_git_history_with_progress", lambda engine, frame_prefix="": None)
-    monkeypatch.setattr(code, "_trigger_zoekt_with_progress", lambda *args, **kwargs: None)
-    monkeypatch.setattr(project_registry, "register_project", lambda root: registered.append(Path(root)))
-
-    monkeypatch.setenv("LEMONCROW_INTERNAL_PRIVATE_RUNTIME", "1")
-    res = _invoke(
-        tmp_path / "store",
-        "runtime",
-        "code",
-        "--internal-private",
-        "index",
-        "--repo-root",
-        str(repo),
-        "--no-stats",
-    )
-
-    assert res.exit_code == 0, res.output
-    assert registered == [repo.resolve()]
 
 
 def test_run_rubric_via_cli(tmp_path: Path) -> None:
@@ -199,18 +156,15 @@ def test_code_context_cli_round_trip(tmp_path: Path) -> None:
     root = tmp_path / "lemoncrow"
     repo = tmp_path / "repo"
     repo.mkdir()
-    subprocess.run(["git", "init", "-q", str(repo)], check=True)
     (repo / "service.py").write_text(
         "def alpha() -> int:\n    return 1\n\ndef beta() -> int:\n    return alpha()\n",
         encoding="utf-8",
     )
-    _invoke(root, "runtime", "init", "--no-seed")
+    _invoke(root, "init", "--no-seed")
 
-    indexed = _invoke(root, "runtime", "index", "--repo-root", str(repo), "--json")
+    indexed = _invoke(root, "code", "index", "--repo-root", str(repo), "--json")
     assert indexed.exit_code == 0, indexed.output
-    payload = json.loads(indexed.output)
-    assert payload["files_indexed"] >= 1
-    assert payload["index_path"].endswith(".lemoncrow/workspace/runtime-lite-v3.sqlite3")
+    assert json.loads(indexed.output)["symbols_indexed"] >= 2
 
 
 def test_record_trace_and_extract_block(tmp_path: Path) -> None:
@@ -296,8 +250,10 @@ def test_savings_cli_reports_session_stats(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    # Aggregate savings are available only under Runtime.
-    res = _invoke(root, "runtime", "savings", "--json")
+    # `savings` is now a hidden back-compat alias (spec §5.1) -- installed
+    # statusline scripts still shell out to it, so this exercises the alias
+    # exactly as they do. The promoted spelling is `lc usage optimize`.
+    res = _invoke(root, "savings", "--json")
 
     assert res.exit_code == 0, res.output
     payload = json.loads(res.output)
@@ -306,7 +262,7 @@ def test_savings_cli_reports_session_stats(tmp_path: Path) -> None:
     assert payload["saved_usd"] == 0.0036
 
 
-def test_legacy_account_cli_is_absent_and_local_settings_remain(tmp_path: Path) -> None:
+def test_legacy_account_cli_is_absent_and_local_share_settings_remain(tmp_path: Path) -> None:
     root = tmp_path / "a"
     help_result = _invoke(root, "--help")
     assert help_result.exit_code == 0, help_result.output
@@ -320,10 +276,17 @@ def test_legacy_account_cli_is_absent_and_local_settings_remain(tmp_path: Path) 
     assert "login" in auth_help.output
     assert "logout" in auth_help.output
 
-    # `lc runtime init` is local-only; the retired account-link flag must not reappear.
-    init_help = _invoke(root, "runtime", "init", "--help")
+    # `lc init` is local-only; the retired account-link flag must not reappear.
+    init_help = _invoke(root, "init", "--help")
     assert init_help.exit_code == 0, init_help.output
     assert "--login" not in init_help.output
+
+    share = _invoke(root, "share", "--json")
+    assert share.exit_code == 0, share.output
+    assert json.loads(share.output) == {
+        "url": "https://lemoncrow.com",
+        "text": "LemonCrow: https://lemoncrow.com",
+    }
 
     set_result = _invoke(root, "settings", "set", "alwaysLoadTools", "off", "--json")
     assert set_result.exit_code == 0, set_result.output
@@ -373,12 +336,12 @@ def test_worker_runs_consolidation_job_on_sqlite(
 
     monkeypatch.setattr("lemoncrow.pro.capabilities.consolidation.worker.chat", unavailable)
 
-    enqueue = _invoke(root, "runtime", "worker", "enqueue", JOB_CONSOLIDATE_BLOCKS, "--json")
+    enqueue = _invoke(root, "worker", "enqueue", JOB_CONSOLIDATE_BLOCKS, "--json")
     assert enqueue.exit_code == 0, enqueue.output
     payload = json.loads(enqueue.output)
     assert payload["status"] == "pending"
 
-    run = _invoke(root, "runtime", "worker", "run-once")
+    run = _invoke(root, "worker", "run-once")
     assert run.exit_code == 0, run.output
     assert "processed job:" in run.output
 
@@ -387,25 +350,25 @@ def test_worker_runs_consolidation_job_on_sqlite(
     assert len(store.lessons.list_consolidation_candidates()) == 1
 
 
-def test_map_open_shows_the_current_workspace_in_the_web_dashboard(
+def test_map_prints_current_workspace_url_without_opening_browser(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     workspace = tmp_path / "repo with spaces"
     workspace.mkdir()
     monkeypatch.setenv("LEMONCROW_WORKSPACE_ROOT", str(workspace))
     monkeypatch.setattr(
-        "lemoncrow.infra.runtime.dashboard_url.discover_dashboard_url",
+        "lemoncrow.gateway.cli.commands.map.discover_dashboard_url",
         lambda root: "http://127.0.0.1:3225",
     )
     opened: list[str] = []
     monkeypatch.setattr("lemoncrow.gateway.cli.commands.map.webbrowser.open", opened.append)
 
-    res = _invoke(tmp_path / "runtime", "runtime", "map", "--open")
+    res = _invoke(tmp_path / "runtime", "map", "--no-open")
 
     assert res.exit_code == 0, res.output
     assert "http://127.0.0.1:3225/code?repo=" in res.output
     assert "repo+with+spaces" in res.output
-    assert len(opened) == 1
+    assert opened == []
 
 
 def test_dashboard_open_discovers_the_existing_frontend(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -416,7 +379,7 @@ def test_dashboard_open_discovers_the_existing_frontend(tmp_path: Path, monkeypa
     opened: list[str] = []
     monkeypatch.setattr("webbrowser.open", opened.append)
 
-    res = _invoke(tmp_path / "runtime", "runtime", "dashboard", "open")
+    res = _invoke(tmp_path / "runtime", "dashboard", "open")
 
     assert res.exit_code == 0, res.output
     assert "http://127.0.0.1:3225/" in res.output

@@ -1,8 +1,8 @@
-"""``lc dev perf`` -- MCP tool latency profiling with drift detection.
+"""``lc perf`` -- MCP tool latency profiling with drift detection.
 
-Bare ``lc dev perf`` runs the profile and prints per-tool drift vs the last
-recorded run (without recording). ``lc dev perf append`` also records the run
-into the history file. ``lc dev perf show`` prints the recorded history.
+Bare ``lc perf`` runs the profile and prints per-tool drift vs the last
+recorded run (without recording). ``lc perf append`` also records the run
+into the history file. ``lc perf show`` prints the recorded history.
 """
 
 from __future__ import annotations

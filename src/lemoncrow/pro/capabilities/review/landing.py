@@ -7,17 +7,10 @@ merges, rebases, pushes, or branch mutation.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable, Mapping, Sequence
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, cast
-
-from lemoncrow.pro.capabilities.review.readiness import (
-    SATISFIED_STATES,
-    ReadinessCondition,
-    conditions_digest,
-    normalized_requirement_state,
-)
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from lemoncrow.pro.capabilities.review.session_models import ReviewRelationship, ReviewRevision
@@ -25,8 +18,20 @@ if TYPE_CHECKING:
 
 ARMED_LANDING_STATES = frozenset({"armed", "delegated", "queued"})
 #: Condition states that do not block landing. ``waived`` is a human override
-#: shown as such, never as ``pass``. Owned by the readiness core.
-SATISFIED_CONDITION_STATES = SATISFIED_STATES
+#: shown as such, never as ``pass``.
+SATISFIED_CONDITION_STATES = frozenset({"pass", "not_applicable", "waived"})
+
+_PASS_STATES = frozenset({"pass", "passed", "success", "satisfied", "ready", "complete", "completed", "merged"})
+_FAIL_STATES = frozenset({"fail", "failed", "blocked", "rejected", "error"})
+
+
+def normalized_requirement_state(value: object) -> str:
+    state = str(value or "").strip().lower()
+    if state in _PASS_STATES:
+        return "pass"
+    if state in _FAIL_STATES:
+        return "fail"
+    return "pending"
 
 
 def condition(
@@ -39,20 +44,38 @@ def condition(
     category: str = "review",
     url: str = "",
 ) -> dict[str, Any]:
-    """Legacy dict form of :class:`readiness.ReadinessCondition` (unknown states block)."""
+    normalized = state if state in {"pass", "fail", "pending", "not_applicable", "waived"} else "pending"
+    return {
+        "id": identifier,
+        "label": label,
+        "state": normalized,
+        "detail": detail,
+        "owner": owner if owner in {"lemoncrow", "scm"} else "lemoncrow",
+        "category": category,
+        "url": url,
+    }
 
-    return ReadinessCondition(
-        id=identifier,
-        label=label,
-        state=state,
-        detail=detail,
-        owner=owner,
-        category=category,
-        url=url,
-    ).to_wire()
+
+def conditions_digest(conditions: Sequence[Mapping[str, Any]]) -> str:
+    """Stable compare-and-swap identity for the exact conditions a human saw."""
+
+    normalized = [
+        {
+            "id": str(item.get("id") or ""),
+            "label": str(item.get("label") or ""),
+            "state": str(item.get("state") or ""),
+            "detail": str(item.get("detail") or ""),
+            "owner": str(item.get("owner") or ""),
+            "category": str(item.get("category") or ""),
+            "url": str(item.get("url") or ""),
+        }
+        for item in conditions
+    ]
+    raw = json.dumps(normalized, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def readiness_summary(conditions: Sequence[Mapping[str, Any]], *, policy_generation: str = "") -> dict[str, Any]:
+def readiness_summary(conditions: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     blockers = [item for item in conditions if str(item.get("state") or "") not in SATISFIED_CONDITION_STATES]
     local_blockers = [item for item in blockers if str(item.get("owner") or "lemoncrow") != "scm"]
     return {
@@ -60,7 +83,7 @@ def readiness_summary(conditions: Sequence[Mapping[str, Any]], *, policy_generat
         "armable": not local_blockers,
         "blocker_count": len(blockers),
         "local_blocker_count": len(local_blockers),
-        "conditions_hash": conditions_digest(conditions, policy_generation=policy_generation),
+        "conditions_hash": conditions_digest(conditions),
     }
 
 
@@ -132,7 +155,6 @@ def mark_landing_stale_for_revision(
         metadata_updates={
             "detail": ("Semantic Snapshot changed after landing was armed; provider landing cancellation is pending."),
             "provider_cancel": "pending",
-            "cancel_reason": "snapshot",
             "invalidated_by_revision_id": revision.id,
             "invalidated_by_tree_fingerprint": revision.tree_fingerprint,
         },
@@ -181,144 +203,21 @@ def complete_pending_landing_cancel(
                 "detail": detail,
             },
         )
-    metadata = landing_metadata(landing)
-    discarded = metadata.get("cancel_reason") == "discarded"
-    # A readiness withdrawal (see claim_readiness_withdrawal) carries its own
-    # cause: the definite blockers, or the policy generation change.
-    withdrawn = metadata.get("cancel_reason") == "readiness"
-    withdraw_detail = str(metadata.get("withdraw_detail") or "")
-    if state == "failed":
-        # The provider may still land what it holds, so the cancel stays owed
-        # and the next pass (the local watch, the hosted maintenance sweep, or
-        # the next Reader action that settles owed cancels) retries it; a
-        # terminal "failed" would stop that. A discarded Change takes no Reader
-        # action but Cancel (its intent stays armed, so Cancel is offered).
-        retry = (
-            "Cancel merge when ready retries it"
-            if discarded
-            else "LemonCrow retries it on the next action on this Review"
-        )
-        failure = (
-            f"{withdraw_detail} Withdrawing provider landing FAILED: {detail}."
-            if withdrawn
-            else (
-                f"{'The Change was discarded' if discarded else 'Semantic Snapshot changed'}, but withdrawing "
-                f"provider landing FAILED: {detail}."
-            )
-        )
-        return record_landing_state(
-            store,
-            landing,
-            status=landing.status,
-            metadata_updates={
-                "provider_cancel": "pending",
-                "cancel_state": state,
-                "watch_error": detail[:500],
-                "detail": f"{failure} The provider may still merge until the withdrawal succeeds; {retry}.",
-            },
-        )
-    if discarded:
-        detail_text = "The Change was discarded; Merge when ready was withdrawn." + (f" {detail}" if detail else "")
-    elif withdrawn:
-        detail_text = f"{withdraw_detail} Provider landing was cancelled; resolve it and re-arm.".strip()
-    else:
-        detail_text = "Semantic Snapshot changed; provider landing was cancelled and must be re-armed after review."
-    if withdrawn and landing.status in ARMED_LANDING_STATES:
-        settled_status = "blocked"
-    elif landing.status in ARMED_LANDING_STATES:
-        settled_status = "cancelled"
-    else:
-        settled_status = landing.status
+    failed = state == "failed"
     return record_landing_state(
         store,
         landing,
-        # A discard owes its cancel while the intent is still armed; once the
-        # provider confirms, the intent is over. A readiness withdrawal ends
-        # blocked (resolve, then re-arm). A stale intent stays stale.
-        status=settled_status,
+        status=landing.status,
         metadata_updates={
-            "provider_cancel": "done",
+            "provider_cancel": "failed" if failed else "done",
             "cancel_state": state,
-            "provider_state": state,
-            "watch_error": "",
-            "detail": detail_text,
+            "detail": (
+                f"Semantic Snapshot changed; provider landing cancellation failed: {detail}"
+                if failed
+                else "Semantic Snapshot changed; provider landing was cancelled and must be re-armed after review."
+            ),
         },
     )
-
-
-def owe_discard_withdrawal(store: ReviewStore, review_id: str) -> ReviewRelationship | None:
-    """Record that a discarded Change's armed intent owes a provider cancel.
-
-    The cancel itself runs through :func:`complete_pending_landing_cancel`
-    where a provider delegate lives, and stays owed until the provider
-    confirms it, so a transient failure is retried rather than forgotten
-    while the provider could still merge the discarded Change.
-    """
-
-    landing = landing_relationship(store, review_id)
-    if landing is None or landing.status not in ARMED_LANDING_STATES:
-        return None
-    return record_landing_state(
-        store,
-        landing,
-        status=landing.status,
-        metadata_updates={
-            "provider_cancel": "pending",
-            "cancel_reason": "discarded",
-            "detail": "The Change was discarded; withdrawing Merge when ready.",
-        },
-    )
-
-
-def claim_readiness_withdrawal(
-    store: ReviewStore,
-    landing: ReviewRelationship,
-    *,
-    detail: str,
-    blocked_by: Sequence[str],
-    policy_generation: str,
-) -> ReviewRelationship | None:
-    """Claim the withdrawal of an armed intent current readiness definitely no longer supports.
-
-    Compare-and-set against the intent as it was read before readiness was
-    evaluated: exactly one caller wins, so repeated or concurrent readiness
-    reads, Reader actions, the hosted sweep and the local watch never claim (or
-    audit) the same withdrawal twice, and a human cancel, re-arm or new
-    Snapshot that landed meanwhile always wins. ``None`` when the claim lost.
-    The provider cancel itself is then owed and performed by
-    :func:`complete_pending_landing_cancel`, which retries it until the
-    provider confirms.
-    """
-
-    if landing.status not in ARMED_LANDING_STATES or landing_metadata(landing).get("provider_cancel") == "pending":
-        return None
-    metadata = landing_metadata(landing)
-    metadata.update(
-        {
-            "provider_cancel": "pending",
-            "cancel_reason": "readiness",
-            "withdraw_detail": detail,
-            "blocked_by": list(blocked_by),
-            "policy_generation_at_cancel": policy_generation,
-            "detail": f"{detail} Withdrawing provider landing.",
-        }
-    )
-    return store.update_relationship_if_unchanged(
-        landing,
-        status=landing.status,
-        metadata_json=json.dumps(metadata, ensure_ascii=False, sort_keys=True),
-    )
-
-
-def withdraw_discarded_landing(
-    store: ReviewStore,
-    review_id: str,
-    cancel: Callable[[], Mapping[str, Any]],
-) -> ReviewRelationship | None:
-    """Withdraw a discarded Change's armed intent (and any cancel already owed)."""
-
-    owe_discard_withdrawal(store, review_id)
-    return complete_pending_landing_cancel(store, review_id, cancel)
 
 
 _MERGEABLE_STATES = frozenset({"CLEAN", "HAS_HOOKS", "UNSTABLE"})
@@ -589,182 +488,16 @@ def _withdraw_discarded_landing(
     return _record_if_unchanged(store, landing, status=settled, metadata_updates=updates)
 
 
-def _expired_readiness(metadata: Mapping[str, Any], *, now: datetime | None) -> str:
-    """The recorded readiness expiry when it has passed, else ``""``."""
-
-    from lemoncrow.pro.capabilities.review.freshness import format_timestamp, parse_timestamp
-
-    valid_until = parse_timestamp(metadata.get("readiness_valid_until"))
-    if valid_until is None:
-        return ""
-    instant = now.astimezone(UTC) if now is not None else datetime.now(UTC)
-    return format_timestamp(valid_until) if instant >= valid_until else ""
-
-
-def _withdraw_expired_landing(
-    store: ReviewStore,
-    session: Any,
-    landing: ReviewRelationship,
-    armed_revision: ReviewRevision,
-    expired_at: str,
-) -> ReviewRelationship | None:
-    """Readiness the intent was armed on expired: withdraw, never merge."""
-
-    result = _local_github_step(session, armed_revision, action="cancel")
-    state = str(result.get("state") or "")
-    detail = str(result.get("detail") or "")
-    settled = cancel_settlement(state)
-    if settled == "merged":
-        # GitHub merged the reviewed head before expiry was observed: history.
-        return record_landing_state(
-            store,
-            landing,
-            status="merged",
-            metadata_updates={"cancel_state": state, "provider_state": state, "detail": detail},
-        )
-    if settled == "failed":
-        # Nothing merges while this stays armed-but-expired: every pass re-runs
-        # this guard before any merge attempt and retries the withdrawal.
-        error = f"Readiness evidence expired at {expired_at}; withdrawing GitHub landing failed: {detail}"[:500]
-        if landing_metadata(landing).get("watch_error") == error:
-            return landing
-        return _record_if_unchanged(store, landing, status=landing.status, metadata_updates={"watch_error": error})
-    return _record_if_unchanged(
-        store,
-        landing,
-        status="blocked" if settled == "cancelled" else settled,
-        metadata_updates={
-            "cancel_state": state,
-            "provider_state": state,
-            "watch_error": "",
-            "blocked_by": ["Time-sensitive evidence expired"],
-            "detail": (
-                f"Time-sensitive evidence this landing relied on expired at {expired_at}; nothing was merged. "
-                "Re-verify it on this Snapshot and re-arm." + (f" {detail}" if detail else "")
-            ),
-        },
-    )
-
-
-def recorded_generation_change(metadata: Mapping[str, Any]) -> tuple[str, str] | None:
-    """``(armed, current)`` generations when the built-in rules changed since arming, else ``None``.
-
-    The landing watch cannot evaluate readiness, but it can recompute the
-    generation an intent recorded: locally the trusted-base layer is fixed by
-    the armed Snapshot and there is no operator layer, so only the built-in
-    readiness rules (a LemonCrow upgrade) can move it. An intent armed before
-    generations were recorded has nothing to compare and is left to the Reader.
-    """
-
-    from lemoncrow.pro.capabilities.review.readiness import (
-        POLICY_LAYER_STATES,
-        PolicyLayer,
-        PolicyLayerState,
-        built_in_policy_layer,
-        policy_generation,
-    )
-
-    armed = str(metadata.get("policy_generation") or "")
-    raw_layers = metadata.get("policy_layers")
-    if not armed or not isinstance(raw_layers, list) or not raw_layers:
-        return None
-    built_in = built_in_policy_layer()
-    layers: list[PolicyLayer] = []
-    for raw in raw_layers:
-        if not isinstance(raw, Mapping):
-            return None
-        layer = PolicyLayer(
-            layer=str(raw.get("layer") or ""),
-            source=str(raw.get("source") or ""),
-            digest=str(raw.get("digest") or ""),
-            state=cast(PolicyLayerState, raw["state"]) if raw.get("state") in POLICY_LAYER_STATES else "final",
-        )
-        layers.append(built_in if layer.layer == "built_in" else layer)
-    current = policy_generation(layers).digest
-    return None if current == armed else (armed, current)
-
-
-def _withdraw_policy_changed_landing(
-    store: ReviewStore,
-    session: Any,
-    landing: ReviewRelationship,
-    armed_revision: ReviewRevision,
-    change: tuple[str, str],
-) -> ReviewRelationship | None:
-    """Readiness rules changed since arming and nothing here can re-evaluate them: withdraw."""
-
-    from lemoncrow.pro.capabilities.review.readiness import short_generation
-
-    armed, current = change
-    result = _local_github_step(session, armed_revision, action="cancel")
-    state = str(result.get("state") or "")
-    detail = str(result.get("detail") or "")
-    settled = cancel_settlement(state)
-    moved = f"generation {short_generation(armed)} -> {short_generation(current)}"
-    if settled == "merged":
-        return record_landing_state(
-            store,
-            landing,
-            status="merged",
-            metadata_updates={"cancel_state": state, "provider_state": state, "detail": detail},
-        )
-    if settled == "failed":
-        error = f"Review policy changed ({moved}); withdrawing GitHub landing failed: {detail}"[:500]
-        if landing_metadata(landing).get("watch_error") == error:
-            return landing
-        return _record_if_unchanged(store, landing, status=landing.status, metadata_updates={"watch_error": error})
-    return _record_if_unchanged(
-        store,
-        landing,
-        status="blocked" if settled == "cancelled" else settled,
-        metadata_updates={
-            "cancel_state": state,
-            "provider_state": state,
-            "watch_error": "",
-            "blocked_by": ["Review policy changed"],
-            "policy_generation_at_cancel": current,
-            "detail": (
-                f"Review policy changed after arming ({moved}) and the landing watch cannot re-evaluate "
-                "readiness; nothing was merged. Open the Review to re-check readiness and re-arm."
-                + (f" {detail}" if detail else "")
-            ),
-        },
-    )
-
-
-def reconcile_local_github_landing(
-    store: ReviewStore,
-    session: Any,
-    *,
-    now: datetime | None = None,
-    revalidate: Callable[[], object] | None = None,
-) -> ReviewRelationship | None:
+def reconcile_local_github_landing(store: ReviewStore, session: Any) -> ReviewRelationship | None:
     """Advance one armed local GitHub intent; never merges an unreviewed head.
 
     Every write here is compare-and-set against the intent as read, so a human
     cancel (or a new Snapshot) that lands while GitHub is being asked always
     wins; only a merge GitHub already performed is recorded unconditionally.
-    A discarded Change is never merged: its intent is withdrawn instead. An
-    intent whose readiness relied on time-sensitive evidence is never merged
-    after that evidence expires (``readiness_valid_until``, recorded at arm or
-    revalidation): the watch cannot recompute readiness, so it withdraws. An
-    intent whose recorded policy generation no longer matches (the readiness
-    rules changed) is never merged under the old one: ``revalidate`` (the
-    Reader's revalidation core, when the composition wires it) re-evaluates it
-    and the next pass proceeds; without it the intent is withdrawn.
+    A discarded Change is never merged: its intent is withdrawn instead.
     """
 
     landing = landing_relationship(store, session.id)
-    if landing is not None and landing_metadata(landing).get("provider_cancel") == "pending":
-        # An owed cancel (a discard, or a Snapshot that changed under an armed
-        # intent) is retried here until the provider confirms it; nothing that
-        # owes a cancel is ever merged.
-        owed_revision = store.get_revision(str(landing_metadata(landing).get("revision_id") or ""))
-        return complete_pending_landing_cancel(
-            store,
-            session.id,
-            lambda: _local_github_step(session, owed_revision, action="cancel"),
-        )
     if landing is None or landing.status not in ARMED_LANDING_STATES:
         return None
     metadata = landing_metadata(landing)
@@ -788,18 +521,6 @@ def reconcile_local_github_landing(
             lambda: _local_github_step(session, armed_revision, action="cancel"),
         )
         return settled or landing_relationship(store, session.id)
-
-    expired = _expired_readiness(metadata, now=now)
-    if expired:
-        return _withdraw_expired_landing(store, session, landing, armed_revision, expired)
-    change = recorded_generation_change(metadata)
-    if change is not None:
-        if revalidate is None:
-            return _withdraw_policy_changed_landing(store, session, landing, armed_revision, change)
-        # Re-evaluated under the current generation: withdrawn, revalidated or
-        # deferred. Never merged in this pass; the next one sees the result.
-        revalidate()
-        return landing_relationship(store, session.id)
 
     def unchanged() -> bool:
         current = landing_relationship(store, session.id)
@@ -833,7 +554,6 @@ def reconcile_local_github_landing(
 __all__ = [
     "ARMED_LANDING_STATES",
     "cancel_settlement",
-    "claim_readiness_withdrawal",
     "complete_pending_landing_cancel",
     "condition",
     "conditions_digest",
@@ -842,10 +562,7 @@ __all__ = [
     "local_github_landing",
     "mark_landing_stale_for_revision",
     "normalized_requirement_state",
-    "owe_discard_withdrawal",
     "readiness_summary",
     "reconcile_local_github_landing",
     "record_landing_state",
-    "recorded_generation_change",
-    "withdraw_discarded_landing",
 ]

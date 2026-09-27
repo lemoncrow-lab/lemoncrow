@@ -190,16 +190,7 @@ def _assert_fetchable_ip(raw_ip: str) -> None:
         raise ValueError(
             f"web_fetch blocked loopback address: {raw_ip} (set {_LOOPBACK_ALLOW_ENV}=1 to allow localhost fetches)"
         )
-    if (
-        ip.is_private
-        or ip.is_link_local
-        or ip.is_multicast
-        or ip.is_reserved
-        or ip.is_unspecified
-        or not ip.is_global
-        # Deprecated site-local fec0::/10: Python still reports it is_global.
-        or getattr(ip, "is_site_local", False)
-    ):
+    if ip.is_private or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
         raise ValueError(f"web_fetch blocked private/local network IP: {raw_ip}")
     if ip.version == 4 and ip in _CGNAT_RANGE:
         raise ValueError(f"web_fetch blocked private/local network IP: {raw_ip}")
@@ -991,6 +982,7 @@ def _fetch_uncached_once(url: str, *, accept: str, timeout_s: float) -> _RawFetc
             status = int(response.status)
             location = response.headers.get("location")
             if status in _REDIRECT_STATUSES and location:
+                response.release_conn()
                 current_url = _validate_public_url(urljoin(current_url, location))
                 continue
             if status in _REDIRECT_STATUSES:
@@ -1014,9 +1006,6 @@ def _fetch_uncached_once(url: str, *, accept: str, timeout_s: float) -> _RawFetc
                 truncated_body=truncated_body,
             )
         finally:
-            # Unread redirects, rejected types and capped bodies must never put
-            # a connection with a pending response back in the shared pool.
-            response.close()
             response.release_conn()
     raise ValueError("web_fetch failed: too many redirects")
 

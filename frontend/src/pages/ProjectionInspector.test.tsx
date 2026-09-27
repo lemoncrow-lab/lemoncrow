@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import ProjectionInspector from "./ProjectionInspector";
@@ -13,38 +13,6 @@ function jsonResponse(body: unknown, status = 200): Response {
 describe("ProjectionInspector page", () => {
   afterEach(() => {
     vi.restoreAllMocks();
-  });
-
-  it("suggests indexed files and opens the selected absolute path", async () => {
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
-      const url = String(input);
-      if (url.includes("/api/v1/code-map/files")) {
-        return Promise.resolve(jsonResponse({
-          project: { root: "/repo", label: "repo" },
-          total_files: 2,
-          files: [
-            { id: "one", label: "main.go", path: "src/main.go" },
-            { id: "two", label: "other.go", path: "src/other.go" },
-          ],
-        }));
-      }
-      return Promise.resolve(new Response("not found", { status: 404 }));
-    });
-
-    render(
-      <MemoryRouter initialEntries={["/projection"]}>
-        <Routes>
-          <Route path="/projection" element={<ProjectionInspector />} />
-        </Routes>
-      </MemoryRouter>
-    );
-
-    await userEvent.type(screen.getByRole("textbox", { name: "Path" }), "main");
-    await userEvent.click(await screen.findByRole("button", { name: "src/main.go" }));
-    expect(screen.getByRole("textbox", { name: "Path" })).toHaveValue("/repo/src/main.go");
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("path=%2Frepo%2Fsrc%2Fmain.go")
-    ));
   });
 
   it("renders projection metadata and content preview", async () => {

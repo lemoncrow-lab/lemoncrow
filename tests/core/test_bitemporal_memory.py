@@ -1,4 +1,4 @@
-"""N13: bi-temporal memory tests."""
+"""N13: bi-temporal memory + change-driven calibrated invalidation tests."""
 
 from __future__ import annotations
 
@@ -6,6 +6,13 @@ from datetime import UTC, datetime, timedelta
 
 from lemoncrow.core.foundation.memory_models import ArchivalPassage
 from lemoncrow.pro.capabilities.archival_recall.ranking import rank_archival_passages
+from lemoncrow.pro.capabilities.memory.staleness import (
+    CalibratedAction,
+    ChangeType,
+    StalenessAction,
+    calibrate_staleness,
+    should_auto_invalidate,
+)
 
 _T0 = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -115,3 +122,63 @@ def test_recall_filter_excludes_not_yet_valid_memory() -> None:
     )
     ids = {item.passage.id for item in ranked}
     assert ids == {"fresh"}
+
+
+# --------------------------------------------------------------------------
+# Change-type -> calibrated-action mapping (pure)
+# --------------------------------------------------------------------------
+def test_calibration_deleted_invalidates_with_full_confidence() -> None:
+    action = calibrate_staleness(ChangeType.DELETED)
+    assert action == CalibratedAction(
+        change_type=ChangeType.DELETED,
+        action=StalenessAction.INVALIDATE,
+        confidence=1.0,
+    )
+
+
+def test_calibration_signature_change_routes_to_review() -> None:
+    action = calibrate_staleness(ChangeType.SIGNATURE_CHANGED)
+    assert action.action is StalenessAction.REVIEW
+    assert action.confidence == 0.9
+
+
+def test_calibration_moved_lower_confidence_review() -> None:
+    action = calibrate_staleness(ChangeType.MOVED)
+    assert action.action is StalenessAction.REVIEW
+    assert action.confidence == 0.6
+
+
+def test_calibration_unchanged_keeps() -> None:
+    action = calibrate_staleness(ChangeType.UNCHANGED)
+    assert action.action is StalenessAction.KEEP
+    assert action.confidence == 0.0
+
+
+def test_calibration_confidence_ordering() -> None:
+    # More certain change types must not have lower confidence.
+    deleted = calibrate_staleness(ChangeType.DELETED).confidence
+    signature = calibrate_staleness(ChangeType.SIGNATURE_CHANGED).confidence
+    moved = calibrate_staleness(ChangeType.MOVED).confidence
+    body = calibrate_staleness(ChangeType.BODY_CHANGED).confidence
+    assert deleted >= signature >= moved >= body
+
+
+def test_should_auto_invalidate_gate() -> None:
+    deleted = calibrate_staleness(ChangeType.DELETED)
+    signature = calibrate_staleness(ChangeType.SIGNATURE_CHANGED)
+    # Default gate (min_confidence=1.0): only a certain (Deleted) change.
+    assert should_auto_invalidate(deleted) is True
+    assert should_auto_invalidate(signature) is False
+    # A review action never auto-invalidates regardless of threshold.
+    assert should_auto_invalidate(signature, min_confidence=0.0) is False
+
+
+def test_calibration_to_invalidation_end_to_end() -> None:
+    # The pure calibration drives an opt-in invalidation of a passage's window.
+    passage = _passage("p", "uses old API signature")
+    assert passage.is_valid_at(_T0) is True
+    action = calibrate_staleness(ChangeType.DELETED)
+    if should_auto_invalidate(action):
+        passage = passage.model_copy(update={"invalid_at": _T0})
+    assert passage.invalid_at == _T0
+    assert passage.is_valid_at(_T0) is False

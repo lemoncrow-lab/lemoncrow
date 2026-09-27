@@ -14,7 +14,7 @@ import functools
 import logging
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from lemoncrow_client.kit.edit import EditExtensions, ProjectionResult, SymbolTarget, apply_edits
 
@@ -122,11 +122,10 @@ def _reindex(root: Path, paths: list[Path]) -> None:
     # Synchronously reindex every written file so the index version is bumped
     # before the edit response returns; the next explore call then misses its
     # cache and re-queries the fresh index instead of pre-edit results.
-    from lemoncrow.core.capabilities.code_intelligence_provider import create_code_intelligence_provider
+    from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 
     try:
-        engine = create_code_intelligence_provider(root, autosync_enabled=False)
-        cast(Any, engine)._reindex_files([str(path) for path in paths])
+        CodeContextEngine(root, autosync_enabled=False)._reindex_files([str(path) for path in paths])
     except Exception:
         logging.exception("Non-fatal: post-edit reindex failed")
 

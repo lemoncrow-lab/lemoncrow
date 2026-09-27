@@ -475,15 +475,12 @@ def parse_tool_result_files(content) -> list[str]:
     # possibly prefixed with `## `, `### `, or `# grep` headers
     _FILE_RE = re.compile(r"^(?:#+\s+)?([\w./-]+/(?:[\w./-]+\.\w+))")
 
-    # Spill-file pattern: results too large to show were written as search-<id>.json
-    # under the spill directory (``lemoncrow_client.kit.spill.resolve_spill_dir``:
-    # $XDG_RUNTIME_DIR/lemoncrow/spill, <temp>/lemoncrow-<uid>/spill, or the older
-    # /tmp/lemoncrow-spill).
-    _SPILL_RE = re.compile(r"/[^\s\"'`<>\[\];]*/search-\w+\.json")
+    # Spill-file pattern: results were too large and written to /tmp/lemoncrow-spill/search-*.json
+    _SPILL_RE = re.compile(r"/tmp/lemoncrow-spill/search-\d+\.json")
 
     for chunk in chunks:
         # Check for spilled results — recover from spill file
-        if isinstance(chunk, str) and ("spilled" in chunk or "/search-" in chunk):
+        if isinstance(chunk, str) and ("spilled" in chunk or "/tmp/lemoncrow-spill/" in chunk):
             spill_m = _SPILL_RE.search(chunk)
             if spill_m:
                 spill_path = spill_m.group(0)

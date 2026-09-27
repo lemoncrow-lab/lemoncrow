@@ -29,9 +29,7 @@ from lemoncrow_client.localtools.shell import background_running, cancel_active_
 
 
 @pytest.fixture
-def context(worktree: Path, state_dir: Path, monkeypatch: pytest.MonkeyPatch) -> LocalContext:
-    # Keep tool-output spills isolated from the developer's real runtime/temp dir.
-    monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(state_dir / "spill"))
+def context(worktree: Path, state_dir: Path) -> LocalContext:
     config = load_config({"LEMONCROW_HOME": str(state_dir), "HOME": str(state_dir.parent)}, cwd=worktree)
     return LocalContext(config=config, repo_root=worktree, sync=None, environment=dict(os.environ))
 
@@ -55,19 +53,6 @@ def test_bash_runs_a_command_in_the_worktree_and_reports_the_exit_code(context: 
     assert "hello" in text(result)
     assert "[exit 0]" in text(result)
     assert not result.is_error
-
-
-def test_bash_runs_commands_under_bash_not_posix_sh(context: LocalContext) -> None:
-    result = run(context, "bash", {"command": "k=abcdef; printf '%s ' \"${k:0:3}\"; [[ a == a ]] && printf ok"})
-    assert "abc ok" in text(result)
-    assert not result.is_error
-
-
-def test_bash_names_the_directory_that_is_missing(context: LocalContext, tmp_path: Path) -> None:
-    gone = tmp_path / "removed-worktree"
-    with pytest.raises(ClientError) as caught:
-        run(dataclasses.replace(context, repo_root=gone), "bash", {"command": "pwd"})
-    assert str(gone) in caught.value.message
 
 
 def test_bash_reports_a_failure_as_an_error_result_not_an_exception(context: LocalContext) -> None:
@@ -259,11 +244,7 @@ def test_bg_run_returns_at_once_and_poll_waits_for_it(context: LocalContext) -> 
     assert "[exit 0]" in text(done)
     assert not done.is_error
 
-    again = run(context, "bash", {"id": run_id, "action": "status"})
-    assert not again.is_error
-    assert "already finished" in text(again) and "[exit 0]" in text(again)
-
-    gone = run(context, "bash", {"id": "nosuchid"})
+    gone = run(context, "bash", {"id": run_id})
     assert gone.is_error and "unknown bg id" in text(gone)
 
 
@@ -336,37 +317,10 @@ def test_bg_takes_one_command_and_honours_the_command_policy(context: LocalConte
     assert blocked.is_error and not background_running(context.memory)
 
 
-def test_bash_allows_a_cwd_under_the_os_temp_directory(context: LocalContext, tmp_path: Path) -> None:
-    result = run(context, "bash", {"command": "pwd", "cwd": str(tmp_path)})
-    assert str(tmp_path.resolve()) in text(result)
-    assert not result.is_error
-
-
-def test_bash_refuses_a_cwd_outside_the_worktree_and_temp_roots(context: LocalContext) -> None:
-    filesystem_root = Path(context.repo_root.anchor or os.sep).resolve()
+def test_bash_refuses_a_cwd_outside_the_worktree(context: LocalContext, tmp_path: Path) -> None:
     with pytest.raises(ClientError) as caught:
-        run(context, "bash", {"command": "pwd", "cwd": str(filesystem_root)})
+        run(context, "bash", {"command": "pwd", "cwd": str(tmp_path)})
     assert caught.value.code is ErrorCode.PAYLOAD_INVALID
-    assert "allowed temporary directories" in caught.value.message
-
-
-def test_bash_write_policy_keeps_standard_tmp_when_tmpdir_is_custom(
-    context: LocalContext, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from lemoncrow_client.kit import command_policy
-
-    custom_tmp = context.repo_root / "custom-tmp"
-    custom_tmp.mkdir()
-    monkeypatch.setattr(command_policy.tempfile, "gettempdir", lambda: str(custom_tmp))
-    target = tmp_path / "scratch.txt"
-
-    decision = command_policy.classify_command(
-        f"cat > {target}", allowed_write_roots=[context.repo_root], cwd=context.repo_root
-    )
-
-    assert decision.action != "block"
-    if os.name != "nt":
-        assert Path("/tmp").resolve() in command_policy.temporary_roots()
 
 
 def test_the_package_never_starts_a_detached_session() -> None:
@@ -579,83 +533,6 @@ def test_edit_refuses_to_write_outside_the_worktree(context: LocalContext, escap
     assert caught.value.code is ErrorCode.PAYLOAD_INVALID
 
 
-def _with_grants(context: LocalContext, home: Path, **env: str) -> LocalContext:
-    return dataclasses.replace(context, environment={**context.environment, "HOME": str(home), **env})
-
-
-def _write_new(context: LocalContext, target: Path):
-    return run(context, "edit", {"edits": [{"path": str(target), "new": "granted\n", "replace": True}]})
-
-
-def test_edit_writes_to_a_directory_granted_by_the_env_var(context: LocalContext, tmp_path: Path) -> None:
-    granted = tmp_path / "granted"
-    granted.mkdir()
-    granted_context = _with_grants(context, tmp_path / "home", LEMONCROW_ADDITIONAL_DIRS=str(granted))
-
-    result = _write_new(granted_context, granted / "note.md")
-
-    assert (granted / "note.md").read_text() == "granted\n"
-    assert result.changed_paths == (), "a file outside the worktree must never reach the blob push"
-    assert result.structured == {"changed_paths": [], "edits": 1}
-    assert str(granted / "note.md") in text(result)
-
-
-@pytest.mark.parametrize("layout", ["top-level", "nested"])
-def test_edit_writes_to_a_directory_granted_in_claude_settings(
-    context: LocalContext, tmp_path: Path, layout: str
-) -> None:
-    granted = tmp_path / "plans"
-    granted.mkdir()
-    home = tmp_path / "home"
-    (home / ".claude").mkdir(parents=True)
-    body = {"additionalDirectories": [str(granted)]}
-    if layout == "nested":
-        body = {"permissions": body}
-    (home / ".claude" / "settings.local.json").write_text(json.dumps(body), encoding="utf-8")
-
-    _write_new(_with_grants(context, home), granted / "plan.md")
-
-    assert (granted / "plan.md").exists()
-
-
-def test_edit_still_refuses_what_was_not_granted(context: LocalContext, tmp_path: Path) -> None:
-    granted = tmp_path / "granted"
-    granted.mkdir()
-    sibling = tmp_path / "granted-sibling"
-    sibling.mkdir()
-    granted_context = _with_grants(context, tmp_path / "home", LEMONCROW_ADDITIONAL_DIRS=str(granted))
-
-    for escape in (sibling / "x.md", granted / ".." / "x.md"):
-        with pytest.raises(ClientError) as caught:
-            _write_new(granted_context, escape)
-        assert caught.value.code is ErrorCode.PAYLOAD_INVALID
-    assert not (tmp_path / "x.md").exists()
-
-
-def test_edit_refuses_a_symlink_that_leaves_the_granted_directory(context: LocalContext, tmp_path: Path) -> None:
-    granted = tmp_path / "granted"
-    granted.mkdir()
-    elsewhere = tmp_path / "elsewhere"
-    elsewhere.mkdir()
-    (granted / "link").symlink_to(elsewhere)
-    granted_context = _with_grants(context, tmp_path / "home", LEMONCROW_ADDITIONAL_DIRS=str(granted))
-
-    with pytest.raises(ClientError):
-        _write_new(granted_context, granted / "link" / "x.md")
-    assert not (elsewhere / "x.md").exists()
-
-
-@pytest.mark.parametrize("entry", ["/", "~", "relative/dir"])
-def test_edit_ignores_blanket_and_relative_grants(context: LocalContext, tmp_path: Path, entry: str) -> None:
-    home = tmp_path / "home"
-    home.mkdir()
-    granted_context = _with_grants(context, home, LEMONCROW_ADDITIONAL_DIRS=entry)
-
-    assert granted_context.write_roots() == []
-    with pytest.raises(ClientError):
-        _write_new(granted_context, home / "x.md")
-
-
 # --------------------------------------------------------------------------- #
 # grep                                                                        #
 # --------------------------------------------------------------------------- #
@@ -738,10 +615,10 @@ def test_grep_spills_a_large_result_to_a_named_file(context: LocalContext) -> No
 # --------------------------------------------------------------------------- #
 
 
-def test_read_from_disk_is_not_degraded(context: LocalContext) -> None:
+def test_read_from_disk_is_always_flagged_degraded(context: LocalContext) -> None:
     result = run(context, "read_from_disk", {"files": ["pkg/alpha.py"]})
-    assert not result.degraded
-    assert result.degraded_reason == ""
+    assert result.degraded
+    assert result.degraded_reason == "server_unreachable:read_from_disk"
     assert "1\tdef alpha():" in text(result)
 
 
@@ -764,21 +641,6 @@ def test_read_from_disk_parses_the_read_tools_path_grammar(context: LocalContext
     assert read("pkg/beta.py:head=1") == "1\tfrom pkg.alpha import alpha"
     assert read("pkg/beta.py:tail=1") == "5\t    return alpha()"
     assert read("pkg/beta.py:weird") == "[no such file]"
-
-
-def test_read_from_disk_accepts_unambiguous_spellings_of_a_range(context: LocalContext) -> None:
-    def read(spelled: object) -> str:
-        entry = {"path": "pkg/beta.py", "range": spelled}
-        return text(run(context, "read_from_disk", {"files": [entry]})).split("\n", 1)[1]
-
-    both = "4\tdef beta():\n5\t    return alpha()"
-    for spelled in ([4, 5], (4, 5), ["4", "5"], "4:5", "4..5", "L4, 5", "l4-l5"):
-        assert read(spelled) == both, spelled
-    assert read(5) == "5\t    return alpha()"
-    assert read([5]) == "5\t    return alpha()"
-    with pytest.raises(ClientError) as caught:
-        read("lines four to five")
-    assert "use L10-L20" in caught.value.message
 
 
 def test_read_from_disk_accepts_an_explicit_absolute_file(context: LocalContext, tmp_path: Path) -> None:
@@ -943,13 +805,8 @@ def test_codemod_previews_a_rewrite_unless_dry_run_is_false(context: LocalContex
     assert target.read_text(encoding="utf-8") == "if x is None:\n    pass\n"
 
 
-def test_only_explicit_install_paths_can_download_or_self_update() -> None:
-    """Reject implicit installers; allow only the reviewed explicit/lazy install paths.
-
-    Runtime-only Pi downloads require their pinned SHA-256; the Review/Runtime
-    CLI may fetch a missing product or perform an explicit update. Dedicated
-    packaging and update tests enforce those entry-point and checksum guards.
-    """
+def test_no_module_in_the_package_can_download_or_self_update() -> None:
+    """The findings that got the previous install rejected, as a code scan."""
     forbidden = (
         "urlretrieve",
         "pip install",
@@ -963,37 +820,10 @@ def test_only_explicit_install_paths_can_download_or_self_update() -> None:
         "tarfile",
         "unpack_archive",
     )
-    # Reviewed installer exceptions: cli.py is the explicit/lazy product path;
-    # pi_host.py belongs to Runtime only and checks pinned release SHA-256.
-    # No other shipped module is permitted to install anything.
-    reviewed_installers = {"cli.py": {"install.sh"}, "pi_host.py": {"tarfile"}}
-    # ``runtime mcp serve --persistent`` only: the opt-in remote MCP gateway's
-    # user units and the cloudflared they supervise. It downloads nothing.
-    remote_supervision = {"remote/cli.py", "remote/service.py", "remote/tunnel.py"}
-    # The opt-in Review user service (``service`` under the Review client): the per-checkout
-    # service writes one systemd --user unit or LaunchAgent. It downloads nothing.
-    remote_supervision |= {"review_service.py", "review_launchd.py"}
-    supervision = {"cloudflared", "enable-linger", "LaunchAgents", "systemd"}
     for path in iter_modules():
         body = code_only(path)
-        relative = path.relative_to(PACKAGE_ROOT).as_posix()
         for needle in forbidden:
-            if relative in remote_supervision and needle in supervision:
-                continue
-            if needle in reviewed_installers.get(relative, set()):
-                continue
-            assert needle not in body, f"{relative} uses {needle!r} outside an explicit installer"
-    # The Pi installer must never enter the Review-only or local-Lite distribution.
-    for artifact in ("review-files.txt", "lite-files.txt"):
-        entries = (PACKAGE_ROOT.parents[1] / artifact).read_text(encoding="utf-8").split()
-        assert "pi_host.py" not in entries, artifact
-    from lemoncrow_client import pi_host
-
-    assert all(len(sha) == 64 for sha in pi_host._ASSET_SHA256.values())
-    # That supervision ships in the Runtime artifact only, never Review or Lite.
-    for allowlist in ("review-files.txt", "lite-files.txt"):
-        listed = (PACKAGE_ROOT.parents[1] / allowlist).read_text(encoding="utf-8").split()
-        assert not [entry for entry in listed if entry.startswith("remote/")], allowlist
+            assert needle not in body, f"{path.name} uses {needle!r}"
 
 
 # --------------------------------------------------------------------------- #

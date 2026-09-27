@@ -795,9 +795,6 @@ class CodexImporter:
             model=usage_summary["model"],
             usage_entries=usage_summary["usage_entries"],
             model_usages=usage_summary["model_usages"],
-            telemetry={
-                "usage_measurement_source": "host_transcript" if usage_summary["usage_entries"] else "unavailable",
-            },
             workspace_path=workspace_path,
             created_at=created_at,
         )
@@ -980,9 +977,6 @@ class CodexImporter:
             model=usage_summary["model"],
             usage_entries=usage_summary["usage_entries"],
             model_usages=usage_summary["model_usages"],
-            telemetry={
-                "usage_measurement_source": "host_transcript" if usage_summary["usage_entries"] else "unavailable",
-            },
             user_prompt_tokens=user_prompt_tokens,
             workspace_path=workspace_path,
             created_at=created_at,

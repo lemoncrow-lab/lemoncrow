@@ -1,14 +1,7 @@
-import type {
-  RevisionTargetDelta,
-  ReviewOutlineItem,
-  ReviewOverview,
-  ReviewProgress,
-  ReviewTarget,
-  ReviewTargetPriority,
-} from "./types";
+import type { RevisionTargetDelta, ReviewOutlineItem, ReviewOverview, ReviewProgress, ReviewTarget } from "./types";
 
 export type ReaderOrder = "recommended" | "file";
-export type OutlineSectionKey = "review_first" | "unreviewed" | "mechanical" | "done";
+export type OutlineSectionKey = "attention" | "changed" | "remaining" | "tests" | "mechanical" | "done";
 
 export interface ReaderFile {
   path: string;
@@ -39,28 +32,6 @@ export interface ReviewGuideTarget {
   path: string;
   label: string;
   reason: string;
-  /** The typed code behind `reason`; "" for a synthetic row the server never placed. */
-  reasonCode: string;
-  attention: ReviewTargetPriority["attention"] | "";
-}
-
-/**
- * One target's place in the canonical review queue and why it is there.
- *
- * Every surface that names a reason or orders attention -- the outline's
- * section and file reason, the Next card, `]`/`[`, the primary action and the
- * target header chip -- reads this one result, so a shown reason can never
- * disagree with the order. It projects the server's placement
- * (`target.priority`); it never ranks. `attention_rank` is the queue position,
- * not the legacy scalar `ReviewTarget.attention_rank`.
- */
-export interface TargetAttention {
-  tier: number;
-  attention: ReviewTargetPriority["attention"];
-  reason_code: string;
-  reason_label: string;
-  actionable: boolean;
-  attention_rank: number;
 }
 
 export type ReviewScopeTone = "added" | "deleted" | "modified";
@@ -77,7 +48,6 @@ export function reviewScopeTone(target: ReviewTarget): ReviewScopeTone {
 }
 
 export function targetDisplayLabel(target: ReviewTarget): string {
-  if (target.kind === "document_section") return "Module declarations";
   if (target.symbol) return target.symbol;
   if (target.kind === "hunk") {
     const oldSpanCount = target.spans.filter((span) => span.side === "old").length;
@@ -95,7 +65,7 @@ export function targetDisplayLabel(target: ReviewTarget): string {
   return target.path;
 }
 
-function legacyActionable(target: ReviewTarget): boolean {
+export function isActionable(target: ReviewTarget): boolean {
   return (
     target.state !== "reviewed"
     || target.annotation_counts.open > 0
@@ -104,79 +74,6 @@ function legacyActionable(target: ReviewTarget): boolean {
     || target.verification.fail > 0
     || target.verification.unknown > 0
   );
-}
-
-const NEEDS_JUDGMENT = "Needs human judgment";
-
-function informativeReason(reasons: readonly string[]): string {
-  return reasons.find((reason) => !/^\+\d+\s+-\d+$/.test(reason.trim())) ?? "";
-}
-
-/**
- * The canonical classification (plan §8.8). The server orders `reasons` so
- * the first is the one that placed the target; a target without a placement
- * (a synthetic compare row) is Understand while outstanding, in list order.
- */
-export function targetAttention(target: ReviewTarget, index = 0): TargetAttention {
-  const priority = target.priority;
-  if (priority) {
-    const reason = priority.reasons[0];
-    return {
-      tier: priority.tier,
-      attention: priority.attention,
-      reason_code: reason?.code ?? "",
-      reason_label: reason?.detail || (priority.outstanding ? NEEDS_JUDGMENT : ""),
-      actionable: priority.outstanding,
-      attention_rank: priority.position,
-    };
-  }
-  const actionable = legacyActionable(target);
-  return {
-    tier: actionable ? 4 : 6,
-    attention: actionable ? "understand" : "done",
-    reason_code: "",
-    reason_label: actionable ? informativeReason(target.reasons) || NEEDS_JUDGMENT : "",
-    actionable,
-    attention_rank: index,
-  };
-}
-
-/** Outstanding per the server queue; targets without one (synthetic compare rows) use their state. */
-export function isActionable(target: ReviewTarget): boolean {
-  return targetAttention(target).actionable;
-}
-
-/**
- * The canonical review queue: every outstanding target in server position
- * order. Brief, Next card, `]`/`[`, initial selection and resume all read this;
- * nothing here ranks by reason text (spec §7, §11).
- */
-export function reviewQueue(targets: readonly ReviewTarget[]): ReviewTarget[] {
-  return targets
-    .map((target, index) => ({ target, attention: targetAttention(target, index) }))
-    .filter(({ attention }) => attention.actionable)
-    .sort((left, right) => left.attention.attention_rank - right.attention.attention_rank)
-    .map(({ target }) => target);
-}
-
-/**
- * Each file's attention: the classification of its first queue entry, or
- * done when nothing in it is outstanding. The outline's section and reason
- * read this, so a file row agrees with the Next card and the target headers.
- */
-export function fileAttention(targets: readonly ReviewTarget[]): Map<string, TargetAttention> {
-  const byPath = new Map<string, TargetAttention>();
-  targets.forEach((target, index) => {
-    const attention = targetAttention(target, index);
-    const current = byPath.get(target.path);
-    if (
-      !current
-      || (attention.actionable && (!current.actionable || attention.attention_rank < current.attention_rank))
-    ) {
-      byPath.set(target.path, attention);
-    }
-  });
-  return byPath;
 }
 
 export function targetSearchText(target: ReviewTarget): string {
@@ -244,12 +141,23 @@ export function stepTarget(
   targets: readonly ReviewTarget[],
   currentId: string,
   delta: number,
-  options: { actionableOnly?: boolean; wrap?: boolean } = {},
+  options: { actionableOnly?: boolean; highPriorityOnly?: boolean; wrap?: boolean } = {},
 ): ReviewTarget | null {
   if (targets.length === 0) return null;
   const eligibleIds = new Set(
     targets
-      .filter((target) => !options.actionableOnly || isActionable(target))
+      .filter((target) => {
+        if (options.actionableOnly && !isActionable(target)) return false;
+        if (
+          options.highPriorityOnly &&
+          target.attention_level !== "high" &&
+          target.state !== "changed_since_review" &&
+          target.state !== "needs_changes"
+        ) {
+          return false;
+        }
+        return true;
+      })
       .map((target) => target.target_id),
   );
   if (eligibleIds.size === 0) return null;
@@ -289,41 +197,113 @@ export function stepFile(
 }
 
 export function firstActionable(targets: readonly ReviewTarget[]): ReviewTarget | null {
-  return reviewQueue(targets)[0] ?? targets[0] ?? null;
+  return targets.find(isActionable) ?? targets[0] ?? null;
 }
 
-function guideFor(target: ReviewTarget): ReviewGuideTarget {
-  const attention = targetAttention(target);
+function concreteTargetReason(target: ReviewTarget): string {
+  if (target.annotation_counts.addressed_needs_rereview > 0) {
+    const count = target.annotation_counts.addressed_needs_rereview;
+    return `${count} addressed comment${count === 1 ? " needs" : "s need"} re-review`;
+  }
+  if (target.state === "changed_since_review") return "Changed since your last review";
+  if (target.verification.fail > 0) {
+    const count = target.verification.fail;
+    return `${count} verification failure${count === 1 ? "" : "s"}`;
+  }
+  if (target.state === "needs_changes") return "Requested changes remain open";
+  if (target.annotation_counts.orphaned > 0) {
+    const count = target.annotation_counts.orphaned;
+    return `${count} comment${count === 1 ? "" : "s"} lost ${count === 1 ? "its" : "their"} anchor`;
+  }
+  if (target.annotation_counts.open > 0) {
+    const count = target.annotation_counts.open;
+    return `${count} open review comment${count === 1 ? "" : "s"}`;
+  }
+  if (target.verification.unknown > 0) {
+    const count = target.verification.unknown;
+    return `${count} verification result${count === 1 ? "" : "s"} unknown`;
+  }
+  const reason = target.reasons.find((item) => !/^\+\d+\s+-\d+$/.test(item.trim()));
+  return reason || "Needs human judgment";
+}
+
+function explicitAttentionSignal(target: ReviewTarget): boolean {
+  return (
+    target.annotation_counts.addressed_needs_rereview > 0
+    || target.annotation_counts.orphaned > 0
+    || target.annotation_counts.open > 0
+    || target.verification.fail > 0
+    || target.verification.unknown > 0
+    || target.state === "changed_since_review"
+    || target.state === "needs_changes"
+    || target.state === "unknown"
+  );
+}
+
+function attentionTier(target: ReviewTarget): number {
+  if (target.annotation_counts.addressed_needs_rereview > 0) return 0;
+  if (target.state === "changed_since_review") return 1;
+  if (target.verification.fail > 0) return 2;
+  if (target.annotation_counts.orphaned > 0) return 3;
+  if (target.state === "unknown" || target.verification.unknown > 0) return 4;
+  if (target.state === "needs_changes") return 5;
+  if (target.attention_level === "high") return 6;
+  if (target.annotation_counts.open > 0) return 7;
+  if (target.state === "unreviewed") return 8;
+  return 9;
+}
+
+export function orderedAttentionTargets(targets: readonly ReviewTarget[]): ReviewTarget[] {
+  return targets
+    .map((target, index) => ({ target, index }))
+    .filter(({ target }) =>
+      isActionable(target)
+      && (target.attention_level !== "mechanical" || explicitAttentionSignal(target)),
+    )
+    .sort((left, right) => {
+      const tier = attentionTier(left.target) - attentionTier(right.target);
+      if (tier !== 0) return tier;
+      const leftRank = left.target.attention_rank > 0 ? left.target.attention_rank : Number.MAX_SAFE_INTEGER;
+      const rightRank = right.target.attention_rank > 0 ? right.target.attention_rank : Number.MAX_SAFE_INTEGER;
+      if (leftRank !== rightRank) return leftRank - rightRank;
+      return left.index - right.index;
+    })
+    .map(({ target }) => target);
+}
+
+export function reviewAttentionPath(targets: readonly ReviewTarget[]): ReviewGuideTarget[] {
+  return orderedAttentionTargets(targets).map((target) => ({
+    targetId: target.target_id,
+    path: target.path,
+    label: targetDisplayLabel(target),
+    reason: concreteTargetReason(target),
+  }));
+}
+
+export function nextReviewGuideTarget(targets: readonly ReviewTarget[]): ReviewGuideTarget | null {
+  const attention = reviewAttentionPath(targets)[0];
+  if (attention) return attention;
+  const target = targets.find(isActionable);
+  if (!target) return null;
   return {
     targetId: target.target_id,
     path: target.path,
     label: targetDisplayLabel(target),
-    reason: attention.reason_label,
-    reasonCode: attention.reason_code,
-    attention: target.priority ? attention.attention : "",
+    reason: concreteTargetReason(target),
   };
 }
 
-export function reviewAttentionPath(targets: readonly ReviewTarget[]): ReviewGuideTarget[] {
-  return reviewQueue(targets).map(guideFor);
-}
-
-export function nextReviewGuideTarget(targets: readonly ReviewTarget[]): ReviewGuideTarget | null {
-  const first = reviewQueue(targets)[0];
-  return first ? guideFor(first) : null;
-}
-
-/** `]` / `[`: the next or previous item of the canonical queue, wrapping. */
-export function stepQueueTarget(
+export function stepAttentionTarget(
   targets: readonly ReviewTarget[],
   currentId: string,
   delta: number,
 ): ReviewTarget | null {
-  const rows = reviewQueue(targets);
+  const rows = orderedAttentionTargets(targets);
   if (rows.length === 0) return null;
   const current = rows.findIndex((target) => target.target_id === currentId);
   if (current < 0) return delta >= 0 ? rows[0] : rows[rows.length - 1];
-  const index = (((current + (delta >= 0 ? 1 : -1)) % rows.length) + rows.length) % rows.length;
+  const direction = delta >= 0 ? 1 : -1;
+  const index = ((current + direction) % rows.length + rows.length) % rows.length;
   return rows[index];
 }
 
@@ -386,40 +366,31 @@ export function progressFromTargets(targets: readonly ReviewTarget[]): ReviewPro
   };
 }
 
-const SECTION_FOR_ATTENTION: Record<TargetAttention["attention"], OutlineSectionKey> = {
-  review_first: "review_first",
-  understand: "unreviewed",
-  routine: "mechanical",
-  done: "done",
-};
-
-/**
- * The file's canonical attention when known (see `fileAttention`); else the
- * server's section; else counts -- never reasons or paths.
- */
-function sectionFor(row: ReviewOutlineItem, attention: TargetAttention | undefined): OutlineSectionKey {
-  if (attention) return SECTION_FOR_ATTENTION[attention.attention];
-  if (row.section) return row.section;
-  return row.reviewed === row.target_count && row.target_count > 0 ? "done" : "unreviewed";
+function sectionFor(row: ReviewOutlineItem): OutlineSectionKey {
+  if (row.changed_since_review > 0) return "changed";
+  if (row.needs_changes > 0 || row.unknown > 0) return "attention";
+  if (row.reviewed === row.target_count && row.target_count > 0) return "done";
+  if (row.mechanical === row.target_count && row.target_count > 0) return "mechanical";
+  if (row.reasons.some((reason) => !/^\+\d+\s+-\d+$/.test(reason.trim()))) return "attention";
+  if (/(^|\/)(tests?|__tests__)(\/|$)|\.(test|spec)\.[^.]+$/i.test(row.path)) return "tests";
+  return "remaining";
 }
 
 const SECTION_ORDER: { key: OutlineSectionKey; label: string }[] = [
-  { key: "review_first", label: "Review first" },
-  { key: "unreviewed", label: "Unreviewed" },
-  { key: "mechanical", label: "Routine" },
+  { key: "attention", label: "Needs attention" },
+  { key: "changed", label: "Changed since review" },
+  { key: "remaining", label: "Remaining" },
+  { key: "tests", label: "Tests" },
+  { key: "mechanical", label: "Mechanical" },
   { key: "done", label: "Done" },
 ];
 
-export function outlineSections(
-  rows: readonly ReviewOutlineItem[],
-  query = "",
-  attentionByPath?: ReadonlyMap<string, TargetAttention>,
-): OutlineSection[] {
+export function outlineSections(rows: readonly ReviewOutlineItem[], query = ""): OutlineSection[] {
   const needle = query.trim().toLowerCase();
   const buckets = new Map<OutlineSectionKey, ReviewOutlineItem[]>();
   for (const row of rows) {
     if (needle && !`${row.path} ${row.reasons.join(" ")}`.toLowerCase().includes(needle)) continue;
-    const key = sectionFor(row, attentionByPath?.get(row.path));
+    const key = sectionFor(row);
     const bucket = buckets.get(key) ?? [];
     bucket.push(row);
     buckets.set(key, bucket);

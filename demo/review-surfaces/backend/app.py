@@ -9,7 +9,7 @@ from typing import Any
 
 def greeting(name: str) -> dict[str, str]:
     clean = name.strip() or "reviewer"
-    return {"message": f"Hello, {clean}", "source": "lemoncrow-cloud"}
+    return {"message": f"Hello, {clean}", "source": "lemoncrow-review-demo"}
 
 
 def plans() -> dict[str, Any]:
@@ -88,7 +88,7 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> None:
     port = int(os.environ.get("PORT", "8000"))
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
-    print(f"cloud api listening on http://127.0.0.1:{port}", flush=True)
+    print(f"demo api listening on http://127.0.0.1:{port}", flush=True)
     server.serve_forever()
 
 

@@ -6,7 +6,7 @@ description: "Extras manager."
 
 # LemonCrow
 
-Thin pass-through to the real `lc` CLI (already built, already validated) — `lc rt agent` / `lc rt skill` / `lc settings set` / any other documented subcommand. Run the right CLI command, relay its output. Never invent cost numbers, validation, or confirmation logic here; the CLI already owns all of that. Not the cross-host bulk installer (`lc rt install optionals` is CLI-only, never called from this skill).
+Thin pass-through to the real `lc` CLI (already built, already validated) — `lc agent` / `lc skill` / `lc set` / any other documented subcommand. Run the right CLI command, relay its output. Never invent cost numbers, validation, or confirmation logic here; the CLI already owns all of that. Not the cross-host bulk installer (`lc install optionals` is CLI-only, never called from this skill).
 
 ## Resolve your host first — every invocation
 
@@ -14,7 +14,7 @@ From your own runtime, not by asking the user and not by letting the CLI auto-de
 
 - Running inside Claude Code → `--host claude`
 - Running inside Codex CLI → `--host codex`
-- Running inside Antigravity → `--host antigravity` (skills only — there is no `lc rt agent` subcommand there; skip straight to `lc rt skill ...` below)
+- Running inside Antigravity → `--host antigravity` (skills only — there is no `lc agent` subcommand there; skip straight to `lc skill ...` below)
 
 Global scope by default. Add `--workspace <dir>` only if the user names a specific workspace/repo distinct from the current one.
 
@@ -24,8 +24,8 @@ Global scope by default. Add `--workspace <dir>` only if the user names a specif
 2. **`list`** (no name to resolve): run both, show both outputs as-is:
 
    ```bash
-   lc rt agent list --host <host>
-   lc rt skill list --host <host>
+   lc agent list --host <host>
+   lc skill list --host <host>
    ```
 
    User said "agents" or "skills" specifically → run only that one.
@@ -33,13 +33,13 @@ Global scope by default. Add `--workspace <dir>` only if the user names a specif
 3. **`install <name>` / `remove <name>`** — the user does not say whether `<name>` is an agent or a skill; don't ask. Try agent first, fall back to skill on failure:
 
    ```bash
-   lc rt agent <install|remove> <name> --host <host> --yes
+   lc agent <install|remove> <name> --host <host> --yes
    ```
 
    Fails because `<name>` isn't a known agent role (the CLI names it explicitly) → retry as:
 
    ```bash
-   lc rt skill <install|remove> <name> --host <host> --yes
+   lc skill <install|remove> <name> --host <host> --yes
    ```
 
    User's own wording already says "agent" or "skill" → call that one directly, skip the fallback.
@@ -51,7 +51,7 @@ Global scope by default. Add `--workspace <dir>` only if the user names a specif
    lc settings show --category cli                     # browse current values
    ```
 
-   Unknown key → run `lc settings show --all`, relay the valid keys.
+   Unknown key → run `lc settings show`, relay the valid keys.
 
 5. **"what are my savings?" / cost questions** — shell available (Claude Code, Codex CLI): run `lc usage` (add `optimize` for savings analysis, `optimize detail` for the per-operation breakdown) and relay it. No shell (chat-only host): call the broker by exact name — it returns a markdown panel, relay it verbatim:
 
@@ -61,7 +61,7 @@ Global scope by default. Add `--workspace <dir>` only if the user names a specif
 
    `format` accepts `markdown` (chat panel), `json` (raw report), `segment` (one statusline frame). Never recompute or restate the numbers.
 
-6. **Any other verb** (e.g. "run benchmark X") → discover first, then run: `lc <topic> --help`, or `lc rt <topic> --help` for Runtime commands, to find the exact subcommand and flags, execute it, relay output. Never guess flags.
+6. **Any other verb** (e.g. "run benchmark X") → discover first, then run: `lc <topic> --help` (or `lc help <topic>`) to find the exact subcommand and flags, execute it, relay output. Never guess flags.
 7. Relay the command's real stdout/stderr to the user verbatim — it already states the token-cost delta and the result. Don't restate or recompute the cost, and don't add your own yes/no confirmation step: the user's `/lemoncrow ...` message _is_ the confirmation. `--yes` only skips the CLI's interactive re-prompt, which cannot run in a non-interactive tool call anyway.
 8. Fails in both dimensions → surface the CLI's own error (it lists the valid choices). Don't guess further.
 

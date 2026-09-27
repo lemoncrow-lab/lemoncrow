@@ -1,10 +1,7 @@
-"""Public Pro-facing contracts and capability surfaces.
+"""LemonCrow Pro — the engine: code intelligence, source projection, prompt
+compilation, and every savings-producing capability.
 
-Advanced code-intelligence implementation is supplied by the proprietary
-enterprise runtime when installed. The OSS package keeps only auditable public
-contracts and non-commercial capability glue.
+Apache-2.0 like the rest of LemonCrow. The source is published in full and
+always present; ``hatch_build.py`` may additionally compile it to ``.so`` with
+mypyc as an optional performance build. No degraded shims exist.
 """
-
-from pkgutil import extend_path
-
-__path__ = extend_path(__path__, __name__)

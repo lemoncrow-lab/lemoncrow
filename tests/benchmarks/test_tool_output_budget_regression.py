@@ -366,32 +366,33 @@ def _assert_token_budget(name: str, rendered: str) -> None:
     assert count <= TOKEN_CEILINGS[name], f"{name}: output grew to {count} tokens; budget={TOKEN_CEILINGS[name]}"
 
 
-def test_budget_rejects_duplicate_output() -> None:
-    for case in CASES:
-        rendered = case.render()
-        assert rendered is not None
-        with pytest.raises(AssertionError, match="output grew"):
-            _assert_token_budget(case.name, rendered + "\n" + rendered)
+@pytest.mark.parametrize("case", CASES, ids=lambda case: case.name)
+def test_budget_rejects_duplicate_output(case: OutputCase) -> None:
+    rendered = case.render()
+    assert rendered is not None
+    with pytest.raises(AssertionError, match="output grew"):
+        _assert_token_budget(case.name, rendered + "\n" + rendered)
 
 
-def test_tool_output_preserves_actionable_information() -> None:
-    for case in CASES:
-        rendered = case.render()
-        assert rendered is not None and rendered.strip(), f"{case.name}: renderer returned no agent-facing text"
-        for needle in case.required:
-            assert needle in rendered, f"{case.name}: lost actionable fact {needle!r}\n{rendered}"
-        for needle in case.forbidden:
-            assert needle not in rendered, f"{case.name}: leaked machine-only metadata {needle!r}\n{rendered}"
+@pytest.mark.parametrize("case", CASES, ids=lambda case: case.name)
+def test_tool_output_preserves_actionable_information(case: OutputCase) -> None:
+    rendered = case.render()
+    assert rendered is not None and rendered.strip(), f"{case.name}: renderer returned no agent-facing text"
+    for needle in case.required:
+        assert needle in rendered, f"{case.name}: lost actionable fact {needle!r}\n{rendered}"
+    for needle in case.forbidden:
+        assert needle not in rendered, f"{case.name}: leaked machine-only metadata {needle!r}\n{rendered}"
 
 
-def test_mcp_wire_does_not_duplicate_rendered_content() -> None:
-    for case in CASES:
-        rendered = case.render()
-        assert rendered is not None
-        wire = ToolOutcome(content=({"type": "text", "text": rendered},), structured=case.raw).to_mcp()
-        assert "structuredContent" not in wire
-        assert wire["content"] == [{"type": "text", "text": rendered}]
-        assert _tokens(_raw_text(wire)) <= TOKEN_CEILINGS[case.name] + 40
+@pytest.mark.parametrize("case", CASES, ids=lambda case: case.name)
+def test_mcp_wire_does_not_duplicate_rendered_content(case: OutputCase) -> None:
+    rendered = case.render()
+    assert rendered is not None
+    wire = ToolOutcome(content=({"type": "text", "text": rendered},), structured=case.raw).to_mcp()
+    assert "structuredContent" not in wire
+    assert wire["content"] == [{"type": "text", "text": rendered}]
+    # JSON framing/escaping gets its own fixed allowance.
+    assert _tokens(_raw_text(wire)) <= TOKEN_CEILINGS[case.name] + 40
 
 
 def test_tool_output_budget_regression() -> None:

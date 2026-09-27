@@ -8,8 +8,8 @@ runtime. Reads from `lemoncrow-api` (FastAPI HTTP wrapper) on port 8787.
 The dashboard is part of the native stack. From the repo root:
 
 ```bash
-make oss-dev   # installs the local Review server into the sandbox (port 7428)
-make oss-ui    # Vite with hot reload against it
+make start          # brings up lemoncrow-api + lemoncrow-frontend
+open http://localhost:3125
 ```
 
 ## Run (manual)
@@ -22,12 +22,12 @@ VITE_API_URL=http://localhost:8787 npm run dev
 
 ## Pages
 
-- **Home** — at-a-glance summary: savings, recent traces, review prompts
-- **Reviews** — review directory and review detail (beta)
-- **Code** — code map and Knowledge: project knowledge, Playbooks, memory, failures, plans, rubrics
-- **Activity** — agent sessions (and swarm runs when enabled)
-- **Usage** — token / cost / savings / counts (estimates)
-- **Settings** — products, AI & background, review connections, integrations, editor, diagnostics, telemetry, advanced
+- **Overview** — token / cost / savings / counts (estimates)
+- **Plans** — plan-related validation results per trace
+- **Traces** — full observable trace list + detail view
+- **Failures** — failure clusters from `FailureAnalyzer`
+- **Environments** — Beseam environments + linked rubrics
+- **Playbooks** — reusable procedures (the "memory")
 
 All numbers under "tokens" and "cost" are **estimates** computed from
 observable trace content (4 chars ≈ 1 token, $/1K rate via

@@ -41,16 +41,13 @@ def _view() -> tuple[IndexBackend, str]:
     return backend, view_id
 
 
-def test_query_metrics_separate_membership_retrieval_and_unavailable_semantic() -> None:
+def test_query_metrics_separate_membership_retrieval_and_semantic_scan() -> None:
     backend, view_id = _view()
     query = IndexQuery(backend, content_size_cap=CAP)
     lexical = query.run(org_id="org_metrics", view_id=view_id, kind="lexical", query="alpha")
     semantic = query.run(org_id="org_metrics", view_id=view_id, kind="semantic", query="return beta")
     assert lexical.hits
-    # No private semantic engine: an explicit, flagged empty answer.
-    assert semantic.hits == ()
-    assert semantic.degraded
-    assert semantic.degraded_reason == "semantic:semantic_engine_unavailable"
+    assert semantic.hits
 
     assert backend.ops is not None
     snapshot = backend.ops.snapshot()
@@ -60,7 +57,9 @@ def test_query_metrics_separate_membership_retrieval_and_unavailable_semantic() 
     assert snapshot.value("lemoncrow_index_retrieval_seconds_count", channel="lexical") == 1
     assert snapshot.value("lemoncrow_index_retrieval_hits_total", channel="lexical") >= 1
     assert snapshot.value("lemoncrow_index_semantic_scan_seconds_count") == 0
-    assert snapshot.value("lemoncrow_index_semantic_ann_seconds_count") == 0
+    assert snapshot.value("lemoncrow_index_semantic_ann_seconds_count") == 1
+    assert snapshot.value("lemoncrow_index_semantic_ann_candidates_last") == 2
+    assert snapshot.value("lemoncrow_index_semantic_ann_units_last") == 2
 
 
 def test_metadata_pool_metrics_expose_wait_and_pressure_without_tenant_labels() -> None:

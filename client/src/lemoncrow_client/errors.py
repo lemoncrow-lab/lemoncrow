@@ -60,10 +60,9 @@ class ErrorCode(StrEnum):
     BLOB_DIGEST_MISMATCH = "blob_digest_mismatch"
     MANIFEST_INCOMPLETE = "manifest_incomplete"
     #: A path argument that cannot name content inside the open view -- host
-    #: absolute, ``~``-rooted, drive-qualified, or climbing out with ``..``;
-    #: the client also raises it for a needed path that names nothing in the
-    #: workspace. Distinct from ``blob_missing`` on purpose: no upload can
-    #: satisfy it, so the agent must fix the argument rather than sync and retry.
+    #: absolute, ``~``-rooted, drive-qualified, or climbing out with ``..``.
+    #: Distinct from ``blob_missing`` on purpose: no upload can satisfy it, so
+    #: the agent must fix the argument rather than sync and retry.
     PATH_NOT_ADDRESSABLE = "path_not_addressable"
     TOOL_UNKNOWN = "tool_unknown"
     TOOL_NOT_SERVER_SIDE = "tool_not_server_side"
@@ -103,8 +102,6 @@ class AgentAction(StrEnum):
 
     NONE = "none"
     UPGRADE_CLIENT = "upgrade_client"
-    #: The server is older than this client's protocol window or Review manifest.
-    UPGRADE_SERVER = "upgrade_server"
     REAUTHENTICATE = "reauthenticate"
     REQUEST_ACCESS = "request_access"
     REOPEN_SESSION = "reopen_session"
@@ -205,7 +202,7 @@ def error_block(error: ClientError) -> dict[str, Any]:
     return {
         "type": "text",
         "text": (
-            f"[lc:{error.server_code}] {error.message}\n"
+            f"[lemoncrow:{error.server_code}] {error.message}\n"
             f"retryable={str(error.retryable).lower()} action={error.action.value}\n"
             f"{json.dumps(error.to_wire(), sort_keys=True)}"
         ),

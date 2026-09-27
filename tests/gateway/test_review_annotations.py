@@ -135,7 +135,7 @@ class Review:
 
     def _snapshot(self) -> Any:
         self.build = self._build()
-        revision = snapshot_revision(
+        return snapshot_revision(
             self.store,
             self.session,
             self.repo_root,
@@ -143,10 +143,6 @@ class Review:
             store_root=self.store_root,
             build=self.build,
         )
-        # Annotation API tests mutate a saved Snapshot. Running drafts are
-        # intentionally read-only and have separate API coverage.
-        self.store.publish_snapshot(self.session.id, revision.id)
-        return revision
 
     def text(self, rel: str = "src/session.py") -> str:
         return (self.repo_root / rel).read_text(encoding="utf-8")
@@ -288,7 +284,7 @@ def test_a_line_past_the_end_of_the_file_is_refused(review: Review) -> None:
 
 
 def test_a_path_outside_the_review_is_refused(review: Review) -> None:
-    with pytest.raises(ValueError, match="not a file in Revision 0"):
+    with pytest.raises(ValueError, match="not a file in Snapshot 0"):
         annotate(
             review.store,
             review.session,
@@ -725,7 +721,7 @@ def test_the_api_refuses_a_path_that_is_not_in_the_review(review: Review, client
         },
     )
     assert response.status_code == 422
-    assert "not a file in Revision 0" in response.json()["detail"]
+    assert "not a file in Snapshot 0" in response.json()["detail"]
 
 
 def test_the_listing_carries_the_reason_each_anchor_is_where_it_is(review: Review, client: TestClient) -> None:
@@ -793,21 +789,26 @@ def test_the_export_route_renders_and_delivers_nothing(review: Review, client: T
 # --------------------------------------------------------------------------- #
 
 
-def test_parse_line_target_accepts_the_spellings_a_reviewer_types() -> None:
-    for target, expected in [
+@pytest.mark.parametrize(
+    ("target", "expected"),
+    [
         ("src/app.py:L10", ("src/app.py", 10, 10)),
         ("src/app.py:L10-L20", ("src/app.py", 10, 20)),
         ("src/app.py:L10-20", ("src/app.py", 10, 20)),
         ("a/b/c.ts:L1", ("a/b/c.ts", 1, 1)),
-    ]:
-        assert parse_line_target(target) == expected
+    ],
+)
+def test_parse_line_target_accepts_the_spellings_a_reviewer_types(target: str, expected: tuple[str, int, int]) -> None:
+    assert parse_line_target(target) == expected
 
 
-def test_parse_line_target_refuses_anything_it_would_have_to_guess_at() -> None:
-    for target in ["src/app.py", "src/app.py:10", "src/app.py:L20-L10", "", "L10"]:
-        "A bare path is refused rather than defaulted to line 1: a comment silently\n    attached to the top of a file is a comment about something nobody read."
-        with pytest.raises(ValueError, match=r"line target|before it starts"):
-            parse_line_target(target)
+@pytest.mark.parametrize("target", ["src/app.py", "src/app.py:10", "src/app.py:L20-L10", "", "L10"])
+def test_parse_line_target_refuses_anything_it_would_have_to_guess_at(target: str) -> None:
+    """A bare path is refused rather than defaulted to line 1: a comment silently
+    attached to the top of a file is a comment about something nobody read."""
+
+    with pytest.raises(ValueError, match=r"line target|before it starts"):
+        parse_line_target(target)
 
 
 def test_annotation_counts_name_every_state_present(review: Review) -> None:

@@ -13,5 +13,5 @@ def test_retired_runtime_commands_are_absent() -> None:
 
 def test_independent_service_and_worker_commands_remain_registered() -> None:
     runner = CliRunner()
-    assert runner.invoke(cli, ["runtime", "service", "--help"]).exit_code == 0
-    assert runner.invoke(cli, ["runtime", "worker", "--help"]).exit_code == 0
+    assert runner.invoke(cli, ["service", "--help"]).exit_code == 0
+    assert runner.invoke(cli, ["worker", "--help"]).exit_code == 0

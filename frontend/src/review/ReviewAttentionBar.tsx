@@ -1,4 +1,3 @@
-import { Button as UiButton } from "../components/ui/button";
 import {
   CheckCircle2,
   Clock3,
@@ -10,7 +9,6 @@ import {
 } from "lucide-react";
 
 import type { ReviewReadinessModel } from "./ReviewReadinessSheet";
-import { handoffDestinationLabel, handoffToCodingAgent, handoffToPullRequest } from "./reviewPrimaryAction";
 import type { FeedbackDelivery, FeedbackDeliveryCapability, FeedbackStatus, ReviewProgress } from "./types";
 
 interface ReviewAttentionBarProps {
@@ -69,10 +67,8 @@ export function attentionState({
     };
   }
 
-  const destination = handoffDestinationLabel(feedbackDelivery);
-  const toAgent = handoffToCodingAgent(feedbackDelivery);
-  const responseActor = toAgent ? "The coding agent" : "The author";
-  const handedTo = feedbackDelivery?.kind === "export" ? "copied for the author" : `sent to ${destination}`;
+  const destination = feedbackDelivery?.label || feedbackDelivery?.host || (feedbackDelivery?.supported ? "coding agent" : "author");
+  const responseActor = feedbackDelivery?.supported ? "The coding agent" : "The author";
   const addressed = Math.max(addressedNeedsRereview, feedbackStatus.addressed);
   if (addressed > 0 || progress.changed_since_review > 0) {
     const parts = [];
@@ -94,7 +90,7 @@ export function attentionState({
 
   // A pull request Review without an exact agent session answers to the PR
   // author on GitHub, so its feedback state is what is (not) on the PR yet.
-  const github = handoffToPullRequest(feedbackDelivery, feedbackStatus) ? feedbackStatus.github : undefined;
+  const github = feedbackDelivery?.supported ? undefined : feedbackStatus.github;
   if (github) {
     const remaining = progress.unreviewed + progress.unknown;
     if (github.in_flight > 0) {
@@ -141,7 +137,7 @@ export function attentionState({
       : feedbackStatus.published;
     return {
       label: `Waiting on ${destination}`,
-      detail: `${handedOff} comment${handedOff === 1 ? "" : "s"} ${handedTo}. ${responseActor} will mark addressed items for your re-review; sent does not mean fixed.`,
+      detail: `${handedOff} comment${handedOff === 1 ? "" : "s"} sent to ${destination}. ${responseActor} will mark addressed items for your re-review; sent does not mean fixed.`,
       tone: "sky",
       icon: Send,
     };
@@ -152,10 +148,10 @@ export function attentionState({
     return {
       label: remaining > 0 ? "Review in progress" : "Feedback ready",
       detail: remaining > 0
-        ? toAgent
+        ? feedbackDelivery?.supported
           ? `${remaining} area${remaining === 1 ? "" : "s"} left · ${feedbackStatus.unpublished} comment${feedbackStatus.unpublished === 1 ? "" : "s"} ready to send to ${destination}.`
           : `${remaining} area${remaining === 1 ? "" : "s"} left · ${feedbackStatus.unpublished} comment${feedbackStatus.unpublished === 1 ? "" : "s"} ready to export.`
-        : toAgent
+        : feedbackDelivery?.supported
           ? `${feedbackStatus.unpublished} comment${feedbackStatus.unpublished === 1 ? "" : "s"} ready to send to ${destination} as one correction round.`
           : `${feedbackStatus.unpublished} comment${feedbackStatus.unpublished === 1 ? "" : "s"} ready to export.`,
       tone: "amber",
@@ -195,10 +191,10 @@ export function attentionState({
 }
 
 const BAR_TONE_CLASSES: Record<AttentionState["tone"], string> = {
-  neutral: "border-border bg-muted text-subtle",
-  amber: "border-p1-line bg-p1-bg text-p1",
-  sky: "border-p2-line bg-p2-bg text-p2",
-  emerald: "border-ok-line bg-ok-bg text-ok",
+  neutral: "border-neutral-800 bg-neutral-900/45 text-neutral-300",
+  amber: "border-amber-900/55 bg-amber-950/20 text-amber-200",
+  sky: "border-sky-900/55 bg-sky-950/20 text-sky-200",
+  emerald: "border-emerald-900/55 bg-emerald-950/15 text-emerald-200",
 };
 
 /** Readiness blockers beyond ordinary unfinished review coverage. */
@@ -212,33 +208,24 @@ export function exceptionalReadinessBlockers(
     // into one condition. Treat that like normal review work unless the current
     // human judgment explicitly requests changes.
     if (blocker.id === "latest-snapshot-reviewed" && progress.needs_changes === 0) return false;
-    if (blocker.id === "landing-readiness" && readiness.label === "Checking merge readiness") return false;
+    if (blocker.id === "landing-readiness" && readiness.label === "Checking landing readiness") return false;
     return true;
   });
 }
 
 /** Compact readiness control text and tone, shared by the header and the legacy bar. */
-export function readinessControl(
-  readiness: ReviewReadinessModel,
-  progress: ReviewProgress,
-  includeProgress = false,
-): { text: string; className: string } {
+export function readinessControl(readiness: ReviewReadinessModel, progress: ReviewProgress): { text: string; className: string } {
   const exceptional = exceptionalReadinessBlockers(readiness, progress);
   const needsAttention = exceptional.length > 0;
-  const statusText = readiness.ready
-    ? "Ready"
-    : needsAttention
-      ? `${exceptional.length} blocker${exceptional.length === 1 ? "" : "s"}`
-      : "Readiness";
   return {
-    text: includeProgress ? `${progress.reviewed}/${progress.target_count} reviewed · ${statusText}` : statusText,
+    text: readiness.ready ? "Ready" : needsAttention ? `${exceptional.length} blocker${exceptional.length === 1 ? "" : "s"}` : "Readiness",
     className: readiness.ready
-      ? "text-ok"
+      ? "text-emerald-300 hover:text-emerald-200"
       : readiness.failedChecks > 0 || readiness.outcome?.outcome === "changes_requested"
-        ? "text-p0"
+        ? "text-rose-300 hover:text-rose-200"
         : needsAttention
-          ? "text-p1"
-          : "text-muted-foreground",
+          ? "text-amber-300 hover:text-amber-200"
+          : "text-neutral-400 hover:text-neutral-200",
   };
 }
 
@@ -256,36 +243,32 @@ export default function ReviewAttentionBar(props: ReviewAttentionBarProps) {
       role="status"
       aria-live="polite"
     >
-      <Icon size={14} aria-hidden="true" className="shrink-0 opacity-85" />
-      <span className="shrink-0 text-body font-semibold">{state.label}</span>
-      <span className="hidden min-w-0 flex-1 truncate text-body md:block" title={state.detail}>
+      <Icon size={12} strokeWidth={1.9} aria-hidden="true" className="shrink-0 opacity-85" />
+      <span className="shrink-0 text-[12px] font-semibold">{state.label}</span>
+      <span className="hidden min-w-0 flex-1 truncate text-[12px] md:block" title={state.detail}>
         {state.detail}
       </span>
       <span className="flex-1" />
-      <UiButton
-        variant="ghost"
-        size="compact"
+      <button
         type="button"
         onClick={props.onShowReadiness}
         aria-label={`Review readiness: ${props.readiness.label}`}
-        tooltip={props.readiness.detail}
-        className={`h-6 ${control.className}`}
+        title={props.readiness.detail}
+        className={`review-compact-action h-6 ${control.className}`}
       >
-        <ShieldCheck size={14} />
+        <ShieldCheck size={11} />
         <span>{control.text}</span>
-      </UiButton>
+      </button>
       {props.openCommentCount > 0 && (
-        <UiButton
-          variant="ghost"
-          size="compact"
+        <button
           type="button"
           onClick={props.onShowComments}
-          className="h-6"
+          className="review-compact-action h-6"
           aria-label={`Open ${props.openCommentCount} review comments`}
         >
-          <MessageSquareText size={14} />
-          <span className="font-mono text-caption">{props.openCommentCount}</span>
-        </UiButton>
+          <MessageSquareText size={11} />
+          <span className="font-mono text-[10px]">{props.openCommentCount}</span>
+        </button>
       )}
     </div>
   );

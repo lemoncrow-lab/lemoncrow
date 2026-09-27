@@ -247,8 +247,6 @@ def tool_smart_search(
         "projectPath": "paths",
         "path": "paths",
         "include_paths": "paths",
-        "include": "paths",
-        "include_snippets": "include_source",
         "pattern": "query",
         "regex": "query",
     },
@@ -264,7 +262,7 @@ def tool_smart_search(
     # ONE agent-visible count knob. Every vanilla-habit spelling for "how many
     # results" (maxFiles, max_results, max_files, max_candidates) now lands on
     # `limit`, the real parameter.
-    hidden_params=("include_source", "mode", "force"),
+    hidden_params=("include_source", "force"),
 )
 def tool_code_search(
     query: Annotated[
@@ -283,7 +281,6 @@ def tool_code_search(
         bool,
         Field(description="Hidden: keep the top-2 matches' source inline (bounded)."),
     ] = False,
-    mode: str | None = None,
     limit: Annotated[
         int | None,
         Field(ge=1, le=32, description="Cap candidate_files entries (default 8, or 5 when one file dominates)."),
@@ -300,20 +297,19 @@ def tool_code_search(
     as already read -- do not re-open those files with `read`.
     """
     hooks = _hooks()
-    _ = project_id, mode  # transport/host-search metadata; mode does not alter code_search semantics
+    _ = project_id  # transport metadata is consumed before the handler
     workspace_root = hooks.workspace_root()
     # Search the current scope/source even for similar queries. The transport's
     # content deduplication can reference an identical result after execution;
     # word overlap alone cannot prove that the answer was already delivered.
     _ = force  # consumed by transport-level content deduplication
-    # Normalise: paths accepts list, comma-separated string, or one path.
-    # Host search tools also emit include="dir/**"; the alias above folds it
-    # into paths, and this trims that recursive-glob suffix to a directory scope.
+    # Normalise: paths param accepts list, comma-sep string, or single path
+    # (the legacy `path` kwarg is folded into `paths` by param_aliases).
     raw = paths
     if isinstance(raw, list):
-        seed_list = [p.strip()[:-3] if p.strip().endswith("/**") else p.strip() for p in raw if p and p.strip()]
+        seed_list = [p.strip() for p in raw if p and p.strip()]
     elif isinstance(raw, str):
-        seed_list = [p.strip()[:-3] if p.strip().endswith("/**") else p.strip() for p in raw.split(",") if p.strip()]
+        seed_list = [p.strip() for p in raw.split(",") if p.strip()]
     else:
         seed_list = []
     seed_files = seed_list or None

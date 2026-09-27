@@ -32,6 +32,40 @@ def load_script(path: Path, module_name: str) -> object:
     return module
 
 
+def test_copilot_instructions_has_the_compact_managed_block() -> None:
+    block_start = "<!-- LEMONCROW START -->"
+    block_end = "<!-- LEMONCROW END -->"
+    source = (ROOT / "integrations/AGENTS.lemoncrow.md").read_text(encoding="utf-8").strip()
+    content = (ROOT / ".github/copilot-instructions.md").read_text(encoding="utf-8")
+    _, found_start, remainder = content.partition(block_start)
+    managed_body, found_end, _ = remainder.partition(block_end)
+
+    assert found_start and found_end
+    assert managed_body.strip() == source
+    assert "docs/architecture" not in content
+    assert len(managed_body.splitlines()) <= 20, "the managed Copilot block should stay compact"
+
+
+def test_copilot_distribution_instructions_match_agent_guide() -> None:
+    source = (ROOT / "integrations/AGENTS.lemoncrow.md").read_text(encoding="utf-8")
+    copilot = (ROOT / "integrations/copilot/COPILOT_INSTRUCTIONS.lemoncrow.md").read_text(encoding="utf-8")
+
+    assert copilot == source
+
+
+def test_root_agents_md_has_a_compact_managed_block() -> None:
+    block_start = "<!-- LEMONCROW START -->"
+    block_end = "<!-- LEMONCROW END -->"
+    source = (ROOT / "integrations/AGENTS.lemoncrow.md").read_text(encoding="utf-8").strip()
+    content = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    _, found_start, remainder = content.partition(block_start)
+    managed_body, found_end, _ = remainder.partition(block_end)
+
+    assert found_start and found_end
+    assert managed_body.strip() == source
+    assert len(managed_body.splitlines()) <= 20, "the managed AGENTS.md block should stay compact"
+
+
 def test_managed_context_preserves_existing_content() -> None:
     module = load_script(ROOT / "scripts/sync_agent_context.py", "sync_agent_context")
     existing = "# Project rules\n\nKeep this instruction.\n"
@@ -53,6 +87,29 @@ def test_managed_context_updates_only_existing_block() -> None:
     assert rendered.startswith("# Project rules\n\n<!-- LEMONCROW START -->")
     assert rendered.endswith("<!-- LEMONCROW END -->\n\nKeep this too.\n")
     assert "stale" not in rendered
+
+
+def test_opencode_agent_has_host_specific_tool_policy() -> None:
+    content = (ROOT / "integrations/opencode/agents/code.md").read_text(encoding="utf-8")
+    # `context` is not in LLM_VISIBLE_TOOLS -- never advertised to any host's model,
+    # OpenCode included -- so it must never be named as something to call.
+    assert "lemoncrow_context" not in content
+    # OpenCode keeps the same core workflow bullets as Codex/Copilot/Cursor
+    # (tool-discipline.md) -- only Claude drops them (its equivalent arrives via
+    # the MCP server's `instructions` field instead).
+    assert "Known path → straight to `lc_read`" in content
+    assert "`lc_bash` = execution only." in content
+    assert "independent calls go in ONE message" in content
+    assert "Large output → a file, never prose." in content
+    # The old "use lc_code_search/read/edit/bash instead" bullet was dropped
+    # as pure duplication of the shared workflow bullets above.
+    assert "OpenCode host" not in content
+    # Regression: the "use lc: ..." clause must carry this host's prefix.
+    assert "— use lc: `lc_bash`, `lc_read`, `lc_edit`, `lc_code_search`." in content
+    # The directive is unconditional and names only lc tools (see
+    # test_no_host_surface_names_its_own_native_tools).
+    assert "Always use LemonCrow for every file read, search, edit and shell command" in content
+    assert "fallback-only" not in content
 
 
 # Phrases that reason about, or name, the host's own built-in tools.
@@ -80,6 +137,27 @@ def _assert_no_native_names(rel: str) -> None:
     for phrase in _BANNED_NATIVE_PHRASES:
         assert phrase not in content, f"{rel} names a host built-in: {phrase!r}"
     assert "Always use lc" in content or "Always use LemonCrow" in content, f"{rel}: missing always-use-lc directive"
+
+
+def test_no_host_surface_names_its_own_native_tools() -> None:
+    _assert_no_native_names("integrations/opencode/agents/code.md")
+    _assert_no_native_names("integrations/codex/plugin/skills/code/SKILL.md")
+    _assert_no_native_names("integrations/codex/plugin/skills/explore/SKILL.md")
+    _assert_no_native_names("integrations/cursor/rules/lemoncrow.code.mdc")
+    _assert_no_native_names("integrations/claude/plugin/agents/code.md")
+    _assert_no_native_names("integrations/copilot/agents/lemoncrow.code.agent.md")
+    _assert_no_native_names("integrations/agents/bare.md")
+
+
+def test_codex_skill_directive_is_unconditional_and_lc_prefixed() -> None:
+    code_skill = (ROOT / "integrations/codex/plugin/skills/code/SKILL.md").read_text(encoding="utf-8")
+    assert "Always use LemonCrow for every file read, search, edit and shell command" in code_skill
+    assert "— use lc: `lc.bash`, `lc.read`, `lc.edit`, `lc.code_search`." in code_skill
+    # Read-only roles advertise no edit tool.
+    explore_skill = (ROOT / "integrations/codex/plugin/skills/explore/SKILL.md").read_text(encoding="utf-8")
+    assert "Always use LemonCrow for every file read and search" in explore_skill
+    assert "— use lc: `lc.bash`, `lc.read`, `lc.code_search`." in explore_skill
+    assert "`lc.edit`" not in explore_skill
 
 
 def _free_port() -> int:

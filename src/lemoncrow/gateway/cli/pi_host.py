@@ -1,4 +1,4 @@
-"""Pinned managed Pi coding-agent host lifecycle for ``lc host --engine pi``."""
+"""Pinned managed Pi frontend lifecycle for ``lc code --engine pi``."""
 
 from __future__ import annotations
 

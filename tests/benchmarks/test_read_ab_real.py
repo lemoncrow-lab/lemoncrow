@@ -176,26 +176,32 @@ def _measure_read_fixture(fixture: Path) -> ABRow:
 
 
 @pytest.mark.ab
-def test_read_ab_real() -> None:
-    for fixture in FIXTURES:
-        "Run both branches, persist the delta, assert only honest invariants."
-        row = _measure_read_fixture(fixture)
-        native_chars = row.native_chars
-        lemoncrow_chars = row.lemoncrow_chars
-        tokens_saved = row.tokens_saved_reported
-        assert native_chars > 0, "native read returned no bytes"
-        assert lemoncrow_chars > 0, "lemoncrow returned no bytes"
+@pytest.mark.parametrize("fixture", FIXTURES, ids=lambda p: p.name)
+def test_read_ab_real(fixture: Path) -> None:
+    """Run both branches, persist the delta, assert only honest invariants."""
+    row = _measure_read_fixture(fixture)
+
+    # Honest invariants only:
+    native_chars = row.native_chars
+    lemoncrow_chars = row.lemoncrow_chars
+    tokens_saved = row.tokens_saved_reported
+
+    assert native_chars > 0, "native read returned no bytes"
+    assert lemoncrow_chars > 0, "lemoncrow returned no bytes"
+    assert (
+        lemoncrow_chars <= native_chars
+    ), f"lemoncrow returned {lemoncrow_chars} chars vs native {native_chars} on {fixture.name}"
+    if tokens_saved > 0:
         assert (
-            lemoncrow_chars <= native_chars
-        ), f"lemoncrow returned {lemoncrow_chars} chars vs native {native_chars} on {fixture.name}"
-        if tokens_saved > 0:
-            assert (
-                row.chars_saved > 0
-            ), f"{fixture.name}: tool reports tokens_saved={tokens_saved} but chars_saved={row.chars_saved}"
-        if tokens_saved > 100 and row.tokens_saved_measured > 100:
-            assert tokens_saved <= int(
-                row.tokens_saved_measured * 1.1
-            ), f"{fixture.name}: tool tokens_saved={tokens_saved} exceeds independent full-file tiktoken delta {row.tokens_saved_measured}"
+            row.chars_saved > 0
+        ), f"{fixture.name}: tool reports tokens_saved={tokens_saved} but chars_saved={row.chars_saved}"
+    # Reported tokens_saved uses Claude Code's built-in Read baseline, so it
+    # may be lower than a raw cat/full-file delta. It must not overclaim it.
+    if tokens_saved > 100 and row.tokens_saved_measured > 100:
+        assert tokens_saved <= int(row.tokens_saved_measured * 1.1), (
+            f"{fixture.name}: tool tokens_saved={tokens_saved} exceeds "
+            f"independent full-file tiktoken delta {row.tokens_saved_measured}"
+        )
 
 
 @pytest.mark.ab

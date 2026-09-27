@@ -3,26 +3,42 @@ from __future__ import annotations
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent.parent
-HOST_MATRIX = REPO_ROOT / "docs" / "hosts" / "host-capability-matrix.md"
+DOCS_ROOT = REPO_ROOT / "docs"
+HOST_MATRIX = DOCS_ROOT / "hosts" / "host-capability-matrix.md"
+# docs/integrations/host-matrix.md was dropped as a duplicate of the public
+# docs-site copy (see "docs: launch-prep audit" commit) -- that's now the
+# canonical source.
+INTEGRATIONS_MATRIX = REPO_ROOT / "docs-site" / "docs" / "integrations" / "host-matrix.md"
 
-MAIN_HOSTS = [
+SUPPORTED_HOSTS = [
     "Claude Code",
-    "Codex",
-    "OpenCode",
-    "Cursor",
-    "Pi",
-    "LemonCode",
+    "Codex CLI",
+    "Copilot",
+    "opencode",
+    "Antigravity",
 ]
 
-ADDITIONAL_HOSTS = ["Copilot", "Hermes Agent", "Antigravity"]
-
-REQUIRED_MAIN_COLUMNS = [
+REQUIRED_HOST_MATRIX_COLUMNS = [
     "Host",
-    "User-facing model",
-    "Temporary launch",
-    "Persistent integration",
-    "Lifecycle/evidence",
-    "Owned-loop frontend",
+    "Native surfaces LemonCrow uses",
+    "MCP",
+    "Hooks / events",
+    "Wrapper",
+    "Routing enforcement",
+    "Trace confidence",
+    "Unsupported controls",
+    "Fallback",
+]
+
+REQUIRED_INTEGRATIONS_COLUMNS = [
+    "Host",
+    "Install path",
+    "Interface",
+    "Safe default",
+    "Enforcement contract",
+    "Trace coverage",
+    "Unsupported controls",
+    "Fallback",
 ]
 
 
@@ -54,28 +70,13 @@ def _extract_table_lines(content: str, header_start: str) -> list[str]:
     return table
 
 
-def test_host_capability_matrix_has_current_product_contract() -> None:
+def test_host_capability_matrix_has_required_columns_and_hosts() -> None:
     content = _read(HOST_MATRIX)
-    table = _extract_table_lines(content, "## Main product integrations")
+    table = _extract_table_lines(content, "## Capability Matrix")
     header = table[0]
 
-    for col in REQUIRED_MAIN_COLUMNS:
+    for col in REQUIRED_HOST_MATRIX_COLUMNS:
         assert col in header, f"host-capability-matrix missing required column: {col}"
 
-    for host in MAIN_HOSTS:
-        assert host in content, f"host-capability-matrix missing main integration: {host}"
-
-    for host in ADDITIONAL_HOSTS:
-        assert host in content, f"host-capability-matrix missing additional integration: {host}"
-
-
-def test_host_capability_matrix_preserves_host_distinctions() -> None:
-    content = _read(HOST_MATRIX)
-    assert "`lc with claude`" in content
-    assert "`lc with codex`" in content
-    assert "`lc with opencode`" in content
-    assert "Installed IDE + `cursor-agent` integration" in content
-    assert "`lc with pi`" in content
-    assert "Public managed coding-agent host" in content
-    assert "Pi" in content
-    assert "lc with cursor" not in content
+    for host in SUPPORTED_HOSTS:
+        assert host in content, f"host-capability-matrix missing host row: {host}"

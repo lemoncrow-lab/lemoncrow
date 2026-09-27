@@ -113,7 +113,7 @@ def _fmt_tok(value: int) -> str:
     The shared formatter stops at ``M``, which was fine for one session and is
     not fine for a 90-day total: it renders 54 billion tokens as ``53949.35M``.
     Anything below a billion is delegated unchanged, so every number this report
-    shares with `lc runtime savings` still matches it character for character.
+    shares with `lc savings` still matches it character for character.
     """
 
     from lemoncrow.core.capabilities.savings_summary import _fmt_tok as _shared
@@ -217,7 +217,7 @@ def _key_cell(bucket: UsageAggregate, by: str) -> str:
 
 
 def _header_line(by: str, window: str) -> str:
-    return f"◆ Usage  last {window} · by {by}"
+    return f"USAGE  ·  last {window}  ·  by {by}"
 
 
 def _unpriced_footer(total: UsageAggregate) -> str | None:
@@ -239,8 +239,7 @@ def _hint_lines() -> list[str]:
     # Deliberately not a savings claim: the first screen reports what happened,
     # and the counterfactual lives one explicit command away.
     return [
-        "→ One session in full: lc usage explain <run>",
-        "→ The savings analysis: lc usage optimize",
+        "`lc usage explain <run>` breaks one session down; `lc usage optimize` is the savings analysis.",
     ]
 
 
@@ -248,10 +247,9 @@ def _empty_lines(by: str, window: str) -> list[str]:
     return [
         _header_line(by, window),
         "",
-        f"No usage recorded in the last {window}.",
+        f"no usage recorded in the last {window}.",
         "",
-        "→ A wider window: lc usage --since 30d",
-        "→ Check that a host imports sessions: lc doctor",
+        "widen the window with `--since 30d`, or check that a host is importing sessions (`lc doctor`).",
     ]
 
 
@@ -344,60 +342,49 @@ def _render_usage_rich(
     from rich import box
     from rich.console import Console
     from rich.markup import escape
-    from rich.padding import Padding
     from rich.table import Table
 
     buffer = io.StringIO()
     console = Console(file=buffer, force_terminal=True, width=_RICH_WIDTH, legacy_windows=False, highlight=False)
-    brand = "color(141)"
 
-    def hint(line: str) -> str:
-        text, _, command = line.removeprefix("→ ").partition(": ")
-        return f"  [{brand}]→[/] {escape(text)}: [cyan]{escape(command)}[/]"
-
-    console.print(f"[bold {brand}]◆[/] [bold]Usage[/]  [dim]last {escape(window)} · by {escape(by)}[/]")
-    console.print()
     if total.rows == 0:
         lines = _empty_lines(by, window)
-        console.print(f"  {escape(lines[2])}")
-        console.print()
-        for line in lines[4:]:
-            console.print(hint(line))
+        console.print(f"[bold bright_white]{escape(lines[0])}[/]")
+        for line in lines[2:]:
+            console.print(f"[dim]{escape(line)}[/]" if line else "")
         return buffer.getvalue()
 
-    # SIMPLE without edges: one rule under the header and one above the TOTAL footer, no blank padding rows.
-    table = Table(box=box.SIMPLE, show_edge=False, show_footer=True, header_style="dim", padding=(0, 1), pad_edge=False)
-    totals = (
-        "TOTAL",
-        f"{total.sessions:,}",
-        f"{total.rows:,}",
-        _fmt_tok(total.total_tokens),
-        cost_cell(total),
-        basis_cell(total),
-    )
-    headers = (_KEY_HEADERS.get(by, by.upper()).capitalize(), "Sessions", "Rows", "Tokens", "Cost", "Basis")
-    for index, header in enumerate(headers):
-        table.add_column(
-            header,
-            footer=escape(totals[index]),
-            justify="left" if index in (0, 5) else "right",
-            style="dim" if index == 5 else None,
-            footer_style="dim" if index == 5 else "bold",
-            overflow="fold" if index == 0 else "ellipsis",
-        )
+    console.print(f"[bold bright_white]USAGE[/]  [dim]·  last {escape(window)}  ·  by {escape(by)}[/]")
+    console.print()
+
+    table = Table(box=box.SIMPLE, show_header=True, header_style="dim", padding=(0, 1))
+    table.add_column(_KEY_HEADERS.get(by, by.upper()), overflow="fold")
+    table.add_column("Sessions", justify="right")
+    table.add_column("Rows", justify="right")
+    table.add_column("Tokens", justify="right")
+    table.add_column("Cost", justify="right")
+    table.add_column("Basis")
     for cells in _usage_rows(groups, by):
         table.add_row(*(escape(cell) for cell in cells))
-    console.print(Padding(table, (0, 0, 0, 2), expand=False))
+    table.add_section()
+    table.add_row(
+        "[bold]TOTAL[/]",
+        f"[bold]{total.sessions:,}[/]",
+        f"[bold]{total.rows:,}[/]",
+        f"[bold]{escape(_fmt_tok(total.total_tokens))}[/]",
+        f"[bold]{escape(cost_cell(total))}[/]",
+        f"[bold]{escape(basis_cell(total))}[/]",
+    )
+    console.print(table)
 
     unpriced = _unpriced_footer(total)
     if unpriced:
-        console.print()
-        console.print(f"  [yellow]⚠[/] {escape(unpriced)}")
+        console.print(f"[yellow]{escape(unpriced)}[/]")
     if _was_truncated(total, groups):
-        console.print(f"  [dim]showing the top {len(groups)} groups; raise `--limit` for the rest.[/]")
+        console.print(f"[dim]showing the top {len(groups)} groups; raise `--limit` for the rest.[/]")
     console.print()
     for line in _hint_lines():
-        console.print(hint(line))
+        console.print(f"[dim]{escape(line)}[/]")
     return buffer.getvalue()
 
 

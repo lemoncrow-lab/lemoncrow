@@ -14,46 +14,18 @@ import stat
 import subprocess
 import tempfile
 import webbrowser
-from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, TextIO
-
-if TYPE_CHECKING:
-    from .review_delta import DeltaCursor
+from typing import Final, TextIO
 
 from .config import ClientConfig, load_config
 from .errors import AgentAction, ClientError, ErrorCode
-from .review_base import EMPTY_TREE_SHA, branch_review_failed, capture_review_base, parse_branch_review
-from .review_session import ReviewSession
-from .workspace_paths import REVIEW_CONFIG_PATH
+from .session import RemoteSession
 
 __all__ = ["ReviewRange", "resolve_review_range", "review_main"]
 
 _GIT_TIMEOUT_S: Final[float] = 30.0
-_INTERNAL_PATHS: Final[tuple[str, ...]] = (".claude/worktrees", ".lc-worktrees", ".lemoncrow")
-#: Reviews of these ranges route by branch and keep the base recorded at their first capture.
-_MUTABLE_MODES: Final[frozenset[str]] = frozenset({"working_tree", "staged"})
-# Flags of the full Review CLI (`uv run lc review` in a source checkout) that this
-# client does not carry; the Review Reader covers the same human workflow.
-_FULL_CLI_REVIEW_OPTIONS: Final[frozenset[str]] = frozenset(
-    {
-        "--mark",
-        "--marks",
-        "--comment",
-        "--comments",
-        "--on",
-        "--comment-kind",
-        "--since-my-review",
-        "--feedback",
-        "--finish",
-        "--current",
-        "--resume-author",
-        "--pr",
-        "--publish",
-        "--repo-root",
-    }
-)
+_INTERNAL_PATHS: Final[tuple[str, ...]] = (".lc-worktrees", ".lemoncrow")
 
 
 @dataclass(frozen=True, slots=True)
@@ -302,14 +274,6 @@ def resolve_review_range(
     )
 
 
-def _review_scope_label(rng: ReviewRange) -> str:
-    if rng.mode == "working_tree":
-        return f"{rng.base_rev or 'HEAD'} → working tree"
-    if rng.mode == "staged":
-        return f"{rng.base_rev or 'HEAD'} → staged index"
-    return f"{rng.base_rev} → {rng.head_rev}"
-
-
 def _clear_directory(root: Path) -> None:
     root.mkdir(parents=True, exist_ok=True)
     for child in root.iterdir():
@@ -426,13 +390,7 @@ def _worktree_paths(repo: Path) -> tuple[str, ...]:
         ".",
         *[f":(exclude){path}" for path in _INTERNAL_PATHS],
     )
-    paths = tuple(item.decode("utf-8", errors="surrogateescape") for item in raw.split(b"\0") if item)
-    # `.lemoncrow/` is excluded as LemonCrow's own scratch space, but its one committed file is repository source that
-    # sets the review policy, and the base side (a checkout of the commit) carries it. Leaving it out of the working
-    # tree would show an unchanged policy file as deleted: "LemonCrow policy removed", a critical change.
-    config = _git_bytes(repo, "ls-files", "-co", "--exclude-standard", "-z", "--", REVIEW_CONFIG_PATH)
-    kept = config.decode("utf-8", errors="surrogateescape").split("\0")[0]
-    return (*paths, kept) if kept and kept not in paths else paths
+    return tuple(item.decode("utf-8", errors="surrogateescape") for item in raw.split(b"\0") if item)
 
 
 def _materialize_worktree(repo: Path, target: Path) -> None:
@@ -502,7 +460,8 @@ def _materialize_worktree(repo: Path, target: Path) -> None:
     )
 
 
-def _freeze_head(repo: Path, rng: ReviewRange, head: Path) -> None:
+def _freeze_range(repo: Path, rng: ReviewRange, base: Path, head: Path) -> None:
+    _materialize_commit(repo, rng.base_sha, base)
     if rng.mode == "working_tree":
         _materialize_worktree(repo, head)
     elif rng.mode == "staged":
@@ -511,74 +470,7 @@ def _freeze_head(repo: Path, rng: ReviewRange, head: Path) -> None:
         _materialize_commit(repo, rng.head_sha, head)
 
 
-def _freeze_range(repo: Path, rng: ReviewRange, base: Path, head: Path) -> None:
-    _materialize_commit(repo, rng.base_sha, base)
-    _freeze_head(repo, rng, head)
-
-
-def _workspace_branch(repo: Path) -> str:
-    """Short name of the checked-out branch; ``""`` on a detached ``HEAD``, a paused rebase included."""
-
-    ref = _git_text(repo, "symbolic-ref", "--quiet", "HEAD", required=False)
-    branch = ref.removeprefix("refs/heads/") if ref.startswith("refs/heads/") else ""
-    return branch if len(branch) <= 256 and "\n" not in branch and "\r" not in branch else ""
-
-
-def _active_review_base(
-    remote: ReviewSession, repo_id: str, *, branch: str, range_mode: str, hosted: bool, timeout_s: float
-) -> tuple[str, str]:
-    """``(review_base_sha, review_base_policy)`` of the branch's open Review, or ``("", "")``.
-
-    One read keyed by the capture's subject (``BRANCH_REVIEW_PATH``); on
-    hosted the subject includes the signed-in author, so another author's
-    Review on the same branch name never answers. A local server from before
-    the lookup can still route by branch but answer 404: using ``HEAD`` then
-    would silently hide committed work. Refuse that capture and require a server
-    upgrade instead. Every other failure, including hosted 404, fails closed.
-    """
-
-    try:
-        response = remote.branch_review(repo_id, branch=branch, range_mode=range_mode, timeout_s=timeout_s)
-        if response.status == 404 and not hosted:
-            raise ClientError(
-                ErrorCode.CAPABILITY_UNSUPPORTED,
-                "this local Review server cannot read the branch Review base; upgrade the server",
-                action=AgentAction.UPGRADE_SERVER,
-            )
-        found = parse_branch_review(response.require(), range_mode=range_mode)
-    except ClientError as exc:
-        raise branch_review_failed(branch, exc) from exc
-    return found.base_sha, found.policy
-
-
-def _review_base(repo: Path, recorded: str, policy: str) -> str:
-    """The base this capture diffs against: a commit id, ``EMPTY_TREE_SHA``, or ``""`` for ``HEAD``.
-
-    ``fixed`` keeps the recorded base as it is; any other policy is
-    ``integrated`` and advances it past integrated work. A recorded base this
-    clone lacks is ``""`` under both.
-    """
-
-    if policy != "fixed":
-        return capture_review_base(repo, recorded)
-    if recorded == EMPTY_TREE_SHA:
-        return recorded
-    if not recorded or recorded.startswith("-"):
-        return ""
-    return _git_text(repo, "rev-parse", "--verify", "--quiet", f"{recorded}^{{commit}}", required=False)
-
-
-def _with_review_base(rng: ReviewRange, base: str) -> ReviewRange:
-    """*rng* re-based onto its Review's base; ``""`` keeps ``HEAD``."""
-
-    if base == EMPTY_TREE_SHA:
-        return replace(rng, base_rev="(empty tree)", base_sha="")
-    if not base or base == rng.base_sha:
-        return rng
-    return replace(rng, base_rev=base, base_sha=base)
-
-
-def _review_url(config: ClientConfig, remote: ReviewSession, payload: dict[str, object]) -> str:
+def _review_url(config: ClientConfig, remote: RemoteSession, payload: dict[str, object]) -> str:
     raw = payload.get("review")
     review = raw if isinstance(raw, dict) else {}
     path = review.get("review_path")
@@ -591,316 +483,58 @@ def _review_url(config: ClientConfig, remote: ReviewSession, payload: dict[str, 
 
 
 def _capture(
-    config: ClientConfig,
-    rng: ReviewRange,
-    *,
-    with_impact: bool,
-    restore_archived: bool,
-    title: str = "",
-    delta_cursor: DeltaCursor | None = None,
+    config: ClientConfig, rng: ReviewRange, *, with_impact: bool, restore_archived: bool
 ) -> tuple[dict[str, object], str]:
-    config.review_state_dir.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="capture-", dir=config.review_state_dir) as temporary:
+    config.state_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="review-", dir=config.state_dir) as temporary:
         root = Path(temporary)
         base_root, head_root = root / "base", root / "head"
-        if delta_cursor is None:
-            _freeze_head(config.repo_root, rng, head_root)
-        else:
-            from .review_delta import snapshot
-
-            frozen_source = (
-                ":index:" if rng.mode == "staged" else rng.head_sha if rng.mode == "commit_range" else rng.base_sha
-            )
-            head_snapshot = snapshot(
-                config.repo_root,
-                frozen_source,
-                delta_cursor,
-                working_tree=rng.mode == "working_tree",
-            )
-            frozen_gitlinks = _gitlinks_for_range(config.repo_root, rng)
-            frozen_branch = _workspace_branch(config.repo_root) if rng.mode in _MUTABLE_MODES else ""
-            frozen_head = _git_text(config.repo_root, "rev-parse", "HEAD", required=False)
-        remote = ReviewSession(config)
+        _freeze_range(config.repo_root, rng, base_root, head_root)
+        remote = RemoteSession(config)
         try:
             remote.handshake(timeout_s=config.request_timeout_s)
             remote.open_session(timeout_s=config.request_timeout_s)
-            manifest = remote.state.review_manifest
-            # A working-tree or staged Review routes by branch. A server that does
-            # not route by branch is sent none and has no branch base to read:
-            # HEAD stays the base, as before.
-            branch = (
-                _workspace_branch(config.repo_root)
-                if rng.mode in _MUTABLE_MODES
-                and manifest is not None
-                and "workspace_branch" in manifest.capture_options
-                else ""
+            base_opened = remote.open_review_snapshot(
+                base_root,
+                source_revision=rng.base_sha or "review-empty-base",
+                timeout_s=config.tool_timeout_s,
             )
-            capture_intent = ""
-
-            def opened_head_view(opened: Mapping[str, object]) -> None:
-                nonlocal capture_intent
-                repo = opened.get("repo_id")
-                if branch and isinstance(repo, str) and repo:
-                    capture_intent = remote.begin_capture_intent(repo, branch=branch, mode=rng.mode)
-
-            # The head View opens first: it supplies the repo identity for both
-            # the branch ticket and base lookup. In delta mode, obtain the ticket
-            # *before uploading bytes*, so slow first uploads cannot overtake a
-            # later source revision that already started on another machine.
-            if delta_cursor is None:
-                head_opened = remote.open_snapshot(
-                    head_root,
-                    source_revision=rng.head_sha or rng.base_sha or f"review-{rng.mode}",
-                    timeout_s=config.tool_timeout_s,
-                )
-                opened_head_view(dict(head_opened))
-            else:
-                head_opened = remote.open_delta_snapshot(
-                    head_snapshot.entries,
-                    source_revision=rng.head_sha or rng.base_sha or f"review-{rng.mode}",
-                    payload=head_snapshot.payload,
-                    on_open=opened_head_view,
-                    timeout_s=config.tool_timeout_s,
-                )
-            head_view = (remote.state.view_id, remote.state.view_revision)
+            head_opened = remote.open_review_snapshot(
+                head_root,
+                source_revision=rng.head_sha or rng.base_sha or f"review-{rng.mode}",
+                timeout_s=config.tool_timeout_s,
+            )
             repo_id = head_opened.get("repo_id")
             if not isinstance(repo_id, str) or not repo_id:
                 raise ClientError(ErrorCode.VIEW_UNKNOWN, "server opened Review View without repository id")
-            if branch:
-                recorded, policy = _active_review_base(
-                    remote,
-                    repo_id,
-                    branch=branch,
-                    range_mode=rng.mode,
-                    hosted=config.hosted,
-                    timeout_s=config.request_timeout_s,
-                )
-                if recorded:
-                    rng = _with_review_base(rng, _review_base(config.repo_root, recorded, policy))
-            if delta_cursor is None:
-                _materialize_commit(config.repo_root, rng.base_sha, base_root)
-                base_opened = remote.open_snapshot(
-                    base_root,
-                    source_revision=rng.base_sha or "review-empty-base",
-                    timeout_s=config.tool_timeout_s,
-                )
-            else:
-                base_snapshot = snapshot(config.repo_root, rng.base_sha, delta_cursor)
-                base_opened = remote.open_delta_snapshot(
-                    base_snapshot.entries,
-                    source_revision=rng.base_sha or "review-empty-base",
-                    payload=base_snapshot.payload,
-                    timeout_s=config.tool_timeout_s,
-                )
-            # The capture names the head View; the base View is named in its body.
-            remote.state.view_id, remote.state.view_revision = head_view
             base_gitlinks, head_gitlinks = _gitlinks_for_range(config.repo_root, rng)
-            if delta_cursor is not None and rng.mode in _MUTABLE_MODES:
-                # A slow upload may race new local edits/checkout/HEAD movement.
-                # Do not publish the previous View as the live branch after the
-                # source has already moved, even before the watch-loop retries.
-                current = snapshot(
-                    config.repo_root,
-                    frozen_source,
-                    delta_cursor,
-                    working_tree=rng.mode == "working_tree",
-                )
-                if (
-                    current.entries != head_snapshot.entries
-                    or _git_text(config.repo_root, "rev-parse", "HEAD", required=False) != frozen_head
-                    or _workspace_branch(config.repo_root) != frozen_branch
-                    or (base_gitlinks, head_gitlinks) != frozen_gitlinks
-                ):
-                    raise ClientError(
-                        ErrorCode.VIEW_REVISION_STALE,
-                        "source changed before Review publication; rescan and retry",
-                        retryable=True,
-                    )
             response = dict(
-                remote.capture_from_views(
+                remote.capture_review_from_views(
                     repo_id=repo_id,
                     source_ref=rng.source_ref(config.repo_root),
-                    title=title or rng.title,
+                    title=rng.title,
                     base_view_id=str(base_opened.get("view_id") or ""),
                     base_view_revision=int(base_opened.get("view_revision") or 0),
                     range_spec=rng.to_wire(),
                     gitlinks={"base": base_gitlinks, "head": head_gitlinks},
                     with_impact=with_impact,
                     restore_archived=restore_archived,
-                    workspace_branch=branch,
-                    capture_intent=capture_intent,
                     timeout_s=config.tool_timeout_s,
                 )
             )
-            url = _review_url(config, remote, response)
-            if delta_cursor is not None:
-                delta_cursor.save()
-                response["_delta_upload"] = {
-                    "head_uploaded_bytes": int(head_opened.get("uploaded_bytes") or 0),
-                    "base_uploaded_bytes": int(base_opened.get("uploaded_bytes") or 0),
-                }
-            return response, url
+            return response, _review_url(config, remote, response)
         finally:
             remote.close()
 
 
-# Switches that only mean something on an AI review; alone they would be silently ignored, so they say what to add.
-_AI_ONLY_OPTIONS: Final[frozenset[str]] = frozenset(
-    {
-        "--agent",
-        "--remember",
-        "--depth",
-        "--fail-on",
-        "--strict",
-        "--fresh",
-        "--max-usd-per-pr",
-        "--max-runs-per-pr",
-        "--all",
-        "-a",
-        "--no-color",
-    }
-)
-
-
-def _without_hosted(command: str, sink: TextIO) -> int:
-    sink.write(
-        f"lc review {command} belongs to Hosted Review's machine companion, which this install does not include.\n"
-    )
-    sink.write("Run `lc review --help` for what this install does.\n")
-    return 2
-
-
-def _help_text() -> str:
-    """The short help: what to type, in the order a first review goes. Hosted-only lines appear only where they run."""
-
-    from importlib.util import find_spec
-
-    hosted = find_spec(f"{__package__}.review_service") is not None
-    lines = [
-        "LemonCrow Review: see what changed, or get an AI review of it, from your terminal.",
-        "",
-        "Usage:",
-        "  lc review [REV] [OPTIONS]",
-        "",
-        "What to type:",
-        "  lc review                  Capture your change and open it in the Reader. No AI, no model call.",
-        "  lc review --ai             AI review of your change, printed here. First: export ANTHROPIC_API_KEY=...",
-        "                             (or OPENAI_API_KEY), or add --agent claude|codex|opencode.",
-        "  lc review --staged         Review exactly what is staged (works with --ai too)",
-        "  lc review main...HEAD      Review a branch against main (works with --ai too)",
-        "  lc review hook install     Git hook: AI review before each push. It stops only on a real finding,",
-        "                             never because LemonCrow failed.",
-        "  lc review init-action      Write the GitHub Action workflow that reviews pull requests",
-        "  lc review config           Show the review rules this repository sets (--effective)",
-    ]
-    if hosted:
-        lines += [
-            "  lcr watch                  Keep local or hosted Review current as source settles",
-            "  lcr connect                Pair an optional Hosted Review machine with a one-time code",
-            "  lcr pending                Show paired Hosted Review work waiting on this machine",
-            "  lcr pending --watch        Receive scoped work hints over WSS (HTTPS fallback)",
-            "  lcr device check           Verify hosted connection and pinned worker signer",
-            "  lcr device online          Announce presence without executing jobs",
-            "  lcr task run JOB_ID        Run one explicitly approved AI task with a local spend cap",
-            "  lcr device serve           Foreground Review capture + machine presence on VPS/laptop",
-            "  lcr service install        Optional user-owned Review capture service (explicit opt-in)",
-            "  lcr hook after-edit|after-checkpoint|on-exit  Agent checkpoint capture",
-        ]
-    lines += [
-        "",
-        "Range options:",
-        "  --working-tree      Review current working-tree changes (the default)",
-        "  --staged            Review staged changes",
-        "  --base REV          Explicit base revision",
-        "  --head REV          Explicit head revision (default HEAD)",
-        "",
-        "Options:",
-        "  --title TITLE       Set the Review title",
-        "  --no-impact         Skip impact analysis",
-        "  --open              Open the Review Reader (default)",
-        "  --no-open           Capture without opening a browser",
-        "  --reopen-review     Restore an archived matching Review",
-        "  --json              Emit machine-readable output",
-        "",
-        "AI options (with --ai):",
-        "  --pr N              A GitHub pull request (needs `gh`): prints what the bot would post, posts nothing",
-        "  --agent NAME        Use a signed-in agent CLI instead of a key: claude, codex or opencode",
-        "  --remember          With --agent: use that agent whenever no API key is set",
-        "  --fail-on p0|p1|none  Exit 1 while a finding at least this severe is open (default p0)",
-        "  --strict            Exit 2 when the review could not finish (no model, spent budget)",
-        "  --depth auto|thorough|deep, --fresh, --max-usd-per-pr USD, --json, --all",
-        "  Run `lc review --ai --help` for every AI option.",
-        "",
-        "Hosted Review requires `lc auth login` once before first use.",
-    ]
-    return "\n".join(lines) + "\n"
-
-
 def review_main(arguments: list[str], *, sink: TextIO) -> int:
-    """Thin ``review`` CLI. Capture first; the commands that call a model run in the Review engine."""
-
-    from .review_engine import needs_engine
-
-    if needs_engine(arguments):
-        from .review_engine import run_engine
-
-        return run_engine(arguments, sink)
-    if arguments and arguments[0] == "service":
-        try:
-            from .review_service import service_main
-        except ModuleNotFoundError:
-            return _without_hosted("service", sink)
-        return service_main(arguments[1:], sink=sink)
-    if arguments and arguments[0] == "hook":
-        try:
-            from .review_hooks import hook_main
-        except ModuleNotFoundError:
-            return _without_hosted("hook " + arguments[1], sink)
-        return hook_main(arguments[1:], sink=sink)
-
-    if arguments and arguments[0] == "connect":
-        try:
-            from .review_device_connect import connect_main
-        except ModuleNotFoundError:
-            return _without_hosted("connect", sink)
-        return connect_main(arguments[1:], sink=sink)
-
-    # Public Review commands stay directly under `lcr`. The older companion
-    # namespace is a compatibility alias, not a distinct product or daemon.
-    if arguments and arguments[0] in {"pending", "device", "task", "companion"}:
-        try:
-            from .review_companion_cli import companion_main
-        except ModuleNotFoundError:
-            return _without_hosted(arguments[0], sink)
-
-        command, rest = arguments[0], arguments[1:]
-        if command == "pending":
-            return companion_main(["pending", *rest], sink=sink)
-        if command == "device":
-            if not rest or rest[0] not in {"status", "check", "online", "serve"}:
-                sink.write("Usage: lcr device status | check | online [--once] | serve [--once]\n")
-                return 0 if rest in ([], ["--help"], ["help"]) else 2
-            if rest[0] == "serve":
-                from .review_service import serve_main
-
-                return serve_main(rest[1:], sink=sink)
-            return companion_main(rest, sink=sink)
-        if command == "task":
-            if not rest or rest[0] != "run":
-                sink.write("Usage: lcr task run JOB_ID [options]\n")
-                return 0 if rest in ([], ["--help"], ["help"]) else 2
-            return companion_main(rest, sink=sink)
-        return companion_main(rest, sink=sink)
-
-    if arguments and arguments[0] == "watch":
-        try:
-            from .review_watch import watch_main
-        except ModuleNotFoundError:
-            return _without_hosted("watch", sink)
-        return watch_main(arguments[1:], sink=sink)
+    """Thin ``review`` CLI. Capture first; richer terminal actions follow later."""
 
     if arguments and arguments[0] in {"-h", "--help", "help"}:
-        sink.write(_help_text())
+        sink.write(
+            "usage: lemoncrow-client review [REV] [--working-tree|--staged] [--base REV] [--head REV]\n"
+            "                               [--no-impact] [--no-open] [--reopen-review] [--json]\n"
+        )
         return 0
     rev: str | None = None
     base: str | None = None
@@ -910,7 +544,6 @@ def review_main(arguments: list[str], *, sink: TextIO) -> int:
     with_impact = True
     open_browser = True
     restore_archived = False
-    title = ""
     as_json = False
     index = 0
     while index < len(arguments):
@@ -929,35 +562,17 @@ def review_main(arguments: list[str], *, sink: TextIO) -> int:
             restore_archived = True
         elif argument == "--json":
             as_json = True
-        elif argument in {"--base", "--head", "--title"}:
+        elif argument in {"--base", "--head"}:
             index += 1
             if index >= len(arguments):
                 sink.write(f"{argument} requires a value\n")
                 return 2
             if argument == "--base":
                 base = arguments[index]
-            elif argument == "--head":
-                head = arguments[index]
             else:
-                title = arguments[index].strip()
-                if not title or len(title) > 120 or any(ord(char) < 32 for char in title):
-                    sink.write("--title must be a non-empty single-line title of at most 120 characters\n")
-                    return 2
+                head = arguments[index]
         elif argument.startswith("-"):
             sink.write(f"unknown review option: {argument}\n")
-            name = argument.partition("=")[0]
-            if name in _AI_ONLY_OPTIONS or name == "--pr":
-                # Never run a model because of a flag that merely sounds like it: say what to add.
-                sink.write(
-                    f"{name} belongs to an AI review: add --ai to the same command (`lc review --ai {name} ...`).\n"
-                )
-            elif name in _FULL_CLI_REVIEW_OPTIONS:
-                sink.write(
-                    "That option belongs to the full Review CLI in a LemonCrow source checkout (`uv run lc review`).\n"
-                    "With this client, mark, comment, see changes since your review and copy feedback"
-                    " in the Review Reader: `lc review --open`.\n"
-                )
-            sink.write("Run `lc review --help` for the options this client supports.\n")
             return 2
         elif rev is None:
             rev = argument
@@ -967,7 +582,7 @@ def review_main(arguments: list[str], *, sink: TextIO) -> int:
         index += 1
 
     try:
-        config = load_config(product="review")
+        config = load_config()
         if config.hosted and not config.authenticated:
             raise ClientError(
                 ErrorCode.UNAUTHENTICATED,
@@ -982,9 +597,7 @@ def review_main(arguments: list[str], *, sink: TextIO) -> int:
             staged=staged,
             working_tree=working_tree,
         )
-        if not as_json:
-            sink.write(f"Review scope  {_review_scope_label(rng)}\n")
-        response, url = _capture(config, rng, with_impact=with_impact, restore_archived=restore_archived, title=title)
+        response, url = _capture(config, rng, with_impact=with_impact, restore_archived=restore_archived)
     except ClientError as exc:
         sink.write(f"{exc.server_code}: {exc.message}\n")
         return 1
@@ -995,43 +608,9 @@ def review_main(arguments: list[str], *, sink: TextIO) -> int:
         sink.write(json.dumps({"review_url": url, **response}, sort_keys=True) + "\n")
     else:
         sink.write(f"Review  {url}\n")
-        review_value = response.get("review")
-        review_row = review_value if isinstance(review_value, dict) else {}
-        kept = str(review_row.get("title") or "")
-        # A hosted server titles only a Review its capture creates; a local one
-        # keeps the title as this Snapshot's author title (``auto_title``).
-        if title and title not in {kept, str(review_row.get("auto_title") or "")}:
-            sink.write(f'--title was not applied; the Review this Snapshot joined keeps the title "{kept}"\n')
-        if getattr(sink, "isatty", lambda: False)():
-            from .review_engine import model_route_hint
-
-            hint = model_route_hint()
-            if hint:
-                sink.write(hint + "\n")
     if open_browser:
-        _arm_local_browser(config, url)
         try:
             webbrowser.open(url)
         except Exception:
             pass
     return 0
-
-
-def _arm_local_browser(config: ClientConfig, url: str) -> None:
-    """Arm the local server's browser pairing for *url* (best effort).
-
-    The local Reader mints its browser capability only inside this short
-    CLI-armed window; without it the page asks the user to reconnect.
-    """
-    if config.hosted or not config.token:
-        return
-    from urllib.parse import urlsplit
-
-    try:
-        remote = ReviewSession(config)
-        try:
-            remote.pair_local_review_browser(urlsplit(url).path or "/", timeout_s=2.0)
-        finally:
-            remote.close()
-    except (ClientError, OSError, ValueError):
-        return

@@ -8,7 +8,7 @@ counterfactual per session (:func:`estimate_savings`, the same engine behind
 ``lc session replay``); this module is the missing write path -- it persists
 one synthetic row per qualifying historical session into the SAME ledger
 format the live path writes, dated to when the session actually happened, so
-``lc runtime savings`` and the statusline immediately reflect it
+``lc savings`` and the statusline immediately reflect it
 after :func:`reconcile_savings_aggregate` runs.
 
 Idempotent and additive only: a session already carrying a ``savings.jsonl``
@@ -182,7 +182,7 @@ def backfill_host_savings(
             "kind": "backfill",
             # Clamp into _price_savings_row's honored band (0 < tokens <= 2M):
             # tokens==0 or >2M make that function drop cost_saved_usd entirely,
-            # so the CLI would report "$X backfilled" that lc runtime savings then prices
+            # so the CLI would report "$X backfilled" that lc savings then prices
             # at $0 (the same trap _RECONCILE_PLACEHOLDER_TOKENS dodges).
             "tokens": max(1, min(int(estimate.get("collapsed_output_tokens") or 0), 2_000_000)),
             "calls": calls_saved,

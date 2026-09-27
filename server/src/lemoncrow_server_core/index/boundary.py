@@ -1,16 +1,41 @@
-"""Generic content-scope boundary below a View.
+"""The data boundary below the view: which declared digests it may address.
 
-Layer 1 is content-addressed and may deduplicate bytes inside its storage
-partition. A manifest declaration is still only a claim: a View may address a
-digest only when :class:`ContentProvenance` records that its opaque content
-scope has demonstrated possession of those bytes.
+Layer 1 is org-scoped and content-addressed, and stays that way -- the storage
+win the plan asks for is exactly that branches, worktrees and developers inside
+one enterprise share identical content. What the plan never said, and what the
+store therefore did, is answer *"do I need to upload this?"* from whether the
+**organization** holds the bytes. Under that rule possessing a digest was
+possessing the file: an engineer who learned a digest from a build log could
+name it in a manifest for a workspace they legitimately owned and read a
+colleague's source out of the shared store, having never held the file and
+holding no binding on the repository it came from.
 
-The public engine intentionally does not decide how content scopes are chosen
-or shared. Local mode uses one scope. Other compositions may choose narrower
-or wider scopes before a View is opened.
+This module is the boundary that fixes it, and it is one rule:
 
-Declaration never writes provenance, and inaccessible content is reported in
-the same way as absent content so this layer does not expose storage membership.
+    A digest a view declares is addressable in that view only if the view's own
+    content scope has *demonstrated possession* of it -- somebody actually
+    handed the server those bytes there and the server hashed them.
+
+Three properties follow, and they are the reason it is shaped this way.
+
+**Declaration writes nothing.** :class:`~.contracts.ContentProvenance` rows are
+written on upload and on a verified read from a proven same-host worktree, and
+nowhere else. A manifest row is a claim about a path, and a claim is not
+evidence.
+
+**There is no existence oracle.** The answer for "the organization holds these
+bytes under a scope you cannot reach" is the *same* answer as for "nobody has
+ever uploaded this": the digest is not addressable, so it is reported as needed
+and the client is asked for the bytes. Neither the missing route, the
+manifest-chunk acknowledgement, the ``{need: [...]}`` answer nor a query hit can
+tell the two apart, because none of them consults whether the organization holds
+anything -- they consult this.
+
+**Deduplication survives.** The scope is the *repository*, not the engineer, for
+anyone holding a binding that names the repository as a sharing unit: a team on
+one monorepo uploads a blob once between them. Everyone else is scoped to their
+own demonstrated possession inside that repository, which costs a first upload
+per engineer and costs nothing after it.
 """
 
 from __future__ import annotations

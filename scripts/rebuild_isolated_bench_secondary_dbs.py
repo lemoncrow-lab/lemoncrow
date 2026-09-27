@@ -12,7 +12,7 @@ together. Confirmed: /tmp/fts.sqlite's file_line_fts held 8 different repos'
 lines (2.85M rows; astropy's own share was only 500K).
 
 The fix is simply to give each repo its own directory, exactly like a real
-workspace has: point `lc code --internal-private index --db-path` at
+workspace has: point `lc code index --db-path` at
 /tmp/idx_isolated/<repo>/code_context.sqlite directly (no intermediate temp
 dir, no copy-out step -- the earlier version of this script did that and hit
 a stale-WAL corruption bug from the copy; writing straight to the final
@@ -27,7 +27,6 @@ Usage:
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 import subprocess
 import sys
@@ -110,7 +109,6 @@ def main() -> None:
                 "-m",
                 "lemoncrow.gateway.cli",
                 "code",
-                "--internal-private",
                 "index",
                 "--repo-root",
                 str(ws),
@@ -120,7 +118,6 @@ def main() -> None:
                 str(isolated_db),
             ],
             cwd=str(REPO_ROOT),
-            env={**os.environ, "LEMONCROW_INTERNAL_PRIVATE_RUNTIME": "1"},
             capture_output=True,
             text=True,
             timeout=7200,

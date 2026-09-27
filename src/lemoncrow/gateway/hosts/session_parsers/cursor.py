@@ -39,18 +39,12 @@ def _cursor_agent_chats_dirs() -> list[Path]:
     The CLI keeps conversations here (lowercase ``cursor``), distinct from the
     IDE's capital-C ``Cursor`` globalStorage. Honors ``XDG_CONFIG_HOME``.
     """
+    dirs: list[Path] = []
     xdg = os.environ.get("XDG_CONFIG_HOME")
     if xdg:
-        # XDG_CONFIG_HOME replaces ~/.config; it is not an additional search
-        # root. Treating it as additive makes isolated/dev environments still
-        # scan the user's real Cursor history and can import the same config
-        # twice when HOME and XDG point at equivalent locations.
-        dirs = [Path(xdg) / "cursor" / "chats"]
-    else:
-        dirs = [
-            Path.home() / ".config" / "cursor" / "chats",
-            Path.home() / "Library" / "Application Support" / "cursor" / "chats",
-        ]
+        dirs.append(Path(xdg) / "cursor" / "chats")
+    dirs.append(Path.home() / ".config" / "cursor" / "chats")
+    dirs.append(Path.home() / "Library" / "Application Support" / "cursor" / "chats")
     seen: set[Path] = set()
     out: list[Path] = []
     for d in dirs:

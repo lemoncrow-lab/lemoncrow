@@ -198,7 +198,7 @@ captures, dependency installs, and runtime runs — passes one host gate:
 
 Set both in the environment of the LemonCrow server, or persist them with
 `lc settings set review.preview_concurrency 2` and
-`lc settings set review.preview_memory_mb 6144` (full engine only; split installs use the environment variables), then restart the server.
+`lc settings set review.preview_memory_mb 6144`, then restart the server.
 
 ### What the host guarantees
 
@@ -229,15 +229,9 @@ Set both in the environment of the LemonCrow server, or persist them with
   Reader's "Some review context is unavailable" notice, or in the preview pane.
   Other surfaces and all source review stay available.
 - **Retention.** Rendered artifacts live in the Review store under
-  `review/surface-previews/<review>/sides/`; the eight most recently used
-  entries per Review and the 16 most recently used Reviews are kept. Web
-  preview builds are shared by content under `review/web-previews/builds/`,
-  slimmed to their static output once built; the 32 most recently used are
-  kept. Older entries are removed once idle for an hour, and anything unused
-  for three days is removed regardless. Snapshot source trees under
-  `review/snapshot-sources/` are shared by content and removed after three
-  hours unused. Removal renames the entry aside and deletes it in the
-  background.
+  `review/surface-previews/<review>/sides/`, web preview builds under
+  `review/web-previews/<review>/builds/`. The eight most recently used entries
+  per Review are kept; older ones are removed once idle for an hour.
 
 ### Versioning
 
@@ -282,7 +276,6 @@ filtered by `includeStories`/`excludeStories` or with computed titles may not be
 discovered.
 
 ## Installing a plugin
-
 Install the plugin into the **same Python environment as the LemonCrow Review
 server**. LemonCrow's local installer keeps that environment under
 `LEMONCROW_TOOL_DIR` (default `~/.lemoncrow/uv-tools`):
@@ -301,6 +294,8 @@ tool environment, so install plugins again afterwards. Plugins are discovered
 when a Review loads its surfaces; restart the local server (`bash
 scripts/local_server.sh restart` from a checkout) if it was running when the
 plugin was installed.
+surfaces; restart the local server (`bash scripts/local_server.sh restart` from a
+checkout) if it was running when the plugin was installed.
 
 The pre-compiled binary from the quick installer has no Python environment to
 install into; use the developer install to run plugins.

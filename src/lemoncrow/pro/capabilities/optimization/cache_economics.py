@@ -14,7 +14,8 @@ from pathlib import Path
 from typing import Any, Literal
 
 from lemoncrow.pro.capabilities.optimization.runtime_decisions import normalize_optimization_mode
-from lemoncrow.pro.capabilities.owned_agent_session.runtime_policy import normalize_cache_policy, provider_cache_style
+from lemoncrow.pro.capabilities.owned_agent_session.phase_runner import _provider_cache_style
+from lemoncrow.pro.capabilities.owned_agent_session.runtime_policy import normalize_cache_policy
 
 CacheTier = Literal["off", "5m", "1h"]
 _MAX_GAPS = 64
@@ -240,7 +241,7 @@ def choose_cache_decision(
     optimization_mode: str,
     now: datetime | None = None,
 ) -> CacheDecision:
-    style = provider_cache_style(provider, model)
+    style = _provider_cache_style(provider, model)
     prefix_hash = stable_prefix_hash(style, model, messages)
     lane_key = f"lc:{style}:{prefix_hash[:24]}"
     mode = normalize_optimization_mode(optimization_mode)

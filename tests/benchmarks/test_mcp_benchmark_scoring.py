@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import importlib.util
 import sys
 import types
@@ -41,41 +40,30 @@ render_summary = reporter.render_summary
 
 
 def test_code_matrix_quality_floor_is_enforced() -> None:
-    floor = 0.6
-    default = BenchCase.__dataclass_fields__["quality_score"].default
-    assert default >= floor, "the default benchmark quality score must stay at or above the floor"
+    _benchmarks_pkg = types.ModuleType("benchmarks")
+    _benchmarks_pkg.__path__ = [str(ROOT / "benchmarks")]
+    _mcp_pkg = types.ModuleType("benchmarks.mcp_tools")
+    _mcp_pkg.__path__ = [str(ROOT / "benchmarks" / "mcp_tools")]
+    _cases_pkg = types.ModuleType("benchmarks.mcp_tools.cases")
+    _cases_pkg.__path__ = [str(ROOT / "benchmarks" / "mcp_tools" / "cases")]
+    sys.modules["benchmarks"] = _benchmarks_pkg
+    sys.modules["benchmarks.mcp_tools"] = _mcp_pkg
+    sys.modules["benchmarks.mcp_tools.cases"] = _cases_pkg
+    code_cases = _load_module(
+        "benchmarks.mcp_tools.cases.code",
+        ROOT / "benchmarks" / "mcp_tools" / "cases" / "code.py",
+    )
+    CODE_CASES = code_cases.CODE_CASES
 
-    # The code matrix is expensive to import because importing it intentionally
-    # discovers hundreds of generated repo-backed benchmark cases. This guard is
-    # about configuration, not discovery: validate every BenchCase construction
-    # statically and let the benchmark runner cover dynamic case generation.
-    source = (ROOT / "benchmarks" / "mcp_tools" / "cases" / "code.py").read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    calls = [
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "BenchCase"
-    ]
-    assert calls, "code benchmark matrix must contain BenchCase definitions"
-    quality_score_position = list(BenchCase.__dataclass_fields__).index("quality_score")
-    for call in calls:
-        assert all(
-            item.arg is not None for item in call.keywords
-        ), "BenchCase **kwargs can hide quality_score; keep benchmark quality configuration statically auditable"
-        if len(call.args) > quality_score_position:
-            value = call.args[quality_score_position]
-            assert isinstance(value, ast.Constant) and isinstance(
-                value.value, (int, float)
-            ), "positional BenchCase quality_score overrides must be static numeric literals"
-            assert float(value.value) >= floor, "all code benchmark quality scores must stay at or above 0.6"
+    sys.modules.pop("benchmarks.mcp_tools.cases.code", None)
+    sys.modules.pop("benchmarks.mcp_tools.cases", None)
+    sys.modules.pop("benchmarks.mcp_tools", None)
+    sys.modules.pop("benchmarks", None)
 
-        keyword = next((item for item in call.keywords if item.arg == "quality_score"), None)
-        if keyword is None:
-            continue
-        assert isinstance(keyword.value, ast.Constant) and isinstance(
-            keyword.value.value, (int, float)
-        ), "code benchmark quality_score overrides must be static numeric literals so the floor remains auditable"
-        assert float(keyword.value.value) >= floor, "all code benchmark quality scores must stay at or above 0.6"
+    assert CODE_CASES, "code benchmark matrix must not be empty"
+    assert all(
+        case.quality_score >= 0.6 for case in CODE_CASES
+    ), "all code benchmark cases must keep quality_score at or above 0.6"
 
 
 def test_effective_tokens_use_quality_floor() -> None:

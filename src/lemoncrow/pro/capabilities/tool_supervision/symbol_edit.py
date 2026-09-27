@@ -8,10 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.core.capabilities.code_context_contract import CodeIntelligenceProvider
-from lemoncrow.core.capabilities.code_intelligence_provider import create_code_intelligence_provider
 from lemoncrow.core.capabilities.tool_supervision_contract import SymbolEditError as SymbolEditError
 from lemoncrow.gateway.adapters.mcp.ledger import _get_ledger
+from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 from lemoncrow.pro.capabilities.memory.redaction import redact_memory_input
 from lemoncrow.pro.capabilities.memory.runtime import memory_service
 
@@ -37,7 +36,7 @@ def preview_symbol_edit_path(edit: dict[str, Any], *, repo_root: str | Path | No
 def resolve_symbol_edit(edit: dict[str, Any], *, repo_root: str | Path | None = None) -> ResolvedSymbolEdit:
     """Resolve a ``kind="symbol"`` descriptor into a concrete file edit."""
     root = Path(repo_root or Path.cwd()).resolve()
-    engine = create_code_intelligence_provider(root)
+    engine = CodeContextEngine(root)
     symbol = _resolve_symbol_payload(edit, engine=engine)
     if str(symbol.get("origin") or "internal") == "external":
         raise SymbolEditError(
@@ -116,7 +115,7 @@ def record_symbol_edit_memory(resolved: ResolvedSymbolEdit) -> None:
     )
 
 
-def _resolve_symbol_payload(edit: dict[str, Any], *, engine: CodeIntelligenceProvider) -> dict[str, Any]:
+def _resolve_symbol_payload(edit: dict[str, Any], *, engine: CodeContextEngine) -> dict[str, Any]:
     symbol_id = _optional_text(edit.get("symbol_id"))
     qualified_name = _optional_text(edit.get("qualified_name"))
     symbol_name = _optional_text(edit.get("symbol_name"))

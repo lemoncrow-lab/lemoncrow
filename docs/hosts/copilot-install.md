@@ -1,49 +1,146 @@
-# Copilot integration
+# Installing LemonCrow into Copilot
 
-LemonCrow integrates with GitHub Copilot through VS Code/Copilot instructions, agent/task artifacts, and the host's external-tool connection.
+**Support level**: MCP config + Copilot instructions + agent + tasks
 
-Copilot is an additional supported integration, but the primary Runtime quick-start path is Claude Code, Codex, OpenCode, Cursor, or the managed `lc code` loop.
+---
 
-## Source-checkout install
-
-```bash
-bash scripts/install_copilot.sh
-```
-
-For one workspace:
+## Quick Install
 
 ```bash
-bash scripts/install_copilot.sh --workspace /path/to/repo
+make install
 ```
 
-The installer can write:
+By default this installs VS Code user/global MCP, instructions, and task presets. For project-local Copilot artifacts:
 
-- Copilot instructions;
-- LemonCrow workspace agents;
-- VS Code task presets;
-- the external-tool connection Copilot uses to call LemonCrow.
+```bash
+bash scripts/install_copilot.sh --workspace /path/to/workspace
+```
+
+To configure project-specific role models after the global install, run:
+
+```bash
+uv run lemoncrow init --configure-models
+```
+
+Inside a git workspace, the init wizard writes `<workspace>/.lemoncrow/settings.json`
+and refreshes the workspace Copilot agent at
+`<workspace>/.github/agents/lemoncrow.code.agent.md`. Those workspace role agents are the
+surface Copilot uses for the current project, so it can carry explicit model
+pins even when the global install stays neutral.
+
+---
+
+## What Gets Installed
+
+| Artifact             | Global install                                    | `--workspace DIR` install                                                                         |
+| -------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| MCP server config    | VS Code user `mcp.json`                           | `<workspace>/.vscode/mcp.json`                                                                    |
+| Copilot instructions | `~/.copilot/instructions/lemoncrow.instructions.md` | `<workspace>/.github/copilot-instructions.md`                                                     |
+| Agent                | not installed globally                            | `<workspace>/.github/agents/lemoncrow.code.agent.md` plus the other `lemoncrow.<role>.agent.md` files |
+| Task presets         | VS Code user `tasks.json` (merged)                | `<workspace>/.vscode/tasks.json` (merged)                                                         |
+
+The MCP config registers LemonCrow as a stdio server:
+
+```
+
+## Project-local model config
+
+The intended flow is:
+
+1. Install LemonCrow globally so Copilot can see the MCP server and default instructions.
+2. Run `uv run lemoncrow init --configure-models` inside a repository.
+3. Let the wizard write `.lemoncrow/settings.json` plus a workspace-local
+   `.github/agents/lemoncrow.code.agent.md` and the other `lemoncrow.<role>.agent.md` files.
+
+`"auto"` means omit an explicit model pin for that host surface. Concrete values
+write the selected model directly into the workspace agent frontmatter.json
+&#123;
+  "servers": &#123;
+    "lc": {
+      "type": "stdio",
+      "command": "lc mcp",
+      "args": ["--host", "copilot"],
+      "env": {
+        "LEMONCROW_WORKSPACE_ROOT": "<workspace>"
+      }
+    }
+  &#125;
+&#125;
+```
 
 ## Verify
 
 ```bash
 make verify
-lc rt status
 ```
 
-Reload the VS Code window after installation or integration changes.
+## First Task
 
-## First task
+Open Copilot Chat and either run `LemonCrow: Copilot Preflight` from the VS Code
+task picker or, if developer mode is enabled for the MCP server, ask:
 
-Open Copilot Chat and ask it to use the LemonCrow tools/context for the task. Workspace instructions and the LemonCrow agent guide the host toward the LemonCrow tool surface where supported.
+```text
+Use LemonCrow context for this task and record a trace summary when it is done.
+```
 
-## Evidence and limits
+Additional workspace helpers:
 
-Copilot exposes less lifecycle information than Claude Code or Codex. LemonCrow can still record tool/evidence data when the host exposes it, but some attribution and runtime controls may be more limited.
+- `LemonCrow: Session Summary` prints the latest LemonCrow per-session cost and savings breakdown after a Copilot task or chat run.
 
-VS Code tasks are shell tasks, so task presets invoke the `lc` CLI directly rather than behaving like in-chat tools.
+## Expected Behavior
 
-## Implementation/debug details
+- Copilot Chat can invoke LemonCrow MCP tools through the local LemonCrow MCP wrapper
+- `copilot-instructions.md` provides LemonCrow context to every Copilot session
+- `lc` agent is available from the agent picker
+- The installed Copilot instructions and agent explicitly map native `search/codebase`, `search`, `edit/editFiles`, and `execute/runInTerminal` back to LemonCrow MCP equivalents
+- `LemonCrow: Copilot Preflight` runs the shell-based preflight before you continue in Copilot Chat
+- `LemonCrow: Worktree Bootstrap` makes local stacks easier to boot from multiple worktrees
+- `LemonCrow: Runtime Evidence` provides a repeatable validation artifact for service behavior
+- Active context/retrieval/verify tools require `LEMONCROW_DEV_MODE=1`; otherwise some tools may be visible but return passive `noop`
+- Projection links in the session UI open `/projection?path=...`, where Copilot users can inspect compact vs exact views, token savings, and mapping segments before retrying an edit
 
-VS Code stores the LemonCrow external-tool connection in an `mcp.json` file. Current installer entries invoke the Runtime protocol adapter under `lc runtime mcp --host copilot`.
+## Why Tasks Still Use Shell
 
-That is a host implementation detail. Users should think of the result as the LemonCrow Copilot integration rather than a separate server they need to manage.
+Copilot's MCP support applies to chat/tool calls inside the Copilot session. VS Code
+`tasks.json` entries are shell tasks, so the preflight task has to spawn the
+`lc` CLI rather than invoke MCP directly. The MCP server remains the primary
+integration surface for in-chat `context`, `trace`, `memory`, and related LemonCrow tools.
+
+## Projection Workflow
+
+When Copilot reads code through LemonCrow, compact reads can carry `projection_mapping`
+metadata. If a projection edit is ambiguous, the failure now returns machine-readable
+`retry_with` guidance. Follow that reread instead of guessing a transformed span.
+
+## Reload Required
+
+After install, reload the VS Code window:  
+`Ctrl+Shift+P` → `Developer: Reload Window`
+
+## Troubleshooting
+
+| Problem               | Fix                                                                          |
+| --------------------- | ---------------------------------------------------------------------------- |
+| MCP tools not loading | Reload VS Code window; check user `mcp.json` or workspace `.vscode/mcp.json` |
+| `code` CLI not found  | Install VS Code CLI: in VS Code, run "Install 'code' command in PATH"        |
+
+## MCP Tools and Dev Mode
+
+With developer mode enabled (`LEMONCROW_DEV_MODE=1`), the active LemonCrow MCP
+surface for Copilot includes all stable tools plus dev-only tools such as
+`rescue` and `verify`.
+
+Without developer mode, the full stable surface is still active, including
+`code`, while dev-only tools remain passive/noop.
+
+VS Code's native search, file reads, and editing remain the preferred raw-access
+tools when you do not need LemonCrow-specific context or trace behavior.
+
+Disable LemonCrow cache: `LEMONCROW_CACHE_DISABLED=1`.
+
+## Uninstall
+
+```bash
+bash scripts/uninstall_copilot.sh
+bash scripts/uninstall_copilot.sh --workspace /path/to/workspace
+```

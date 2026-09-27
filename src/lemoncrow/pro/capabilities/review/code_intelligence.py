@@ -30,17 +30,6 @@ class CodeIntelligenceLayerReadiness:
             "at_view_revision": self.at_view_revision,
         }
 
-    @classmethod
-    def from_wire(cls, payload: Mapping[str, Any]) -> CodeIntelligenceLayerReadiness:
-        state = str(payload.get("state") or "unavailable")
-        return cls(
-            state=state if state in {"ready", "building", "degraded"} else "unavailable",  # type: ignore[arg-type]
-            reason=str(payload.get("reason") or ""),
-            native_state=str(payload.get("native_state") or ""),
-            covered_paths=int(payload.get("covered_paths") or 0),
-            at_view_revision=int(payload.get("at_view_revision") or 0),
-        )
-
 
 @dataclass(frozen=True, slots=True)
 class CodeIntelligenceReadiness:
@@ -76,30 +65,6 @@ class CodeIntelligenceReadiness:
             "graph": self.graph.to_wire(),
             "semantic": self.semantic.to_wire(),
         }
-
-    @classmethod
-    def from_wire(cls, payload: Mapping[str, Any]) -> CodeIntelligenceReadiness:
-        """The inverse of :meth:`to_wire`, for readiness that crossed a process boundary."""
-
-        def layer(name: str) -> CodeIntelligenceLayerReadiness:
-            raw = payload.get(name)
-            return CodeIntelligenceLayerReadiness.from_wire(raw if isinstance(raw, Mapping) else {})
-
-        degraded = payload.get("degraded_reasons")
-        return cls(
-            backend=str(payload.get("backend") or "none"),
-            lexical=layer("lexical"),
-            structural=layer("structural"),
-            graph=layer("graph"),
-            semantic=layer("semantic"),
-            view_id=str(payload.get("view_id") or ""),
-            view_revision=int(payload.get("view_revision") or 0),
-            generation_id=str(payload.get("generation_id") or ""),
-            base_revision=str(payload.get("base_revision") or ""),
-            manifest_root=str(payload.get("manifest_root") or ""),
-            reason=str(payload.get("reason") or ""),
-            degraded_reasons=tuple(str(item) for item in degraded) if isinstance(degraded, list) else (),
-        )
 
 
 def unavailable_readiness(reason: str, *, backend: str = "none") -> CodeIntelligenceReadiness:
@@ -141,19 +106,6 @@ class CodeIntelligenceProvider(Protocol):
         depth: int = 1,
         limit: int = 40,
     ) -> Mapping[str, Any]: ...
-
-    def file_relationships(
-        self,
-        paths: tuple[str, ...],
-        *,
-        limit: int = 320,
-    ) -> Mapping[str, Any]:
-        """Bounded file-level graph relationships touching *paths*.
-
-        This is the Review overview seam: it must not require stable Snapshot
-        symbol identity before showing useful current-index structure.
-        """
-        ...
 
     def references(self, symbol: Mapping[str, Any], *, limit: int = 20) -> Mapping[str, Any]: ...
 

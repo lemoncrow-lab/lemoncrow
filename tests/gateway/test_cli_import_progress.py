@@ -1,22 +1,24 @@
-"""Internal session-import diagnostics stay on stderr."""
+"""Import-progress logging routes to stderr, never stdout (QBL-LOG-02/03).
+
+Phase 24 converted the session-parser import-progress ``print()`` calls to
+module loggers. The CLI import path attaches an idempotent INFO-level stderr
+``StreamHandler`` so users still see progress — on stderr, with stdout reserved
+for user result lines (``imported N ... sessions``).
+"""
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
+from click.testing import CliRunner, Result
 
-from lemoncrow.core.service.session_import import (
+from lemoncrow.gateway.cli import cli
+from lemoncrow.gateway.cli.app import (
     _IMPORT_PROGRESS_LOGGER,
     _ensure_import_progress_logging,
-    import_agent_sessions,
-    main,
 )
-from lemoncrow.gateway.hosts.session_parsers.claude import ClaudeImporter
-from tests.helpers import init_store_at
 
 
 def _make_claude_fixture(tmp_path: Path) -> Path:
@@ -33,35 +35,32 @@ def _make_claude_fixture(tmp_path: Path) -> Path:
     return projects
 
 
-def test_import_progress_lands_on_stderr_not_stdout(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+def _invoke(root: Path, *args: str) -> Result:
+    runner = CliRunner()
+    return runner.invoke(cli, ["--root", str(root), *args])
+
+
+def test_import_progress_lands_on_stderr_not_stdout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.helpers import grant_oauth_pro
+
+    grant_oauth_pro(monkeypatch)
     root = tmp_path / "store"
-    init_store_at(str(root))
+    _invoke(root, "init", "--no-index")
     sessions = _make_claude_fixture(tmp_path)
-    monkeypatch.setattr(
-        "lemoncrow.gateway.hosts.session_parsers.registry.iter_importer_classes",
-        lambda: [
-            ("claude", lambda store: SimpleNamespace(import_all=lambda: ClaudeImporter(store).import_all(sessions)))
-        ],
-    )
-    _ensure_import_progress_logging()
-    counts = import_agent_sessions(root)
-    captured = capsys.readouterr()
-    assert "claude: discovered sessions" in captured.err
-    assert captured.out == ""
-    assert "claude" in counts
 
+    result = _invoke(root, "import", "--host", "claude", "--path", str(sessions))
 
-def test_worker_prints_machine_readable_counts(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    monkeypatch.setattr("sys.argv", ["session_import", "--root", str(tmp_path)])
-    monkeypatch.setattr(
-        "lemoncrow.core.service.session_import.import_agent_sessions", lambda root: {"claude": 3, "codex": 1}
-    )
-    main()
-    assert json.loads(capsys.readouterr().out) == {"claude": 3, "codex": 1}
+    assert result.exit_code == 0, result.output
+
+    # Progress diagnostic appears on stderr.
+    assert "claude: discovered sessions" in result.stderr
+
+    # Import progress text must NOT leak onto stdout.
+    assert "[lc]" not in result.stdout
+    assert "discovering sessions" not in result.stdout
+
+    # User-facing result line stays on stdout.
+    assert "imported" in result.stdout
 
 
 def test_import_progress_handler_is_idempotent() -> None:

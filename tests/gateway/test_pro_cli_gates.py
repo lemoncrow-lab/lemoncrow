@@ -16,15 +16,14 @@ from tests.helpers import grant_oauth_pro, init_store_at
 
 
 def _invoke(root: Path, *args: str) -> Result:
-    argv = ["runtime", *args] if args and args[0] in ["session", "swarm"] else list(args)
-    return CliRunner().invoke(cli, ["--root", str(root), *argv])
+    return CliRunner().invoke(cli, ["--root", str(root), *args])
 
 
 GATED = [
     ("zoekt", "index"),
     ("knowledge", "extract"),
     ("memory", "find", "hello"),
-    ("usage", "optimize", "detail"),
+    ("savings", "detail"),
 ]
 
 

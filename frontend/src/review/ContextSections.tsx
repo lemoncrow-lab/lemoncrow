@@ -1,13 +1,10 @@
-import { Button as UiButton } from "../components/ui/button";
 import { useState } from "react";
 
-import { annotationIdentityColor, annotationIdentityLabel, annotationProducerDetail, annotationProducerTitle, locationLabel } from "./annotationModel";
-import { BelowThresholdList } from "./findingThreshold";
+import { SOURCE_LABELS, annotationSource, locationLabel } from "./annotationModel";
 import { fetchReviewEvidenceContent } from "./reviewApi";
 import type {
   Annotation,
   EvidenceRow,
-  ExecutionVerification,
   ImpactSite,
   ProvenanceInfo,
   ReviewEvidence,
@@ -17,7 +14,7 @@ export function PanelCard({ title, action, children }: { title: string; action?:
   return (
     <section>
       <div className="mb-1.5 flex items-center gap-2">
-        <h3 className="text-caption font-medium text-subtle">{title}</h3>
+        <h3 className="text-[10px] font-medium text-neutral-300">{title}</h3>
         <span className="flex-1" />
         {action}
       </div>
@@ -28,7 +25,7 @@ export function PanelCard({ title, action, children }: { title: string; action?:
 
 const STATUS_TONE: Record<string, string> = {
   PASS: "text-emerald-300",
-  FAIL: "text-red-300",
+  FAIL: "text-rose-300",
   UNKNOWN: "text-amber-300",
   NOT_RUN: "text-amber-300",
 };
@@ -40,55 +37,18 @@ const STATUS_LABEL: Record<string, string> = {
   NOT_RUN: "Not run",
 };
 
-const EXECUTOR_LABEL: Record<ExecutionVerification["executor_class"], string> = {
-  managed_sandbox: "sandbox",
-  customer_worker: "worker sandbox",
-  author_machine: "author machine (self-attested)",
-};
-
-function shortDigest(digest: string): string {
-  if (!digest) return "unknown";
-  const [algorithm, value] = digest.includes(":") ? digest.split(":", 2) : ["", digest];
-  return algorithm ? `${algorithm}:${value.slice(0, 12)}` : value.slice(0, 12);
-}
-
-/** Where a check ran, its image digest, and the integrations that environment could not verify. */
-export function ExecutionEnvironment({ execution }: { execution: ExecutionVerification }) {
-  return (
-    <div className="mt-0.5 pl-16 text-caption leading-4 text-muted-foreground" data-testid="execution-environment">
-      <div title={execution.statement}>
-        <span>{EXECUTOR_LABEL[execution.executor_class] ?? execution.location}</span>
-        {" · image "}
-        <span className="font-mono" title={execution.image_digest || "unknown"}>{shortDigest(execution.image_digest)}</span>
-        {` · network ${execution.network}`}
-      </div>
-      {execution.not_verified.length > 0 && (
-        <div className="flex flex-wrap items-baseline gap-x-1.5">
-          <span>Not verified:</span>
-          <ul aria-label="Not verified" className="contents">
-            {execution.not_verified.map((item) => (
-              <li key={item.name} title={item.reason} className="text-amber-300/80">{item.name}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function Verification({ rows }: { rows: EvidenceRow[] }) {
-  if (rows.length === 0) return <div className="text-caption text-muted-foreground">No verification evidence recorded.</div>;
+  if (rows.length === 0) return <div className="text-[10px] text-neutral-600">No verification evidence recorded.</div>;
   return (
-    <div className="divide-y divide-border border-y border-border">
+    <div className="divide-y divide-neutral-900 border-y border-neutral-900">
       {rows.map((row, index) => (
         <div key={`${row.name}:${row.scope ?? "review"}:${index}`} className="py-2 first:pt-1.5 last:pb-1.5">
-          <div className="flex items-baseline gap-2 text-caption">
-            <span className={`w-14 shrink-0 font-medium ${STATUS_TONE[row.status] ?? "text-muted-foreground"}`}>{STATUS_LABEL[row.status] ?? row.status}</span>
-            <span className="min-w-0 flex-1 text-subtle">{row.name}</span>
+          <div className="flex items-baseline gap-2 text-[10px]">
+            <span className={`w-14 shrink-0 font-medium ${STATUS_TONE[row.status] ?? "text-neutral-500"}`}>{STATUS_LABEL[row.status] ?? row.status}</span>
+            <span className="min-w-0 flex-1 text-neutral-300">{row.name}</span>
           </div>
-          {row.detail && <div className="mt-0.5 pl-16 text-caption leading-4 text-muted-foreground">{row.detail}</div>}
-          {row.execution && <ExecutionEnvironment execution={row.execution} />}
-          <div className="mt-0.5 pl-16 text-caption text-muted-foreground">{row.scope === "file" ? "this file" : "review-wide"}{row.source ? ` · ${row.source}` : ""}</div>
+          {row.detail && <div className="mt-0.5 pl-16 text-[10px] leading-4 text-neutral-600">{row.detail}</div>}
+          <div className="mt-0.5 pl-16 text-[10px] text-neutral-700">{row.scope === "file" ? "this file" : "review-wide"}{row.source ? ` · ${row.source}` : ""}</div>
         </div>
       ))}
     </div>
@@ -96,26 +56,26 @@ export function Verification({ rows }: { rows: EvidenceRow[] }) {
 }
 
 export function Impact({ sites, onOpen }: { sites: ImpactSite[]; onOpen(site: ImpactSite): void }) {
-  if (sites.length === 0) return <div className="text-caption text-muted-foreground">No impact sites recorded.</div>;
+  if (sites.length === 0) return <div className="text-[10px] text-neutral-600">No impact sites recorded.</div>;
   return (
     <div className="space-y-2">
       {sites.map((site, index) => (
-        <UiButton unstyled
+        <button
           key={`${site.path}:${site.kind}:${index}`}
           type="button"
           onClick={() => onOpen(site)}
-          className="block w-full border-l border-border pl-2 text-left hover:bg-muted/40"
+          className="block w-full border-l border-neutral-800 pl-2 text-left hover:border-neutral-600"
         >
-          <div className="flex items-baseline gap-2 text-caption">
-            <span className="min-w-0 flex-1 truncate font-mono text-subtle" title={site.path}>{site.path}</span>
-            <span className="text-muted-foreground">{site.in_patch ? "in patch" : "outside patch"}</span>
+          <div className="flex items-baseline gap-2 text-[10px]">
+            <span className="min-w-0 flex-1 truncate font-mono text-neutral-300" title={site.path}>{site.path}</span>
+            <span className="text-neutral-600">{site.in_patch ? "in patch" : "outside patch"}</span>
           </div>
-          <div className={`mt-0.5 text-caption ${site.uncertainty ? "text-amber-400/80" : "text-muted-foreground"}`}>
+          <div className={`mt-0.5 text-[10px] ${site.uncertainty ? "text-amber-400/80" : "text-neutral-600"}`}>
             {site.uncertainty ? "possible " : ""}{site.kind.replaceAll("_", " ")}{site.inspected_by_agent === false ? " · not inspected by author" : ""}
           </div>
-          {site.uncertainty && <div className="mt-0.5 text-caption leading-4 text-amber-500/70">? {site.uncertainty}</div>}
-          {site.snippet && <div className="mt-1 truncate font-mono text-caption text-muted-foreground">{site.snippet}</div>}
-        </UiButton>
+          {site.uncertainty && <div className="mt-0.5 text-[10px] leading-4 text-amber-500/70">? {site.uncertainty}</div>}
+          {site.snippet && <div className="mt-1 truncate font-mono text-[10px] text-neutral-500">{site.snippet}</div>}
+        </button>
       ))}
     </div>
   );
@@ -141,32 +101,32 @@ export function emptyProvenance(): ProvenanceInfo {
 
 export function Provenance({ info }: { info: ProvenanceInfo }) {
   if (!info.host && !info.session_id && !info.task) {
-    return <div className="text-caption text-muted-foreground">No exact authoring provenance recorded.</div>;
+    return <div className="text-[10px] text-neutral-600">No exact authoring provenance recorded.</div>;
   }
   const technical = Boolean(info.session_id || info.commands_run.length > 0 || info.match_reason);
   return (
-    <div className="space-y-2 text-caption">
+    <div className="space-y-2 text-[10px]">
       <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
-        <span className="text-subtle">{info.host || "unknown host"}</span>
-        {info.model && <span className="text-muted-foreground">· {info.model}</span>}
-        <span className="text-muted-foreground">· {info.certainty || "unknown"}</span>
+        <span className="text-neutral-300">{info.host || "unknown host"}</span>
+        {info.model && <span className="text-neutral-500">· {info.model}</span>}
+        <span className="text-neutral-600">· {info.certainty || "unknown"}</span>
       </div>
-      {info.task && <div className="leading-4 text-muted-foreground">{info.task}</div>}
-      <div className="text-caption">
+      {info.task && <div className="leading-4 text-neutral-400">{info.task}</div>}
+      <div className="text-[10px]">
         {!info.reads_recorded ? (
-          <span className="text-muted-foreground">File-read history was not recorded.</span>
+          <span className="text-neutral-500">File-read history was not recorded.</span>
         ) : info.inspected === false ? (
           <span className="text-amber-300">Authoring agent did not read this file.</span>
         ) : info.inspected === true ? (
           <span className="text-emerald-400/80">Authoring agent read this file.</span>
         ) : (
-          <span className="text-muted-foreground">Whether the authoring agent read this file is unknown.</span>
+          <span className="text-neutral-500">Whether the authoring agent read this file is unknown.</span>
         )}
       </div>
       {technical && (
-        <details className="border-t border-border pt-2 text-meta text-muted-foreground">
-          <summary className="cursor-pointer hover:text-foreground">Technical provenance</summary>
-          <div className="mt-2 space-y-1.5 border-l border-border pl-2">
+        <details className="border-t border-neutral-900 pt-2 text-[10px] text-neutral-600">
+          <summary className="cursor-pointer hover:text-neutral-50">Technical provenance</summary>
+          <div className="mt-2 space-y-1.5 border-l border-neutral-800 pl-2">
             {info.session_id && <div className="truncate font-mono" title={info.session_id}>session · {info.session_id}</div>}
             {info.commands_run.map((command, index) => <div key={`${index}:${command}`} className="truncate font-mono" title={command}>command · {command}</div>)}
             {info.match_reason && <div className="leading-4">{info.match_reason}</div>}
@@ -179,23 +139,25 @@ export function Provenance({ info }: { info: ProvenanceInfo }) {
 
 export function Discussion({ annotations, path }: { annotations: Annotation[]; path: string }) {
   const rows = annotations.filter((item) => item.path === path && !item.parent_id && item.state !== "obsolete");
-  if (rows.length === 0) return <div className="text-caption text-muted-foreground">No discussion on this file.</div>;
+  if (rows.length === 0) return <div className="text-[10px] text-neutral-600">No discussion on this file.</div>;
   return (
     <div className="space-y-2">
-      <BelowThresholdList items={rows} render={(item) => (
-        <div key={item.id} className="border-l border-border pl-2">
-          <div className="flex items-center gap-2 text-caption text-muted-foreground">
-            <span className={annotationIdentityColor(item)}>{annotationIdentityLabel(item)}</span>
-            {item.agent_host && <span title={annotationProducerTitle(item)}>{annotationProducerDetail(item)}</span>}
+      {rows.map((item) => (
+        <div key={item.id} className="border-l border-neutral-800 pl-2">
+          <div className="flex items-center gap-2 text-[10px] text-neutral-600">
+            <span>{SOURCE_LABELS[annotationSource(item)]}</span>
             <span>{item.file_level ? "file" : locationLabel(item.start_line, item.end_line)}</span>
             <span>{item.state}</span>
-            {/* Raw model confidence is intentionally not a default reviewer signal.
-                Source/model details remain available in the finding's explicit details. */}
+            {annotationSource(item) === "ai_review" && item.confidence != null && (
+              <span title="Confidence reported by the AI review source; not a human verdict">
+                {Math.round(item.confidence * 100)}% confidence
+              </span>
+            )}
           </div>
-          {item.title && <div className="mt-1 text-caption font-medium text-subtle">{item.title}</div>}
-          <div className="mt-1 whitespace-pre-wrap text-caption leading-4 text-muted-foreground">{item.body}</div>
+          {item.title && <div className="mt-1 text-[10px] font-medium text-neutral-300">{item.title}</div>}
+          <div className="mt-1 whitespace-pre-wrap text-[10px] leading-4 text-neutral-400">{item.body}</div>
         </div>
-      )} />
+      ))}
     </div>
   );
 }
@@ -225,21 +187,21 @@ export function ArtifactCard({ artifact }: { artifact: ReviewEvidence }) {
   }
 
   return (
-    <div className="border border-border bg-muted/20 p-2">
+    <div className="border border-neutral-800 bg-neutral-900/20 p-2">
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-caption text-subtle">{artifact.title || artifact.kind}</div>
-          <div className="mt-0.5 font-mono text-caption text-muted-foreground">
+          <div className="truncate text-[10px] text-neutral-300">{artifact.title || artifact.kind}</div>
+          <div className="mt-0.5 font-mono text-[10px] text-neutral-600">
             {artifact.kind} · {artifact.source}{artifact.verification_status ? ` · ${artifact.verification_status}` : ""} · {artifact.revision_number != null ? `Snapshot ${artifact.revision_number}` : `Snapshot ${artifact.revision_id}`}{artifact.status === "stale" ? " · stale" : ""}
           </div>
         </div>
         {(artifact.url || artifact.content_url) && (
-          <UiButton type="button" variant="link" onClick={() => void openArtifact()} disabled={opening} className="text-meta text-cyan-400 hover:text-cyan-300 disabled:opacity-40">{opening ? "Opening…" : "Open"}</UiButton>
+          <button type="button" onClick={() => void openArtifact()} disabled={opening} className="text-[10px] text-sky-400 disabled:opacity-40">{opening ? "Opening…" : "Open"}</button>
         )}
       </div>
-      {artifact.status === "stale" && <div className="mt-1 text-caption leading-4 text-amber-400/70">This artifact belongs to an older Snapshot and is not current proof.</div>}
-      {artifact.detail && <div className="mt-1 text-caption leading-4 text-muted-foreground">{artifact.detail}</div>}
-      {error && <div className="mt-1 text-caption text-amber-300">{error}</div>}
+      {artifact.status === "stale" && <div className="mt-1 text-[10px] leading-4 text-amber-400/70">This artifact belongs to an older Snapshot and is not current proof.</div>}
+      {artifact.detail && <div className="mt-1 text-[10px] leading-4 text-neutral-500">{artifact.detail}</div>}
+      {error && <div className="mt-1 text-[10px] text-amber-300">{error}</div>}
     </div>
   );
 }

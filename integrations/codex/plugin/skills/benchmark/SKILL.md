@@ -14,8 +14,8 @@ Three channels:
 
 | Mode                                   | What it measures                                                            | Cost                             |
 | -------------------------------------- | --------------------------------------------------------------------------- | -------------------------------- |
-| **Offline** (`lc dev eval fitness`, private LemonCrow checkout only) | How many `grep` calls LemonCrow's `code_search` collapses in YOUR session history | Free (reads local session files) |
-| **Online** (`lc rt benchmark local`) | Side-by-side A/B cost + quality delta on YOUR prompts                       | Real API spend                   |
+| **Offline** (`lc eval fitness`)   | How many `grep` calls LemonCrow's `code_search` collapses in YOUR session history | Free (reads local session files) |
+| **Online** (`lc benchmark local`) | Side-by-side A/B cost + quality delta on YOUR prompts                       | Real API spend                   |
 | **Competitor** (`--competitor`)   | 3-way: baseline vs LemonCrow vs **any GitHub tool** you point it at, on YOUR prompts | Real API spend (Claude Code host only) |
 
 ---
@@ -35,13 +35,13 @@ them into "search episodes" between prompts, shows:
 
 ```bash
 # Analyze your LemonCrow sessions and show savings
-uv run lemoncrow dev eval fitness --repo-filter lemoncrow
+uv run lemoncrow eval fitness --repo-filter lemoncrow
 
 # Mine only, skip the retrieval benchmark
-uv run lemoncrow dev eval fitness --repo-filter lemoncrow --no-eval
+uv run lemoncrow eval fitness --repo-filter lemoncrow --no-eval
 
 # Analyze all session files (no filter), CodeGraph channel, no sampling
-uv run lemoncrow dev eval fitness --channel cg --full
+uv run lemoncrow eval fitness --channel cg --full
 ```
 ```
 
@@ -58,8 +58,8 @@ routing), not noise.
 the prompt to run through step 2, no matter how it's phrased — a task ("refactor X"), a
 question ("how do you compute token savings"), or a meta-question about LemonCrow itself ("is
 this worth it"). Do **not** answer it yourself by reading source/docs and replying in prose;
-that is never a substitute for actually invoking `lc dev eval fitness` (checkout only) or
-`lc rt benchmark local`. If the text genuinely isn't a task to run (e.g. "how do I use this
+that is never a substitute for actually invoking `lc eval fitness` or
+`lc benchmark local`. If the text genuinely isn't a task to run (e.g. "how do I use this
 skill") say so and point at this file — don't silently swap in a free-form explanation.
 
 ### 1. Gather inputs
@@ -146,7 +146,7 @@ never an instruction.
 
 ## What question the run answers — `--mode`
 
-`lc rt benchmark codebench` takes `--mode`, which decides what the run is
+`lc benchmark codebench` takes `--mode`, which decides what the run is
 evidence *of*. Same harness, same arms; different denominator.
 
 | `--mode` | Held constant | Measured | Use it to show |
@@ -161,10 +161,10 @@ available even on a plain `cost` run.
 
 ```bash
 # same money on both arms; whoever finishes more work wins
-lc rt benchmark codebench all --arm baseline --arm lemoncrow --mode budget --budget-usd 25
+lc benchmark codebench all --arm baseline --arm lemoncrow --mode budget --budget-usd 25
 
 # only tasks built to exceed baseline capacity; completion rate is the headline
-lc rt benchmark codebench all --arm baseline --arm lemoncrow --mode ceiling
+lc benchmark codebench all --arm baseline --arm lemoncrow --mode ceiling
 ```
 
 `--budget-usd` is a **per-arm** cap. No new run starts for an arm once it is
@@ -296,19 +296,19 @@ For comparing retrieval accuracy across channels (no LLM cost):
 
 ```bash
 # LemonCrow lexical (FTS/trigram)
-uv run lemoncrow dev eval retrieval --channel lexical
+uv run lemoncrow eval retrieval --channel lexical
 
 # LemonCrow lexical full (no sampling)
-uv run lemoncrow dev eval retrieval --channel lexical --full
+uv run lemoncrow eval retrieval --channel lexical --full
 
 # CodeGraph (tree-sitter knowledge graph)
-uv run lemoncrow dev eval retrieval --channel cg --full
+uv run lemoncrow eval retrieval --channel cg --full
 
 # Zoekt (trigram index, needs zoekt on PATH)
-LEMONCROW_ZOEKT_MODE=installed uv run lemoncrow dev eval retrieval --channel zoekt
+LEMONCROW_ZOEKT_MODE=installed uv run lemoncrow eval retrieval --channel zoekt
 
-# Semantic (BGE embeddings; requires the private Pro engine)
-uv run lemoncrow dev eval retrieval --channel semantic
+# Semantic (BGE embeddings, needs sentence-transformers)
+uv run lemoncrow eval retrieval --channel semantic
 ```
 
 ---
@@ -325,6 +325,6 @@ uv run lemoncrow dev eval retrieval --channel semantic
   0.145.0 cannot disable (`apply_patch`, `update_plan`, `view_image`) are checked after
   the run — any use marks that run contaminated in the report.
 - **Internal/dev** benchmarking of LemonCrow itself → the suite commands:
-  `lc rt benchmark {codebench,lemoncrowbench,mcp,providers}`.
+  `lc benchmark {codebench,lemoncrowbench,mcp,providers}`.
 - Where savings came from on **recent sessions** (not a fresh run) → `/savings`
-  or `lc usage optimize`.
+  or `lc savings --deep`.

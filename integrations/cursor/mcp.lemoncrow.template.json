@@ -3,7 +3,7 @@
     "lemoncrow": {
       "type": "stdio",
       "command": "lc",
-      "args": ["runtime", "mcp", "--host", "cursor"],
+      "args": ["mcp", "--host", "cursor"],
       "autoApprove": ["bash", "code_search", "edit", "read", "web_fetch"]
     }
   }

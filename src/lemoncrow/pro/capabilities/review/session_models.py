@@ -58,13 +58,6 @@ ACTOR_TYPES: tuple[str, ...] = ("human", "agent", "mixed", "unknown")
 ReviewSessionStatus = Literal["open", "finished", "archived"]
 SESSION_STATUSES: tuple[str, ...] = ("open", "finished", "archived")
 
-ReviewBindingSubjectKind = Literal["branch", "pull_request", "named_range", "detached"]
-REVIEW_BINDING_SUBJECT_KINDS: tuple[str, ...] = ("branch", "pull_request", "named_range", "detached")
-ReviewCaptureKind = Literal["legacy", "draft", "commit", "revision"]
-REVIEW_CAPTURE_KINDS: tuple[str, ...] = ("legacy", "draft", "commit", "revision")
-ReviewCommitState = Literal["active", "superseded"]
-REVIEW_COMMIT_STATES: tuple[str, ...] = ("active", "superseded")
-
 ReviewUnitKind = Literal["file", "symbol", "hunk", "document_section", "dependency"]
 UNIT_KINDS: tuple[str, ...] = ("file", "symbol", "hunk", "document_section", "dependency")
 AttributionScope = Literal["revision", "file"]
@@ -100,7 +93,6 @@ ReviewActivityKind = Literal[
     "review.created",
     "review.status_changed",
     "revision.recorded",
-    "snapshot.published",
     "mark.judgment",
     "mark.reconciled",
     "mark.discarded",
@@ -118,41 +110,11 @@ ReviewActivityKind = Literal[
     "development.contributor",
     "development.handoff",
     "development.session_ended",
-    "priority.override_set",
-    "priority.override_cleared",
-    "landing.revalidated",
-    "landing.revalidation_deferred",
-    "landing.withdrawn",
-    "policy.generation_changed",
-    "finding.static_disposition",
-    "post_merge.action",
-    "automation.refused",
-    "annotation.provider_synced",
-    "annotation.provider_sync_failed",
-    "review.discard_acknowledged",
-    "premerge.waiver_granted",
-    "premerge.waiver_refused",
-    "premerge.intent_rebound",
-    "premerge.intent_rebind_refused",
-    "premerge.intent_record_refused",
-    "record.exported",
-    "record.not_emitted",
-    "deployment.observed",
-    "deployment.summarized",
-    "observation.contradicted",
-    "observation.summarized",
-    "incident.linked",
-    "outcome.linked",
-    "landing.auto_approved",
-    "landing.auto_approval_withdrawn",
-    "landing.break_glass",
-    "landing.break_glass_refused",
 ]
 REVIEW_ACTIVITY_KINDS: tuple[str, ...] = (
     "review.created",
     "review.status_changed",
     "revision.recorded",
-    "snapshot.published",
     "mark.judgment",
     "mark.reconciled",
     "mark.discarded",
@@ -162,7 +124,6 @@ REVIEW_ACTIVITY_KINDS: tuple[str, ...] = (
     "annotation.state_changed",
     "annotation.author_response",
     "annotation.thread_reply",
-    "annotation.finding_disposition",
     "proposal.created",
     "proposal.applied",
     "proposal.conflicted",
@@ -171,62 +132,10 @@ REVIEW_ACTIVITY_KINDS: tuple[str, ...] = (
     "development.contributor",
     "development.handoff",
     "development.session_ended",
-    "priority.override_set",
-    "priority.override_cleared",
-    "landing.revalidated",
-    "landing.revalidation_deferred",
-    "landing.withdrawn",
-    "policy.generation_changed",
-    # A human's dismissal/confirmation of one imported static finding (P11-FED).
-    "finding.static_disposition",
-    # P12-AUTO: post-merge follow-ups (human or rule, with the rule id), refused
-    # automation, provider sync of published feedback, a confirmed discard.
-    "post_merge.action",
-    "automation.refused",
-    "annotation.provider_synced",
-    "annotation.provider_sync_failed",
-    "review.discard_acknowledged",
-    # Pre-merge check waivers (granted or refused) and intent binding (P10).
-    "premerge.waiver_granted",
-    "premerge.waiver_refused",
-    "premerge.intent_rebound",
-    "premerge.intent_rebind_refused",
-    "premerge.intent_record_refused",
-    # A signed (or explicitly unsigned) review record was emitted (P10-SIGN).
-    "record.exported",
-    # A provider-observed merge emitted no record: nothing may sign it here (P10-SIGN).
-    "record.not_emitted",
-    # P15-DEPLOY: a merged change's deployment state moved in one environment, and a
-    # deployment's observation window closed (summary kept, raw signal expired).
-    "deployment.observed",
-    "deployment.summarized",
-    "observation.contradicted",
-    "observation.summarized",
-    "incident.linked",
-    "outcome.linked",
-    # P10-LAND: policy auto-approval (made / withdrawn) and break-glass (used / refused).
-    "landing.auto_approved",
-    "landing.auto_approval_withdrawn",
-    "landing.break_glass",
-    "landing.break_glass_refused",
 )
 
-AnnotationVersionKind = Literal[
-    "created",
-    "edited",
-    "state_changed",
-    "author_response",
-    "thread_reply",
-    "finding_disposition",
-]
-ANNOTATION_VERSION_KINDS: tuple[str, ...] = (
-    "created",
-    "edited",
-    "state_changed",
-    "author_response",
-    "thread_reply",
-    "finding_disposition",
-)
+AnnotationVersionKind = Literal["created", "edited", "state_changed", "author_response", "thread_reply"]
+ANNOTATION_VERSION_KINDS: tuple[str, ...] = ("created", "edited", "state_changed", "author_response", "thread_reply")
 """``unknown`` is a first-class state, not a gap.
 
 It is what a unit whose fingerprint could not be computed *is*, and it must
@@ -249,17 +158,6 @@ AnnotationSource = Literal["human", "author", "lemoncrow", "ai_review"]
 ANNOTATION_SOURCES: tuple[str, ...] = ("human", "author", "lemoncrow", "ai_review")
 
 AnnotationState = Literal["open", "resolved", "orphaned", "obsolete"]
-FindingDisposition = Literal["", "open", "confirmed_by_reviewer", "dismissed", "fixed", "superseded_stale"]
-FINDING_DISPOSITIONS: tuple[str, ...] = (
-    "",
-    "open",
-    "confirmed_by_reviewer",
-    "dismissed",
-    "fixed",
-    "superseded_stale",
-)
-FindingDismissalReason = Literal["", "incorrect", "accepted_risk", "duplicate", "not_applicable"]
-FINDING_DISMISSAL_REASONS: tuple[str, ...] = ("", "incorrect", "accepted_risk", "duplicate", "not_applicable")
 ANNOTATION_STATES: tuple[str, ...] = ("open", "resolved", "orphaned", "obsolete")
 AuthorResponseState = Literal["none", "addressed"]
 AUTHOR_RESPONSE_STATES: tuple[str, ...] = ("none", "addressed")
@@ -285,9 +183,6 @@ ReviewEvidenceKind = Literal[
     "provenance",
     "vulnerability_scan",
     "waiver",
-    "intent",
-    "premerge_check",
-    "deployment",
 ]
 REVIEW_EVIDENCE_KINDS: tuple[str, ...] = (
     "screenshot",
@@ -301,34 +196,12 @@ REVIEW_EVIDENCE_KINDS: tuple[str, ...] = (
     "provenance",
     "vulnerability_scan",
     # A human's reasoned override of one blocking check on one exact Snapshot.
+    # ``title`` names the check and ``detail`` holds the reason; it is never an
+    # observation, so it carries no ``verification_status``.
     "waiver",
-    # An immutable capture of one linked intent source or the PR description (P10).
-    "intent",
-    # A stored, validated model evaluation of one pre-merge check (never a verification row).
-    "premerge_check",
-    # A provider/CD observation of a merged change's deployment (P15-DEPLOY); post-merge only.
-    "deployment",
 )
 ReviewEvidenceSource = Literal["human", "agent", "test", "ci", "external"]
 REVIEW_EVIDENCE_SOURCES: tuple[str, ...] = ("human", "agent", "test", "ci", "external")
-
-CheckAttestationClass = Literal[
-    "provider_ci",
-    "lemoncrow_verification",
-    "trusted_security_feed",
-    # A DSSE-signed in-toto result verified with a key the trusted base names (Trust T4).
-    "signed_attestation",
-    "human_observation",
-    "human_waiver",
-]
-CHECK_ATTESTATION_CLASSES: tuple[str, ...] = (
-    "provider_ci",
-    "lemoncrow_verification",
-    "trusted_security_feed",
-    "signed_attestation",
-    "human_observation",
-    "human_waiver",
-)
 
 AnchorSide = Literal["old", "new", "document"]
 ANCHOR_SIDES: tuple[str, ...] = ("old", "new", "document")
@@ -468,13 +341,13 @@ _ANCHOR_CONTEXT_LINES = 3
 
 @dataclass(frozen=True)
 class ReviewSession:
-    """One logical change a reviewer is working through across many captures.
+    """One change a reviewer is working through, across every revision of it.
 
-    ``source_ref`` remains external/source-control context for compatibility.
-    Local Review routing uses explicit :class:`ReviewBinding` rows so a branch
-    can have one active Review without making branch identity the Review itself.
-    ``review_base_sha`` freezes the Git base of the logical change; HEAD may
-    advance through several commits without moving that base.
+    Identity for *reopening* is ``(repo_root, subject_type, source_ref,
+    range_mode)`` -- enforced by a unique index in ``store.py``, not by this
+    dataclass. A second ``lc review --open`` in the same repository reopens
+    this session; it never starts a rival one, because a review whose marks
+    reset on every invocation is not review state, it is a cache.
     """
 
     id: str
@@ -488,9 +361,7 @@ class ReviewSession:
     range_mode: RangeMode
     title: str = ""
     source_ref: str = ""
-    """External/source-control context. New local routing uses ReviewBinding."""
-    review_base_sha: str = ""
-    """Immutable Git base for this logical Review. Blank means legacy/unadopted."""
+    """Reopen key: empty for mutable local reviews; exact SHAs or canonical named refs for commit ranges."""
     actor_type: ActorType = "unknown"
     """Rolled up from the revisions' provenance. ``mixed`` is a correct answer,
     not an unresolved one."""
@@ -502,36 +373,6 @@ class ReviewSession:
     created_at: str = ""
     """Aware-UTC ISO-8601. Blank means "not yet stamped"; the store fills it."""
     updated_at: str = ""
-    review_base_policy: Literal["integrated", "fixed"] = "integrated"
-    """Explicit new Reviews keep their original base; older Reviews follow integration."""
-
-
-@dataclass(frozen=True)
-class ReviewBinding:
-    """Durable ownership of one logical source subject by a Review."""
-
-    id: str
-    repository_identity: str
-    subject_kind: ReviewBindingSubjectKind
-    subject_key: str
-    review_id: str
-    worktree_key: str = ""
-    active: bool = True
-    created_at: str = ""
-    updated_at: str = ""
-
-
-@dataclass(frozen=True)
-class ReviewCommit:
-    """One immutable Git commit checkpoint inside a logical Review."""
-
-    review_id: str
-    commit_number: int
-    commit_sha: str
-    revision_id: str
-    parent_sha: str = ""
-    state: ReviewCommitState = "active"
-    created_at: str = ""
 
 
 @dataclass(frozen=True)
@@ -593,18 +434,6 @@ class ReviewRevision:
     """
     source_view_revision: int = 0
     """Committed native View revision verified when this Snapshot was captured."""
-    capture_kind: ReviewCaptureKind = "legacy"
-    """User-facing classification. Branch Reviews capture ``draft`` and ``commit``
-    checkpoints; PR and named-range Reviews capture ``revision``; ``legacy`` is
-    a pre-migration row."""
-    commit_sha: str = ""
-    """Exact Git commit represented by a ``commit`` capture; blank for drafts/legacy rows."""
-    branch_ref: str = ""
-    """Canonical branch ref observed when this immutable capture was created."""
-    worktree_key: str = ""
-    """Stable local worktree identity for draft provenance; commits may leave it blank."""
-    title: str = ""
-    """Human-readable Snapshot headline derived from captured author output."""
 
 
 @dataclass(frozen=True)
@@ -621,75 +450,6 @@ class ReviewAttribution:
     certainty: ProvenanceCertainty = "none"
     method: str = ""
     created_at: str = ""
-
-
-ReviewDestinationKind = Literal["auto", "session", "new_session", "github_pr", "export"]
-REVIEW_DESTINATION_KINDS: tuple[str, ...] = ("auto", "session", "new_session", "github_pr", "export")
-
-
-@dataclass(frozen=True)
-class ReviewDestination:
-    """Where this Change's review feedback goes when the reviewer sends it.
-
-    ``auto`` is the default and is never stored: it routes each comment to the
-    exact session that wrote it. A stored row pins one destination for every
-    comment until the reviewer changes it.
-    """
-
-    review_id: str
-    kind: ReviewDestinationKind = "auto"
-    host: str = ""
-    session_id: str = ""
-    external_ref: str = ""
-    set_by: str = ""
-    updated_at: str = ""
-
-
-HostedActionKind = Literal["mark", "comment", "reply", "outcome", "request_complete"]
-HOSTED_ACTION_KINDS: tuple[str, ...] = ("mark", "comment", "reply", "outcome", "request_complete")
-HostedActionState = Literal["pending", "applied", "conflict", "discarded"]
-HOSTED_ACTION_STATES: tuple[str, ...] = ("pending", "applied", "conflict", "discarded")
-#: States that still need the reviewer or a reconnect; they count against the queue bound.
-HOSTED_ACTION_UNRESOLVED: tuple[str, ...] = ("pending", "conflict")
-
-
-@dataclass(frozen=True)
-class HostedAttachment:
-    """An explicit link from this local Review to one hosted Review (G5-SYNC).
-
-    While it exists hosted owns comments, judgments, requests, outcomes and
-    policy; the local Review keeps ``projection_json`` (the hosted state last
-    read) plus a queue of pending actions. ``principal_id`` is the hosted
-    identity every queued action is replayed as.
-    """
-
-    review_id: str
-    origin: str
-    hosted_repo_id: str
-    hosted_review_id: str
-    principal_id: str
-    projection_json: str = "{}"
-    attached_at: str = ""
-    synced_at: str = ""
-
-
-@dataclass(frozen=True)
-class HostedAction:
-    """One explicitly queued local action, bound to the hosted Snapshot it was made on."""
-
-    id: str
-    review_id: str
-    kind: HostedActionKind
-    snapshot_id: str
-    payload_json: str
-    preconditions_json: str
-    sequence: int = 0
-    supersede_key: str = ""
-    state: HostedActionState = "pending"
-    reason: str = ""
-    result_json: str = "{}"
-    created_at: str = ""
-    resolved_at: str = ""
 
 
 @dataclass(frozen=True)
@@ -819,20 +579,8 @@ class ReviewActivityEvent:
 
 
 @dataclass(frozen=True)
-class ReviewAskConversationRecord:
-    """One durable, Review-scoped Ask conversation shown in quick history."""
-
-    id: str
-    review_id: str
-    title: str = ""
-    origin_json: str = "{}"
-    created_at: str = ""
-    updated_at: str = ""
-
-
-@dataclass(frozen=True)
 class ReviewAskMessage:
-    """One immutable conversational turn inside a Review-scoped Ask conversation."""
+    """One immutable conversational turn in the single Review-scoped Ask thread."""
 
     id: str
     review_id: str
@@ -850,7 +598,6 @@ class ReviewAskMessage:
     references_json: str = "[]"
     action_json: str = "{}"
     created_at: str = ""
-    conversation_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -914,54 +661,6 @@ class ReviewChangeProposal:
 
 
 @dataclass(frozen=True)
-class ReviewDeletionTombstone:
-    """Durable record of one permanent Review deletion (P12-AUTO item 12).
-
-    Written by the store in the same transaction as the deletion and never a
-    child of the deleted Review, so it outlives every row it describes. It
-    names the Review, never its content: the confirmation the deleter typed is
-    kept only as a SHA-256. Tombstones are append-only and chained per store
-    (``previous_sha256`` -> ``record_sha256``), so an edited or removed
-    tombstone is detectable. The store fills ``id``, ``sequence``, ``counts``,
-    ``deleted_at`` and the digests; callers supply who, where and the request.
-    """
-
-    review_id: str
-    repo_id: str
-    actor_id: str
-    request_id: str
-    confirmation_sha256: str
-    confirmed_by: Literal["id", "title"]
-    id: str = ""
-    sequence: int = 0
-    counts: tuple[tuple[str, int], ...] = ()
-    """``(table, rows deleted)`` for the Review and its counted children."""
-    deleted_at: str = ""
-    previous_sha256: str = ""
-    record_sha256: str = ""
-
-    def digest_fields(self) -> dict[str, object]:
-        """Every field the chain digest covers (all but ``record_sha256``)."""
-
-        return {
-            "id": self.id,
-            "sequence": self.sequence,
-            "review_id": self.review_id,
-            "repo_id": self.repo_id,
-            "actor_id": self.actor_id,
-            "request_id": self.request_id,
-            "confirmation_sha256": self.confirmation_sha256,
-            "confirmed_by": self.confirmed_by,
-            "counts": {table: count for table, count in self.counts},
-            "deleted_at": self.deleted_at,
-            "previous_sha256": self.previous_sha256,
-        }
-
-    def to_wire(self) -> dict[str, object]:
-        return {**self.digest_fields(), "record_sha256": self.record_sha256}
-
-
-@dataclass(frozen=True)
 class AnnotationVersion:
     """Append-only semantic snapshot of one comment, excluding anchor movement."""
 
@@ -982,11 +681,6 @@ class AnnotationVersion:
     change_kind: AnnotationVersionKind = "edited"
     turn_owner_kind: ThreadTurnOwnerKind = "none"
     turn_owner_id: str = ""
-    finding_disposition: FindingDisposition = ""
-    finding_disposition_reason: FindingDismissalReason = ""
-    finding_disposition_revision_id: str = ""
-    finding_disposition_reviewer_id: str = ""
-    finding_disposition_evidence: tuple[str, ...] = ()
     created_at: str = ""
 
 
@@ -1055,13 +749,6 @@ class Annotation:
     be a suggestion, but it is never a human review judgment."""
     source_id: str = ""
     """Stable provenance within the source: agent session id, review skill id, reviewer id."""
-    agent_role: str = "unknown"
-    agent_host: str = ""
-    agent_model: str = ""
-    parent_session_id: str = ""
-    source_message_id: str = ""
-    comment_scope: Literal["code", "change"] = "code"
-    """Discussion has no code anchor; an empty revision_id means pending draft ownership."""
     title: str = ""
     """Short progressive-disclosure label. Human comments normally leave this empty."""
     evidence: tuple[str, ...] = ()
@@ -1075,21 +762,9 @@ class Annotation:
     author_response_at: str = ""
     """When the author made the claim; empty until one exists."""
     turn_owner_kind: ThreadTurnOwnerKind = "none"
-    """Whose turn the root thread is waiting on. Replies normally leave this none."""
+    """Whose turn the root thread is waiting on. Replies normally leave this ``none``."""
     turn_owner_id: str = ""
     """Exact reviewer principal for reviewer turns; empty means role-level author ownership."""
-    rule_refs: tuple[str, ...] = ()
-    """Canonical ReviewRule identities that made an AI finding policy-relevant; distinct from evidence."""
-    finding_disposition: FindingDisposition = ""
-    """Reviewer-facing lifecycle for AI findings; never a human Review mark."""
-    finding_disposition_reason: FindingDismissalReason = ""
-    """Required taxonomy only when the finding is dismissed."""
-    finding_disposition_revision_id: str = ""
-    """Snapshot on which the reviewer or revalidation recorded this disposition."""
-    finding_disposition_reviewer_id: str = ""
-    """Human principal that recorded the disposition; empty for automatic stale transitions."""
-    finding_disposition_evidence: tuple[str, ...] = ()
-    """Evidence/revalidation refs that justify fixed; never inferred from nearby edits."""
 
 
 def validate_annotation_semantics(annotation: Annotation) -> None:
@@ -1121,18 +796,6 @@ def validate_annotation_semantics(annotation: Annotation) -> None:
         raise ValueError("author responses may only be attached to human review annotations")
     if annotation.turn_owner_kind not in THREAD_TURN_OWNER_KINDS:
         raise ValueError(f"unknown thread turn owner {annotation.turn_owner_kind!r}")
-    if annotation.finding_disposition not in FINDING_DISPOSITIONS:
-        raise ValueError(f"unknown AI finding disposition {annotation.finding_disposition!r}")
-    if annotation.finding_disposition_reason not in FINDING_DISMISSAL_REASONS:
-        raise ValueError(f"unknown AI finding dismissal reason {annotation.finding_disposition_reason!r}")
-    if annotation.source != "ai_review" and annotation.finding_disposition:
-        raise ValueError("finding dispositions may only be attached to AI review annotations")
-    if annotation.finding_disposition == "dismissed" and not annotation.finding_disposition_reason:
-        raise ValueError("dismissed AI findings require a dismissal reason")
-    if annotation.finding_disposition != "dismissed" and annotation.finding_disposition_reason:
-        raise ValueError("dismissal reason is only valid for dismissed AI findings")
-    if annotation.finding_disposition == "fixed" and not annotation.finding_disposition_evidence:
-        raise ValueError("fixed AI findings require current revalidation evidence")
     if annotation.parent_id and annotation.turn_owner_kind != "none":
         raise ValueError("only root annotations may own a thread turn")
     if annotation.turn_owner_kind == "none" and annotation.turn_owner_id:
@@ -1234,136 +897,17 @@ class DeliveryRecord:
 
 
 @dataclass(frozen=True)
-class AuthorGuidanceRow:
-    """One imported AuthorGuidance document, stored with its Change (spec §6).
-
-    Raw, attributed, versioned author input. ``revision_id`` is the Snapshot
-    it was first imported on; read time resolves it against any Snapshot.
-    """
-
-    review_id: str
-    id: str
-    revision_id: str
-    producer_host: str
-    producer_session_id: str
-    producer_model: str
-    attribution: str
-    repo_root: str
-    schema_version: int
-    source_identity_json: str
-    payload_json: str
-    created_at: str
-    imported_at: str = ""
-
-
-DecisionAction = Literal["accept", "reconfirm", "request_change", "defer", "reopen"]
-DecisionDisposition = Literal["open", "accepted", "change_requested", "deferred"]
-
-
-@dataclass(frozen=True)
-class ReviewDecisionEvent:
-    """One human disposition of one author-keyed decision (spec §5).
-
-    Append-only. ``scope_json``/``implementation_json`` are the canonical
-    documents the fingerprints hash, kept so validity can name which input
-    changed. No event ever changes a source review mark.
-    """
-
-    id: str
-    review_id: str
-    decision_key: str
-    reviewer_id: str
-    revision_id: str
-    action: DecisionAction
-    disposition: DecisionDisposition
-    option_key: str = ""
-    definition_ref: str = ""
-    semantic_fingerprint: str = ""
-    implementation_fingerprint: str = ""
-    scope_json: str = "{}"
-    implementation_json: str = "{}"
-    reason: str = ""
-    trigger_kind: str = ""
-    trigger_check_key: str = ""
-    trigger_note: str = ""
-    feedback_annotation_id: str = ""
-    prior_event_id: str = ""
-    actor_type: ActorType = "human"
-    created_at: str = ""
-
-
-ReviewIntelligenceRunStatus = Literal["pending", "ready", "failed", "cancelled"]
-
-
-@dataclass(frozen=True)
-class ReviewIntelligenceRun:
-    """One durable, Snapshot-bound Review Intelligence execution/cache row.
-
-    Identity contains only semantic/digest fields. No local materialization path,
-    prompt body, hidden reasoning, or human judgment belongs in this record.
-    """
-
-    review_id: str
-    id: str
-    revision_id: str
-    snapshot_identity: str
-    capability: str
-    run_key: str
-    scope_digest: str
-    context_digest: str
-    policy_digest: str
-    schema_digest: str
-    driver: str
-    model: str
-    prompt_version: int
-    schema_version: int
-    status: ReviewIntelligenceRunStatus
-    result_json: str = "{}"
-    usage_json: str = "{}"
-    error: str = ""
-    model_calls: int = 0
-    created_at: str = ""
-    started_at: str = ""
-    completed_at: str = ""
-
-
-SynthesisStatus = Literal["pending", "ready", "failed"]
-
-
-@dataclass(frozen=True)
-class ReviewSynthesisRow:
-    """One cached plan synthesis, keyed by its exact inputs (spec §10, §11).
-
-    A ``pending`` row is a claim: exactly one caller runs the model for a
-    key, and completion is compare-and-set on that pending row. The payload
-    is validated model output; it never carries a human judgment.
-    """
-
-    review_id: str
-    id: str
-    revision_id: str
-    synthesis_key: str
-    schema_version: int
-    prompt_version: int
-    model: str
-    status: SynthesisStatus
-    payload_json: str = "{}"
-    error: str = ""
-    created_at: str = ""
-    completed_at: str = ""
-    inputs_digest: str = ""
-    """Cheap identity of the request's inputs (``synthesis_inputs_digest``):
-    how every reader surface finds this row without rebuilding the request."""
-
-
-@dataclass(frozen=True)
 class ReviewEvidence:
     """One artifact/check observation bound to an exact ReviewRevision.
 
-    Current versus stale is derived by the reader from revision_id. Typed
-    attestation fields are durable authority, while title and source_ref remain
-    presentation/deduplication metadata only. Empty attestation fields denote
-    legacy/untyped context and can never satisfy a typed required check.
+    ``current`` versus ``stale`` is derived by the reader from ``revision_id``;
+    it is intentionally not stored. A newer code revision therefore cannot
+    leave an older screenshot silently looking like current proof.
+
+    ``verification_status`` is an optional observed check result. Empty means
+    this artifact is proof/context only (for example a screenshot). PASS/FAIL/
+    NOT_RUN/UNKNOWN are rendered literally; the presence of an artifact never
+    implies PASS.
     """
 
     id: str
@@ -1382,75 +926,6 @@ class ReviewEvidence:
     verification_status: str = ""
     detail: str = ""
     created_at: str = ""
-    attestation_class: str = ""
-    stable_key: str = ""
-    provider: str = ""
-    integration_id: str = ""
-    provider_revision: str = ""
-    branch: str = ""
-    environment: str = ""
-    attestation_scope: str = ""
-    attested_by: str = ""
-    remote_identity: str = ""
-    observed_at: str = ""
-    waived_requirement_key: str = ""
-    execution_intent: str = ""
-    # Who executed reviewed code for this evidence: ``author_machine``,
-    # ``customer_worker`` or ``managed_sandbox`` (execution.ExecutorClass).
-    # Stamped by the dispatcher, never by the executor; empty means the
-    # evidence is not an execution result.
-    executor_class: str = ""
-    # Canonical JSON of the result's verification statement (where it ran,
-    # image digest, network, integrations not verified); empty when the
-    # evidence carries no typed execution record.
-    execution_verification: str = ""
-
-
-@dataclass(frozen=True)
-class CheckAttestation:
-    """Typed authority projected from one ReviewEvidence row."""
-
-    stable_key: str
-    attestation_class: CheckAttestationClass
-    state: str
-    review_id: str
-    revision_id: str
-    provider: str = ""
-    integration_id: str = ""
-    provider_revision: str = ""
-    branch: str = ""
-    environment: str = ""
-    scope: str = ""
-    attested_by: str = ""
-    remote_identity: str = ""
-    observed_at: str = ""
-    evidence_id: str = ""
-    waived_requirement_key: str = ""
-    executor_class: str = ""
-
-    @classmethod
-    def from_evidence(cls, evidence: ReviewEvidence) -> CheckAttestation | None:
-        if evidence.attestation_class not in CHECK_ATTESTATION_CLASSES or not evidence.stable_key:
-            return None
-        return cls(
-            stable_key=evidence.stable_key,
-            attestation_class=evidence.attestation_class,  # type: ignore[arg-type]
-            state=evidence.verification_status,
-            review_id=evidence.review_id,
-            revision_id=evidence.revision_id,
-            provider=evidence.provider,
-            integration_id=evidence.integration_id,
-            provider_revision=evidence.provider_revision,
-            branch=evidence.branch,
-            environment=evidence.environment,
-            scope=evidence.attestation_scope,
-            attested_by=evidence.attested_by,
-            remote_identity=evidence.remote_identity,
-            observed_at=evidence.observed_at or evidence.created_at,
-            evidence_id=evidence.id,
-            waived_requirement_key=evidence.waived_requirement_key,
-            executor_class=evidence.executor_class,
-        )
 
 
 @dataclass(frozen=True)
@@ -1514,18 +989,11 @@ __all__ = [
     "FEEDBACK_TARGET_TYPES",
     "FINGERPRINT_METHODS",
     "HEURISTIC_ANCHOR_METHODS",
-    "HOSTED_ACTION_KINDS",
-    "HOSTED_ACTION_STATES",
-    "HOSTED_ACTION_UNRESOLVED",
     "LOST_ANCHOR_METHODS",
     "MARK_STATES",
     "REVIEW_ASK_HANDOFF_STATES",
     "REVIEW_ASK_INTENTS",
     "REVIEW_ASK_ROLES",
-    "REVIEW_BINDING_SUBJECT_KINDS",
-    "REVIEW_CAPTURE_KINDS",
-    "REVIEW_COMMIT_STATES",
-    "REVIEW_DESTINATION_KINDS",
     "REVIEW_EVIDENCE_KINDS",
     "REVIEW_EVIDENCE_SOURCES",
     "SESSION_SCHEMA_VERSION",
@@ -1540,34 +1008,18 @@ __all__ = [
     "AnnotationAnchor",
     "AnnotationKind",
     "AnnotationState",
-    "DecisionAction",
-    "DecisionDisposition",
     "DeliveryRecord",
     "DiscardedMark",
     "FeedbackTargetType",
     "FingerprintMethod",
     "FrontierEntry",
-    "HostedAction",
-    "HostedActionKind",
-    "HostedActionState",
-    "HostedAttachment",
     "MarkState",
-    "ReviewAskConversationRecord",
     "ReviewAskHandoff",
     "ReviewAskHandoffState",
     "ReviewAskIntent",
     "ReviewAskMessage",
     "ReviewAskRole",
     "ReviewAttribution",
-    "ReviewBinding",
-    "ReviewBindingSubjectKind",
-    "ReviewCaptureKind",
-    "ReviewCommit",
-    "ReviewCommitState",
-    "ReviewDecisionEvent",
-    "ReviewDeletionTombstone",
-    "ReviewDestination",
-    "ReviewDestinationKind",
     "ReviewEvidence",
     "ReviewEvidenceKind",
     "ReviewEvidenceSource",
@@ -1577,9 +1029,7 @@ __all__ = [
     "ReviewSession",
     "ReviewSessionStatus",
     "ReviewSubjectType",
-    "ReviewSynthesisRow",
     "ReviewUnit",
     "ReviewUnitKind",
-    "SynthesisStatus",
     "anchor_symbol_claim",
 ]

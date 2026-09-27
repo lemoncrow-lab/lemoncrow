@@ -104,71 +104,6 @@ class JobsStore(SqliteTableStore):
             )
         return job_id
 
-    def enqueue_job_once(
-        self,
-        job_type: str,
-        payload: dict[str, Any] | None = None,
-        *,
-        job_id: str,
-        max_attempts: int = 3,
-    ) -> bool:
-        """Enqueue once per semantic identity, regardless of terminal status.
-
-        A replayed durable event must not bill for a completed result.
-        New source or policy generations have different derived IDs (BI2).
-        """
-
-        now = datetime.now(UTC).isoformat()
-        payload_json = json.dumps(payload or {}, ensure_ascii=False, sort_keys=True)
-        with self._transaction() as conn:
-            res = conn.execute(
-                """
-                INSERT OR IGNORE INTO jobs (
-                    id, job_type, payload, status, attempts, max_attempts,
-                    locked_by, locked_at, error, created_at, updated_at
-                )
-                VALUES (?, ?, ?, 'pending', 0, ?, NULL, NULL, NULL, ?, ?)
-                """,
-                (job_id, job_type, payload_json, max_attempts, now, now),
-            )
-        return (res.rowcount or 0) > 0
-
-    def pause_job(self, job_id: str, reason: str, *, locked_by: str) -> bool:
-        """Park a claimed job that may not run yet (an exhausted budget); its attempt is not spent.
-
-        A paused job is never claimed; :meth:`resume_paused_jobs` returns it to
-        the queue. Only the lease holder (``locked_by``) may pause it.
-        """
-
-        now = datetime.now(UTC).isoformat()
-        with self._transaction() as conn:
-            res = conn.execute(
-                """
-                UPDATE jobs
-                SET status = 'paused',
-                    attempts = MAX(attempts - 1, 0),
-                    locked_by = NULL,
-                    locked_at = NULL,
-                    error = ?,
-                    updated_at = ?
-                WHERE id = ? AND status = 'running' AND locked_by = ?
-                """,
-                (reason, now, job_id, locked_by),
-            )
-        return (res.rowcount or 0) > 0
-
-    def resume_paused_jobs(self, *, older_than_seconds: int = 300) -> int:
-        """Return jobs paused at least ``older_than_seconds`` ago to the queue (a later tick retries them)."""
-
-        now = datetime.now(UTC)
-        cutoff = (now - timedelta(seconds=max(0, older_than_seconds))).isoformat()
-        with self._transaction() as conn:
-            res = conn.execute(
-                "UPDATE jobs SET status = 'pending', updated_at = ? WHERE status = 'paused' AND updated_at <= ?",
-                (now.isoformat(), cutoff),
-            )
-        return int(res.rowcount or 0)
-
     def claim_job(self, worker_id: str | None = None) -> dict[str, Any] | None:
         claimed_by = worker_id or f"sqlite-{os.getpid()}"
         now = datetime.now(UTC).isoformat()
@@ -227,25 +162,7 @@ class JobsStore(SqliteTableStore):
             claimed = conn.execute("SELECT * FROM jobs WHERE id = ?", (row["id"],)).fetchone()
         return self._row_to_job(claimed) if claimed is not None else None
 
-    def heartbeat_job(self, job_id: str, *, locked_by: str) -> bool:
-        """Extend a running job's lease; ``False`` once the lease was lost (reaped or reclaimed)."""
-
-        now = datetime.now(UTC).isoformat()
-        with self._transaction() as conn:
-            res = conn.execute(
-                """
-                UPDATE jobs
-                SET locked_at = ?,
-                    updated_at = ?
-                WHERE id = ? AND status = 'running' AND locked_by = ?
-                """,
-                (now, now, job_id, locked_by),
-            )
-        return (res.rowcount or 0) > 0
-
-    def complete_job(self, job_id: str, result: dict[str, Any] | None = None, *, locked_by: str) -> bool:
-        """Mark the job succeeded; ``False`` (and nothing changes) unless ``locked_by`` still holds its lease."""
-
+    def complete_job(self, job_id: str, result: dict[str, Any] | None = None) -> bool:
         _ = result
         now = datetime.now(UTC).isoformat()
         with self._transaction() as conn:
@@ -257,15 +174,13 @@ class JobsStore(SqliteTableStore):
                     locked_at = NULL,
                     error = NULL,
                     updated_at = ?
-                WHERE id = ? AND status = 'running' AND locked_by = ?
+                WHERE id = ?
                 """,
-                (now, job_id, locked_by),
+                (now, job_id),
             )
         return (res.rowcount or 0) > 0
 
-    def fail_job(self, job_id: str, error: str, *, locked_by: str) -> bool:
-        """Fail (or dead-letter) the job; ``False`` (and nothing changes) unless ``locked_by`` still holds its lease."""
-
+    def fail_job(self, job_id: str, error: str) -> bool:
         now = datetime.now(UTC).isoformat()
         with self._transaction() as conn:
             res = conn.execute(
@@ -276,9 +191,9 @@ class JobsStore(SqliteTableStore):
                     locked_at = NULL,
                     error = ?,
                     updated_at = ?
-                WHERE id = ? AND status = 'running' AND locked_by = ?
+                WHERE id = ?
                 """,
-                (error, now, job_id, locked_by),
+                (error, now, job_id),
             )
         return (res.rowcount or 0) > 0
 
@@ -347,16 +262,13 @@ class JobsStore(SqliteTableStore):
 
         'failed' rows past the cutoff would have been retried long ago if any
         worker were running; keeping them only blocks the servicectl enqueue
-        guard and grows the table forever. A job paused since before the
-        cutoff (by creation: every resume re-pauses it) is dropped too; a later
-        event re-originates the work.
+        guard and grows the table forever.
         """
         cutoff = (datetime.now(UTC) - timedelta(days=max(1, older_than_days))).isoformat()
         with self._transaction() as conn:
             res = conn.execute(
-                "DELETE FROM jobs WHERE (status IN ('succeeded', 'failed', 'dead') AND updated_at < ?)"
-                " OR (status = 'paused' AND created_at < ?)",
-                (cutoff, cutoff),
+                "DELETE FROM jobs WHERE status IN ('succeeded', 'failed', 'dead') AND updated_at < ?",
+                (cutoff,),
             )
         return int(res.rowcount or 0)
 

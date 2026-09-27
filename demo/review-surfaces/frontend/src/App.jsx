@@ -1,5 +1,5 @@
 import { NavLink, Route, Routes } from "react-router-dom";
-import markUrl from "../public/cloud-mark.svg";
+import markUrl from "../public/demo-mark.svg";
 import OverviewPage from "./pages/OverviewPage.jsx";
 import PricingPage from "./pages/PricingPage.jsx";
 import SettingsPage from "./pages/SettingsPage.jsx";
@@ -21,7 +21,7 @@ export default function App() {
     <section className="shell">
       <header className="nav">
         <img className="mark" src={markUrl} alt="" />
-        <span>LemonCrow Cloud</span>
+        <span>LemonCrow Review demo</span>
         <nav>
           {LINKS.map(([to, label]) => (
             <NavLink key={to} to={to} end>

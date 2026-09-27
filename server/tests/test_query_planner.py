@@ -65,10 +65,7 @@ def _view() -> tuple[IndexBackend, str]:
         ("class AlphaWidget", QueryIntent.DEFINITION, ("symbol", "lexical")),
         ("where is authentication user request handled", QueryIntent.NATURAL, ("lexical", "semantic")),
         ("AlphaWidget|caller", QueryIntent.PIPE, ("lexical", "symbol")),
-        # A grouped alternation retrieval cannot split is the regex it looks like.
-        ("(a|aa)+$", QueryIntent.REGEX, ("regex",)),
         (r"^def\s+Alpha", QueryIntent.REGEX, ("regex",)),
-        ("Alpha[0-9]", QueryIntent.REGEX, ("regex",)),
         ("alpha widget helper", QueryIntent.HYBRID, ("symbol", "lexical", "relations")),
         ("needlex", QueryIntent.HYBRID, ("symbol", "lexical", "relations")),
     ),
@@ -81,42 +78,6 @@ def test_query_planner_is_deterministic_and_selects_expected_channels(
     assert first == second
     assert first.intent is intent
     assert first.channels == channels
-
-
-def test_a_subscript_in_prose_is_not_a_character_class() -> None:
-    """``TONE_SOLID[tone]`` in a sentence indexes code; planning it as a regex
-    sent a natural-language question into a full-view body scan."""
-    plan = plan_code_query("TONE_SOLID[tone] text-white usage pattern examples solid fill badge")
-    assert plan.intent is not QueryIntent.REGEX
-
-
-def test_a_regex_scan_past_its_deadline_answers_with_its_partial_matches(monkeypatch: pytest.MonkeyPatch) -> None:
-    import types
-
-    import regex as real_regex
-    from lemoncrow_server_core.index import query as query_module
-
-    class _StallsAfterOneFile:
-        def __init__(self, pattern: str) -> None:
-            self._real = real_regex.compile(pattern)
-            self._calls = 0
-
-        def search(self, text: str, timeout: float | None = None) -> Any:
-            self._calls += 1
-            if self._calls > 2:  # the first file's body and path, then the deadline
-                raise TimeoutError
-            return self._real.search(text)
-
-    monkeypatch.setattr(
-        query_module, "regex", types.SimpleNamespace(compile=_StallsAfterOneFile, error=real_regex.error)
-    )
-    backend, view_id = _view()
-    answer = IndexQuery(backend, content_size_cap=CAP).search(org_id=ORG, view_id=view_id, query=r"^[dfA]", limit=5)
-    assert answer.plan["intent"] == "regex"
-    assert len(answer.hits) == 1
-    assert answer.degraded
-    assert answer.degraded_reason.startswith("regex:deadline")
-    assert answer.truncated
 
 
 class _AnalysisSpy:

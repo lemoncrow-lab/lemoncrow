@@ -13,27 +13,21 @@ Usage::
 
 from __future__ import annotations
 
-import contextlib
 import logging
-import os
-import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 from lemoncrow.core.foundation.paths import default_store_root
 from lemoncrow.core.service.ingest_session import ingest_session_file
 from lemoncrow.core.service.jobs import (
-    JOB_BACKGROUND_INTELLIGENCE,
     JOB_BOOTSTRAP_CONTEXT,
     JOB_CONSOLIDATE_BLOCKS,
     JOB_INGEST_SESSION_FILE,
     JOB_OPTIMIZE,
     JOB_RETENTION_CLEANUP,
     KNOWN_JOB_TYPES,
-    JobPaused,
 )
 from lemoncrow.infra.storage.bundle import StoreBundle
 
@@ -52,40 +46,6 @@ logger = logging.getLogger(__name__)
 JobHandler = Callable[[dict[str, Any]], dict[str, Any]]
 
 
-def job_lease_seconds() -> float:
-    """The job lease the stores reap at (``LEMONCROW_JOB_LEASE_SECONDS``, default 900)."""
-
-    raw = os.environ.get("LEMONCROW_JOB_LEASE_SECONDS", "")
-    return float(int(raw)) if raw.isdigit() and int(raw) > 0 else 900.0
-
-
-@contextlib.contextmanager
-def _held_lease(jobs: Any, job_id: str, worker_id: str, *, interval_s: float) -> Iterator[threading.Event]:
-    """Heartbeat a claimed job's lease while its handler runs; the event is set once the lease is lost."""
-
-    stop = threading.Event()
-    lost = threading.Event()
-
-    def beat() -> None:
-        while not stop.wait(interval_s):
-            try:
-                if not jobs.heartbeat_job(job_id, locked_by=worker_id):
-                    lost.set()
-                    logger.warning("Job %s lost its lease while running (reaped or reclaimed)", job_id)
-                    return
-            except Exception:  # pylint: disable=broad-except
-                # A transient store error: the next beat tries again before the lease expires.
-                logger.warning("Job %s heartbeat failed", job_id, exc_info=True)
-
-    thread = threading.Thread(target=beat, name=f"lemoncrow-job-lease-{job_id[:12]}", daemon=True)
-    thread.start()
-    try:
-        yield lost
-    finally:
-        stop.set()
-        thread.join(timeout=max(1.0, interval_s))
-
-
 def _prune_archived_reviews(store_root: Path, older_than_days: int) -> int:
     """Delete disposable reviews, surfacing cleanup failure to the worker.
 
@@ -101,19 +61,6 @@ def _prune_archived_reviews(store_root: Path, older_than_days: int) -> int:
         return int(ReviewStore(store_root).prune(older_than_days=older_than_days))
     except Exception as exc:
         raise RuntimeError(f"review retention cleanup failed: {type(exc).__name__}: {exc}") from exc
-
-
-def _expire_run_artifacts(store_root: Path) -> int:
-    """Closer for raw Review run artifacts past their window and unreferenced."""
-
-    try:
-        from lemoncrow.pro.capabilities.review.run_evidence import RunArtifactStore, review_reference_resolver
-        from lemoncrow.pro.capabilities.review.store import ReviewStore
-
-        resolver = review_reference_resolver(ReviewStore(store_root))
-        return len(RunArtifactStore.for_store(store_root).expire(resolver=resolver))
-    except Exception as exc:
-        raise RuntimeError(f"run artifact retention failed: {type(exc).__name__}: {exc}") from exc
 
 
 class Worker:
@@ -139,8 +86,6 @@ class Worker:
         self._store = store
         self._poll_interval = poll_interval
         self._session_directory = session_directory
-        # A stable worker prefix; run_once adds a fresh owner token per attempt.
-        self._worker_id = f"worker-{os.getpid()}-{uuid4().hex[:12]}"
         self._dispatch: dict[str, JobHandler] = dispatch if dispatch is not None else self._default_dispatch()
         # Track seen session files and their modification times to avoid re-ingesting.
         self._seen_session_files: dict[Path, float] = {}
@@ -215,24 +160,13 @@ class Worker:
             # Job rows are pruned first; if review cleanup then fails, the handler
             # raises so the worker records a failed maintenance job and retries
             # rather than treating "could not inspect the review store" as zero.
-            deleted_reviews = _prune_archived_reviews(store_root, max(1, review_days))
             return {
                 "status": "success",
                 "deleted_jobs": deleted,
-                "deleted_reviews": deleted_reviews,
-                "expired_run_artifacts": _expire_run_artifacts(store_root),
+                "deleted_reviews": _prune_archived_reviews(store_root, max(1, review_days)),
             }
 
-        def background_intelligence_handler(payload: dict[str, Any]) -> dict[str, Any]:
-            from lemoncrow.pro.capabilities.review.background_local import LocalBackgroundScheduler
-
-            store_root = Path(
-                getattr(getattr(self._store, "jobs", None), "root", None) or default_store_root()
-            ).resolve()
-            return LocalBackgroundScheduler.for_root(self._store.jobs, store_root).run_job(payload)
-
         return {
-            JOB_BACKGROUND_INTELLIGENCE: background_intelligence_handler,
             JOB_CONSOLIDATE_BLOCKS: consolidate_handler,
             JOB_BOOTSTRAP_CONTEXT: bootstrap_context_handler,
             JOB_INGEST_SESSION_FILE: ingest_session_handler,
@@ -339,10 +273,7 @@ class Worker:
         Returns:
             The job ID that was processed, or *None* if the queue was empty.
         """
-        jobs = self._store.jobs
-        # Fence each attempt, including concurrent/reclaimed runs by this same worker.
-        worker_id = f"{self._worker_id}-{uuid4().hex}"
-        job_row = jobs.claim_job(worker_id)
+        job_row = self._store.jobs.claim_job()
         if job_row is None:
             return None
 
@@ -353,7 +284,7 @@ class Worker:
 
         if job_type not in KNOWN_JOB_TYPES:
             error = f"unknown job type: {job_type!r}"
-            jobs.fail_job(job_id, error, locked_by=worker_id)
+            self._store.jobs.fail_job(job_id, error)
             return job_id
 
         handler = self._dispatch.get(job_type)
@@ -361,34 +292,18 @@ class Worker:
             # Job type is known but no handler registered — treat as transient.
             error = f"no handler registered for job type: {job_type!r}"
             logger.warning("Job %s: %s", job_id, error)
-            jobs.fail_job(job_id, error, locked_by=worker_id)
+            self._store.jobs.fail_job(job_id, error)
             return job_id
 
-        # The lease is extended while the handler runs, so a long job is never
-        # reaped (and re-run) under a live worker; every outcome below is fenced
-        # on still holding it, so a worker whose lease was lost changes nothing.
-        result: dict[str, Any] | None = None
-        paused_reason: str | None = None
-        error_msg: str | None = None
-        with _held_lease(jobs, job_id, worker_id, interval_s=job_lease_seconds() / 3):
-            try:
-                result = handler(payload)
-            except JobPaused as paused:
-                paused_reason = paused.reason
-            except Exception as exc:
-                logging.exception("Recovered from broad exception handler")
-                error_msg = f"{type(exc).__name__}: {exc}"
-        if paused_reason is not None:
-            # Not a failure: park it without spending the attempt; the maintenance tick resumes it.
-            logger.info("Job %s paused: %s", job_id, paused_reason)
-            outcome = jobs.pause_job(job_id, f"paused: {paused_reason}", locked_by=worker_id)
-        elif error_msg is not None:
+        try:
+            result = handler(payload)
+            self._store.jobs.complete_job(job_id, result)
+            logger.info("Job %s completed successfully", job_id)
+        except Exception as exc:
+            logging.exception("Recovered from broad exception handler")
+            error_msg = f"{type(exc).__name__}: {exc}"
             logger.error("Job %s failed: %s", job_id, error_msg)
-            outcome = jobs.fail_job(job_id, error_msg, locked_by=worker_id)
-        else:
-            outcome = jobs.complete_job(job_id, result, locked_by=worker_id)
-            if outcome:
-                logger.info("Job %s completed successfully", job_id)
-        if not outcome:
-            logger.warning("Job %s finished after its lease was lost; its outcome was not recorded", job_id)
+            self._store.jobs.fail_job(job_id, error_msg)
+            return job_id
+
         return job_id

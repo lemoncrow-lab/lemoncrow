@@ -16,6 +16,5 @@
       },
       "category": "development"
     }
-  ],
-  "description": "LemonCrow Runtime and Review integration for Claude Code."
+  ]
 }

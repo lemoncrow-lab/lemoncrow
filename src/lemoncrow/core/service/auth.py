@@ -1,10 +1,8 @@
 """Auth helpers for the service API.
 
-- When LEMONCROW_REQUIRE_AUTH=false, all requests pass without a key.
+- When LEMONCROW_REQUIRE_AUTH=false (the local default), all requests pass without a key.
 - When LEMONCROW_REQUIRE_AUTH=true, requests must carry:
     Authorization: Bearer <LEMONCROW_API_KEY>
-- ``lc service start`` turns auth on by default on every bind, loopback
-  included, and mints an owner-only key when LEMONCROW_API_KEY is unset.
 - API key values are NEVER logged.
 """
 

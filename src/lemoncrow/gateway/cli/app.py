@@ -1,4 +1,4 @@
-"""Product-neutral LemonCrow command shell."""
+"""CLI for the LemonCrow reasoning runtime."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 from collections.abc import Callable
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -16,7 +17,6 @@ import click
 
 from lemoncrow import __version__ as lemoncrow_version
 from lemoncrow.core.foundation.paths import default_store_root
-from lemoncrow.gateway.cli import style
 from lemoncrow.gateway.cli.commands import register as _register_command_modules
 from lemoncrow.gateway.cli.commands._dev import (
     MCP_TOOL_ONLY_COMMANDS,
@@ -30,10 +30,11 @@ from lemoncrow.gateway.cli.commands._dev import (
     dev_group as _module_dev_group,
 )
 from lemoncrow.gateway.cli.commands.admin import _project_root
-from lemoncrow.gateway.cli.run_telemetry import CliRun
-from lemoncrow.gateway.cli.run_telemetry import begin_cli_telemetry as _begin_cli_telemetry
-from lemoncrow.gateway.cli.run_telemetry import emit_cli_interrupted as _emit_cli_interrupted
-from lemoncrow.gateway.cli.run_telemetry import finish_cli_telemetry as _finish_cli_telemetry
+from lemoncrow.gateway.cli.commands.hosts import (
+    _IMPORT_PROGRESS_HANDLER_FLAG,
+    _IMPORT_PROGRESS_LOGGER,
+    _ensure_import_progress_logging,
+)
 
 DEFAULT_ROOT = default_store_root()
 
@@ -47,9 +48,7 @@ def _lemoncrow_version() -> str:
 
 def _cli_command_name(argv: list[str]) -> str:
     skip_next = False
-    # Root options that take a value: their value is never the command (a
-    # `-p "prompt"` used to be recorded as the command name).
-    options_with_values = {"--root", "-p"}
+    options_with_values = {"--root"}
     for token in argv:
         if skip_next:
             skip_next = False
@@ -69,6 +68,83 @@ def _telemetry_session(ctx: click.Context) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _begin_cli_telemetry(command_name: str) -> tuple[str, float]:
+    from lemoncrow.bench.mode import mode as _bench_mode
+    from lemoncrow.core.foundation.identity import get_anon_id, new_session_id, platform_payload
+    from lemoncrow.core.service.telemetry import emit_product
+    from lemoncrow.core.service.telemetry.banner import maybe_show_banner
+
+    maybe_show_banner()
+    session_id = new_session_id()
+    payload = platform_payload()
+    emit_product(
+        "session_start",
+        agent_host="cli",
+        lemoncrow_version=_lemoncrow_version(),
+        anon_id=get_anon_id(),
+        session_id=session_id,
+        bench_mode=_bench_mode().value,
+        **payload,
+    )
+    emit_product(
+        "cli_command_invoked",
+        command_name=command_name,
+        session_id=session_id,
+        anon_id=get_anon_id(),
+    )
+    return session_id, time.perf_counter()
+
+
+def _finish_cli_telemetry(
+    *,
+    command_name: str,
+    session_id: str,
+    started_at: float,
+    ok: bool,
+    exit_reason: str,
+) -> None:
+    from lemoncrow.core.service.telemetry import emit_product
+    from lemoncrow.core.service.telemetry.schema import bucket_duration_ms, bucket_duration_s
+
+    elapsed = max(0.0, time.perf_counter() - started_at)
+    emit_product(
+        "cli_command_completed",
+        command_name=command_name,
+        session_id=session_id,
+        duration_ms_bucket=bucket_duration_ms(elapsed * 1000),
+        ok=ok,
+    )
+    emit_product(
+        "session_end",
+        session_id=session_id,
+        duration_s_bucket=bucket_duration_s(elapsed),
+        exit_reason=exit_reason,
+    )
+
+
+def _emit_cli_interrupted(
+    *,
+    session_id: str,
+    started_at: float,
+    signum: int,
+    command_name: str,
+) -> None:
+    from lemoncrow.core.service.telemetry import emit_product
+    from lemoncrow.core.service.telemetry.schema import bucket_duration_s
+
+    try:
+        signal_name = signal.Signals(signum).name
+    except ValueError:
+        signal_name = str(signum)
+    emit_product(
+        "session_interrupted",
+        session_id=session_id,
+        signal=signal_name,
+        elapsed_s_bucket=bucket_duration_s(max(0.0, time.perf_counter() - started_at)),
+        last_phase=command_name,
+    )
+
+
 def _dev_command(name: str | None = None, **kwargs: Any) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     return _module_dev_command(name, **kwargs)
 
@@ -80,129 +156,8 @@ def _dev_group(name: str | None = None, **kwargs: Any) -> Callable[[Callable[...
 _AUTO_INSTALL_SENTINEL = "_LEMONCROW_UV_SYNC_RETRY"
 
 
-class ProductShellGroup(click.Group):
-    """Root help grouped by LemonCrow product ownership."""
-
-    context_class = style.Context
-
-    def make_context(
-        self,
-        info_name: str | None,
-        args: list[str],
-        parent: click.Context | None = None,
-        **extra: Any,
-    ) -> click.Context:
-        with style.styled_errors():
-            return super().make_context(info_name, args, parent, **extra)
-
-    def invoke(self, ctx: click.Context) -> Any:
-        with style.styled_errors():
-            return super().invoke(ctx)
-
-    def resolve_command(
-        self, ctx: click.Context, args: list[str]
-    ) -> tuple[str | None, click.Command | None, list[str]]:
-        from lemoncrow.gateway.cli.product_ownership import RUNTIME_NAMESPACED_ONLY_COMMANDS
-
-        try:
-            return super().resolve_command(ctx, args)
-        except click.UsageError as error:
-            # Runtime commands live under `lc rt`; an old habit or a stale hint
-            # (`lc init`, `lc debt`) gets the exact spelling instead of a dead end.
-            name = args[0] if args else ""
-            if name not in RUNTIME_NAMESPACED_ONLY_COMMANDS:
-                raise
-            raise style.Redirect(
-                f"No such command '{name}'.",
-                "It is a Runtime command:",
-                " ".join(["lc", "rt", *args]),
-                ctx=error.ctx,
-            ) from None
-
-    def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
-        from lemoncrow.gateway.cli.product_ownership import VISIBLE_COMMAND_OWNERSHIP, ProductOwner
-
-        groups: dict[str, list[tuple[str, str]]] = {
-            "Work": [],
-            "Try with your agent": [],
-            "Products": [],
-            "Setup & system": [],
-            "Other": [],
-        }
-        work_commands = {"review", "code", "run", "session", "context", "usage"}
-        engine_shortcuts = {"with"}
-        visible = [
-            (name, command)
-            for name in self.list_commands(ctx)
-            if (command := self.get_command(ctx, name)) is not None and not command.hidden
-        ]
-        for name, help_text in style.short_help_rows(formatter, visible):
-            owner = VISIBLE_COMMAND_OWNERSHIP.get(name)
-            if name in work_commands:
-                group = "Work"
-            elif name in engine_shortcuts:
-                group = "Try with your agent"
-            elif name == "runtime":
-                group = "Products"
-            elif owner is ProductOwner.CORE:
-                group = "Setup & system"
-            else:
-                group = "Other"
-            groups[group].append((name, help_text))
-
-        for title, rows in groups.items():
-            if rows:
-                with formatter.section(title):
-                    formatter.write_dl(rows)
-
-
-_ORIENTATION: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
-    (
-        "Work",
-        (
-            ("lc review", "Review the current change (shortcut: lcr)"),
-            ("lc code", "Code with LemonCrow's Hosted coding agent"),
-            ("lc rt map", "Browse this repository's code: folders, symbols, imports"),
-            ("lc session", "Cost and savings for each agent session"),
-            ("lc rt dashboard", "Spend and savings over the last 7 days"),
-            ("lc run", "Explain past runs from their recorded traces"),
-            ("lc with claude", "Try LemonCrow inside claude, codex or opencode"),
-        ),
-    ),
-    (
-        "Set up",
-        (
-            ("lc status", "What is installed and enabled"),
-            ("lc rt", "Runtime: LemonCrow's tools inside your coding agents"),
-            ("lc doctor", "Check this installation"),
-        ),
-    ),
-)
-
-
-def _render_root_orientation() -> None:
-    click.echo(style.title(f"LemonCrow {lemoncrow_version}"))
-    click.echo(style.dim("  Review code changes and power your coding agents."))
-    from lemoncrow.gateway.cli.home import repository_lines
-
-    for line in repository_lines():
-        click.echo(line)
-    for section, entries in _ORIENTATION:
-        click.echo("")
-        click.echo(f"  {style.heading(section)}")
-        for name, summary in entries:
-            click.echo(f"    {style.command(name.ljust(16))} {summary}")
-    click.echo("")
-    click.echo(
-        f"  {style.accent('→')} {style.command('lc --help')} {style.dim('lists every command ·')} "
-        f"{style.command('lc help <command>')} {style.dim('explains one')}"
-    )
-
-
 @click.group(
-    cls=ProductShellGroup,
-    # Help fills the terminal; click otherwise stops at 80 columns.
-    context_settings={"help_option_names": ["-h", "--help"], "max_content_width": sys.maxsize},
+    context_settings={"help_option_names": ["-h", "--help"]},
     invoke_without_command=True,
 )
 @click.version_option(version=lemoncrow_version, prog_name="lemoncrow")
@@ -211,11 +166,19 @@ def _render_root_orientation() -> None:
     type=click.Path(path_type=Path),
     default=DEFAULT_ROOT,
     show_default=True,
-    help="LemonCrow state directory.",
+    help="LemonCrow runtime data directory.",
+)
+@click.option(
+    "-p",
+    "--print",
+    "print_prompts",
+    metavar="PROMPT",
+    multiple=True,
+    help="Run one or more prompts, print only final answers, and exit. Reads piped stdin as context.",
 )
 @click.pass_context
-def cli(ctx: click.Context, root: Path) -> None:
-    """LemonCrow — review code changes and power coding agents."""
+def cli(ctx: click.Context, root: Path, print_prompts: tuple[str, ...]) -> None:
+    """LemonCrow - Agent Reasoning Runtime."""
     ctx.ensure_object(dict)
     ctx.obj["root"] = root
     if ctx.get_parameter_source("root") not in (None, click.ParameterSource.DEFAULT):
@@ -223,8 +186,40 @@ def cli(ctx: click.Context, root: Path) -> None:
 
         set_active_store_root(root)
         ctx.call_on_close(lambda: set_active_store_root(None))
+    if print_prompts:
+        if ctx.invoked_subcommand is not None:
+            raise click.ClickException("--print cannot be combined with a subcommand")
+        from lemoncrow.gateway.cli.commands.run import _run_print_session
+
+        stdin_text = ""
+        try:
+            if not sys.stdin.isatty():
+                stdin_text = sys.stdin.read()
+        except OSError:
+            stdin_text = ""
+        prompts = [prompt.strip() for prompt in print_prompts if prompt.strip()]
+        if stdin_text.strip():
+            stdin_context = f"<stdin>\n{stdin_text.rstrip()}\n</stdin>"
+            prompts = [f"{prompt}\n\n{stdin_context}" if prompt else stdin_text.rstrip() for prompt in prompts]
+        if not prompts:
+            raise click.ClickException("--print requires a prompt or piped stdin")
+        if len(prompts) == 1:
+            prompt = prompts[0]
+        else:
+            prompt_blocks = "\n\n".join(
+                f'<prompt index="{index}">\n{prompt}\n</prompt>' for index, prompt in enumerate(prompts, start=1)
+            )
+            prompt = (
+                "Answer each prompt independently. Keep the original order. "
+                "Separate final answers with a line containing exactly three hyphens (`---`).\n\n"
+                f"<prompts>\n{prompt_blocks}\n</prompts>"
+            )
+        final_text = _run_print_session(prompt, root=root)
+        if final_text:
+            click.echo(final_text)
+        return
     if ctx.invoked_subcommand is None:
-        _render_root_orientation()
+        click.echo(ctx.get_help())
 
 
 @cli.command("help", context_settings={"ignore_unknown_options": True})
@@ -250,48 +245,27 @@ def help_cmd(ctx: click.Context, command_path: tuple[str, ...]) -> None:
         if next_command is None:
             raise click.ClickException(f"unknown command: {' '.join(command_path)}")
         command = next_command
-        command_ctx = command.context_class(command, info_name=token, parent=command_ctx)
+        command_ctx = click.Context(command, info_name=token, parent=command_ctx)
 
     click.echo(command.get_help(command_ctx))
 
 
 _register_command_modules(cli)
-style.adopt(cli)
 
 
 def _argv_for_program(prog_name: str, argv: list[str]) -> list[str]:
     """Translate permanent symlink entrypoints onto the canonical command tree."""
     if prog_name == "lemoncrow-mcp":
-        return ["runtime", "mcp", *argv]
-    if prog_name == "lcr":
-        return ["review", *argv]
+        return ["mcp", *argv]
+    if prog_name == "lemoncode":
+        return ["code", *argv]
+    if prog_name == "lc" and not argv:
+        return ["code"]
     return argv
 
 
 def main() -> None:
-    # The full distribution also installs `lcr`. Its historical Click review
-    # command cannot parse Review-owned watch/connect/pending/device/task verbs.
-    # Route those subcommands *before* Click consumes their options; otherwise
-    # `lcr pending` or `lcr task run` becomes a Review capture argument.
-    # `lc review` and ordinary full CLI commands keep their existing behavior.
-    if Path(sys.argv[0]).name == "lcr" and sys.argv[1:2] in (
-        ["watch"],
-        ["connect"],
-        ["pending"],
-        ["device"],
-        ["task"],
-        ["companion"],
-    ):
-        from lemoncrow_client.review import review_main
-
-        raise SystemExit(review_main(sys.argv[1:], sink=sys.stdout))
-
     argv = _argv_for_program(Path(sys.argv[0]).name, sys.argv[1:])
-
-    if argv[:1] == ["dev"]:
-        # Development/MCP bootstrap must not record a run in installed state.
-        cli(args=argv, obj={})
-        return
 
     if not os.environ.get(_AUTO_INSTALL_SENTINEL) and not getattr(sys, "frozen", False):
         from lemoncrow.gateway.cli.commands._shared import _IMPORT_FAILED
@@ -320,11 +294,16 @@ def main() -> None:
                     )
 
     command_name = _cli_command_name(argv)
-    run = CliRun(cli, argv)
+    session_id, started_at = _begin_cli_telemetry(command_name)
     old_handlers: dict[int, Any] = {}
 
     def _handler(signum: int, frame: Any) -> None:
-        run.interrupted(signum)
+        _emit_cli_interrupted(
+            session_id=session_id,
+            started_at=started_at,
+            signum=signum,
+            command_name=command_name,
+        )
         previous = old_handlers.get(signum)
         if callable(previous):
             previous(signum, frame)
@@ -336,12 +315,43 @@ def main() -> None:
 
     try:
         try:
-            cli(args=argv, obj={"_telemetry_session_id": run.session_id, "_telemetry_command_name": command_name})
-        except BaseException as exc:
-            run.finish_from(exc)
+            cli(args=argv, obj={"_telemetry_session_id": session_id, "_telemetry_command_name": command_name})
+        except SystemExit as exc:
+            code = exc.code if isinstance(exc.code, int) else 1
+            _finish_cli_telemetry(
+                command_name=command_name,
+                session_id=session_id,
+                started_at=started_at,
+                ok=code == 0,
+                exit_reason="success" if code == 0 else "error",
+            )
+            raise
+        except KeyboardInterrupt:
+            _finish_cli_telemetry(
+                command_name=command_name,
+                session_id=session_id,
+                started_at=started_at,
+                ok=False,
+                exit_reason="interrupted",
+            )
+            raise
+        except BaseException:
+            _finish_cli_telemetry(
+                command_name=command_name,
+                session_id=session_id,
+                started_at=started_at,
+                ok=False,
+                exit_reason="error",
+            )
             raise
         else:
-            run.finish(ok=True, exit_reason="success", exit_code=0)
+            _finish_cli_telemetry(
+                command_name=command_name,
+                session_id=session_id,
+                started_at=started_at,
+                ok=True,
+                exit_reason="success",
+            )
     finally:
         from lemoncrow.core.service.telemetry import shutdown_otel
         from lemoncrow.gateway.cli.update_footer import print_update_footer
@@ -353,12 +363,15 @@ def main() -> None:
 __all__ = [
     "MCP_TOOL_ONLY_COMMANDS",
     "MCP_TOOL_ONLY_GROUPS",
+    "_IMPORT_PROGRESS_HANDLER_FLAG",
+    "_IMPORT_PROGRESS_LOGGER",
     "_DummyGroup",
     "_begin_cli_telemetry",
     "_cli_command_name",
     "_dev_command",
     "_dev_group",
     "_emit_cli_interrupted",
+    "_ensure_import_progress_logging",
     "_finish_cli_telemetry",
     "_lemoncrow_version",
     "_project_root",

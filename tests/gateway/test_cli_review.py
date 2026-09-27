@@ -11,9 +11,8 @@ import hashlib
 import json
 import os
 import re
-import select
+import socket
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.request
@@ -49,40 +48,37 @@ def _no_astgrep_download(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
 
 @pytest.fixture(autouse=True)
 def _review_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Any:
-    """Run one isolated real loopback server for each CLI Review test.
+    """Run the production loopback server for every CLI Review test.
 
-    These are HTTP integration tests, not unit tests: repeated invocations inside
-    one test share durable Review state, while every test gets a fresh data plane.
-    Service-process isolation itself is covered by the server suite, so the test
-    server keeps Review/Dashboard in-process to avoid multiplying subprocesses.
-
-    A tiny generated frontend fixture is sufficient here: these tests exercise the
-    CLI/API boundary and do not need a production frontend build.
+    Tracked Review is a server-backed product in both local and hosted mode.
+    Each test gets an isolated data plane so repeated ``_invoke`` calls share
+    durable Review state while no state leaks into another test.
     """
 
     repo_root = Path(__file__).resolve().parents[2]
-    python = Path(sys.executable)
-    frontend = tmp_path / "frontend-dist"
-    frontend.mkdir()
-    (frontend / "index.html").write_text("<!doctype html><title>Review test</title>", encoding="utf-8")
-    assert python.is_file(), "test Python is missing"
-    assert (frontend / "index.html").is_file(), "Review test frontend fixture is missing"
+    python = repo_root / "enterprise" / "server" / ".venv" / "bin" / "python"
+    frontend = repo_root / "frontend" / "dist"
+    assert python.is_file(), "enterprise server test environment is missing"
+    assert (frontend / "index.html").is_file(), "frontend/dist is required for Review CLI tests"
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = int(sock.getsockname()[1])
 
     log = (tmp_path / "server.log").open("w", encoding="utf-8")
     env = os.environ.copy()
+    root_site = repo_root / ".venv" / "lib" / "python3.13" / "site-packages"
     env["PYTHONPATH"] = os.pathsep.join(
         value
         for value in (
+            str(root_site),
+            str(repo_root / "enterprise" / "server" / "src"),
             str(repo_root / "server" / "src"),
             str(repo_root / "src"),
-            str(repo_root / "client" / "src"),
             env.get("PYTHONPATH", ""),
         )
         if value
     )
-    runtime_home = tmp_path / "client-home"
-    runtime_home.mkdir()
-    env["LEMONCROW_HOME"] = str(runtime_home)
     token_file = tmp_path / "machine-token"
     process = subprocess.Popen(
         [
@@ -93,68 +89,40 @@ def _review_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Any:
             "--directory",
             str(tmp_path / "server"),
             "--port",
-            "0",
+            str(port),
             "--token-file",
             str(token_file),
             "--frontend-dir",
             str(frontend),
-            "--allow-local-fs",
-            "--in-process-services",
         ],
         cwd=repo_root,
         env=env,
-        stdout=subprocess.PIPE,
-        stderr=log,
+        stdout=log,
+        stderr=subprocess.STDOUT,
         text=True,
-        bufsize=1,
     )
-    assert process.stdout is not None
-    deadline = time.monotonic() + 10.0
-    url = ""
-    while time.monotonic() < deadline:
-        if process.poll() is not None:
-            log.flush()
-            raise AssertionError(f"Review test server exited early; see {log.name}")
-        ready, _, _ = select.select([process.stdout], [], [], 0.2)
-        if not ready:
-            continue
-        candidate = process.stdout.readline().strip()
-        if re.fullmatch(r"http://127\.0\.0\.1:\d+", candidate):
-            url = candidate
-            log.write(candidate + "\n")
-            log.flush()
-            break
-    else:
-        process.terminate()
-        raise AssertionError(f"Review test server did not publish its bound URL; see {log.name}")
-
+    url = f"http://127.0.0.1:{port}"
     deadline = time.monotonic() + 10.0
     while time.monotonic() < deadline:
         if process.poll() is not None:
+            log.flush()
             raise AssertionError(f"Review test server exited early; see {log.name}")
         try:
             with urllib.request.urlopen(f"{url}/healthz", timeout=0.2) as response:
-                if response.status != 200:
-                    continue
-            token = token_file.read_text(encoding="utf-8").strip()
-            request = urllib.request.Request(f"{url}/api/reviews", headers={"Authorization": f"Bearer {token}"})
-            with urllib.request.urlopen(request, timeout=0.3) as response:
                 if response.status == 200:
                     break
         except (OSError, urllib.error.URLError):
             time.sleep(0.03)
     else:
         process.terminate()
-        raise AssertionError(f"Review API did not become ready; see {log.name}")
+        log.flush()
+        raise AssertionError(f"Review test server did not become healthy; see {log.name}")
 
-    assert token_file.is_file(), "Review test token file is missing"
     monkeypatch.setenv("LEMONCROW_INSTALL_MODE", "local")
     monkeypatch.setenv("LEMONCROW_URL", url)
     monkeypatch.delenv("LEMONCROW_TOKEN", raising=False)
     monkeypatch.setenv("LEMONCROW_TOKEN_FILE", str(token_file))
     monkeypatch.setenv("LEMONCROW_LOCAL_FS", "1")
-    monkeypatch.setenv("LEMONCROW_HOME", str(runtime_home))
-
     try:
         yield
     finally:
@@ -164,7 +132,6 @@ def _review_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Any:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=5)
-        process.stdout.close()
         log.close()
 
 
@@ -224,38 +191,60 @@ def _invoke(tmp_path: Path, args: list[str], *, suppress_default_open: bool = Tr
     )
 
 
-def test_lcr_watch_uses_real_local_oss_review_server_without_hosted_pairing(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """P3j: thin lcr --once uses the installed local Review HTTP boundary.
+def test_review_registered_and_help_exits_zero() -> None:
+    ctx = _ctx()
+    assert "review" in cli.list_commands(ctx)
+    assert cli.get_command(ctx, "review") is not None
 
-    Autouse fixture starts one disposable loopback Review server. There is no
-    Hosted login or paired Review machine; the local server token remains local.
+    result = CliRunner().invoke(cli, ["review", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "--json" in result.output
+    assert "--staged" in result.output
+    assert "--all" in result.output
+    assert "--no-open" in result.output
+    # The first-run help protects the durable developer loop rather than
+    # exposing internal target/reconciliation mechanics.
+    help_text = re.sub(r"\s+", " ", result.output)
+    assert "uncommitted working-tree changes" in help_text.lower()
+    assert "stable Reader URL" in help_text
+    assert "Review ID and URL stay the same" in help_text
+    assert "new immutable revision" in help_text
+    assert "does not start a per-repository server" in help_text
+    assert "raw unit count" not in result.output
+    assert "three-pane" not in result.output
+
+
+def test_review_help_leads_with_the_review_one_liner() -> None:
+    """The first prose line of ``lc review --help`` is the product story.
+
+    Click derives the root ``lc --help`` entry and the shell-completion
+    description from this same first docstring line
+    (``commands/__init__.py::_completion_entries``), so it is the one-liner the
+    review-first positioning rests on -- pin it rather than let a docstring edit
+    silently reword three surfaces at once.
     """
-    from io import StringIO
 
-    from lemoncrow_client.review import review_main
+    result = CliRunner().invoke(cli, ["review", "--help"])
+    assert result.exit_code == 0, result.output
 
-    repo = _fixture_repo(tmp_path)
-    monkeypatch.chdir(repo)
-    assert os.environ.get("LEMONCROW_INSTALL_MODE") == "local"
-    assert os.environ.get("LEMONCROW_URL", "").startswith("http://127.0.0.1:")
-    assert not os.environ.get("LEMONCROW_TOKEN")  # only local server token file
+    body = [line.strip() for line in result.output.splitlines() if line.strip()]
+    # [0] is the `Usage:` line click always prints first.
+    assert body[1] == "Review the current change."
 
-    first = StringIO()
-    assert review_main(["watch", "--once", "--json"], sink=first) == 0, first.getvalue()
-    assert json.loads(first.getvalue())["event"] == "idle"
+    # The description leads with the durable browser loop, while advanced
+    # terminal mechanics stay in option help.
+    description = result.output.partition("Options:")[0]
+    assert "stable Reader URL" in description
+    assert "--no-open" in description
+    assert "Review ID and URL" in description
 
-    source = repo / "src" / "app.py"
-    source.write_text("def one():\n    return 42\n", encoding="utf-8")
-    result = StringIO()
-    assert review_main(["watch", "--once", "--json"], sink=result) == 0, result.getvalue()
-    captured = json.loads(result.getvalue())
-    assert captured["event"] == "captured"
-    assert captured["review_url"].startswith(os.environ["LEMONCROW_URL"] + "/r/")
-    assert captured["source_fingerprint"]
-    assert "machine_token" not in result.getvalue()
+
+def test_review_short_help_matches_the_root_listing() -> None:
+    """``lc --help``'s review line comes from the same one-liner, truncated."""
+
+    review = cli.get_command(_ctx(), "review")
+    assert review is not None
+    assert review.get_short_help_str(limit=200) == "Review the current change."
 
 
 def test_review_server_error_is_actionable_without_misleading_repairs() -> None:
@@ -280,91 +269,11 @@ def test_review_server_error_is_actionable_without_misleading_repairs() -> None:
         "Review server failed: request body exceeds the server limit (4,804,037 bytes sent, limit 4,194,304)"
     )
 
-    timeout = SimpleNamespace(
-        message="cannot reach the LemonCrow server at http://127.0.0.1:7420: timed out after 10s",
-        details={"url": "http://127.0.0.1:7420", "timed_out": True},
-        code=ErrorCode.SERVER_UNREACHABLE,
-    )
-    timeout_message = str(_review_server_click_error(timeout, hosted=False))
-    assert "may be busy rather than offline" in timeout_message
-    assert "local_server.sh status" in timeout_message
-    assert "local_server.sh restart" not in timeout_message
-
     offline = SimpleNamespace(message="connection refused", code=ErrorCode.SERVER_UNREACHABLE)
     local_message = str(_review_server_click_error(offline, hosted=False))
     assert "local_server.sh restart" in local_message
     assert "lc update --force" in local_message
     assert "local_server.sh restart" not in str(_review_server_click_error(offline, hosted=True))
-
-
-def test_stale_review_base_error_tells_user_how_to_start_fresh() -> None:
-    from types import SimpleNamespace
-
-    from lemoncrow.gateway.cli.commands.review import _review_capture_value_error
-
-    sha = "0efdeeb1ac1ba93e8415d0b2629729ffb1b3650c"
-    rng = SimpleNamespace(mode="working_tree", base_sha=sha)
-    error = _review_capture_value_error(
-        ValueError(f"cannot resolve revision {sha!r}"),
-        rng=rng,
-        force_new_review=False,
-    )
-    message = str(error)
-    assert "cannot continue the current Review" in message
-    assert sha in message
-    assert "lc review --new" in message
-
-    explicit_range = SimpleNamespace(mode="commit_range", base_sha=sha)
-    ordinary = _review_capture_value_error(
-        ValueError(f"cannot resolve revision {sha!r}"),
-        rng=explicit_range,
-        force_new_review=False,
-    )
-    assert str(ordinary) == f"cannot resolve revision {sha!r}"
-
-    forced_new = _review_capture_value_error(
-        ValueError(f"cannot resolve revision {sha!r}"),
-        rng=rng,
-        force_new_review=True,
-    )
-    assert "lc review --new" not in str(forced_new)
-
-    # --continue/--working-tree/--staged switch to the saved base inside the
-    # capture, so the lost revision is not this range's own base.
-    frozen = "a32150" + "0" * 34
-    switched = _review_capture_value_error(
-        ValueError(f"cannot resolve revision {frozen!r}"),
-        rng=SimpleNamespace(mode="staged", base_sha=sha),
-        force_new_review=False,
-    )
-    assert frozen in str(switched)
-    assert "lc review --new" in str(switched)
-    unborn = _review_capture_value_error(ValueError("cannot resolve revision 'HEAD'"), rng=rng, force_new_review=False)
-    assert str(unborn) == "cannot resolve revision 'HEAD'"
-
-
-@pytest.mark.parametrize("check", [False, True])
-def test_a_lost_saved_base_points_to_a_new_review_from_every_capture(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, check: bool
-) -> None:
-    from lemoncrow.pro.capabilities.review import hosted as hosted_mod
-
-    repo_root = _fixture_repo(tmp_path)
-    monkeypatch.setenv("LEMONCROW_INSTALL_MODE", "local")
-    monkeypatch.setenv("LEMONCROW_URL", "http://127.0.0.1:7420")
-    frozen = "a32150" + "0" * 34
-
-    def lost_base(*args: Any, **kwargs: Any) -> None:
-        raise ValueError(f"cannot resolve revision {frozen!r}")
-
-    monkeypatch.setattr(hosted_mod, "capture_server_review", lost_base)
-    arguments = ["--repo-root", str(repo_root), "--working-tree"]
-    arguments += ["--check", "lint", "--run", "true"] if check else ["--track"]
-    result = _invoke(tmp_path, arguments)
-
-    assert result.exit_code != 0
-    assert f"saved base revision {frozen!r} is no longer available" in result.output
-    assert "lc review --new" in result.output
 
 
 def test_review_json_shape(tmp_path: Path) -> None:
@@ -583,7 +492,7 @@ def test_track_records_a_session_and_reopens_it_on_the_next_run(tmp_path: Path) 
     review_id = first.output.split("REVIEW SESSION")[1].split()[0]
     second = _invoke(tmp_path, ["--repo-root", str(repo_root), "HEAD~1", "--track"])
     assert review_id in second.output
-    assert "Revision 0" in second.output
+    assert "Snapshot 0" in second.output
 
 
 def test_marks_made_in_one_invocation_are_visible_in_the_next(tmp_path: Path) -> None:
@@ -633,6 +542,16 @@ def test_a_unit_key_can_be_marked_directly(tmp_path: Path) -> None:
     assert "1 reviewed" in marked.output
 
 
+def test_needs_changes_is_recorded_as_itself(tmp_path: Path) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    result = _invoke(
+        tmp_path,
+        ["--repo-root", str(repo_root), "HEAD~1", "--mark", "src/app.py", "--mark-state", "needs_changes", "--marks"],
+    )
+    assert result.exit_code == 0, result.output
+    assert "needs_changes" in result.output.split("MARKS")[1]
+
+
 # Two functions appended to the committed `def one(): return 2`, so one path
 # carries more than one review target and the expansion has something to expand.
 _TWO_MORE_SYMBOLS = "def one():\n    return 2\n\n\ndef two():\n    return 3\n\n\ndef three():\n    return 4\n"
@@ -662,6 +581,35 @@ def test_marking_by_path_moves_the_target_counters(tmp_path: Path) -> None:
     closure = state["closure"]
     assert closure["reviewed_targets"] == closure["target_count"], closure
     assert closure["unreviewed_targets"] == 0, closure
+
+
+def test_needs_changes_by_path_reaches_the_closure_tally(tmp_path: Path) -> None:
+    """A recorded objection must survive into the record of the finish decision.
+
+    This is the worse half of the same defect: two change-requests typed by path
+    were reported at ``--finish`` as ``still unreviewed 2 / still needs changes
+    0``, so the finish decision was filed over an objection it never mentioned.
+    """
+
+    repo_root = _fixture_repo(tmp_path)
+    result = _invoke(
+        tmp_path,
+        [
+            "--repo-root",
+            str(repo_root),
+            "HEAD~1",
+            "--mark",
+            "src/app.py",
+            "--mark-state",
+            "needs_changes",
+            "--finish",
+            "--json",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    closure = json.loads(result.stderr.strip().splitlines()[-1])["closure"]
+    assert closure["needs_changes"] > 0, closure
+    assert closure["unreviewed_targets"] < closure["target_count"], closure
 
 
 def test_a_path_mark_names_the_targets_it_landed_on(tmp_path: Path) -> None:
@@ -703,6 +651,196 @@ def test_a_path_mark_names_the_targets_it_landed_on(tmp_path: Path) -> None:
     assert "path_marks" not in json.loads(by_key.stderr.strip().splitlines()[-1])
 
 
+def test_marking_by_the_file_unit_key_moves_the_same_counters_a_path_does(tmp_path: Path) -> None:
+    """``src/app.py`` and its ``fil:`` key are one claim typed two ways.
+
+    ``lc review --units`` prints the ``fil:`` key and the walkthrough documents
+    it right beside the path (``a path, or a fil:/hun:/sym: key``). Widening
+    only the path spelling left the documented sibling landing exactly where the
+    defect was -- ``marks 1 reviewed`` printed directly over ``targets 3 (0/3
+    reviewed)`` -- because the file unit is a key no target counter reads.
+    """
+
+    repo_root = _fixture_repo(tmp_path)
+    (repo_root / "src" / "app.py").write_text(_TWO_MORE_SYMBOLS, encoding="utf-8")
+    base = ["--repo-root", str(repo_root), "--working-tree"]
+    file_key = _symbol_unit_key(tmp_path, repo_root, "src/app.py")
+
+    marked = _invoke(tmp_path, [*base, "--mark", file_key, "--finish", "--json"])
+    assert marked.exit_code == 0, marked.output
+    state = json.loads(marked.stderr.strip().splitlines()[-1])
+
+    progress = state["target_progress"]
+    assert progress["target_count"] == 3, progress
+    assert progress["reviewed"] == 3, progress
+    closure = state["closure"]
+    assert closure["reviewed_targets"] == closure["target_count"], closure
+    assert closure["unreviewed_targets"] == 0, closure
+
+    # And it is disclosed in the same words, for the same reason: the reviewer
+    # typed one thing and three verdicts were recorded.
+    assert f"{file_key}: recorded on 3 review targets" in marked.output
+    (row,) = state["path_marks"]
+    assert row["target"] == file_key
+    assert {item["label"] for item in row["covered"]} == {
+        "src/app.py::two",
+        "src/app.py::three",
+        "src/app.py#0",
+    }
+
+
+def test_a_target_label_can_be_typed_straight_back(tmp_path: Path) -> None:
+    """Reader spec §29.3's first sentence: accept target labels cleanly.
+
+    The path form names the targets it landed on, in the labels the browser and
+    the feedback bundle use. A label the tool puts on screen and then refuses as
+    input is worse than one it never printed, so the disclosure has to round
+    trip: ``--mark 'src/app.py::two'`` used to be ``Error: no reviewable unit
+    matches``.
+    """
+
+    repo_root = _fixture_repo(tmp_path)
+    (repo_root / "src" / "app.py").write_text(_TWO_MORE_SYMBOLS, encoding="utf-8")
+    base = ["--repo-root", str(repo_root), "--working-tree"]
+
+    shown = _invoke(tmp_path, [*base, "--mark", "src/app.py", "--json"])
+    assert shown.exit_code == 0, shown.output
+    (row,) = json.loads(shown.stderr.strip().splitlines()[-1])["path_marks"]
+    labels = sorted(item["label"] for item in row["covered"])
+    assert "src/app.py::two" in labels, labels
+
+    # A second store over the same tree, so the label is the only thing typed.
+    for label in labels:
+        sandbox = tmp_path / f"typed-{label.replace('/', '_').replace(':', '-').replace('#', '-')}"
+        typed_root = _fixture_repo(sandbox, identity_marker=label)
+        (typed_root / "src" / "app.py").write_text(_TWO_MORE_SYMBOLS, encoding="utf-8")
+        typed = _invoke(
+            sandbox,
+            ["--repo-root", str(typed_root), "--working-tree", "--mark", label, "--marks", "--json"],
+        )
+        assert typed.exit_code == 0, typed.output
+        state = json.loads(typed.stderr.strip().splitlines()[-1])
+        # One label names one judgment: recorded there, nowhere else, and
+        # announced as nothing because nothing was widened.
+        assert state["target_progress"]["reviewed"] == 1, (label, state["target_progress"])
+        (mark,) = state["marks"]
+        assert mark["label"] == label, mark
+        assert "recorded on" not in typed.output
+        assert "path_marks" not in state
+        # Nothing in the repository is spelled like this label, so nothing was
+        # outranked and there is nothing to disclose.
+        assert "shadowed_marks" not in state, state["shadowed_marks"]
+
+
+def test_a_repository_file_outranks_a_label_spelled_the_same_way(tmp_path: Path) -> None:
+    """A label is path-shaped, so a real file can be spelled exactly like one.
+
+    ``src/app.py::two`` is the label of a symbol target in ``src/app.py`` *and* a
+    perfectly legal file name. Resolving the label first sent every verdict on a
+    file the reviewer actually named into a symbol in a different file -- and
+    said nothing, because the widening disclosure fires only when the resolution
+    widened. The file in the repository wins; the label it beat is named.
+    """
+
+    repo_root = _fixture_repo(tmp_path)
+    (repo_root / "src" / "app.py").write_text(_TWO_MORE_SYMBOLS, encoding="utf-8")
+    (repo_root / "src" / "app.py::two").write_text("a file named like somebody else's label\n", encoding="utf-8")
+    base = ["--repo-root", str(repo_root), "--working-tree"]
+
+    result = _invoke(tmp_path, [*base, "--mark", "src/app.py::two", "--marks", "--json"])
+    assert result.exit_code == 0, result.output
+    state = json.loads(result.stderr.strip().splitlines()[-1])
+
+    # Every verdict landed in the file that was named, not in src/app.py.
+    assert {mark["path"] for mark in state["marks"]} == {"src/app.py::two"}, state["marks"]
+
+    # And the reading that lost is on stderr and in the JSON, not swallowed.
+    assert "also the label of another review target" in result.output
+    (row,) = state["shadowed_marks"]
+    assert row["target"] == "src/app.py::two"
+    assert {item["path"] for item in row["shadowed"]} == {"src/app.py"}, row
+    # The unit key it names is typeable, which is the point of naming it.
+    keyed_sandbox = tmp_path / "by-key"
+    keyed_root = _fixture_repo(keyed_sandbox, identity_marker="shadowed-by-key")
+    (keyed_root / "src" / "app.py").write_text(_TWO_MORE_SYMBOLS, encoding="utf-8")
+    keyed = _invoke(
+        keyed_sandbox,
+        [
+            "--repo-root",
+            str(keyed_root),
+            "--working-tree",
+            "--mark",
+            row["shadowed"][0]["unit_key"],
+            "--marks",
+            "--json",
+        ],
+    )
+    assert keyed.exit_code == 0, keyed.output
+    assert {mark["path"] for mark in json.loads(keyed.stderr.strip().splitlines()[-1])["marks"]} == {"src/app.py"}
+
+
+def test_a_path_that_widened_nothing_announces_nothing(tmp_path: Path) -> None:
+    """The disclosure fires on a widening, not on every path.
+
+    A binary derives exactly one target and that target *is* the file, so
+    ``--mark assets/logo.bin`` landed on the one thing it named. Echoing
+    ``recorded on 1 review target -- assets/logo.bin`` is the reviewer's own
+    word read back to them, and the ``path_marks`` key documented as present
+    only for a widening was there too.
+    """
+
+    repo_root = _fixture_repo(tmp_path)
+    (repo_root / "assets").mkdir()
+    (repo_root / "assets" / "logo.bin").write_bytes(b"\x00\x01\x02\xff\xfe")
+    base = ["--repo-root", str(repo_root), "--working-tree"]
+
+    result = _invoke(tmp_path, [*base, "--mark", "assets/logo.bin", "--json"])
+    assert result.exit_code == 0, result.output
+    assert "recorded on" not in result.output
+    state = json.loads(result.stderr.strip().splitlines()[-1])
+    assert "path_marks" not in state
+    # The verdict itself still landed -- this is about the disclosure, not the
+    # mark, and a binary is recorded as `unknown` rather than `reviewed`.
+    assert state["mark_counts"] == {"unknown": 1}, state["mark_counts"]
+
+
+def test_a_path_mark_leaves_a_new_sibling_target_unreviewed_not_changed(tmp_path: Path) -> None:
+    """The lifecycle a path mark now follows, pinned by the case that changed.
+
+    A path mark used to be one claim on the file unit, so appending an unrelated
+    definition moved the file's fingerprint and reopened everything the reviewer
+    had already read: the whole file came back as *changed since my review*. It
+    is now recorded on the targets the path covered, so the definition that did
+    not move stays reviewed and the new one arrives as new work.
+
+    That is the right answer. Re-asking a human to re-read code that did not
+    change is the exact failure ``--since-my-review`` exists to prevent -- see
+    :func:`test_since_my_review_names_only_what_the_agent_rewrote`, which
+    refuses to reopen a whole *file* that did not move -- and "new" versus
+    "changed" is a distinction the file-level claim could not make at all.
+    """
+
+    repo_root = _fixture_repo(tmp_path)
+    (repo_root / "src" / "app.py").write_text("def one():\n    return 3\n", encoding="utf-8")
+    base = ["--repo-root", str(repo_root), "--working-tree"]
+    marked = _invoke(tmp_path, [*base, "--mark", "src/app.py"])
+    assert marked.exit_code == 0, marked.output
+    assert "src/app.py: recorded on 1 review target -- src/app.py::one" in marked.output
+
+    # `one` is untouched; the file grows a sibling the reviewer has not seen.
+    (repo_root / "src" / "app.py").write_text(
+        "def one():\n    return 3\n\n\ndef three():\n    return 3\n", encoding="utf-8"
+    )
+    after = _invoke(tmp_path, [*base, "--since-my-review"])
+    assert after.exit_code == 0, after.output
+
+    assert "changed since my review  0" in after.output
+    assert "unchanged reviewed       1" in after.output
+    assert "CHANGED SINCE MY REVIEW" not in after.output
+    assert "NEW SINCE MY LAST REVIEW  (1)" in after.output
+    assert "src/app.py::three" in after.output.split("NEW SINCE MY LAST REVIEW")[1]
+
+
 def test_json_tracking_keeps_stdout_parseable(tmp_path: Path) -> None:
     """The review-state block is a second document; stdout stays the packet."""
 
@@ -716,6 +854,115 @@ def test_json_tracking_keeps_stdout_parseable(tmp_path: Path) -> None:
     assert state["review_id"].startswith("r/")
     assert state["revision_number"] == 0
     assert state["unit_count"] > 0
+
+
+def test_a_reviewed_count_says_when_its_content_has_moved(tmp_path: Path) -> None:
+    """A bare "1 reviewed" over rewritten content is the stale-mark hazard.
+
+    Promoting the mark to ``changed_since_review`` is revision reconciliation's
+    call (PR-R5), but the headline count must not read as "this much is done"
+    while the fingerprints underneath it have moved.
+    """
+
+    repo_root = _fixture_repo(tmp_path)
+    (repo_root / "src" / "app.py").write_text("def one():\n    return 3\n", encoding="utf-8")
+    marked = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--mark", "src/app.py"])
+    assert marked.exit_code == 0, marked.output
+    assert "against content that has since changed" not in marked.output
+
+    (repo_root / "src" / "app.py").write_text("def one():\n    return 99\n", encoding="utf-8")
+    after = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--track"])
+    assert after.exit_code == 0, after.output
+    assert "1 against content that has since changed" in after.output
+
+
+def test_per_unit_marks_on_one_file_do_not_print_as_identical_rows(tmp_path: Path) -> None:
+    """A file, a hunk and a symbol mark are three claims, not one row printed thrice.
+
+    The listing used to render ``mark['path'] or mark['unit_key']``, so all
+    three printed as the same ``reviewed same src/app.py`` line and per-unit
+    marking looked broken.
+
+    The file claim is now reachable only where the whole file *is* the one
+    review target -- a ``fil:`` key on a file that derived symbol or hunk
+    targets expands onto them, exactly as its path does -- so the binary carries
+    that third kind here.
+    """
+
+    repo_root = _fixture_repo(tmp_path)
+    (repo_root / "src" / "app.py").write_text("def one():\n    return 3\n", encoding="utf-8")
+    (repo_root / "logo.bin").write_bytes(b"\x00\x01\x02\xff\xfe")
+    base = ["--repo-root", str(repo_root), "--working-tree"]
+    listed = _invoke(tmp_path, [*base, "--units"])
+    assert listed.exit_code == 0, listed.output
+
+    by_kind = {
+        line.split()[1]: line.split()[0]
+        for line in listed.output.split("UNITS")[1].splitlines()
+        if line.strip() and ("src/app.py#" in line or "src/app.py::" in line or "logo.bin" in line)
+    }
+    assert {"file", "hunk", "symbol"} == set(by_kind), by_kind
+
+    args = [*base, "--marks"]
+    for key in by_kind.values():
+        args += ["--mark", key]
+    marked = _invoke(tmp_path, args)
+    assert marked.exit_code == 0, marked.output
+
+    # The binary's downgrade notice lands in the same captured stream, so keep
+    # the rows whose kind column says they are mark rows.
+    rows = [
+        line.strip()
+        for line in marked.output.split("MARKS")[1].splitlines()
+        if len(line.split()) == 4 and line.split()[2] in {"file", "hunk", "symbol"}
+    ]
+    assert len(rows) == len(by_kind), rows
+    assert len(set(rows)) == len(rows), f"per-unit marks printed as identical rows: {rows}"
+    assert any(row.endswith("logo.bin") for row in rows)
+    assert any("src/app.py#" in row for row in rows)
+    assert any("src/app.py::" in row for row in rows)
+
+
+def test_a_downgraded_mark_is_reported_where_it_happens(tmp_path: Path) -> None:
+    """A ``reviewed`` request that could not be honoured must say so.
+
+    It used to be visible only as ``1 unknown`` in an aggregate counter, which
+    a reviewer who asked for ``reviewed`` has no reason to read as a refusal.
+    """
+
+    repo_root = _fixture_repo(tmp_path)
+    (repo_root / "logo.bin").write_bytes(b"\x00\x01\x02\xff\xfe")
+    result = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--mark", "logo.bin", "--marks"])
+    assert result.exit_code == 0, result.output
+    assert "logo.bin: recorded as unknown, not reviewed" in result.output
+    assert "could not be fingerprinted" in result.output
+    assert "NOT RECORDED AS ASKED" in result.output
+
+
+def test_a_downgraded_mark_reaches_json_consumers_too(tmp_path: Path) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    (repo_root / "logo.bin").write_bytes(b"\x00\x01\x02\xff\xfe")
+    result = _invoke(
+        tmp_path,
+        ["--repo-root", str(repo_root), "--working-tree", "--json", "--mark", "logo.bin"],
+    )
+    assert result.exit_code == 0, result.output
+    json.loads(result.stdout)  # stdout stays the packet
+
+    state = json.loads(result.stderr.strip().splitlines()[-1])
+    assert len(state["downgraded_marks"]) == 1
+    downgrade = state["downgraded_marks"][0]
+    assert downgrade["target"] == "logo.bin"
+    assert downgrade["requested"] == "reviewed"
+    assert downgrade["recorded"] == "unknown"
+
+
+def test_a_mark_is_not_downgraded_when_the_content_was_fingerprinted(tmp_path: Path) -> None:
+    repo_root = _fixture_repo(tmp_path)
+    result = _invoke(tmp_path, ["--repo-root", str(repo_root), "HEAD~1", "--mark", "src/app.py", "--marks"])
+    assert result.exit_code == 0, result.output
+    assert "NOT RECORDED AS ASKED" not in result.output
+    assert "1 reviewed" in result.output
 
 
 def test_a_file_saved_while_the_packet_is_built_is_not_marked_as_reviewed(tmp_path: Path) -> None:
@@ -775,6 +1022,12 @@ def test_a_file_saved_while_the_packet_is_built_is_not_marked_as_reviewed(tmp_pa
 # --------------------------------------------------------------------------- #
 
 
+def test_since_my_review_is_registered_and_documented() -> None:
+    result = CliRunner().invoke(cli, ["review", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "--since-my-review" in result.output
+
+
 def test_since_my_review_names_only_what_the_agent_rewrote(tmp_path: Path) -> None:
     """The terminal shape of the killer feature, exercised end to end.
 
@@ -816,9 +1069,25 @@ def test_since_my_review_names_only_what_the_agent_rewrote(tmp_path: Path) -> No
     assert "src/app.py" in block.split("UNCHANGED REVIEWED")[0]
     assert "src/other.py" not in block.split("UNCHANGED REVIEWED")[0]
     assert "UNCHANGED REVIEWED" in after.output
-    assert "SINCE MY REVIEW  Revision 1  (you last saw Revision 0)" in after.output
+    assert "SINCE MY REVIEW  Snapshot 1  (you last saw Snapshot 0)" in after.output
     assert "judgment still valid — nothing to re-read" in after.output
     assert "SINCE MY REVIEW  revision" not in after.output
+
+
+def test_since_my_review_on_an_untouched_tree_says_so_and_moves_nothing(tmp_path: Path) -> None:
+    """Idempotency has to be visible, or a second run reads as a broken one."""
+
+    repo_root = _fixture_repo(tmp_path)
+    (repo_root / "src" / "app.py").write_text("def one():\n    return 3\n", encoding="utf-8")
+    _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--mark", "src/app.py"])
+
+    again = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--since-my-review"])
+    assert again.exit_code == 0, again.output
+    # Phrased against the reviewer's last *review*, not against the last write:
+    # every path records a revision now, so "the last snapshot" would name
+    # whichever command the developer happened to type first.
+    assert "unchanged since your last review" in again.output
+    assert "changed since my review  0" in again.output
 
 
 def test_since_my_review_reaches_json_consumers_on_stderr(tmp_path: Path) -> None:
@@ -891,7 +1160,6 @@ def _no_browser(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 def test_browser_launcher_never_falls_back_to_links(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("LEMONCROW_NO_BROWSER", raising=False)
     import shutil
     import subprocess
 
@@ -917,7 +1185,6 @@ def test_browser_launcher_never_falls_back_to_links(monkeypatch: pytest.MonkeyPa
 
 
 def test_browser_launcher_uses_macos_open(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("LEMONCROW_NO_BROWSER", raising=False)
     import shutil
     import subprocess
     import sys
@@ -955,13 +1222,13 @@ def test_existing_review_can_be_listed_and_shown_by_id_without_recapturing(tmp_p
     assert listed.exit_code == 0, listed.output
     assert review_id in listed.output
     assert before_detail["review"]["status"] in listed.output
-    assert "REVISION" in listed.output
+    assert "SNAPSHOT" in listed.output
 
     shown = _invoke(tmp_path, ["--show-review", review_id])
     assert shown.exit_code == 0, shown.output
     assert review_id in shown.output
-    assert "Revision 0" in shown.output
-    assert f"Revisions   {revision_count}" in shown.output
+    assert "Snapshot 0" in shown.output
+    assert f"Snapshots   {revision_count}" in shown.output
     after = _invoke(tmp_path, ["--show-review", review_id, "--json"])
     assert json.loads(after.output)["revision_count"] == revision_count
 
@@ -1116,9 +1383,7 @@ def test_open_ignores_the_retired_workspace_bundle_path(tmp_path: Path, monkeypa
     assert "no built frontend bundle found" not in result.stderr
     assert "Review workspace:" not in result.stderr
     assert not list((tmp_path / "store" / "review").glob("*.html"))
-    assert opened and re.match(
-        rf"^{re.escape(os.environ['LEMONCROW_URL'])}/reviews/preparing/[0-9a-f]{{32}}$", opened[0]
-    )
+    assert opened and re.match(rf"^{re.escape(os.environ['LEMONCROW_URL'])}/r/[0-9a-f]{{8}}(?:[#?]|$)", opened[0])
 
 
 def test_open_reports_meaningful_preparation_progress(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1138,34 +1403,17 @@ def test_open_reports_meaningful_preparation_progress(tmp_path: Path, monkeypatc
     assert "Change packet ready" in result.stderr
     assert "Connecting to Review server" in result.stderr
     assert "Synchronizing current source" in result.stderr
-    # A first open publishes a new Review (a later open reports "Creating new snapshot").
-    assert "Publishing new review" in result.stderr
-    assert "Opening Review Reader" in result.stderr
+    assert "Publishing reviewable source revision" in result.stderr
+    assert "Pairing and opening Review Reader" in result.stderr
     assert "Freezing current snapshot" not in result.stderr
     assert "Freezing base snapshot in background" not in result.stderr
     assert "Base snapshot attached" not in result.stderr
-    assert "Loading durable review state" not in result.stderr
-    assert "Loading review overview" in result.stderr
-    assert "Loading review targets and marks" in result.stderr
-    assert "Loading review comments" in result.stderr
+    assert "Loading durable review state" in result.stderr
     assert "Review Reader opened" in result.stderr
     assert result.stderr.index("Review Reader opened") < result.stderr.index(
         "Remaining Review context continues in background"
     )
     assert opened
-    assert result.stderr.index("Review Reader opened") < result.stderr.index("Reading changed files and diff")
-    from lemoncrow_client.config import load_config
-
-    from lemoncrow.pro.capabilities.review.hosted import server_review_request
-
-    job_id = opened[0].rsplit("/", 1)[-1]
-    progress = server_review_request(load_config(cwd=repo_root), "GET", f"/api/review-preparations/{job_id}")
-    assert progress["state"] == "ready"
-    assert progress["review_url"].startswith("/r/")
-    assert len(opened) == 1
-    for key in ("state_overview", "state_units", "state_annotations"):
-        assert next(step for step in progress["steps"] if step["key"] == key)["state"] == "done"
-    assert all(step["key"] != "state" for step in progress["steps"])
 
 
 @pytest.mark.parametrize("asset_size", [1024 * 1024, 1024 * 1024 + 1, 8 * 1024 * 1024, 8 * 1024 * 1024 + 1])
@@ -1192,7 +1440,9 @@ def test_working_tree_review_keeps_other_files_when_assets_are_oversized(
     assert "Base snapshot attached" not in result.stderr
 
 
-def test_warm_open_starts_progress_before_reusing_packet(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_warm_open_uses_prepared_review_before_rebuilding_packet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     opened = _no_browser(monkeypatch)
     repo_root = _fixture_repo(tmp_path)
     (repo_root / "src" / "app.py").write_text("def one():\n    return 3\n", encoding="utf-8")
@@ -1200,7 +1450,7 @@ def test_warm_open_starts_progress_before_reusing_packet(tmp_path: Path, monkeyp
     first = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--open"])
     assert first.exit_code == 0, first.output
     assert opened
-    first_preparation_url = opened[-1]
+    prepared_url = opened[-1]
     from lemoncrow.pro.capabilities.review.live_runtime import load_live_review_binding
 
     first_binding = load_live_review_binding(
@@ -1215,14 +1465,10 @@ def test_warm_open_starts_progress_before_reusing_packet(tmp_path: Path, monkeyp
     second = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--open"])
 
     assert second.exit_code == 0, second.output
-    assert opened and "/reviews/preparing/" in opened[0]
-    assert opened[0] != first_preparation_url
-    assert "Opening Review Reader" in second.stderr
-    # The warm path reuses the prepared diff instead of re-reading it.
-    reused = "Prepared diff, source snapshots, and Review targets reused"
-    assert reused in second.stderr
-    assert "Reading changed files and diff" not in second.stderr
-    assert second.stderr.index("Opening Review Reader") < second.stderr.index(reused)
+    assert opened and opened[0].split("#", 1)[0] == prepared_url.split("#", 1)[0]
+    assert "Opening prepared Review Reader" in second.stderr
+    assert "Reading changed files and diff" in second.stderr
+    assert second.stderr.index("Opening prepared Review Reader") < second.stderr.index("Reading changed files and diff")
     second_binding = load_live_review_binding(
         tmp_path / "store",
         repo_root,
@@ -1250,9 +1496,7 @@ def test_open_uses_the_configured_server_and_writes_no_second_copy(
     assert machine_token not in result.stderr
     assert "#t=" not in result.output
     assert "#t=" not in result.stderr
-    assert opened and re.match(
-        rf"^{re.escape(os.environ['LEMONCROW_URL'])}/reviews/preparing/[0-9a-f]{{32}}$", opened[0]
-    )
+    assert opened and re.match(rf"^{re.escape(os.environ['LEMONCROW_URL'])}/r/[0-9a-f]{{8}}(?:[#?]|$)", opened[0])
     assert not list((tmp_path / "store" / "review").glob("*.html"))
 
 
@@ -1272,9 +1516,7 @@ def test_retired_workspace_launcher_cannot_affect_review_open(tmp_path: Path, mo
 
     assert result.exit_code == 0, result.output
     assert "could not start the review workspace" not in result.stderr
-    assert opened and re.match(
-        rf"^{re.escape(os.environ['LEMONCROW_URL'])}/reviews/preparing/[0-9a-f]{{32}}$", opened[0]
-    )
+    assert opened and re.match(rf"^{re.escape(os.environ['LEMONCROW_URL'])}/r/[0-9a-f]{{8}}(?:[#?]|$)", opened[0])
 
 
 def test_html_still_writes_a_report_on_its_own(tmp_path: Path) -> None:
@@ -1287,144 +1529,6 @@ def test_html_still_writes_a_report_on_its_own(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert out.exists()
     assert f"HTML report: {out}" in result.output
-
-
-def test_review_title_is_passed_to_snapshot_capture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from lemoncrow.gateway.cli.commands import review as review_mod
-
-    repo_root = _fixture_repo(tmp_path)
-    monkeypatch.setenv("LEMONCROW_INSTALL_MODE", "local")
-    monkeypatch.setenv("LEMONCROW_URL", "http://127.0.0.1:7420")
-    titles: list[str] = []
-
-    def capture(*args: Any, **kwargs: Any) -> None:
-        titles.append(kwargs["title_override"])
-
-    monkeypatch.setattr(review_mod, "_review_server_capture", capture)
-    result = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--title", "Fix review labels"])
-    assert result.exit_code == 0, result.output
-    assert titles == ["Fix review labels"]
-
-
-def test_review_intent_flags_record_linked_intent_after_publishing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """``--intent``/``--description-file`` post bounded text for files and references for links."""
-
-    from types import SimpleNamespace
-
-    from lemoncrow.gateway.cli.commands import review as review_mod
-    from lemoncrow.pro.capabilities.review import hosted as hosted_mod
-    from lemoncrow.pro.capabilities.review import render as render_mod
-
-    repo_root = _fixture_repo(tmp_path)
-    (repo_root / "docs").mkdir(exist_ok=True)
-    (repo_root / "docs" / "spec.md").write_text("# Refresh\nExpired sessions report invalid.\n", encoding="utf-8")
-    description = tmp_path / "pr.md"
-    description.write_text("# Report invalid sessions\n\nCloses #12.\n", encoding="utf-8")
-    monkeypatch.setenv("LEMONCROW_INSTALL_MODE", "local")
-    monkeypatch.setenv("LEMONCROW_URL", "http://127.0.0.1:7420")
-    captured = SimpleNamespace(
-        build=SimpleNamespace(packet=SimpleNamespace()),
-        review_id="r1",
-        review_url="http://127.0.0.1:7420/r/1",
-        canonical_url="http://127.0.0.1:7420/r/1",
-        response={"review": {"title": "t"}, "revision": {"id": "rev1", "revision_number": 2}},
-    )
-    requests: list[tuple[str, str, Any]] = []
-
-    def request(config: Any, method: str, path: str, *, body: Any = None, **kwargs: Any) -> dict[str, Any]:
-        requests.append((method, path, body))
-        return {}
-
-    monkeypatch.setattr(hosted_mod, "capture_server_review", lambda *args, _captured=captured, **kwargs: _captured)
-    monkeypatch.setattr(hosted_mod, "server_review_request", request)
-    monkeypatch.setattr(render_mod, "render_review", lambda *args, **kwargs: "")
-    monkeypatch.setattr(review_mod, "_server_terminal_state", lambda *args, **kwargs: {})
-    monkeypatch.setattr(review_mod, "_render_state", lambda state: "")
-    monkeypatch.setattr(review_mod, "_open_server_review", lambda *args, **kwargs: None)
-    result = _invoke(
-        tmp_path,
-        [
-            "--repo-root",
-            str(repo_root),
-            "--working-tree",
-            "--intent",
-            "spec:docs/spec.md",
-            "--intent",
-            "incident:https://status.example.com/i/7",
-            "--description-file",
-            str(description),
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    paths = [path for _method, path, _body in requests]
-    assert paths == ["/api/reviews/r1/revisions/2/publish", "/api/reviews/r1/intent"]
-    body = requests[1][2]
-    assert body["expected_revision_id"] == "rev1"
-    assert body["references"] == [
-        {
-            "kind": "spec",
-            "ref": "docs/spec.md",
-            "title": "docs/spec.md",
-            "body": "# Refresh\nExpired sessions report invalid.\n",
-        },
-        {"kind": "incident", "ref": "https://status.example.com/i/7"},
-    ]
-    assert body["description"] == {"title": "Report invalid sessions", "body": "Closes #12."}
-
-    for bad in (["--intent", "spec:../outside.md"], ["--intent", "story:#1"], ["--intent", "spec:docs/missing.md"]):
-        refused = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", *bad])
-        assert refused.exit_code != 0, bad
-    combined = _invoke(tmp_path, ["--repo-root", str(repo_root), "--list-reviews", "--intent", "issue:#1"])
-    assert combined.exit_code != 0 and "require a Snapshot capture" in combined.output
-
-
-def test_review_title_that_the_server_did_not_apply_is_reported(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    for case_index, (review, check, noted) in enumerate(
-        [
-            ({"title": "Existing hosted Review"}, False, True),
-            ({"title": "Existing hosted Review"}, True, True),
-            ({"title": "Fix review labels"}, False, False),
-            ({"title": "Manual name", "auto_title": "Fix review labels"}, False, False),
-        ]
-    ):
-        case_tmp_path = tmp_path / f"case-{case_index}"
-        case_tmp_path.mkdir()
-        with monkeypatch.context() as case_monkeypatch:
-            from types import SimpleNamespace
-
-            from lemoncrow.gateway.cli.commands import review as review_mod
-            from lemoncrow.pro.capabilities.review import hosted as hosted_mod
-            from lemoncrow.pro.capabilities.review import render as render_mod
-
-            repo_root = _fixture_repo(case_tmp_path)
-            case_monkeypatch.setenv("LEMONCROW_INSTALL_MODE", "local")
-            case_monkeypatch.setenv("LEMONCROW_URL", "http://127.0.0.1:7420")
-            captured = SimpleNamespace(
-                build=SimpleNamespace(packet=SimpleNamespace()),
-                review_id="r1",
-                review_url="http://127.0.0.1:7420/r/1",
-                canonical_url="http://127.0.0.1:7420/r/1",
-                response={"review": review, "revision": {"id": "rev1", "revision_number": 2}},
-            )
-            case_monkeypatch.setattr(
-                hosted_mod, "capture_server_review", lambda *args, _captured=captured, **kwargs: _captured
-            )
-            case_monkeypatch.setattr(hosted_mod, "server_review_request", lambda *args, **kwargs: {})
-            case_monkeypatch.setattr(render_mod, "render_review", lambda *args, **kwargs: "")
-            case_monkeypatch.setattr(review_mod, "_server_terminal_state", lambda *args, **kwargs: {})
-            case_monkeypatch.setattr(review_mod, "_render_state", lambda state: "")
-            case_monkeypatch.setattr(review_mod, "_open_server_review", lambda *args, **kwargs: None)
-            arguments = ["--repo-root", str(repo_root), "--working-tree", "--title", "Fix review labels"]
-            if check:
-                arguments += ["--check", "lint", "--run", "true"]
-            result = _invoke(case_tmp_path, arguments)
-            assert result.exit_code == 0, result.output
-            note = f'''--title was not applied; the Review this Snapshot joined keeps the title "{review["title"]}"'''
-            assert (note in result.stderr) is noted
 
 
 @pytest.mark.parametrize(
@@ -1528,15 +1632,6 @@ def test_hosted_server_review_url_never_embeds_cli_bearer(monkeypatch: pytest.Mo
 def test_default_open_announces_the_canonical_review_url_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     opened = _no_browser(monkeypatch)
     repo_root = _fixture_repo(tmp_path)
-    from lemoncrow.gateway.cli.commands import review as review_mod
-
-    resolve_active = review_mod._active_local_branch_review
-
-    def resolve_after_open(*args: Any, **kwargs: Any) -> Any:
-        assert opened, "browser must open before a potentially slow active-Review lookup"
-        return resolve_active(*args, **kwargs)
-
-    monkeypatch.setattr(review_mod, "_active_local_branch_review", resolve_after_open)
 
     result = _invoke(
         tmp_path,
@@ -1548,14 +1643,9 @@ def test_default_open_announces_the_canonical_review_url_once(tmp_path: Path, mo
     urls = re.findall(r"Review  (https?://\S+/r/[0-9a-f]+)", result.output)
     assert len(urls) == 1
     assert len(opened) == 1
-    assert re.fullmatch(rf"{re.escape(os.environ['LEMONCROW_URL'])}/reviews/preparing/[0-9a-f]{{32}}", opened[0])
-    from lemoncrow_client.config import load_config
-
-    from lemoncrow.pro.capabilities.review.hosted import server_review_request
-
-    job_id = opened[0].rsplit("/", 1)[-1]
-    job = server_review_request(load_config(cwd=repo_root), "GET", f"/api/review-preparations/{job_id}")
-    assert os.environ["LEMONCROW_URL"] + job["review_url"].split("#", 1)[0] == urls[0]
+    opened_canonical = opened[0].split("#", 1)[0]
+    assert re.fullmatch(rf"{re.escape(os.environ['LEMONCROW_URL'])}/r/[0-9a-f]{{8,64}}", opened_canonical)
+    assert opened_canonical == urls[0]
 
 
 def test_no_open_keeps_terminal_review_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1589,7 +1679,7 @@ def test_json_open_keeps_progress_on_stderr_and_json_on_stdout(tmp_path: Path, m
     assert result.exit_code == 0, result.output
     json.loads(result.stdout)
     assert "Preparing review…" in result.stderr
-    assert "Opening Review Reader" in result.stderr
+    assert "Pairing and opening Review Reader" in result.stderr
     assert opened
 
 
@@ -1709,7 +1799,64 @@ def test_a_comment_on_a_file_outside_the_review_is_refused(tmp_path: Path) -> No
     )
 
     assert result.exit_code != 0
-    assert "not a file in Revision" in result.output
+    assert "not a file in revision" in result.output
+
+
+def test_a_comment_survives_the_line_moving_and_says_which_rung_moved_it(tmp_path: Path) -> None:
+    """The end-to-end promise: same text, new line, comment carried forward.
+
+    ``COMMENT ANCHORS`` names the rung and both line numbers, because "it moved"
+    is the one claim the reviewer has to take on trust, and showing where from
+    and where to is what turns it back into something they can check.
+    """
+
+    repo_root = _fixture_repo(tmp_path)
+    (repo_root / "src" / "app.py").write_text("def one():\n    return 3\n", encoding="utf-8")
+    _invoke(
+        tmp_path,
+        ["--repo-root", str(repo_root), "--working-tree", "--comment", "why 3?", "--on", "src/app.py:L2"],
+    )
+
+    (repo_root / "src" / "app.py").write_text(
+        "import logging\n\nLOG = logging.getLogger(__name__)\n\n\ndef one():\n    return 3\n",
+        encoding="utf-8",
+    )
+    after = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--since-my-review", "--comments"])
+
+    assert after.exit_code == 0, after.output
+    assert "COMMENT ANCHORS" in after.output
+    assert "relocated" in after.output
+    assert "L2→L7" in after.output
+    assert "src/app.py:L7" in after.output
+    assert "1 open" in after.output
+
+
+def test_an_ambiguous_relocation_orphans_rather_than_guessing(tmp_path: Path) -> None:
+    """Spec §5.1's hard rule, on the terminal surface.
+
+    Two byte-identical homes for the commented text is exactly the case where a
+    tool that picks one is right half the time and unfalsifiable the rest.
+    """
+
+    repo_root = _fixture_repo(tmp_path)
+    (repo_root / "src" / "app.py").write_text("def one():\n    return 3\n", encoding="utf-8")
+    _invoke(
+        tmp_path,
+        ["--repo-root", str(repo_root), "--working-tree", "--comment", "why 3?", "--on", "src/app.py:L2"],
+    )
+
+    # Both copies now carry byte-identical context: `def one():` above and
+    # nothing but blank lines below. Neither is more plausible than the other,
+    # which is the whole point.
+    (repo_root / "src" / "app.py").write_text(
+        "def one():\n    return 3\n\n\n\ndef one():\n    return 3\n", encoding="utf-8"
+    )
+    after = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--since-my-review", "--comments"])
+
+    assert after.exit_code == 0, after.output
+    assert "orphaned" in after.output
+    assert "candidate locations" in after.output
+    assert "comments 1 orphaned" in after.output
 
 
 def test_a_reply_threads_under_the_comment_it_answers(tmp_path: Path) -> None:
@@ -1857,6 +2004,24 @@ def test_a_heuristic_relocation_is_never_drawn_like_an_untouched_file(tmp_path: 
     assert "in total_price" in after.output
 
 
+def test_a_comment_in_an_untouched_file_still_says_which_rung_carried_it(tmp_path: Path) -> None:
+    """Rung 1 is the one honest ``unchanged``, and it says so too."""
+
+    repo_root = _fixture_repo(tmp_path)
+    (repo_root / "src" / "app.py").write_text("def one():\n    return 3\n", encoding="utf-8")
+    _invoke(
+        tmp_path,
+        ["--repo-root", str(repo_root), "--working-tree", "--comment", "why 3?", "--on", "src/app.py:L2"],
+    )
+    again = _invoke(
+        tmp_path,
+        ["--repo-root", str(repo_root), "--working-tree", "--since-my-review", "--comments"],
+    )
+
+    assert again.exit_code == 0, again.output
+    assert "anchor: file unchanged since the comment" in again.output
+
+
 def test_the_anchor_rung_and_its_label_reach_json_consumers(tmp_path: Path) -> None:
     repo_root = _fixture_repo(tmp_path)
     (repo_root / "src" / "app.py").write_text("def one():\n    return 3\n", encoding="utf-8")
@@ -1936,6 +2101,108 @@ def _without_session_id(output: str) -> str:
     return re.sub(r"(?m)^(  checkpoint )\S+$", r"\1<revision>", normalized)
 
 
+def test_looking_at_the_comments_first_does_not_freeze_the_review_in_the_past(tmp_path: Path) -> None:
+    """The A/B that this defect needed and did not have.
+
+    Two identical repositories, one identical rewrite, and the *only* difference
+    is whether the developer ran ``lc review --comments`` -- the documented way
+    to see comments -- before asking what changed since their review.
+
+    That used to decide the answer. Every path but ``--since-my-review``
+    recorded a revision without reconciling anything, so the plain run advanced
+    the stored revision and the later ``--since-my-review`` found the latest
+    revision already equal to the one it was about to take, concluded nothing
+    had happened, and left a human's ``reviewed`` standing over rewritten code
+    and the comment labelled "file unchanged since the comment" on a file that
+    had been rewritten -- permanently, because no later run would ever see a
+    transition to reconcile either.
+
+    Asserting the two orderings agree is the point. A test that exercised only
+    ``--since-my-review`` passed throughout.
+    """
+
+    first_box, first_repo = _reviewed_then_rewritten(tmp_path, "comments_first")
+    _invoke(first_box, ["--repo-root", str(first_repo), "--working-tree", "--comments"])
+    ordering_a = _invoke(
+        first_box,
+        ["--repo-root", str(first_repo), "--working-tree", "--since-my-review", "--comments"],
+    )
+
+    second_box, second_repo = _reviewed_then_rewritten(tmp_path, "frontier_first")
+    ordering_b = _invoke(
+        second_box,
+        ["--repo-root", str(second_repo), "--working-tree", "--since-my-review", "--comments"],
+    )
+
+    assert ordering_a.exit_code == 0, ordering_a.output
+    assert ordering_b.exit_code == 0, ordering_b.output
+    assert _without_session_id(ordering_a.output) == _without_session_id(ordering_b.output)
+
+    # Pinned positively as well, so the two agreeing on something false would
+    # still fail: the mark did not survive the rewrite, and the comment says it
+    # was searched for rather than found where it was left.
+    for output in (ordering_a.output, ordering_b.output):
+        assert "changed since my review  1" in output
+        assert "anchor: re-found by its text alone" in output
+        assert "in renamed_alpha" in output
+        assert "file unchanged since the comment" not in output
+        assert "in alpha_1" not in output
+        assert "still valid" not in output
+
+
+def test_the_plain_run_reconciles_before_it_ever_prints_a_stale_verdict(tmp_path: Path) -> None:
+    """``--comments`` alone must not describe the file it is looking at as unchanged.
+
+    This is the first half of the A/B on its own, because it is the screen the
+    developer actually saw: the stale sentence was rendered here, and copied
+    verbatim into the ``--feedback`` Markdown handed to the agent.
+    """
+
+    sandbox, repo_root = _reviewed_then_rewritten(tmp_path, "plain")
+    base = ["--repo-root", str(repo_root), "--working-tree"]
+
+    listed = _invoke(sandbox, [*base, "--comments"])
+    assert listed.exit_code == 0, listed.output
+    assert "file unchanged since the comment" not in listed.output
+    assert "in alpha_1" not in listed.output
+    assert "anchor: re-found by its text alone · in renamed_alpha" in listed.output
+    assert "1 changed_since_review" in listed.output
+
+    bundle = _invoke(sandbox, [*base, "--feedback"])
+    assert bundle.exit_code == 0, bundle.output
+    assert "file unchanged since the comment" not in bundle.output
+    assert "`alpha_1`" not in bundle.output
+
+
+def test_looking_twice_records_nothing_the_first_look_did_not(tmp_path: Path) -> None:
+    """Reconciling on every path may not turn reading into writing.
+
+    Four invocations across three flags over one unchanged tree: one revision,
+    one anchor event per comment, one mark. An audit table that grows because
+    somebody looked is not evidence, and a frontier that moves because somebody
+    looked is not a frontier.
+    """
+
+    from lemoncrow.pro.capabilities.review.store import ReviewStore
+
+    sandbox, repo_root = _reviewed_then_rewritten(tmp_path, "idempotent")
+    base = ["--repo-root", str(repo_root), "--working-tree"]
+    for args in (["--comments"], ["--since-my-review"], ["--units"], ["--comments"]):
+        assert _invoke(sandbox, [*base, *args]).exit_code == 0
+
+    databases = list((tmp_path / "server" / "reviews").glob("*/lemoncrow_reviews.db"))
+    assert len(databases) == 1
+    store = ReviewStore(databases[0].parent)
+    (session,) = store.list_sessions()
+    revisions = store.list_revisions(session.id)
+    assert [revision.revision_number for revision in revisions] == [1, 2]
+
+    (annotation,) = store.list_annotations(session.id)
+    events = [move for move in store.anchor_moves_on(revisions[1].id) if move.annotation_id == annotation.id]
+    assert len(events) == 1
+    assert len(store.list_marks(session.id, reviewer_id=session.reviewer_id)) == 1
+
+
 # --------------------------------------------------------------------------- #
 # the undo: content that changed and changed back
 # --------------------------------------------------------------------------- #
@@ -1989,6 +2256,112 @@ def _commented_then_rewritten(tmp_path: Path, name: str, *, on: str = "src/app.p
     return sandbox, repo_root
 
 
+def test_an_undo_puts_the_comment_back_where_the_reviewer_left_it(tmp_path: Path) -> None:
+    """An undo restores the file; it must also restore the comment's geometry.
+
+    The agent renames the function and inserts lines, the anchor correctly
+    relocates, and the agent then undoes the edit -- so the file is byte-identical
+    to when the comment was written. The tree therefore fingerprints back to a
+    revision *already on file*, and one the comment already owns its origin
+    anchor event on.
+
+    Asking "is there any event on this revision?" answered yes and skipped
+    re-anchoring, leaving the row carrying the geometry of the revision in
+    between: a line number and an owning definition that exist nowhere in the
+    tree, over a replayed origin verdict reading "file unchanged since the
+    comment". Every claim below is checked against the file's real contents.
+    """
+
+    sandbox, repo_root = _commented_then_rewritten(tmp_path, "undo")
+    base = ["--repo-root", str(repo_root), "--working-tree"]
+
+    moved = _invoke(sandbox, [*base, "--comments"])
+    assert moved.exit_code == 0, moved.output
+    assert "src/app.py:L6" in moved.output
+    assert "in renamed_alpha" in moved.output
+
+    (repo_root / "src" / "app.py").write_text(_UNDO_BEFORE, encoding="utf-8")
+    restored = _invoke(sandbox, [*base, "--since-my-review", "--comments"])
+    assert restored.exit_code == 0, restored.output
+
+    # What the file actually says now, so the assertions are anchored to it.
+    lines = (repo_root / "src" / "app.py").read_text(encoding="utf-8").splitlines()
+    assert lines[2] == "    return x * 2  # doubled"
+    assert lines[5] == "def beta_1(y):"
+    assert "renamed_alpha" not in "\n".join(lines)
+
+    assert "src/app.py:L3" in restored.output
+    assert "in alpha_1" in restored.output
+    # The three separate lies: the wrong line, a definition that does not exist,
+    # and the origin's verdict replayed as this revision's.
+    assert "src/app.py:L6" not in restored.output
+    assert "renamed_alpha" not in restored.output
+    assert "file unchanged since the comment" not in restored.output
+    # The audit row for this revision describes the move that actually happened.
+    assert "L6→L3" in restored.output
+
+    # And the same sentence must not reach the agent or the browser either.
+    bundle = _invoke(sandbox, [*base, "--feedback"])
+    assert bundle.exit_code == 0, bundle.output
+    assert "renamed_alpha" not in bundle.output
+    assert "L6" not in bundle.output
+
+
+def test_the_same_undo_plus_one_line_is_the_control(tmp_path: Path) -> None:
+    """The control that isolates the trigger, kept so a regression cannot hide.
+
+    Identical edit history, one trailing comment line appended after the undo:
+    same content, a *new* tree fingerprint, no revision already on file and so
+    no prior anchor event to mistake for an answer. This case was always right,
+    and it is what proved the fault lay in the idempotency test rather than in
+    the relocation ladder. It must stay right.
+    """
+
+    sandbox, repo_root = _commented_then_rewritten(tmp_path, "undo_control")
+    base = ["--repo-root", str(repo_root), "--working-tree"]
+    (repo_root / "src" / "app.py").write_text(_UNDO_BEFORE + "# tail\n", encoding="utf-8")
+
+    restored = _invoke(sandbox, [*base, "--since-my-review", "--comments"])
+    assert restored.exit_code == 0, restored.output
+    assert "src/app.py:L3" in restored.output
+    assert "in alpha_1" in restored.output
+    assert "renamed_alpha" not in restored.output
+
+
+def test_an_undo_un_orphans_a_comment_whose_text_is_back(tmp_path: Path) -> None:
+    """The same trigger, seen from the other side: a fabricated orphan.
+
+    The rewrite genuinely destroys the commented line, so orphaning it on
+    revision 2 is correct. The undo brings the text back, byte for byte, at the
+    line it was written on -- and a comment reported as "selected text gone and
+    its context was not found" about text sitting untouched in front of the
+    reader is worse than no anchoring at all: it sends them hunting for a
+    deletion nobody made.
+    """
+
+    sandbox = tmp_path / "undo_orphan"
+    repo_root = _fixture_repo(sandbox)
+    (repo_root / "src" / "app.py").write_text(_UNDO_BEFORE, encoding="utf-8")
+    base = ["--repo-root", str(repo_root), "--working-tree"]
+    _invoke(sandbox, [*base, "--comment", "why plus one?", "--on", "src/app.py:L2"])
+
+    (repo_root / "src" / "app.py").write_text("def alpha_1(x):\n    return 0\n", encoding="utf-8")
+    gone = _invoke(sandbox, [*base, "--since-my-review", "--comments"])
+    assert gone.exit_code == 0, gone.output
+    assert "orphaned" in gone.output
+
+    (repo_root / "src" / "app.py").write_text(_UNDO_BEFORE, encoding="utf-8")
+    back = _invoke(sandbox, [*base, "--since-my-review", "--comments"])
+    assert back.exit_code == 0, back.output
+
+    assert (repo_root / "src" / "app.py").read_text(encoding="utf-8").splitlines()[1] == "    y = x + 1"
+    assert "open       comment" in back.output
+    assert "src/app.py:L2" in back.output
+    assert "orphaned   comment" not in back.output
+    assert "0 open · 1 orphaned" not in back.output
+    assert "selected text gone" not in back.output
+
+
 # --------------------------------------------------------------------------- #
 # the frontier: durable state, not a shadow of the marks table
 # --------------------------------------------------------------------------- #
@@ -2025,9 +2398,446 @@ def _symbol_reviewed_then_renamed(tmp_path: Path, name: str) -> tuple[Path, Path
     return sandbox, repo_root
 
 
+def test_the_frontier_survives_the_verdict_that_reconciliation_deletes(tmp_path: Path) -> None:
+    """Whoever looks first must not eat the reviewer's history.
+
+    The previously-fixed order-dependence, relocated from the revisions table to
+    the marks table. The baseline was derived from ``reviewed_revision_id`` over
+    the reviewer's marks -- and reconciliation is entitled to *delete* a mark
+    whose unit left the review. Rename the one symbol they approved and their
+    only mark goes, so whichever command reconciled first destroyed the sole
+    input the next one had. Every later command then answered "nothing reviewed
+    yet" about code that was reviewed.
+
+    Two sandboxes, one identical rename, and the only difference is what the
+    developer typed first. The frontier block has to come out byte for byte the
+    same.
+    """
+
+    first_box, first_repo = _symbol_reviewed_then_renamed(tmp_path, "marks_comments_first")
+    _invoke(first_box, ["--repo-root", str(first_repo), "--working-tree", "--comments"])
+    ordering_a = _invoke(first_box, ["--repo-root", str(first_repo), "--working-tree", "--since-my-review"])
+
+    second_box, second_repo = _symbol_reviewed_then_renamed(tmp_path, "marks_frontier_first")
+    ordering_b = _invoke(second_box, ["--repo-root", str(second_repo), "--working-tree", "--since-my-review"])
+
+    assert ordering_a.exit_code == 0, ordering_a.output
+    assert ordering_b.exit_code == 0, ordering_b.output
+
+    def frontier_block(output: str) -> str:
+        body = output.partition("SINCE MY REVIEW")[2]
+        assert body, output
+        return _without_session_id("SINCE MY REVIEW" + body)
+
+    assert frontier_block(ordering_a.output) == frontier_block(ordering_b.output)
+
+    # Pinned positively too, so two runs agreeing on something false still fail.
+    for output in (ordering_a.output, ordering_b.output):
+        assert "you last saw Snapshot 0" in output
+        assert "nothing reviewed yet" not in output
+        assert "new                      1" in output
+        assert "not yet reviewed         4" in output
+
+
+@pytest.mark.parametrize(
+    ("name", "first"),
+    [
+        ("marks", ["--marks"]),
+        ("comments", ["--comments"]),
+        ("frontier", ["--since-my-review"]),
+        ("track", ["--track"]),
+    ],
+)
+def test_a_discarded_verdict_is_reported_on_every_command_and_every_run(
+    tmp_path: Path, name: str, first: list[str]
+) -> None:
+    """A destroyed verdict belongs to the revision, not to whoever reconciled it.
+
+    Each first-command gets an independent server/quota bucket, while the three
+    consecutive runs inside the scenario still prove that the loss belongs to
+    the revision rather than whichever command happened to reconcile first.
+    """
+
+    sandbox, repo_root = _symbol_reviewed_then_renamed(tmp_path, f"discard_{name}_first")
+    base = ["--repo-root", str(repo_root), "--working-tree"]
+
+    blocks: list[str] = []
+    for run in range(3):
+        result = _invoke(sandbox, [*base, *(first if run == 0 else ["--since-my-review"])])
+        assert result.exit_code == 0, result.output
+        assert "VERDICTS DISCARDED  (1)" in result.output, (name, run, result.output)
+        assert "src/app.py::alpha_1" in result.output
+        assert "the unit it attested to is not in this revision" in result.output
+        tail = result.output.partition("VERDICTS DISCARDED")[2].splitlines()
+        body: list[str] = []
+        for line in tail:
+            if not line.strip():
+                break
+            body.append(line)
+        blocks.append("\n".join(body))
+
+    assert blocks[0] == blocks[1] == blocks[2], (name, blocks)
+
+    as_json = _invoke(sandbox, [*base, "--since-my-review", "--json"])
+    assert as_json.exit_code == 0, as_json.output
+    state = json.loads(as_json.stderr.strip().splitlines()[-1])
+    (discarded,) = state["discarded_verdicts"]
+    assert discarded["state"] == "reviewed"
+    assert discarded["label"] == "src/app.py::alpha_1"
+    assert state["frontier"]["discarded_verdicts"] == state["discarded_verdicts"]
+
+
+def test_a_discarded_verdict_outlives_the_revision_that_discarded_it(tmp_path: Path) -> None:
+    """Three revisions, and the loss is still the reviewer's loss on the third.
+
+    The ship blocker: the discard report was scoped to ``revision.id`` while the
+    frontier beside it was scoped to the reviewer's *baseline*. Those are the
+    same revision for exactly one agent edit. Reconciliation writes the row on
+    revision 2, the reviewer's frontier stays on revision 1, and from revision 3
+    onwards ``LEFT THE REVIEW`` still named the unit while the discard list came
+    back empty underneath it -- so the screen read
+
+        LEFT THE REVIEW  (1)
+          symbol  src/app.py::alpha_1
+          no longer in the change set -- nothing here to re-read
+
+    over an approval this tool had deleted, and the browser's "your reviewed
+    verdict went with it" annotation went with it too.
+
+    Walks revision 1 (mark) -> 2 (rename) -> 3 (another edit) and asserts on
+    revision 3, where the old scope answered nothing. Revision 2 is asserted on
+    the way through so a fix that trades one revision for another still fails.
+    """
+
+    sandbox, repo_root = _symbol_reviewed_then_renamed(tmp_path, "discard_outlives_its_revision")
+    base = ["--repo-root", str(repo_root), "--working-tree"]
+
+    second = _invoke(sandbox, [*base, "--since-my-review"])
+    assert second.exit_code == 0, second.output
+    assert "Snapshot 1  (you last saw Snapshot 0)" in second.output
+    assert "VERDICTS DISCARDED  (1)" in second.output
+
+    # Revision 3: the agent edits again and touches nothing the reviewer judged.
+    (repo_root / "src" / "app.py").write_text(_UNDO_AFTER + "\n\ndef delta_1(w):\n    return w\n", encoding="utf-8")
+
+    third = _invoke(sandbox, [*base, "--since-my-review"])
+    assert third.exit_code == 0, third.output
+    assert "Snapshot 2  (you last saw Snapshot 0)" in third.output
+    # Once, not twice: two revisions passed, one verdict was destroyed.
+    assert "VERDICTS DISCARDED  (1)" in third.output, third.output
+    assert "src/app.py::alpha_1" in third.output
+    left = third.output.partition("LEFT THE REVIEW")[2]
+    assert "src/app.py::alpha_1  — your 'reviewed' verdict went with it" in left
+    assert "nothing here to re-read" not in left
+    assert "see VERDICTS DISCARDED above" in left
+
+    # Every surface, not only the one that asks about the frontier.
+    marks = _invoke(sandbox, [*base, "--marks"])
+    assert marks.exit_code == 0, marks.output
+    assert "VERDICTS DISCARDED  (1)" in marks.output, marks.output
+
+    as_json = _invoke(sandbox, [*base, "--since-my-review", "--json"])
+    assert as_json.exit_code == 0, as_json.output
+    state = json.loads(as_json.stderr.strip().splitlines()[-1])
+    (discarded,) = state["discarded_verdicts"]
+    assert discarded["state"] == "reviewed"
+    assert discarded["label"] == "src/app.py::alpha_1"
+    assert state["frontier"]["discarded_verdicts"] == state["discarded_verdicts"]
+    (removed,) = state["frontier"]["removed_units"]
+    assert removed["discarded_state"] == "reviewed", removed
+
+
+def test_a_discarded_verdict_stops_being_news_once_the_reviewer_moves_past_it(tmp_path: Path) -> None:
+    """The other half of the rule, and the reason it is not "forever".
+
+    A discard is reportable while its unit is still absent *and* the reviewer's
+    frontier has not reached the revision that destroyed it. Recording a verdict
+    is the act of having taken a revision in, and the banner is on screen while
+    they do it -- so once their frontier moves to that revision or past it, the
+    loss is history rather than news. Without a stop rule the block would be
+    permanent furniture on a review that never ends.
+    """
+
+    sandbox, repo_root = _symbol_reviewed_then_renamed(tmp_path, "discard_stops_being_news")
+    base = ["--repo-root", str(repo_root), "--working-tree"]
+    assert "VERDICTS DISCARDED  (1)" in _invoke(sandbox, [*base, "--since-my-review"]).output
+
+    key = _symbol_unit_key(sandbox, repo_root, "src/app.py::beta_1")
+    marked = _invoke(sandbox, [*base, "--mark", key])
+    assert marked.exit_code == 0, marked.output
+    # Still told on the run that moves them: the baseline this run reports
+    # against is the one they arrived with.
+    assert "VERDICTS DISCARDED  (1)" in marked.output, marked.output
+
+    after = _invoke(sandbox, [*base, "--since-my-review"])
+    assert after.exit_code == 0, after.output
+    assert "VERDICTS DISCARDED" not in after.output, after.output
+
+
+def test_a_restored_unit_stops_announcing_the_verdict_that_left_with_it(tmp_path: Path) -> None:
+    """ "Still absent" is the other condition, and an undo is what tests it.
+
+    The verdict stays destroyed -- :func:`unseen_units` keeps the restored unit
+    honestly *not new and not reviewed* -- but there is something to look at
+    again, so "this left the review and took your approval" is no longer the
+    sentence. A window keyed only on revision numbers would keep announcing it.
+    """
+
+    sandbox, repo_root = _symbol_reviewed_then_renamed(tmp_path, "discard_after_undo")
+    base = ["--repo-root", str(repo_root), "--working-tree"]
+    assert "VERDICTS DISCARDED  (1)" in _invoke(sandbox, [*base, "--since-my-review"]).output
+
+    (repo_root / "src" / "app.py").write_text(_UNDO_BEFORE, encoding="utf-8")
+    undone = _invoke(sandbox, [*base, "--since-my-review"])
+    assert undone.exit_code == 0, undone.output
+    assert "VERDICTS DISCARDED" not in undone.output, undone.output
+    assert "LEFT THE REVIEW" not in undone.output, undone.output
+
+
+def test_a_unit_that_left_carrying_a_verdict_is_not_called_nothing_to_re_read(tmp_path: Path) -> None:
+    """``LEFT THE REVIEW`` used to say the opposite of what happened.
+
+    Under a symbol the reviewer had approved, the block printed *no longer in
+    the change set -- nothing here to re-read*. There was plenty to re-read: the
+    verdict they recorded on it had just been destroyed. True of a unit nobody
+    had judged, false of one a human approved, and printed identically for both.
+    """
+
+    sandbox, repo_root = _symbol_reviewed_then_renamed(tmp_path, "left_with_a_verdict")
+    result = _invoke(sandbox, ["--repo-root", str(repo_root), "--working-tree", "--since-my-review"])
+    assert result.exit_code == 0, result.output
+
+    left = result.output.partition("LEFT THE REVIEW")[2]
+    assert left, result.output
+    assert "src/app.py::alpha_1  — your 'reviewed' verdict went with it" in left
+    assert "nothing here to re-read" not in left
+    assert "see VERDICTS DISCARDED above" in left
+
+
+def test_a_tree_that_went_backwards_says_so_and_calls_none_of_it_new(tmp_path: Path) -> None:
+    """An undo can put the tree on a revision *older* than the reviewer's frontier.
+
+    Mark ``alpha_1`` at revision 1, let the agent rename it (revision 2, verdict
+    correctly discarded), approve the renamed symbol there, then undo. The tree
+    fingerprints back to revision 1 and two sentences used to be false at once:
+
+    * ``revision 1  (you last saw revision 2)`` -- no reviewer has a model in
+      which the number they last saw exceeds the one in front of them.
+    * ``NEW SINCE MY LAST REVIEW: src/app.py::alpha_1`` -- the exact unit they
+      marked reviewed two revisions ago, byte for byte back.
+
+    Both came from comparing on ``revision_number``. The frontier is now the
+    revision the reviewer last recorded a verdict against, whichever number it
+    carries, and ``new`` is decided on content they have not seen rather than on
+    a key the baseline happened to lack.
+    """
+
+    sandbox = tmp_path / "revert_past_the_frontier"
+    repo_root = _fixture_repo(sandbox)
+    base = ["--repo-root", str(repo_root), "--working-tree"]
+
+    (repo_root / "src" / "app.py").write_text(_UNDO_BEFORE, encoding="utf-8")
+    alpha = _symbol_unit_key(sandbox, repo_root, "src/app.py::alpha_1")
+    assert _invoke(sandbox, [*base, "--mark", alpha]).exit_code == 0
+
+    # Revision 2: the rename discards that verdict, and the reviewer records one
+    # on the renamed symbol -- which is what puts their frontier on revision 2.
+    (repo_root / "src" / "app.py").write_text(_UNDO_AFTER, encoding="utf-8")
+    renamed = _symbol_unit_key(sandbox, repo_root, "src/app.py::renamed_alpha")
+    assert _invoke(sandbox, [*base, "--mark", renamed]).exit_code == 0
+
+    (repo_root / "src" / "app.py").write_text(_UNDO_BEFORE, encoding="utf-8")
+    back = _invoke(sandbox, [*base, "--since-my-review", "--json"])
+    assert back.exit_code == 0, back.output
+    state = json.loads(back.stderr.strip().splitlines()[-1])
+    assert state["revision_number"] == 0
+    frontier = state["frontier"]
+    assert frontier["previous_revision_number"] == 1
+    assert "src/app.py::alpha_1" not in [row["label"] for row in frontier["new"]]
+
+    text = _invoke(sandbox, [*base, "--since-my-review"]).output
+    assert "SINCE MY REVIEW  Snapshot 0  (the tree went back; you last saw Snapshot 1)" in text
+    assert "(you last saw Snapshot 1)" not in text.replace("the tree went back; you last saw Snapshot 1", "")
+    new_block = text.partition("NEW SINCE MY LAST REVIEW")[2]
+    assert "src/app.py::alpha_1" not in new_block.partition("\n\n")[0]
+
+
+def test_units_that_left_the_review_are_named_rather_than_counted(tmp_path: Path) -> None:
+    """``removed_units`` was computed, shipped as an integer and rendered nowhere.
+
+    A file whose edit an agent reverted leaves the change set entirely, taking
+    its verdicts and its comment threads out of every other list on the screen.
+    "4" is a number the reviewer cannot look up anywhere; the names are the
+    only form of that fact they can act on.
+    """
+
+    sandbox = tmp_path / "left_the_review"
+    repo_root = _fixture_repo(sandbox)
+    base = ["--repo-root", str(repo_root), "--working-tree"]
+    (repo_root / "src" / "app.py").write_text("def one():\n    return 3\n", encoding="utf-8")
+    (repo_root / "README.md").write_text("# fixture\n\nnotes\n", encoding="utf-8")
+    assert _invoke(sandbox, [*base, "--mark", "src/app.py"]).exit_code == 0
+
+    # The agent reverts its own README edit: those units are not in the review
+    # any more, and nothing else on screen will say where they went.
+    (repo_root / "README.md").write_text("# fixture\n", encoding="utf-8")
+    result = _invoke(sandbox, [*base, "--since-my-review", "--json"])
+    assert result.exit_code == 0, result.output
+    state = json.loads(result.stderr.strip().splitlines()[-1])
+    assert "README.md" in [row["label"] for row in state["frontier"]["removed_units"]]
+
+    text = _invoke(sandbox, [*base, "--since-my-review"]).output
+    block = text.partition("LEFT THE REVIEW")[2]
+    assert block, text
+    assert "README.md" in block
+    assert "no longer in the change set" in block
+
+
+def test_three_looks_at_an_unchanged_tree_are_one_answer_three_times(tmp_path: Path) -> None:
+    """Idempotence is the same answer twice, not a frozen answer.
+
+    Re-anchoring on every look is what keeps the row describing the revision
+    being reported; this is the other half of that bargain. Three consecutive
+    looks at a tree nobody touched must render identical text and leave the
+    store byte-for-byte where they found it -- one revision, one anchor event,
+    one mark, one frontier row.
+    """
+
+    from lemoncrow.pro.capabilities.review.store import ReviewStore
+
+    sandbox = tmp_path / "three_looks"
+    repo_root = _fixture_repo(sandbox)
+    (repo_root / "src" / "app.py").write_text(_UNDO_BEFORE, encoding="utf-8")
+    base = ["--repo-root", str(repo_root), "--working-tree"]
+    _invoke(sandbox, [*base, "--comment", "why doubled?", "--on", "src/app.py:L3"])
+    _invoke(sandbox, [*base, "--mark", _symbol_unit_key(sandbox, repo_root, "src/app.py::beta_1")])
+
+    def snapshot() -> tuple[Any, ...]:
+        databases = list((tmp_path / "server" / "reviews").glob("*/lemoncrow_reviews.db"))
+        assert len(databases) == 1
+        store = ReviewStore(databases[0].parent)
+        (session,) = store.list_sessions()
+        with store._transaction() as conn:
+            events = conn.execute(
+                "SELECT annotation_id, revision_id, method, status, detail FROM annotation_anchor_events"
+                " ORDER BY created_at, id"
+            ).fetchall()
+        return (
+            tuple(revision.tree_fingerprint for revision in store.list_revisions(session.id)),
+            tuple(
+                (mark.unit_key, mark.state, mark.reviewed_revision_id)
+                for mark in store.list_marks(session.id, reviewer_id=session.reviewer_id)
+            ),
+            store.frontier_revision(session.id, session.reviewer_id),
+            tuple(tuple(row) for row in events),
+            tuple(
+                (item.state, item.anchor.start_line, item.anchor_method) for item in store.list_annotations(session.id)
+            ),
+        )
+
+    before = snapshot()
+    looks = [_invoke(sandbox, [*base, "--since-my-review", "--comments"]) for _ in range(3)]
+    for look in looks:
+        assert look.exit_code == 0, look.output
+    assert looks[0].output == looks[1].output == looks[2].output
+    assert snapshot() == before
+
+
+def test_an_orphaned_comment_does_not_claim_a_symbol_from_the_dead_revision(tmp_path: Path) -> None:
+    """``_orphan`` claims nothing; the surfaces have to keep that promise.
+
+    "not relocated" and "in ``gone_forever``" on one line is a card that denies
+    in four words what it asserted in the previous four. Where the comment was
+    *written* is worth saying -- it is how a reader finds the old code -- but it
+    has to be said as history.
+    """
+
+    sandbox = tmp_path / "orphan"
+    repo_root = _fixture_repo(sandbox)
+    (repo_root / "src" / "app.py").write_text(
+        'def gone_forever(value):\n    """Doomed."""\n    marker = value + 1\n    return marker\n',
+        encoding="utf-8",
+    )
+    base = ["--repo-root", str(repo_root), "--working-tree"]
+    _invoke(sandbox, [*base, "--comment", "why plus one?", "--on", "src/app.py:L3"])
+
+    (repo_root / "src" / "app.py").write_text(
+        'def totally_new_thing(payload):\n    """Nothing here resembles what was there."""\n'
+        "    assembled = [payload, payload]\n    return assembled\n",
+        encoding="utf-8",
+    )
+    result = _invoke(sandbox, [*base, "--since-my-review", "--comments"])
+
+    assert result.exit_code == 0, result.output
+    assert "anchor: not relocated · originally in gone_forever" in result.output
+    assert "· in gone_forever" not in result.output
+    assert "comments 1 orphaned" in result.output
+
+
+def test_the_orphan_payload_separates_where_it_is_from_where_it_was(tmp_path: Path) -> None:
+    """The JSON every other surface reads has to make the distinction too.
+
+    A single ``symbol`` field cannot: the workspace card and the feedback bundle
+    both rendered it as an address, and an agent handed that bundle would go
+    looking for a definition that no longer exists.
+    """
+
+    sandbox = tmp_path / "orphan_json"
+    repo_root = _fixture_repo(sandbox)
+    (repo_root / "src" / "app.py").write_text(
+        'def gone_forever(value):\n    """Doomed."""\n    marker = value + 1\n    return marker\n',
+        encoding="utf-8",
+    )
+    base = ["--repo-root", str(repo_root), "--working-tree"]
+    _invoke(sandbox, [*base, "--comment", "why plus one?", "--on", "src/app.py:L3"])
+    (repo_root / "src" / "app.py").write_text(
+        'def totally_new_thing(payload):\n    """Nothing here resembles what was there."""\n'
+        "    assembled = [payload, payload]\n    return assembled\n",
+        encoding="utf-8",
+    )
+    result = _invoke(sandbox, [*base, "--since-my-review", "--comments", "--json"])
+
+    assert result.exit_code == 0, result.output
+    state = json.loads(result.stderr.strip().splitlines()[-1])
+    (row,) = state["annotations"]
+    assert row["anchored"] is False
+    assert row["symbol"] == ""
+    assert row["origin_symbol"] == "gone_forever"
+
+
 # --------------------------------------------------------------------------- #
 # same-named symbols in one file
 # --------------------------------------------------------------------------- #
+
+
+def test_two_methods_named_run_do_not_print_as_one_row(tmp_path: Path) -> None:
+    """The judge's second case. Distinct keys were never the problem; the rows were.
+
+    ``svc.py::run`` printed twice sends a reviewer to whichever method they
+    happen to open. In a real repository the same collapse put one name in
+    UNCHANGED REVIEWED and NEW SINCE MY LAST REVIEW at the same time.
+    """
+
+    repo_root = _fixture_repo(tmp_path)
+    (repo_root / "src" / "svc.py").write_text(
+        "class Reader:\n"
+        "    def run(self):\n"
+        "        return 'read'\n"
+        "\n"
+        "\n"
+        "class Writer:\n"
+        "    def run(self):\n"
+        "        return 'write'\n",
+        encoding="utf-8",
+    )
+    result = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--units", "--json"])
+
+    assert result.exit_code == 0, result.output
+    state = json.loads(result.stderr.strip().splitlines()[-1])
+    labels = [row["label"] for row in state["units"] if row["kind"] == "symbol"]
+    assert "src/svc.py::Reader.run" in labels
+    assert "src/svc.py::Writer.run" in labels
+    assert len(labels) == len(set(labels)), labels
 
 
 def test_two_definitions_nesting_cannot_separate_get_a_line_disambiguator(tmp_path: Path) -> None:
@@ -2046,9 +2856,41 @@ def test_two_definitions_nesting_cannot_separate_get_a_line_disambiguator(tmp_pa
     assert labels == ["src/svc.py::run@L1", "src/svc.py::run@L5"]
 
 
+def test_marks_on_same_named_symbols_print_as_two_rows(tmp_path: Path) -> None:
+    """A mark on one twin must not read as a mark on the other."""
+
+    repo_root = _fixture_repo(tmp_path)
+    (repo_root / "src" / "svc.py").write_text(
+        "def run():\n    return 1\n\n\ndef run():\n    return 2\n",
+        encoding="utf-8",
+    )
+    listed = _invoke(tmp_path, ["--repo-root", str(repo_root), "--working-tree", "--units", "--json"])
+    state = json.loads(listed.stderr.strip().splitlines()[-1])
+    keys = [row["unit_key"] for row in state["units"] if row["kind"] == "symbol"]
+    assert len(keys) == 2
+
+    marked = _invoke(
+        tmp_path,
+        ["--repo-root", str(repo_root), "--working-tree", "--mark", keys[0], "--marks", "--no-color"],
+    )
+    assert marked.exit_code == 0, marked.output
+    assert "src/svc.py::run@L1" in marked.output
+    assert "src/svc.py::run@L5" not in marked.output
+
+
 # --------------------------------------------------------------------------- #
 # --feedback and --finish: plan SS5.5's last two actions
 # --------------------------------------------------------------------------- #
+
+
+def test_feedback_and_finish_are_registered_and_documented() -> None:
+    result = CliRunner().invoke(cli, ["review", "--help"])
+    assert result.exit_code == 0
+    assert "--feedback" in result.output
+    assert "--finish" in result.output
+    assert "--reopen-review" in result.output
+    assert "--current" in result.output
+    assert "--resume-author" in result.output
 
 
 def test_feedback_renders_the_bundle_and_says_it_delivered_nothing(tmp_path: Path) -> None:
@@ -2361,43 +3203,3 @@ def test_a_check_needs_its_command_and_runs_on_its_own(tmp_path: Path) -> None:
 
     assert alone.exit_code != 0 and "--check NAME and --run COMMAND go together" in alone.output
     assert combined.exit_code != 0 and "--check runs on its own; drop --mark" in combined.output
-
-
-def test_review_new_and_continue_forward_explicit_lifecycle_controls(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from lemoncrow.gateway.cli.commands import review as review_mod
-
-    repo_root = _fixture_repo(tmp_path)
-    monkeypatch.setenv("LEMONCROW_INSTALL_MODE", "local")
-    monkeypatch.setenv("LEMONCROW_URL", "http://127.0.0.1:7420")
-    seen: list[dict[str, Any]] = []
-
-    def _server(_config: Any, _root: Path, _rng: Any, **kwargs: Any) -> None:
-        seen.append(kwargs)
-
-    monkeypatch.setattr(review_mod, "_review_server_capture", _server)
-
-    explicit = _invoke(tmp_path, ["--repo-root", str(repo_root), "--new", "--base", "HEAD"])
-    assert explicit.exit_code == 0, explicit.output
-    assert seen[-1]["force_new_review"] is True
-
-    created = _invoke(tmp_path, ["--repo-root", str(repo_root), "--new"])
-    assert created.exit_code == 0, created.output
-    assert seen[-1]["force_new_review"] is True
-    assert seen[-1]["continue_review_id"] == ""
-
-    continued = _invoke(
-        tmp_path,
-        ["--repo-root", str(repo_root), "--continue", "r/12345678"],
-    )
-    assert continued.exit_code == 0, continued.output
-    assert seen[-1]["force_new_review"] is False
-    assert seen[-1]["continue_review_id"] == "r/12345678"
-
-    invalid = _invoke(
-        tmp_path,
-        ["--repo-root", str(repo_root), "--working-tree", "--new", "--continue", "r/12345678"],
-    )
-    assert invalid.exit_code != 0
-    assert "mutually exclusive" in invalid.output

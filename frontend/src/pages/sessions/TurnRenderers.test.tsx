@@ -1,37 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { NO_LOCAL_RUNTIME_CAPABILITIES, RuntimeCapabilitiesProvider } from "../../lib/RuntimeCapabilities";
 import { ConversationTurn, CommandDetail } from "./TurnRenderers";
-
-describe("ConversationTurn attachments off the developer machine", () => {
-  afterEach(() => vi.restoreAllMocks());
-
-  it("shows inline content without file links or file fetches when the files are not local (hosted)", () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch");
-    render(
-      <RuntimeCapabilitiesProvider value={NO_LOCAL_RUNTIME_CAPABILITIES}>
-        <ConversationTurn
-          forceExpand
-          turn={{
-            kind: "attachment",
-            at: "2026-05-16T00:00:00Z",
-            summary: "Attached context",
-            content: "",
-            attachments: [
-              { type: "selection", display_name: "Selection in spec.md", path: "/tmp/spec.md", content: "# Spec", line_count: 1 },
-              { type: "file", display_name: "notes.md", path: "/tmp/notes.md" },
-            ],
-          }}
-        />
-      </RuntimeCapabilitiesProvider>
-    );
-
-    expect(screen.getByText(/# Spec/)).toBeInTheDocument();
-    expect(screen.getByText("/tmp/notes.md")).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Projection" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Open" })).toBeNull();
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
-});
 
 describe("ConversationTurn rich cards", () => {
   it("renders TodoWrite turns as a task list card", () => {
@@ -146,24 +114,6 @@ describe("ConversationTurn rich cards", () => {
     expect(screen.getAllByText("gpt-5.4").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("STARTED")).toBeInTheDocument();
   });
-
-  it("renders user and agent prose as Markdown instead of raw transcript text", () => {
-    render(
-      <ConversationTurn
-        forceExpand
-        turn={{
-          kind: "agent_message",
-          at: "2026-10-05T18:00:00Z",
-          summary: "Assistant response",
-          content: "## Result\n\n- **Passed** verification\n- Added retry coverage",
-        }}
-      />
-    );
-
-    expect(screen.getByRole("heading", { name: "Result" })).toBeInTheDocument();
-    expect(screen.getByText("Passed").tagName).toBe("STRONG");
-    expect(screen.getAllByRole("listitem")).toHaveLength(2);
-  });
 });
 
 describe("CommandDetail exit-code styling", () => {
@@ -172,7 +122,7 @@ describe("CommandDetail exit-code styling", () => {
       <CommandDetail command={{ command: "echo hi" }} forceExpand={false} />
     );
     const badge = screen.getByText("EXIT_?");
-    expect(badge).toHaveClass("text-muted-foreground");
+    expect(badge).toHaveClass("text-neutral-400");
     expect(badge).not.toHaveClass("text-red-600");
   });
 

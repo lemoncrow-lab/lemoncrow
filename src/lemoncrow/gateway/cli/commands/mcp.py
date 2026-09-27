@@ -1,4 +1,4 @@
-"""``lc runtime mcp`` — start the stdio MCP server, publish it remotely, or run diagnostics."""
+"""``lc mcp`` — start the stdio MCP server, publish it remotely, or run diagnostics."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import json
 import os
 import shutil
 import subprocess
-import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -15,6 +14,7 @@ import click
 
 import lemoncrow
 from lemoncrow.gateway.cli.commands._shared import _emit
+from lemoncrow.gateway.cli.commands.mcp_serve import mcp_client_cmd, mcp_serve_cmd, mcp_service_group
 
 _BENCHMARK_REQUIRED_TOOLS = frozenset({"read", "edit", "code_search", "bash"})
 
@@ -72,7 +72,7 @@ def probe_stdio_server(*, host: str = "claude", timeout: float = 30.0) -> dict[s
     probe_env.setdefault("LEMONCROW_REQUEST_TIMEOUT_S", str(timeout))
     try:
         completed = subprocess.run(
-            [executable, "runtime", "mcp", "--host", host],
+            [executable, "mcp", "--host", host],
             input=requests + "\n",
             capture_output=True,
             text=True,
@@ -96,15 +96,13 @@ def probe_stdio_server(*, host: str = "claude", timeout: float = 30.0) -> dict[s
         probe_error = by_id[3].get("error")
     except (KeyError, TypeError, json.JSONDecodeError) as exc:
         return {"ok": False, "error": f"invalid MCP handshake response: {exc}", "tools": []}
-    from lemoncrow_client.lite.mcp import SERVER_NAME as lite_server_name
-    from lemoncrow_client.mcpserver import SERVER_NAME as thin_server_name
+    from lemoncrow_client.mcpserver import SERVER_NAME as expected_server_name
 
-    expected_server_names = {thin_server_name, lite_server_name}
     missing = sorted(_BENCHMARK_REQUIRED_TOOLS - set(tools))
-    if server_name not in expected_server_names or missing:
+    if server_name != expected_server_name or missing:
         detail = (
             f"unexpected server {server_name!r}"
-            if server_name not in expected_server_names
+            if server_name != expected_server_name
             else f"missing tools: {', '.join(missing)}"
         )
         return {"ok": False, "error": detail, "tools": tools}
@@ -275,17 +273,15 @@ def active_mcp_sessions(root: Path) -> list[dict[str, Any]]:
     help="LemonCrow data root (default: ~/.lemoncrow)",
 )
 @click.option("--host", envvar="LEMONCROW_AGENT", help="Agent host identifier (e.g. claude-code)")
-@click.version_option(version=lemoncrow.__version__, prog_name="lc runtime mcp", message="%(prog)s %(version)s")
+@click.version_option(version=lemoncrow.__version__, prog_name="lc mcp", message="%(prog)s %(version)s")
 @click.pass_context
 def mcp_group(ctx: click.Context, root: Path | None, host: str | None) -> None:
     """Start the LemonCrow MCP server, or inspect MCP diagnostics.
 
-    With no subcommand: runs the stdio MCP server in this process: Runtime Lite
-    locally, or the thin client when Runtime targets a hosted server.
-    Use ``lc runtime mcp serve`` to publish the same tools at a public https URL that
-    any remote MCP client — ChatGPT, Claude, Cursor, VS Code — can connect to
-    (served by ``lemoncrow_client``; this CLI only forwards to it).
-    Use ``lc runtime mcp stats`` to view latency analytics.
+    With no subcommand: runs the short-lived thin-client stdio MCP server.
+    Use ``lc mcp serve`` to publish the same tools at a public https URL that
+    any remote MCP client — ChatGPT, Claude, Cursor, VS Code — can connect to.
+    Use ``lc mcp stats`` to view latency analytics.
     """
     if ctx.invoked_subcommand is not None:
         return
@@ -294,17 +290,19 @@ def mcp_group(ctx: click.Context, root: Path | None, host: str | None) -> None:
         os.environ["LEMONCROW_ROOT"] = str(root)
     if host is not None:
         os.environ["LEMONCROW_AGENT"] = host
-    # ``lc runtime mcp`` runs Runtime Lite in this process, or the thin client
-    # when Runtime targets a hosted server. The local server executes no tools.
+    # ``lc mcp`` is now only the compatibility entrypoint for the dependency-free
+    # thin client.  There is deliberately no local-index/server fallback here:
+    # local means the same client talking to a separately running loopback
+    # LemonCrow server, and hosted means the URL points at the remote server.
     if root is not None:
         os.environ["LEMONCROW_HOME"] = str(root)
     try:
-        from lemoncrow_client.cli import serve_runtime_mcp
+        from lemoncrow_client.mcpserver import serve as serve_thin_client
     except ImportError as exc:  # pragma: no cover - packaging contract catches this
         raise click.ClickException(
-            "lemoncrow-client is required by lc runtime mcp; reinstall LemonCrow so the thin-client dependency is present"
+            "lemoncrow-client is required by lc mcp; reinstall LemonCrow so the thin-client dependency is present"
         ) from exc
-    raise SystemExit(serve_runtime_mcp(sys.stderr))
+    raise SystemExit(serve_thin_client())
 
 
 @mcp_group.command("check")
@@ -408,20 +406,31 @@ def _proc_stats(pids: list[int]) -> dict[int, tuple[float, float]]:
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def mcp_list(ctx: click.Context, as_json: bool) -> None:
-    """List explicit MCP server processes still running on this machine.
+    """List managed/public MCP servers still running on this machine.
 
-    ``lc runtime mcp`` itself is a short-lived stdio thin client and intentionally has
-    no daemon registry to inspect. Persistent remote MCP connectors are served by
-    the client: ``lc runtime mcp service list``.
+    ``lc mcp`` itself is a short-lived stdio thin client and intentionally has
+    no daemon registry to inspect. Persistent/public ``lc mcp serve`` services
+    remain visible here because they are explicitly managed server processes.
     """
     root: Path = ctx.obj["root"]
+    from dataclasses import asdict
+
     from lemoncrow.gateway.adapters.mcp.session_state import prune_stale_mcp_sessions
+    from lemoncrow.gateway.cli.commands._mcp_service import describe_services
 
     pruned = prune_stale_mcp_sessions(root)
     registered = active_mcp_sessions(root)
+    remote = describe_services()
 
     if as_json:
-        _emit({"count": len(registered), "servers": registered}, as_json=True)
+        _emit(
+            {
+                "count": len(registered) + len(remote),
+                "remote_servers": [asdict(service) for service in remote],
+                "servers": registered,
+            },
+            as_json=True,
+        )
         return
 
     home = str(Path.home())
@@ -430,7 +439,10 @@ def mcp_list(ctx: click.Context, as_json: bool) -> None:
         text = str(path or "?")
         return "~" + text[len(home) :] if text.startswith(home) else text
 
-    stats = _proc_stats([int(str(entry.get("pid"))) for entry in registered if str(entry.get("pid", "")).isdigit()])
+    stats = _proc_stats(
+        [service.pid for service in remote if service.pid]
+        + [int(str(entry.get("pid"))) for entry in registered if str(entry.get("pid", "")).isdigit()]
+    )
 
     def _usage(pid: object) -> str:
         text = str(pid or "")
@@ -443,17 +455,22 @@ def mcp_list(ctx: click.Context, as_json: bool) -> None:
             return "defunct"
         return f"{memory_mb:,.0f} MB  cpu {cpu_pct:.0f}%"
 
-    total = len(registered)
+    total = len(remote) + len(registered)
     click.echo("")
     click.secho(f"  LemonCrow MCP servers · {total}", bold=True)
     if pruned:
         click.secho(f"  pruned {pruned} stale registration(s) whose process had exited", dim=True)
     if total == 0:
         click.echo("  No managed/public server processes are running.")
-        click.echo("  `lc runtime mcp` is a short-lived thin client and is not listed here.")
+        click.echo("  `lc mcp` is a short-lived thin client and is not listed here.")
         click.echo("")
         return
 
+    for service in remote:
+        click.echo(
+            f"  {service.state:<13} {_short(service.workspace):<40} "
+            f"{_usage(service.pid) if service.pid else '':<20} https://{service.hostname}/mcp"
+        )
     for session in registered:
         click.echo(
             f"  pid {session.get('pid')!s:<8} {_short(session.get('workspace')):<40} "
@@ -486,10 +503,10 @@ def mcp_stats_group(
 
     \b
     Examples:
-      lc runtime mcp stats                 # 24-hour summary across all tools
-      lc runtime mcp stats --tool bash     # filter to bash only
-      lc runtime mcp stats --hours 1       # last-hour window
-      lc runtime mcp stats show 42         # drill into debug entry #42
+      lc mcp stats                 # 24-hour summary across all tools
+      lc mcp stats --tool bash     # filter to bash only
+      lc mcp stats --hours 1       # last-hour window
+      lc mcp stats show 42         # drill into debug entry #42
     """
     if ctx.invoked_subcommand is not None:
         return
@@ -575,13 +592,13 @@ def mcp_stats_group(
         )
         return
 
-    # ─── human-readable output (matches lc runtime savings style) ───
+    # ─── human-readable output (matches lc savings style) ───
     if debug_env_on:
         debug_label = "on (env)"
     elif debug_marker_on:
         debug_label = "on (dev mode)"
     else:
-        debug_label = "off — run: lc runtime mcp debug on  or  LEMONCROW_MCP_DEBUG=1"
+        debug_label = "off — run: make dev  or  LEMONCROW_MCP_DEBUG=1"
 
     window_label = f"{int(hours)}h" if hours == int(hours) else f"{hours:.1f}h"
     click.echo("")
@@ -620,7 +637,7 @@ def mcp_stats_group(
             )
         if debug_on and top5 and top5[0]["id"] is not None:
             first_id = top5[0]["id"]
-            click.echo(f"\n  → lc runtime mcp stats show {first_id}")
+            click.echo(f"\n  → lc mcp stats show {first_id}")
     click.echo("")
 
 
@@ -631,18 +648,17 @@ def mcp_stats_group(
 def mcp_stats_show(ctx: click.Context, entry_id: int, as_json: bool) -> None:
     """Drill into a specific debug log entry by ID.
 
-    IDs are the line numbers shown in ``lc runtime mcp stats``. Only available
-    when debug logging is enabled (lc runtime mcp debug on, or LEMONCROW_MCP_DEBUG=1).
+    IDs are the line numbers shown in ``lc mcp stats``. Only available
+    when debug logging is enabled (make dev, or LEMONCROW_MCP_DEBUG=1).
     """
     root: Path = ctx.obj["root"]
     debug_paths = _debug_log_paths(root)
     if not debug_paths:
         raise click.ClickException(
-            "Debug log not found. Enable with: lc runtime mcp debug on  or  LEMONCROW_MCP_DEBUG=1, "
-            "then run a few MCP tool calls."
+            "Debug log not found. Enable with: make dev  or  LEMONCROW_MCP_DEBUG=1, then run a few MCP tool calls."
         )
 
-    # Resolve the ID over the same multi-file enumeration used by `lc runtime mcp stats`
+    # Resolve the ID over the same multi-file enumeration used by `lc mcp stats`
     # (global 1-indexed line number across all debug files, in stable order).
     entry: dict[str, Any] | None = None
     global_idx = 0
@@ -730,7 +746,7 @@ def mcp_debug_status(ctx: click.Context) -> None:
     else:
         click.echo(f"  log:    {log}  (not yet created)")
     if not active:
-        click.echo("  → Enable: LEMONCROW_MCP_DEBUG=1  or  lc runtime mcp debug on")
+        click.echo("  → Enable: LEMONCROW_MCP_DEBUG=1  or  make dev  or  lc mcp debug on")
 
 
 @mcp_debug_group.command("on")
@@ -758,26 +774,12 @@ def mcp_debug_off(ctx: click.Context) -> None:
         click.echo("MCP debug logging: already off")
 
 
-def _remote_mcp_passthrough(name: str) -> click.Command:
-    """Remote MCP (gateway, tunnel, user units) is owned by the client package."""
-
-    @click.command(
-        name,
-        context_settings={"ignore_unknown_options": True, "allow_extra_args": True, "help_option_names": []},
-        add_help_option=False,
-        help=f"Remote MCP: `lc runtime mcp {name} --help` (served by lemoncrow_client).",
-    )
-    @click.argument("arguments", nargs=-1, type=click.UNPROCESSED)
-    def forward(arguments: tuple[str, ...]) -> None:
-        from lemoncrow_client.remote import cli as remote_cli
-
-        raise SystemExit(remote_cli.remote_main([name, *arguments], click.get_text_stream("stdout")))
-
-    return forward
-
-
-for _remote_command in ("serve", "client", "service", "gateway"):
-    mcp_group.add_command(_remote_mcp_passthrough(_remote_command))
+# Remote (streamable-HTTP + OAuth) transport lives in its own module because it
+# is a whole tunnel/OAuth stack; it hangs off this group so one `lc mcp` covers
+# both transports: bare `lc mcp` = local stdio, `lc mcp serve` = public URL.
+mcp_group.add_command(mcp_serve_cmd)
+mcp_group.add_command(mcp_client_cmd)
+mcp_group.add_command(mcp_service_group)
 
 # backward-compat alias used by commands/__init__.py
 mcp_cmd = mcp_group

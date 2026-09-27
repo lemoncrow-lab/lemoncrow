@@ -7,8 +7,6 @@ relationship identity/context needed to keep one r/<id> coherent over time.
 from __future__ import annotations
 
 import json
-import logging
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from lemoncrow.pro.capabilities.review.session_models import ReviewRelationship, ReviewSession
@@ -75,45 +73,7 @@ def scm_identity_from_source_ref(
     return provider, external_id, url
 
 
-def _derived_scm_requirements(store: ReviewStore, session: ReviewSession) -> list[dict[str, Any]]:
-    """Provider-owned requirements a store derives from provider facts (hosted only).
-
-    These are SCM requirements (e.g. GitHub dismissing approvals on a new
-    push), never changed targets. An unreadable hook contributes nothing; the
-    provider still enforces its own rule.
-    """
-
-    hook = getattr(store, "derived_scm_requirements", None)
-    if not callable(hook):
-        return []
-    try:
-        rows = hook(session)
-    except Exception:
-        logging.getLogger(__name__).warning("derived SCM requirements unavailable for %s", session.id, exc_info=True)
-        return []
-    return [dict(row) for row in rows or () if isinstance(row, Mapping)]
-
-
-def stack_payload(store: ReviewStore, session: ReviewSession) -> dict[str, Any] | None:
-    """Read-only stack awareness (item 24); ``None`` when the Change is not stacked."""
-
-    from lemoncrow.pro.capabilities.review.stack_awareness import stack_for
-
-    try:
-        projection = stack_for(store, session)
-    except Exception:
-        logging.getLogger(__name__).warning("stack awareness unavailable for %s", session.id, exc_info=True)
-        return None
-    if projection is None or (not projection.stacked and projection.complete):
-        return None
-    return projection.to_wire()
-
-
-def change_context_payload(
-    store: ReviewStore, session: ReviewSession, *, include_stack: bool = False
-) -> dict[str, Any]:
-    """Relationships of one Change; ``include_stack`` adds the read-only stack projection."""
-
+def change_context_payload(store: ReviewStore, session: ReviewSession) -> dict[str, Any]:
     rows = [relationship_payload(item) for item in store.list_relationships(session.id)]
     scm = [item for item in rows if item["kind"] == "scm"]
     source_identity = scm_identity_from_source_ref(session.source_ref, range_mode=session.range_mode)
@@ -138,20 +98,14 @@ def change_context_payload(
                     "updated_at": session.updated_at,
                 },
             )
-    payload: dict[str, Any] = {
+    return {
         "ref": f"r/{session.id}",
         "scm": scm,
         "relations": [item for item in rows if item["kind"] == "change"],
         "work_items": [item for item in rows if item["kind"] == "work_item"],
-        "scm_requirements": [
-            *(item for item in rows if item["kind"] == "scm_requirement"),
-            *_derived_scm_requirements(store, session),
-        ],
+        "scm_requirements": [item for item in rows if item["kind"] == "scm_requirement"],
         "landing": [item for item in rows if item["kind"] == "landing"],
     }
-    if include_stack:
-        payload["stack"] = stack_payload(store, session)
-    return payload
 
 
-__all__ = ["change_context_payload", "relationship_payload", "scm_identity_from_source_ref", "stack_payload"]
+__all__ = ["change_context_payload", "relationship_payload", "scm_identity_from_source_ref"]

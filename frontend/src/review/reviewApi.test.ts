@@ -9,14 +9,14 @@ import {
   applyChangeProposal,
   createChangeProposal,
   deliverFeedback,
-  detachHostedAttachment,
   exportFeedback,
-  fetchHostedAttachment,
   fetchChangeProposals,
   fetchFile,
   fetchLiveWebPreview,
   fetchSurfaceImpact,
   fetchSurfaceImpactWithRetry,
+  fetchSurfaceResponseDiffScore,
+  fetchWebPreviewDiffScore,
   fetchMarkdownImage,
   fetchMediaFile,
   fetchOverview,
@@ -30,6 +30,7 @@ import {
   fetchSurfacePreview,
   fetchReviewAsk,
   fetchReviewPreparation,
+  fetchReviewLiveState,
   fetchReviewMap,
   fetchHistoricalReviewMap,
   fetchProposalSelection,
@@ -39,20 +40,14 @@ import {
   finishReview,
   hasToken,
   historicalReviewHref,
-  LOCAL_BROWSER_RECONNECT_MESSAGE,
   postBulkReviewed,
   postMark,
   postReviewAsk,
-  resolveHostedAction,
   reviewCompareHref,
   runReviewSurface,
-  runRuntimeValidation,
-  fetchRuntimeValidationJob,
-  cancelRuntimeValidationJob,
   sendReviewAskHandoff,
   reviewHref,
   sourceCompareHref,
-  streamReviewAsk,
   uploadReviewEvidence,
 } from "./reviewApi";
 
@@ -100,25 +95,6 @@ describe("bootstrap fragment", () => {
     expect(adoptBootstrapFragment()).toEqual({ token: "", reviewId: "rev-123", preparationId: "prepare-7" });
   });
 
-  it("opens a named saved Review without resuming an old preparation job", () => {
-    navigateTo("/review#r=rev-123&p=prepare-7");
-    adoptBootstrapFragment();
-    __setBootstrapForTest({ token: "", reviewId: "" });
-    navigateTo("/r/5f5be0d3");
-
-    expect(adoptBootstrapFragment({ restorePreparation: false })).toEqual({
-      token: "", reviewId: "rev-123",
-    });
-  });
-
-  it("preserves an explicit new-review preparation even on a named route", () => {
-    navigateTo("/r/5f5be0d3#r=rev-123&p=prepare-7&sr=1");
-
-    expect(adoptBootstrapFragment({ restorePreparation: false })).toEqual({
-      token: "", reviewId: "rev-123", preparationId: "prepare-7", sourceReady: true,
-    });
-  });
-
   it("never reports a JavaScript-visible machine credential", () => {
     navigateTo("/review");
     expect(adoptBootstrapFragment().token).toBe("");
@@ -159,24 +135,6 @@ describe("requests", () => {
     expect((spy.mock.calls[0] as unknown as [string])[0]).toBe("/api/reviews/rev-1/map?level=architecture");
     expect((spy.mock.calls[1] as unknown as [string])[0]).toBe("/api/reviews/rev-1/map?level=symbol&node_id=symbol%3Aabc+def");
     expect((spy.mock.calls[2] as unknown as [string])[0]).toBe("/api/reviews/rev-1/revisions/3/map?level=symbol&node_id=symbol%3Aabc+def");
-  });
-
-  it("reads, resolves and detaches a hosted attachment on the Review's own routes", async () => {
-    const spy = stubFetch(200, { attached: true, review_id: "rev 1" });
-
-    await fetchHostedAttachment("rev 1");
-    await resolveHostedAction("rev 1", "rha/2", "requeue");
-    await detachHostedAttachment("rev 1", false);
-    await detachHostedAttachment("rev 1", true);
-
-    const calls = spy.mock.calls as unknown as [string, RequestInit][];
-    expect(calls.map(([url, init]) => [url, init.method ?? "GET"])).toEqual([
-      ["/api/reviews/rev%201/hosted", "GET"],
-      ["/api/reviews/rev%201/hosted/actions/rha%2F2", "POST"],
-      ["/api/reviews/rev%201/hosted", "DELETE"],
-      ["/api/reviews/rev%201/hosted?discard_unresolved=true", "DELETE"],
-    ]);
-    expect(JSON.parse(String(calls[1][1].body))).toEqual({ op: "requeue" });
   });
 
   it("never constructs a machine Authorization header", async () => {
@@ -264,40 +222,6 @@ describe("requests", () => {
     expect(headers.get("Authorization")).toBeNull();
   });
 
-  it("renews an ageing local capability before use without a CLI pairing", async () => {
-    const ageing = `v1.${Math.floor(Date.now() / 1000) + 3 * 24 * 60 * 60}.nonce.sig`;
-    localStorage.setItem("lemoncrow.review.browserSession", ageing);
-    __setBootstrapForTest({ token: "", reviewId: "rev-1" });
-    navigateTo("/reviews");
-    const spy = vi
-      .fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ token: "renewed-capability" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ session: {} }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }));
-    vi.stubGlobal("fetch", spy);
-
-    await fetchOverview("rev-1");
-
-    expect(spy.mock.calls[0]?.[0]).toBe("/v1/auth/local-browser/claim");
-    expect(new Headers(spy.mock.calls[0]?.[1]?.headers).get("X-LemonCrow-Browser-Session")).toBe(ageing);
-    expect(new Headers(spy.mock.calls[1]?.[1]?.headers).get("X-LemonCrow-Browser-Session")).toBe("renewed-capability");
-    expect(localStorage.getItem("lemoncrow.review.browserSession")).toBe("renewed-capability");
-  });
-
-  it("turns an unpaired local claim into a reconnect instruction", async () => {
-    navigateTo("/r/12345678");
-    const spy = vi.fn(async () => new Response(JSON.stringify({ error: { message: "not paired" } }), { status: 401 }));
-    vi.stubGlobal("fetch", spy);
-
-    await expect(fetchOverview("rev-1")).rejects.toThrow(LOCAL_BROWSER_RECONNECT_MESSAGE);
-    expect(LOCAL_BROWSER_RECONNECT_MESSAGE).toContain("lc review --open");
-  });
-
   it("falls back to hosted Authward BFF refresh when the local pairing endpoint is absent", async () => {
     __setBootstrapForTest({ token: "", reviewId: "rev-1" });
     const spy = vi
@@ -321,37 +245,23 @@ describe("requests", () => {
     expect(spy.mock.calls[3]?.[0]).toBe("/api/reviews/rev-1");
   });
 
-  it("keeps the reviewer in place with a retryable error when the sign-in service is down", async () => {
-    __setBootstrapForTest({ token: "", reviewId: "rev-1" });
-    const spy = vi
-      .fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ detail: "expired" }), { status: 401 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ detail: "not found" }), { status: 404 }))
-      .mockResolvedValueOnce(new Response("upstream down", { status: 503 }));
-    vi.stubGlobal("fetch", spy);
+  it("uses one bounded authenticated live-state long poll", async () => {
+    const spy = stubFetch(200, {
+      cursor: "live-2",
+      changed: true,
+      revision_id: "rrv-1",
+      packet_cursor: "packet-1",
+      annotations_cursor: "annotations-2",
+      journal_cursor: "journal-3",
+    });
+    const controller = new AbortController();
 
-    const failure = await fetchOverview("rev-1").catch((reason: unknown) => reason);
+    const result = await fetchReviewLiveState("rev-123", "live-1", 50_000, controller.signal);
 
-    expect(failure).toBeInstanceOf(Error);
-    expect((failure as Error).message).toBe("Sign-in service is temporarily unavailable. Try again in a moment.");
-    expect((failure as { status?: number }).status).toBe(503);
-    expect(spy).toHaveBeenCalledTimes(3);
-    expect(window.location.pathname).toBe("/review");
-  });
-
-  it("routes a refused credential refresh (403) to the access-denied sign-in page", async () => {
-    __setBootstrapForTest({ token: "", reviewId: "rev-1" });
-    const spy = vi
-      .fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ detail: "expired" }), { status: 401 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ detail: "not found" }), { status: 404 }))
-      .mockResolvedValueOnce(new Response("denied", { status: 403 }));
-    vi.stubGlobal("fetch", spy);
-
-    const failure = await fetchOverview("rev-1").catch((reason: unknown) => reason);
-
-    expect((failure as Error).message).toBe("This account does not have access to this organization.");
-    expect((failure as { status?: number }).status).toBe(403);
+    const [url, init] = spy.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/reviews/rev-123/live-state?cursor=live-1&wait_ms=15000");
+    expect(init.signal).toBe(controller.signal);
+    expect(result.cursor).toBe("live-2");
   });
 
   it("keeps preparation generation in the fragment while scrubbing legacy credentials", async () => {
@@ -390,16 +300,24 @@ describe("requests", () => {
     await fetchMarkdownImage("rev-1", "README.md", "new", "docs/demo.gif", "rrv-7");
     await fetchMediaFile("rev-1", "docs/demo.gif", "new", "rrv-7");
     await fetchLiveWebPreview("rev-1", "frontend/src/main.tsx", "new", "/", "rrv-7");
+    await fetchWebPreviewDiffScore("rev-1", "frontend/src/main.tsx", "/", "rrv-7");
+    await fetchSurfaceResponseDiffScore("rev-1", "bruno", "backend/bruno/Health.bru", "rrv-7");
     await fetchSurfaceImpact("rev-1", "storybook", "web:button--primary", "rrv-7");
 
     const urls = (spy.mock.calls as unknown as Array<[string, RequestInit?]>).map(([url]) => String(url));
     expect(urls[0]).toContain("revision_id=rrv-7");
     expect(urls[1]).toContain("revision_id=rrv-7");
     expect(urls[2]).toContain("revision_id=rrv-7");
-    expect(urls[3]).toContain("/surface-impact?");
-    expect(urls[3]).toContain("provider=storybook");
-    expect(urls[3]).toContain("surface_id=web%3Abutton--primary");
+    expect(urls[3]).toContain("/web-preview-diff?");
     expect(urls[3]).toContain("revision_id=rrv-7");
+    expect(urls[4]).toContain("/surface-response-diff?");
+    expect(urls[4]).toContain("provider=bruno");
+    expect(urls[4]).toContain("surface_id=backend%2Fbruno%2FHealth.bru");
+    expect(urls[4]).toContain("revision_id=rrv-7");
+    expect(urls[5]).toContain("/surface-impact?");
+    expect(urls[5]).toContain("provider=storybook");
+    expect(urls[5]).toContain("surface_id=web%3Abutton--primary");
+    expect(urls[5]).toContain("revision_id=rrv-7");
   });
 
   it("retries transient surface-impact failures but not contract refusals", async () => {
@@ -492,28 +410,6 @@ describe("requests", () => {
       expected_tree_fingerprint: "tree-5",
       expected_source_fingerprint: "source-5",
     });
-  });
-
-  it("hands the Ask stream request the caller's abort signal so Stop cancels the fetch", async () => {
-    const result = {
-      review_id: "rev-1",
-      latest_revision_number: 5,
-      human: { id: "ram-1" },
-      assistant: { id: "ram-2" },
-    };
-    const spy = vi.fn(async () => new Response(
-      `${JSON.stringify({ type: "accepted", driver: "configured", model: "" })}\n${JSON.stringify({ type: "result", result })}\n`,
-      { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
-    ));
-    vi.stubGlobal("fetch", spy);
-    const controller = new AbortController();
-
-    await expect(streamReviewAsk("rev-1", { revision_number: 5, body: "Why?" }, () => {}, controller.signal))
-      .resolves.toEqual(result);
-
-    const [url, init] = spy.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("/api/reviews/rev-1/ask/stream");
-    expect(init.signal).toBe(controller.signal);
   });
 
   it("renders the feedback bundle through the same route the CLI uses", async () => {
@@ -610,42 +506,6 @@ describe("requests", () => {
     expect(runInit.method).toBe("POST");
   });
 
-  it("binds runtime validation run, status, and cancellation to the exact Snapshot and scenario", async () => {
-    const spy = stubFetch(200, {
-      request: { revision_id: "rrv-4" },
-      runtime_validation: { status: "NOT_RUN" },
-      verification: { checks: [], summary: {} },
-      reused: false,
-    });
-    await runRuntimeValidation("rev-1", "service", "checks:tests", "rrv-4");
-    await fetchRuntimeValidationJob("rev-1", "job-1", "service", "checks:tests", "rrv-4");
-    await cancelRuntimeValidationJob("rev-1", "job-1", "service", "checks:tests", "rrv-4");
-
-    const [runUrl, runInit] = spy.mock.calls[0] as unknown as [string, RequestInit];
-    expect(runUrl).toBe("/api/reviews/rev-1/runtime-validation");
-    expect(runInit.method).toBe("POST");
-    expect(JSON.parse(String(runInit.body))).toEqual({
-      revision_id: "rrv-4",
-      provider: "service",
-      surface_id: "checks:tests",
-      side: "new",
-    });
-
-    const [statusUrl] = spy.mock.calls[1] as unknown as [string, RequestInit];
-    expect(statusUrl).toBe(
-      "/api/reviews/rev-1/runtime-validation/jobs/job-1?revision_id=rrv-4&provider=service&surface_id=checks%3Atests&side=new",
-    );
-
-    const [cancelUrl, cancelInit] = spy.mock.calls[2] as unknown as [string, RequestInit];
-    expect(cancelUrl).toBe("/api/reviews/rev-1/runtime-validation/jobs/job-1/cancel");
-    expect(cancelInit.method).toBe("POST");
-    expect(JSON.parse(String(cancelInit.body))).toEqual({
-      revision_id: "rrv-4",
-      provider: "service",
-      surface_id: "checks:tests",
-      side: "new",
-    });
-  });
   it("fetches plugin preview artifacts pinned to one Snapshot side and surfaces plugin reasons", async () => {
     const spy = vi.fn(async () =>
       new Response("<p>new</p>", {
@@ -709,20 +569,15 @@ describe("requests", () => {
   it("builds and fetches generic source comparison URLs", async () => {
     expect(reviewCompareHref("r/aaaaaaaa", 2, 5)).toBe("/r/aaaaaaaa?base=2&target=5");
     expect(reviewCompareHref("r/aaaaaaaa", "head", 5)).toBe("/r/aaaaaaaa?base=head&target=5");
-    expect(sourceCompareHref("git/feature/foo", "worktree")).toBe(
-      "/r/x?from=git%2Ffeature%2Ffoo&to=worktree",
-    );
+    expect(sourceCompareHref("git/feature/foo", "worktree")).toBe("/r/x/git/feature/foo..worktree");
     expect(sourceCompareHref("rr/11111111", "rr/22222222")).toBe(
-      "/r/x?from=rr%2F11111111&to=rr%2F22222222",
-    );
-    expect(sourceCompareHref("git/main..feature", "git/HEAD")).toBe(
-      "/r/x?from=git%2Fmain..feature&to=git%2FHEAD",
+      "/r/x/rr/11111111..rr/22222222",
     );
     expect(sourceCompareHref("rr/11111111", "rr/22222222", "r/aaaaaaaa")).toBe(
       "/r/aaaaaaaa/compare/11111111..22222222",
     );
     expect(sourceCompareHref("git/main", "git/HEAD", "r/aaaaaaaa")).toBe(
-      "/r/x?from=git%2Fmain&to=git%2FHEAD&scope=r%2Faaaaaaaa",
+      "/r/x/git/main..git/HEAD?scope=r%2Faaaaaaaa",
     );
 
     const spy = stubFetch(200, {

@@ -37,11 +37,6 @@ def main() -> int:
         session_id = str(payload.get("session_id") or "default")
         root = _lemoncrow_root()
 
-        if payload.get("hook_event_name") == "SubagentStop":
-            from lemoncrow.core.capabilities.session_comment_capture import capture_session_comment
-
-            capture_session_comment(root, payload, host="claude")
-
         if _throttled(root, session_id):
             # Recent write — skip disk I/O to reduce CPU/IO chatter.
             return 0

@@ -17,7 +17,6 @@ passes an ``adapter_factory`` whose adapter can bootstrap a managed ast-grep.
 from __future__ import annotations
 
 import logging
-from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,11 +34,9 @@ logger = logging.getLogger(__name__)
 _PYTHON_SUFFIXES: frozenset[str] = frozenset({".py", ".pyi"})
 
 # Process-level taint cache: (abs_path_str, mtime_ns, size) -> findings.
-# A stat() call replaces a full ast.parse + taint walk for unchanged files.
-# Runtime Lite is bounded-memory by construction, so this cache is a small LRU
-# rather than a process-lifetime history of every file version ever scanned.
-_TAINT_CACHE_MAX_ENTRIES = 256
-_taint_cache: OrderedDict[tuple[str, int, int], list[TaintFinding]] = OrderedDict()
+# A stat() call (~1µs) replaces a full ast.parse + taint walk (~5-12ms) per
+# unchanged file. Invalidated automatically when mtime_ns or size changes.
+_taint_cache: dict[tuple[str, int, int], list[TaintFinding]] = {}
 
 _SKIP_DIR_NAMES: frozenset[str] = frozenset(
     {".git", ".venv", "venv", "node_modules", "__pycache__", ".mypy_cache", ".lemoncrow"}
@@ -185,7 +182,6 @@ class SecurityScanner:
                 cache_key = None
             if cache_key is not None and cache_key in _taint_cache:
                 taint_results = _taint_cache[cache_key]
-                _taint_cache.move_to_end(cache_key)
             else:
                 try:
                     source = path.read_text(encoding="utf-8")
@@ -198,9 +194,6 @@ class SecurityScanner:
                 taint_results = analyze_python_source(source, file_path=rel_for_analyze)
                 if cache_key is not None:
                     _taint_cache[cache_key] = taint_results
-                    _taint_cache.move_to_end(cache_key)
-                    while len(_taint_cache) > _TAINT_CACHE_MAX_ENTRIES:
-                        _taint_cache.popitem(last=False)
             rel = self._relpath(str(path))
             for taint in taint_results:
                 findings.append(

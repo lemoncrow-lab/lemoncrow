@@ -267,13 +267,9 @@ class ToolSupervisionCapability:
         return breaker
 
     def _git_head(self) -> str:
-        from lemoncrow.core.foundation.paths import WorkspaceNotRegisteredError, resolve_workspace_root
+        from lemoncrow.core.foundation.paths import resolve_workspace_root
 
-        try:
-            workspace = resolve_workspace_root(self._root)
-        except WorkspaceNotRegisteredError:
-            # Server started outside any repo: the head only annotates the cache entry.
-            return ""
+        workspace = resolve_workspace_root(self._root)
         try:
             result = subprocess.run(
                 ["git", "-C", str(workspace), "rev-parse", "HEAD"],

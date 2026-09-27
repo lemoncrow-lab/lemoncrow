@@ -80,21 +80,20 @@ def test_load_spec_install_scalar(tmp_path: Path) -> None:
     assert comp.load_competitor_spec(m).install == ("make",)
 
 
-def test_load_spec_rejects_bad(tmp_path: Path) -> None:
-    for case_index, (data, msg) in enumerate(
-        [
-            ({"repo": "u"}, "missing 'name'"),
-            ({"name": "r"}, "missing 'repo'"),
-            ({"name": "bad name", "repo": "u"}, "safe arm token"),
-            ({"name": "baseline", "repo": "u"}, "built-in arm"),
-            ({"name": "lemoncrow", "repo": "u"}, "built-in arm"),
-        ]
-    ):
-        case_tmp_path = tmp_path / f"case-{case_index}"
-        case_tmp_path.mkdir()
-        m = _write_manifest(case_tmp_path / "c.json", data)
-        with pytest.raises(ValueError, match=msg):
-            comp.load_competitor_spec(m)
+@pytest.mark.parametrize(
+    "data, msg",
+    [
+        ({"repo": "u"}, "missing 'name'"),
+        ({"name": "r"}, "missing 'repo'"),
+        ({"name": "bad name", "repo": "u"}, "safe arm token"),
+        ({"name": "baseline", "repo": "u"}, "built-in arm"),
+        ({"name": "lemoncrow", "repo": "u"}, "built-in arm"),
+    ],
+)
+def test_load_spec_rejects_bad(tmp_path: Path, data: dict, msg: str) -> None:
+    m = _write_manifest(tmp_path / "c.json", data)
+    with pytest.raises(ValueError, match=msg):
+        comp.load_competitor_spec(m)
 
 
 def test_load_spec_bad_json(tmp_path: Path) -> None:

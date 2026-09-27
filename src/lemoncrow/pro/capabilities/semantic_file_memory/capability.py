@@ -84,6 +84,26 @@ def _read_source_bounded(file_path: Path) -> tuple[str, bool]:
     return raw.decode("utf-8", errors="replace"), truncated
 
 
+def _read_source_guarded(file_path: Path) -> str:
+    """Regular-file-guarded bounded read for the cache-free preview helpers.
+
+    Mirrors ``smart_read``'s guard: reject FIFO/socket/special files *before*
+    ``_read_source_bounded`` (``os.open`` on a writerless FIFO blocks the syscall
+    forever, before the byte cap can apply), then read at most ``_MAX_READ_BYTES``
+    so a multi-GB file can't OOM the process.
+    """
+    try:
+        st = file_path.stat()
+    except OSError as exc:
+        raise FileNotFoundError(f"file not found: {file_path}") from exc
+    if stat.S_ISDIR(st.st_mode):
+        raise FileNotFoundError(f"path is a directory, not a file: {file_path}")
+    if not stat.S_ISREG(st.st_mode):
+        raise FileNotFoundError(f"not a regular file (FIFO/socket/special files are unreadable): {file_path}")
+    source, _ = _read_source_bounded(file_path)
+    return source
+
+
 def default_outline_threshold() -> int:
     """Outline LOC threshold: ``LEMONCROW_OUTLINE_THRESHOLD`` env override, else 500.
 
@@ -542,7 +562,7 @@ class SemanticFileMemoryCapability:
         expand: bool,
         outline_threshold: int,
     ) -> tuple[str, str, dict[str, Any] | None]:
-        """Mode-selection cascade used by ``smart_read``.
+        """Mode-selection cascade shared by ``smart_read`` and ``project_preview``.
 
         Returns ``(mode, payload_text, outline_payload)`` where *payload_text*
         is the exact text shipped to the agent and *outline_payload* is the
@@ -580,6 +600,144 @@ class SemanticFileMemoryCapability:
                     return "outline", outline_text, {"kind": "generic", "language": language, "text": outline_text}
 
         return "full", source, None
+
+    @classmethod
+    def project_preview(
+        cls,
+        path: str | Path,
+        source: str | None = None,
+        *,
+        outline_threshold: int | None = None,
+    ) -> dict[str, Any]:
+        """Cache-free preview of what the ``read`` tool would ship for *path*.
+
+        Runs the real projection cascade (outline → compact whitespace → full)
+        without touching the summary cache, mirroring ``smart_read`` plus the
+        MCP layer's ``build_compact_projection`` post-pass. Used by
+        ``lc project`` so CLI savings numbers match the live read
+        pipeline. Token counts use the same tiktoken accounting (baseline =
+        Claude's built-in Read approximation).
+        """
+        if outline_threshold is None:
+            outline_threshold = default_outline_threshold()
+        file_path = Path(path)
+        if source is None:
+            source = _read_source_guarded(file_path)
+        language = cls._language_for(file_path)
+        effective_loc = cls._effective_loc(source, language)
+        mode, payload, _ = cls._projection_payload(
+            file_path,
+            source,
+            language,
+            effective_loc,
+            expand=False,
+            outline_threshold=outline_threshold,
+        )
+        if mode == "full" and source:
+            # Mirror the MCP read layer: full-mode bodies enter the agent's
+            # context projected — prefer the tree-sitter minified view, falling
+            # back to the conservative compact transform (mcp_server._smart_read_single).
+            from lemoncrow.pro.capabilities.source_projection import (
+                build_compact_projection,
+                build_minified_projection,
+                language_for_minify,
+            )
+
+            minify_lang = language_for_minify(str(file_path))
+            minified = build_minified_projection(source, minify_lang) if minify_lang is not None else None
+            if minified is not None and minified.applied:
+                mode, payload = "minified", minified.content
+            else:
+                compact = build_compact_projection(source, language)
+                if compact.applied:
+                    mode, payload = "compact", compact.content
+        baseline = claude_read_baseline_text(source)
+        raw_tokens = count_tokens(baseline)
+        tokens = raw_tokens if payload == baseline else count_tokens(payload)
+        return {
+            "mode": mode,
+            "language": language,
+            "loc": effective_loc,
+            "text": payload,
+            "raw_tokens": raw_tokens,
+            "tokens": tokens,
+        }
+
+    @classmethod
+    def project_modes(
+        cls,
+        path: str | Path,
+        source: str | None = None,
+        *,
+        outline_threshold: int | None = None,
+    ) -> dict[str, Any]:
+        """Token cost of every projection mode for *path* plus the cascade winner.
+
+        Unlike ``project_preview`` (winner only), this reports outline / minified
+        / compact / full side by side so nothing is hidden. Outline is
+        force-evaluated (threshold ignored) so its number is visible even when
+        the real cascade skips it; ``available`` is False when a mode can't earn
+        its keep.
+        """
+        from lemoncrow.pro.capabilities.source_projection import (
+            build_compact_projection,
+            build_minified_projection,
+            language_for_minify,
+        )
+
+        if outline_threshold is None:
+            outline_threshold = default_outline_threshold()
+        file_path = Path(path)
+        if source is None:
+            source = _read_source_guarded(file_path)
+        language = cls._language_for(file_path)
+        effective_loc = cls._effective_loc(source, language)
+        raw_tokens = count_tokens(claude_read_baseline_text(source))
+
+        # Outline forced eligible (threshold=-1) so its savings show even when
+        # the real threshold skips it; o_mode != "outline" means it can't earn 25%.
+        o_mode, o_text, _ = cls._projection_payload(
+            file_path, source, language, effective_loc, expand=False, outline_threshold=-1
+        )
+        outline_ok = o_mode == "outline"
+
+        minify_lang = language_for_minify(str(file_path))
+        minified = build_minified_projection(source, minify_lang) if minify_lang is not None else None
+        if minified is not None and minified.applied:
+            minified_ok, minified_tokens, minified_text = True, minified.projected_tokens, minified.content
+        else:
+            minified_ok, minified_tokens, minified_text = False, raw_tokens, None
+        compact = build_compact_projection(source, language)
+
+        if effective_loc > outline_threshold and outline_ok:
+            winner = "outline"
+        elif minified_ok:
+            winner = "minified"
+        elif compact.applied:
+            winner = "compact"
+        else:
+            winner = "full"
+
+        return {
+            "language": language,
+            "loc": effective_loc,
+            "raw_tokens": raw_tokens,
+            "winner": winner,
+            "modes": {
+                "outline": {
+                    "tokens": count_tokens(o_text) if outline_ok else raw_tokens,
+                    "text": o_text if outline_ok else None,
+                    "available": outline_ok,
+                },
+                "minified": {"tokens": minified_tokens, "text": minified_text, "available": minified_ok},
+                "compact": {
+                    "tokens": compact.projected_tokens if compact.applied else raw_tokens,
+                    "text": compact.content if compact.applied else None,
+                    "available": compact.applied,
+                },
+                "full": {"tokens": raw_tokens, "text": source, "available": True},
+            },
+        }
 
     def summarize_file(
         self,

@@ -47,27 +47,6 @@ def browser_authorized_path(path: str) -> bool:
     return path == "/v1/reviews" or path.startswith("/api/")
 
 
-def local_host_refusal(request: web.Request) -> str:
-    """Why this request's ``Host`` is not this loopback listener's own address.
-
-    A DNS-rebinding page reaches 127.0.0.1 under its own hostname; only a
-    literal loopback ``Host`` for the listener's port is this server.
-    """
-
-    transport = request.transport
-    sockname = None if transport is None else transport.get_extra_info("sockname")
-    if not isinstance(sockname, tuple) or len(sockname) < 2:
-        return "local request has no listener address"
-    try:
-        port = int(sockname[1])
-    except (TypeError, ValueError):
-        return "local request has an invalid listener port"
-    host = request.headers.get("Host", "").strip().lower()
-    if host not in {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}:
-        return "the local server answers only a literal loopback Host"
-    return ""
-
-
 def local_browser_refusal(request: web.Request, *, require_same_origin_context: bool = False) -> str:
     """Return why a request is not a direct loopback browser trust context.
 
@@ -92,9 +71,18 @@ def local_browser_refusal(request: web.Request, *, require_same_origin_context: 
         if request.headers.get(name, "").strip():
             return f"local browser trust is disabled for proxied requests ({name})"
 
-    if local_host_refusal(request):
-        return "local browser trust requires a literal loopback Host"
+    sockname = transport.get_extra_info("sockname")
+    if not isinstance(sockname, tuple) or len(sockname) < 2:
+        return "local browser request has no listener address"
+    try:
+        port = int(sockname[1])
+    except (TypeError, ValueError):
+        return "local browser request has an invalid listener port"
+
     host = request.headers.get("Host", "").strip().lower()
+    allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
+    if host not in allowed_hosts:
+        return "local browser trust requires a literal loopback Host"
 
     origin = f"{request.scheme}://{host}"
     presented_origin = request.headers.get("Origin", "").strip().lower()
@@ -136,20 +124,7 @@ class LocalBrowserSessions:
         if deadline < now:
             raise ServerError(
                 ErrorCode.UNAUTHENTICATED,
-                "this browser is not connected to LemonCrow Review; run `lc review --open` in your terminal "
-                "to reconnect",
-                action=AgentAction.REAUTHENTICATE,
-            )
-        return self.issue(host)
-
-    def renew(self, token: str, host: str) -> tuple[str, int]:
-        """Exchange a still-valid browser capability for a fresh one (no pairing)."""
-
-        if not self.verify(token, host):
-            raise ServerError(
-                ErrorCode.UNAUTHENTICATED,
-                "this browser's LemonCrow Review connection expired; run `lc review --open` in your terminal "
-                "to reconnect",
+                "local Review browser is not paired; open the Reviews directory or run lc review --open once",
                 action=AgentAction.REAUTHENTICATE,
             )
         return self.issue(host)

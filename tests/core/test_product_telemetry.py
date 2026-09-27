@@ -3,7 +3,6 @@ from __future__ import annotations
 import ast
 import hashlib
 import re
-import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -11,7 +10,6 @@ from typing import Any
 import pytest
 
 from lemoncrow.core.foundation.identity import get_anon_id
-from lemoncrow.core.service.telemetry import config as config_mod
 from lemoncrow.core.service.telemetry import emit_product
 from lemoncrow.core.service.telemetry import public_rollup as public_rollup_mod
 from lemoncrow.core.service.telemetry.banner import maybe_show_banner
@@ -38,17 +36,6 @@ def telemetry_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("LEMONCROW_TELEMETRY_ACK", str(tmp_path / "telemetry_ack"))
     monkeypatch.setenv("LEMONCROW_TELEMETRY", "0")
     return db_path
-
-
-@pytest.fixture()
-def telemetry_allowed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Telemetry on, as on a first run: nothing from the developer's own shell, config or policy is read."""
-    monkeypatch.setenv("LEMONCROW_TELEMETRY_CONFIG", str(tmp_path / "telemetry.toml"))
-    monkeypatch.setenv("LEMONCROW_TELEMETRY_POLICY", str(tmp_path / "policy.toml"))
-    monkeypatch.setattr(config_mod, "_system_policy_path", lambda: tmp_path / "system-policy.toml")
-    for name in ("DO_NOT_TRACK", "LEMONCROW_TELEMETRY"):
-        monkeypatch.delenv(name, raising=False)
-    return tmp_path
 
 
 def test_emit_product_allowlists_scrubs_and_keeps_local_store(
@@ -181,14 +168,7 @@ def test_public_rollup_is_gated_by_remote_opt_in(
     they have."""
     calls: list[dict[str, Any]] = []
 
-    def fake_post(
-        endpoint: str,
-        payload: dict[str, Any],
-        *,
-        timeout_s: float,
-        attempts: int = 1,
-        headers: dict[str, str] | None = None,
-    ) -> bool:
+    def fake_post(endpoint: str, payload: dict[str, Any], *, timeout_s: float, attempts: int = 1) -> bool:
         calls.append(payload)
         return True
 
@@ -234,14 +214,7 @@ def test_public_rollup_posts_correct_payload(
 ) -> None:
     calls: list[tuple[str, dict[str, Any], float]] = []
 
-    def fake_post(
-        endpoint: str,
-        payload: dict[str, Any],
-        *,
-        timeout_s: float,
-        attempts: int = 1,
-        headers: dict[str, str] | None = None,
-    ) -> bool:
+    def fake_post(endpoint: str, payload: dict[str, Any], *, timeout_s: float, attempts: int = 1) -> bool:
         calls.append((endpoint, payload, timeout_s))
         return True
 
@@ -348,7 +321,7 @@ def test_config_round_trip_and_lexical_matcher_never_emits_input_text(
     assert "/home/me" not in str(captured)
 
 
-def test_first_run_banner_shows_once(telemetry_allowed: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_first_run_banner_shows_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEMONCROW_TELEMETRY_ACK", str(tmp_path / "ack"))
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
 
@@ -368,20 +341,13 @@ def test_first_run_banner_shows_once(telemetry_allowed: Path, tmp_path: Path, mo
 
     stream = Stream()
     assert maybe_show_banner(stream) is True
-    assert stream.value.count("\n") == 1  # one line
-    assert (
-        "Telemetry is on: LemonCrow sends anonymous counts and timings, never code, prompts or file paths"
-        in stream.value
-    )
-    assert "lc rt telemetry remote off" in stream.value and "DO_NOT_TRACK=1" in stream.value
+    assert "LemonCrow collects anonymous usage telemetry" in stream.value
     stream.value = ""
     assert maybe_show_banner(stream) is False
     assert stream.value == ""
 
 
-def test_banner_auto_acknowledges_in_non_tty_context(
-    telemetry_allowed: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_banner_auto_acknowledges_in_non_tty_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """When telemetry is enabled but the stream is not a TTY (e.g. MCP subprocess),
     the banner should not be shown, but the ack should still be written silently
     so the frontend/CLI don't keep showing it."""
@@ -415,97 +381,6 @@ def test_banner_auto_acknowledges_in_non_tty_context(
     # Second call: ack exists, so no banner and still no output
     assert maybe_show_banner(stream) is False
     assert stream.value == ""
-
-
-def test_a_person_running_a_command_is_told_once_even_when_stderr_is_not_a_terminal(
-    telemetry_allowed: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The audit: the first run wrote its telemetry id and acknowledged the banner without a word (a piped run)."""
-    ack_file = tmp_path / "ack"
-    monkeypatch.setenv("LEMONCROW_TELEMETRY_ACK", str(ack_file))
-    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
-
-    class Pipe:
-        def __init__(self) -> None:
-            self.value = ""
-
-        def isatty(self) -> bool:
-            return False
-
-        def write(self, text: str) -> int:
-            self.value += text
-            return len(text)
-
-        def flush(self) -> None:
-            pass
-
-    pipe = Pipe()
-    assert maybe_show_banner(pipe, announce=True) is True
-    assert "Telemetry is on" in pipe.value and ack_file.exists()
-    pipe.value = ""
-    assert maybe_show_banner(pipe, announce=True) is False and pipe.value == ""  # once
-
-    ack_file.unlink()
-    daemon = Pipe()  # a daemon, hook or statusline never announces; it only acknowledges, as before
-    assert maybe_show_banner(daemon) is False and daemon.value == "" and ack_file.exists()
-
-
-@pytest.mark.parametrize(("switch", "value"), [("DO_NOT_TRACK", "1"), ("LEMONCROW_TELEMETRY", "off")])
-def test_the_banner_does_not_say_telemetry_is_on_when_an_environment_switch_turned_it_off(
-    telemetry_allowed: Path, monkeypatch: pytest.MonkeyPatch, switch: str, value: str
-) -> None:
-    """The Action sets DO_NOT_TRACK=1 and promises nothing is sent; its job log must not say otherwise."""
-    ack_file = telemetry_allowed / "ack"
-    monkeypatch.setenv("LEMONCROW_TELEMETRY_ACK", str(ack_file))
-    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
-    monkeypatch.setenv(switch, value)
-
-    class Pipe:
-        def __init__(self) -> None:
-            self.value = ""
-
-        def isatty(self) -> bool:
-            return False
-
-        def write(self, text: str) -> int:
-            self.value += text
-            return len(text)
-
-        def flush(self) -> None:
-            pass
-
-    job_log = Pipe()
-    assert maybe_show_banner(job_log, announce=True) is False and job_log.value == ""
-    assert not ack_file.exists()  # never told "on", so never marked as told
-
-    monkeypatch.delenv(switch)  # a later run with telemetry on is still told, once
-    assert maybe_show_banner(job_log, announce=True) is True and "Telemetry is on" in job_log.value
-
-
-def test_the_banner_does_not_say_telemetry_is_on_after_the_person_turned_it_off(
-    telemetry_allowed: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("LEMONCROW_TELEMETRY_ACK", str(telemetry_allowed / "ack"))
-    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
-    save_telemetry_config(remote_enabled=False)  # lc rt telemetry remote off
-
-    class Terminal:
-        def __init__(self) -> None:
-            self.value = ""
-
-        def isatty(self) -> bool:
-            return True
-
-        def write(self, text: str) -> int:
-            self.value += text
-            return len(text)
-
-        def flush(self) -> None:
-            pass
-
-    terminal = Terminal()
-    assert maybe_show_banner(terminal) is False and terminal.value == ""
-    assert not (telemetry_allowed / "ack").exists()
 
 
 def test_emit_product_call_sites_use_allowlisted_props() -> None:
@@ -568,42 +443,6 @@ def test_telemetry_summary_reports_cache_hit_rate(telemetry_env: Path) -> None:
     assert summary["value_estimate"]["cache_hit_rate"] == 0.2
 
 
-def test_telemetry_summary_window_resolves_hosts_from_earlier_session_starts(tmp_path: Path) -> None:
-    store = LocalTelemetryStore(tmp_path / "telemetry.db")
-    rows: list[tuple[float, str, dict[str, Any]]] = [
-        (1000.0, "session_start", {"session_id": "s1", "agent_host": "claude"}),
-        (1001.0, "session_start", {"session_id": "s2", "agent_host": "codex"}),
-        (2000.0, "cli_command_invoked", {"session_id": "s1", "command_name": "search"}),
-        (2001.0, "code_symbol_retrieved", {"session_id": "s1"}),
-        (2002.0, "code_symbol_retrieved", {"session_id": "s2"}),
-        (2003.0, "session_end", {"session_id": "s2", "agent_host": "cli"}),
-        (2004.0, "code_symbol_retrieved", {}),
-    ]
-    for ts, event, props in rows:
-        store.write_event(event=event, props=props, exported=False, ts=ts)
-    with sqlite3.connect(store.db_path) as conn:
-        conn.execute(
-            "INSERT INTO events (ts, event, session_id, props_json, exported)"
-            " VALUES (2005.0, 'code_symbol_retrieved', 's1', '{not json', 0)"
-        )
-
-    summary = store.summary(since=1500.0)
-
-    assert summary["events_total"] == 6
-    assert summary["event_counts"] == {"code_symbol_retrieved": 4, "session_end": 1, "cli_command_invoked": 1}
-    assert summary["active_sessions"] == 2
-    assert (summary["first_event_ts"], summary["last_event_ts"]) == (2000.0, 2005.0)
-    # Session hosts come from session_start rows before the window; a row's own
-    # agent_host wins; count ties rank the most recent host first.
-    assert summary["agent_hosts"] == [
-        {"name": "claude", "count": 3},
-        {"name": "cli", "count": 1},
-        {"name": "codex", "count": 1},
-    ]
-    assert summary["top_commands"] == [{"name": "search", "count": 1}]
-    assert [entry["count"] for entry in summary["commands_by_day"]] == [1]
-
-
 def _is_emit_product_call(node: ast.Call) -> bool:
     return isinstance(node.func, ast.Name) and node.func.id == "emit_product"
 
@@ -654,14 +493,7 @@ def test_daily_flush_stamps_each_day_and_reports_its_own_real_totals(
 
     posts: list[tuple[dict[str, Any], float, int]] = []
 
-    def fake_post(
-        endpoint: str,
-        payload: dict[str, Any],
-        *,
-        timeout_s: float,
-        attempts: int = 1,
-        headers: dict[str, str] | None = None,
-    ) -> bool:
+    def fake_post(endpoint: str, payload: dict[str, Any], *, timeout_s: float, attempts: int = 1) -> bool:
         posts.append((payload, timeout_s, attempts))
         return True
 
@@ -830,66 +662,6 @@ def test_post_json_retries_transient_failures_but_not_a_rejected_payload(
     assert public_rollup_mod._post_json("https://example.test/rollup", {}, timeout_s=1.0, attempts=3) is False
     # 4xx is a verdict on the bytes; resending them is pointless.
     assert len(rejected) == 1
-
-
-def test_code_events_inherit_the_scoped_or_process_session(
-    telemetry_env: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from lemoncrow.core.service.telemetry import emit as emit_mod
-    from lemoncrow.core.service.telemetry import (
-        emit_product_local,
-        set_process_telemetry_session,
-        telemetry_session,
-    )
-
-    monkeypatch.setattr(emit_mod, "_process_session", "")
-    emit_product_local("code_symbol_retrieved", repo_id="r", kind="function")
-    set_process_telemetry_session("process-session")
-    emit_product_local("code_symbol_retrieved", repo_id="r", kind="function")
-    with telemetry_session("host-session"):
-        emit_product_local("code_context_retrieved", repo_id="r", operation="search", result_count=2)
-        # An explicit session is never overridden.
-        emit_product_local("code_index_completed", repo_id="r", files_indexed=1, symbols_indexed=2, session_id="own")
-    # Events whose schema has no session_id are left alone.
-    emit_product_local("api_request", endpoint="/x", method="GET", status_code=200, duration_ms_bucket="<100")
-
-    events = LocalTelemetryStore(telemetry_env).list_events(limit=10)
-    sessions = [(e["event"], e["session_id"]) for e in reversed(events)]
-    assert sessions == [
-        ("code_symbol_retrieved", None),
-        ("code_symbol_retrieved", "process-session"),
-        ("code_context_retrieved", "host-session"),
-        ("code_index_completed", "own"),
-        ("api_request", None),
-    ]
-
-
-def test_local_store_prune_caps_rows_and_is_throttled_across_processes(
-    telemetry_env: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import time
-
-    from lemoncrow.core.service.telemetry import local_store
-
-    monkeypatch.setattr(local_store, "MAX_EVENTS", 5)
-    monkeypatch.setattr(local_store, "_last_prune_ts", {})
-    store = LocalTelemetryStore(telemetry_env)
-    now = time.time()
-    store.write_events(
-        [{"event": "session_end", "props": {"session_id": f"s{i}"}, "exported": False, "ts": now + i} for i in range(8)]
-    )
-    # A second process: its in-memory throttle is empty, but the meta row says
-    # a prune just ran, so nothing is deleted yet.
-    monkeypatch.setattr(local_store, "_last_prune_ts", {})
-    store.write_event(event="session_end", props={"session_id": "s8"}, exported=False, ts=now + 8)
-    assert len(store.list_events(limit=100)) == 9
-
-    monkeypatch.setattr(local_store, "_last_prune_ts", {})
-    later = now + local_store._PRUNE_INTERVAL_S + 1
-    store.write_event(event="session_end", props={"session_id": "s9"}, exported=False, ts=later)
-    kept = [e["session_id"] for e in store.list_events(limit=100)]
-    # Pruned to the cap before the new row went in: the newest 5 plus s9.
-    assert kept == ["s9", "s8", "s7", "s6", "s5", "s4"]
 
 
 def test_codex_stop_hook_does_not_publish_its_own_public_rollup() -> None:

@@ -20,7 +20,7 @@ export default function ArchivalSearchBox({
   return (
     <form
       onSubmit={submit}
-      className="flex items-center gap-2 pb-3 border-b border-border"
+      className="flex items-center gap-2 pb-3 border-b border-neutral-800"
     >
       <label htmlFor="archival-query" className="sr-only">
         Search archival memory

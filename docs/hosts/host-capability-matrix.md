@@ -1,66 +1,27 @@
-# Host capability matrix
+# Host Capability Matrix
 
-This page explains the technical differences between LemonCrow's coding-agent integrations. User-facing docs call these **plugins/integrations**; the underlying protocol details only matter when implementing or debugging a host adapter.
+This matrix is the durable contract for what LemonCrow expects from each supported
+host. Use it when deciding whether a workflow should rely on native host
+surfaces, LemonCrow's MCP wrapper, or a shell fallback.
 
-## Main product integrations
+Trace metadata fields used across this matrix:
 
-| Host | User-facing model | Temporary launch | Persistent integration | Lifecycle/evidence | Owned-loop frontend |
-| --- | --- | --- | --- | --- | --- |
-| **Claude Code** | LemonCrow plugin inside existing Claude Code | `lc with claude` | `lc rt enable claude` | Rich plugin hooks + importable session artifacts | Local Runtime Lite frontend |
-| **Codex** | LemonCrow plugin inside existing Codex | `lc with codex` | `lc rt enable codex` | Native lifecycle hooks + session imports | Local Runtime Lite frontend |
-| **OpenCode** | LemonCrow plugin inside existing OpenCode | `lc with opencode` | `lc rt enable opencode` | Local plugin events + session DB import | No dedicated owned-loop engine; LemonCode covers the managed fork path |
-| **Cursor** | Installed IDE + `cursor-agent` integration | — | Cursor installer | `sessionStart` + `stop` hooks; Cursor IDE/CLI share config | No |
-| **Pi** | Public managed coding-agent host | managed binary | `lc rt host ... --engine pi`; `lc with pi` | Runtime Lite tools are added locally for the Pi process | May also be used by Hosted/Enterprise |
-| **LemonCode** | LemonCrow-maintained OpenCode fork | managed binary | `lc rt host ... --engine lemoncode` | Public managed host/integration | May also be used by Hosted/Enterprise |
+- `trace_confidence`
+- `capture_sources`
+- `missing_surfaces`
 
-## Additional integrations
+Confidence legend: `full_live`, `mcp_live`, `wrapper_live`, `imported`, `manual`.
 
-| Host | Integration depth | Notes |
-| --- | --- | --- |
-| Copilot | Instructions, tools, agent/tasks, session evidence where available | Host lifecycle APIs are more limited than Claude/Codex |
-| Hermes Agent | Configured LemonCrow tool integration | No deep native hook bus |
-| Antigravity | Generated guidance + LemonCrow integration | Host-specific lifecycle support is limited |
+## Capability Matrix
 
-## Evidence confidence
-
-Recorded evidence depends on what the host exposes. Internal trace records may use confidence/source labels such as:
-
-- `full_live` — strong live lifecycle + tool evidence;
-- `wrapper_live` — LemonCrow owns the loop and can record its execution boundary;
-- `mcp_live` — protocol/tool traffic is visible but native host lifecycle may be incomplete;
-- `imported` — reconstructed from host session artifacts;
-- `manual` — only explicitly recorded evidence is available.
-
-These are evidence-quality labels, not product tiers.
-
-The recorded trace schema uses the fields `host`, `trace_confidence`, `capture_sources`, and `missing_surfaces`. Host integrations should only claim a stronger `trace_confidence` when the corresponding `capture_sources` actually exist; unavailable host surfaces belong in `missing_surfaces` rather than being inferred.
-
-## Important host differences
-
-### Claude Code
-
-Claude exposes a rich plugin surface. LemonCrow can combine plugin hooks, repository tools, and imported session artifacts.
-
-### Codex
-
-Codex exposes lifecycle hooks and session artifacts. Hook trust/configuration can affect how much live evidence LemonCrow sees.
-
-### OpenCode
-
-OpenCode supplies a local plugin/event surface and a local session database. Its lifecycle API differs from Codex, so not every hook-oriented feature has a direct equivalent.
-
-### Cursor
-
-Cursor's IDE and `cursor-agent` CLI share the same integration files. Cursor retains its own built-in tools, and privacy/ghost-mode behavior can limit provider-usage attribution. Do not describe Cursor savings as identical to the Claude/Codex benchmark path.
-
-### Pi
-
-Pi itself is public. `lc rt host` manages the reviewed/pinned binary. When LemonCrow uses Pi inside the private Hosted owned loop, a separate managed mode can disable Pi features that would create a second competing tool/model loop; that private use does not change Pi host ownership.
-
-### LemonCode
-
-LemonCode and Pi are both public managed hosts. Hosted/Enterprise may choose either as an implementation/frontend detail; Pro is a commercial Hosted plan, not a host or local engine mode.
-
-## Protocol details
-
-Integration authors can inspect the underlying protocol and tool surface in [Protocol / MCP reference](../sdk/mcp.md). Normal product setup should use the host-specific plugin/integration docs instead.
+| Host         | Native surfaces LemonCrow uses                                     | MCP                                  | Hooks / events                                                                                                                                           | Wrapper                                                    | Routing enforcement                                    | Trace confidence                                                                             | Unsupported controls                                                                                                                                                                                                     | Fallback                                                                                            |
+| ------------ | ------------------------------------------------------------------ | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| Claude Code  | `AGENTS.md`, plugin agent prompt, CLI session exports              | Yes, via `lc mcp --host claude`      | Plugin hooks plus importable session artifacts                                                                                                           | Shell install script plus generated host prompt            | Medium: prompt-level guidance plus MCP mode controls   | `full_live` when hooks + MCP are both present; otherwise `mcp_live`, `imported`, or `manual` | No native IDE task wiring beyond plugin surfaces                                                                                                                                                                         | Use shell tasks and imported traces if live capture is unavailable                                  |
+| Codex CLI    | `AGENTS.md`, session imports, generated host instructions          | Yes, via `lc mcp --host codex`       | Plugin lifecycle hooks (`SessionStart`, `UserPromptSubmit`, `PostToolUse`, `Stop`)                                                                       | Shell installer and generated instructions                 | Medium-high: MCP guidance plus trusted lifecycle hooks | `mcp_live`, `wrapper_live`, `imported`, or `manual`                                          | Hooks require explicit trust after install or changes; no guaranteed editor task bridge                                                                                                                                  | Fall back to `lc` CLI plus imported session history                                                 |
+| Cursor       | MCP config, project-local rules, `sessionStart` + `stop` hooks     | Yes, via `lc mcp --host cursor`      | Native `sessionStart` (session-id + model attribution bridge) and `stop` (finalize + savings recap); shared by the Cursor IDE and the `cursor-agent` CLI | Shell installer, rules file, and `cursor-agent mcp enable` | Medium: MCP constraints plus project rules             | `mcp_live` (hooks bridge attribution) or `imported`                                          | Project-scoped rules only (no global); per-turn token usage isn't exposed to hooks under privacy/ghost mode, so the avoided-call $ component stays conservative; `stop` can't render an in-chat recap (use `lc usage`) | Use `lc` CLI, `lc usage`/`dashboard`, and imported Cursor IDE + `cursor-agent` CLI session traces |
+| Copilot      | MCP config, Copilot instructions, agent, VS Code tasks             | Yes, via VS Code MCP config          | Task runner events only; no deep per-tool hook callbacks                                                                                                 | VS Code task + instruction wrapper                         | Medium-high inside agent; shell tasks remain advisory  | `mcp_live`, `wrapper_live`, or `manual`                                                      | No direct MCP invocation from `tasks.json`; limited background lifecycle visibility                                                                                                                                      | Use `lc` CLI tasks, worktree bootstrap, and runtime evidence capture                                |
+| opencode     | Generated agent markdown, session imports, local DB ingestion      | Yes, via `lc mcp --host opencode`    | Local `chat.message` plugin for prompt-time nudges                                                                                                       | Shell installer, generated agent file, and local plugin    | Medium: prompt plugin + MCP constraints                | `mcp_live`, `imported`, or `manual`                                                          | Plugin API has no Codex-style `/hooks` status screen or editor task plumbing                                                                                                                                             | Fall back to imported traces and direct `lc` CLI commands                                           |
+| LemonCode    | Generated agent markdown, session imports, built-in sidebar panel  | Yes, via `lc mcp --host lemoncode`   | Local `chat.message` plugin plus managed-mode gateway lifecycle (`LEMONCODE_MANAGED`)                                                                    | Managed host binary (`lc code host`) plus shell installer  | High: gateway-native provider/model + tool ownership   | `wrapper_live` under `lc code`; otherwise `mcp_live`, `imported`, or `manual`                | Plugin API has no Codex-style `/hooks` status screen or editor task plumbing                                                                                                                                             | Fall back to imported traces and direct `lc` CLI commands                                           |
+| Pi           | Managed extension, isolated JSONL sessions, native model picker    | No outer MCP catalog in managed mode | Pi extension hooks for trust, provider payload, tool blocking, session lifecycle, and status UI                                                          | Pinned verified binary via `lc code host --engine pi`      | High: gateway-native provider/model + tool ownership   | `wrapper_live` under `lc code`; otherwise `imported`                                         | Managed mode intentionally disables Pi tools, project resources, compaction, retries, updates, and shell escapes                                                                                                        | Select `--engine lemoncode` or remove `LEMONCROW_CODE_AUTO_ENGINE`                                  |
+| Hermes Agent | YAML config (`$HERMES_HOME/config.yaml`), toolset registration     | Yes, via `lc mcp --host hermes`      | No durable native hook bus                                                                                                                               | Shell installer and YAML config merge                      | Medium: MCP constraints plus toolset registration      | `mcp_live` or `manual`                                                                       | No CLI version check, no global rules system, YAML-only config                                                                                                                                                           | Use `lc` CLI and manual trace recording                                                             |
+| Antigravity  | Workspace `AGENTS.md`, Antigravity MCP config, `agy` companion CLI | Yes, via `lc mcp --host antigravity` | No durable native hook bus; wrapper boundaries via `agy`                                                                                                 | Shell installer and generated Antigravity guidance         | `mcp_live`, `wrapper_live`, or `manual`                | No first-class hook/event API and limited native task orchestration                          | Use shell verification loops, wrapper traces, and explicit trace recording                                                                                                                                               |

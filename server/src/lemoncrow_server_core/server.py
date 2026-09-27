@@ -151,17 +151,3 @@ class LocalServer(ServerRunner):
 
     def __init__(self, state: LocalServerApp, app: web.Application, config: LocalServerConfig) -> None:
         super().__init__(state, app, config)
-        self._local_app = state
-
-    async def start(self) -> str:
-        url = await super().start()
-        # Services call back into this listener, so they start once it is bound.
-        self._local_app.start_services(url)
-        return url
-
-    async def stop(self) -> None:
-        try:
-            # Drain first: forwarded requests still in flight need their worker.
-            await super().stop()
-        finally:
-            await self._local_app.stop_services()

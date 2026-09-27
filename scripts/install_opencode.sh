@@ -2,9 +2,12 @@
 # install_opencode.sh - Install LemonCrow into opencode
 #
 # What it does:
-#   Global mode: installs the LemonCrow MCP entry and user agent under ~/.config/opencode.
+#   Global mode: installs opencode user config and user agent under ~/.config/opencode.
 #   Workspace mode (--workspace DIR): installs project-local opencode artifacts under DIR.
-#   Runtime integration never changes the user's model, provider, or default agent.
+#   Config merge includes both:
+#     - MCP server entry (lc mcp)
+#     - OpenAI-compatible provider entry (LemonCrow service /v1 endpoint)
+#
 # Options:
 #   --dry-run      Print what would happen, touch nothing
 #   --print-only   Print config snippet for manual install, touch nothing
@@ -41,7 +44,7 @@ print(Path(str(importlib.resources.files("lemoncrow"))))
 _PY
     )"
     if [[ -z "$DIST_ROOT" || ! -d "$DIST_ROOT/integrations" ]]; then
-        echo "[lc:opencode] ERROR: cannot locate lemoncrow distribution assets" >&2
+        echo "[lemoncrow:opencode] ERROR: cannot locate lemoncrow distribution assets" >&2
         exit 1
     fi
 fi
@@ -49,8 +52,6 @@ fi
 DRY_RUN=false
 PRINT_ONLY=false
 STRICT=false
-HOSTED=false
-VERSION_OVERRIDE=""
 WORKSPACE=""
 WORKSPACE_SET=false
 ROLES="code"            # comma-separated role ids to install (--roles=code,explore,...)
@@ -60,8 +61,6 @@ while [[ $# -gt 0 ]]; do
         --dry-run)    DRY_RUN=true ;;
         --print-only) PRINT_ONLY=true ;;
         --strict)     STRICT=true ;;
-        --opencode-version) VERSION_OVERRIDE="$2"; shift ;;
-        --hosted)     HOSTED=true ;;
         --workspace)
             if [ $# -lt 2 ]; then
                 echo "Missing value for --workspace" >&2
@@ -83,48 +82,34 @@ while [[ $# -gt 0 ]]; do
     esac
     shift
 done
-MCP_ACTION="lite-mcp"
-$HOSTED && MCP_ACTION="mcp"
 
 if $WORKSPACE_SET; then
     WORKSPACE="$(cd "$WORKSPACE" && pwd)"
 fi
 
 OPENCODE_CONFIG_HOME="${OPENCODE_CONFIG_HOME:-${XDG_CONFIG_HOME:-${HOME}/.config}/opencode}"
-OPENCODE_BIN="${OPENCODE_BIN:-opencode}"
-if ! command -v "$OPENCODE_BIN" >/dev/null 2>&1 && command -v opencode2 >/dev/null 2>&1; then
-    OPENCODE_BIN=opencode2
-fi
-DETECTED_VERSION="${VERSION_OVERRIDE:-$($OPENCODE_BIN --version 2>/dev/null || true)}"
-OC_MAJOR="$(python3 - "$DETECTED_VERSION" "$OPENCODE_BIN" <<'PYVER'
-import re, sys
-match = re.search(r'(?<!\d)(\d+)\.\d+(?:\.\d+)?', sys.argv[1])
-print(match.group(1) if match else ('2' if sys.argv[2] == 'opencode2' else '1'))
-PYVER
-)"
-OC_V2=false
-if [[ "$OC_MAJOR" -ge 2 ]]; then OC_V2=true; fi
-STATUS_DEST_DIR="${OPENCODE_CONFIG_HOME}/lemoncrow-status-v2"
-CLI_CONFIG_FILE="${OPENCODE_CONFIG_HOME}/cli.json"
 if $WORKSPACE_SET; then
     INSTALL_SCOPE="workspace"
     OC_FILE="${WORKSPACE}/opencode.json"
     AGENT_DEST_DIR="${WORKSPACE}/.opencode/agents"
     PLUGIN_DEST_DIR="${WORKSPACE}/.opencode/plugins"
-else
+    else
     INSTALL_SCOPE="global"
     OC_FILE="${OPENCODE_CONFIG_HOME}/opencode.json"
     AGENT_DEST_DIR="${OPENCODE_CONFIG_HOME}/agents"
     PLUGIN_DEST_DIR="${OPENCODE_CONFIG_HOME}/plugins"
-fi
-# If the user chose the JSONC filename, update that file instead of silently
-# creating a competing opencode.json that can shadow it.
-if [[ ! -f "$OC_FILE" && -f "${OC_FILE}c" ]]; then
-    OC_FILE="${OC_FILE}c"
+    fi
+
+LEMONCROW_GATEWAY_BASE="${LEMONCROW_GATEWAY_URL:-http://127.0.0.1:8787}"
+LEMONCROW_GATEWAY_BASE="${LEMONCROW_GATEWAY_BASE%/}"
+if [[ "$LEMONCROW_GATEWAY_BASE" == */v1 ]]; then
+    LEMONCROW_OPENAI_BASE="$LEMONCROW_GATEWAY_BASE"
+else
+    LEMONCROW_OPENAI_BASE="${LEMONCROW_GATEWAY_BASE}/v1"
 fi
 
-info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lc:opencode] $*" || true; }
-warn()  { echo "[lc:opencode] WARN: $*" >&2; }
+info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lemoncrow:opencode] $*" || true; }
+warn()  { echo "[lemoncrow:opencode] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 PYTHON_CMD=("${DIST_PYTHON[@]}")
 backup_file() {
@@ -139,37 +124,29 @@ backup_file() {
     fi
 }
 
-if $OC_V2; then
-    V2_ENV_JSON="{}"
-    if $WORKSPACE_SET; then V2_ENV_JSON="{\"LEMONCROW_WORKSPACE_ROOT\": \"${WORKSPACE}\"}"; fi
+if $WORKSPACE_SET; then
     NEW_ENTRY=$(cat <<JSON
 {
-  "mcp": {
-    "servers": {
-      "lc": {
-        "type": "local",
-        "codemode": false,
-        "command": ["lemoncrow", "runtime", "${MCP_ACTION}", "--host", "opencode"],
-        "environment": ${V2_ENV_JSON}
-      }
-    }
-  },
-  "permissions": [{"action": "lc_*", "resource": "*", "effect": "allow"}]
-}
-JSON
-)
-elif $WORKSPACE_SET; then
-    NEW_ENTRY=$(cat <<JSON
-{
+  "default_agent": "code",
   "permission": {
     "lc_*": "allow"
+  },
+  "provider": {
+    "lemoncrow": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": "${LEMONCROW_OPENAI_BASE}",
+        "apiKey": "local"
+      }
+    }
   },
   "mcp": {
     "lc": {
       "type": "local",
-      "command": ["lemoncrow", "runtime", "${MCP_ACTION}", "--host", "opencode"],
+      "command": ["lemoncrow", "mcp", "--host", "opencode"],
       "environment": {
-        "LEMONCROW_WORKSPACE_ROOT": "${WORKSPACE}"
+        "LEMONCROW_WORKSPACE_ROOT": "${WORKSPACE}",
+        "LEMONCROW_MCP_TOOL_PROFILE": "core"
       }
     }
   }
@@ -179,14 +156,26 @@ JSON
 else
     NEW_ENTRY=$(cat <<JSON
 {
+  "default_agent": "code",
   "permission": {
     "lc_*": "allow"
+  },
+  "provider": {
+    "lemoncrow": {
+      "npm": "@ai-sdk/openai-compatible",
+      "options": {
+        "baseURL": "${LEMONCROW_OPENAI_BASE}",
+        "apiKey": "local"
+      }
+    }
   },
   "mcp": {
     "lc": {
       "type": "local",
-      "command": ["lemoncrow", "runtime", "${MCP_ACTION}", "--host", "opencode"],
-      "environment": {}
+      "command": ["lemoncrow", "mcp", "--host", "opencode"],
+      "environment": {
+        "LEMONCROW_MCP_TOOL_PROFILE": "core"
+      }
     }
   }
 }
@@ -209,16 +198,16 @@ if $PRINT_ONLY; then
 fi
 
 # ---- check CLI --------------------------------------------------------------
-if ! command -v "$OPENCODE_BIN" &>/dev/null; then
+if ! command -v opencode &>/dev/null; then
     if $STRICT; then
-        echo "[lc:opencode] ERROR: '${OPENCODE_BIN}' not found. Install from https://opencode.ai" >&2
+        echo "[lemoncrow:opencode] ERROR: 'opencode' not found. Install from https://opencode.ai" >&2
         exit 1
     fi
-    warn "'${OPENCODE_BIN}' not found - SKIPPING. Install from https://opencode.ai"
+    warn "'opencode' not found - SKIPPING. Install from https://opencode.ai"
     echo "=== SKIPPED (opencode CLI absent) ==="
     exit 0
 fi
-info "Found $OPENCODE_BIN: $DETECTED_VERSION (V$OC_MAJOR)"
+info "Found opencode: $(opencode --version 2>/dev/null || echo 'version unknown')"
 
 # ---- merge opencode config --------------------------------------------------
 run "mkdir -p $(printf %q "$(dirname "$OC_FILE")")"
@@ -228,9 +217,6 @@ if [ -f "$OC_FILE" ]; then
     if $DRY_RUN; then
         echo "  [dry-run] merge LemonCrow entries into $OC_FILE"
     else
-        if $OC_V2; then
-            "${PYTHON_CMD[@]}" "${SCRIPT_DIR}/opencode_v2_config.py" merge "$OC_FILE" "$NEW_ENTRY"
-        else
         LEMONCROW_OC_FILE="$OC_FILE" "${PYTHON_CMD[@]}" - <<PYEOF
 import json
 import os
@@ -243,17 +229,22 @@ stripped = re.sub(r'^\s*//.*', '', content, flags=re.M)
 existing = json.loads(stripped) if stripped.strip() else {}
 new_entry = json.loads('''$NEW_ENTRY''')
 existing.setdefault('mcp', {}).update(new_entry['mcp'])
+providers = existing.setdefault('provider', {})
+providers.update(new_entry['provider'])
+providers.pop('lc', None)
+existing['default_agent'] = new_entry['default_agent']
+existing.pop('model', None)
 permission = existing.setdefault('permission', {})
-# Remove only LemonCrow's legacy hard-deny policy while preserving the user's
-# provider, model, default_agent, and unrelated permission choices.
+# OpenCode's Console free tier rejects requests when every native OpenCode
+# tool is disabled, even if the model request itself uses the native provider.
+# Remove the legacy LemonCrow hard-deny policy while preserving other values.
 for tool in ('read', 'edit', 'grep', 'glob', 'list', 'bash', 'webfetch', 'lsp'):
     if permission.get(tool) == 'deny':
         permission.pop(tool)
 permission.update(new_entry['permission'])
-path.write_text(json.dumps(existing, indent=2) + '\\n', encoding='utf-8')
-print(f"[lc:opencode] merged LemonCrow entries into {path}")
+path.write_text(json.dumps(existing, indent=2) + '\n', encoding='utf-8')
+print(f"[lemoncrow:opencode] merged LemonCrow entries into {path}")
 PYEOF
-        fi
     fi
 else
     if $DRY_RUN; then
@@ -274,7 +265,7 @@ from pathlib import Path
 from lemoncrow.core.capabilities.workspace_host_overrides import write_workspace_opencode_agents
 
 written = write_workspace_opencode_agents(Path("${WORKSPACE}"), role_ids=tuple(r for r in "${ROLES}".split(",") if r))
-print(f"[lc:opencode] projected {len(written)} workspace-local OpenCode agents into ${AGENT_DEST_DIR}")
+print(f"[lemoncrow:opencode] projected {len(written)} workspace-local OpenCode agents into ${AGENT_DEST_DIR}")
 PYEOF
     fi
 elif [[ "$ROLES" == "code" ]]; then
@@ -299,48 +290,42 @@ elif [[ "$ROLES" == "code" ]]; then
         warn "agent source missing: $AGENT_SRC"
     fi
 else
-    # On-demand extra roles are installed without changing the user-selected
-    # OpenCode default agent. They remain available for explicit selection.
+    # On-demand extra roles requested: migrate the global agent set from the
+    # single legacy code.md (code only) to per-role lemoncrow.<role>.md files
+    # (mirrors workspace-mode naming), and point default_agent at lemoncrow.code
+    # since the primary agent's identity is now the per-role filename.
     if $DRY_RUN; then
-        echo "  [dry-run] project global OpenCode agents (${ROLES}) into '$AGENT_DEST_DIR'"
+        echo "  [dry-run] project global OpenCode agents (${ROLES}) into '$AGENT_DEST_DIR', set default_agent=lemoncrow.code"
     else
         "${PYTHON_CMD[@]}" - <<PYEOF
 from pathlib import Path
 from lemoncrow.core.capabilities.workspace_host_overrides import write_opencode_agents
 
 written = write_opencode_agents(Path("${AGENT_DEST_DIR}"), role_ids=tuple(r for r in "${ROLES}".split(",") if r))
-print(f"[lc:opencode] projected {len(written)} global OpenCode agents into ${AGENT_DEST_DIR}")
+print(f"[lemoncrow:opencode] projected {len(written)} global OpenCode agents into ${AGENT_DEST_DIR}")
 PYEOF
+        "${PYTHON_CMD[@]}" - <<PYEOF2
+import json
+from pathlib import Path
+path = Path("${OC_FILE}")
+data = json.loads(path.read_text(encoding="utf-8") or "{}") if path.exists() else {}
+data["default_agent"] = "lemoncrow.code"
+path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+PYEOF2
+        info "default_agent set -> lemoncrow.code (per-role agents installed)"
     fi
 fi
 
-# ---- install versioned plugin ------------------------------------------------
+# ---- install prompt-time nudge plugin ---------------------------------------
 PLUGIN_SRC_DIR="${DIST_ROOT}/integrations/opencode/plugins"
-PLUGIN_FILENAME="lemoncrow-nudge.js"
-if $OC_V2; then PLUGIN_FILENAME="lemoncrow-nudge-v2.js"; fi
 if $DRY_RUN; then
-    echo "  [dry-run] install ${PLUGIN_FILENAME} into ${PLUGIN_DEST_DIR}"
+    echo "  [dry-run] copy LemonCrow nudge plugin to '$PLUGIN_DEST_DIR'"
 else
     run "mkdir -p $(printf %q "$PLUGIN_DEST_DIR")"
-    run "cp -f $(printf %q "$PLUGIN_SRC_DIR/$PLUGIN_FILENAME") $(printf %q "$PLUGIN_DEST_DIR/$PLUGIN_FILENAME")"
+    run "cp -f $(printf %q "$PLUGIN_SRC_DIR/lemoncrow-nudge.js") $(printf %q "$PLUGIN_DEST_DIR/lemoncrow-nudge.js")"
     run "cp -f $(printf %q "$PLUGIN_SRC_DIR/lemoncrow_nudge.py") $(printf %q "$PLUGIN_DEST_DIR/lemoncrow_nudge.py")"
     run "printf '%s\n' opencode > $(printf %q "$PLUGIN_DEST_DIR/.lemoncrow-host")"
-    if $OC_V2; then
-        run "rm -f $(printf %q "$PLUGIN_DEST_DIR/lemoncrow-nudge.js")"
-        # OpenCode V2 CLI settings are global. A workspace-scoped install must
-        # not unexpectedly change a user's global sidebar/plugins settings.
-        if ! $WORKSPACE_SET; then
-        run "mkdir -p $(printf %q "$STATUS_DEST_DIR")"
-        run "cp -f $(printf %q "$PLUGIN_SRC_DIR/lemoncrow-status-v2/index.ts") $(printf %q "$STATUS_DEST_DIR/index.ts")"
-        run "cp -f $(printf %q "$PLUGIN_SRC_DIR/lemoncrow-status-v2/tui.tsx") $(printf %q "$STATUS_DEST_DIR/tui.tsx")"
-        run "cp -f $(printf %q "$PLUGIN_SRC_DIR/lemoncrow-status-v2/package.json") $(printf %q "$STATUS_DEST_DIR/package.json")"
-        backup_file "$CLI_CONFIG_FILE"
-        "${PYTHON_CMD[@]}" "${SCRIPT_DIR}/opencode_v2_config.py" cli-merge "$CLI_CONFIG_FILE" "$STATUS_DEST_DIR"
-        fi
-    else
-        run "rm -f $(printf %q "$PLUGIN_DEST_DIR/lemoncrow-nudge-v2.js")"
-    fi
-    info "LemonCrow V${OC_MAJOR} plugin installed -> ${PLUGIN_DEST_DIR}/${PLUGIN_FILENAME}"
+    info "LemonCrow nudge plugin installed -> $PLUGIN_DEST_DIR/lemoncrow-nudge.js"
 fi
 
 
@@ -353,10 +338,10 @@ fi
 info "Running post-install verification..."
 VFAIL=0
 vpass() { info "PASS: $*"; }
-vfail() { echo "[lc:opencode] FAIL: $*" >&2; VFAIL=1; }
+vfail() { echo "[lemoncrow:opencode] FAIL: $*" >&2; VFAIL=1; }
 
 if [ -f "$OC_FILE" ]; then
-    HAS=$(LEMONCROW_OC_FILE="$OC_FILE" OC_V2="$OC_V2" "${PYTHON_CMD[@]}" - <<PYEOF
+    HAS=$(LEMONCROW_OC_FILE="$OC_FILE" "${PYTHON_CMD[@]}" - <<PYEOF
 import json
 import os
 import re
@@ -366,8 +351,7 @@ content = Path(os.environ['LEMONCROW_OC_FILE']).read_text(encoding='utf-8')
 stripped = re.sub(r'^\s*//.*', '', content, flags=re.M)
 try:
     d = json.loads(stripped)
-    mcp = d.get('mcp', {})
-    print('yes' if 'lc' in (mcp.get('servers', {}) if os.environ['OC_V2'] == 'true' else mcp) else 'no')
+    print('yes' if 'lc' in d.get('mcp', {}) else 'no')
 except Exception:
     print('parse-error')
 PYEOF
@@ -380,7 +364,7 @@ PYEOF
         vfail "opencode config missing lc entry"
     fi
 
-    MCP_ACTION_ACTUAL=$(LEMONCROW_OC_FILE="$OC_FILE" OC_V2="$OC_V2" "${PYTHON_CMD[@]}" - <<PYEOF
+    DEFAULT_AGENT=$(LEMONCROW_OC_FILE="$OC_FILE" "${PYTHON_CMD[@]}" - <<PYEOF
 import json
 import os
 import re
@@ -390,26 +374,46 @@ content = Path(os.environ['LEMONCROW_OC_FILE']).read_text(encoding='utf-8')
 stripped = re.sub(r'^\s*//.*', '', content, flags=re.M)
 try:
     d = json.loads(stripped)
-    mcp = d.get('mcp', {})
-    entry = (mcp.get('servers', {}) if os.environ['OC_V2'] == 'true' else mcp).get('lc', {})
-    command = entry.get('command') or []
-    print(command[2] if len(command) >= 3 else '')
+    print(d.get('default_agent', ''))
+except Exception:
+    print('')
+PYEOF
+)
+    if [ "$DEFAULT_AGENT" = "code" ] || { [ "$INSTALL_SCOPE" = "global" ] && [ "$ROLES" != "code" ] && [ "$DEFAULT_AGENT" = "lemoncrow.code" ]; }; then
+        vpass "opencode default_agent = $DEFAULT_AGENT"
+    else
+        vfail "opencode default_agent is '$DEFAULT_AGENT' (expected 'code' or 'lemoncrow.code')"
+    fi
+
+    HAS_PROVIDER=$(LEMONCROW_OC_FILE="$OC_FILE" "${PYTHON_CMD[@]}" - <<PYEOF
+import json
+import os
+import re
+from pathlib import Path
+
+content = Path(os.environ['LEMONCROW_OC_FILE']).read_text(encoding='utf-8')
+stripped = re.sub(r'^\s*//.*', '', content, flags=re.M)
+try:
+    d = json.loads(stripped)
+    provider = d.get('provider', {}).get('lemoncrow', {})
+    base_url = provider.get('options', {}).get('baseURL')
+    print('yes' if provider and base_url else 'no')
 except Exception:
     print('parse-error')
 PYEOF
 )
-    if [ "$MCP_ACTION_ACTUAL" = "$MCP_ACTION" ]; then
-        vpass "opencode lc MCP uses runtime $MCP_ACTION"
-    elif [ "$MCP_ACTION_ACTUAL" = "parse-error" ]; then
-        vfail "opencode config parse error while validating MCP action"
+    if [ "$HAS_PROVIDER" = "yes" ]; then
+        vpass "opencode provider.lemoncrow is configured for LemonCrow OpenAI gateway"
+    elif [ "$HAS_PROVIDER" = "parse-error" ]; then
+        vfail "opencode config parse error while validating provider settings"
     else
-        vfail "opencode lc MCP action is '$MCP_ACTION_ACTUAL' (expected '$MCP_ACTION')"
+        vfail "opencode provider/model config for LemonCrow gateway is missing"
     fi
 else
     vfail "opencode config not found: $OC_FILE"
 fi
 
-PLUGIN_FILE="${PLUGIN_DEST_DIR}/${PLUGIN_FILENAME}"
+PLUGIN_FILE="${PLUGIN_DEST_DIR}/lemoncrow-nudge.js"
 PLUGIN_HELPER="${PLUGIN_DEST_DIR}/lemoncrow_nudge.py"
 PLUGIN_HOST_MARKER="${PLUGIN_DEST_DIR}/.lemoncrow-host"
 if [ "$(cat "$PLUGIN_HOST_MARKER" 2>/dev/null || true)" = "opencode" ]; then
@@ -418,7 +422,7 @@ else
     vfail "opencode LemonCrow plugin host marker is missing or incorrect"
 fi
 if [ -f "$PLUGIN_FILE" ] && [ -f "$PLUGIN_HELPER" ]; then
-    vpass "opencode V${OC_MAJOR} LemonCrow prompt nudge plugin installed: $PLUGIN_FILE"
+    vpass "opencode LemonCrow prompt nudge plugin installed: $PLUGIN_FILE"
 else
     vfail "opencode LemonCrow prompt nudge plugin missing from $PLUGIN_DEST_DIR"
 fi
@@ -450,7 +454,7 @@ else
 fi
 
 if [ "$VFAIL" -ne 0 ]; then
-    echo "[lc:opencode] ERROR: post-install verification failed." >&2
+    echo "[lemoncrow:opencode] ERROR: post-install verification failed." >&2
     exit 1
 fi
 info "All post-install checks passed"

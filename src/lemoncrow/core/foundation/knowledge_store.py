@@ -97,7 +97,7 @@ class KnowledgeStore(SqliteTableStore):
                 _k_root = resolve_workspace_store_dir(self.root)
             except WorkspaceNotRegisteredError:
                 # Constructing a store must never require a workspace: global,
-                # read-only surfaces (`lc runtime savings`, `lc status`, ...) build the
+                # read-only surfaces (`lc savings`, `lc status`, ...) build the
                 # bundle just to read store-root data and would otherwise die in
                 # any non-git, un-`lc init`-ed cwd. Mirror beside the DB instead.
                 _k_root = self.root

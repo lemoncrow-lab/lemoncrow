@@ -17,16 +17,7 @@ def _disable_code_autosync() -> None:
     disabled there is no worker, so tests that need a populated index build it
     explicitly (via index_repo) and observe a fully built index deterministically.
     """
-    from lemoncrow.core.capabilities.code_intelligence_provider import ProEngineUnavailable
-
-    try:
-        from lemoncrow.pro.capabilities.code_context import CodeContextEngine
-    except (ImportError, ProEngineUnavailable):
-        # OSS-only checkouts intentionally have no advanced engine. Gateway
-        # tests that exercise Local Lite/public protocol surfaces must remain
-        # importable without the private enterprise distribution.
-        yield
-        return
+    from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 
     original_init = CodeContextEngine.__init__
 

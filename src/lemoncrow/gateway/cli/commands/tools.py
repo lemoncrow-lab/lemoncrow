@@ -1,4 +1,12 @@
-"""Inspect and call the LemonCrow MCP tool surface from the CLI."""
+"""Thin ``lc tool-mode`` and ``lc tools`` command groups (QBL-CLI-02).
+
+``tool-mode`` reads/writes the smart-tool shadow-mode state; ``tools`` inspects
+and calls the LemonCrow MCP tool surface. The MCP CLI plumbing (``_mcp_cli_args``,
+``_prepare_mcp_cli``) is module-private here -- it is used only by ``tools``.
+Bodies are copied verbatim from ``app.py``; the groups are standalone
+``click.Group``s so ``commands/__init__.py`` can ``add_command`` them without an
+import cycle (RESEARCH Pattern 1).
+"""
 
 from __future__ import annotations
 
@@ -10,7 +18,33 @@ from typing import Any
 
 import click
 
-from lemoncrow.gateway.cli.commands._shared import _emit
+from lemoncrow.gateway.cli.commands._shared import (
+    _emit,
+    _load_smart_state,
+    _save_smart_state,
+)
+
+
+@click.group("tool-mode")
+def tool_mode() -> None:
+    """Smart tool mode (shadow|suggest|replace)."""
+
+
+@tool_mode.command("show")
+@click.pass_context
+def tool_mode_show(ctx: click.Context) -> None:
+    s = _load_smart_state(ctx.obj["root"])
+    click.echo(s.get("mode", "shadow"))
+
+
+@tool_mode.command("set")
+@click.argument("mode", type=click.Choice(["shadow", "suggest", "replace"]))
+@click.pass_context
+def tool_mode_set(ctx: click.Context, mode: str) -> None:
+    s = _load_smart_state(ctx.obj["root"])
+    s["mode"] = mode
+    _save_smart_state(ctx.obj["root"], s)
+    click.echo(f"tool_mode={mode}")
 
 
 def _mcp_cli_args(raw: str) -> dict[str, Any]:

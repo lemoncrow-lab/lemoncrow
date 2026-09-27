@@ -24,7 +24,6 @@ from lemoncrow_server_core.index.contracts import (
 )
 from lemoncrow_server_core.index.lifecycle import Maintenance
 from lemoncrow_server_core.index.manifest import chunk_manifest, manifest_root
-from lemoncrow_server_core.index.memory import build_memory_backend
 from lemoncrow_server_core.index.migration import migrate_index
 from lemoncrow_server_core.index.query import IndexQuery
 from lemoncrow_server_core.index.repositories import RepositoryIndex, build_repository_backend, repository_index_root
@@ -33,48 +32,6 @@ from lemoncrow_server_core.limits import Limits
 from lemoncrow_server_core.protocol import PROTOCOL_VERSION, REQUIRED_CLIENT_CAPABILITIES
 
 CAP = 1024**2
-
-
-@pytest.mark.parametrize("kind", ("memory", "sqlite"))
-def test_repository_lookup_does_not_create_unknown_tenant_binding(tmp_path: Path, kind: str) -> None:
-    if kind == "memory":
-        backend = build_memory_backend(content_size_cap=CAP)
-        close = backend.close_backend
-    else:
-        index = SqliteIndex(tmp_path / "identity.sqlite3", content_size_cap=CAP)
-        backend = index.backend
-        close = index.close
-    claim = RepoIdentityClaim(scm_provider="github", scm_repo_id="12345", fingerprint="")
-    try:
-        assert backend.repos.lookup_repo_id("org-a", claim) is None
-        assert backend.repos.lookup_repo_id("org-b", claim) is None
-        issued = backend.repos.canonical_repo_id("org-a", claim)
-        assert backend.repos.lookup_repo_id("org-a", claim) == issued
-        assert backend.repos.lookup_repo_id("org-b", claim) is None
-        assert backend.repos.lookup_repo_id("org-a", RepoIdentityClaim("github", "other", "")) is None
-        assert backend.repos.canonical_repo_id("org-a", claim) == issued
-    finally:
-        close()
-
-
-@pytest.mark.parametrize("kind", ("memory", "sqlite"))
-def test_content_provenance_scope_is_an_exact_opaque_key(tmp_path: Path, kind: str) -> None:
-    if kind == "memory":
-        backend = build_memory_backend(content_size_cap=CAP)
-        close = backend.close_backend
-    else:
-        index = SqliteIndex(tmp_path / "scope.sqlite3", content_size_cap=CAP)
-        backend = index.backend
-        close = index.close
-    digest = sha256_hex(b"scope-boundary")
-    try:
-        assert backend.provenance.record("org_a", "repo_a", "alice", (digest,)) == 1
-        assert backend.provenance.held("org_a", "repo_a", "alice", (digest,)) == frozenset({digest})
-        assert backend.provenance.held("org_a", "repo_a", "", (digest,)) == frozenset()
-        assert backend.provenance.record("org_a", "repo_a", "", (digest,)) == 1
-        assert backend.provenance.held("org_a", "repo_a", "", (digest,)) == frozenset({digest})
-    finally:
-        close()
 
 
 def seed(
@@ -210,27 +167,6 @@ def test_repositories_are_separate_and_worktrees_share_content(tmp_path: Path) -
         reopened.close()
 
 
-def test_layer_status_of_a_view_with_no_route_is_a_cold_flag(tmp_path: Path) -> None:
-    # A single backend reports cold for a View it does not hold; the repository
-    # router raised view_unknown instead, so a degradation check run after the
-    # View's route was reclaimed failed the call it was only meant to flag.
-    owner = RepositoryIndex(tmp_path / "indexes", content_size_cap=CAP)
-    try:
-        _repo, view = seed(owner.backend, {"one.py": b"def alpha():\n    return 1\n"})
-        invented = "view_" + "0" * 32
-        for layer in (owner.backend.links, owner.backend.semantic):
-            foreign = layer.status("org_intruder", view)
-            assert foreign == layer.status("org_a", invented)
-            assert not foreign.ready
-        assert owner.backend.links.status("org_a", invented).reason == "link_index_not_built"
-        assert owner.backend.semantic.status("org_a", invented).reason == "semantic_index_not_built"
-        with pytest.raises(ServerError) as refusal:
-            owner.backend.links.edges("org_a", invented)
-        assert refusal.value.code == ErrorCode.VIEW_UNKNOWN
-    finally:
-        owner.close()
-
-
 def test_repository_writers_do_not_share_a_lock(tmp_path: Path) -> None:
     owner = RepositoryIndex(tmp_path, content_size_cap=CAP)
     try:
@@ -267,38 +203,6 @@ def test_external_retention_reference_is_scoped_to_one_repository(tmp_path: Path
         assert report.blobs_swept == 1
         assert owner.for_repository("org_a", a).content.get("org_a", digest) == data
         assert owner.for_repository("org_a", b).content.get("org_a", digest) is None
-    finally:
-        owner.close()
-
-
-def test_a_failed_reference_provider_keeps_all_content_and_lets_maintenance_run(tmp_path: Path) -> None:
-    now = [1000.0]
-    owner = RepositoryIndex(tmp_path, content_size_cap=CAP, clock=lambda: now[0])
-    data = b"def reviewed():\n    return 42\n"
-    digest = sha256_hex(data)
-    failing = [False]
-
-    def reviews() -> dict[tuple[str, str], frozenset[str]]:
-        if failing[0]:
-            raise sqlite3.OperationalError("database is locked")
-        return {}
-
-    try:
-        a, view = seed(owner.backend, {"reviewed.py": data})
-        owner.backend.views.close("org_a", view)
-        maintenance = Maintenance(owner.backend, retention_s=10, clock=lambda: now[0], reference_providers=(reviews,))
-        now[0] = 1011
-        maintenance.run_once()
-        # The Reviews that may name the marked blob cannot be read this pass:
-        # past its retention window it is kept, and the pass still completes.
-        failing[0] = True
-        now[0] = 1022
-        report = maintenance.run_once()
-        assert maintenance.last_report is report
-        assert report.blobs_swept == 0
-        assert owner.for_repository("org_a", a).content.get("org_a", digest) == data
-        failing[0] = False
-        assert maintenance.run_once().blobs_swept == 1
     finally:
         owner.close()
 

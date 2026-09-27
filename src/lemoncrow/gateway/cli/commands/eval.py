@@ -10,12 +10,12 @@ import click
 def _gpu_supports_embedder(min_free_mb: int = 512) -> tuple[bool, str]:
     """Return (ok, reason). True when a CUDA GPU with enough free VRAM is present.
 
-    Uses ``nvidia-smi`` so it works regardless of which Python env is active and
-    never imports a model framework into the public CLI (the semantic channel's
-    embedder is supplied by the private runtime).
+    Uses ``nvidia-smi`` so it works regardless of which Python env is active.
+    Falls back to ``torch.cuda`` when nvidia-smi is unavailable.
     """
     import subprocess
 
+    # Primary: nvidia-smi — works in any Python env
     try:
         out = subprocess.check_output(
             ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
@@ -29,9 +29,25 @@ def _gpu_supports_embedder(min_free_mb: int = 512) -> tuple[bool, str]:
             return False, f"only {free_mb} MB free VRAM (need {min_free_mb} MB)"
         return True, f"{free_mb} MB free VRAM"
     except FileNotFoundError:
-        return False, "nvidia-smi not found (no CUDA GPU detected)"
+        pass  # nvidia-smi not installed; fall through to torch
     except Exception as exc:
         return False, f"nvidia-smi error: {exc}"
+
+    # Fallback: torch (only available when torch is installed in this env)
+    try:
+        import torch
+
+        if not torch.cuda.is_available():
+            return False, "no CUDA GPU detected"
+        free_bytes, _ = torch.cuda.mem_get_info()
+        free_mb = free_bytes // (1024 * 1024)
+        if free_mb < min_free_mb:
+            return False, f"only {free_mb} MB free VRAM (need {min_free_mb} MB)"
+        return True, f"{free_mb} MB free VRAM"
+    except ImportError:
+        return False, "nvidia-smi not found and torch not installed"
+    except Exception as exc:
+        return False, f"GPU check failed: {exc}"
 
 
 @click.group(name="eval")
@@ -199,11 +215,9 @@ def _channel_cmd_env(
     pairs: tuple[Path, ...],
     workers: int = 1,
 ) -> tuple[list[str], dict[str, str], list[Path]]:
-    """Run every channel through the same provider and scoring harness.
-
-    The default thin client uses persistent HTTP. Legacy LemonCrow variants use
-    stdio and explicit backend toggles forwarded to that server.
-    """
+    """Every channel -- LemonCrow included -- runs through the same provider
+    harness over the shipped stdio surface. LemonCrow channel variants are env
+    toggles the server honours (the provider forwards its environment)."""
     import os
     import sys
 
@@ -537,10 +551,10 @@ def _render_comparison(channel_results: dict[str, dict[str, Any]], csv_path: Pat
     "channels",
     multiple=True,
     type=click.Choice([_ALL_CHANNEL, *_RETRIEVAL_CHANNELS]),
-    default=("lemoncrow-shared",),
+    default=("lexical",),
     show_default=True,
-    help="Channel(s) to benchmark. Default measures the real thin client over HTTP against the configured server. "
-    "Repeatable for side-by-side comparison: --channel lemoncrow-shared --channel lexical. "
+    help="Channel(s) to benchmark. Repeatable for side-by-side comparison: "
+    "--channel lexical --channel lexical+zoekt. "
     "Use 'all' to run every channel. "
     "Current client and configured server: lemoncrow-shared. "
     "Legacy MCP (env-toggled): zoekt, "
@@ -613,7 +627,7 @@ def eval_retrieval(
 
     Pass --channel multiple times for a side-by-side comparison table::
 
-        lc dev eval retrieval --channel lemoncrow-shared --channel lexical --full
+        lc eval retrieval --channel lexical --channel lexical+zoekt --full
     """
     import json
     import subprocess
@@ -993,7 +1007,7 @@ def eval_fitness(
             )
             active_channels.remove("lexical+zoekt+semantic")
 
-    eval_cmd = ["lemoncrow", "dev", "eval", "retrieval"]
+    eval_cmd = ["lemoncrow", "eval", "retrieval"]
     for pair_path in split_pairs:
         eval_cmd += ["--pairs", str(pair_path)]
     for ch in active_channels:

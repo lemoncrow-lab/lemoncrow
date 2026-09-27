@@ -42,7 +42,7 @@ from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, "src")
-from lemoncrow.core.capabilities.code_intelligence_provider import create_code_intelligence_provider
+from lemoncrow.pro.capabilities.code_context.engine import CodeContextEngine
 
 from benchmarks.codebench import swebench_data
 
@@ -125,7 +125,7 @@ def _index_repo(prefix: str, ws: Path, db: Path) -> None:
         print(f"[{prefix}] indexing -> {db}", flush=True)
         t0 = time.time()
         try:
-            create_code_intelligence_provider(ws, db_path=db, autosync_enabled=False).index_repo()
+            CodeContextEngine(ws, db_path=db, autosync_enabled=False).index_repo()
         except Exception as e:
             print(f"[{prefix}] INDEX FAILED: {e}", flush=True)
             return
@@ -385,7 +385,7 @@ def _linux_prepare(commit_ref: str | None = None) -> None:
     if not _LINUX_DB.exists() or _LINUX_DB.stat().st_size < 1_000_000:
         print(f"[linux] indexing -> {_LINUX_DB} (this takes a few minutes) ...", flush=True)
         t0 = time.time()
-        create_code_intelligence_provider(_LINUX_WS, db_path=_LINUX_DB, autosync_enabled=False).index_repo()
+        CodeContextEngine(_LINUX_WS, db_path=_LINUX_DB, autosync_enabled=False).index_repo()
         print(f"[linux] index done {time.time() - t0:.0f}s symbols={symbol_count(_LINUX_DB)}", flush=True)
     else:
         print(f"[linux] index exists, symbols={symbol_count(_LINUX_DB)}", flush=True)

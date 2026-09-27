@@ -27,7 +27,6 @@ import contextlib
 import logging
 import os
 import re
-import threading
 from collections.abc import Iterator
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -449,40 +448,6 @@ class ModelPricing:
             8,
         )
 
-    def call_cost_usd(
-        self,
-        *,
-        prompt_tokens: int,
-        output_tokens: int,
-        cache_read_tokens: int = 0,
-        cache_write_tokens: int = 0,
-    ) -> float:
-        """One request's cost from the counts a model route reports for it.
-
-        ``prompt_tokens`` is the whole prompt, the cached part included (the OpenAI and LiteLLM ``prompt_tokens``);
-        ``cache_read_tokens`` and ``cache_write_tokens`` are the parts of it read from or written to the cache, and are
-        billed at their own rates, not again as input. A model with a long-context tier bills the whole request at the
-        premium rates once its prompt passes the threshold (:meth:`request_cost_usd`), cached tokens counted toward
-        that length. A cache rate the table leaves at zero is no discount, not a free token: those tokens bill as
-        plain input.
-        """
-
-        read, written = max(cache_read_tokens, 0), max(cache_write_tokens, 0)
-        prompt = max(prompt_tokens, read + written)
-        fresh = prompt - read - written
-        if self.cache_read <= 0:
-            fresh, read = fresh + read, 0
-        if self.cache_write <= 0:
-            fresh, written = fresh + written, 0
-        threshold = self.long_context_threshold()
-        return self.request_cost_usd(
-            input_tokens=fresh,
-            output_tokens=max(output_tokens, 0),
-            cache_read_tokens=read,
-            cache_write_tokens=written,
-            long_context=threshold > 0 and prompt > threshold,
-        )
-
     def tokens_to_usd(
         self,
         tokens: int,
@@ -786,30 +751,6 @@ def _nearest_table_match(model_id: str) -> str:
         # it at any sibling's per-token rate overbills usage already paid for.
         return ""
     table = _load_pricing_table()
-    # GPT's named families span versions: a missing Sol must never inherit Astra rates.
-    named_family = re.match(r"^(?:openai/)?gpt-\d+(?:[.-]\d+)?-(sol|astra|luna|terra)(?:-|$)", model_id)
-    if named_family:
-        family = named_family.group(1)
-
-        def _has_token_price(entry: dict[str, float | tuple[PricingTier, ...]]) -> bool:
-            input_rate = entry.get("input", 0.0)
-            output_rate = entry.get("output", 0.0)
-            return (isinstance(input_rate, (int, float)) and input_rate > 0) or (
-                isinstance(output_rate, (int, float)) and output_rate > 0
-            )
-
-        siblings = [
-            key
-            for key, entry in table.items()
-            if re.fullmatch(rf"(?:openai/)?gpt-\d+(?:[.-]\d+)?-{family}", key) and _has_token_price(entry)
-        ]
-
-        def _family_priority(key: str) -> tuple[int, int, Any]:
-            version = re.search(r"gpt-(\d+)(?:[.-](\d+))?", key)
-            assert version is not None
-            return (-int(version.group(1)), -int(version.group(2) or 0), _alias_priority(key))
-
-        return min(siblings, key=_family_priority) if siblings else ""
     parts = model_id.split("-")
     for cut in range(len(parts) - 1, _NEAREST_MATCH_MIN_SEGMENTS - 1, -1):
         stem = "-".join(parts[:cut])
@@ -823,44 +764,7 @@ def _nearest_table_match(model_id: str) -> str:
     return ""
 
 
-# Resolved rate cards per model id, valid for exactly one loaded table: usage
-# analytics price tens of thousands of events across a handful of models, and
-# each resolution walks aliases and builds a ModelPricing. Holding the table
-# reference (not its id) means a reloaded table can never alias a stale memo.
-_PRICING_MEMO_MAX = 1024
-_pricing_memo: dict[str, ModelPricing] = {}
-_pricing_memo_table: object | None = None
-_pricing_memo_lock = threading.Lock()
-
-
 def get_model_pricing(model_id: str) -> ModelPricing:
-    """Return :class:`ModelPricing` for *model_id* (memoized per loaded table)."""
-    global _pricing_memo_table
-    table = _load_pricing_table()
-    if _pricing_memo_table is table:
-        hit = _pricing_memo.get(model_id)
-        if hit is not None:
-            return hit
-    pricing = _resolve_model_pricing(model_id, table)
-    with _pricing_memo_lock:
-        if _pricing_memo_table is not table:
-            _pricing_memo.clear()
-            _pricing_memo_table = table
-        if len(_pricing_memo) >= _PRICING_MEMO_MAX:
-            _pricing_memo.clear()
-        _pricing_memo[model_id] = pricing
-    return pricing
-
-
-def exact_model_pricing(model_id: str) -> ModelPricing | None:
-    """The table's own entry for *model_id*, or ``None``: an unlisted id is never priced as its nearest sibling."""
-    if not model_id:
-        return None
-    pricing = get_model_pricing(model_id)
-    return pricing if pricing.known and not pricing.approximate else None
-
-
-def _resolve_model_pricing(model_id: str, table: dict[str, dict[str, float | tuple[PricingTier, ...]]]) -> ModelPricing:
     """Return :class:`ModelPricing` for *model_id*.
 
     Lookup order (LiteLLM is the sole pricing source — no LemonCrow overrides):
@@ -876,6 +780,7 @@ def _resolve_model_pricing(model_id: str, table: dict[str, dict[str, float | tup
     Placeholder ids (``<synthetic>``, ``_default``, empty) are returned as
     zero-cost silently.
     """
+    table = _load_pricing_table()
 
     def _lookup(mid: str) -> ModelPricing | None:
         if mid in table:
@@ -1047,8 +952,6 @@ def override_pricing(
         "thinking_tiers": (),
     }
     _load_pricing_table.cache_clear()
-    # Nearest-sibling answers were computed against the previous table.
-    _nearest_table_match.cache_clear()
 
 
 def all_known_models() -> list[str]:

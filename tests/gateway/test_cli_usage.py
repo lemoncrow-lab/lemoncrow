@@ -95,6 +95,45 @@ def _write_run(
 # --------------------------------------------------------------------------- #
 
 
+def test_usage_registered_and_help_exits_zero() -> None:
+    ctx = _ctx()
+    assert "usage" in cli.list_commands(ctx)
+    assert cli.get_command(ctx, "usage") is not None
+
+    result = CliRunner().invoke(cli, ["usage", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "--by" in result.output
+    assert "--since" in result.output
+
+
+def test_usage_subcommands_are_registered() -> None:
+    ctx = _ctx()
+    usage = cli.get_command(ctx, "usage")
+    assert isinstance(usage, click.Group)
+    names = set(usage.list_commands(click.Context(usage, info_name="usage")))
+    assert {"explain", "rows", "optimize"} <= names
+
+
+def test_usage_help_lists_optimize_even_though_it_is_globally_hidden() -> None:
+    """`optimize` is hidden at top level; the promoted spelling must still show.
+
+    One Click object is registered twice, so the top-level ``hidden`` flag would
+    otherwise erase `lc usage optimize` from this group's help and leave the
+    headline optimisation surface undiscoverable.
+    """
+
+    usage_help = CliRunner().invoke(cli, ["usage", "--help"])
+    top_help = CliRunner().invoke(cli, ["--help"])
+
+    assert usage_help.exit_code == 0, usage_help.output
+    listed = {line.strip().split(" ", 1)[0] for line in usage_help.output.splitlines() if line.startswith("  ")}
+    assert {"explain", "rows", "optimize"} <= listed
+
+    # ...and the top-level listing is unchanged by that.
+    top_listed = {line.strip().split(" ", 1)[0] for line in top_help.output.splitlines() if line.startswith("  ")}
+    assert "optimize" not in top_listed
+
+
 # --------------------------------------------------------------------------- #
 # default view / grouping                                                     #
 # --------------------------------------------------------------------------- #
@@ -170,7 +209,7 @@ def test_usage_empty_store_emits_a_value_not_an_error(tmp_path: Path) -> None:
     payload = _invoke(root, "usage", "--json")
 
     assert text.exit_code == 0, text.output
-    assert "No usage recorded" in text.output
+    assert "no usage recorded" in text.output
     assert payload.exit_code == 0, payload.output
     assert json.loads(payload.output)["totals"]["rows"] == 0
 
@@ -322,12 +361,20 @@ def test_usage_rows_respects_limit(tmp_path: Path) -> None:
 
 
 def test_usage_optimize_carries_the_savings_payload(tmp_path: Path) -> None:
-    """The advisor includes the Runtime aggregate-savings payload."""
+    """`lc usage optimize --json` must contain `lc savings --json`, verbatim.
+
+    Spec §3 PR-7 asks for equality. It cannot be equality: `optimize` is one
+    Click object registered under two parents, and `lc optimize --json` has a
+    documented payload (``host``/``recommendations``/``trace_count``) that
+    ``tests/gateway/test_cli_v2.py`` pins. Equality would break that test, so
+    the savings dict is carried as an additive key instead -- one command, one
+    behaviour, and the two reports still provably agree.
+    """
 
     root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
 
-    savings = _invoke(root, "runtime", "savings", "--json")
+    savings = _invoke(root, "savings", "--json")
     optimize = _invoke(root, "usage", "optimize", "--json")
 
     assert savings.exit_code == 0, savings.output
@@ -335,15 +382,30 @@ def test_usage_optimize_carries_the_savings_payload(tmp_path: Path) -> None:
     assert json.loads(optimize.output)["savings"] == json.loads(savings.output)
 
 
-def test_usage_optimize_reports_advisor_payload(tmp_path: Path) -> None:
+def test_usage_optimize_preserves_the_legacy_advisor_payload(tmp_path: Path) -> None:
     root = tmp_path / ".lemoncrow"
     init_store_at(str(root))
 
     through_usage = _invoke(root, "usage", "optimize", "--json")
+    through_alias = _invoke(root, "optimize", "--json")
 
     assert through_usage.exit_code == 0, through_usage.output
+    assert through_alias.exit_code == 0, through_alias.output
     payload = json.loads(through_usage.output)
     assert {"host", "recommendations", "trace_count", "advisor"} <= set(payload)
+    assert json.loads(through_alias.output) == payload
+
+
+def test_usage_optimize_detail_and_reset_registered() -> None:
+    ctx = _ctx()
+    usage = cli.get_command(ctx, "usage")
+    assert isinstance(usage, click.Group)
+    optimize = usage.get_command(click.Context(usage, info_name="usage"), "optimize")
+    assert isinstance(optimize, click.Group)
+
+    optimize_ctx = click.Context(optimize, info_name="optimize")
+    assert optimize.get_command(optimize_ctx, "detail") is not None
+    assert optimize.get_command(optimize_ctx, "reset") is not None
 
 
 def test_usage_optimize_detail_runs(tmp_path: Path) -> None:

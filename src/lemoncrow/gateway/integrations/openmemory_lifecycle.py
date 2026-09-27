@@ -1,9 +1,9 @@
-"""OpenMemory sidecar lifecycle orchestration.
+"""OpenMemory (and Letta) sidecar lifecycle orchestration.
 
-This module owns the *non-CLI* business logic for the self-hosted OpenMemory
-sidecar: project-root resolution, on-disk path layout, git checkout of the
+This module owns the *non-CLI* business logic for the self-hosted OpenMemory and
+Letta sidecars: project-root resolution, on-disk path layout, git checkout of the
 OpenMemory upstream, generation of the API/UI env files, and the
-``make`` invocations that build and run the stack.
+``docker compose`` / ``make`` invocations that build and run the stacks.
 
 It is a NEW sibling of the MCP-over-HTTP client in ``openmemory.py`` -- that
 client talks to a running server, while this module manages the lifecycle of the
@@ -24,6 +24,19 @@ import subprocess
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+# --------------------------------------------------------------------------- #
+# Letta compose helpers                                                       #
+# --------------------------------------------------------------------------- #
+
+
+def letta_compose_file() -> Path:
+    return Path.cwd() / "deploy" / "letta" / "docker-compose.yml"
+
+
+def run_compose(args: list[str]) -> None:
+    subprocess.run(["docker", "compose", "-f", str(letta_compose_file()), *args], check=True)
 
 
 # --------------------------------------------------------------------------- #

@@ -1,6 +1,3 @@
-import { Button as UiButton } from "../components/ui/button";
-import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
-import { ToggleGroup } from "../components/ui/toggle-group";
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { ExternalLink, FileCode2, Link2, Monitor, Moon, Smartphone, Sun, SunMoon, Tablet as TabletIcon, Unlink2 } from "lucide-react";
 
@@ -143,31 +140,31 @@ function themedUrl(url: string, theme: Theme): string {
 }
 
 function DeviceIcon({ preset }: { preset: ViewportPreset }) {
-  if (preset === "desktop") return <Monitor size={14} />;
-  if (preset === "tablet") return <TabletIcon size={14} />;
-  return <Smartphone size={14} />;
+  if (preset === "desktop") return <Monitor size={14} strokeWidth={1.7} />;
+  if (preset === "tablet") return <TabletIcon size={14} strokeWidth={1.7} />;
+  return <Smartphone size={14} strokeWidth={1.7} />;
 }
 
 function DevicePicker({ value, onChange }: { value: ViewportPreset; onChange(value: ViewportPreset): void }) {
   return (
-    <div role="group" aria-label="Preview device" className="inline-flex shrink-0 overflow-hidden rounded border border-border bg-background">
+    <div role="group" aria-label="Preview device" className="inline-flex shrink-0 overflow-hidden rounded border border-neutral-700 bg-neutral-950">
       {(Object.keys(VIEWPORTS) as ViewportPreset[]).map((preset) => {
         const item = VIEWPORTS[preset];
         const selected = value === preset;
         return (
-          <UiButton
+          <button
             key={preset}
             type="button"
-            variant="ghost"
             aria-label={`${item.label} viewport`}
             aria-pressed={selected}
+            title={`${item.label} · ${item.width}px · ${item.shortcut}`}
             onClick={() => onChange(preset)}
-            className={`h-7 w-8 rounded-none border-r border-border last:border-r-0 ${selected
- ? "bg-accent text-muted-foreground"
-              : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}
+            className={`flex h-7 w-8 items-center justify-center border-r border-neutral-800 last:border-r-0 ${selected
+              ? "bg-violet-500/15 text-violet-200"
+              : "text-neutral-500 hover:bg-neutral-900 hover:text-neutral-50"}`}
           >
             <DeviceIcon preset={preset} />
-          </UiButton>
+          </button>
         );
       })}
     </div>
@@ -180,15 +177,15 @@ function PreviewThemeToggle({ value, chromeTheme, onChange }: { value: PreviewTh
   const nextLabel = next === "auto" ? `Auto · ${chromeTheme}` : next === "light" ? "Light" : "Dark";
   const Icon = value === "auto" ? SunMoon : value === "light" ? Sun : Moon;
   return (
-    <UiButton
+    <button
       type="button"
-      variant="ghost"
       aria-label={`Preview theme: ${label}. Switch to ${nextLabel}`}
+      title={`Preview theme: ${label} · click for ${nextLabel}`}
       onClick={() => onChange(next)}
-      className="h-7 w-8 shrink-0 rounded border-border bg-background text-muted-foreground hover:bg-muted"
+      className="inline-flex h-7 w-8 shrink-0 items-center justify-center rounded border border-neutral-700 bg-neutral-950 text-violet-200 hover:bg-neutral-900"
     >
-      <Icon size={14} />
-    </UiButton>
+      <Icon size={13} strokeWidth={1.7} />
+    </button>
   );
 }
 
@@ -253,12 +250,12 @@ function LiveFrame({
   const resolvedUrl = url ? themedUrl(url, theme) : "";
   return (
     <section
-      className={`flex shrink-0 flex-col overflow-hidden rounded-md border border-border ${theme === "dark" ? "bg-background" : "bg-white"}`}
+      className={`flex shrink-0 flex-col overflow-hidden rounded-md border border-neutral-700 shadow-sm ${theme === "dark" ? "bg-neutral-950" : "bg-white"}`}
       data-testid={`web-live-${side}`}
       style={{ width: `${viewportWidth}px`, height: `${FRAME_HEIGHT}px` }}
     >
       {showSideHeader && (
-        <div className="flex h-7 shrink-0 items-center justify-between border-b border-border bg-background px-2 font-mono text-caption uppercase tracking-wider text-muted-foreground">
+        <div className="flex h-7 shrink-0 items-center justify-between border-b border-neutral-800 bg-neutral-950 px-2 font-mono text-[10px] uppercase tracking-wider text-neutral-500">
           <span>{label}</span>
           <span>{viewportWidth}px{presentationScale != null ? ` · ${Math.round(presentationScale * 100)}%` : ""}</span>
         </div>
@@ -271,32 +268,31 @@ function LiveFrame({
           data-testid={`web-live-frame-${side}`}
           sandbox="allow-scripts allow-same-origin"
           referrerPolicy="no-referrer"
-          className={`block min-h-0 flex-1 border-0 ${theme === "dark" ? "bg-background" : "bg-white"}`}
+          className={`block min-h-0 flex-1 border-0 ${theme === "dark" ? "bg-neutral-950" : "bg-white"}`}
           style={{ width: `${viewportWidth}px`, colorScheme: theme }}
         />
       ) : error ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center bg-surface-sunken px-6 py-10 text-center text-label text-muted-foreground">
-          <div className="max-w-xl rounded border border-red-900/60 bg-red-950/15 px-4 py-3">
-            <div className="font-medium text-red-300">Preview build failed</div>
+        <div className="flex min-h-0 flex-1 items-center justify-center bg-surface-sunken px-6 py-10 text-center text-[11px] text-neutral-400">
+          <div className="max-w-xl rounded border border-rose-900/60 bg-rose-950/15 px-4 py-3">
+            <div className="font-medium text-rose-300">Preview build failed</div>
             <div className="mt-2 flex items-center justify-center gap-3">
               <details className="text-left">
-                <summary className="cursor-pointer text-meta text-muted-foreground hover:text-foreground">View details</summary>
-                <pre className="mt-2 max-h-32 max-w-lg overflow-auto whitespace-pre-wrap text-caption leading-4 text-red-400/80">{error}</pre>
+                <summary className="cursor-pointer text-[10px] text-neutral-500 hover:text-neutral-50">View details</summary>
+                <pre className="mt-2 max-h-32 max-w-lg overflow-auto whitespace-pre-wrap text-[10px] leading-4 text-rose-400/80">{error}</pre>
               </details>
-              <UiButton
+              <button
                 type="button"
-                variant="outline"
-                size="xs"
                 onClick={() => setRetry((value) => value + 1)}
+                className="border border-neutral-700 px-2 py-1 text-[10px] text-neutral-300 hover:border-neutral-500"
               >
                 Retry
-              </UiButton>
+              </button>
             </div>
           </div>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 items-center justify-center bg-surface-sunken text-caption text-muted-foreground">
-          <div className="text-center">Preparing preview for this Snapshot…</div>
+        <div className="flex min-h-0 flex-1 items-center justify-center bg-surface-sunken text-[10px] text-neutral-500">
+          <div className="text-center">Preparing preview for this revision…</div>
         </div>
       )}
     </section>
@@ -347,26 +343,26 @@ function FrozenScreenshotCompare({
 
   if (error) {
     return (
-      <div className="flex min-h-[420px] items-center justify-center bg-muted p-6 text-center text-label text-red-300">
-        <div className="max-w-xl rounded border border-red-900/60 bg-red-950/15 px-4 py-3">
+      <div className="flex min-h-[420px] items-center justify-center bg-neutral-900 p-6 text-center text-[11px] text-rose-300">
+        <div className="max-w-xl rounded border border-rose-900/60 bg-rose-950/15 px-4 py-3">
           <div className="font-medium">Frozen screenshot diff unavailable</div>
-          <div className="mt-1 text-caption text-muted-foreground">{error}</div>
+          <div className="mt-1 text-[10px] text-neutral-500">{error}</div>
         </div>
       </div>
     );
   }
   if (!urls) {
-    return <div className="flex min-h-[420px] items-center justify-center bg-muted text-caption text-muted-foreground">Rendering exact Snapshot screenshots…</div>;
+    return <div className="flex min-h-[420px] items-center justify-center bg-neutral-900 text-[10px] text-neutral-500">Rendering exact Snapshot screenshots…</div>;
   }
   return (
-    <div className="bg-muted p-3" data-testid="web-frozen-screenshot-compare">
+    <div className="bg-neutral-900 p-3" data-testid="web-frozen-screenshot-compare">
       <ImageOverlayCompare
         beforeSrc={urls.before}
         afterSrc={urls.after}
         beforeLabel="Before · old source"
         afterLabel="After · new source"
       />
-      <div className="mt-2 text-micro text-muted-foreground">
+      <div className="mt-2 text-[9px] text-neutral-600">
         Frozen PNGs rendered independently from the old/new sides of the same immutable Snapshot. Source remains authoritative.
       </div>
     </div>
@@ -644,17 +640,16 @@ export default function WebReviewPreview({
       onMouseEnter={onActivate}
       onFocusCapture={onActivate}
     >
-      <div className="sticky top-0 z-30 flex h-10 min-w-0 items-center gap-2 overflow-visible border-b border-border bg-surface-code/95 px-3 backdrop-blur">
-        <UiButton
+      <div className="sticky top-0 z-30 flex h-10 min-w-0 items-center gap-2 overflow-visible border-b border-neutral-800 bg-surface-code/95 px-3 backdrop-blur">
+        <button
           type="button"
-          variant="ghost"
           onClick={onOpenDedicated}
           aria-label={`Open web surface ${surfaceTitle} in dedicated tab`}
-          tooltip={`${framework} rendered surface · open in dedicated tab`}
-          className="h-auto shrink-0 gap-1 border-transparent px-0 text-meta font-medium uppercase tracking-tag text-cyan-400/75 hover:bg-transparent hover:text-cyan-300"
+          title={`${framework} rendered surface · open in dedicated tab`}
+          className="inline-flex shrink-0 items-center gap-1 text-[10px] font-medium uppercase tracking-[0.12em] text-sky-400/75 hover:text-sky-300"
         >
-          <Monitor size={14} /> Web <span className="normal-case tracking-normal text-cyan-300/90">· {serviceName}</span> <ExternalLink size={14} />
-        </UiButton>
+          <Monitor size={12} /> Web <span className="normal-case tracking-normal text-sky-300/90">· {serviceName}</span> <ExternalLink size={10} />
+        </button>
         {rankedRouteOptions.length > 1 ? (
           <SurfacePicker
             ariaLabel="Rendered route"
@@ -681,29 +676,29 @@ export default function WebReviewPreview({
             }}
           />
         ) : (
-          <span className="max-w-48 shrink-0 truncate font-mono text-label text-foreground" title={surfaceTitle}>{route}</span>
+          <span className="max-w-48 shrink-0 truncate font-mono text-[11px] text-neutral-200" title={surfaceTitle}>{route}</span>
         )}
 
         {rankingRoutes && (
-          <span className="shrink-0 font-mono text-micro text-muted-foreground" title="Ranking affected routes by frozen old/new screenshot delta">
+          <span className="shrink-0 font-mono text-[9px] text-neutral-600" title="Ranking affected routes by frozen old/new screenshot delta">
             Ranking pixels…
           </span>
         )}
 
         {revisionId && (
-          <span className="shrink-0 rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-micro text-muted-foreground" title={revisionId}>
+          <span className="shrink-0 rounded border border-violet-900/50 bg-violet-950/20 px-1.5 py-0.5 font-mono text-[9px] text-violet-300" title={revisionId}>
             Snapshot {revisionId}
           </span>
         )}
 
-        {routeBrowserChecks.slice(0, 2).map((check, index) => (
+        {routeBrowserChecks.slice(0, 2).map((check) => (
           <span
-            key={check.check_key || `${check.name}:${index}`}
-            className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-micro ${
- check.status === "PASS"
+            key={check.name}
+            className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-[9px] ${
+              check.status === "PASS"
                 ? "border-emerald-900/50 text-emerald-300"
                 : check.status === "FAIL"
-                  ? "border-red-900/50 text-red-300"
+                  ? "border-rose-900/50 text-rose-300"
                   : "border-amber-900/50 text-amber-300"
             }`}
             title={`${check.name}${check.required ? " · required" : " · optional"} — ${check.detail || check.status}. Full browser evidence is in Overview → Snapshot verification.`}
@@ -713,97 +708,89 @@ export default function WebReviewPreview({
         ))}
 
         {previewStatus !== "ready" && (
-          <span className={`shrink-0 text-caption ${previewStatus === "failed" ? "text-red-400/80" : "text-amber-400/70"}`}>
+          <span className={`shrink-0 text-[10px] ${previewStatus === "failed" ? "text-rose-400/80" : "text-amber-400/70"}`}>
             {previewStatus === "failed" ? "Failed" : "Preparing…"}
           </span>
         )}
 
         <span className="min-w-2 flex-1" />
-        <ToggleGroup
-          aria-label="Surface mode"
-          variant="segment"
-          className="shrink-0"
-          value={preferences.mode}
-          onChange={(value) => updatePreferences({ mode: value as WebSurfaceMode })}
-          options={[
-            { value: "preview", label: "Preview", title: "Preview · 1" },
-            { value: "compare", label: "Compare", title: "Live compare · 2" },
-            ...(revisionId ? [{ value: "screenshots", label: "Pixels", title: "Frozen screenshot diff · 3" }] : []),
-          ]}
-        />
+        <div role="group" aria-label="Surface mode" className="review-segment shrink-0">
+          <button type="button" aria-label="Preview mode" aria-pressed={preferences.mode === "preview"} title="Preview · 1" onClick={() => updatePreferences({ mode: "preview" })} className={`review-segment-button ${preferences.mode === "preview" ? "review-segment-button-active" : ""}`}>Preview</button>
+          <button type="button" aria-label="Compare mode" aria-pressed={preferences.mode === "compare"} title="Live compare · 2" onClick={() => updatePreferences({ mode: "compare" })} className={`review-segment-button ${preferences.mode === "compare" ? "review-segment-button-active" : ""}`}>Compare</button>
+          {revisionId && <button type="button" aria-label="Screenshot diff mode" aria-pressed={preferences.mode === "screenshots"} title="Frozen screenshot diff · 3" onClick={() => updatePreferences({ mode: "screenshots" })} className={`review-segment-button ${preferences.mode === "screenshots" ? "review-segment-button-active" : ""}`}>Pixels</button>}
+        </div>
 
-        {preferences.mode === "compare" && (
-          <UiButton
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label={preferences.linkedScroll ? "Unlink compare scrolling" : "Link compare scrolling"}
-            aria-pressed={preferences.linkedScroll}
-            onClick={() => updatePreferences({ linkedScroll: !preferences.linkedScroll })}
-            className={`h-7 w-7 ${preferences.linkedScroll ? "text-cyan-300" : "text-muted-foreground"}`}
+        <details data-review-dropdown className="relative shrink-0">
+          <summary
+            role="button"
+            aria-label="Web preview options"
+            className="review-compact-action h-7 cursor-pointer list-none [&::-webkit-details-marker]:hidden"
           >
-            {preferences.linkedScroll ? <Link2 size={14} /> : <Unlink2 size={14} />}
-          </UiButton>
-        )}
-
-        <Popover>
-          <PopoverTrigger asChild>
-            <UiButton type="button" variant="ghost" size="compact" aria-label="Web preview options" className="h-7">
-              View
-            </UiButton>
-          </PopoverTrigger>
-          <PopoverContent align="end" aria-label="Web preview options" className="w-72 p-2.5">
+            View
+          </summary>
+          <div className="review-menu absolute right-0 top-8 z-50 w-72 p-2.5">
             <div className="space-y-3">
               <div>
                 <div className="review-kicker mb-1.5">Viewport</div>
                 <DevicePicker value={preferences.viewport} onChange={(viewport) => updatePreferences({ viewport })} />
               </div>
-              <div className="flex items-center justify-between gap-3 border-t border-border pt-2.5">
-                <span className="text-caption text-muted-foreground">Preview theme</span>
+              <div className="flex items-center justify-between gap-3 border-t border-neutral-900 pt-2.5">
+                <span className="text-[10px] text-neutral-500">Preview theme</span>
                 <PreviewThemeToggle
                   value={preferences.previewTheme}
                   chromeTheme={chromeTheme}
                   onChange={(previewTheme) => updatePreferences({ previewTheme })}
                 />
               </div>
-              <div className="border-t border-border pt-2.5 text-micro leading-4 text-muted-foreground">
-                <span className="font-medium text-muted-foreground">Shortcuts</span>
-                <span className="ml-2 font-mono">1/2/3 modes · D/T/M viewport · {"{"}/{"}"} routes</span>
-              </div>
+              {preferences.mode === "compare" && (
+                <div className="flex items-center justify-between gap-3 border-t border-neutral-900 pt-2.5">
+                  <span className="text-[10px] text-neutral-500">Linked scrolling</span>
+                  <button
+                    type="button"
+                    aria-label={preferences.linkedScroll ? "Unlink compare scrolling" : "Link compare scrolling"}
+                    aria-pressed={preferences.linkedScroll}
+                    title={preferences.linkedScroll ? "Scrolling linked" : "Scrolling independent"}
+                    onClick={() => updatePreferences({ linkedScroll: !preferences.linkedScroll })}
+                    className={`review-icon-button h-7 w-7 ${preferences.linkedScroll ? "text-sky-300" : "text-neutral-600"}`}
+                  >
+                    {preferences.linkedScroll ? <Link2 size={13} /> : <Unlink2 size={13} />}
+                  </button>
+                </div>
+              )}
               {affectedPaths.length > 0 && (
-                <div className="border-t border-border pt-2.5">
+                <div className="border-t border-neutral-900 pt-2.5">
                   <div className="review-kicker mb-1">Affected files · {affectedPaths.length}</div>
                   <div className="max-h-40 overflow-auto">
                     {affectedPaths.map((path) => (
-                      <UiButton unstyled
+                      <button
                         key={path}
                         type="button"
                         onClick={() => onOpenPath(path)}
-                        className="flex w-full items-center gap-2 px-1 py-1.5 text-left font-mono text-meta text-muted-foreground hover:text-foreground"
+                        className="flex w-full items-center gap-2 px-1 py-1.5 text-left font-mono text-[10px] text-neutral-400 hover:text-neutral-50"
                       >
-                        <FileCode2 size={14} className="shrink-0 text-muted-foreground" />
+                        <FileCode2 size={11} className="shrink-0 text-neutral-600" />
                         <span className="truncate" title={path}>{path}</span>
-                      </UiButton>
+                      </button>
                     ))}
                   </div>
                 </div>
               )}
             </div>
-          </PopoverContent>
-        </Popover>
+          </div>
+        </details>
       </div>
 
       {preferences.mode === "screenshots" ? (
         <FrozenScreenshotCompare revisionId={revisionId} path={documentPath} route={route} viewportWidth={viewportWidth} />
       ) : preferences.mode === "compare" ? (
-        <div ref={compareShellRef} data-testid="web-live-compare-shell" className="overflow-hidden bg-muted p-3" style={{ height: `${compareHeight}px` }}>
+        <div ref={compareShellRef} data-testid="web-live-compare-shell" className="overflow-hidden bg-neutral-900 p-3" style={{ height: `${compareHeight}px` }}>
           <div className="flex h-full w-full gap-3">
             <ScaledCompareFrame scale={compareScale} frameRef={beforeFrameRef} revisionId={revisionId} path={documentPath} side="old" route={route} label="Before" viewportWidth={viewportWidth} theme={effectiveTheme} onStatusChange={onOldStatus} />
             <ScaledCompareFrame scale={compareScale} frameRef={afterFrameRef} revisionId={revisionId} path={documentPath} side="new" route={route} label="After" viewportWidth={viewportWidth} theme={effectiveTheme} onStatusChange={onNewStatus} />
           </div>
         </div>
       ) : (
-        <div data-testid="web-live-preview-shell" className="h-[min(78vh,820px)] min-h-[520px] overflow-x-auto overflow-y-hidden bg-muted p-3">
+        <div data-testid="web-live-preview-shell" className="h-[min(78vh,820px)] min-h-[520px] overflow-x-auto overflow-y-hidden bg-neutral-900 p-3">
           <div className="mx-auto h-full w-max">
             <LiveFrame revisionId={revisionId} path={documentPath} side="new" route={route} label="Preview" viewportWidth={viewportWidth} theme={effectiveTheme} onStatusChange={onNewStatus} />
           </div>

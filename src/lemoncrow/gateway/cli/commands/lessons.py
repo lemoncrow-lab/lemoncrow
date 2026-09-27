@@ -1,11 +1,38 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import click
 
-from lemoncrow.gateway.cli.commands._shared import _emit, _ledger_dir, _ledger_path
+from lemoncrow.gateway.cli.commands._shared import _emit, _ledger_dir, _ledger_path, _load_store
+
+
+def _lesson_promoter(root: Path) -> Any:
+    from lemoncrow.pro.capabilities.lesson_promotion import LessonPromoterCapability
+
+    store = _load_store(root)
+    return LessonPromoterCapability(store)
+
+
+def _lesson_pr_bot(root: Path) -> Any:
+    from lemoncrow.pro.capabilities.lesson_promotion import LessonPrBot
+
+    store = _load_store(root)
+    return LessonPrBot(store=store, root=root)
+
+
+def _emit_lesson_inbox(ctx: click.Context, domain: str | None, limit: int, as_json: bool) -> None:
+    lessons = _lesson_promoter(ctx.obj["root"]).inbox(domain=domain, limit=limit)
+    if as_json:
+        _emit([item.model_dump(mode="json") for item in lessons], as_json=True)
+        return
+    if not lessons:
+        click.echo("(no inbox lessons)")
+        return
+    for item in lessons:
+        click.echo(f"{item.id}\t{item.domain}\t{item.kind}\t{item.confidence:.2f}\t{item.cluster_fingerprint[:48]}")
 
 
 @click.group()
@@ -208,4 +235,206 @@ def checkpoint_delete(ctx: click.Context, session_id: str) -> None:
     click.echo(f"deleted {count} checkpoint(s) for session={session_id}")
 
 
-__all__ = ["_ledger_dir", "_ledger_path", "checkpoint", "ledger"]
+@click.group()
+def lesson() -> None:
+    """Lesson candidate review workflow."""
+
+
+@lesson.command("list")
+@click.option("--domain", default=None)
+@click.option("--limit", default=25, show_default=True, type=int)
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def lesson_list(ctx: click.Context, domain: str | None, limit: int, as_json: bool) -> None:
+    _emit_lesson_inbox(ctx, domain, limit, as_json)
+
+
+@lesson.command("inbox")
+@click.option("--domain", default=None)
+@click.option("--limit", default=25, show_default=True, type=int)
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def lesson_inbox(ctx: click.Context, domain: str | None, limit: int, as_json: bool) -> None:
+    """List lesson candidates currently waiting in the inbox."""
+    _emit_lesson_inbox(ctx, domain, limit, as_json)
+
+
+@lesson.command("approve")
+@click.argument("lesson_id")
+@click.option("--reviewer", required=True)
+@click.option("--reason", required=True)
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def lesson_approve(
+    ctx: click.Context,
+    lesson_id: str,
+    reviewer: str,
+    reason: str,
+    as_json: bool,
+) -> None:
+    payload = _lesson_promoter(ctx.obj["root"]).decide(
+        lesson_id=lesson_id,
+        decision="approve",
+        reviewer=reviewer,
+        reason=reason,
+    )
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    click.echo(f"approved {lesson_id}")
+
+
+@lesson.command("reject")
+@click.argument("lesson_id")
+@click.option("--reviewer", required=True)
+@click.option("--reason", required=True)
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def lesson_reject(
+    ctx: click.Context,
+    lesson_id: str,
+    reviewer: str,
+    reason: str,
+    as_json: bool,
+) -> None:
+    payload = _lesson_promoter(ctx.obj["root"]).decide(
+        lesson_id=lesson_id,
+        decision="reject",
+        reviewer=reviewer,
+        reason=reason,
+    )
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    click.echo(f"rejected {lesson_id}")
+
+
+@lesson.command("decide")
+@click.argument("lesson_id")
+@click.argument("decision", type=click.Choice(["approve", "reject"]))
+@click.option("--reviewer", required=True)
+@click.option("--reason", required=True)
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def lesson_decide(
+    ctx: click.Context,
+    lesson_id: str,
+    decision: str,
+    reviewer: str,
+    reason: str,
+    as_json: bool,
+) -> None:
+    """Approve or reject a lesson candidate."""
+    payload = _lesson_promoter(ctx.obj["root"]).decide(
+        lesson_id=lesson_id,
+        decision=decision,
+        reviewer=reviewer,
+        reason=reason,
+    )
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    verb = "approved" if decision == "approve" else "rejected"
+    click.echo(f"{verb} {lesson_id}")
+
+
+@lesson.group("active")
+def lesson_active_group() -> None:
+    """Inspect and manage active typed lessons."""
+
+
+@lesson_active_group.command("list")
+@click.option("--include-inactive", is_flag=True, default=False)
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def lesson_active_list(ctx: click.Context, include_inactive: bool, as_json: bool) -> None:
+    from lemoncrow.pro.capabilities.lesson_promotion.store import TypedLessonStore
+
+    lessons = TypedLessonStore(ctx.obj["root"], create=False).list_lessons()
+    if not include_inactive:
+        lessons = [lesson for lesson in lessons if lesson.enabled]
+    if as_json:
+        _emit([lesson.model_dump(mode="json") for lesson in lessons], as_json=True)
+        return
+    if not lessons:
+        click.echo("(no active lessons)")
+        return
+    for lesson in lessons:
+        last_applied = lesson.last_applied_at.isoformat() if lesson.last_applied_at else "-"
+        click.echo(
+            f"{lesson.id}\t{lesson.kind}\t{lesson.scope}\t{lesson.effective_confidence_at():.2f}\t"
+            f"{'enabled' if lesson.enabled else 'disabled'}\t{last_applied}"
+        )
+
+
+@lesson_active_group.command("show")
+@click.argument("lesson_id")
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def lesson_active_show(ctx: click.Context, lesson_id: str, as_json: bool) -> None:
+    from lemoncrow.pro.capabilities.lesson_promotion.store import TypedLessonStore
+
+    lesson = TypedLessonStore(ctx.obj["root"], create=False).get_lesson(lesson_id)
+    if lesson is None:
+        raise click.ClickException(f"typed lesson not found: {lesson_id}")
+    if as_json:
+        _emit(lesson.model_dump(mode="json"), as_json=True)
+        return
+    click.echo(json.dumps(lesson.model_dump(mode="json"), indent=2, ensure_ascii=False, default=str))
+
+
+@lesson_active_group.command("disable")
+@click.argument("lesson_id")
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def lesson_active_disable(ctx: click.Context, lesson_id: str, as_json: bool) -> None:
+    from lemoncrow.pro.capabilities.lesson_promotion.store import TypedLessonStore
+
+    lesson = TypedLessonStore(ctx.obj["root"]).set_enabled(lesson_id, False)
+    if as_json:
+        _emit(lesson.model_dump(mode="json"), as_json=True)
+        return
+    click.echo(f"disabled {lesson_id}")
+
+
+@lesson_active_group.command("enable")
+@click.argument("lesson_id")
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def lesson_active_enable(ctx: click.Context, lesson_id: str, as_json: bool) -> None:
+    from lemoncrow.pro.capabilities.lesson_promotion.store import TypedLessonStore
+
+    lesson = TypedLessonStore(ctx.obj["root"]).set_enabled(lesson_id, True)
+    if as_json:
+        _emit(lesson.model_dump(mode="json"), as_json=True)
+        return
+    click.echo(f"enabled {lesson_id}")
+
+
+@lesson.command("sync-pr")
+@click.argument("lesson_id")
+@click.option("--dry-run", is_flag=True)
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def lesson_sync_pr(ctx: click.Context, lesson_id: str, dry_run: bool, as_json: bool) -> None:
+    payload = _lesson_pr_bot(ctx.obj["root"]).sync_pr(lesson_id=lesson_id, dry_run=dry_run)
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    if payload.get("skipped"):
+        click.echo(f"skipped: {payload.get('reason', 'unknown')}")
+        return
+    if dry_run:
+        click.echo(payload.get("diff", ""))
+        return
+    click.echo(f"created {payload.get('pr_url', '').strip()}")
+
+
+__all__ = [
+    "_emit_lesson_inbox",
+    "_ledger_dir",
+    "_ledger_path",
+    "checkpoint",
+    "ledger",
+    "lesson",
+]

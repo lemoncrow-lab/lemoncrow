@@ -241,9 +241,7 @@ def test_native_search_file_content_mode_spills_large_payload(tmp_path: Path, mo
     assert "needle" in payload["content"][0]["text"]
 
 
-def test_native_search_ranked_file_map_includes_root_dotfiles_but_skips_internal_dirs(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_native_search_ranked_file_map_includes_root_dotfiles_but_skips_internal_dirs(tmp_path: Path) -> None:
     token = "root_dotfile_unique_token"
     (tmp_path / ".env.example").write_text(f"{token}\n", encoding="utf-8")
     internal = tmp_path / ".lemoncrow"
@@ -259,19 +257,6 @@ def test_native_search_ranked_file_map_includes_root_dotfiles_but_skips_internal
 
     files = [match["file"] for match in result["matches"]]
     assert files == [".env.example"]
-
-    # The GNU grep fallback must exclude the same internal paths as ripgrep.
-    from lemoncrow.pro.capabilities.tool_supervision import native_search
-
-    if native_search._GREP_BIN is not None:
-        monkeypatch.setattr(native_search, "_RG_BIN", None)
-        fallback = search_workspace(
-            path=".",
-            content_regex=token,
-            output_mode="ranked_file_map",
-            repo_root=tmp_path,
-        )
-        assert [match["file"] for match in fallback["matches"]] == [".env.example"]
 
 
 def test_an_unknown_type_filter_is_refused_by_name(tmp_path: Path) -> None:

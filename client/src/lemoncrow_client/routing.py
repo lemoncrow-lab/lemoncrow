@@ -97,12 +97,6 @@ class Route:
     offline: str = ""
     #: Retry class. Defaults to the fail-safe answer: never re-send.
     effect: Effect = Effect.SIDE_EFFECTING
-    #: A server row whose answer cannot depend on the working tree. Every other
-    #: server row is answered from the View's tree (the server materializes it
-    #: at the call's revision), so the client must bring the View up to date
-    #: with out-of-band edits first. Opt-out, so a new server tool is fresh by
-    #: default rather than stale until someone remembers to list it.
-    view_independent: bool = False
 
     @property
     def retry_safe(self) -> bool:
@@ -115,11 +109,6 @@ class Route:
     @property
     def remote(self) -> bool:
         return self.site in (Site.SERVER, Site.SERVER_ADMIN)
-
-    @property
-    def reads_view(self) -> bool:
-        """Answered from the server's copy of the tree: sync out-of-band edits first."""
-        return self.site is Site.SERVER and not self.view_independent
 
 
 # Public tools deliberately absent from the enterprise thin client. Each can
@@ -184,22 +173,14 @@ def _rows() -> tuple[Route, ...]:
         Route("orient", Site.SERVER, "already remote-routable via RemoteClient", effect=Effect.PURE),
         Route(
             "web_fetch",
-            Site.CLIENT,
-            "public-page network requests run on the host, independent of the server",
-            executor="web_fetch",
-            effect=Effect.PURE,
-        ),
-        Route(
-            "statusline_segment",
             Site.SERVER,
-            "session state moves server-side",
+            "pure network; keeps egress on the server where policy can see it",
             effect=Effect.PURE,
-            view_independent=True,
         ),
+        Route("statusline_segment", Site.SERVER, "session state moves server-side", effect=Effect.PURE),
         Route("review_rationale", Site.SERVER, "server, except screenshot capture"),
         Route("review_evidence", Site.SERVER, "server, except screenshot capture"),
         Route("review_feedback_addressed", Site.SERVER, "server, except screenshot capture"),
-        Route("review_guidance", Site.SERVER, "server, except screenshot capture"),
         # -- server, privileged ------------------------------------------- #
         Route("cache", Site.SERVER_ADMIN, "administers server-side index state"),
     )

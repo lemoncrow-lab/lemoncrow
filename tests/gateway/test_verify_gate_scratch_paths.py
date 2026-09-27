@@ -33,28 +33,37 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(Path(__file__).resolve().parents[2])
 
 
-def test_throwaway_paths_are_not_verifiable() -> None:
-    for path in [
+@pytest.mark.parametrize(
+    "path",
+    [
         "/tmp/report.html",
         "/tmp/nested/dir/probe.py",
         "/var/tmp/dump.json",
         "/tmp/claude-1000/-some-project/abc/scratchpad/four-seams.html",
+        # a scratchpad segment is exempt wherever it lives
         "/home/me/work/scratchpad/notes.py",
-    ]:
-        assert is_scratch_path(path) is True
-        assert is_verifiable_path(path, include_docs=True) is False
+    ],
+)
+def test_throwaway_paths_are_not_verifiable(path: str) -> None:
+    assert is_scratch_path(path) is True
+    assert is_verifiable_path(path, include_docs=True) is False
 
 
-def test_project_paths_stay_verifiable() -> None:
-    for path in [
+@pytest.mark.parametrize(
+    "path",
+    [
         "src/lemoncrow/pro/capabilities/verify_gate.py",
         "/home/me/repo/src/app.py",
         "frontend/src/review/ReviewReader.tsx",
+        # a sibling directory whose name merely starts with a temp root
         "/tmpfoo/app.py",
+        # 'scratchpad' as a filename fragment, not a path segment
         "/home/me/repo/scratchpad_helpers.py",
-    ]:
-        assert is_scratch_path(path) is False
-        assert is_verifiable_path(path) is True
+    ],
+)
+def test_project_paths_stay_verifiable(path: str) -> None:
+    assert is_scratch_path(path) is False
+    assert is_verifiable_path(path) is True
 
 
 def test_project_living_under_tmp_is_still_gated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

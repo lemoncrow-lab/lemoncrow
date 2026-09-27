@@ -7,7 +7,7 @@ zero skills) and exposed a tested CLI (`lc agent|skill list/install/
 remove`) plus an in-chat `/lemoncrow` skill for opting extras in after the fact.
 
 The interactive checklist lives entirely inside host_wizard() (scripts/lib/
-common.sh), called from main() in scripts/bundle.sh,
+common.sh), called from main() in both scripts/bundle.sh and scripts/local.sh,
 in this order:
   1. "Which agents should LemonCrow configure?"  (which HOSTS -- claude/codex/
      opencode -- confusingly named "agents" here, this is pre-existing wizard
@@ -28,7 +28,7 @@ frontmatter rather than shelling to the `lc` CLI, since host_wizard()
 runs before the CLI (and its tiktoken dependency) are installed.
 
 Covers:
-  * make oss-dev no longer hardcodes --non-interactive (Bug 1): the TTY
+  * make dev no longer hardcodes --non-interactive (Bug 1): the TTY
     detection already in common.sh decides whether to prompt.
   * host_wizard() is independently gated by LEMONCROW_NON_INTERACTIVE /
     LEMONCROW_NO_HOSTS / has_interactive_input, same as before this feature.
@@ -74,23 +74,24 @@ def test_host_extra_args_appended_to_host_install_args() -> None:
 
 def test_makefile_dev_target_does_not_force_non_interactive() -> None:
     content = MAKEFILE.read_text()
-    dev_pos = content.index("\noss-dev:")
-    next_target_pos = content.index("\noss-prod:", dev_pos)
+    dev_pos = content.index("\ndev:")
+    next_target_pos = content.index("\nbuild:", dev_pos)
     dev_recipe = content[dev_pos:next_target_pos]
-    assert "scripts/local.sh" not in dev_recipe
+    assert "scripts/local.sh" in dev_recipe
     assert "--non-interactive" not in dev_recipe, (
-        "make oss-dev must not hardcode --non-interactive; the shared local installer "
-        "must retain its own host-selection/TTY behavior"
+        "make dev must not hardcode --non-interactive -- the TTY detection in "
+        "common.sh (has_interactive_input/supports_interactive_selector) already "
+        "decides whether to prompt"
     )
 
 
-def test_makefile_dev_does_not_force_legacy_headroom_overrides() -> None:
+def test_makefile_dev_enables_headroom_apply() -> None:
     content = MAKEFILE.read_text()
-    dev_pos = content.index("\noss-dev:")
-    next_target_pos = content.index("\noss-prod:", dev_pos)
+    dev_pos = content.index("\ndev:")
+    next_target_pos = content.index("\nbuild:", dev_pos)
     dev_recipe = content[dev_pos:next_target_pos]
-    assert "LEMONCROW_DEV_HEADROOM_APPLY" not in dev_recipe
-    assert "LEMONCROW_DEV_HEADROOM_SHADOW" not in dev_recipe
+    assert "LEMONCROW_DEV_HEADROOM_APPLY=1" in dev_recipe
+    assert "LEMONCROW_DEV_HEADROOM_SHADOW=1" not in dev_recipe
 
 
 def test_agent_roles_and_skills_blocks_ordered_inside_host_wizard() -> None:
@@ -232,7 +233,7 @@ def test_non_interactive_and_no_tty_leave_host_extra_args_empty(tmp_path: Path) 
 
 def test_non_interactive_reapplies_saved_skills_choice(tmp_path: Path) -> None:
     """The auto-update gap: _update_via_release (src/lemoncrow/gateway/cli/
-    commands/update.py) always re-runs engine_install.sh with
+    commands/update.py) always re-runs install.sh with
     LEMONCROW_NON_INTERACTIVE=1, so host_wizard() never prompts on update --
     but it must still re-apply whatever skill set the user picked the last
     time they *did* run the wizard interactively, instead of silently
@@ -435,7 +436,7 @@ def test_dumb_terminal_explicit_names_filter_unrecognized(tmp_path: Path) -> Non
 
 
 def test_installer_defaults_use_lemoncrow_home() -> None:
-    content = (SCRIPTS / "engine_install.sh").read_text()
+    content = (SCRIPTS / "install.sh").read_text()
     assert 'LEMONCROW_INSTALL_DIR="${LEMONCROW_INSTALL_DIR:-${HOME}/.lemoncrow/install}"' in content
     assert 'LEMONCROW_BIN_DIR="${LEMONCROW_BIN_DIR:-${HOME}/.lemoncrow/bin}"' in content
 
@@ -445,7 +446,7 @@ def test_installer_defaults_use_lemoncrow_home() -> None:
 
 
 def test_installer_cleans_managed_tree_before_overlay() -> None:
-    content = (SCRIPTS / "engine_install.sh").read_text()
+    content = (SCRIPTS / "install.sh").read_text()
     assert "_clean_managed_install_tree" in content
     assert '"$LEMONCROW_INSTALL_DIR/integrations"' in content
     assert '_clean_managed_install_tree\n        cp -r "${LOCAL_SRC_ABS}/."' in content
@@ -458,15 +459,8 @@ def test_local_installer_removes_stale_managed_payload(tmp_path: Path) -> None:
     current_skill.mkdir(parents=True)
     (current_skill / "SKILL.md").write_text("---\nname: benchmark\ndescription: current\n---\n", encoding="utf-8")
     (source / "scripts").mkdir()
-    # A stub setup that installs a runnable binary: the installer verifies one,
-    # and this test must not depend on a lemoncrow in the host's uv tool dir.
-    (source / "scripts" / "bundle.sh").write_text(
-        '#!/usr/bin/env bash\nmkdir -p "$LEMONCROW_BIN_DIR"\n'
-        "printf '#!/bin/sh\\necho lemoncrow 9.9.9\\n' > \"$LEMONCROW_BIN_DIR/lemoncrow\"\n"
-        'chmod +x "$LEMONCROW_BIN_DIR/lemoncrow"\n',
-        encoding="utf-8",
-    )
-    # engine_install.sh --local refuses a bundle with no review frontend, so the
+    (source / "scripts" / "bundle.sh").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    # install.sh --local refuses a bundle with no review frontend, so the
     # fixture has to look like a real `make build` output. This test is about
     # stale-payload cleanup, not about that guard.
     review_assets = source / "frontend" / "assets"
@@ -488,7 +482,7 @@ def test_local_installer_removes_stale_managed_payload(tmp_path: Path) -> None:
         "LEMONCROW_NO_PATH": "1",
     }
     result = subprocess.run(
-        ["bash", str(SCRIPTS / "engine_install.sh"), "--local"],
+        ["bash", str(SCRIPTS / "install.sh"), "--local"],
         cwd=LEMONCROW_ROOT,
         env=env,
         capture_output=True,

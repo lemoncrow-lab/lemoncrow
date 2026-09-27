@@ -14,7 +14,6 @@ from typing import Any, Final
 
 from lemoncrow import __version__ as lemoncrow_version
 from lemoncrow.core.environment import CORE_MCP_TOOLS as CORE_MCP_TOOLS
-from lemoncrow.core.environment import REVIEW_AUTONOMOUS_MCP_TOOLS as REVIEW_AUTONOMOUS_MCP_TOOLS
 from lemoncrow.core.environment import REVIEW_MCP_TOOLS as REVIEW_MCP_TOOLS
 from lemoncrow.core.environment import mcp_tool_description, mcp_tool_mode, mcp_tool_visible_to_llm
 
@@ -86,18 +85,15 @@ def tool_description(spec: dict[str, Any]) -> str:
 
 def tool_visible_to_llm(tool_name: str) -> bool:
     """Apply the canonical environment/benchmark visibility policy."""
-    profile = mcp_tool_profile()
-    if profile == "review":
+    if mcp_tool_profile() == "review":
         return tool_name in REVIEW_MCP_TOOLS
-    if profile == "review_autonomous":
-        return tool_name in REVIEW_AUTONOMOUS_MCP_TOOLS
     return mcp_tool_visible_to_llm(tool_name)
 
 
 def mcp_tool_profile() -> str:
-    """Return the requested advertised profile: core, review, review_autonomous, or full."""
+    """Return the requested advertised profile: core, review, or full."""
     value = os.environ.get("LEMONCROW_MCP_TOOL_PROFILE", "full").strip().lower()
-    return value if value in {"core", "review", "review_autonomous", "full"} else "full"
+    return value if value in {"core", "review", "full"} else "full"
 
 
 def tool_profile_exposes(tool_name: str) -> bool:
@@ -107,22 +103,8 @@ def tool_profile_exposes(tool_name: str) -> bool:
         return tool_name in CORE_MCP_TOOLS
     if profile == "review":
         return tool_name in REVIEW_MCP_TOOLS
-    if profile == "review_autonomous":
-        return tool_name in REVIEW_AUTONOMOUS_MCP_TOOLS
     # The broker is unnecessary in full mode and would invite an avoidable call.
     return tool_name != "tool"
-
-
-def tool_profile_allows_call(tool_name: str) -> bool:
-    """Enforce hard-call authority for security-sensitive profiles.
-
-    Core/review/full preserve the existing exact-name compatibility contract.
-    Autonomous Review is different: repository or prompt content must not be able
-    to invoke a hidden registered capability merely by knowing its name.
-    """
-
-    profile = mcp_tool_profile()
-    return profile != "review_autonomous" or tool_name in REVIEW_AUTONOMOUS_MCP_TOOLS
 
 
 def tool_mode(spec: dict[str, Any]) -> str:

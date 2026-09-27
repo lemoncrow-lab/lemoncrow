@@ -36,8 +36,8 @@ ls .lemoncrow/lessons/blocks/*.md 2>/dev/null | wc -l    # lessons extracted for
 
 ## What you do NOT do
 
-This skill is retrieval-only. Never import sessions, rebuild the recall index,
-or extract review knowledge as a side effect of a recall request.
+This skill is retrieval-only. Never run `lc import`, `lc session recall index`,
+or `lc knowledge extract` as a side effect of a recall request.
 
 Empty/stale inventory → say so plainly; do not silently ingest or rebuild it.
 

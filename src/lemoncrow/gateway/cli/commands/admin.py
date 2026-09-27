@@ -39,7 +39,7 @@ from lemoncrow.core.foundation.models import Playbook, Rubric
 from lemoncrow.core.foundation.paths import detect_git_root as _detect_git_root
 from lemoncrow.core.foundation.paths import detect_host
 from lemoncrow.core.foundation.paths import ensure_gitignore as _ensure_gitignore
-from lemoncrow.gateway.cli import style
+from lemoncrow.core.settings import CATEGORIES as SETTINGS_CATEGORIES
 from lemoncrow.gateway.cli.commands._shared import (
     _core_runtime,
     _emit,
@@ -398,39 +398,20 @@ def _apply_workspace_model_config(
 # ``scripts/lib/common.sh`` emit. Kept as a raw string so the sed expression's
 # backslashes survive unmangled.
 #
-# The committing session's own model is folded into the co-author name --
-# ``lemoncrow+<model>`` -- so a single trailer says both who and which model. The
-# session is the one whose id the host exports to this commit (e.g.
-# CLAUDE_CODE_SESSION_ID); its model is read from that session's own
-# sessions/<date>/<host>/<id>/stats.json, never from state other sessions share.
-# The bot email is what GitHub links, so it is also the dedupe key. Without the
-# session's own model the name is plain ``lemoncrow``.
-_ATTRIBUTION_HOOK_BODY = r"""lemoncrow_json_value() {
-  [ -f "$2" ] || return 0
-  sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$2" 2>/dev/null | head -n 1
-}
-lemoncrow_own_model() {
-  for LEMONCROW_PASS in agent any; do
-    for LEMONCROW_PAIR in CLAUDE_CODE_SESSION_ID:claude ANTIGRAVITY_SESSION_ID:antigravity AGY_SESSION_ID:antigravity CODEX_SESSION_ID:codex LEMONCODE_SESSION_ID:lemoncode OPENCODE_SESSION_ID:opencode CURSOR_SESSION_ID:cursor HERMES_SESSION_ID:hermes GITHUB_COPILOT_SESSION_ID:copilot; do
-      LEMONCROW_HOST="${LEMONCROW_PAIR#*:}"
-      if [ "$LEMONCROW_PASS" = agent ] && [ "$LEMONCROW_HOST" != "${LEMONCROW_AGENT:-}" ]; then continue; fi
-      eval "LEMONCROW_SID=\"\${${LEMONCROW_PAIR%%:*}:-}\""
-      [ -n "$LEMONCROW_SID" ] || continue
-      case "$LEMONCROW_SID" in .*|*[!A-Za-z0-9._-]*) return 0 ;; esac
-      for LEMONCROW_STATS in "${LEMONCROW_ROOT:-$HOME/.lemoncrow}"/sessions/*/*/*/"$LEMONCROW_HOST"/"$LEMONCROW_SID"/stats.json; do
-        LEMONCROW_M="$(lemoncrow_json_value last_model "$LEMONCROW_STATS")"
-        [ -n "$LEMONCROW_M" ] || LEMONCROW_M="$(lemoncrow_json_value model "$LEMONCROW_STATS")"
-        if [ -n "$LEMONCROW_M" ]; then printf %s "$LEMONCROW_M"; return 0; fi
-      done
-      return 0
-    done
-  done
+# The model (from the session state SessionStart already wrote) is folded into
+# the co-author name -- ``lemoncrow+<model>`` -- so a single trailer says both who
+# and which model. The bot email is what GitHub links, so it is also the dedupe
+# key. With no model in the session state the name is plain ``lemoncrow``.
+_ATTRIBUTION_HOOK_BODY = r"""LEMONCROW_STATE="$(git rev-parse --show-toplevel 2>/dev/null)/.lemoncrow/workspace/session_state.json"
+lemoncrow_state_value() {
+  [ -f "$LEMONCROW_STATE" ] || return 0
+  sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$LEMONCROW_STATE" 2>/dev/null | head -n 1
 }
 case "$2" in
   merge|squash) ;;
   *)
     if ! grep -qF "<$LEMONCROW_EMAIL>" "$1" 2>/dev/null; then
-      LEMONCROW_MODEL="$(printf %s "$(lemoncrow_own_model)" | tr -c 'A-Za-z0-9._:/-' '-' | sed 's/^-*//; s/-*$//')"
+      LEMONCROW_MODEL="$(printf %s "$(lemoncrow_state_value model)" | tr -c 'A-Za-z0-9._:/-' '-' | sed 's/^-*//; s/-*$//')"
       LEMONCROW_WHO="$LEMONCROW_NAME"
       if [ -n "$LEMONCROW_MODEL" ]; then LEMONCROW_WHO="$LEMONCROW_NAME+$LEMONCROW_MODEL"; fi
       printf '\nCo-Authored-By: %s <%s>\n' "$LEMONCROW_WHO" "$LEMONCROW_EMAIL" >> "$1"
@@ -552,7 +533,7 @@ def _index_stats_pretty(repo_root: Path) -> list[str]:
     """Return human-readable index stats lines for a repo."""
     db_path = _code_index_db_path(repo_root)
     if not db_path.exists():
-        return ["(no index — run `lc runtime index` first)"]
+        return ["(no index — run `lc code index` first)"]
     lines: list[str] = []
     try:
         conn = sqlite3.connect(str(db_path))
@@ -708,52 +689,31 @@ def init(
     if index:
         git_root = _detect_git_root(Path.cwd())
         if git_root is not None:
-            from lemoncrow.core.capabilities.code_intelligence_provider import ProEngineUnavailable
             from lemoncrow.gateway.cli.commands.code import (
                 _code_context_engine,
                 _index_repo_with_progress,
             )
 
+            engine = _code_context_engine(str(git_root))
             try:
-                engine = _code_context_engine(str(git_root))
-            except click.ClickException as exc:
-                if not isinstance(exc.__cause__, ProEngineUnavailable):
+                stats = _index_repo_with_progress(
+                    engine,
+                    steal=force,
+                    description="Bootstrapping code index",
+                    success_description="Code index ready",
+                )
+            except IndexLockTimeout:
+                if force:
                     raise
-                engine = None
-            if engine is None:
-                # Without the private engine the local index is Runtime Lite,
-                # the same one `lc runtime index` and `lc with` prepare.
-                from lemoncrow_client.lite.index import LiteIndex
-
-                lite = LiteIndex(git_root).prepare().to_dict()
+                click.echo("code index skipped (another LemonCrow process is indexing); retry when it finishes")
+            else:
+                fi = stats["files_indexed"]
+                si = stats["symbols_indexed"]
+                ii = stats["imports_indexed"]
                 click.echo(
                     f"  {click.style('✓', fg='green')} {click.style('index', fg=(155, 117, 217))} "
-                    + click.style(
-                        f"Code index ready (Runtime Lite): {lite['files_indexed']} changed, "
-                        f"generation {lite['generation']}",
-                        dim=True,
-                    )
+                    f"{click.style(f'indexed {fi} files, {si} symbols ({ii} imports)', dim=True)}"
                 )
-            else:
-                try:
-                    stats = _index_repo_with_progress(
-                        engine,
-                        steal=force,
-                        description="Bootstrapping code index",
-                        success_description="Code index ready",
-                    )
-                except IndexLockTimeout:
-                    if force:
-                        raise
-                    click.echo("code index skipped (another LemonCrow process is indexing); retry when it finishes")
-                else:
-                    fi = stats["files_indexed"]
-                    si = stats["symbols_indexed"]
-                    ii = stats["imports_indexed"]
-                    click.echo(
-                        f"  {click.style('✓', fg='green')} {click.style('index', fg=(155, 117, 217))} "
-                        f"{click.style(f'indexed {fi} files, {si} symbols ({ii} imports)', dim=True)}"
-                    )
         else:
             click.echo("code index skipped (no git repository detected in current directory)")
     git_root = _detect_git_root(Path.cwd())
@@ -793,16 +753,10 @@ def init(
                     )
 
 
-@click.command("doctor", short_help="Check this installation and what it can reach.")
+@click.command("doctor")
 @click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
-@click.option(
-    "-v",
-    "--verbose",
-    is_flag=True,
-    help="Show every detail, including how to set up optional integrations.",
-)
 @click.pass_context
-def doctor_cmd(ctx: click.Context, as_json: bool, verbose: bool) -> None:
+def doctor_cmd(ctx: click.Context, as_json: bool) -> None:
     """Full diagnostics: core install, services, MCP servers, integrations, environment.
 
     \b
@@ -810,7 +764,7 @@ def doctor_cmd(ctx: click.Context, as_json: bool, verbose: bool) -> None:
       Core              python, lemoncrow version, git repo, store
       Code intelligence code index, zoekt search backend
       Services          local loopback server
-      MCP               active LemonCrow MCP server processes (see also: lc runtime mcp list)
+      MCP               active LemonCrow MCP server processes (see also: lc mcp list)
       Integrations      letta, openmemory, langfuse, external compactors
       Environment       host CLIs, external tools, optional python packages, core libraries
     """
@@ -892,30 +846,19 @@ def doctor_cmd(ctx: click.Context, as_json: bool, verbose: bool) -> None:
 
     # ── Services ────────────────────────────────────────────────────────
     try:
-        from lemoncrow.gateway.cli.commands.product_status import _review_installed
         from lemoncrow.infra.runtime.dashboard_url import DEFAULT_LOOPBACK_URL, discover_dashboard_url
 
         loopback_url = (os.environ.get("LEMONCROW_URL") or DEFAULT_LOOPBACK_URL).rstrip("/")
         frontend_url = discover_dashboard_url(root)
-        # Only a local Review install runs the loopback server; Runtime Lite has none to check.
-        needed = _review_installed(Path(root))
         add(
             "Services",
             "loopback_server",
             {
-                "ok": frontend_url is not None or not needed,
-                "optional": not needed,
+                "ok": frontend_url is not None,
+                "optional": False,
                 "installed": frontend_url is not None,
                 "url": loopback_url,
-                "hint": (
-                    None
-                    if frontend_url
-                    else (
-                        "not running — restart the local loopback server"
-                        if needed
-                        else "only LemonCrow Review runs it; Runtime Lite works without it"
-                    )
-                ),
+                "hint": None if frontend_url else "not running — restart the local loopback server",
             },
         )
     except Exception as exc:
@@ -943,7 +886,7 @@ def doctor_cmd(ctx: click.Context, as_json: bool, verbose: bool) -> None:
                 "installed": bool(servers),
                 "count": len(servers),
                 "stats": lines or None,
-                "hint": None if servers else "no active servers — full list: lc runtime mcp list",
+                "hint": None if servers else "no active servers — full list: lc mcp list",
             },
         )
     except Exception:
@@ -958,7 +901,7 @@ def doctor_cmd(ctx: click.Context, as_json: bool, verbose: bool) -> None:
         with _urllib_request.urlopen(f"{letta_url}/v1/health", timeout=1.5) as resp:
             letta_info["installed"] = resp.status == 200
     except Exception:
-        letta_info["hint"] = "unreachable — start: docker compose -f deploy/letta/docker-compose.yml up -d"
+        letta_info["hint"] = "unreachable — start: lc letta up"
     add("Integrations", "letta", letta_info)
 
     try:
@@ -1077,117 +1020,48 @@ def doctor_cmd(ctx: click.Context, as_json: bool, verbose: bool) -> None:
             ctx.exit(1)
         return
 
-    from lemoncrow.gateway.cli import style
-
-    click.echo(style.title("LemonCrow doctor", _lemoncrow_pkg.__version__))
-    not_set_up: list[str] = []
+    click.echo("LemonCrow diagnostics")
+    click.echo("==================")
     for section, names in sections.items():
-        rows: list[str] = []
+        click.echo(f"\n{section}")
+        click.echo("-" * len(section))
         for name in names:
             info = checks[name]
-            state: style.State
             if info.get("optional") and (not info.get("ok") or not info.get("installed", True)):
-                # Optional and absent/failing: informational, never a failure.
-                if not verbose:
-                    not_set_up.append(name.replace("_", " "))
-                    continue
-                state = "off"
+                status = "○"  # optional and absent/failing -- informational, not a failure
             else:
-                state = "ok" if info.get("ok") else "fail"
-            if name == "lemoncrow" and not verbose:
-                continue  # already in the title
-            rows.extend(_doctor_check_lines(state, name, info, verbose=verbose))
-        if rows:
-            click.echo(f"\n  {style.heading(section)}")
-            for line in rows:
-                click.echo(line)
-    if not_set_up:
-        click.echo("")
-        click.echo(f"  {style.mark('off')} {style.dim('Optional, not set up:')} {' · '.join(not_set_up)}")
-        click.echo(style.next_step("How to set them up:", "lc doctor --verbose", indent=4))
-    click.echo("")
+                status = "✓" if info.get("ok") else "✗"
+            click.echo(f"  {status} {name}")
+            if info.get("version"):
+                click.echo(f"       version: {info['version']}")
+            if info.get("path"):
+                click.echo(f"       path: {info['path']}")
+            if info.get("root"):
+                click.echo(f"       root: {info['root']}")
+            if info.get("backend"):
+                click.echo(f"       backend: {info['backend']}")
+            if info.get("pid"):
+                click.echo(f"       pid: {info['pid']}")
+            if info.get("url"):
+                click.echo(f"       url: {info['url']}")
+            if info.get("count") is not None:
+                click.echo(f"       active: {info['count']}")
+            if info.get("last_tick_at"):
+                click.echo(f"       last_tick: {info['last_tick_at']}")
+            jq = info.get("job_queue")
+            if jq:
+                click.echo(
+                    f"       jobs: pending={jq.get('pending', 0)} running={jq.get('running', 0)}"
+                    f" failed={jq.get('failed', 0)} dead={jq.get('dead', 0)}"
+                )
+            if info.get("hint"):
+                click.echo(f"       {info['hint']}")
+            if info.get("stats"):
+                for line in info["stats"]:
+                    click.echo(f"       {line}")
     if failed:
-        click.echo(
-            f"  {style.mark('fail')} {style.paint(style.plural(len(failed), 'required check') + ' failed', fg='red')}"
-            f": {', '.join(name.replace('_', ' ') for name in failed)}"
-        )
+        click.echo(f"\n  ✗ {len(failed)} required check(s) failed: {', '.join(failed)}")
         ctx.exit(1)
-    click.echo(f"  {style.success('All required checks passed')}")
-
-
-_DOCTOR_NAME_WIDTH = 18
-
-
-def _doctor_check_lines(state: Any, name: str, info: dict[str, Any], *, verbose: bool) -> list[str]:
-    """``✓ name  value``; ``verbose`` adds every detail as dim lines aligned under the value."""
-    from lemoncrow.gateway.cli import style
-
-    stats = [str(line) for line in info.get("stats") or ()]
-    primary = "" if verbose else _doctor_summary(name, stats)
-    if not primary:
-        for key in ("version", "path", "root", "url"):
-            if info.get(key):
-                primary = style.home_relative(info[key]) if key in ("path", "root") else str(info[key])
-                primary = primary.removeprefix(f"{name} ")  # "rtk 0.49.0" under the rtk row
-                break
-    if verbose and info.get("backend"):
-        primary = f"{primary} · {info['backend']}" if primary else str(info["backend"])
-
-    details: list[str] = []
-    if info.get("pid"):
-        details.append(f"pid {info['pid']}")
-    if info.get("count"):
-        details.append(f"active: {info['count']}")
-    if info.get("last_tick_at"):
-        details.append(f"last tick: {info['last_tick_at']}")
-    jq = info.get("job_queue")
-    if jq:
-        details.append(
-            f"jobs: pending={jq.get('pending', 0)} running={jq.get('running', 0)}"
-            f" failed={jq.get('failed', 0)} dead={jq.get('dead', 0)}"
-        )
-    if verbose or name == "mcp_servers":
-        details.extend(stats)
-    # A hint is how to fix or set something up: always for a failure, otherwise on request.
-    hint = str(info.get("hint") or "") if verbose or state == "fail" else ""
-    if not primary and details:
-        primary = style.dim(details.pop(0))
-    elif not primary and hint:
-        primary, hint = style.dim(hint), ""
-
-    pad = " " * (4 + 2 + _DOCTOR_NAME_WIDTH + 1)
-    lines = [style.row(state, name.replace("_", " "), primary, width=_DOCTOR_NAME_WIDTH, indent=4)]
-    lines.extend(f"{pad}{style.dim(detail)}" for detail in details)
-    if hint:
-        lines.append(f"{pad}{style.accent('→')} {hint}")
-    return lines
-
-
-def _doctor_summary(name: str, stats: list[str]) -> str:
-    """One line for a check whose detail is a ``key: value`` list (``--verbose`` shows the list)."""
-    from lemoncrow.gateway.cli import style
-
-    pairs = [(key.strip(), value.strip()) for key, _, value in (line.partition(":") for line in stats)]
-    values = dict(pairs)
-    if name == "code_index" and "Files indexed" in values:
-        files, symbols = values["Files indexed"], values.get("Symbols indexed", "")
-        text = style.plural(int(files), "file") if files.isdigit() else files
-        return f"{text} · {style.plural(int(symbols), 'symbol')}" if symbols.isdigit() else text
-    if name in {"host_clis", "external_tools"}:
-        absent = {"not installed", "not found"}
-        found = [key for key, value in pairs if value not in absent]
-        missing = [key for key, value in pairs if value in absent]
-        text = " · ".join(found) or style.dim("none found")
-        return f"{text}  {style.dim('missing: ' + ', '.join(missing))}" if missing else text
-    if name == "optional_packages":
-        installed = [f"{key} {value.split()[0]}" for key, value in pairs if not value.startswith("not installed")]
-        more = len(pairs) - len(installed)
-        text = " · ".join(installed) or style.dim("none installed")
-        return f"{text}  {style.dim(f'+{more} available')}" if more else text
-    if name == "core_libraries":
-        missing = [key for key, value in pairs if value == "MISSING"]
-        return f"missing: {', '.join(missing)}" if missing else f"all {len(pairs)} present"
-    return ""
 
 
 @click.command("reset")
@@ -1254,22 +1128,26 @@ def reset_cmd(ctx: click.Context, all_flag: bool, force: bool, dry_run: bool) ->
 
 
 @click.command("uninstall")
-@click.argument("product", required=False, type=click.Choice(["review", "runtime", "all"]))
 @click.option("--dry-run", is_flag=True, help="Print planned actions and exit.")
-@click.option("--no-hosts", is_flag=True, help="With Runtime/all, leave coding-agent registrations untouched.")
-@click.option("--purge", is_flag=True, help="Compatibility flag for `all`; all already removes managed state.")
-@click.option("--workspace", type=click.Path(path_type=Path), help="With `all`, scope workspace host cleanup.")
-def uninstall(product: str | None, dry_run: bool, no_hosts: bool, purge: bool, workspace: Path | None) -> None:
-    """Remove Review, Runtime, or all LemonCrow products."""
-    if product is None:
-        raise click.UsageError("usage: lc uninstall review|runtime|all [--dry-run]")
-
+@click.option("--no-hosts", is_flag=True, help="Skip per-host uninstallation.")
+@click.option(
+    "--purge",
+    is_flag=True,
+    help="Also remove runtime state, install dirs, tool envs, and known host residue.",
+)
+@click.option(
+    "--workspace",
+    type=click.Path(path_type=Path),
+    help="Uninstall for a specific workspace.",
+)
+def uninstall(dry_run: bool, no_hosts: bool, purge: bool, workspace: Path | None) -> None:
+    """Remove LemonCrow and all agent-host integrations."""
     root = _project_root()
-    script = root / "scripts" / "uninstall_product.sh"
+    script = root / "scripts" / "uninstall.sh"
     if not script.exists():
-        raise click.ClickException(f"product uninstall script not found: {script}")
+        raise click.ClickException(f"uninstall script not found: {script}")
 
-    cmd = ["bash", str(script), product]
+    cmd = ["bash", str(script)]
     if dry_run:
         cmd.append("--dry-run")
     if no_hosts:
@@ -1278,6 +1156,7 @@ def uninstall(product: str | None, dry_run: bool, no_hosts: bool, purge: bool, w
         cmd.append("--purge")
     if workspace:
         cmd.extend(["--workspace", str(workspace)])
+
     try:
         subprocess.run(cmd, check=True)
     except subprocess.CalledProcessError as exc:
@@ -1385,163 +1264,97 @@ def status_cmd(
     _render_dashboard(root, line_mode=line_mode, n_runs=n, session_id=session_id)
 
 
+@click.command("share")
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def share_cmd(ctx: click.Context, as_json: bool) -> None:
+    """Render a local LemonCrow project share link."""
+    del ctx
+    payload = {"url": "https://lemoncrow.com", "text": "LemonCrow: https://lemoncrow.com"}
+    if as_json:
+        _emit(payload, as_json=True)
+        return
+    click.echo(payload["text"])
+
+
 @click.group(
     "settings",
-    invoke_without_command=True,
-    short_help="View and change local LemonCrow settings.",
     help=(
-        "View and change local LemonCrow settings.\n"
+        "Manage local LemonCrow settings — every LEMONCROW_* env-var-backed knob plus the plugin toggles.\n"
         "\n"
-        "Run it in a terminal to pick values from a list: the essentials come first, and "
-        "every setting is a search away. Settings are saved to <root>/plugin_settings.json; "
-        "an exported LEMONCROW_* environment variable still wins over a saved value."
+        "Settings persist to ``<root>/plugin_settings.json`` and are applied to the "
+        "process environment (via ``setdefault``) the next time LemonCrow starts, so "
+        "an explicitly-exported env var always wins over a stored setting. Use "
+        "``show --category <name>`` to browse one area "
+        f"({', '.join(SETTINGS_CATEGORIES)})."
     ),
 )
-@click.option("--no-input", is_flag=True, help="Print the overview instead of opening the picker.")
+def plugin_settings_group() -> None:
+    pass
+
+
+def _format_setting_value(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+@plugin_settings_group.command("show")
+@click.option("--category", "category", default=None, help="Filter to one category (e.g. service, retrieval, mcp).")
+@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
 @click.pass_context
-def plugin_settings_group(ctx: click.Context, no_input: bool) -> None:
-    if ctx.invoked_subcommand is not None:
-        return
-    from lemoncrow.gateway.cli import picker
-    from lemoncrow.gateway.cli.settings_ui import SettingsSource, SettingsStore, overview_lines
-
-    store = SettingsStore(ctx.obj["root"])
-    if no_input or not picker.can_open():
-        _echo_lines(overview_lines(store, width=_settings_width()))
-        return
-    source = SettingsSource(store)
-    picker.run(picker.Picker(source))
-    if not source.changes:
-        click.echo(style.dim("No settings changed."))
-        return
-    click.echo(style.success(f"Saved {style.plural(len(source.changes), 'setting')}"))
-    key_w = max(len(key) for key in source.changes)
-    for key, shown in source.changes.items():
-        click.echo(f"    {key.ljust(key_w)}  {style.bold(shown)}")
-    for key, shown in source.changes.items():
-        _after_setting_change(key, shown)
-
-
-def _settings_width() -> int | None:
-    """The terminal's width; None (never cut) when the output is piped."""
-    return style.terminal_width(0) or None
-
-
-def _echo_lines(lines: list[str]) -> None:
-    click.echo("\n".join(lines))
-
-
-def _settings_click_error(exc: ValueError) -> click.ClickException:
-    return click.ClickException(str(exc))
-
-
-def _after_setting_change(key: str, value: str) -> None:
-    """Side effects a saved value needs now rather than at the next start."""
-    from lemoncrow.core.reply_register import TELEGRAPHIC_SETTING_KEY
-
-    if key != TELEGRAPHIC_SETTING_KEY:
-        return
-    # The level is baked into installed personas — re-render them now.
-    # apply_settings_env seeded the env before this write; refresh it so
-    # the regeneration below sees the new value.
-    os.environ["LEMONCROW_TELEGRAPHIC"] = value
-    from lemoncrow.gateway.cli.commands.agents_skills import reapply_installed_agents
-
-    if reapply_installed_agents() == 0:
-        click.echo(style.dim("No installed host agents found; the new level applies on the next host install."))
-
-
-@plugin_settings_group.command("show", short_help="The essentials and what you changed; --all for everything.")
-@click.option("--all", "show_all", is_flag=True, help="List every setting, grouped by area.")
-@click.option("--category", "category", default=None, help="List one area (e.g. service, retrieval, mcp).")
-@click.option("--json", "as_json", is_flag=True, help="Output every setting's value as JSON.")
-@click.pass_context
-def plugin_settings_show(ctx: click.Context, show_all: bool, category: str | None, as_json: bool) -> None:
-    """Show the essential settings and anything you changed; --all or --category lists more."""
-    from lemoncrow.core.settings import CATEGORIES, load_settings
-    from lemoncrow.gateway.cli.settings_ui import SettingsStore, listing_lines, overview_lines
+def plugin_settings_show(ctx: click.Context, category: str | None, as_json: bool) -> None:
+    """Show persisted settings, grouped by category."""
+    from lemoncrow.core.settings import CATEGORIES, all_settings, load_settings
 
     if category is not None and category not in CATEGORIES:
         raise click.ClickException(f"unknown category: {category} (choices: {', '.join(CATEGORIES)})")
+    payload = load_settings(ctx.obj["root"], category=category)
     if as_json:
-        _emit(load_settings(ctx.obj["root"], category=category), as_json=True)
+        _emit(payload, as_json=True)
         return
-    store = SettingsStore(ctx.obj["root"])
-    width = _settings_width()
-    if show_all or category:
-        _echo_lines(listing_lines(store, category=category, width=width))
-    else:
-        _echo_lines(overview_lines(store, width=width))
+    by_category: dict[str, list[str]] = {}
+    for spec in all_settings():
+        if spec.key not in payload:
+            continue
+        by_category.setdefault(spec.category, []).append(spec.key)
+    for cat in sorted(by_category):
+        click.echo(f"# {cat}")
+        for key in sorted(by_category[cat]):
+            click.echo(f"{key}: {_format_setting_value(payload[key])}")
 
 
-@plugin_settings_group.command("get", short_help="One setting in full: value, default, choices, what it does.")
-@click.argument("key")
-@click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
-@click.pass_context
-def plugin_settings_get(ctx: click.Context, key: str, as_json: bool) -> None:
-    """Show setting KEY: its value, default, allowed values, env var and what it does."""
-    from lemoncrow.gateway.cli.settings_ui import SettingsStore, detail_lines, detail_payload, require
-
-    try:
-        require(key)
-    except ValueError as exc:
-        raise _settings_click_error(exc) from exc
-    store = SettingsStore(ctx.obj["root"])
-    if as_json:
-        _emit(detail_payload(store, key), as_json=True)
-        return
-    _echo_lines(detail_lines(store, key, width=_settings_width()))
-
-
-@plugin_settings_group.command("set", short_help="Set one setting.")
+@plugin_settings_group.command("set")
 @click.argument("key")
 @click.argument("value")
 @click.option("--json", "as_json", is_flag=True, help="Output the full settings payload as JSON after the write.")
 @click.pass_context
 def plugin_settings_set(ctx: click.Context, key: str, value: str, as_json: bool) -> None:
     """Set setting KEY to VALUE (validated, coerced, persisted to plugin_settings.json)."""
-    from lemoncrow.core.settings import load_settings
-    from lemoncrow.gateway.cli.settings_ui import SettingsStore
+    from lemoncrow.core.reply_register import REPLY_REGISTER_LEVELS, TELEGRAPHIC_SETTING_KEY
+    from lemoncrow.core.settings import load_settings, write_setting
 
-    store = SettingsStore(ctx.obj["root"])
+    if key == TELEGRAPHIC_SETTING_KEY and value not in REPLY_REGISTER_LEVELS:
+        raise click.ClickException(f"invalid value for {key}: {value!r} (choices: {', '.join(REPLY_REGISTER_LEVELS)})")
     try:
-        current = store.set(key, value)
+        coerced = write_setting(ctx.obj["root"], key, value)
     except ValueError as exc:
-        raise _settings_click_error(exc) from exc
-    _after_setting_change(key, value)
+        raise click.ClickException(str(exc)) from exc
+    if key == TELEGRAPHIC_SETTING_KEY:
+        # The level is baked into installed personas — re-render them now.
+        # apply_settings_env seeded the env before this write; refresh it so
+        # the regeneration below sees the new value.
+        os.environ["LEMONCROW_TELEGRAPHIC"] = str(coerced)
+        from lemoncrow.gateway.cli.commands.agents_skills import reapply_installed_agents
+
+        if reapply_installed_agents() == 0:
+            click.echo("no installed host agents found — level applies on the next host install")
     if as_json:
         _emit(load_settings(ctx.obj["root"]), as_json=True)
         return
-    if current.env is not None:
-        click.echo(style.success(f"Saved {key}"))
-        click.echo(style.row("warn", f"{current.env_shown} in your environment still overrides it"))
-        return
-    click.echo(style.success(f"{key} set to {style.bold(current.shown)}"))
-    from lemoncrow.core.settings import secret_location_note
-
-    where = secret_location_note(ctx.obj["root"], current.spec)
-    if where:  # a key is saved as plain text: say where, rather than only "hidden"
-        click.echo(style.dim(where))
-
-
-@plugin_settings_group.command("reset", short_help="Put one setting back to its default.")
-@click.argument("key")
-@click.pass_context
-def plugin_settings_reset(ctx: click.Context, key: str) -> None:
-    """Remove the saved value for setting KEY so its default applies again."""
-    from lemoncrow.gateway.cli.settings_ui import SettingsStore
-
-    store = SettingsStore(ctx.obj["root"])
-    try:
-        before = store.get(key)
-        current = store.reset(key)
-    except ValueError as exc:
-        raise _settings_click_error(exc) from exc
-    if not before.changed:
-        click.echo(style.row("off", f"{key} is already at its default ({current.shown})", indent=0))
-        return
-    _after_setting_change(key, current.shown)
-    click.echo(style.success(f"{key} reset to {style.bold(current.shown)}"))
+    click.echo(f"set {key}={_format_setting_value(coerced)}")
 
 
 @click.command("tool-report")
@@ -1571,6 +1384,97 @@ def audit_group() -> None:
     """Audit local developer context and shell usage."""
 
 
+@click.command("insights")
+@click.option(
+    "--since",
+    default="7d",
+    show_default=True,
+    help="Time window: '7d', '30d', '24h', or a date like '2026-05-01'.",
+)
+@click.option("--json", "as_json", is_flag=True, default=False, help="Output JSON.")
+@click.option("--no-color", is_flag=True, default=False, help="Disable ANSI colours.")
+@click.option(
+    "--vendor",
+    default=None,
+    help="Filter output to a specific vendor (e.g. 'anthropic').",
+)
+@click.option(
+    "--group-by",
+    "group_by",
+    default="tool",
+    type=click.Choice(["tool", "vendor", "model", "session"]),
+    show_default=True,
+    help="Primary grouping for cost breakdown.",
+)
+@click.pass_context
+def insights_cmd(
+    ctx: click.Context,
+    since: str,
+    as_json: bool,
+    no_color: bool,
+    vendor: str | None,
+    group_by: str,
+) -> None:
+    """Weekly AI-spend insights and savings opportunities."""
+    from lemoncrow.pro.runtime.insights import (
+        InsightsWindow,
+        build_insights,
+        render_json,
+        render_text,
+    )
+
+    root: Path = ctx.obj["root"]
+    since_dt = _parse_since_arg(since)
+    until_dt = datetime.now(UTC)
+
+    window: InsightsWindow = build_insights(root, since=since_dt, until=until_dt)
+
+    if window.session_count == 0:
+        if as_json:
+            click.echo(render_json(window))
+        else:
+            since_str = since_dt.strftime("%Y-%m-%d")
+            click.echo(f"No sessions found since {since_str}.")
+        return
+
+    cost_by_vendor = window.cost_by_vendor
+    if vendor:
+        vendor_key = vendor.capitalize()
+        filtered_cost = window.cost_by_vendor.get(vendor_key, 0.0)
+        cost_by_vendor = {vendor_key: filtered_cost}
+        if not as_json:
+            click.echo(f"Vendor filter: {vendor_key}  ${filtered_cost:.2f} of ${window.total_cost_usd:.2f} total")
+
+    if group_by == "model":
+        cost_by_tool = window.cost_by_model
+    elif group_by == "session":
+        cost_by_tool = {s.session_id[:8]: s.cost_usd for s in window.top_sessions}
+    elif group_by == "vendor":
+        cost_by_tool = cost_by_vendor
+    else:
+        cost_by_tool = window.cost_by_tool
+
+    display_window = InsightsWindow(
+        since=window.since,
+        until=window.until,
+        session_count=window.session_count,
+        total_duration_seconds=window.total_duration_seconds,
+        total_cost_usd=window.total_cost_usd,
+        total_lemoncrow_savings_usd=window.total_lemoncrow_savings_usd,
+        cost_by_vendor=cost_by_vendor,
+        cost_by_tool=cost_by_tool,
+        cost_by_model=window.cost_by_model,
+        top_sessions=window.top_sessions,
+        outcomes_summary=window.outcomes_summary,
+        opportunities=window.opportunities,
+    )
+
+    if as_json:
+        click.echo(render_json(display_window))
+    else:
+        click.echo(render_text(display_window, no_color=no_color))
+
+
 __all__ = [
     "_project_root",
     "audit_group",
@@ -1578,9 +1482,11 @@ __all__ = [
     "doctor_cmd",
     "env_group",
     "init",
+    "insights_cmd",
     "plugin_settings_group",
     "quarantine",
     "reset_cmd",
+    "share_cmd",
     "status_cmd",
     "tool_report_cmd",
     "uninstall",

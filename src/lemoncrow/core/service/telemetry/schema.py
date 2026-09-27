@@ -33,32 +33,9 @@ EVENTS: dict[str, EventSpec] = {
     ),
     "session_end": EventSpec({"session_id": STR, "duration_s_bucket": STR, "exit_reason": STR}),
     "session_interrupted": EventSpec({"session_id": STR, "signal": STR, "elapsed_s_bucket": STR, "last_phase": STR}),
-    "cli_command_invoked": EventSpec({"command_name": STR, "subcommand": STR, "session_id": STR, "anon_id": STR}),
-    "cli_command_completed": EventSpec(
-        {
-            "command_name": STR,
-            "subcommand": STR,
-            "session_id": STR,
-            "duration_ms_bucket": STR,
-            "ok": BOOL,
-            # Exception class (or ``exit_<code>``) when not ok -- never a message.
-            "error_kind": STR,
-            "exit_code": INT,
-            # Spawned by a daemon, hook or statusline rather than typed by a user.
-            "background": BOOL,
-        }
-    ),
-    "mcp_tool_called": EventSpec(
-        {
-            "tool_name": STR,
-            "session_id": STR,
-            "agent_host": STR,
-            "duration_ms_bucket": STR,
-            "ok": BOOL,
-            # ServerError code, "tool_error" for an is_error result, else "".
-            "error_code": STR,
-        }
-    ),
+    "cli_command_invoked": EventSpec({"command_name": STR, "session_id": STR, "anon_id": STR}),
+    "cli_command_completed": EventSpec({"command_name": STR, "session_id": STR, "duration_ms_bucket": STR, "ok": BOOL}),
+    "mcp_tool_called": EventSpec({"tool_name": STR, "session_id": STR, "duration_ms_bucket": STR, "ok": BOOL}),
     "api_request": EventSpec({"endpoint": STR, "method": STR, "status_code": INT, "duration_ms_bucket": STR}),
     "playbook_retrieved": EventSpec(
         {
@@ -97,11 +74,9 @@ EVENTS: dict[str, EventSpec] = {
             "blocks_applied": INT,
         }
     ),
-    "code_index_completed": EventSpec(
-        {"repo_id": STR, "files_indexed": INT, "symbols_indexed": INT, "session_id": STR}
-    ),
-    "code_context_retrieved": EventSpec({"repo_id": STR, "operation": STR, "result_count": INT, "session_id": STR}),
-    "code_symbol_retrieved": EventSpec({"repo_id": STR, "kind": STR, "session_id": STR}),
+    "code_index_completed": EventSpec({"repo_id": STR, "files_indexed": INT, "symbols_indexed": INT}),
+    "code_context_retrieved": EventSpec({"repo_id": STR, "operation": STR, "result_count": INT}),
+    "code_symbol_retrieved": EventSpec({"repo_id": STR, "kind": STR}),
     "optimization_proposal_evaluated": EventSpec(
         {
             "source": STR,

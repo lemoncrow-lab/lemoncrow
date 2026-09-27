@@ -5,18 +5,6 @@ from pathlib import Path
 from lemoncrow.gateway.cli.commands.eval import _EXTERNAL_CHANNELS, _RETRIEVAL_CHANNELS, _channel_cmd_env
 
 
-def test_default_retrieval_uses_real_http_client(monkeypatch) -> None:
-    from click.testing import CliRunner
-
-    from lemoncrow.gateway.cli.commands.eval import eval_retrieval
-
-    selected = {}
-    monkeypatch.setattr(eval_retrieval, "callback", lambda **options: selected.update(options))
-    result = CliRunner().invoke(eval_retrieval, ["--full"])
-    assert result.exit_code == 0
-    assert selected["channels"] == ("lemoncrow-shared",)
-
-
 def test_shared_channel_selects_current_client_without_relabeling_backends(tmp_path):
     pairs = tmp_path / "pairs.json"
     pairs.write_text("{}")
@@ -94,37 +82,3 @@ def test_lemoncrow_retrieval_channels_pin_their_backends(monkeypatch, tmp_path: 
     assert full["LEMONCROW_ZOEKT_MODE"] == "installed"
     assert full["LEMONCROW_EXPLORE_SEMANTIC"] == "1"
     assert full["LEMONCROW_CODE_EMBEDDER"] == "bge"
-
-
-def test_http_provider_propagates_failures_without_recovery(tmp_path) -> None:
-    """Load only the provider class: the benchmark module runs a CLI at import."""
-    import ast
-    from typing import Any
-
-    import pytest
-
-    source = Path("benchmarks/codebench/eval_external_provider_mrr.py").read_text()
-    tree = ast.parse(source)
-    provider_node = next(
-        node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "LemonCrowSharedProvider"
-    )
-    scope = {"LemonCrowProvider": object, "Any": Any, "Path": Path}
-    exec(compile(ast.Module(body=[provider_node], type_ignores=[]), "<http-provider>", "exec"), scope)
-    provider = scope["LemonCrowSharedProvider"]()
-    provider._memo = {}
-
-    class FailedServer:
-        def __init__(self):
-            self.response = {"error": {"message": "connection unavailable"}}
-
-        def handle(self, request):
-            return self.response
-
-    server = FailedServer()
-    provider._shared_server = server
-    with pytest.raises(RuntimeError, match="search failed"):
-        provider.search_symbol("driver_hook", tmp_path)
-    server.response = {"result": {"isError": True, "content": [{"type": "text", "text": "timeout"}]}}
-    with pytest.raises(RuntimeError, match="tool failed"):
-        provider.search_text("driver_hook", tmp_path)
-    assert not provider._memo

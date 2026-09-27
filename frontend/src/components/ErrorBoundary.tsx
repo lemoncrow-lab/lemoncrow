@@ -1,30 +1,8 @@
-import { Component, useEffect, type ErrorInfo, type ReactNode } from "react";
+import { Component, type ErrorInfo, type ReactNode } from "react";
 import { AlertTriangle, RotateCcw } from "lucide-react";
 import { Card, CardContent, CardHeader } from "./ui/card";
 import { Button } from "./ui/button";
 import { cn } from "../lib/utils";
-import { isChunkLoadFailure } from "../lib/chunkLoad";
-
-const CHUNK_RECOVERY_KEY = "lemoncrow.page.chunk-recovery";
-
-/**
- * A missing lazy chunk after a deploy is cured by one full reload. The failing
- * message is fingerprinted in sessionStorage so a chunk that is still missing
- * after the reload shows the error card instead of reloading forever.
- */
-function ChunkReloadOnce({ error }: { error: Error }) {
-  useEffect(() => {
-    if (!isChunkLoadFailure(error)) return;
-    try {
-      if (window.sessionStorage.getItem(CHUNK_RECOVERY_KEY) === error.message) return;
-      window.sessionStorage.setItem(CHUNK_RECOVERY_KEY, error.message);
-    } catch {
-      return; // Without storage the guard cannot hold, so never auto-reload.
-    }
-    window.location.reload();
-  }, [error]);
-  return null;
-}
 
 interface ErrorBoundaryProps {
   /** Content that may throw during render. */
@@ -36,10 +14,6 @@ interface ErrorBoundaryProps {
   /** Label used in the default fallback and log messages, e.g. a page name. */
   label?: string;
   className?: string;
-  /** When this value changes while an error is shown, the boundary clears it. */
-  resetKey?: string;
-  /** Called whenever the boundary clears an error (Retry or a resetKey change). */
-  onReset?: () => void;
 }
 
 interface ErrorBoundaryState {
@@ -82,12 +56,7 @@ export class ErrorBoundary extends Component<
     this.props.onError?.(error, errorInfo);
   }
 
-  componentDidUpdate(prevProps: ErrorBoundaryProps) {
-    if (this.state.error && prevProps.resetKey !== this.props.resetKey) this.retry();
-  }
-
   retry = () => {
-    this.props.onReset?.();
     this.setState((prev) => ({
       error: null,
       errorInfo: null,
@@ -103,45 +72,32 @@ export class ErrorBoundary extends Component<
         return this.props.fallback(error, this.retry);
       }
 
-      const chunkFailure = isChunkLoadFailure(error);
       return (
-        <>
-        <ChunkReloadOnce error={error} />
-        <Card tone="destructive" className={cn("m-4", this.props.className)}>
+        <Card tone="red" className={cn("m-4", this.props.className)}>
           <CardHeader className="flex flex-row items-start gap-3">
-            <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-300" />
+            <AlertTriangle size={18} className="mt-0.5 shrink-0 text-red-300" />
             <div className="min-w-0">
-              <div className="text-heading font-semibold text-red-100">
+              <div className="text-sm font-semibold text-red-100">
                 {this.props.label
                   ? `${this.props.label} failed to render`
                   : "Something went wrong"}
               </div>
-              <div className="mt-1 text-body leading-relaxed text-red-200/80">
+              <div className="mt-1 text-xs leading-relaxed text-red-200/80">
                 {error.message || "An unexpected error occurred."}
               </div>
-              {chunkFailure && (
-                <div className="mt-1 text-body leading-relaxed text-red-200/80">
-                  LemonCrow was probably updated while this tab was open. Reload the page to load the new version.
-                </div>
-              )}
             </div>
           </CardHeader>
           <CardContent className="flex items-center gap-3">
             <Button
-              variant="destructive"
+              variant="danger"
               size="sm"
-              icon={<RotateCcw size={14} />}
+              icon={<RotateCcw size={12} />}
               onClick={this.retry}
             >
               Retry
             </Button>
-            {chunkFailure && (
-              <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
-                Reload page
-              </Button>
-            )}
             {import.meta.env.DEV && this.state.errorInfo && (
-              <details className="min-w-0 flex-1 text-meta text-red-200/60">
+              <details className="min-w-0 flex-1 text-[10px] text-red-200/60">
                 <summary className="cursor-pointer select-none">
                   Stack trace
                 </summary>
@@ -153,7 +109,6 @@ export class ErrorBoundary extends Component<
             )}
           </CardContent>
         </Card>
-        </>
       );
     }
 

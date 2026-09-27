@@ -163,34 +163,9 @@ def outcomes_summary(ctx: click.Context, since: str) -> None:
     click.echo(json.dumps(summary, indent=2, ensure_ascii=False, default=str))
 
 
-@click.group("session", invoke_without_command=True)
-@click.pass_context
-def session_group(ctx: click.Context) -> None:
-    """Per-session cost and savings reports.
-
-    In a terminal, lc session lists recent sessions to pick from; Enter
-    opens one's report.
-    """
-    if ctx.invoked_subcommand is not None:
-        return
-    from lemoncrow.gateway.cli import picker, style
-
-    if not picker.can_open():
-        click.echo(ctx.get_help())
-        return
-    from lemoncrow.gateway.cli.sessions_ui import SessionSource, recent_runs
-
-    root: Path = ctx.obj["root"]
-    with style.working("Reading sessions…"):
-        runs, passed_over = recent_runs(root, limit=_PICKER_RUNS, carry=False)
-    if not runs:
-        click.echo(style.row("off", "No sessions yet.", indent=0))
-        click.echo(style.next_step("Start one in your coding agent:", "lc with claude", indent=0))
-        return
-    picker.run(picker.Picker(SessionSource(root, runs, passed_over)))
-
-
-_PICKER_RUNS = 150
+@click.group("session")
+def session_group() -> None:
+    """Per-session cost and savings reports."""
 
 
 @session_group.command("report")
@@ -209,6 +184,7 @@ def session_report_cmd(
         list_run_files,
         load_report,
         render_json,
+        render_text,
     )
 
     root: Path = ctx.obj["root"]
@@ -241,9 +217,7 @@ def session_report_cmd(
     if as_json:
         click.echo(render_json(report))
     else:
-        from lemoncrow.gateway.cli.sessions_ui import report_text
-
-        click.echo("\n".join(report_text(report)), color=False if no_color else None)
+        click.echo(render_text(report, no_color=no_color))
 
 
 # Claude Code launches subagents via "Agent" (formerly "Task").
@@ -266,61 +240,10 @@ def _subagent_total(trace: Trace) -> int:
 
 
 def _trace_cost_usd(trace: Trace) -> float:
-    """Imported per-request priced cost (not necessarily host reported)."""
     total = 0.0
     for entry in trace.usage_entries:
         total += float(entry.cost_usd or 0.0)
     return round(total, 6)
-
-
-def _trace_actual_cost(trace: Trace) -> tuple[float | None, str]:
-    """Return an authoritative total and its provenance, when one exists."""
-    telemetry = trace.telemetry or {}
-    source = str(telemetry.get("actual_cost_source") or "").strip()
-    value = telemetry.get("actual_cost_usd")
-    if not source and "host_reported_cost_usd" in telemetry:
-        source = "host_reported"
-        value = telemetry.get("host_reported_cost_usd")
-    if not source or isinstance(value, bool) or value is None:
-        return None, ""
-    try:
-        return round(max(0.0, float(value)), 6), source
-    except (TypeError, ValueError):
-        return None, ""
-
-
-def _host_reported_trace_cost_usd(trace: Trace) -> float:
-    """Backward-compatible numeric view of an authoritative host cost."""
-    value, _source = _trace_actual_cost(trace)
-    return value if value is not None else 0.0
-
-
-def _trace_usage_source(trace: Trace) -> str:
-    source = str((trace.telemetry or {}).get("usage_measurement_source") or "").strip()
-    if source:
-        return source
-    if trace.usage_entries or any(
-        int(value or 0) > 0
-        for value in (
-            trace.input_tokens,
-            trace.output_tokens,
-            trace.cached_input_tokens,
-            trace.cache_creation_input_tokens,
-        )
-    ):
-        return "host_transcript"
-    return "unavailable"
-
-
-def _trace_priced_cost_usd(trace: Trace) -> float | None:
-    """Return an importer/gateway priced total that is not provider-billed truth."""
-    value = (trace.telemetry or {}).get("priced_cost_usd")
-    if isinstance(value, bool) or value is None:
-        return None
-    try:
-        return round(max(0.0, float(value)), 6)
-    except (TypeError, ValueError):
-        return None
 
 
 def _estimated_trace_cost_usd(trace: Trace) -> float:
@@ -399,32 +322,12 @@ def _estimated_trace_cost_breakdown(trace: Trace) -> dict[str, float]:
 
 
 def _best_trace_cost(trace: Trace) -> tuple[float, float, float]:
-    actual, _source = _trace_actual_cost(trace)
-    priced_override = _trace_priced_cost_usd(trace)
-    estimated = priced_override if priced_override is not None else _estimated_trace_cost_usd(trace)
-    imported_priced = _trace_cost_usd(trace)
-    # Authoritative host totals win even when they are legitimately $0.
-    # Otherwise use an exact gateway-priced total when present, then current
-    # rate-card pricing of measured token buckets.
-    chosen = actual if actual is not None else (estimated if estimated > 0 else imported_priced)
-    return round(chosen, 6), (actual if actual is not None else 0.0), round(estimated, 6)
-
-
-def _trace_cost_source(trace: Trace, estimated_cost_usd: float) -> str:
-    actual, source = _trace_actual_cost(trace)
-    if actual is not None:
-        return source
-    if _trace_priced_cost_usd(trace) is not None or estimated_cost_usd > 0 or _trace_cost_usd(trace) > 0:
-        return "priced"
-    return "unavailable"
-
-
-def _cost_status_from_source(source: str) -> str:
-    if source == "unavailable":
-        return "unavailable"
-    if source == "priced":
-        return "estimated"
-    return "recorded"
+    reported = _trace_cost_usd(trace)
+    estimated = _estimated_trace_cost_usd(trace)
+    chosen = estimated if estimated > 0 else reported
+    if chosen <= 0:
+        chosen = reported
+    return round(chosen, 6), reported, estimated
 
 
 def _claude_subagent_count(session_id: str) -> int:
@@ -721,8 +624,7 @@ def _render_hosts_footer_rich(rows: list[dict[str, Any]], since_label: str) -> N
     total_calls = sum(int(r["tool_calls"]) for r in rows)
     total_lemoncrow = sum(int(r["lemoncrow_calls"]) for r in rows)
     total_subagents = sum(int(r["subagents"]) for r in rows)
-    unavailable_costs = sum(1 for r in rows if r.get("cost_status") == "unavailable")
-    priced_costs = sum(1 for r in rows if r.get("cost_status") == "estimated")
+    total_sub_cost = sum(float(r["subagent_cost_usd"]) for r in rows)
     total_saved_tokens = sum(int(r["saved_tokens"]) for r in rows)
     total_calls_avoided = sum(int(r["calls_avoided"]) for r in rows)
     total_pot_usd = sum(float(r["potential_saved_usd"]) for r in rows)
@@ -733,16 +635,10 @@ def _render_hosts_footer_rich(rows: list[dict[str, Any]], since_label: str) -> N
     console.print()
 
     lemoncrow_p = 100 * total_lemoncrow // total_calls if total_calls > 0 else 0
-    cost_label = "Cost subtotal" if unavailable_costs else "Cost"
-    cost_note_parts = []
-    if priced_costs:
-        cost_note_parts.append(f"{priced_costs} priced")
-    if unavailable_costs:
-        cost_note_parts.append(f"{unavailable_costs} unavailable")
-    cost_note = f"  [dim]({' · '.join(cost_note_parts)})[/]" if cost_note_parts else ""
+    baseline = total_cost + total_saved + total_carry
 
     usage_lines = [
-        f"  [dim]{cost_label:<14}[/]  [bright_red]${total_cost:,.4f}[/]{cost_note}",
+        f"  [dim]Cost          [/]  [bright_red]${total_cost:,.4f}[/]",
         f"  [dim]Sessions      [/]  [bright_white]{n}[/]  [dim]({n_lemoncrow} w/ LemonCrow)[/]",
         f"  [dim]Calls         [/]  [bright_yellow]{total_calls:,}[/]  [dim]({lemoncrow_p}% lemoncrow)[/]",
         f"  [dim]Tokens in     [/]  [white]{_fmt_tok_compact(total_in)}[/]",
@@ -751,24 +647,27 @@ def _render_hosts_footer_rich(rows: list[dict[str, Any]], since_label: str) -> N
         f"  [dim]Output        [/]  [white]{_fmt_tok_compact(total_out)}[/]",
     ]
     if total_subagents > 0:
-        usage_lines.append(f"  [dim]Subagents     [/]  [white]{total_subagents}[/]")
+        sub_pct = 100 * total_sub_cost / total_cost if total_cost > 0 else 0.0
+        usage_lines.append(
+            f"  [dim]Subagents     [/]  [white]{total_subagents}[/]  [dim]≈${total_sub_cost:,.4f}  ({sub_pct:.1f}%)[/]"
+        )
 
     # Headline "Saved" is the canonical total (saved_usd + carry_usd, same
     # sum as SavingsSummary.total_saved_usd / WindowSavings.total_saved_usd)
     # so it reconciles with the statusline's single "↓ $X" figure; carry is
     # still broken out as a sub-line for detail.
     savings_lines = [
-        f"  [dim]Est. saved    [/]  [bright_green]${total_saved + total_carry:,.4f}[/]",
+        f"  [dim]Saved         [/]  [bright_green]${total_saved + total_carry:,.4f}[/]",
         f"  [dim]  of which carry[/]  [magenta]${total_carry:,.4f}[/]",
     ]
     if total_saved_tokens > 0:
         savings_lines.append(f"  [dim]Tok saved     [/]  [bright_green]{_fmt_tok_compact(total_saved_tokens)}[/]")
     if total_calls_avoided > 0:
         savings_lines.append(f"  [dim]Calls avoided [/]  [bright_green]{total_calls_avoided}[/]")
-    if total_saved + total_carry > 0 and unavailable_costs == 0:
-        denominator = total_cost + total_saved + total_carry
-        pct = 100 * (total_saved + total_carry) / denominator if denominator > 0 else 0.0
-        savings_lines.append(f"  [dim]Est. reduction[/]  [bright_green]~{pct:.1f}%[/]")
+    if total_saved + total_carry > 0:
+        pct = 100 * (total_saved + total_carry) / baseline
+        savings_lines.append(f"  [dim]Reduction     [/]  [bright_green]-{pct:.1f}%[/]")
+        savings_lines.append(f"  [dim]Baseline      [/]  [dim]≈${baseline:,.4f}[/]")
     if total_pot_usd > 0 or total_pot_carry > 0:
         savings_lines.append("")
         savings_lines.append(f"  [dim]Potential     [/]  [yellow]≈${total_pot_usd:,.4f}[/]")
@@ -820,8 +719,7 @@ def _render_stats_rich(
     total_calls = sum(int(r["tool_calls"]) for r in rows)
     total_lemoncrow = sum(int(r["lemoncrow_calls"]) for r in rows)
     total_subagents = sum(int(r["subagents"]) for r in rows)
-    unavailable_costs = sum(1 for r in rows if r.get("cost_status") == "unavailable")
-    priced_costs = sum(1 for r in rows if r.get("cost_status") == "estimated")
+    total_sub_cost = sum(float(r["subagent_cost_usd"]) for r in rows)
     total_pot_usd = sum(float(r["potential_saved_usd"]) for r in rows)
     total_pot_carry = sum(float(r["potential_carry_usd"]) for r in rows)
 
@@ -838,8 +736,6 @@ def _render_stats_rich(
                 "lemoncrow": 0,
                 "pot_saved": 0.0,
                 "pot_carry": 0.0,
-                "unavailable": 0,
-                "priced": 0,
             }
         ha = host_agg[hn]
         ha["sessions"] += 1
@@ -850,8 +746,6 @@ def _render_stats_rich(
         ha["lemoncrow"] += int(r["lemoncrow_calls"])
         ha["pot_saved"] += float(r["potential_saved_usd"])
         ha["pot_carry"] += float(r["potential_carry_usd"])
-        ha["unavailable"] += int(r.get("cost_status") == "unavailable")
-        ha["priced"] += int(r.get("cost_status") == "estimated")
 
     hosts_sorted = sorted(host_agg.items(), key=lambda x: -x[1]["cost"])
 
@@ -972,28 +866,25 @@ def _render_stats_rich(
     bottom.add_column(ratio=1)
     bottom.add_column(ratio=1)
 
-    cost_name = "Cost subtotal" if unavailable_costs else "Total cost"
-    cost_lines = [f"  [dim]{cost_name:<14}[/]  [bright_red]${total_cost:,.2f}[/]"]
-    if priced_costs:
-        cost_lines.append(f"  [dim]  priced      [/]  [dim]{priced_costs} session{'s' if priced_costs != 1 else ''}[/]")
-    if unavailable_costs:
-        cost_lines.append(
-            f"  [dim]  unavailable [/]  [dim]{unavailable_costs} session{'s' if unavailable_costs != 1 else ''}[/]"
-        )
     if total_saved + total_carry > 0:
-        cost_lines.extend(
-            [
-                f"  [dim]Est. saved    [/]  [bright_green]${total_saved + total_carry:,.2f}[/]",
-                f"  [dim]  of which carry[/]  [magenta]${total_carry:,.2f}[/]",
-            ]
-        )
-        if unavailable_costs == 0:
-            denominator = total_cost + total_saved + total_carry
-            pct = 100 * (total_saved + total_carry) / denominator if denominator > 0 else 0.0
-            cost_lines.append(f"  [dim]Est. reduction[/]  [bright_green]~{pct:.1f}%[/]")
+        baseline = total_cost + total_saved + total_carry
+        pct = 100 * (total_saved + total_carry) / baseline
+        # "Saved" is the canonical total (saved_usd + carry_usd) so it matches
+        # the statusline's single "↓ $X" headline; carry stays as a sub-line.
+        cost_lines = [
+            f"  [dim]Total cost    [/]  [bright_red]${total_cost:,.2f}[/]",
+            f"  [dim]Saved         [/]  [bright_green]${total_saved + total_carry:,.2f}[/]",
+            f"  [dim]  of which carry[/]  [magenta]${total_carry:,.2f}[/]",
+            f"  [dim]Baseline      [/]  [dim]≈${baseline:,.2f}[/]",
+            f"  [dim]Reduction     [/]  [bright_green]-{pct:.1f}%[/]",
+        ]
+    else:
+        cost_lines = [f"  [dim]Total cost    [/]  [bright_red]${total_cost:,.2f}[/]"]
 
     if total_subagents > 0:
+        sub_pct = 100 * total_sub_cost / total_cost if total_cost > 0 else 0.0
         cost_lines.append(f"  [dim]Subagents     [/]  [white]{total_subagents}[/]")
+        cost_lines.append(f"  [dim]  ≈cost        [/]  [dim]${total_sub_cost:,.2f}  ({sub_pct:.1f}%)[/]")
 
     if total_pot_usd > 0 or total_pot_carry > 0:
         lemoncrow_lines = [
@@ -1008,7 +899,7 @@ def _render_stats_rich(
         lemoncrow_border = "yellow dim"
     else:
         lemoncrow_lines = [
-            f"  [dim]Est. saved    [/]  [bright_green]${total_saved + total_carry:,.2f}[/]",
+            f"  [dim]Saved         [/]  [bright_green]${total_saved + total_carry:,.2f}[/]",
             f"  [dim]  of which carry[/]  [magenta]${total_carry:,.2f}[/]",
             f"  [dim]LemonCrow calls [/]  [cyan]{total_lemoncrow:,}[/]  [dim]({lemoncrow_pct_t}%)[/]",
             f"  [dim]LemonCrow sess. [/]  [bright_cyan]{n_lemoncrow}[/]  [dim]of {n}[/]",
@@ -1157,19 +1048,9 @@ def _build_session_row(trace: Trace, store: HistoryStore, host_name: str, root: 
     cache_write_tokens = int(trace.cache_creation_input_tokens or 0)
     output_tokens = int(trace.output_tokens or 0)
     total_cost_usd, reported_cost_usd, estimated_cost_usd = _best_trace_cost(trace)
-    usage_measurement_source = _trace_usage_source(trace)
-    actual_cost_source = _trace_cost_source(trace, estimated_cost_usd)
-    cost_status = _cost_status_from_source(actual_cost_source)
     model = _trace_model(trace)
     pricing_model = model if model != "-" else ""  # "-" is a display sentinel; don't warn on it
     breakdown = _estimated_trace_cost_breakdown(trace)
-    # Token buckets are priced from the current rate card, but when the host
-    # supplies an authoritative total scale those buckets to that total so the
-    # displayed parts reconcile exactly with measured spend.
-    bucket_sum = sum(breakdown.values())
-    if cost_status != "unavailable" and bucket_sum > 0:
-        scale = total_cost_usd / bucket_sum
-        breakdown = {key: round(value * scale, 6) for key, value in breakdown.items()}
     subagents = _host_subagent_count(store, host_name, sid, trace)
     subagent_cost_usd = _host_subagent_cost_usd(host_name, sid, trace)
     potential = _builtin_potential(trace)
@@ -1194,7 +1075,7 @@ def _build_session_row(trace: Trace, store: HistoryStore, host_name: str, root: 
             # though the full-transcript estimate keeps counting past it —
             # take whichever is larger (mirrors the savings max() below)
             # instead of always trusting the block.
-            if cost_status != "recorded" and block.est_cost_usd > total_cost_usd:
+            if block.est_cost_usd > total_cost_usd:
                 total_cost_usd = block.est_cost_usd
                 estimated_cost_usd = block.est_cost_usd
                 bucket_sum = sum(breakdown.values())
@@ -1220,7 +1101,7 @@ def _build_session_row(trace: Trace, store: HistoryStore, host_name: str, root: 
             carry_usd = live_carry_usd
             carry_tokens = live_carry_tokens
             read_saved_usd = live_read_saved_usd
-            if cost_status != "recorded" and live_cost > total_cost_usd:
+            if live_cost > total_cost_usd:
                 total_cost_usd = live_cost
                 estimated_cost_usd = live_cost
                 bucket_sum = sum(breakdown.values())
@@ -1311,9 +1192,7 @@ def _build_session_row(trace: Trace, store: HistoryStore, host_name: str, root: 
                 scale = feed_cost / potential_saved_usd if potential_saved_usd > 0 else 0.0
                 potential_saved_usd = feed_cost
                 potential_tokens_saved = int(potential_tokens_saved * scale)
-    # Savings are a counterfactual for every host, including Claude. Exact
-    # actual usage does not make the no-LemonCrow baseline directly observable.
-    savings_estimated = saved_usd > 0 or carry_usd > 0
+    savings_estimated = host_name != "claude" and (saved_usd > 0 or carry_usd > 0)
     return {
         "host": host_name,
         "session_id": sid,
@@ -1328,9 +1207,6 @@ def _build_session_row(trace: Trace, store: HistoryStore, host_name: str, root: 
         "cost_usd": round(total_cost_usd, 6),
         "reported_cost_usd": round(reported_cost_usd, 6),
         "estimated_cost_usd": round(estimated_cost_usd, 6),
-        "usage_measurement_source": usage_measurement_source,
-        "actual_cost_source": actual_cost_source,
-        "cost_status": cost_status,
         "cost_input_usd": round(breakdown["input"], 6),
         "cost_cache_read_usd": round(breakdown["cache_read"], 6),
         "cost_cache_write_usd": round(breakdown["cache_write"], 6),
@@ -1384,33 +1260,25 @@ def _print_session_row(row: dict[str, Any], verbose: bool) -> None:
     detail: list[tuple[str, str]] = []
 
     # tokens
-    if row.get("usage_measurement_source") == "unavailable":
-        detail.append(("tokens", "[dim]unavailable from host[/]"))
-    else:
-        detail.append(
-            (
-                "tokens",
-                f"[white]in={_fmt_tok(int(row['input_tokens']))}[/]"
-                f"  [bright_cyan]cR={_fmt_tok(int(row['cache_read_tokens']))}[/]"
-                f"  [bright_blue]cW={_fmt_tok(int(row['cache_write_tokens']))}[/]"
-                f"  [white]out={_fmt_tok(int(row['output_tokens']))}[/]",
-            )
+    detail.append(
+        (
+            "tokens",
+            f"[white]in={_fmt_tok(int(row['input_tokens']))}[/]"
+            f"  [bright_cyan]cR={_fmt_tok(int(row['cache_read_tokens']))}[/]"
+            f"  [bright_blue]cW={_fmt_tok(int(row['cache_write_tokens']))}[/]"
+            f"  [white]out={_fmt_tok(int(row['output_tokens']))}[/]",
         )
+    )
 
     # cost
-    cost_source = str(row.get("actual_cost_source") or "unavailable")
-    if cost_source == "unavailable":
-        detail.append(("cost", "[dim]unavailable from host[/]"))
-    else:
-        cost_label = "priced cost" if cost_source == "priced" else "cost"
-        detail.append(
-            (
-                cost_label,
-                f"[bright_red]{_fmt_usd(float(row['cost_usd']))}[/]  "
-                f"[dim](in {_fmt_usd(float(row['cost_input_usd']))} · cR {_fmt_usd(float(row['cost_cache_read_usd']))}"
-                f" · cW {_fmt_usd(float(row['cost_cache_write_usd']))} · out {_fmt_usd(float(row['cost_output_usd']))})[/]",
-            )
+    detail.append(
+        (
+            "cost",
+            f"[bright_red]{_fmt_usd(float(row['cost_usd']))}[/]  "
+            f"[dim](in {_fmt_usd(float(row['cost_input_usd']))} · cR {_fmt_usd(float(row['cost_cache_read_usd']))}"
+            f" · cW {_fmt_usd(float(row['cost_cache_write_usd']))} · out {_fmt_usd(float(row['cost_output_usd']))})[/]",
         )
+    )
 
     # Flag a large estimated-vs-host-reported cost gap regardless of source:
     # "trace_fallback" was never a value _build_session_row produces (always
@@ -1422,15 +1290,17 @@ def _print_session_row(row: dict[str, Any], verbose: bool) -> None:
 
     # subagents
     if int(row["subagents"]) > 0:
+        sub_cost = float(row["subagent_cost_usd"])
+        cost_detail = f" · [dim]≈{_fmt_usd(sub_cost)} (included in cost)[/]" if sub_cost > 0 else ""
         subagent_names: dict[str, int] = row.get("subagent_names") or {}
         if subagent_names:
             name_parts = [f"{n}x{c}" for n, c in sorted(subagent_names.items(), key=lambda x: -x[1])]
             wrapped_sub = _wrap_csv_items(name_parts)
-            detail.append(("subagents", f"[dim]{_re(wrapped_sub[0])}[/]"))
+            detail.append(("subagents", f"[dim]{_re(wrapped_sub[0])}[/]{cost_detail}"))
             for extra_line in wrapped_sub[1:]:
                 detail.append(("", f"[dim]{_re(extra_line)}[/]"))
         else:
-            detail.append(("subagents", f"[dim]{int(row['subagents'])}[/]"))
+            detail.append(("subagents", f"[dim]{int(row['subagents'])}[/]{cost_detail}"))
 
     # savings
     saved = float(row["saved_usd"])
@@ -1452,11 +1322,10 @@ def _print_session_row(row: dict[str, Any], verbose: bool) -> None:
     if carry > 0:
         savings_parts.append(f"[magenta]carry {_fmt_usd(carry)} · {_fmt_tok(int(row['carry_tokens']))} tok[/]")
     if row_cost > 0 and (saved + carry) > 0:
-        reduction = 100 * (saved + carry) / (row_cost + saved + carry)
-        savings_parts.append(f"[dim]~{_fmt_pct(reduction)} lower[/]")
+        baseline = row_cost + saved + carry
+        savings_parts.append(f"[dim]baseline ≈{_fmt_usd(baseline)} (-{_fmt_pct(100 * (saved + carry) / baseline)})[/]")
     if savings_parts:
-        savings_label = "est. savings" if row.get("savings_estimated") else "savings"
-        detail.append((savings_label, "  ·  ".join(savings_parts)))
+        detail.append(("savings", "  ·  ".join(savings_parts)))
 
     # calls
     detail.append(
@@ -1937,7 +1806,7 @@ def session_backfill_cmd(
     Reconstructs the counterfactual saving for each qualifying past session
     (the same estimate ``lc session replay`` shows) and persists it into the
     savings ledger, so historical usage in ~/.claude, ~/.codex, ~/.opencode
-    (and other supported hosts) counts toward `lc runtime savings` / local
+    (and other supported hosts) counts toward `lc savings` / local
     cap`. Only sessions that never ran with LemonCrow get a row; sessions
     already tracked (live or previously backfilled) are always skipped, so
     re-running is safe and never double-counts.
@@ -2004,7 +1873,7 @@ def session_backfill_cmd(
     verb = "Would backfill" if dry_run else "Backfilled"
     click.secho(f"{verb} {total_sessions} session(s), ${total_saved:.2f} estimated savings.", fg="green")
     if not dry_run and total_sessions:
-        click.echo("  lc runtime savings   (see the updated total)")
+        click.echo("  lc savings   (see the updated total)")
     if all_failed:
         ctx.exit(1)
 
@@ -2204,8 +2073,7 @@ def _print_stats(
     total_lemoncrow = sum(int(r["lemoncrow_calls"]) for r in rows)
     total_builtin = sum(int(r["builtin_calls"]) for r in rows)
     total_subagents = sum(int(r["subagents"]) for r in rows)
-    unavailable_costs = sum(1 for r in rows if r.get("cost_status") == "unavailable")
-    priced_costs = sum(1 for r in rows if r.get("cost_status") == "estimated")
+    total_sub_cost = sum(float(r["subagent_cost_usd"]) for r in rows)
     total_pot_usd = sum(float(r["potential_saved_usd"]) for r in rows)
     total_pot_carry = sum(float(r["potential_carry_usd"]) for r in rows)
 
@@ -2224,8 +2092,6 @@ def _print_stats(
                 "builtin": 0,
                 "pot_saved": 0.0,
                 "pot_carry": 0.0,
-                "unavailable": 0,
-                "priced": 0,
             }
         ha = host_agg[hn]
         ha["sessions"] += 1
@@ -2237,8 +2103,6 @@ def _print_stats(
         ha["builtin"] += int(r["builtin_calls"])
         ha["pot_saved"] += float(r["potential_saved_usd"])
         ha["pot_carry"] += float(r["potential_carry_usd"])
-        ha["unavailable"] += int(r.get("cost_status") == "unavailable")
-        ha["priced"] += int(r.get("cost_status") == "estimated")
 
     hosts_sorted = sorted(host_agg.items(), key=lambda x: -x[1]["cost"])
 
@@ -2255,24 +2119,17 @@ def _print_stats(
     total_rows: list[tuple[str, str]] = []
 
     cost_str = click.style(f"${total_cost:.4f}", bold=True)
-    provenance = []
-    if priced_costs:
-        provenance.append(f"{priced_costs} priced")
-    if unavailable_costs:
-        provenance.append(f"{unavailable_costs} unavailable")
-    if provenance:
-        cost_str += click.style(f"  ({' · '.join(provenance)})", dim=True)
     if total_saved + total_carry > 0:
-        savings_str = click.style(f"  est. saved ${total_saved:.4f}", fg="green") + click.style(
-            f" + carry ${total_carry:.4f}", fg="magenta"
+        baseline = total_cost + total_saved + total_carry
+        pct = 100 * (total_saved + total_carry) / baseline
+        savings_str = (
+            click.style(f"  saved ${total_saved:.4f}", fg="green")
+            + click.style(f" + carry ${total_carry:.4f}", fg="magenta")
+            + click.style(f" via LemonCrow  (-{pct:.1f}% vs baseline ≈${baseline:.4f})", dim=True)
         )
-        if unavailable_costs == 0:
-            denominator = total_cost + total_saved + total_carry
-            pct = 100 * (total_saved + total_carry) / denominator if denominator > 0 else 0.0
-            savings_str += click.style(f" via LemonCrow  (~{pct:.1f}% lower)", dim=True)
-        total_rows.append(("cost subtotal" if unavailable_costs else "cost", cost_str + savings_str))
+        total_rows.append(("cost", cost_str + savings_str))
     else:
-        total_rows.append(("cost subtotal" if unavailable_costs else "cost", cost_str))
+        total_rows.append(("cost", cost_str))
 
     total_rows.append(
         (
@@ -2294,7 +2151,8 @@ def _print_stats(
         total_rows.append(("calls", calls_str))
 
     if total_subagents > 0:
-        total_rows.append(("subagents", f"{total_subagents} total"))
+        sub_pct = 100 * total_sub_cost / total_cost if total_cost > 0 else 0.0
+        total_rows.append(("subagents", f"{total_subagents} total · ≈${total_sub_cost:.4f} ({sub_pct:.1f}% of cost)"))
 
     if total_pot_usd > 0 or total_pot_carry > 0:
         pot_str = click.style(f"≈${total_pot_usd:.4f} saved", fg="yellow")
@@ -2314,16 +2172,8 @@ def _print_stats(
             if ha["sessions"] == 0:
                 continue
             lemoncrow_pct = 100 * ha["lemoncrow"] / ha["calls"] if ha["calls"] > 0 else 0.0
-            host_cost = click.style(f"${ha['cost']:.4f}", bold=True)
-            host_cost_notes = []
-            if ha.get("priced"):
-                host_cost_notes.append(f"{ha['priced']} priced")
-            if ha.get("unavailable"):
-                host_cost_notes.append(f"{ha['unavailable']} unavailable")
-            if host_cost_notes:
-                host_cost += click.style(f" ({' · '.join(host_cost_notes)})", dim=True)
             parts = [
-                host_cost,
+                click.style(f"${ha['cost']:.4f}", bold=True),
                 f"{ha['sessions']} session{'s' if ha['sessions'] != 1 else ''}",
                 f"{ha['calls']:,} calls ({lemoncrow_pct:.0f}% lemoncrow)",
             ]
@@ -2331,7 +2181,7 @@ def _print_stats(
             if ha["saved"] > 0 or ha["carry"] > 0:
                 sp = []
                 if ha["saved"] > 0:
-                    sp.append(click.style(f"est. saved ${ha['saved']:.4f}", fg="green"))
+                    sp.append(click.style(f"saved ${ha['saved']:.4f}", fg="green"))
                 if ha["carry"] > 0:
                     sp.append(click.style(f"carry ${ha['carry']:.4f}", fg="magenta"))
                 parts.append(" + ".join(sp))

@@ -69,7 +69,7 @@ if [ ${#PYTHON_FILES[@]} -gt 0 ]; then
         exit 1
     fi
 
-    uv run black "${PYTHON_FILES[@]}"
+    uvx black "${PYTHON_FILES[@]}"
 
     # Check if any files were modified by formatting — never auto-stage
     FORMATTED_FILES=()

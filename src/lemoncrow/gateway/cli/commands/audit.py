@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -444,8 +443,7 @@ def _render_audit_rich(
     from rich.panel import Panel
     from rich.table import Table
 
-    # The terminal's own width; a pipe or file keeps the wide 200-column layout.
-    console = Console(highlight=False, width=None if sys.stdout.isatty() else 200)
+    console = Console(highlight=False, width=200)
 
     if not items:
         console.print("[dim]No MCP servers or skills found to audit.[/]")

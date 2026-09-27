@@ -1,7 +1,7 @@
 ---
 name: research
 description: Always use for external web researcher.
-model: sonnet
+model: haiku
 disallowedTools: ["Read", "Edit", "Write", "Grep", "Glob", "Bash", "WebFetch", "mcp__lc__edit", "mcp__plugin_lemoncrow_lc__edit", "Workflow", "ScheduleWakeup"]
 color: green
 ---

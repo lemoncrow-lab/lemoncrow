@@ -87,7 +87,7 @@ def _repo(base: Path) -> Path:
         target = base / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
-    (base / ".git").mkdir(exist_ok=True)
+    (base / ".git").mkdir()
     return base
 
 
@@ -120,33 +120,16 @@ def _client_text(tool: str, args: dict[str, Any], root: Path, state: Path) -> st
     return "\n".join(str(block.get("text", "")) for block in result.content)
 
 
-def _run_both_on_roots(
-    tool: str,
-    args: dict[str, Any],
-    *,
-    main_root: Path,
-    client_root: Path,
-    state: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> tuple[tuple[str, dict[str, str]], tuple[str, dict[str, str]]]:
-    main = _main_text(tool, args, main_root, monkeypatch)
-    client = _client_text(tool, args, client_root, state)
-    return (main, _state(main_root)), (client, _state(client_root))
-
-
 def _run_both(
     tool: str, args: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, index: int
 ) -> tuple[tuple[str, dict[str, str]], tuple[str, dict[str, str]]]:
     state = tmp_path / "home" / "lemoncrow"
     state.mkdir(parents=True, exist_ok=True)
-    return _run_both_on_roots(
-        tool,
-        args,
-        main_root=_repo(tmp_path / f"{index}-main"),
-        client_root=_repo(tmp_path / f"{index}-client"),
-        state=state,
-        monkeypatch=monkeypatch,
-    )
+    main_root = _repo(tmp_path / f"{index}-main")
+    client_root = _repo(tmp_path / f"{index}-client")
+    main = _main_text(tool, args, main_root, monkeypatch)
+    client = _client_text(tool, args, client_root, state)
+    return (main, _state(main_root)), (client, _state(client_root))
 
 
 def test_client_and_main_scan_show_the_same_findings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -158,33 +141,15 @@ def test_client_and_main_scan_show_the_same_findings(tmp_path: Path, monkeypatch
     assert not diverged, diverged[:2]
 
 
-@pytest.mark.private_engine
 def test_client_and_main_codemod_show_the_same_matches_and_write_the_same_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     diverged = []
     seen = {"matches": 0, "previews": 0, "writes": 0, "errors": 0}
-    state = tmp_path / "home" / "lemoncrow"
-    state.mkdir(parents=True, exist_ok=True)
-    main_root = _repo(tmp_path / "main")
-    client_root = _repo(tmp_path / "client")
-    original = _state(main_root)
+    original = _state(_repo(tmp_path / "original"))
     cases = _SEARCHES + [{**case, "dry_run": dry_run} for case in _REWRITES for dry_run in (True, False)]
-    for args in cases:
-        # Every case starts from the exact same worktree contents, but keeping one
-        # stable repo identity avoids constructing 43 private code engines just to
-        # compare the shared ast-grep path. Rewrites are fully undone before the
-        # next case by restoring the canonical fixture files.
-        _repo(main_root)
-        _repo(client_root)
-        main, client = _run_both_on_roots(
-            "codemod",
-            args,
-            main_root=main_root,
-            client_root=client_root,
-            state=state,
-            monkeypatch=monkeypatch,
-        )
+    for index, args in enumerate(cases):
+        main, client = _run_both("codemod", args, tmp_path, monkeypatch, index)
         if main != client:
             diverged.append((args, main[0][:300], client[0][:300]))
         text, files = main

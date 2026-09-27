@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 import contextlib
-import glob as _glob
 import os
 import re
-import threading
-from collections.abc import Iterator, MutableMapping
-from contextvars import ContextVar
+from collections.abc import MutableMapping
 from datetime import date as _date
 from datetime import timedelta as _timedelta
 from hashlib import sha256 as _sha256
@@ -18,12 +15,12 @@ DEFAULT_STORE_DIRNAME = ".lemoncrow"
 
 
 class WorkspaceNotRegisteredError(RuntimeError):
-    """Raised when cwd is neither a git repo nor an explicitly `lc rt init`-registered
+    """Raised when cwd is neither a git repo nor an explicitly `lc init`-registered
     workspace. Non-git directories are never silently auto-registered."""
 
 
 # The colon is deliberate: the host label is caller-supplied (``LEMONCROW_AGENT``
-# / ``lc runtime mcp --host``) and may be namespaced (``lemoncrow:code``), yet it lands
+# / ``lc mcp --host``) and may be namespaced (``lemoncrow:code``), yet it lands
 # in the path as a literal directory segment. A colon cannot escape a directory,
 # so admitting it leaves the traversal guard below intact.
 _SAFE_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
@@ -102,17 +99,6 @@ def default_store_root() -> Path:
     if configured:
         return Path(configured).expanduser().resolve()
     return (Path.home() / DEFAULT_STORE_DIRNAME).resolve()
-
-
-def local_server_review_root(store_root: Path) -> Path:
-    """The loopback server's per-repository Review stores: ``<root>/server/data/reviews``.
-
-    ``LEMONCROW_SERVER_REVIEW_ROOT`` overrides it (``scripts/local_server.sh``
-    starts the server with ``--directory <root>/server/data``).
-    """
-    return Path(
-        os.environ.get("LEMONCROW_SERVER_REVIEW_ROOT") or (store_root / "server" / "data" / "reviews")
-    ).expanduser()
 
 
 # Ordered MOST-specific first. The rule, because getting it wrong has now caused
@@ -244,7 +230,7 @@ def _git_toplevel(start: Path | None = None) -> Path | None:
 
 def _lemoncrow_marker_root(start: Path | None = None) -> Path | None:
     """Return the nearest ancestor of *start* (default: cwd) that was explicitly
-    registered via ``lc rt init`` (i.e. contains a ``.lemoncrow/`` dir), or None.
+    registered via ``lc init`` (i.e. contains a ``.lemoncrow/`` dir), or None.
 
     Stops before reaching ``$HOME``: ``~/.lemoncrow`` is the global store
     (see ``default_store_root``), not a per-project marker, so it must never
@@ -268,12 +254,12 @@ def resolve_workspace_root(root: Path | str | None = None) -> Path:
     2. Common host workspace env vars (``CLAUDE_WORKSPACE_ROOT``, etc.)
     3. Derive from the *root* path itself (e.g. parent of ``.lemoncrow``)
     4. Git repository root of the current directory (auto-detect)
-    5. A directory explicitly registered via ``lc rt init`` (marker: ``.lemoncrow/``)
+    5. A directory explicitly registered via ``lc init`` (marker: ``.lemoncrow/``)
     6. Otherwise: raises ``WorkspaceNotRegisteredError``
 
     Raises:
         WorkspaceNotRegisteredError: cwd is neither inside a git repository nor
-            an explicitly ``lc rt init``-registered directory.
+            an explicitly ``lc init``-registered directory.
     """
     for env_var in _HOST_WORKSPACE_ENV_VARS:
         configured = os.environ.get(env_var, "").strip()
@@ -286,7 +272,7 @@ def resolve_workspace_root(root: Path | str | None = None) -> Path:
     # Auto-detect the repository root of the current directory so LemonCrow,
     # run anywhere inside a repo, targets the repo root rather than a nested
     # subdirectory. Falls through to a directory explicitly registered via
-    # `lc rt init`, then raises for directories that are neither.
+    # `lc init`, then raises for directories that are neither.
     git_root = _git_toplevel()
     if git_root is not None:
         return git_root
@@ -295,14 +281,14 @@ def resolve_workspace_root(root: Path | str | None = None) -> Path:
         return marker_root
     raise WorkspaceNotRegisteredError(
         "This directory is not a git repository and has not been registered with "
-        "LemonCrow. Run `lc rt init` here to register it, or run this command from "
+        "LemonCrow. Run `lc init` here to register it, or run this command from "
         "inside a git repository."
     )
 
 
 def is_recognized_workspace(path: Path | str | None = None) -> bool:
     """True when *path* (default: cwd) is a git repository or has been
-    explicitly registered via ``lc rt init`` (marker: ``.lemoncrow/``).
+    explicitly registered via ``lc init`` (marker: ``.lemoncrow/``).
 
     Mirrors the same two checks :func:`resolve_workspace_root` uses for its
     cwd-fallback precedence (steps 4-5) -- exposed standalone so callers that
@@ -344,9 +330,8 @@ def detect_host() -> str:
     copilot-cli hooks; this is now the only place that sniffs these env vars.
 
     Checks, in order:
-    1. LEMONCROW_AGENT env var, except an OpenCode label without its own
-       session id cannot override a Claude Code window id
-    2. CLAUDE_CODE, CLAUDECODE or CLAUDE_CODE_SESSION_ID -> "claude"
+    1. LEMONCROW_AGENT env var (explicit override -- any host can set this)
+    2. CLAUDE_CODE -> "claude"
     3. ANTIGRAVITY_SESSION_ID or AGY_SESSION_ID -> "antigravity"
     4. CODEX_SESSION_ID -> "codex"
     5. LEMONCODE_SESSION_ID or LEMONCODE_CLI -> "lemoncode"
@@ -361,14 +346,8 @@ def detect_host() -> str:
     """
     explicit = os.environ.get("LEMONCROW_AGENT", "").strip()
     if explicit:
-        if (
-            explicit.lower() == "opencode"
-            and os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
-            and not os.environ.get("OPENCODE_SESSION_ID", "").strip()
-        ):
-            return "claude"
         return explicit
-    if any(os.environ.get(name, "").strip() for name in ("CLAUDE_CODE", "CLAUDECODE", "CLAUDE_CODE_SESSION_ID")):
+    if os.environ.get("CLAUDE_CODE"):
         return "claude"
     if (
         os.environ.get("ANTIGRAVITY_SESSION_ID")
@@ -408,11 +387,7 @@ AGENT_SESSION_ENVS: tuple[tuple[str, str], ...] = (
     ("HERMES_SESSION_ID", "hermes"),
     ("ANTIGRAVITY_SESSION_ID", "antigravity"),
     ("AGY_SESSION_ID", "antigravity"),
-    # The persistent remote-MCP gateway sets this for every command a remote agent runs
-    # through it: those run under the gateway service, not under an agent binary.
-    ("LEMONCROW_REMOTE_MCP_SESSION", "remote-mcp"),
 )
-REMOTE_MCP_SESSION_ENV = "LEMONCROW_REMOTE_MCP_SESSION"
 
 
 def agent_session_host() -> str:
@@ -480,83 +455,8 @@ def find_session_dir(root: Path | str, session_id: str) -> Path | None:
     sessions_root = root / "sessions"
     if not sessions_root.is_dir():
         return None
-    snapshot = _session_dir_snapshot.get()
-    if snapshot is not None:
-        key = str(sessions_root)
-        scanned = snapshot.get(key)
-        if scanned is None:
-            scanned = snapshot[key] = _scan_session_dirs(sessions_root)
-            with _session_dir_index_lock:
-                _session_dir_indexes[key] = dict(scanned)
-        return scanned.get(session_id)
-    index = _session_dir_index(sessions_root)
-    hit = index.get(session_id)
-    if hit is not None and os.path.lexists(hit):
-        return hit
     matches = sorted(sessions_root.glob(f"*/*/*/*/{session_id}"))
-    found = matches[0] if matches else None
-    with _session_dir_index_lock:
-        if found is None:
-            index.pop(session_id, None)
-        else:
-            index[session_id] = found
-    return found
-
-
-# The glob above stats every sessions/Y/M/D/<host> directory (~300 on a busy
-# store, ~2.7 ms) per lookup, and hot paths look up hundreds of sessions per
-# request. The index maps id -> the glob's first sorted match from one scan.
-# A hit is re-checked on disk and a miss re-runs the exact glob, so a
-# created or deleted session never reads stale; it holds one entry per session
-# directory, dropped when that directory disappears.
-_session_dir_index_lock = threading.Lock()
-_session_dir_indexes: dict[str, dict[str, Path]] = {}
-
-
-_session_dir_snapshot: ContextVar[dict[str, dict[str, Path]] | None] = ContextVar(
-    "lemoncrow_session_dir_snapshot", default=None
-)
-
-
-@contextlib.contextmanager
-def session_dir_snapshot() -> Iterator[None]:
-    """Resolve :func:`find_session_dir` against one fresh scan per sessions root.
-
-    For batch readers resolving hundreds of ids in one request, where every
-    miss would otherwise re-run the exact glob. Inside the block lookups see
-    the tree as scanned at the block's first lookup: a directory created
-    after that is not found until the block ends.
-    """
-    token = _session_dir_snapshot.set({})
-    try:
-        yield
-    finally:
-        _session_dir_snapshot.reset(token)
-
-
-def _scan_session_dirs(sessions_root: Path) -> dict[str, Path]:
-    # First sorted match per id: the same answer as find_session_dir's glob.
-    # String glob plus a tuple minimum per name is ~2.5x faster than building
-    # and sorting a Path per entry; include_hidden matches pathlib's "*".
-    base = str(sessions_root)
-    best: dict[str, tuple[str, ...]] = {}
-    for match in _glob.glob(os.path.join(_glob.escape(base), "*", "*", "*", "*", "*"), include_hidden=True):
-        parts = tuple(match[len(base) + 1 :].split(os.sep))
-        current = best.get(parts[-1])
-        if current is None or parts < current:
-            best[parts[-1]] = parts
-    return {name: sessions_root.joinpath(*parts) for name, parts in best.items()}
-
-
-def _session_dir_index(sessions_root: Path) -> dict[str, Path]:
-    key = str(sessions_root)
-    with _session_dir_index_lock:
-        index = _session_dir_indexes.get(key)
-    if index is not None:
-        return index
-    built = _scan_session_dirs(sessions_root)
-    with _session_dir_index_lock:
-        return _session_dir_indexes.setdefault(key, built)
+    return matches[0] if matches else None
 
 
 def resolve_session_state_path(workspace_root: Path | str | None = None) -> Path:
@@ -724,7 +624,7 @@ def resolve_store_root_for_workspace(workspace_root: Path | str | None = None) -
     1. ``LEMONCROW_WORKSPACE_ROOT``
     2. Common host env vars (``CLAUDE_WORKSPACE_ROOT``, etc.)
     3. Current working directory — only when it is a git repository or has been
-       explicitly registered via ``lc rt init`` (marker: ``.lemoncrow/``); otherwise
+       explicitly registered via ``lc init`` (marker: ``.lemoncrow/``); otherwise
        falls back to the global store root (this function never raises).
     """
     if workspace_root is None:

@@ -91,7 +91,7 @@ def prune_stale_mcp_sessions(root: Path | None = None) -> int:
     """Delete registration files whose process is gone; return how many.
 
     A clean shutdown removes its own file, but a killed — or zombied — server
-    never gets there, and the leftovers are what made ``lc runtime mcp list`` show
+    never gets there, and the leftovers are what made ``lc mcp list`` show
     day-old "servers". Nobody can reap another process's zombie (only its
     parent can ``wait()``), so owning *our* registry is the part that is
     actually fixable: this reclaims it instead of filtering the corpses out of

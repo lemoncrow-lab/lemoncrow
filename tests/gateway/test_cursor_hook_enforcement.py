@@ -56,37 +56,39 @@ def test_default_allow_does_not_write_deny_state(script: str, payload: dict, tmp
     assert not list((tmp_path / "cursor-hooks").glob("*_deny_state.json"))
 
 
-def test_hard_denies_natives_without_cooloff(tmp_path: Path) -> None:
-    for case_index, tool_name in enumerate(
-        ["Glob", "Shell", "Read", "Grep", "Write", "StrReplace", "Delete", "Task", "WebSearch"]
-    ):
-        case_tmp_path = tmp_path / f"case-{case_index}"
-        case_tmp_path.mkdir()
-        env = {"LEMONCROW_CURSOR_ENFORCE": "hard"}
-        first = _run_hook("before_tool_use.py", {"tool_name": tool_name}, case_tmp_path, env=env)
-        assert first["permission"] == "deny"
-        second = _run_hook("before_tool_use.py", {"tool_name": tool_name}, case_tmp_path, env=env)
-        assert second["permission"] == "deny"
+@pytest.mark.parametrize(
+    "tool_name",
+    ["Glob", "Shell", "Read", "Grep", "Write", "StrReplace", "Delete", "Task", "WebSearch"],
+)
+def test_hard_denies_natives_without_cooloff(tool_name: str, tmp_path: Path) -> None:
+    env = {"LEMONCROW_CURSOR_ENFORCE": "hard"}
+    first = _run_hook("before_tool_use.py", {"tool_name": tool_name}, tmp_path, env=env)
+    assert first["permission"] == "deny"
+    # Immediate retry must still deny (no cooloff allow-through).
+    second = _run_hook("before_tool_use.py", {"tool_name": tool_name}, tmp_path, env=env)
+    assert second["permission"] == "deny"
 
 
-def test_hard_allows_lemoncrow_mcp_tools(tmp_path: Path) -> None:
-    for case_index, tool_name in enumerate(
-        [
-            "MCP:code_search",
-            "MCP:read",
-            "MCP:edit",
-            "MCP:bash",
-            "MCP:web_fetch",
-            "MCP:lemoncrow:code_search",
-            "mcp__lemoncrow__read",
-        ]
-    ):
-        case_tmp_path = tmp_path / f"case-{case_index}"
-        case_tmp_path.mkdir()
-        out = _run_hook(
-            "before_tool_use.py", {"tool_name": tool_name}, case_tmp_path, env={"LEMONCROW_CURSOR_ENFORCE": "hard"}
-        )
-        assert out["permission"] == "allow"
+@pytest.mark.parametrize(
+    "tool_name",
+    [
+        "MCP:code_search",
+        "MCP:read",
+        "MCP:edit",
+        "MCP:bash",
+        "MCP:web_fetch",
+        "MCP:lemoncrow:code_search",
+        "mcp__lemoncrow__read",
+    ],
+)
+def test_hard_allows_lemoncrow_mcp_tools(tool_name: str, tmp_path: Path) -> None:
+    out = _run_hook(
+        "before_tool_use.py",
+        {"tool_name": tool_name},
+        tmp_path,
+        env={"LEMONCROW_CURSOR_ENFORCE": "hard"},
+    )
+    assert out["permission"] == "allow"
 
 
 def test_hard_denies_get_mcp_tools_meta(tmp_path: Path) -> None:

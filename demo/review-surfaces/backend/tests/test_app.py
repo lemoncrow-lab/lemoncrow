@@ -7,7 +7,7 @@ from app import greeting, plans, review_summary, settings, team
 
 class GreetingTest(unittest.TestCase):
     def test_default_name(self) -> None:
-        self.assertEqual(greeting(""), {"message": "Hello, reviewer", "source": "lemoncrow-cloud"})
+        self.assertEqual(greeting(""), {"message": "Hello, reviewer", "source": "lemoncrow-review-demo"})
 
     def test_named_reviewer(self) -> None:
         self.assertEqual(greeting("Ada")["message"], "Hello, Ada")

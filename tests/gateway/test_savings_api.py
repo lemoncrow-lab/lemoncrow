@@ -17,7 +17,6 @@ from lemoncrow.core.foundation.savings_models import ContextBudget
 from lemoncrow.core.service.api import create_app
 from lemoncrow.infra.storage.bundle import StoreBundle
 from lemoncrow.infra.storage.factory import create_store
-from tests.helpers import init_store_at
 
 
 def _write_cost_history(path: Path) -> None:
@@ -150,8 +149,8 @@ def _write_context_budget(
     lever_savings: dict[str, int] | None = None,
     turn_index: int = 0,
 ) -> StoreBundle:
-    init_store_at(str(root))
     store = create_store(root)
+    store.init()
     saved_tokens = naive_input_tokens - output_tokens
     store.telemetry.persist_context_budget(
         ContextBudget(
@@ -331,15 +330,9 @@ def test_savings_summary_uses_context_budget_for_live_run_totals(
     assert data["live_calls_saved"] == 2
     assert data["top_sources"][0]["tokens_saved"] == 400
     assert data["cost_basis"] == "context_budget"
-    # Headline spend is canonical provider/usage spend. This synthetic fixture
-    # has no provider usage rows, so headline actual spend is zero; the proof
-    # accounting remains available under the tracked_* fields.
-    assert data["actually_cost_usd"] == 0.0
-    assert data["would_have_cost_usd"] == pytest.approx(0.0012, abs=1e-6)
+    assert data["actually_cost_usd"] == pytest.approx(0.009, abs=1e-6)
+    assert data["would_have_cost_usd"] == pytest.approx(0.0102, abs=1e-6)
     assert data["saved_usd"] == pytest.approx(0.0012, abs=1e-6)
-    assert data["tracked_actual_cost_usd"] == pytest.approx(0.009, abs=1e-6)
-    assert data["tracked_baseline_cost_usd"] == pytest.approx(0.0102, abs=1e-6)
-    assert data["tracked_saved_cost_usd"] == pytest.approx(0.0012, abs=1e-6)
     assert data["tool_aggregates"] == [
         {
             "tool_name": "edit",
@@ -612,8 +605,8 @@ def test_savings_summary_backfills_agent_from_live_event_for_untraced_run(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     root = tmp_path / ".lemoncrow"
-    init_store_at(str(root))
     store = create_store(root)
+    store.init()
     store.telemetry.persist_context_budget(
         ContextBudget(
             session_id="run-live-agent",
@@ -674,8 +667,8 @@ def test_savings_summary_surfaces_untracked_copilot_coverage_gap(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     root = tmp_path / ".lemoncrow"
-    init_store_at(str(root))
     store = create_store(root)
+    store.init()
     store.history.record_trace(
         Trace(
             id="copilot-gap",

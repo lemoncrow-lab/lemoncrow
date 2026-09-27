@@ -3,9 +3,10 @@
 The execution matrix decides *where* a tool runs; this package is the *here*
 side of it. Two rules shape every module in it:
 
-Product traffic goes through :mod:`lemoncrow_client.transport`.
-The explicit ``web_fetch`` executor uses :mod:`lemoncrow_client.webtransport`
-for public pages, without product credentials or server dependencies.
+**Nothing in this package reaches the network.** Only
+:mod:`lemoncrow_client.transport` does. A local tool that wanted to fetch
+something would be a second egress path, and the audit test exists to catch
+exactly that.
 
 **Nothing here downloads or installs a program.** A tool whose implementation
 is an external binary -- ``ast-grep`` for :mod:`.astgrep`, ``git`` for
@@ -31,11 +32,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+from ..config import ClientConfig
 from ..errors import AgentAction, ClientError, ErrorCode
 from ..kit.output_delta import RunHistory
 
 __all__ = [
-    "LocalConfig",
     "LocalContext",
     "LocalResult",
     "SessionMemory",
@@ -45,13 +46,6 @@ __all__ = [
     "remap_aliases",
     "text_result",
 ]
-
-
-class LocalConfig(Protocol):
-    """The tiny configuration surface local tools actually need."""
-
-    @property
-    def runtime_state_dir(self) -> Path: ...
 
 
 class SyncTarget(Protocol):
@@ -104,19 +98,14 @@ class SessionMemory:
     #: ``bash bg=true`` runs by id. They belong to this session: closing it (or
     #: the process exiting) kills them, so nothing outlives the client.
     background: dict[str, Any] = field(default_factory=dict)
-    #: Finished ``bg=true`` runs a poll already drained: id -> final state line.
-    retired_background: dict[str, str] = field(default_factory=dict)
     background_lock: threading.Lock = field(default_factory=threading.Lock)
-    # Session-owned cache: five-minute TTL, 16 pages / 32 MB; PDFs excluded.
-    web_fetch_cache: dict[tuple[str, str], tuple[float, Any]] = field(default_factory=dict)
-    web_fetch_lock: threading.Lock = field(default_factory=threading.Lock)
 
 
 @dataclass(frozen=True, slots=True)
 class LocalContext:
     """Everything a local executor is allowed to see."""
 
-    config: LocalConfig
+    config: ClientConfig
     repo_root: Path
     sync: SyncTarget | None = None
     environment: Mapping[str, str] = field(default_factory=dict)
@@ -183,32 +172,6 @@ class LocalContext:
                 action=AgentAction.FIX_REQUEST,
             ) from exc
 
-    def write_roots(self) -> list[Path]:
-        """Directories outside the worktree that the user granted write access to."""
-        from ..kit.write_roots import additional_write_roots
-
-        return additional_write_roots(self.repo_root, self.environment)
-
-    def resolve_write(self, spelled: str) -> Path:
-        """Resolve a write target: the worktree, or an absolute path inside a granted root.
-
-        The grant is checked on the resolved path, so a symlink inside a granted
-        directory that points elsewhere is still refused.
-        """
-        candidate = spelled.strip()
-        if candidate and Path(candidate).is_absolute():
-            try:
-                resolved = Path(candidate).resolve()
-            except OSError as exc:
-                raise ClientError(
-                    ErrorCode.PAYLOAD_INVALID,
-                    f"path is not resolvable: {candidate}",
-                    action=AgentAction.FIX_REQUEST,
-                ) from exc
-            if any(resolved == root or resolved.is_relative_to(root) for root in self.write_roots()):
-                return resolved
-        return self.resolve(spelled)
-
     def relative(self, path: Path) -> str:
         return path.resolve().relative_to(self.repo_root.resolve()).as_posix()
 
@@ -230,11 +193,10 @@ Executor = Callable[[LocalContext, Mapping[str, Any]], LocalResult]
 
 
 def _build() -> Mapping[str, Executor]:
-    from . import astgrep, editing, indexing, search, shell, sqltool, vcs, web
+    from . import astgrep, editing, indexing, search, shell, sqltool, vcs
 
     return {
         "bash": shell.run_bash,
-        "web_fetch": web.run_web_fetch,
         "edit": editing.run_edit,
         "grep": search.run_grep,
         "read_from_disk": search.read_from_disk,

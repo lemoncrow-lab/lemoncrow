@@ -35,22 +35,22 @@ export function HealthStrip({ compact = false }: { compact?: boolean }) {
           : "flex flex-wrap items-center gap-3"
       }
     >
-      <div className="flex items-center gap-2 border border-border bg-background/60 px-3 py-2">
+      <div className="flex items-center gap-2 border border-neutral-800 bg-neutral-950/60 px-3 py-2">
         <span
           className={`h-2 w-2 rounded-full ${
             daemonOk
               ? "bg-emerald-500"
               : healthErr
                 ? "bg-red-500"
-                : "bg-muted-foreground"
+                : "bg-neutral-500"
           }`}
         />
-        <span className="text-body font-mono text-subtle">
+        <span className="text-xs font-mono text-neutral-300">
           Daemon {health?.status ?? (healthErr ? "unreachable" : "…")}
         </span>
         {health?.timestamp && (
           <span
-            className="text-caption text-muted-foreground"
+            className="text-[10px] text-neutral-400"
             title={health.timestamp}
           >
             {fmtDate(health.timestamp)}
@@ -60,18 +60,18 @@ export function HealthStrip({ compact = false }: { compact?: boolean }) {
       {(hosts ?? []).map((host) => (
         <div
           key={host.host_id}
-          className="flex items-center gap-2 border border-border bg-background/60 px-3 py-2"
+          className="flex items-center gap-2 border border-neutral-800 bg-neutral-950/60 px-3 py-2"
         >
           <span
             className={`h-2 w-2 rounded-full ${
-              host.status === "active" ? "bg-emerald-500" : "bg-muted-foreground"
+              host.status === "active" ? "bg-emerald-500" : "bg-neutral-600"
             }`}
           />
-          <span className="text-body font-mono text-subtle">
+          <span className="text-xs font-mono text-neutral-300">
             {host.label}
           </span>
           <span
-            className="text-caption text-muted-foreground"
+            className="text-[10px] text-neutral-400"
             title={host.last_import_at ?? undefined}
           >
             {host.last_import_at
@@ -81,7 +81,7 @@ export function HealthStrip({ compact = false }: { compact?: boolean }) {
         </div>
       ))}
       {hosts && hosts.length === 0 && (
-        <span className="text-body text-muted-foreground">
+        <span className="text-xs text-neutral-400">
           No host adapters detected.
         </span>
       )}

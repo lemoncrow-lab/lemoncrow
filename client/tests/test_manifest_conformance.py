@@ -77,15 +77,12 @@ def test_the_walk_respects_gitignore_never_enters_git_and_never_follows_symlinks
     (worktree / "pkg" / "link.py").symlink_to(worktree / "pkg" / "alpha.py")
     (worktree / ".lc-worktrees" / "nested").mkdir(parents=True)
     (worktree / ".lc-worktrees" / "nested" / "duplicate.py").write_text("def duplicate(): pass\n")
-    (worktree / ".claude" / "worktrees" / "nested").mkdir(parents=True)
-    (worktree / ".claude" / "worktrees" / "nested" / "duplicate.py").write_text("def duplicate(): pass\n")
     (worktree / ".lemoncrow").mkdir()
     (worktree / ".lemoncrow" / "runtime.py").write_text("def runtime_state(): pass\n")
     walked = walk_worktree(worktree, size_cap=CAP)
     paths = {file.path for file in walked.files}
     assert "pkg/alpha.py" in paths
     assert not any(path.startswith(".lc-worktrees/") for path in paths)
-    assert not any(path.startswith(".claude/") for path in paths), ".claude must never be walked"
     assert not any(path.startswith(".lemoncrow/") for path in paths)
     assert "build/artifact.o" not in paths, ".gitignore directory rule was not applied"
     assert "noisy.log" not in paths, ".gitignore glob rule was not applied"

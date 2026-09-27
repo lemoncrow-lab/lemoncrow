@@ -1,121 +1,136 @@
-# Coding-agent integrations
+# LemonCrow — All Agent CLI Integrations
 
-LemonCrow plugs Runtime Lite into the coding agent you already use locally. LemonCrow-owned managed execution belongs to Hosted/Enterprise Runtime.
-
-These are different integration models and should not be described as one generic server setup.
-
-## Main integrations
-
-| Host | User model | Normal entry point |
-| --- | --- | --- |
-| **Claude Code** | Existing-agent plugin | `lc with claude` or `lc rt enable claude` |
-| **Codex** | Existing-agent plugin | `lc with codex` or `lc rt enable codex` |
-| **OpenCode** | Existing-agent plugin | `lc with opencode` or `lc rt enable opencode` |
-| **Cursor** | Installed IDE + `cursor-agent` integration | Cursor installer; see below |
-| **Pi** | Public LemonCrow-managed coding-agent host | `lc rt host ... --engine pi`; `lc with pi` |
-| **LemonCode** | Public LemonCrow-managed coding-agent host | `lc rt host ... --engine lemoncode` |
-
-Additional integrations exist for Copilot, Hermes Agent, Antigravity, and other integration surfaces. Their capabilities depend on what each host exposes.
-
-## Existing-agent plugins
-
-### Claude Code
+Install LemonCrow into every supported coding agent host in one command:
 
 ```bash
-lc with claude
+make install    # install into all CLIs found on PATH
+make verify     # verify code, runtime, and installed hosts
 ```
 
-For persistent integration:
+Installers write user/global host config by default. To install project-local
+artifacts for a specific workspace, pass `--workspace DIR` to the script:
 
 ```bash
-lc rt enable claude
+bash scripts/install_hosts.sh --workspace /path/to/workspace
 ```
 
-See [Claude Code integration](claude-code-install.md).
+---
 
-### Codex
+## Supported Hosts
+
+| Host         | Support Level                                    | Advanced installer               |
+| ------------ | ------------------------------------------------ | -------------------------------- |
+| Claude Code  | Full plugin (skills, commands, hooks, MCP)       | `scripts/install_claude.sh`      |
+| Codex CLI    | Native MCP registration + AGENTS + plugin bundle | `scripts/install_codex.sh`       |
+| Cursor       | MCP server config + rules                        | `scripts/install_cursor.sh`      |
+| opencode     | MCP + workspace agent profile                    | `scripts/install_opencode.sh`    |
+| LemonCode    | Controlled fork — MCP + gateway-native routing   | `scripts/install_lemoncode.sh`   |
+| Pi           | Managed pinned TUI + gateway-native routing      | `lc code host install --engine pi` |
+| Copilot      | MCP + instructions + agent + tasks               | `scripts/install_copilot.sh`     |
+| Hermes Agent | MCP server config + toolset                      | `scripts/install_hermes.sh`      |
+| Antigravity  | MCP + generated AGENTS surface                   | `scripts/install_antigravity.sh` |
+
+---
+
+## Quickstart (install everything at once)
 
 ```bash
-lc with codex
+# 1. Make sure you're in the lemoncrow/ directory
+cd lemoncrow
+
+# 2. Install dependencies
+uv sync --all-extras
+
+# 3. Install into all available agent CLIs
+make install
+
+# 4. Verify
+make verify
 ```
 
-For persistent integration:
+Hosts whose CLIs are not on PATH are skipped gracefully — this is expected in CI.
 
-```bash
-lc rt enable codex
+---
+
+## Behavior Contract
+
+All install scripts:
+
+- Are **idempotent** — safe to run multiple times
+- **Back up existing files** before any write (`.lemoncrow-backup.TIMESTAMP`)
+- **Skip gracefully** if the host CLI is not on PATH (exit 0)
+- Support `--dry-run` (print actions, write nothing)
+- Support `--print-only` (print manual steps for offline/audited environments)
+- Support `--strict` (exit nonzero if CLI absent — useful for CI gates)
+- Support `--workspace PATH` to write project-local artifacts instead of user/global config
+
+---
+
+## Host-Specific Install Docs
+
+- [claude-code-install.md](claude-code-install.md)
+- [codex-install.md](codex-install.md)
+- [cursor-install.md](cursor-install.md)
+- [opencode-install.md](opencode-install.md)
+- [lemoncode-install.md](lemoncode-install.md)
+- [pi-install.md](pi-install.md)
+- [copilot-install.md](copilot-install.md)
+- [hermes-install.md](hermes-install.md)
+- [antigravity-install.md](antigravity-install.md)
+
+Capability-contract detail lives in [host-capability-matrix.md](host-capability-matrix.md).
+
+---
+
+## Integrations Layout
+
+Detailed documentation and example configs for each host live in:
+
+```text
+lemoncrow/integrations/
+├── claude/          # Full plugin config
+├── codex/           # Codex plugin template + marketplace docs
+├── cursor/          # Cursor MCP config + rules
+├── opencode/        # opencode.json example
+├── lemoncode/       # LemonCode fork config + agent profile
+├── pi/              # Managed stock-Pi provider/security extension
+├── copilot/         # .vscode/mcp.json + copilot-instructions
+├── copilot-cli/     # Copilot CLI config
+└── antigravity/     # Antigravity MCP template + host guidance
 ```
 
-See [Codex integration](codex-install.md).
+Hermes has no directory here — its installer writes `~/.hermes/config.yaml`
+directly.
 
-### OpenCode
+Host install entrypoints are under `scripts/install_<host>.sh`.
 
-```bash
-lc with opencode
+---
+
+## MCP Transport
+
+All hosts ultimately invoke the same LemonCrow MCP server, but packaged hosts now carry their own host-specific wrapper surfaces:
+
+```text
+lc mcp
 ```
 
-For persistent integration:
+That repo wrapper remains the canonical MCP entrypoint for direct MCP-only installs. Codex packages that same runtime behavior behind a plugin-local wrapper, while Antigravity uses workspace or user MCP configuration plus a generated host surface.
 
-```bash
-lc rt enable opencode
-```
+## Common MCP Surfaces
 
-See [OpenCode integration](opencode-install.md).
+All hosts ultimately use the same LemonCrow stdio MCP server.
 
-### Cursor
+- `trace` is the consistently active observable recording surface.
+- With `LEMONCROW_DEV_MODE=1`, hosts can actively use `context`, `route`, `rescue`,
+  `verify`, `memory`, `read`, `edit`, `sql`, `search`, `compact`, `bash`, and
+  the `lemoncrow_code_*` helpers.
+- Packaged hosts may add wrapper tasks, skills, or commands on top of that shared
+  MCP surface.
 
-Cursor uses an installed integration because its IDE and CLI share configuration and lifecycle hooks. It is not an `lc with` host.
+---
 
-From a source checkout:
+## Uninstalling
 
-```bash
-bash scripts/install_cursor.sh
-bash scripts/verify_cursor.sh
-```
-
-See [Cursor integration](cursor-install.md).
-
-## LemonCrow-managed frontends
-
-### Pi
-
-Pi is a public coding-agent host. LemonCrow manages its pinned binary with `lc rt host install|status|update|build|remove --engine pi`, and `lc with pi` launches Pi with local Runtime Lite tools for that process. Hosted/Enterprise may also use Pi as an implementation/frontend choice, but that does not make Pi itself private.
-
-See [Pi in LemonCrow Runtime](pi-install.md).
-
-### LemonCode
-
-LemonCode is LemonCrow's maintained OpenCode fork and remains available as a public managed host:
-
-```bash
-lc rt host install --engine lemoncode
-lc rt host status --engine lemoncode
-```
-
-See [LemonCode](lemoncode-install.md).
-
-## Source-checkout install
-
-To verify a source checkout, run `make verify`. Install a host integration directly:
-
-```bash
-bash scripts/install_claude.sh
-bash scripts/install_codex.sh
-bash scripts/install_opencode.sh
-bash scripts/install_cursor.sh
-```
-
-The host installers are designed to be repeatable, preserve user configuration, support dry-run/verification paths, and skip missing hosts where appropriate.
-
-## Other supported integrations
-
-| Host | Integration |
-| --- | --- |
-| Copilot | instructions, agent/task integration, and LemonCrow tools |
-| Hermes Agent | host configuration and LemonCrow tool integration |
-| Antigravity | generated host guidance and LemonCrow tool integration |
-
-See the [host capability matrix](host-capability-matrix.md) for the technical differences.
-
-## Protocol details
-
-Most users should think of these as LemonCrow plugins/integrations. Integration authors who need the underlying protocol, tool registration, or transport details can use the [protocol / MCP reference](../sdk/mcp.md).
+Use `lc uninstall` to remove the main LemonCrow install and managed host
+integrations. Host-specific uninstall scripts remain available when you only want
+to remove one host surface.

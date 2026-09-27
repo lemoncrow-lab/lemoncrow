@@ -1,16 +1,11 @@
 # lemoncrow-client
 
 The public LemonCrow thin client. **Apache-2.0. Python standard library only.
-No dependencies, no daemon, no listening port, no unit, no product telemetry
-on the standard session path. Product traffic uses the configured endpoint;
-explicit `web_fetch` calls reach public pages from the client.**
+No dependencies, no daemon, no listening port, no unit, no self-update, no
+downloaded binary, no product telemetry, and no egress other than the endpoint
+your IT team configured.**
 
-**Product installer runs.** `lc update`, and the first use of a product that is
-not installed yet, run the published LemonCrow `install.sh` for that product.
-Set `LEMONCROW_NO_LAZY_INSTALL=1` to turn the first-use fetch off;
-`LEMONCROW_RELEASE_BASE_URL` points it at another asset base. Pi host install
-and update commands separately download the pinned, checksum-verified Pi binary.
-Its auditability is the product. The claims above are asserted by
+Its auditability is the product. Everything above is asserted by
 `tests/test_packaging_audit.py` against the installed package, under a Python
 audit hook that records every socket, subprocess and file write the client
 actually performs — not by this paragraph.
@@ -20,59 +15,11 @@ installation, identity, policy, storage and operations are intentionally kept
 with the proprietary enterprise distribution rather than linked from public
 documentation.
 
-## Review is standalone (no coding-agent MCP required)
-
-The separate `lcr` executable and `lc review` product capture immutable Review
-Snapshots through the hosted/local Review API; they do **not** start or require
-Runtime MCP. The opt-in foreground P1 watcher adds capture scheduling while an
-agent or editor writes the checkout:
-
-```sh
-lcr watch                        # settled worktree edits; Ctrl-C to stop
-lc review watch --staged         # staged changes only
-lcr watch --once --json          # one structured checkpoint for scripts
-lcr watch --interval 1 --settle 2
-```
-
-Paired Hosted Review machines can separately inspect queued work without
-claiming or executing it. **No Companion product/process is required** and
-local OSS capture continues working without a paired machine:
-
-```sh
-lcr pending                         # scoped queue counts, read-only
-lcr pending --watch                 # WSS hints with authenticated HTTPS fallback
-lcr pending --class review_intelligence
-lcr device check                    # optional signing-key diagnostic
-lcr task run JOB_ID --help          # explicit, human-approved AI job options
-```
-
-`lcr pending` requires an already paired Hosted Review machine; it is not a
-local OSS job queue. `lcr watch` is the canonical local/hosted capture workflow.
-These optional commands start no daemon and execute no unapproved jobs.
-The old `lcr companion ...` spellings remain as hidden compatibility aliases.
-
-The watch process requires the same Review connection and credentials as
-`lcr`; use `lc auth login` when using the hosted service. It never registers an
-MCP tool, opens a listener, edits source, executes reviewed code or installs a
-background service. Its JSON lines (`watch_started`, `captured`, `capture_failed`,
-`source_error`, `watch_stopped`) make a simple hook or VPS process supervisor
-possible. A watcher started on a clean checkout waits for the first change;
-subsequent clean commits still advance an existing Review. The capture currently
-reuses the **full View** upload protocol, not a true per-file delta transport.
-
-Caution: Review capture can send changed, non-ignored repository content to the
-configured Review server. Do not start this on a checkout containing sensitive,
-non-ignored files until repository capture policy is qualified. Distinct
-machine-scoped sandbox credentials, resume-on-restart and independent verification
-workers are future phases, not implied by `watch`.
-
 ## What it is
 
 Exactly one LemonCrow MCP stdio process is started by the coding agent and it
-dies when that host session ends. MCP `initialize` immediately advertises tools;
-handshake, auth, view open and sync run in a joined worker inside that same
-process. Local tools stay available while repository tools wait for the required
-revision. There is no SessionStart helper.
+dies when that host session ends. MCP `initialize` performs handshake, auth,
+view open and sync inside that same process; there is no SessionStart helper.
 Advertised tools keep their existing `mcp__lc__*` names. Legacy `mcp`, `agent`
 and `workflow` are deliberately not advertised because their local
 implementations start another MCP/LemonCrow process.
@@ -84,20 +31,20 @@ implementations start another MCP/LemonCrow process.
 pip install lemoncrow-client
 export LEMONCROW_URL=https://lemoncrow.corp.example   # or: lemoncrow-client target <url>
 export LEMONCROW_TOKEN=...                            # or: ~/.lemoncrow/token, mode 0600
-lemoncrow-client review --help                        # Review works without Runtime integration
+lemoncrow-client install                              # auto-register every detected supported host
 lemoncrow-client audit                                # prints the resolved claims
 ```
 
-Review installation does not modify coding-agent configuration. Runtime integration is explicit and uses each coding agent's own MCP configuration CLI; LemonCrow never edits those host config files directly:
+The registration command uses each coding agent's own MCP configuration CLI; LemonCrow never edits those host config files directly:
 
 ```bash
-lemoncrow-client runtime enable claude
-lemoncrow-client runtime enable codex
-lemoncrow-client runtime enable opencode
-lemoncrow-client runtime enable auto --dry-run
+lemoncrow-client install --agent claude
+lemoncrow-client install --agent codex
+lemoncrow-client install --agent opencode
+lemoncrow-client install --agent auto --dry-run
 ```
 
-The older `lemoncrow-client install --agent ...` spelling remains a compatibility path during migration. All Runtime registrations point to the same command: `lemoncrow-client mcp`. Registration is a one-time foreground action; it installs no LemonCrow daemon, listener, SessionStart hook, or second runtime process. During a coding-agent session there is still exactly one LemonCrow process.
+All registrations point to the same command: `lemoncrow-client mcp`. The installer is a one-time foreground process; it installs no LemonCrow daemon, listener, SessionStart hook, or second runtime process. During a coding-agent session there is still exactly one LemonCrow process.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -106,17 +53,14 @@ The older `lemoncrow-client install --agent ...` spelling remains a compatibilit
 | `LEMONCROW_TOKEN_FILE` | `~/.lemoncrow/token` | IT-provisioned credential. Must be mode 0600 or the client refuses it. |
 | `LEMONCROW_HOME` | `~/.lemoncrow` | The only directory written outside the repository: the token, an `env` file, and `walk-cache/` (one file per worktree, recording which files were unchanged when they were last hashed — paths and digests, never content). |
 | `LEMONCROW_LOCAL_FS` | `0` | Offer the same-host read optimization. Off by default. |
-| `LEMONCROW_STARTUP_BUDGET_S` | `1.0` | Initial bootstrap HTTP timeout; background MCP bootstrap allows the request timeout. |
+| `LEMONCROW_STARTUP_BUDGET_S` | `1.0` | Whole-of-MCP-initialize bootstrap budget. |
+| `LEMONCROW_SCM_PROVIDER` / `_SCM_REPO_ID` | — | Canonical SCM identity, when your deployment issues one. |
+| `LEMONCROW_STARTUP_BUDGET_S` | `1.0` | Whole-of-MCP-initialize bootstrap budget. |
 | `LEMONCROW_SCM_PROVIDER` / `_SCM_REPO_ID` | — | Canonical SCM identity, when your deployment issues one. |
 
 `LEMONCROW_URL` with credentials embedded is refused, and so is a redirect away
 from it: the transport compares every request's origin against the configured
 one before it is sent.
-
-Local HTTP and hosted HTTPS requests reuse connections automatically within the
-client process, retaining at most four idle connections. Server-requested closes
-open a fresh connection next time. A stale connection retries reads once; writes
-and timeouts are not automatically replayed. Session teardown closes the pool.
 
 ## The routing table
 
@@ -136,32 +80,9 @@ the server's own copy.
 | `index` | client → server | client enumerates and uploads; server builds |
 | `code_search`, `read`, `relations`, `graph`, `search` | server | needs the index |
 | `context`, `memory`, `verify`, `trace`, `rescue`, `compact`, `orient` | server | remote-routable |
-| `web_fetch` | client | public pages use the host network; no server dependency |
+| `web_fetch` | server | keeps egress where policy can see it |
 | `statusline_segment`, `review_*` | server | session state and review move server-side |
 | `cache` | server, admin | administers server-side index state |
-
-`web_fetch` converts HTML locally, caches pages for five minutes per session,
-and spills shortened content locally for `read`. PDF extraction uses
-`pdftotext` on the client PATH; no program is installed automatically.
-
-### Git worktrees
-
-A single MCP client can use any linked checkout reported by `git worktree list`,
-including worktrees **outside** the main repository directory. Select one with
-an absolute file path (for example, `edit(edits=[{"path":
-"/path/to/feature-worktree/src/app.py", "old": "...", "new": "..."}])`)
-or `bash(cwd="/path/to/feature-worktree", command="pwd")`. Repository-relative
-paths that spell a nested worktree also select it. Following that selection,
-relative `read`, `edit`, and search paths use the selected checkout until a tool
-explicitly names another one or the main checkout. The model-facing result
-identifies the active worktree when a route is inherited.
-
-Newly created worktrees are recognized on the first path-bearing call, even if
-the worktree catalog was already cached. Each linked checkout has its own remote
-View and local write boundary; edits never silently fall back to the main
-checkout, and a request spanning different worktrees must be split into
-separate calls. Arbitrary external folders and unrelated Git repositories are
-**not** eligible for edit routing.
 
 Three boundaries are drawn on purpose, and each is a typed refusal rather than a
 silent degradation:
@@ -204,30 +125,6 @@ revision carrying `(expected_view_revision, client_seq)` **before** the tool
 result returns. Every subsequent call names the revision it observed, so a read
 that could not reflect the edit is refused rather than answered stale.
 
-**Committed base plus local changes.** The server reuses the immutable generation
-for the exact Git commit. The client enumerates Git tree metadata and caches blob
-digests; a missing base is supplied from Git objects through the existing bounded
-missing-content protocol, including unpushed commits. It never walks clean
-working files. Git status selects staged, unstaged and unignored untracked paths;
-only those contents are hashed and uploaded. Restored files reuse the committed
-base, deletions carry metadata, and commit changes reopen a generation-bound View.
-Tracked files remain included even when they match a `.gitignore` rule, as in Git.
-Index construction remains server-side.
-
-**Edits made elsewhere are synced before they are read.** Every server tool that
-reads the View first checks the working tree (one `git status` against the last
-synced fingerprint) and pushes only what changed; an unchanged tree sends
-nothing. To take that work off the next call, the client also syncs right after
-its own `bash`, and a small background sync (`autosync.py`) pushes host-tool and
-editor changes early: Claude Code's Edit/Write/Bash hooks send a one-word nudge
-to an owner-only Unix datagram socket under `~/.lemoncrow/sync/` (other hosts
-send none), and while the session is in use one check runs every 30 seconds.
-Freshness never depends on it. `LEMONCROW_AUTOSYNC=0` turns it off.
-
-A path argument that names nothing in the workspace is refused as
-`path_not_addressable` with suggestions, instead of being retried into a
-misleading `blob_missing`.
-
 **A blob miss is answered in the same turn.** A server tool that needs content
 the server does not hold answers `{"need": [paths]}` with HTTP 200. The client
 fills exactly those paths and retries once. A second unfilled answer is a typed
@@ -243,21 +140,9 @@ sends nothing; a cold one sends only the chunks and content the server names.
 **Files over the server's `content_size_cap` are manifested, never uploaded.**
 The cap is server policy; the client honours it rather than declaring its own.
 
-**Version skew inside the window is served; outside it refuses loudly.** The
-client speaks protocol N and N-1 (`protocol_window()`), the same two dates the
-server serves, and steps down from N to N-1 once when a server one version
-behind refuses N. Outside the window the handshake, which happens *before*
-authentication, refuses with `protocol_version_mismatch` and names the side to
-upgrade: `upgrade_client` ("upgrade the client") or `upgrade_server` ("the
-server is older; upgrade the server"), never a confusing 401.
-
-**Review features are gated on the server's manifest.** `product_capabilities.review`
-(at discovery, in the handshake and at `GET /v1/reviews/manifest`) names every
-Review feature, the capture modes and options the server honours and the packet,
-evidence, policy and record schema versions it reads. A feature it lacks is
-refused with `capability_unsupported` and "this server does not support X"
-before any request is sent; a capture whose packet schema or options the server
-would not apply is refused the same way instead of being applied in part.
+**Version mismatch refuses loudly.** The handshake happens *before*
+authentication, so an out-of-date client gets `protocol_version_mismatch` and an
+`upgrade_client` action, never a confusing 401 and never a silent downgrade.
 
 **`local_fs` is an optimization, not a second path.** Offered only when the
 operator opted in *and* the client can write a nonce into the worktree the
@@ -279,10 +164,9 @@ its only module that writes files.
 
 | Condition | Behaviour |
 | --- | --- |
-| Server unreachable at MCP initialize | The same stdio process stays alive with client-side tools only; initialize instructions name the reason; ordinary `read` and other client-side tools continue locally; **no local index is ever built** |
+| Server unreachable at MCP initialize | The same stdio process stays alive with client-side tools only; initialize instructions name the reason; `read` falls back to a bounded file read flagged `degraded`; **no local index is ever built** |
 | Server unreachable mid-session | Server-side tools return the typed error; client-side tools unaffected |
-| Version outside N/N-1 | Refused with `protocol_version_mismatch` + `upgrade_client` or `upgrade_server` |
-| Review feature the server lacks | Refused before sending with `capability_unsupported`: "this server does not support X" |
+| Version mismatch | Refused with `protocol_version_mismatch` + `upgrade_client` |
 | Blob miss | `{need:[...]}` → client fills → one retry → typed `blob_missing` |
 | Link or semantic layer cold | The answer comes back flagged `degraded` with the reason |
 
@@ -347,10 +231,7 @@ drives a full client session — handshake, session open, view open, manifest
 chunks, blob upload, a tool call, an edit, a push — against a loopback stub, and
 then asserts what the client *did*:
 
-- no network port is ever bound and no listening stream socket exists; the one
-  bind is background sync's owner-only Unix datagram socket under
-  `~/.lemoncrow/sync/`, the only datagrams sent go to it, and it is removed
-  when the session closes;
+- no `socket.bind` and no listening socket, ever;
 - ordinary product `socket.connect` / `urllib` requests go only to configured
   `LEMONCROW_URL`; hosted login adds only the Authward origin advertised by that
   server and verified again through exact-issuer OIDC discovery;
@@ -360,19 +241,11 @@ then asserts what the client *did*:
 - every file written is under the repository or `~/.lemoncrow`;
 - no thread or child process survives the session;
 - no unit, plist, `loginctl`, `~/.claude/settings.json` rewrite, tunnel,
-  unexpected downloader or background self-update path exists in the source;
-  only explicit `lc update`, missing-product first use and the Runtime-only,
-  pinned/checksummed Pi host installer may fetch release assets, and the client
-  refuses to inherit an `ALLOW_UNVERIFIED` override for product installation;
-- the package imports no network socket API (`socketserver`, `http.server`,
-  `asyncio`, `selectors`); `socket` itself appears only in `autosync.py`, which
-  may use only `AF_UNIX` datagrams (no `AF_INET`, stream, `listen`, `accept` or
-  `connect`); network egress is confined to `transport.py` (product RPC),
-  `webtransport.py` (explicit public-page fetch) and `pi_host.py` (pinned Pi
-  installer), while product installations use only the reviewed CLI path;
-- threads are started only by `autosync.py`, which joins them on close, and by
-  the session's `lc-fingerprint` and the MCP server's `lc-call` worker pools,
-  each shut down with its owner;
+  downloader or self-update path exists in the source, by AST scan — read as
+  code, so the docstrings explaining their absence do not count as uses;
+- the package imports no socket API at all (`socket`, `socketserver`,
+  `http.server`, `asyncio`, `selectors`), and only `transport.py` reaches the
+  network — a package that never holds a socket cannot bind one;
 - every module the package imports is either the standard library or itself;
 - the installed distribution's dependency set is **empty**.
 

@@ -11,7 +11,7 @@ from lemoncrow.gateway.adapters import mcp_server
 def test_code_engine_cache_is_per_project_lru_and_closes_evicted_engine(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from lemoncrow.core.capabilities import code_intelligence_provider
+    import lemoncrow.pro.capabilities.code_context as code_context
 
     class FakeEngine:
         def __init__(self, repo_root: str | Path) -> None:
@@ -21,11 +21,7 @@ def test_code_engine_cache_is_per_project_lru_and_closes_evicted_engine(
         def close(self) -> None:
             self.closed = True
 
-    monkeypatch.setattr(
-        code_intelligence_provider,
-        "create_code_intelligence_provider",
-        lambda repo_root: FakeEngine(repo_root),
-    )
+    monkeypatch.setattr(code_context, "CodeContextEngine", FakeEngine)
     monkeypatch.setattr(mcp_server, "_workspace_root", lambda: tmp_path)
     monkeypatch.setenv("LEMONCROW_CODE_ENGINE_CACHE_MAX", "2")
     with mcp_server._code_engine_cache_lock:

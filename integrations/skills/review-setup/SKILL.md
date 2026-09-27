@@ -155,19 +155,6 @@ browser_checks:
 
 Reporters upload screenshots/traces/recordings with `POST /api/reviews/<id>/evidence/upload?revision_id=<snapshot>&kind=screenshot|playwright_trace|video`, then post one run per Snapshot side to `POST /api/reviews/<id>/browser-checks` with `revision_id`, `scenario`, `side` (`new`, or `old` for the baseline), `viewport`, `environment`, `navigation`, `assertions`, `console`, and `artifacts: {screenshot, trace, video}` evidence ids. A Playwright JSON-reporter test result may be passed as `playwright: {status, errors}`. When nothing applicable is configured or reported, Review shows `NOT_RUN` instead of implying coverage.
 
-## Evidence freshness
-
-Some evidence describes the world at the moment it was observed, not the Snapshot: vulnerability scans, live previews, and typed trusted-security-feed attestations. On an unchanged Snapshot, readiness treats such an observation as `UNKNOWN` once it is older than a max-age, and withdraws an armed landing that relied on it. The built-in max-age is 24 hours. The base branch's `.lemoncrow/review.yaml` may shorten it, but never extend it:
-
-```yaml
-evidence_freshness:
-  external_observation_max_age: 6h   # seconds, or 90m / 12h / 7d; longer than 24h has no effect
-```
-
-`external_observation_max_age` is the only key in this section. If the section is invalid (an unknown key, or a duration that cannot be read), it fails closed: every external observation reads as expired and readiness shows the error. It never falls back to the default. A hosted operator policy can shorten the max-age further (`evidence_max_age_seconds`), and the shortest max-age wins. SBOMs, provenance, and test or CI results stay bound to their Snapshot and do not age this way.
-
-The supply-chain readiness condition is satisfied only by a typed trusted-security-feed attestation. A scan verdict uploaded by a human, or one that only names its source, still blocks on a non-PASS result, but its PASS never satisfies the policy. A reviewer can waive the policy on the latest Snapshot with `POST /api/reviews/<id>/verification/waivers` and `{"revision_id", "requirement_key": "supply-chain-policy", "reason"}`. A current FAIL from the feed itself cannot be waived.
-
 ## Guardrails
 
 - Never require a commit merely to obtain Preview; working-tree review is first-class.

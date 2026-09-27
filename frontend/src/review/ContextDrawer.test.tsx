@@ -1,15 +1,7 @@
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  DiscoveredProductCapabilitiesProvider,
-  LOCAL_DASHBOARD_PRODUCT_CAPABILITIES,
-  LOCAL_PRODUCT_CAPABILITIES,
-  ProductCapabilitiesProvider,
-  REVIEW_ONLY_PRODUCT_CAPABILITIES,
-  type LemonCrowCapabilities,
-} from "../lib/RuntimeCapabilities";
 import ContextDrawer from "./ContextDrawer";
 import { development, event, projection } from "./developmentTestFixtures";
 import type { Annotation, FileDetail, ReviewEvidence, ReviewTarget } from "./types";
@@ -24,47 +16,6 @@ vi.mock("./reviewApi", () => ({
   fetchTargetHistory: reviewApi.fetchTargetHistory,
   fetchReviewDevelopmentEvents: reviewApi.fetchReviewDevelopmentEvents,
 }));
-const codeMap = vi.hoisted(() => ({ codeMapSearch: vi.fn(), codeMapReferences: vi.fn() }));
-vi.mock("../api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../api")>();
-  return { ...actual, api: { ...actual.api, ...codeMap } };
-});
-// The run-plan panel has its own tests; here its fetch stays pending so it never
-// updates state outside act().
-vi.mock("./runPlanApi", () => ({
-  fetchRunPlan: vi.fn(() => new Promise(() => {})),
-  postRunSpecific: vi.fn(),
-  startRunSpecific: vi.fn(),
-}));
-vi.mock("./checkRecipesApi", () => ({
-  fetchCheckRecipes: vi.fn(() => new Promise(() => {})),
-  postCheckRecipesRun: vi.fn(),
-  postCheckRequest: vi.fn(),
-}));
-// The interactive preview panel has its own tests; resolved where the mount is asserted.
-const previewApi = vi.hoisted(() => ({
-  fetchInteractivePreview: vi.fn(() => new Promise(() => {})),
-  startInteractivePreview: vi.fn(),
-  enterInteractivePreview: vi.fn(),
-  stopInteractivePreview: vi.fn(),
-}));
-vi.mock("./interactivePreviewApi", () => previewApi);
-vi.mock("./artifactAnalysesApi", () => ({
-  fetchArtifactAnalyses: vi.fn(() => new Promise(() => {})),
-  postArtifactAnalysisRun: vi.fn(),
-  fetchAnalysisArtifact: vi.fn(),
-}));
-vi.mock("./runtimeObservationApi", () => ({
-  fetchRuntimeObservation: vi.fn(() => new Promise(() => {})),
-  postRuntimeObservationRun: vi.fn(),
-  fetchRuntimeArtifact: vi.fn(),
-}));
-// Static findings have their own panel tests; pending by default, resolved where the mount is asserted.
-const staticApi = vi.hoisted(() => ({
-  fetchStaticFindings: vi.fn(() => new Promise(() => {})),
-  postStaticDisposition: vi.fn(),
-}));
-vi.mock("./staticFindingsApi", () => staticApi);
 
 const TARGET: ReviewTarget = {
   target_id: "target:checkout",
@@ -211,7 +162,7 @@ const OTHER_TARGET: ReviewTarget = {
 
 function drawerFor(
   target: ReviewTarget,
-  tab: "context" | "checks" | "discussion" | "activity",
+  tab: "impact" | "agent" | "checks" | "evidence" | "author" | "discussion" | "history",
   onAddPreview = vi.fn(),
 ) {
   return (
@@ -235,7 +186,7 @@ function drawerFor(
 }
 
 function renderDrawer(
-  tab: "context" | "checks" | "discussion" | "activity" = "context",
+  tab: "impact" | "agent" | "checks" | "evidence" | "author" | "discussion" | "history" = "impact",
   detail: FileDetail = DETAIL,
   annotations: Annotation[] = [AUTHOR],
 ) {
@@ -266,7 +217,6 @@ function renderDrawer(
 
 describe("ContextDrawer", () => {
   beforeEach(() => {
-    window.localStorage.removeItem("lemoncrow.review.context.visibleTabs");
     reviewApi.fetchTargetHistory.mockReset();
     reviewApi.fetchTargetHistory.mockResolvedValue({ review_id: "review-1", reviewer_id: "local", unit_key: TARGET.unit_key, events: [] });
     reviewApi.fetchReviewEvidenceContent.mockReset();
@@ -276,174 +226,8 @@ describe("ContextDrawer", () => {
     Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
   });
 
-  it("opens the target and each definition in Code when a local checkout is bound", async () => {
-    const onOpenInCode = vi.fn();
-    render(
-      <ContextDrawer
-        reviewId="review-1"
-        target={TARGET}
-        detail={DETAIL}
-        degraded={[]}
-        annotations={[]}
-        evidence={[]}
-        tab="context"
-        pinned={false}
-        onTab={vi.fn()}
-        onClose={vi.fn()}
-        onTogglePin={vi.fn()}
-        onOpenImpact={vi.fn()}
-        onUploadEvidence={vi.fn()}
-        onAddPreview={vi.fn()}
-        onOpenInCode={onOpenInCode}
-      />,
-    );
-    await userEvent.click(screen.getByRole("button", { name: "Open in Code" }));
-    expect(onOpenInCode).toHaveBeenLastCalledWith({ path: "src/checkout.tsx", line: 10, endLine: 80 });
-    await userEvent.click(screen.getByText(/Definitions in this file/));
-    await userEvent.click(screen.getByRole("button", { name: "Open Checkout in Code" }));
-    expect(onOpenInCode).toHaveBeenLastCalledWith({ path: "src/checkout.tsx", line: 10, endLine: 80 });
-  });
-
-  it("offers no Code link without a local checkout", () => {
-    renderDrawer("context");
-    expect(screen.queryByRole("button", { name: "Open in Code" })).toBeNull();
-  });
-
-  function renderPeekDrawer(capabilities: LemonCrowCapabilities, onJumpToCode = vi.fn()) {
-    render(
-      <ProductCapabilitiesProvider value={capabilities}>
-        <ContextDrawer
-          reviewId="review-1"
-          codeRoot="/repo"
-          target={TARGET}
-          detail={DETAIL}
-          degraded={[]}
-          annotations={[]}
-          evidence={[]}
-          tab="context"
-          pinned={false}
-          onTab={vi.fn()}
-          onClose={vi.fn()}
-          onTogglePin={vi.fn()}
-          onOpenImpact={vi.fn()}
-          onUploadEvidence={vi.fn()}
-          onAddPreview={vi.fn()}
-          onJumpToCode={onJumpToCode}
-        />
-      </ProductCapabilitiesProvider>,
-    );
-    return { onJumpToCode };
-  }
-
-  it("makes no code-map request for a peek opened before discovery resolves on a Review-only host", async () => {
-    codeMap.codeMapSearch.mockReset();
-    codeMap.codeMapReferences.mockReset();
-    let answerDiscovery: (body: unknown) => void = () => undefined;
-    const discovery = new Promise<Response>((resolve) => {
-      answerDiscovery = (body) => resolve({ ok: true, json: async () => body } as Response);
-    });
-    const fetchStub = vi.fn((input: RequestInfo | URL) => (
-      String(input).includes("/.well-known/lemoncrow-server.json")
-        ? discovery
-        : Promise.resolve({ ok: false, json: async () => ({}) } as Response)
-    ));
-    vi.stubGlobal("fetch", fetchStub);
-    try {
-      // The host's provisional fallback says "Runtime present"; only discovery may decide.
-      render(
-        <DiscoveredProductCapabilitiesProvider fallback={LOCAL_PRODUCT_CAPABILITIES}>
-          <ContextDrawer
-            reviewId="review-1"
-            codeRoot="/repo"
-            target={TARGET}
-            detail={DETAIL}
-            degraded={[]}
-            annotations={[]}
-            evidence={[]}
-            tab="context"
-            pinned={false}
-            onTab={vi.fn()}
-            onClose={vi.fn()}
-            onTogglePin={vi.fn()}
-            onOpenImpact={vi.fn()}
-            onUploadEvidence={vi.fn()}
-            onAddPreview={vi.fn()}
-            onJumpToCode={vi.fn()}
-          />
-        </DiscoveredProductCapabilitiesProvider>,
-      );
-      expect(screen.getByText("Affected code")).toBeTruthy();
-      await waitFor(() => expect(fetchStub).toHaveBeenCalledWith("/.well-known/lemoncrow-server.json", expect.anything()));
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(screen.queryByTestId("review-code-peek")).toBeNull();
-      expect(codeMap.codeMapSearch).not.toHaveBeenCalled();
-
-      await act(async () => {
-        answerDiscovery({
-          deployment: { mode: "hosted" },
-          products: { review: { installed: true, configured: true, available: true }, runtime: { installed: false, configured: false, available: false } },
-        });
-        await discovery;
-      });
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(screen.queryByTestId("review-code-peek")).toBeNull();
-      expect(codeMap.codeMapSearch).not.toHaveBeenCalled();
-      expect(codeMap.codeMapReferences).not.toHaveBeenCalled();
-      expect(fetchStub.mock.calls.some(([input]) => String(input).includes("code-map"))).toBe(false);
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it("has no Code Peek entry point and makes no code-map request in a Review-only install", async () => {
-    codeMap.codeMapSearch.mockReset();
-    codeMap.codeMapReferences.mockReset();
-    renderPeekDrawer(REVIEW_ONLY_PRODUCT_CAPABILITIES);
-    expect(screen.getByText("Affected code")).toBeTruthy();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(screen.queryByTestId("review-code-peek")).toBeNull();
-    expect(screen.queryByText("Code Peek")).toBeNull();
-    expect(codeMap.codeMapSearch).not.toHaveBeenCalled();
-    expect(codeMap.codeMapReferences).not.toHaveBeenCalled();
-  });
-
-  it("has no Code Peek on a local Dashboard, whose code map has no precise references", async () => {
-    codeMap.codeMapSearch.mockReset();
-    codeMap.codeMapReferences.mockReset();
-    renderPeekDrawer(LOCAL_DASHBOARD_PRODUCT_CAPABILITIES);
-    expect(screen.getByText("Affected code")).toBeTruthy();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(screen.queryByTestId("review-code-peek")).toBeNull();
-    expect(codeMap.codeMapSearch).not.toHaveBeenCalled();
-    expect(codeMap.codeMapReferences).not.toHaveBeenCalled();
-  });
-
-  it("peeks with the Runtime present, says when its index is down, and jumps inside the Review", async () => {
-    codeMap.codeMapSearch.mockReset();
-    codeMap.codeMapSearch.mockRejectedValueOnce(new Error("index offline"));
-    renderPeekDrawer(LOCAL_PRODUCT_CAPABILITIES);
-    expect(await screen.findByText("Current index unavailable.")).toBeTruthy();
-    expect(codeMap.codeMapSearch).toHaveBeenCalledWith("Checkout", "/repo", 12);
-  });
-
-  it("routes a Code Peek definition jump to the Review, not to Code", async () => {
-    codeMap.codeMapSearch.mockReset();
-    codeMap.codeMapReferences.mockReset();
-    codeMap.codeMapSearch.mockResolvedValue({
-      query: "Checkout",
-      text_results: [],
-      results: [{ id: "sym:Checkout", label: "Checkout", qualified_name: "Checkout", path: "src/checkout.tsx", kind: "function", line: 10, end_line: 80, node_type: "symbol" }],
-    });
-    codeMap.codeMapReferences.mockResolvedValue({ symbol_id: "sym:Checkout", reference_count: 0, truncated: false, references: [] });
-    const { onJumpToCode } = renderPeekDrawer(LOCAL_PRODUCT_CAPABILITIES);
-    await userEvent.click(await screen.findByRole("button", { name: "Go to definition" }));
-    expect(onJumpToCode).toHaveBeenCalledWith({ path: "src/checkout.tsx", line: 10, endLine: 80 });
-    // Without a trusted Code handoff, Open in Code is simply absent.
-    expect(screen.queryByRole("button", { name: "Open definition in Code" })).toBeNull();
-  });
-
   it("uses task-oriented tabs and starts from the caller-selected tab", async () => {
-    const { onTab } = renderDrawer("context");
+    const { onTab } = renderDrawer("impact");
     expect(screen.getByText("Affected code")).toBeTruthy();
     expect(screen.queryByText("Summary")).toBeNull();
     await userEvent.click(screen.getByRole("tab", { name: /checks/i }));
@@ -474,7 +258,7 @@ describe("ContextDrawer", () => {
             { id: "other", kind: "edit", at: "2026-09-23T18:03:00Z", summary: "edited src/unrelated.tsx", detail: "", path: "src/unrelated.tsx", status: "changed", source: "run_ledger", host: "claude", session_id: "session-1" },
           ],
         }}
-        tab="activity"
+        tab="agent"
         pinned={false}
         onTab={vi.fn()}
         onClose={vi.fn()}
@@ -492,7 +276,7 @@ describe("ContextDrawer", () => {
     expect(screen.getByText(/Hidden chain-of-thought is not captured/)).toBeTruthy();
   });
 
-  it("does not present raw AI confidence as a default reviewer truth signal", () => {
+  it("shows AI-source confidence as source metadata, not a reviewer verdict", () => {
     const ai: Annotation = {
       ...AUTHOR,
       id: "ai-1",
@@ -508,19 +292,20 @@ describe("ContextDrawer", () => {
     renderDrawer("discussion", DETAIL, [AUTHOR, ai]);
 
     expect(screen.getByText("AI REVIEW")).toBeTruthy();
-    expect(screen.queryByText("72% confidence")).toBeNull();
-    expect(screen.queryByTitle("Confidence reported by the AI review source; not a human verdict")).toBeNull();
+    expect(screen.getByText("72% confidence")).toBeTruthy();
+    expect(screen.getByTitle("Confidence reported by the AI review source; not a human verdict")).toBeTruthy();
   });
 
-  it("exposes exactly four fixed conceptual homes", () => {
-    renderDrawer("context");
-    expect(screen.getByRole("tablist", { name: "Review context homes" })).toBeTruthy();
-    const tabs = screen.getAllByRole("tab").map((item) => item.textContent?.replace(/\d+$/, "") ?? "");
-    expect(tabs).toEqual(["Context", "Checks", "Discussion", "Activity"]);
-    expect(screen.queryByRole("button", { name: "Choose context tabs" })).toBeNull();
-    expect(screen.queryByRole("tab", { name: /Evidence/ })).toBeNull();
-    expect(screen.queryByRole("tab", { name: /Development/ })).toBeNull();
-    expect(screen.queryByRole("tab", { name: /History/ })).toBeNull();
+  it("keeps review-work tabs primary and exposes expert detail through Details", async () => {
+    const { onTab } = renderDrawer("impact");
+    expect(screen.getByRole("tab", { name: /impact/i })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /comments/i })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: /checks/i })).toBeTruthy();
+    expect(screen.queryByRole("tab", { name: /evidence/i })).toBeNull();
+
+    await userEvent.click(screen.getByText("Details"));
+    await userEvent.click(screen.getByRole("button", { name: /Evidence/i }));
+    expect(onTab).toHaveBeenCalledWith("evidence");
   });
 
   it("loads append-only judgment transitions for the active semantic target", async () => {
@@ -548,7 +333,7 @@ describe("ContextDrawer", () => {
         },
       ],
     });
-    renderDrawer("activity");
+    renderDrawer("history");
     await waitFor(() => expect(screen.getByText("reviewed → changed_since_review")).toBeTruthy());
     expect(reviewApi.fetchTargetHistory).toHaveBeenCalledWith("review-1", TARGET.unit_key);
     expect(screen.getByText("content changed")).toBeTruthy();
@@ -582,65 +367,6 @@ describe("ContextDrawer", () => {
     expect(order).toEqual(["Packet suite", "File lint"]);
     expect(panel.textContent).not.toMatch(/shown separately/i);
     expect(panel.textContent).toMatch(/review-wide passes are context, not proof/i);
-  });
-
-  it("shows where a check was verified and what that sandbox could not verify, as structured rows", () => {
-    const digest = `sha256:${"ab12".repeat(16)}`;
-    renderDrawer("checks", {
-      ...DETAIL,
-      evidence: [
-        {
-          name: "Signup email",
-          status: "PASS",
-          detail: "Signup email · PASS",
-          source: "test",
-          scope: "review",
-          execution: {
-            executor_class: "managed_sandbox",
-            location: "managed sandbox",
-            image_digest: digest,
-            network: "denied",
-            statement: `managed sandbox · image ${digest} · network denied`,
-            not_verified: [
-              { name: "real email delivery", reason: "SMTP is recorded, never delivered" },
-              { name: "third-party webhooks", reason: "recorded by the sink" },
-            ],
-          },
-        },
-        { name: "Lint", status: "PASS", detail: "", source: "ruff", scope: "review" },
-      ],
-    });
-    const environments = screen.getAllByTestId("execution-environment");
-    // Only the typed execution result carries an environment; an untyped check gets none.
-    expect(environments).toHaveLength(1);
-    const environment = environments[0];
-    expect(environment.textContent).toContain("sandbox · image sha256:ab12ab12ab12 · network denied");
-    expect(within(environment).getByTitle(digest)).toBeTruthy();
-    const unverified = within(environment).getByRole("list", { name: "Not verified" });
-    expect(within(unverified).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
-      "real email delivery",
-      "third-party webhooks",
-    ]);
-    expect(within(unverified).getByText("real email delivery").getAttribute("title")).toBe("SMTP is recorded, never delivered");
-  });
-
-  it("labels worker and author-machine runs by where they actually executed", () => {
-    const row = (name: string, executor_class: "customer_worker" | "author_machine") => ({
-      name,
-      status: "PASS" as const,
-      detail: "",
-      source: "test",
-      scope: "review" as const,
-      execution: { executor_class, location: "", image_digest: "", network: "denied", statement: "", not_verified: [] },
-    });
-    renderDrawer("checks", { ...DETAIL, evidence: [row("Worker run", "customer_worker"), row("Local run", "author_machine")] });
-    const text = screen.getAllByTestId("execution-environment").map((node) => node.textContent);
-    expect(text.sort()).toEqual([
-      "author machine (self-attested) · image unknown · network denied",
-      "worker sandbox · image unknown · network denied",
-    ]);
-    // No unverified list is invented when the record states none.
-    expect(screen.queryByRole("list", { name: "Not verified" })).toBeNull();
   });
 
   it("puts a file-scoped check ahead of a review-wide check that ended the same way", () => {
@@ -704,7 +430,7 @@ describe("ContextDrawer", () => {
         degraded={[]}
         annotations={[]}
         evidence={[before, after]}
-        tab="checks"
+        tab="evidence"
         pinned={false}
         onTab={vi.fn()}
         onClose={vi.fn()}
@@ -748,7 +474,7 @@ describe("ContextDrawer", () => {
     render(
       <ContextDrawer
         reviewId="review-1" target={TARGET} detail={{ ...DETAIL, revision_id: "rrv-1" }} degraded={[]} annotations={[]}
-        evidence={[older, base, marker]} tab="checks" pinned={false} onTab={vi.fn()} onClose={vi.fn()}
+        evidence={[older, base, marker]} tab="evidence" pinned={false} onTab={vi.fn()} onClose={vi.fn()}
         onTogglePin={vi.fn()} onOpenImpact={vi.fn()} onUploadEvidence={vi.fn()} onAddPreview={vi.fn()}
       />,
     );
@@ -759,7 +485,7 @@ describe("ContextDrawer", () => {
   });
 
   it("opens the evidence picker from the keyboard, not only with a pointer", async () => {
-    renderDrawer("checks");
+    renderDrawer("evidence");
     const picker = document.querySelector('input[type="file"]') as HTMLInputElement;
     const opened = vi.fn();
     picker.addEventListener("click", opened);
@@ -796,7 +522,7 @@ describe("ContextDrawer", () => {
     const header = screen.getByRole("heading", { name: "Comments" }).parentElement as HTMLElement;
     expect(header.textContent).toBe("Comments1");
     // The tab still counts both halves: both of them are read on this tab.
-    expect(screen.getByRole("tab", { name: /discussion/i }).textContent).toBe("Discussion2");
+    expect(screen.getByRole("tab", { name: /comments/i }).textContent).toBe("Comments2");
   });
 
   it("drops a preview URL typed for one target when the drawer moves to the next", async () => {
@@ -804,143 +530,19 @@ describe("ContextDrawer", () => {
     // URL left in the box would be filed against the file that happens to be on
     // screen when Add is clicked -- evidence on the wrong file, silently.
     const onAddPreview = vi.fn();
-    const view = render(drawerFor(TARGET, "checks", onAddPreview));
+    const view = render(drawerFor(TARGET, "evidence", onAddPreview));
     const field = () => screen.getByPlaceholderText("http://localhost:3000/...") as HTMLInputElement;
     await userEvent.type(field(), "http://localhost:3000/checkout");
     expect(field().value).toBe("http://localhost:3000/checkout");
 
-    view.rerender(drawerFor(OTHER_TARGET, "checks", onAddPreview));
+    view.rerender(drawerFor(OTHER_TARGET, "evidence", onAddPreview));
     expect(field().value).toBe("");
     expect((screen.getByRole("button", { name: "Add" }) as HTMLButtonElement).disabled).toBe(true);
     expect(onAddPreview).not.toHaveBeenCalled();
   });
 
-  it("adds a typed preview URL as a live preview and clears the field", async () => {
-    const onAddPreview = vi.fn();
-    render(drawerFor(TARGET, "checks", onAddPreview));
-    const field = screen.getByPlaceholderText("http://localhost:3000/...") as HTMLInputElement;
-    const add = screen.getByRole("button", { name: "Add" }) as HTMLButtonElement;
-
-    await userEvent.type(field, "   ");
-    expect(add.disabled).toBe(true);
-
-    await userEvent.clear(field);
-    await userEvent.type(field, "  http://localhost:3000/checkout  ");
-    expect(add.disabled).toBe(false);
-    await userEvent.click(add);
-
-    expect(onAddPreview).toHaveBeenCalledTimes(1);
-    expect(onAddPreview).toHaveBeenCalledWith("http://localhost:3000/checkout", "Live preview");
-    expect(field.value).toBe("");
-    expect(add.disabled).toBe(true);
-  });
-
-  it("uploads chosen and dropped evidence files and resets the picker and drop state", () => {
-    const onUploadEvidence = vi.fn();
-    render(
-      <ContextDrawer
-        reviewId="review-1" target={TARGET} detail={DETAIL} degraded={[]} annotations={[]} evidence={[]}
-        tab="checks" pinned={false} onTab={vi.fn()} onClose={vi.fn()} onTogglePin={vi.fn()} onOpenImpact={vi.fn()}
-        onUploadEvidence={onUploadEvidence} onAddPreview={vi.fn()}
-      />,
-    );
-    const shot = new File(["png"], "checkout.png", { type: "image/png" });
-    const trace = new File(["zip"], "trace.zip", { type: "application/zip" });
-
-    const picker = screen.getByLabelText("Attach evidence files") as HTMLInputElement;
-    fireEvent.change(picker, { target: { files: [shot, trace] } });
-    expect(onUploadEvidence).toHaveBeenLastCalledWith([shot, trace]);
-    // The same file can be chosen again right away.
-    expect(picker.value).toBe("");
-
-    const zone = screen.getByText("Drop screenshot, video, trace.zip, or document").closest("label") as HTMLElement;
-    fireEvent.dragEnter(zone, { dataTransfer: { files: [shot], types: ["Files"] } });
-    expect(zone.className).toContain("border-cyan-600");
-    fireEvent.drop(zone, { dataTransfer: { files: [shot], types: ["Files"] } });
-    expect(onUploadEvidence).toHaveBeenLastCalledWith([shot]);
-    expect(zone.className).not.toContain("border-cyan-600");
-
-    // A drop that carries no files uploads nothing.
-    fireEvent.drop(zone, { dataTransfer: { files: [], types: ["text/plain"] } });
-    expect(onUploadEvidence).toHaveBeenCalledTimes(2);
-  });
-
-  it("offers no evidence writes on a read-only review", () => {
-    render(
-      <ContextDrawer
-        reviewId="review-1" target={TARGET} detail={DETAIL} degraded={[]} annotations={[]} evidence={[]}
-        tab="checks" pinned={false} readOnly onTab={vi.fn()} onClose={vi.fn()} onTogglePin={vi.fn()} onOpenImpact={vi.fn()}
-        onUploadEvidence={vi.fn()} onAddPreview={vi.fn()}
-      />,
-    );
-    expect(screen.getByText("Evidence is read-only until this review is restored.")).toBeTruthy();
-    expect(screen.queryByLabelText("Attach evidence files")).toBeNull();
-    expect(screen.queryByPlaceholderText("http://localhost:3000/...")).toBeNull();
-  });
-
-  it("opens stored evidence through a short-lived blob URL", async () => {
-    const stored: ReviewEvidence = {
-      id: "evd-trace", review_id: "review-1", revision_id: "rrv-1", revision_number: 1,
-      kind: "playwright_trace", title: "trace.zip", path: "src/checkout.tsx", url: "",
-      content_hash: "hash", mime_type: "application/zip", bytes: 3, source: "human",
-      source_ref: "trace.zip", verification_status: "", detail: "", created_at: "2026-09-24T12:01:00Z",
-      status: "current", content_url: "/api/evidence/evd-trace/content",
-    };
-    const open = vi.spyOn(window, "open").mockReturnValue(null);
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    try {
-      render(
-        <ContextDrawer
-          reviewId="review-1" target={TARGET} detail={DETAIL} degraded={[]} annotations={[]} evidence={[stored]}
-          tab="checks" pinned={false} onTab={vi.fn()} onClose={vi.fn()} onTogglePin={vi.fn()} onOpenImpact={vi.fn()}
-          onUploadEvidence={vi.fn()} onAddPreview={vi.fn()}
-        />,
-      );
-      fireEvent.click(screen.getByRole("button", { name: "Open" }));
-      await waitFor(() => expect(open).toHaveBeenCalledWith("blob:evidence-1", "_blank", "noopener,noreferrer"));
-      expect(reviewApi.fetchReviewEvidenceContent).toHaveBeenCalledWith("evd-trace");
-
-      // The new tab needs the URL long enough to load it; after that it is released.
-      vi.advanceTimersByTime(59_000);
-      expect(URL.revokeObjectURL).not.toHaveBeenCalled();
-      vi.advanceTimersByTime(1_000);
-      expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:evidence-1");
-    } finally {
-      vi.useRealTimers();
-      open.mockRestore();
-    }
-  });
-
-  it("releases screenshot-diff blob URLs when the comparison goes away", async () => {
-    const screenshot = (overrides: Partial<ReviewEvidence>): ReviewEvidence => ({
-      id: "evd-after", review_id: "review-1", revision_id: "rrv-1", revision_number: 1,
-      kind: "screenshot", title: "checkout.png", path: "src/checkout.tsx", url: "",
-      content_hash: "hash", mime_type: "image/png", bytes: 12, source: "agent",
-      source_ref: "capture:checkout", verification_status: "", detail: "",
-      created_at: "2026-09-24T12:01:00Z", status: "current", content_url: "/api/evidence/evd-after/content",
-      ...overrides,
-    });
-    const before = screenshot({
-      id: "evd-before", revision_id: "rrv-0", revision_number: 0, content_hash: "old-hash",
-      created_at: "2026-09-24T11:01:00Z", status: "stale", content_url: "/api/evidence/evd-before/content",
-    });
-    const view = render(
-      <ContextDrawer
-        reviewId="review-1" target={TARGET} detail={{ ...DETAIL, revision_id: "rrv-1" }} degraded={[]} annotations={[]}
-        evidence={[before, screenshot({})]} tab="checks" pinned={false} onTab={vi.fn()} onClose={vi.fn()}
-        onTogglePin={vi.fn()} onOpenImpact={vi.fn()} onUploadEvidence={vi.fn()} onAddPreview={vi.fn()}
-      />,
-    );
-    expect(await screen.findByAltText("After screenshot")).toBeTruthy();
-    expect(URL.revokeObjectURL).not.toHaveBeenCalled();
-
-    view.unmount();
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:evidence-1");
-    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:evidence-2");
-  });
-
   it("keeps exact author provenance separate from discussion", () => {
-    renderDrawer("context");
+    renderDrawer("author");
     const panel = screen.getByRole("tabpanel");
     expect(within(panel).getByText("Authored by")).toBeTruthy();
     expect(within(panel).getByText("Why validation moved")).toBeTruthy();
@@ -948,7 +550,7 @@ describe("ContextDrawer", () => {
   });
 
   it("exposes explicit pin and close controls", async () => {
-    const { onClose, onTogglePin } = renderDrawer("context");
+    const { onClose, onTogglePin } = renderDrawer("impact");
     await userEvent.click(screen.getByRole("button", { name: "Pin" }));
     expect(onTogglePin).toHaveBeenCalledTimes(1);
     await userEvent.click(screen.getByRole("button", { name: "Close review context" }));
@@ -956,9 +558,9 @@ describe("ContextDrawer", () => {
   });
 
   it("keeps a selected expert section in the tab semantics", async () => {
-    renderDrawer("activity");
-    expect(screen.getByRole("tab", { name: /activity/i }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(screen.getByRole("tab", { name: /activity/i }).id);
+    renderDrawer("history");
+    expect(screen.getByRole("tab", { name: /history/i }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe("review-context-tab-history");
     await waitFor(() => expect(reviewApi.fetchTargetHistory).toHaveBeenCalledWith("review-1", TARGET.unit_key));
   });
 
@@ -967,7 +569,7 @@ describe("ContextDrawer", () => {
     const close = screen.getByRole("button", { name: "Close review context" });
     await waitFor(() => expect(document.activeElement).toBe(close));
     expect(screen.getByRole("tab", { name: /checks/i }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(screen.getByRole("tab", { name: /checks/i }).id);
+    expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe("review-context-tab-checks");
   });
 
   it("scopes the Development stream to the file and supersedes the legacy journal", async () => {
@@ -992,7 +594,7 @@ describe("ContextDrawer", () => {
           snapshot,
           since: projection({ scope: "since", changed_paths: [{ path: "src/checkout.tsx", status: "changed", sessions: ["claude:c1"], edits: 1, last_at: "", in_snapshot: null }] }),
         })}
-        tab="activity"
+        tab="agent"
         pinned={false}
         onTab={vi.fn()}
         onClose={vi.fn()}
@@ -1016,8 +618,8 @@ describe("ContextDrawer", () => {
       path: "src/checkout.tsx",
       limit: 30,
     });
-    expect(screen.getByRole("tab", { name: /activity/i })).toBeTruthy();
-    await userEvent.click(within(panel).getByRole("button", { name: "Open Activity" }));
+    expect(screen.getByRole("tab", { name: /development/i })).toBeTruthy();
+    await userEvent.click(within(panel).getByRole("button", { name: "Open Development" }));
     expect(onOpenDevelopment).toHaveBeenCalledTimes(1);
   });
 
@@ -1032,7 +634,7 @@ describe("ContextDrawer", () => {
         annotations={[]}
         evidence={[]}
         development={development({ snapshot: projection({ changed_paths: [], unattributed_paths: ["src/checkout.tsx"] }) })}
-        tab="activity"
+        tab="agent"
         pinned={false}
         onTab={vi.fn()}
         onClose={vi.fn()}
@@ -1043,92 +645,5 @@ describe("ContextDrawer", () => {
       />,
     );
     expect(screen.getByText(/no agent recorded an exact edit to it/)).toBeTruthy();
-  });
-});
-
-describe("ContextDrawer static findings", () => {
-  it("mounts the file's imported findings in the Checks tab only", async () => {
-    staticApi.fetchStaticFindings.mockImplementation(() =>
-      Promise.resolve({
-        review_id: "review-1",
-        snapshot_id: "revision-1",
-        path: "src/checkout.tsx",
-        findings: [
-          {
-            id: "sf_1",
-            fingerprint: "sfp_1",
-            ref: "static:ev-1:sf_1",
-            tool: "semgrep",
-            rule_id: "py.sqli",
-            severity: "p1",
-            severity_label: "P1 High",
-            level: "error",
-            path: "src/checkout.tsx",
-            start_line: 21,
-            end_line: 21,
-            message: "query built from input",
-            message_truncated: false,
-            tags: [],
-            cwe: [89],
-            in_snapshot: true,
-            state: "current",
-            evidence_id: "ev-1",
-            snapshot_id: "revision-1",
-            snapshot_number: 1,
-            check: "semgrep",
-            check_identity: "reported|semgrep",
-            check_status: "FAIL",
-            category: "sast",
-            attestation_class: "",
-            authority: "reported",
-            head_sha: "a".repeat(40),
-            disposition: null,
-          },
-        ],
-        stale: [],
-        checks: [],
-        chains: [],
-        truncation_notes: [],
-        counts: { current: 1, stale: 0, dismissed: 0, chains: 0 },
-        latest: true,
-      }),
-    );
-    renderDrawer("context");
-    expect(screen.queryByTestId("static-findings-panel")).toBeNull();
-    cleanup();
-
-    renderDrawer("checks");
-    const panel = await screen.findByTestId("static-findings-panel");
-    expect(staticApi.fetchStaticFindings).toHaveBeenLastCalledWith("review-1", DETAIL.revision_id ?? "", "src/checkout.tsx");
-    expect(panel).toHaveTextContent("P1 High");
-    expect(panel).toHaveTextContent("semgrep · py.sqli");
-  });
-});
-
-describe("ContextDrawer interactive preview", () => {
-  it("opens the side-by-side preview from the Checks rail only", async () => {
-    previewApi.fetchInteractivePreview.mockImplementation(() =>
-      Promise.resolve({
-        state: "available",
-        reason: "",
-        revision_id: DETAIL.revision_id ?? "",
-        run_on: "local",
-        executor_class: "author_machine",
-        recipe: { mode: "command", source: ".lemoncrow/review.yaml interactive_preview", framework: "" },
-        budget: { remaining_minutes: null, minutes_per_minute: 2 },
-        ttl: { default_seconds: 600, max_seconds: 900, min_seconds: 60 },
-        opens_from: ["behavior_changes", "checks_rail"],
-        observation: "human",
-        sessions: [],
-      }),
-    );
-    renderDrawer("context");
-    expect(screen.queryByTestId("interactive-preview-checks_rail")).toBeNull();
-    cleanup();
-
-    renderDrawer("checks");
-    const panel = await screen.findByTestId("interactive-preview-checks_rail");
-    expect(previewApi.fetchInteractivePreview).toHaveBeenLastCalledWith("review-1");
-    expect(within(panel).getByRole("button", { name: "Open side by side" })).toBeInTheDocument();
   });
 });

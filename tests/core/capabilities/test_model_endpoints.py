@@ -275,14 +275,17 @@ def test_model_ids_are_namespaced_by_endpoint(tmp_path: Path) -> None:
     assert endpoint.model_ids() == ("custom/localhost-8000/qwen",)
 
 
-def test_endpoint_name_is_derived_from_host_and_port() -> None:
-    for url, expected in [
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
         ("http://localhost:8000/v1", "localhost-8000"),
         ("https://GPU-Box.internal.example.com/v1", "gpu-box-internal-example-com"),
         ("localhost:11434", "localhost-11434"),
         ("http://user:pw@gw.example.com:443/v1", "gw-example-com-443"),
-    ]:
-        assert derive_endpoint_name(url) == expected
+    ],
+)
+def test_endpoint_name_is_derived_from_host_and_port(url: str, expected: str) -> None:
+    assert derive_endpoint_name(url) == expected
 
 
 def test_unusable_url_raises(tmp_path: Path) -> None:
@@ -411,27 +414,3 @@ def test_an_invocation_without_the_flag_leaves_the_ambient_root_alone(tmp_path: 
         cli.invoke(ctx)
         assert transport_mod.active_store_root() is None
         assert apply_custom_transport({"model": "custom/localhost-8000/qwen"})["api_base"] == _URL
-
-
-def test_endpoint_locus_is_inferred_local_only_for_loopback(tmp_path: Path) -> None:
-    loopback = add_endpoint(tmp_path, _URL, name="loopback", models=["qwen"])
-    lan = add_endpoint(tmp_path, "http://gpu-box.lan:9000/v1", name="lan", models=["qwen"])
-
-    assert loopback.locus == "local"
-    assert lan.locus == "unknown"
-    raw = _config(tmp_path)["custom"]["endpoints"]
-    assert raw["loopback"]["locus"] == "local"
-    assert raw["lan"]["locus"] == "unknown"
-
-
-def test_endpoint_locus_can_be_explicitly_declared(tmp_path: Path) -> None:
-    endpoint = add_endpoint(
-        tmp_path,
-        "http://gpu-box.lan:9000/v1",
-        name="lan-local",
-        models=["qwen"],
-        locus="local",
-    )
-
-    assert endpoint.locus == "local"
-    assert get_endpoint(tmp_path, "lan-local").locus == "local"  # type: ignore[union-attr]

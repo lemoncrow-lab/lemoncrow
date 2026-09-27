@@ -53,7 +53,7 @@ cleanup() {
 trap cleanup EXIT
 
 # Start service in background
-uv run lemoncrow rt service start >"$LOG" 2>&1 &
+uv run lemoncrow service start >"$LOG" 2>&1 &
 SVC_PID=$!
 
 # Wait for service to be ready (up to 15s)
@@ -108,7 +108,7 @@ RESULT=$(curl -sf -X POST "http://127.0.0.1:${PORT}/v1/reasoning/context" \
     -H "Content-Type: application/json" \
     -d '{
         "task": "Update Shopify product description",
-        "domain": "swe.general",
+        "domain": "beseam.shopify.publish",
         "tools": ["shopify.product.update"]
     }')
 echo "$RESULT"

@@ -13,7 +13,9 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -170,7 +172,7 @@ def _installed_skill_names(host: str, workspace: Path | None) -> tuple[str, ...]
 def _count_tokens(text: str) -> int:
     # Imported per call, not at module scope: `retriever` drags in archival_recall
     # -> numpy -> code_context (~66ms) on every CLI start, for two token counts
-    # only `lc rt agent cost` / `lc rt skill cost` ever ask for.
+    # only `lc agent cost` / `lc skill cost` ever ask for.
     from lemoncrow.pro.foundation.retriever import count_tokens
 
     return int(count_tokens(text))
@@ -208,9 +210,7 @@ def _validate_installable_role(role_id: str) -> None:
 
 def _validate_removable_role(role_id: str) -> None:
     if role_id in DEFAULT_ROLE_IDS:
-        raise click.ClickException(
-            f"{role_id} is always installed, use `lc uninstall all` to remove LemonCrow entirely"
-        )
+        raise click.ClickException(f"{role_id} is always installed, use `lc uninstall` to remove LemonCrow entirely")
     if role_id not in SURFACED_ROLE_IDS:
         raise click.ClickException(f"unknown role: {role_id} (choices: {', '.join(INSTALLABLE_ROLE_IDS)})")
 
@@ -282,7 +282,7 @@ def _apply_agent_role_set(host: str, workspace: Path | None, role_ids: tuple[str
     # registration stays consistent (it recomputes the staged bundle from
     # scratch every run). Thread through the currently-installed skill set too
     # (claude/codex only) so an agent-only change doesn't wipe skills that were
-    # added via a separate `lc rt skill install` call.
+    # added via a separate `lc skill install` call.
     script = repo_root / "scripts" / f"install_{host}.sh"
     if not script.exists():
         raise click.ClickException(f"install script not found: {script}")
@@ -359,11 +359,11 @@ def reapply_installed_agents(repo_root: Path | None = None) -> int:
 
 
 # --------------------------------------------------------------------------- #
-# CLI: lc rt agent list/install/remove
+# CLI: lc agent list/install/remove
 # --------------------------------------------------------------------------- #
 
 
-@click.group("agent", short_help="Install, remove or list LemonCrow agent roles.")
+@click.group("agent")
 def agent_group() -> None:
     """Install, remove, or list on-demand LemonCrow agent roles for a host."""
 
@@ -444,11 +444,11 @@ def agent_remove_cmd(role_id: str, host: str | None, workspace: Path | None, yes
 
 
 # --------------------------------------------------------------------------- #
-# CLI: lc rt skill list/install/remove
+# CLI: lc skill list/install/remove
 # --------------------------------------------------------------------------- #
 
 
-@click.group("skill", short_help="Install, remove or list LemonCrow skills.")
+@click.group("skill")
 def skill_group() -> None:
     """Install, remove, or list on-demand LemonCrow public skills for a host."""
 
@@ -534,11 +534,11 @@ def skill_remove_cmd(name: str, host: str | None, workspace: Path | None, yes: b
 
 
 # --------------------------------------------------------------------------- #
-# CLI: lc rt install optionals
+# CLI: lc install optionals
 # --------------------------------------------------------------------------- #
 
 
-@click.group("install", short_help="Install optional LemonCrow agents and skills in bulk.")
+@click.group("install")
 def install_group() -> None:
     """Bulk-install optional (non-default) LemonCrow agents and skills."""
 
@@ -619,8 +619,119 @@ def install_optionals_cmd(host: str | None, workspace: Path | None, yes: bool) -
     click.echo("done")
 
 
+# --------------------------------------------------------------------------- #
+# Staleness nudge -- Phase 5. An installed OPTIONAL (non-default) role or
+# skill unused for --stale-days is worth flagging for removal. Reuses the
+# exact _role_cost/_skill_cost standing-cost calculation `list` already shows
+# (never recomputed independently) and the usage log
+# plugin_runtime.record_optional_use writes to on every optional agent/skill
+# invocation. `code` and the `lc` skill never appear here: they're
+# excluded by construction (INSTALLABLE_ROLE_IDS / PUBLIC_SKILL_NAMES already
+# omit them).
+# --------------------------------------------------------------------------- #
+
+STALE_NUDGE_DAYS_ENV = "LEMONCROW_STALE_NUDGE_DAYS"
+DEFAULT_STALE_NUDGE_DAYS = 7.0
+_MS_PER_DAY = 86_400_000
+
+
+def _stale_nudge_days() -> float:
+    raw = os.environ.get(STALE_NUDGE_DAYS_ENV, "")
+    try:
+        return float(raw) if raw else DEFAULT_STALE_NUDGE_DAYS
+    except ValueError:
+        return DEFAULT_STALE_NUDGE_DAYS
+
+
+def _default_lemoncrow_root() -> Path:
+    raw = os.environ.get("LEMONCROW_ROOT") or os.environ.get("LEMONCROW_STORE_ROOT")
+    return Path(raw).expanduser() if raw else Path.home() / ".lemoncrow"
+
+
+def stale_optional_items(
+    host: str,
+    workspace: Path | None,
+    *,
+    root: Path | None = None,
+    repo_root: Path | None = None,
+    now_ms: int | None = None,
+    threshold_days: float | None = None,
+) -> list[dict[str, Any]]:
+    """Installed optional (non-default) agents/skills unused for >= threshold days.
+
+    One dict per stale item: ``{"kind", "name", "days_unused", "token_cost"}``.
+    ``days_unused`` is ``None`` when the item has never been used (still
+    stale -- installed with no recorded use at all). Shared by the
+    `stale-nudge` CLI command (Claude statusline) and the OpenCode nudge
+    plugin so both hosts apply the identical threshold/cost logic.
+    """
+    from lemoncrow.core.capabilities.plugin_runtime import last_optional_use_ms
+
+    resolved_root = root if root is not None else _default_lemoncrow_root()
+    resolved_repo_root = repo_root if repo_root is not None else _repo_root()
+    now = now_ms if now_ms is not None else int(time.time() * 1000)
+    threshold_ms = (threshold_days if threshold_days is not None else _stale_nudge_days()) * _MS_PER_DAY
+
+    items: list[dict[str, Any]] = []
+    if host in AGENT_HOSTS:
+        for role_id in _installed_role_ids(host, workspace):
+            last = last_optional_use_ms(resolved_root, "agent", role_id)
+            if last is not None and now - last < threshold_ms:
+                continue
+            days_unused = None if last is None else (now - last) // _MS_PER_DAY
+            items.append(
+                {
+                    "kind": "agent",
+                    "name": role_id,
+                    "days_unused": days_unused,
+                    "token_cost": _role_cost(role_id, resolved_repo_root),
+                }
+            )
+    if host in SKILL_HOSTS:
+        for name in _installed_skill_names(host, workspace):
+            last = last_optional_use_ms(resolved_root, "skill", name)
+            if last is not None and now - last < threshold_ms:
+                continue
+            days_unused = None if last is None else (now - last) // _MS_PER_DAY
+            items.append(
+                {
+                    "kind": "skill",
+                    "name": name,
+                    "days_unused": days_unused,
+                    "token_cost": _skill_cost(name, resolved_repo_root),
+                }
+            )
+    return items
+
+
+def format_stale_nudge(item: dict[str, Any]) -> str:
+    """Render one stale item as the generic wording shared by every host."""
+    unused = "never used" if item["days_unused"] is None else f"unused {item['days_unused']}d"
+    return (
+        f"{item['name']} installed, {unused} — remove: /lemoncrow remove {item['name']} "
+        f"(saves ~{item['token_cost']} tok/turn)"
+    )
+
+
+@click.command("stale-nudge")
+@click.option("--host", type=click.Choice(ALL_HOSTS), required=True, help="Host to check (no auto-detect).")
+@click.option("--workspace", type=click.Path(path_type=Path), default=None, help="Workspace scope instead of global.")
+def stale_nudge_cmd(host: str, workspace: Path | None) -> None:
+    """Print one `kind|name|days_unused|token_cost` line per stale optional agent/skill.
+
+    `days_unused` is empty when never used. Silent (no output, exit 0) when
+    nothing is stale. Internal plumbing for the Claude statusline tip and the
+    OpenCode nudge plugin -- not meant for interactive use.
+    """
+    ws = _resolve_workspace(workspace)
+    for item in stale_optional_items(host, ws):
+        days = "" if item["days_unused"] is None else str(item["days_unused"])
+        click.echo(f"{item['kind']}|{item['name']}|{days}|{item['token_cost']}")
+
+
 __all__ = [
     "agent_group",
     "install_group",
     "skill_group",
+    "stale_nudge_cmd",
 ]

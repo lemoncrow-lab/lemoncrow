@@ -1,4 +1,4 @@
-"""The public ``lc runtime mcp`` entrypoint delegates to the thin client."""
+"""The public ``lc mcp`` entrypoint is only a compatibility alias for the thin client."""
 
 from __future__ import annotations
 
@@ -9,11 +9,6 @@ from click.testing import CliRunner
 from lemoncrow.gateway.cli import cli
 
 
-def _hosted_runtime(monkeypatch) -> None:
-    monkeypatch.setenv("LEMONCROW_URL", "https://lemoncrow.example")
-    monkeypatch.setenv("LEMONCROW_INSTALL_MODE", "hosted")
-
-
 def test_lc_mcp_delegates_to_thin_client(monkeypatch) -> None:
     calls: list[bool] = []
 
@@ -21,24 +16,11 @@ def test_lc_mcp_delegates_to_thin_client(monkeypatch) -> None:
         calls.append(True)
         return 0
 
-    _hosted_runtime(monkeypatch)
     monkeypatch.setattr("lemoncrow_client.mcpserver.serve", fake_serve)
-    result = CliRunner().invoke(cli, ["runtime", "mcp"])
+    result = CliRunner().invoke(cli, ["mcp"])
 
     assert result.exit_code == 0, result.output
     assert calls == [True]
-
-
-def test_lc_mcp_serves_runtime_lite_without_a_hosted_target(monkeypatch, tmp_path: Path) -> None:
-    calls: list[str] = []
-    monkeypatch.delenv("LEMONCROW_URL", raising=False)
-    monkeypatch.delenv("LEMONCROW_INSTALL_MODE", raising=False)
-    monkeypatch.setattr("lemoncrow_client.mcpserver.serve", lambda: calls.append("thin") or 0)
-    monkeypatch.setattr("lemoncrow_client.lite.mcp.serve", lambda: calls.append("lite") or 0)
-    result = CliRunner().invoke(cli, ["runtime", "mcp", "--root", str(tmp_path / "state")])
-
-    assert result.exit_code == 0, result.output
-    assert calls == ["lite"]
 
 
 def test_lc_mcp_root_maps_to_thin_client_home(monkeypatch, tmp_path: Path) -> None:
@@ -50,10 +32,9 @@ def test_lc_mcp_root_maps_to_thin_client_home(monkeypatch, tmp_path: Path) -> No
         seen.append(os.environ.get("LEMONCROW_HOME", ""))
         return 0
 
-    _hosted_runtime(monkeypatch)
     monkeypatch.setattr("lemoncrow_client.mcpserver.serve", fake_serve)
     root = tmp_path / "state"
-    result = CliRunner().invoke(cli, ["runtime", "mcp", "--root", str(root)])
+    result = CliRunner().invoke(cli, ["mcp", "--root", str(root)])
 
     assert result.exit_code == 0, result.output
     assert seen == [str(root)]

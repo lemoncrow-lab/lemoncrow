@@ -30,7 +30,7 @@ from lemoncrow.core.environment import bool_env
 
 # Coarse tier exposed by this module.  Maps 1:1 onto the legacy ModelTier
 # (cheap -> cheap, standard -> medium, strong -> expensive) but uses
-# routing-tier language for the complexity surface.
+# enterprise-routing language for the complexity surface.
 ComplexityTier = Literal["cheap", "standard", "strong"]
 
 TIER_ROUTING_ENV_VAR = "LEMONCROW_TIER_ROUTING"

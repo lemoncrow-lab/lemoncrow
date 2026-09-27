@@ -38,61 +38,9 @@ from typing import Any, Final
 
 from .routing import ROUTES
 
-__all__ = ["SURFACE_PATH", "UNSERVED_CLAUSES", "ToolSpec", "load_surface", "served_spec", "tool_list"]
+__all__ = ["SURFACE_PATH", "ToolSpec", "load_surface", "tool_list"]
 
 SURFACE_PATH: Final[Path] = Path(__file__).with_name("toolsurface.json")
-
-#: Arguments the public registry documents that this client refuses on purpose:
-#: ``project_id`` needs the persistent gateway (``Dispatcher._refuse_project_routing``)
-#: and there is no stdin to hold a REPL (``shell.run_bash``). Advertising them
-#: only invites calls that must fail, so ``tools/list`` leaves them out. ``"*"``
-#: applies to every tool.
-_UNSERVED_ARGUMENTS: Final[Mapping[str, frozenset[str]]] = {
-    "*": frozenset({"project_id"}),
-    "bash": frozenset({"interactive", "input"}),
-}
-_UNSERVED_ENUM_VALUES: Final[Mapping[tuple[str, str], frozenset[str]]] = {
-    ("bash", "action"): frozenset({"send"}),
-}
-#: The generated prose that advertises those arguments, removed with them.
-#: ``tests/test_contract_conformance.py`` fails if a clause stops matching.
-UNSERVED_CLAUSES: Final[Mapping[str, tuple[str, ...]]] = {
-    "bash": ("; REPLs → interactive=true", "; send = write input, return output"),
-}
-
-
-def _without(text: str, clauses: tuple[str, ...]) -> str:
-    for clause in clauses:
-        text = text.replace(clause, "")
-    return text
-
-
-def served_spec(name: str, spec: Mapping[str, Any]) -> tuple[str, dict[str, Any] | None]:
-    """``(description, inputSchema)`` for one tool, minus what this client refuses."""
-    clauses = UNSERVED_CLAUSES.get(name, ())
-    description = _without(str(spec.get("description") or f"LemonCrow {name} tool."), clauses)
-    raw = spec.get("inputSchema")
-    if not isinstance(raw, Mapping):
-        return description, None
-    schema = dict(raw)
-    properties = schema.get("properties")
-    if isinstance(properties, Mapping):
-        dropped = _UNSERVED_ARGUMENTS["*"] | _UNSERVED_ARGUMENTS.get(name, frozenset())
-        kept: dict[str, Any] = {}
-        for argument, info in properties.items():
-            if argument in dropped:
-                continue
-            refused = _UNSERVED_ENUM_VALUES.get((name, str(argument)))
-            if refused and isinstance(info, Mapping) and isinstance(info.get("enum"), list):
-                info = dict(info)
-                info["enum"] = [value for value in info["enum"] if value not in refused]
-                info["description"] = _without(str(info.get("description") or ""), clauses)
-            kept[str(argument)] = info
-        schema["properties"] = kept
-        required = schema.get("required")
-        if isinstance(required, list):
-            schema["required"] = [argument for argument in required if argument not in dropped]
-    return description, schema
 
 
 class ToolSpec(dict[str, Any]):
@@ -145,13 +93,15 @@ def tool_list(path: Path | None = None, *, env: Mapping[str, str] | None = None)
         names = [name for name in names if bool(surface.get(name, {}).get("core", False))]
     out: list[ToolSpec] = []
     for name in names:
-        description, schema = served_spec(name, surface.get(name, {}))
+        spec = surface.get(name, {})
+        description = str(spec.get("description") or f"LemonCrow {name} tool.")
+        schema = spec.get("inputSchema")
         out.append(
             ToolSpec(
                 {
                     "name": name,
                     "description": description,
-                    "inputSchema": schema if schema is not None else {"type": "object"},
+                    "inputSchema": dict(schema) if isinstance(schema, Mapping) else {"type": "object"},
                 }
             )
         )

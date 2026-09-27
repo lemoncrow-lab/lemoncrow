@@ -49,7 +49,6 @@
       "type": "shell",
       "command": "lemoncrow",
       "args": [
-        "runtime",
         "session",
         "report",
         "--no-color"

@@ -38,12 +38,10 @@ import stat
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import Final
 
-from .workspace_paths import LOCAL_FS_PROOF_PATH, REVIEW_CONFIG_PATH
-
-if TYPE_CHECKING:
-    from .walkcache import WalkCache
+from .config import LOCAL_FS_PROOF_PATH, REVIEW_CONFIG_PATH
+from .walkcache import WalkCache, WalkCacheStats
 
 __all__ = [
     "DEFAULT_PARSER_PROFILE",
@@ -52,7 +50,6 @@ __all__ = [
     "GitIgnore",
     "ManifestChunk",
     "ManifestEntry",
-    "WalkCacheStats",
     "WalkResult",
     "WalkedFile",
     "canonical_rows",
@@ -72,7 +69,7 @@ DEFAULT_PARSER_PROFILE: Final[str] = "lexical-1"
 
 _ROW_SEPARATOR: Final[str] = "\x00"
 _DEFAULT_CHUNK_ROWS: Final[int] = 2_000
-_NEVER_WALK: Final[frozenset[str]] = frozenset({".git", ".claude", ".lc-worktrees", ".lemoncrow"})
+_NEVER_WALK: Final[frozenset[str]] = frozenset({".git", ".lc-worktrees", ".lemoncrow"})
 
 #: Extension to parser profile. A *hint*: the server derives Layer 1 under
 #: whatever profile the manifest row declares, because two repositories can
@@ -89,14 +86,6 @@ _PROFILE_BY_EXTENSION: Final[dict[str, str]] = {
     ".cjs": "typescript-3",
     ".go": "go-3",
     ".rs": "rust-3",
-    ".c": "c-3",
-    ".h": "c-3",
-    ".cc": "cpp-3",
-    ".cpp": "cpp-3",
-    ".cxx": "cpp-3",
-    ".hpp": "cpp-3",
-    ".hh": "cpp-3",
-    ".hxx": "cpp-3",
 }
 
 
@@ -351,23 +340,6 @@ class _IgnoreStack:
 # --------------------------------------------------------------------------- #
 # Worktree walk                                                               #
 # --------------------------------------------------------------------------- #
-
-
-@dataclass(frozen=True, slots=True)
-class WalkCacheStats:
-    """Where one walk's digests came from."""
-
-    reused_by_path: int = 0
-    reused_by_blob: int = 0
-    hashed: int = 0
-
-    @property
-    def total(self) -> int:
-        return self.reused_by_path + self.reused_by_blob + self.hashed
-
-    @property
-    def reused(self) -> int:
-        return self.reused_by_path + self.reused_by_blob
 
 
 @dataclass(frozen=True, slots=True)

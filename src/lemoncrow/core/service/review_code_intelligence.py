@@ -23,11 +23,9 @@ class LegacyReviewCodeIntelligence:
 
     __slots__ = ("_engine", "_repo_root")
 
-    def __init__(self, repo_root: Path, *, engine: Any | None = None) -> None:
+    def __init__(self, repo_root: Path) -> None:
         self._repo_root = repo_root.expanduser().resolve()
-        # A caller that already indexed the tree into its own database passes
-        # that engine; otherwise the default per-root database is opened lazily.
-        self._engine: Any | None = engine
+        self._engine: Any | None = None
 
     def _get_engine(self) -> Any:
         if self._engine is None:
@@ -119,45 +117,6 @@ class LegacyReviewCodeIntelligence:
             limit=max(1, min(limit, 40)),
         )
 
-    def file_relationships(
-        self,
-        paths: tuple[str, ...],
-        *,
-        limit: int = 320,
-    ) -> Mapping[str, Any]:
-        # Imports are parser-resolved; calls count only when their name names
-        # exactly one definition. Degraded because resolution is by name.
-        from lemoncrow.core.service import code_map
-        from lemoncrow.core.service.code_relations import balanced_relationship_rows
-
-        seeds = {path for path in paths if path}
-        try:
-            links = code_map.legacy_file_links(self._get_engine())
-        except Exception:
-            return {
-                "edges": [],
-                "degraded": True,
-                "degraded_reason": "legacy_index_unavailable",
-                "truncated": False,
-            }
-        rows = [{**row, "evidence": []} for row in links if row["source_path"] in seeds or row["target_path"] in seeds]
-        bounded = max(1, min(int(limit), 640))
-        return {
-            "edges": balanced_relationship_rows(rows, seeds, bounded),
-            "degraded": True,
-            "degraded_reason": "legacy_name_resolution",
-            "truncated": len(rows) > bounded,
-        }
-
-    def repository_file_links(self) -> Mapping[str, Any]:
-        from lemoncrow.core.service import code_map
-
-        try:
-            rows = code_map.legacy_file_links(self._get_engine())
-        except Exception:
-            return {"edges": [], "degraded": True, "degraded_reason": "legacy_index_unavailable", "truncated": False}
-        return {"edges": rows, "degraded": True, "degraded_reason": "legacy_name_resolution", "truncated": False}
-
     def references(self, symbol: Mapping[str, Any], *, limit: int = 20) -> Mapping[str, Any]:
         from lemoncrow.core.service import code_map
 
@@ -191,10 +150,8 @@ def open_legacy_snapshot_impact_engine(repo_root: Path) -> Any | None:
     """
 
     try:
-        from lemoncrow.core.capabilities.code_intelligence_provider import (
-            create_code_intelligence_provider,
-        )
+        from lemoncrow.pro.capabilities.code_context.engine import CodeContextEngine
 
-        return create_code_intelligence_provider(repo_root, autosync_enabled=False)
+        return CodeContextEngine(repo_root, autosync_enabled=False)
     except Exception:
         return None

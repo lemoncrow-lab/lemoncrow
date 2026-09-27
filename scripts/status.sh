@@ -90,13 +90,10 @@ check_claude() {
 
     local plugin="no"
     local mcp="no"
-    if [ -f "${HOME}/.lemoncrow/claude-plugin/.claude-plugin/plugin.json" ] || \
-       bounded_output claude plugin list | grep -qi "lemoncrow"; then
+    if bounded_output claude plugin list | grep -q "lemoncrow"; then
         plugin="yes"
     fi
-    if has_lemoncrow "${WORKSPACE}/.mcp.json" || \
-       has_lemoncrow "${HOME}/.claude.json" || \
-       has_lemoncrow "${HOME}/.claude/settings.json"; then
+    if has_lemoncrow "${WORKSPACE}/.mcp.json" || bounded_output claude mcp list | grep -q "lemoncrow"; then
         mcp="yes"
     fi
 
@@ -117,93 +114,52 @@ check_codex() {
         return
     fi
 
-    local global_home="${CODEX_HOME}"
-    local workspace_home="${WORKSPACE}/.codex"
+    local effective_codex_home="${CODEX_HOME}"
+    if [ -f "${WORKSPACE}/.codex/config.toml" ]; then
+        effective_codex_home="${WORKSPACE}/.codex"
+    fi
 
-    codex_scope_complete() {
-        local root="$1"
-        [ -f "${root}/plugins/lemoncrow/.codex-plugin/plugin.json" ] &&
-        [ -f "${root}/plugins/lemoncrow/.mcp.json" ] &&
-        has_lemoncrow "${root}/AGENTS.md"
-    }
-
-    codex_scope_partial() {
-        local root="$1"
-        [ -f "${root}/plugins/lemoncrow/.codex-plugin/plugin.json" ] ||
-        [ -f "${root}/plugins/lemoncrow/.mcp.json" ] ||
-        has_lemoncrow "${root}/AGENTS.md"
-    }
-
-    if codex_scope_complete "$workspace_home" || codex_scope_complete "$global_home"; then
+    if [ -f "${effective_codex_home}/config.toml" ] && \
+       grep -q '\[mcp_servers\.lemoncrow\]' "${effective_codex_home}/config.toml" 2>/dev/null && \
+       grep -Eq '\[plugins\."lemoncrow@(lemoncrow|openai-curated)"\]' "${effective_codex_home}/config.toml" 2>/dev/null; then
         echo "installed"
-    elif codex_scope_partial "$workspace_home" || codex_scope_partial "$global_home"; then
-        echo "partially configured"
+    elif [ -f "${effective_codex_home}/config.toml" ] && \
+         grep -q '\[mcp_servers\.lemoncrow\]' "${effective_codex_home}/config.toml" 2>/dev/null; then
+        echo "MCP configured, plugin not installed"
     else
-        echo "CLI found but not installed"
+        echo "CLI found but MCP not configured"
     fi
 }
 
 check_opencode() {
-    local configured="no"
+    if ! has_cmd opencode; then
+        echo "CLI not found"
+        return
+    fi
+
     if has_lemoncrow "${WORKSPACE}/opencode.json" || \
        has_lemoncrow "${WORKSPACE}/opencode.jsonc" || \
        has_lemoncrow "${OPENCODE_CONFIG_HOME}/opencode.json" || \
        has_lemoncrow "${OPENCODE_CONFIG_HOME}/opencode.jsonc"; then
-        configured="yes"
-    fi
-
-    if [ "$configured" = "yes" ]; then
-        if has_cmd opencode; then
-            echo "installed"
-        else
-            echo "configured, CLI not found"
-        fi
-    elif has_cmd opencode; then
-        echo "CLI found but MCP not configured"
+        echo "installed"
     else
-        echo "CLI not found"
+        echo "CLI found but MCP not configured"
     fi
 }
 
 check_lemoncode() {
-    local host="${HOME}/.lemoncrow/bin/lemoncode-host"
-    if [ -x "$host" ]; then
-        echo "installed"
-    elif has_cmd lemoncode; then
-        echo "launcher found, managed host not installed"
-    else
-        echo "not installed"
+    if ! has_cmd lemoncode; then
+        echo "CLI not found"
+        return
     fi
-}
 
-check_pi() {
-    if [ -x "${HOME}/.lemoncrow/bin/pi-host" ]; then
+    if has_lemoncrow "${WORKSPACE}/opencode.json" || \
+       has_lemoncrow "${WORKSPACE}/opencode.jsonc" || \
+       has_lemoncrow "${LEMONCODE_CONFIG_HOME}/opencode.json" || \
+       has_lemoncrow "${LEMONCODE_CONFIG_HOME}/opencode.jsonc"; then
         echo "installed"
     else
-        echo "not installed"
-    fi
-}
-
-check_cursor() {
-    local detected="no"
-    local configured="no"
-    if has_cmd cursor || has_cmd cursor-agent || [ -d "${HOME}/.cursor" ]; then
-        detected="yes"
-    fi
-    if has_lemoncrow "${HOME}/.cursor/mcp.json"; then
-        configured="yes"
-    fi
-
-    if [ "$configured" = "yes" ]; then
-        if [ "$detected" = "yes" ]; then
-            echo "installed"
-        else
-            echo "configured, CLI not found"
-        fi
-    elif [ "$detected" = "yes" ]; then
-        echo "detected but MCP not configured"
-    else
-        echo "not installed"
+        echo "CLI found but MCP not configured"
     fi
 }
 
@@ -263,8 +219,6 @@ CLAUDE_STATUS="$(check_claude)"
 CODEX_STATUS="$(check_codex)"
 OPENCODE_STATUS="$(check_opencode)"
 LEMONCODE_STATUS="$(check_lemoncode)"
-PI_STATUS="$(check_pi)"
-CURSOR_STATUS="$(check_cursor)"
 COPILOT_STATUS="$(check_copilot)"
 ANTIGRAVITY_STATUS="$(check_antigravity)"
 CODEBURN_STATUS="$(check_codeburn)"
@@ -279,8 +233,6 @@ elif [ "$JSON" = true ]; then
     CODEX_STATUS="$CODEX_STATUS" \
     OPENCODE_STATUS="$OPENCODE_STATUS" \
     LEMONCODE_STATUS="$LEMONCODE_STATUS" \
-    PI_STATUS="$PI_STATUS" \
-    CURSOR_STATUS="$CURSOR_STATUS" \
     COPILOT_STATUS="$COPILOT_STATUS" \
     ANTIGRAVITY_STATUS="$ANTIGRAVITY_STATUS" \
     CODEBURN_STATUS="$CODEBURN_STATUS" \
@@ -296,8 +248,6 @@ print(json.dumps({
     "codex": os.environ["CODEX_STATUS"],
     "opencode": os.environ["OPENCODE_STATUS"],
     "lemoncode": os.environ["LEMONCODE_STATUS"],
-    "pi": os.environ["PI_STATUS"],
-    "cursor": os.environ["CURSOR_STATUS"],
     "copilot": os.environ["COPILOT_STATUS"],
     "antigravity": os.environ["ANTIGRAVITY_STATUS"],
     "codeburn": os.environ["CODEBURN_STATUS"],
@@ -319,10 +269,8 @@ else
     echo "Agent CLI Installations:"
     echo "  Claude Code     $CLAUDE_STATUS"
     echo "  Codex           $CODEX_STATUS"
-    echo "  OpenCode        $OPENCODE_STATUS"
-    echo "  Pi              $PI_STATUS"
+    echo "  opencode        $OPENCODE_STATUS"
     echo "  LemonCode       $LEMONCODE_STATUS"
-    echo "  Cursor          $CURSOR_STATUS"
     echo "  Copilot         $COPILOT_STATUS"
     echo "  Antigravity     $ANTIGRAVITY_STATUS"
     echo ""
@@ -343,8 +291,6 @@ if [ "$WRITE" = true ]; then
     CODEX_STATUS="$CODEX_STATUS" \
     OPENCODE_STATUS="$OPENCODE_STATUS" \
     LEMONCODE_STATUS="$LEMONCODE_STATUS" \
-    PI_STATUS="$PI_STATUS" \
-    CURSOR_STATUS="$CURSOR_STATUS" \
     COPILOT_STATUS="$COPILOT_STATUS" \
     ANTIGRAVITY_STATUS="$ANTIGRAVITY_STATUS" \
     CODEBURN_STATUS="$CODEBURN_STATUS" \
@@ -352,25 +298,19 @@ if [ "$WRITE" = true ]; then
     python3 - <<'PYEOF'
 import json, os
 
-def integration_state(s: str) -> str:
-    if s == "installed" or s.startswith("configured"):
-        return "installed"
-    if "partial" in s or "configured" in s:
-        return "partial"
-    return "not_installed"
+def installed(s: str) -> str:
+    return "installed" if s == "installed" else "not_installed"
 
 hosts_dir = os.environ["HOSTS_DIR"]
 status = {
-    "claude": integration_state(os.environ["CLAUDE_STATUS"]),
-    "codex": integration_state(os.environ["CODEX_STATUS"]),
-    "opencode": integration_state(os.environ["OPENCODE_STATUS"]),
-    "lemoncode": integration_state(os.environ["LEMONCODE_STATUS"]),
-    "pi": integration_state(os.environ["PI_STATUS"]),
-    "cursor": integration_state(os.environ["CURSOR_STATUS"]),
-    "copilot": integration_state(os.environ["COPILOT_STATUS"]),
-    "antigravity": integration_state(os.environ["ANTIGRAVITY_STATUS"]),
-    "codeburn": integration_state(os.environ["CODEBURN_STATUS"]),
-    "tokscale": integration_state(os.environ["TOKSCALE_STATUS"]),
+    "claude": installed(os.environ["CLAUDE_STATUS"]),
+    "codex": installed(os.environ["CODEX_STATUS"]),
+    "opencode": installed(os.environ["OPENCODE_STATUS"]),
+    "lemoncode": installed(os.environ["LEMONCODE_STATUS"]),
+    "copilot": installed(os.environ["COPILOT_STATUS"]),
+    "antigravity": installed(os.environ["ANTIGRAVITY_STATUS"]),
+    "codeburn": installed(os.environ["CODEBURN_STATUS"]),
+    "tokscale": installed(os.environ["TOKSCALE_STATUS"]),
 }
 path = os.path.join(hosts_dir, "status.json")
 with open(path, "w") as f:

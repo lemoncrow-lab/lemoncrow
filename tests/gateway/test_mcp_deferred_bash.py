@@ -10,9 +10,7 @@ touch real stdout.
 from __future__ import annotations
 
 import json
-import os
 import shlex
-import signal
 import sys
 import threading
 import time
@@ -63,18 +61,11 @@ def _bash_request(rid: Any, command: str, **args: Any) -> dict[str, Any]:
     }
 
 
-@pytest.fixture(scope="module")
-def _bash_store(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """Initialize the shared persistent store once; tests do not inspect its contents."""
-
-    root = tmp_path_factory.mktemp("deferred-bash-store") / ".lemoncrow"
-    init_store_at(str(root))
-    return root
-
-
 @pytest.fixture()
-def bash_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _bash_store: Path) -> Path:
-    monkeypatch.setenv("LEMONCROW_ROOT", str(_bash_store))
+def bash_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    root = tmp_path / ".lemoncrow"
+    init_store_at(str(root))
+    monkeypatch.setenv("LEMONCROW_ROOT", str(root))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setenv("LEMONCROW_MEMORY_BACKEND", "sqlite")
     monkeypatch.delenv("LEMONCROW_SERVICE_URL", raising=False)
@@ -277,12 +268,12 @@ def test_deferred_soft_deadline_returns_running_without_killing(bash_env: Path) 
     keeps going underneath."""
     mcp_server._deferral_context.active = True
     try:
-        deferred = mcp_server._run_bash_tool("sleep 0.3; echo done", timeout=0)
+        deferred = mcp_server._run_bash_tool("sleep 1.5; echo done", timeout=0)
         assert isinstance(deferred, mcp_server._DeferredResult)
         done = threading.Event()
         armed = deferred.register(done.set)
         assert armed is True
-        assert done.wait(1.0)
+        assert done.wait(3.0)
         result = deferred.collect()
     finally:
         mcp_server._deferral_context.active = False
@@ -300,7 +291,7 @@ def test_deferred_soft_deadline_returns_running_without_killing(bash_env: Path) 
     assert managed.proc.poll() is None  # still alive -- the soft deadline did not kill it
 
     # Cleanup: let it finish and reap so no thread/temp file leaks past the test.
-    managed.proc.wait(timeout=2)
+    managed.proc.wait(timeout=5)
     bx.poll_managed_command(sid)
 
 
@@ -353,16 +344,11 @@ def test_existing_shell_poll_is_sliced_to_mcp_response_window(
         sid = str(started["session_id"])
 
         mcp_server._deferral_context.active = True
-        # An unsliced poll would wait on the gate forever; opening it after the
-        # bound makes that regression fail on ``elapsed`` instead of hanging.
-        watchdog = threading.Timer(_RESPONSE_BOUND_S * 2, gate.touch)
-        watchdog.start()
         try:
             before = time.monotonic()
             running = mcp_server._run_bash_tool(session_id=sid, action="poll")
             elapsed = time.monotonic() - before
         finally:
-            watchdog.cancel()
             mcp_server._deferral_context.active = False
     finally:
         gate.touch()
@@ -425,7 +411,6 @@ def test_mailman_style_self_daemonizing_process_via_mcp_tool(bash_env: Path, tmp
     commands run after it. Exercised through the real MCP tool (not just
     bash_exec directly) since that's the actual path the agent hits."""
     daemon_script = tmp_path / "daemonize.py"
-    daemon_pid = tmp_path / "daemon.pid"
     daemon_script.write_text(
         "import os, sys, time\n"
         "if os.fork() > 0:\n"
@@ -433,7 +418,6 @@ def test_mailman_style_self_daemonizing_process_via_mcp_tool(bash_env: Path, tmp
         "os.setsid()\n"
         "if os.fork() > 0:\n"
         "    sys.exit(0)\n"
-        f"open({str(daemon_pid)!r}, 'w').write(str(os.getpid()))\n"
         # A real daemon (mailman's included) redirects its fds away from
         # whatever piped it here before settling in -- otherwise the pipe this
         # ran through (here: `| head -5`) never sees EOF. Skipping this step
@@ -462,11 +446,6 @@ def test_mailman_style_self_daemonizing_process_via_mcp_tool(bash_env: Path, tmp
         elapsed = time.monotonic() - start
     finally:
         mcp_server._deferral_context.active = False
-        if daemon_pid.exists():
-            try:
-                os.kill(int(daemon_pid.read_text(encoding="utf-8")), signal.SIGTERM)
-            except (ProcessLookupError, ValueError):
-                pass
 
     assert elapsed < 10.0  # did not hang past the bound
     assert "mailman-style-ok" in str(result.get("stdout"))

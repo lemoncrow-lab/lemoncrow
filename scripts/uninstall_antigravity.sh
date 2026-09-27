@@ -42,7 +42,7 @@ else
     MCP_JSON="${ANTIGRAVITY_USER_DIR}/mcp.json"
 fi
 
-info()  { echo "[lc:uninstall:antigravity] $*"; }
+info()  { echo "[lemoncrow:uninstall:antigravity] $*"; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || "$@"; }
 
 if [ -f "$MCP_JSON" ]; then
@@ -64,7 +64,7 @@ if servers:
 else:
     data.pop(server_key, None)
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-print("[lc:uninstall:antigravity] updated $MCP_JSON")
+print("[lemoncrow:uninstall:antigravity] updated $MCP_JSON")
 PYEOF
     fi
 fi

@@ -16,18 +16,15 @@ import os
 import queue
 import threading
 import time
-from collections.abc import Iterator
-from contextlib import contextmanager
-from contextvars import ContextVar
 from typing import Any
 
 from lemoncrow.core.service.telemetry.config import (
-    lemoncrow_cloud_enabled,
     posthog_key,
     posthog_otlp_url,
+    remote_enabled,
 )
 from lemoncrow.core.service.telemetry.local_store import LocalTelemetryStore
-from lemoncrow.core.service.telemetry.schema import EVENTS, validate_event_props
+from lemoncrow.core.service.telemetry.schema import validate_event_props
 from lemoncrow.core.service.telemetry.scrubber import scrub_props
 
 logger = logging.getLogger("lemoncrow.product.telemetry")
@@ -52,36 +49,9 @@ _worker: threading.Thread | None = None
 _worker_lock = threading.Lock()
 _atexit_registered = False
 
-# Session linkage for events whose emitter has no session in hand (the code
-# engine's code_* events). A scoped value (one tool call on a server worker
-# thread) wins over the process value (one CLI run, one stdio MCP process).
-_scoped_session: ContextVar[str] = ContextVar("lemoncrow_telemetry_session", default="")
-_process_session = ""
-
-
-def set_process_telemetry_session(session_id: str) -> None:
-    global _process_session
-    _process_session = str(session_id or "")
-
-
-@contextmanager
-def telemetry_session(session_id: str) -> Iterator[None]:
-    """Attribute events emitted in this context (thread/task) to ``session_id``."""
-    token = _scoped_session.set(str(session_id or ""))
-    try:
-        yield
-    finally:
-        _scoped_session.reset(token)
-
-
-def current_telemetry_session() -> str:
-    return _scoped_session.get() or _process_session
-
 
 def init_product_telemetry(*, service_version: str = "0.1.0") -> bool:
-    # Per-event PostHog export is LemonCrow's own service: never on for an
-    # enterprise, custom or off destination.
-    if not lemoncrow_cloud_enabled():
+    if not remote_enabled():
         return False
     try:
         from lemoncrow.core.service.telemetry.exporters.otel import init_otel
@@ -123,11 +93,6 @@ def _dispatch(event: str, props: dict[str, Any], *, remote: bool) -> None:
     # Validate + scrub on the caller so allowlist violations surface here and the
     # props are frozen before hand-off. Everything with I/O cost runs off-thread.
     try:
-        if "session_id" not in props:
-            spec = EVENTS.get(event)
-            session_id = current_telemetry_session() if spec is not None and "session_id" in spec.props else ""
-            if session_id:
-                props = {**props, "session_id": session_id}
         filtered, dropped = validate_event_props(event, props)
         if filtered is None:
             logger.debug("telemetry.unknown_event", extra={"event": event})
@@ -197,9 +162,8 @@ def _drain_loop() -> None:
 def _flush_batch(batch: list[tuple[str, dict[str, Any], bool]]) -> None:
     now = time.time()
     records: list[dict[str, Any]] = []
-    cloud = any(remote for _event, _props, remote in batch) and lemoncrow_cloud_enabled()
     for event, scrubbed, remote in batch:
-        exported = _export_remote(event, scrubbed) if (remote and cloud) else False
+        exported = _export_remote(event, scrubbed) if (remote and remote_enabled()) else False
         records.append({"event": event, "props": scrubbed, "exported": exported, "ts": now})
     try:
         LocalTelemetryStore().write_events(records)
@@ -209,7 +173,7 @@ def _flush_batch(batch: list[tuple[str, dict[str, Any], bool]]) -> None:
 
 def _write_one(event: str, scrubbed: dict[str, Any], *, remote: bool) -> None:
     try:
-        exported = _export_remote(event, scrubbed) if (remote and lemoncrow_cloud_enabled()) else False
+        exported = _export_remote(event, scrubbed) if (remote and remote_enabled()) else False
         LocalTelemetryStore().write_event(event=event, props=scrubbed, exported=exported, ts=time.time())
     except Exception as exc:
         logger.debug("telemetry.emit_failed", exc_info=True, extra={"event": event, "error": str(exc)})

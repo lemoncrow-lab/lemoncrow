@@ -61,23 +61,28 @@ def _records() -> list[_FakeRecord]:
     ]
 
 
-def test_scoped_context_budget_and_cache_contract() -> None:
-    """case: test_pull_respects_budget"""
+def test_pull_respects_budget() -> None:
     cap = ScopedContextCapability(_FakeEngine(_records()))
     result = cap.pull(Subtask(description="work on alpha", budget_tokens=200))
     assert result.total_tokens <= 200
-    assert result.dropped_for_budget > 0
-    assert result.chunks
-    "case: test_excluded_paths_honoured"
+    assert result.dropped_for_budget > 0  # heavy snippet fields were dropped
+    assert result.chunks  # something survived
+
+
+def test_excluded_paths_honoured() -> None:
     cap = ScopedContextCapability(_FakeEngine(_records()))
     result = cap.pull(Subtask(description="work", excluded_paths=["src/legacy"], budget_tokens=4000))
     assert all("legacy" not in c.path for c in result.chunks)
     assert any(e.reason.startswith("excluded_path") for e in result.excluded)
-    "case: test_rationale_cites_scores"
+
+
+def test_rationale_cites_scores() -> None:
     cap = ScopedContextCapability(_FakeEngine(_records()))
     result = cap.pull(Subtask(description="work on alpha", budget_tokens=4000))
     assert "score=" in result.rationale
-    "case: test_cache_hit"
+
+
+def test_cache_hit() -> None:
     cap = ScopedContextCapability(_FakeEngine(_records()))
     subtask = Subtask(description="work on alpha", budget_tokens=4000)
     first = cap.pull(subtask)
@@ -85,45 +90,67 @@ def test_scoped_context_budget_and_cache_contract() -> None:
     assert first.provenance == "fresh"
     assert second.provenance == "cached"
     assert [c.path for c in first.chunks] == [c.path for c in second.chunks]
-    "case: test_cache_misses_when_index_version_changes"
+
+
+def test_cache_misses_when_index_version_changes() -> None:
     engine = _FakeEngine(_records())
     cap = ScopedContextCapability(engine)
     subtask = Subtask(description="work on alpha", budget_tokens=4000)
+
     first = cap.pull(subtask)
     engine.index_version = 1
     second = cap.pull(subtask)
+
     assert first.provenance == "fresh"
     assert second.provenance == "fresh"
 
 
-def test_scoped_context_ranking_contract() -> None:
-    """case: test_dead_end_filtered"""
+def test_dead_end_filtered() -> None:
     cap = ScopedContextCapability(_FakeEngine(_records()))
     cap.mark_dead_end("beta src/b.py")
     result = cap.pull(Subtask(description="work", budget_tokens=4000))
     assert all(c.path != "src/b.py" for c in result.chunks)
     assert any(e.reason == "dead_end" for e in result.excluded)
-    "case: test_path_token_overlap_can_outrank_higher_raw_score"
+
+
+def test_path_token_overlap_can_outrank_higher_raw_score() -> None:
     records = [
         _FakeRecord("src/misc/helpers.py", "helper", score=0.95),
         _FakeRecord("src/search/ranking.py", "rank_candidates", score=0.45),
     ]
+
     cap = ScopedContextCapability(_FakeEngine(records))
     result = cap.pull(
-        Subtask(description="improve search ranking relevance", keywords=["search", "ranking"], budget_tokens=4000)
+        Subtask(
+            description="improve search ranking relevance",
+            keywords=["search", "ranking"],
+            budget_tokens=4000,
+        )
     )
+
     assert result.chunks[0].path == "src/search/ranking.py"
-    "case: test_pull_seeds_local_results_only"
+
+
+def test_pull_seeds_local_results_only() -> None:
     records = [
         _FakeRecord("src/current.py", "current", score=0.5, provenance="local"),
         _FakeRecord(
-            "history/fix.py", "historical_fix", kind="commit", score=1.0, provenance="commit", commit_sha="abc12345"
+            "history/fix.py",
+            "historical_fix",
+            kind="commit",
+            score=1.0,
+            provenance="commit",
+            commit_sha="abc12345",
         ),
     ]
+
     cap = ScopedContextCapability(_FakeEngine(records))
     result = cap.pull(Subtask(description="current fix", budget_tokens=4000))
+
     assert [chunk.path for chunk in result.chunks] == ["src/current.py"]
-    "case: test_pull_surfaces_commit_provenance_for_history_queries"
+
+
+def test_pull_surfaces_commit_provenance_for_history_queries() -> None:
     records = [
         _FakeRecord("src/current.py", "current", score=0.6, provenance="local"),
         _FakeRecord(
@@ -137,6 +164,7 @@ def test_scoped_context_ranking_contract() -> None:
             commit_sha="abc12345deadbeef",
         ),
     ]
+
     cap = ScopedContextCapability(_FakeEngine(records))
     result = cap.pull(
         Subtask(
@@ -145,6 +173,7 @@ def test_scoped_context_ranking_contract() -> None:
             budget_tokens=4000,
         )
     )
+
     commit_chunks = [chunk for chunk in result.chunks if chunk.provenance == "commit"]
     assert commit_chunks
     assert commit_chunks[0].commit_sha == "abc12345deadbeef"

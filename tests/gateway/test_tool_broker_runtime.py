@@ -31,41 +31,8 @@ def test_broker_search_is_transport_independent(monkeypatch: pytest.MonkeyPatch)
         visibility=lambda _name, _spec: True,
     )
 
-    assert result == {
-        "matches": [{"name": "rare", "description": "Inspect unusual dependency state", "inputSchema": {}}]
-    }
+    assert result == {"matches": [{"name": "rare", "description": "Inspect unusual dependency state"}]}
     assert state.tool_call_rendered_text.value == "tools\n→ rare · Inspect unusual dependency state"
-
-
-def test_broker_describe_returns_one_exact_tool(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        broker,
-        "registered_tools",
-        lambda: {
-            "grep": {
-                "name": "grep",
-                "description": "Search exact text",
-                "inputSchema": {"type": "object", "properties": {"regex": {"type": "string"}}},
-                "handler": lambda _args: {},
-            }
-        },
-    )
-    state.tool_call_rendered_text.value = None
-
-    result = broker.invoke_tool_broker(
-        {"action": "describe", "name": "grep"},
-        renderer=lambda _name, _result: None,
-        visibility=lambda _name, _spec: True,
-    )
-
-    assert result == {
-        "name": "grep",
-        "description": "Search exact text",
-        "inputSchema": {"type": "object", "properties": {"regex": {"type": "string"}}},
-    }
-    assert (
-        state.tool_call_rendered_text.value == "tools\n→ grep · Search exact text\n    arguments:\n      regex: string"
-    )
 
 
 def test_broker_call_invokes_exact_registered_handler(monkeypatch: pytest.MonkeyPatch) -> None:

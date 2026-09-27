@@ -10,12 +10,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from lemoncrow.core.capabilities.code_intelligence_provider import (
-    create_code_intelligence_provider,
-)
 from lemoncrow.core.foundation.memory_models import MemoryBlock
 from lemoncrow.infra.storage.memory_store import MemoryStore
 from lemoncrow.infra.tree_sitter.tags import detect_language
+from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 from lemoncrow.pro.capabilities.repo_map.graph import iter_source_files
 
 BOOTSTRAP_BLOCK_TYPES = (
@@ -139,7 +137,7 @@ def build_bootstrap_plan(repo_root: str | Path) -> BootstrapPlan:
     # -> native tree-sitter Node objects dropped cross-thread) for the rest
     # of the process's life. Same reasoning as the CLI's one-shot engine
     # (gateway/cli/commands/code.py's _code_context_engine).
-    engine = create_code_intelligence_provider(root, autosync_enabled=False)
+    engine = CodeContextEngine(root, autosync_enabled=False)
     engine.index_repo()
     repo_map = engine.repo_map(budget_tokens=1200)
     outline_payload = engine.file_outline(limit=400, auto_index=False)

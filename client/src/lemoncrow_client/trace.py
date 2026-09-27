@@ -200,23 +200,10 @@ class ClientTraceWriter:
         view_revision: int | None,
         state_token: str = "",
         recoveries: list[str] | None = None,
-        execution_metrics: Mapping[str, int | float] | None = None,
     ) -> None:
         if not self.enabled:
             return
         redact = self.mode == "redacted"
-        execution: dict[str, Any] = {
-            "duration_ms": max(0, int(duration_ms)),
-            "site": site,
-            "state_token": state_token or None,
-            "recoveries": list(recoveries or [])[:16],
-        }
-        if execution_metrics:
-            execution["metrics"] = {
-                str(key): max(0, round(float(value), 3))
-                for key, value in execution_metrics.items()
-                if isinstance(value, (int, float)) and not isinstance(value, bool)
-            }
         record = {
             "schema_version": TRACE_SCHEMA_VERSION,
             "trace_id": trace_id,
@@ -228,7 +215,12 @@ class ClientTraceWriter:
             "workspace": {"id": None, "revision": view_revision},
             "request": {"arguments": sanitize_arguments(arguments, self.mode)},
             "decisions": [],
-            "execution": execution,
+            "execution": {
+                "duration_ms": max(0, int(duration_ms)),
+                "site": site,
+                "state_token": state_token or None,
+                "recoveries": list(recoveries or [])[:16],
+            },
             "outcome": {
                 "is_error": bool(is_error),
                 "degraded": bool(degraded),

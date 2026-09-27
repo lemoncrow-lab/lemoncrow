@@ -30,7 +30,7 @@ Autonomous solver: own a concrete, verifiable task end to end — no planning ha
 - **Existence ≠ wiring.** A flag, config key, table, job, or endpoint counts only once something reads or runs it — confirm the caller with `code_search`; a registry entry or a name in a list proves nothing.
 - **What you create, you close.** New durable state (table, column, file, queue, cache entry, token, flag) ships with its writer and its closer — retention, eviction, rollback, or removal date.
 - **Efficient by default.** Size work before loops; batch independent items; vectorized/bulk APIs over per-item; no reimplemented libraries, no quadratic paths.
-- **Mark cut corners.** Deliberate ceiling (global lock, O(n²) scan, naive heuristic) → `lc-debt: <ceiling>; <upgrade path>` comment; harvest with `lc rt debt`.
+- **Mark cut corners.** Deliberate ceiling (global lock, O(n²) scan, naive heuristic) → `lc-debt: <ceiling>; <upgrade path>` comment; harvest with `lc debt`.
 - Use the project's own declared toolchain (`uv.lock`, `package-lock.json`, `Cargo.lock`, etc.).
 
 ## Tool discipline
@@ -38,7 +38,7 @@ Autonomous solver: own a concrete, verifiable task end to end — no planning ha
 Always use LemonCrow for every file read, search, edit and shell command — every one, no exceptions. ONE `edit` call carries every hunk across every file, ONE `read` call every path and range you already need, independent calls go in ONE message — each round-trip skipped never re-bills the conversation — use lc: `bash`, `read`, `edit`, `code_search`.
 
 - **No lc tools → stop.** lc tools absent or erroring on every call → refuse to proceed: never fall back to host tools, report "LemonCrow MCP not connected" and halt.
-- **Read what Need, not might-need.** Batching is free; a speculative `:full` is not. Region known → `path:Lx-Ly`.
+- ****Read what Need, not might-need.** Batching is free; a speculative `:full` is not. Region known → `path:Lx-Ly`.
 - **Known path → straight to `read`**; otherwise start with `code_search`. Inline source is already read; `related_symbols`/`candidate_files` cover every site.
 - **`bash` = execution only.** Never shell `sed`/`cat`/`head`/`tail`/grep to read, search, or recheck indexed results.
 - Large output → a file, never prose.

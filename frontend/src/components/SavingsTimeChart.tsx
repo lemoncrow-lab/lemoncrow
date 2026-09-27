@@ -26,7 +26,7 @@ export default function SavingsTimeChart({
   windowDays,
 }: SavingsTimeChartProps) {
   if (data.length === 0) {
-    return <div className="text-heading text-muted-foreground">No trend data yet.</div>;
+    return <div className="text-sm text-neutral-400">No trend data yet.</div>;
   }
 
   const maxVal = Math.max(1, ...data.map((d) => d.naive));
@@ -48,8 +48,8 @@ export default function SavingsTimeChart({
   const naivePath = buildAreaPath(naivePoints, baseline);
 
   return (
-    <div className="rounded-lg border border-border/70 bg-background/60 p-3">
-      <div className="mb-2 flex items-center justify-between text-label text-muted-foreground font-mono uppercase tracking-widest">
+    <div className="border border-neutral-800 bg-neutral-950/70 p-3">
+      <div className="mb-2 flex items-center justify-between text-[11px] text-neutral-400 font-mono uppercase tracking-widest">
         <span>{windowDays}-day token trend</span>
         <span>Naive vs Actual</span>
       </div>
@@ -61,12 +61,12 @@ export default function SavingsTimeChart({
       >
         <defs>
           <linearGradient id="naiveFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" style={{ stopColor: "rgb(var(--n-400))", stopOpacity: 0.45 }} />
-            <stop offset="100%" style={{ stopColor: "rgb(var(--n-400))", stopOpacity: 0.08 }} />
+            <stop offset="0%" stopColor="#c084fc" stopOpacity="0.45" />
+            <stop offset="100%" stopColor="#c084fc" stopOpacity="0.08" />
           </linearGradient>
           <linearGradient id="actualFill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" style={{ stopColor: "rgb(var(--ok-solid))", stopOpacity: 0.55 }} />
-            <stop offset="100%" style={{ stopColor: "rgb(var(--ok-solid))", stopOpacity: 0.12 }} />
+            <stop offset="0%" stopColor="#10b981" stopOpacity="0.55" />
+            <stop offset="100%" stopColor="#10b981" stopOpacity="0.12" />
           </linearGradient>
         </defs>
 
@@ -75,7 +75,7 @@ export default function SavingsTimeChart({
           x2={WIDTH - PAD_X}
           y1={baseline}
           y2={baseline}
-          stroke="rgb(var(--n-700))"
+          stroke="#404040"
           strokeWidth="1"
         />
         <line
@@ -83,7 +83,7 @@ export default function SavingsTimeChart({
           x2={PAD_X}
           y1={PAD_Y}
           y2={baseline}
-          stroke="rgb(var(--n-700))"
+          stroke="#404040"
           strokeWidth="1"
         />
 
@@ -100,16 +100,16 @@ export default function SavingsTimeChart({
               y={HEIGHT - 4}
               fontSize="10"
               textAnchor="middle"
-              fill="rgb(var(--n-500))"
+              fill="#737373"
             >
               {d.day.slice(5)}
             </text>
           );
         })}
       </svg>
-      <div className="mt-2 flex items-center gap-4 text-label text-muted-foreground">
+      <div className="mt-2 flex items-center gap-4 text-[11px] text-neutral-400">
         <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-2 w-2 bg-amber-400" />
+          <span className="inline-block h-2 w-2 bg-orange-400" />
           Naive
         </span>
         <span className="inline-flex items-center gap-1">

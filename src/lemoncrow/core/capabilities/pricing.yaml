@@ -1,5 +1,5 @@
 # Built-in pricing overrides for LemonCrow.
-# GPT rates updated September 30, 2026.
+# Updated July 2026.
 #
 # DESIGN PHILOSOPHY:
 # 1. Models known to LiteLLM (like gpt-5.5) are automatically resolved via alias
@@ -13,94 +13,26 @@
 #       economic benefit (like Cursor Auto).
 
 overrides:
-  # Official OpenAI Standard API rates, verified September 30, 2026.
-  # https://developers.openai.com/api/docs/pricing
-  # USD per million tokens; long context is >272K input tokens per request.
-  # Estimates use Standard rates, not subscription charges or Fast/Batch rates.
-  gpt-6.1-sol:
-    input: 2
-    output: 10
-    cache_read: 0.1
-    cache_write: 2.5
-    thinking: 10
-    long_context:
-      threshold: 272000
-      input: 4
-      output: 15
-      cache_read: 0.2
-      cache_write: 5
-  gpt-6-sol:
-    input: 2
-    output: 10
-    cache_read: 0.2
-    cache_write: 2.5
-    thinking: 10
-    long_context:
-      threshold: 272000
-      input: 4
-      output: 15
-      cache_read: 0.4
-      cache_write: 5
-  gpt-6-astra:
-    input: 10
-    output: 50
-    cache_read: 1
-    cache_write: 12.5
-    thinking: 50
-    long_context:
-      threshold: 272000
-      input: 20
-      output: 75
-      cache_read: 2
-      cache_write: 25
-  gpt-6-luna:
-    input: 0.1
-    output: 0.5
-    cache_read: 0.01
-    cache_write: 0.125
-    thinking: 0.5
-    long_context:
-      threshold: 272000
-      input: 0.2
-      output: 0.75
-      cache_read: 0.02
-      cache_write: 0.25
+  # OpenAI GPT-5.6 preview. Cache reads cost 10% of input; cache writes cost
+  # 125% of input. Reasoning tokens are billed at the output rate.
   gpt-5.6-sol:
-    input: 4
-    output: 20
-    cache_read: 0.4
-    cache_write: 5
-    thinking: 20
-    long_context:
-      threshold: 272000
-      input: 8
-      output: 30
-      cache_read: 0.8
-      cache_write: 10
+    input: 5.00
+    output: 30.00
+    cache_read: 0.50
+    cache_write: 6.25
+    thinking: 30.00
   gpt-5.6-terra:
-    input: 2
-    output: 12
-    cache_read: 0.2
-    cache_write: 2.5
-    thinking: 12
-    long_context:
-      threshold: 272000
-      input: 4
-      output: 18
-      cache_read: 0.4
-      cache_write: 5
+    input: 2.50
+    output: 15.00
+    cache_read: 0.25
+    cache_write: 3.125
+    thinking: 15.00
   gpt-5.6-luna:
-    input: 0.2
-    output: 1.2
-    cache_read: 0.02
-    cache_write: 0.25
-    thinking: 1.2
-    long_context:
-      threshold: 272000
-      input: 0.4
-      output: 1.8
-      cache_read: 0.04
-      cache_write: 0.5
+    input: 1.00
+    output: 6.00
+    cache_read: 0.10
+    cache_write: 1.25
+    thinking: 6.00
   # Cursor Agent Auto Mode
   # Routes between GPT-4o, GPT-5, and Claude 3.5 Sonnet.
   # We use GPT-4o as a conservative "market value" proxy.
@@ -246,41 +178,6 @@ overrides:
     cache_write_1h: 4.00
     thinking: 10.00
     context_window: 1000000
-
-  # Claude Sonnet 5.5 — verified against platform.claude.com/docs/en/about-claude/pricing
-  # (Oct 26, 2026): $2/$10, 5m write $2.50, 1h write $4.00, and cache hits at 0.05x the
-  # base input price = $0.10 (Sonnet 5, above, is $0.20; Opus 5.5 shares the 0.05x rule).
-  claude-sonnet-5-5:
-    input: 2.00
-    output: 10.00
-    cache_read: 0.10
-    cache_write: 2.50
-    cache_write_1h: 4.00
-    thinking: 10.00
-    context_window: 1000000
-
-  # Claude Haiku 5.5 — verified against platform.claude.com/docs/en/about-claude/pricing
-  # (Oct 26, 2026). Unlike the models above it is priced by prompt length, each request
-  # on its own: up to 100,000 prompt tokens $0.10/$0.50, 5m write $0.125, 1h write $0.20,
-  # cache hit $0.01; over 100,000 (cache reads and writes count toward the length)
-  # $0.50/$2.50, 5m write $0.625, 1h write $1.00, cache hit $0.05. Without this entry the
-  # id fell through to the nearest-sibling match (Haiku 4.5, $1/$5, ten times too much) and
-  # the review's cost lookup, which accepts only an exact entry, treated it as unpriced.
-  # The 1h write at the higher card is derived by pricing.py from the 5m write ratio (5x).
-  claude-haiku-5-5:
-    input: 0.10
-    output: 0.50
-    cache_read: 0.01
-    cache_write: 0.125
-    cache_write_1h: 0.20
-    thinking: 0.50
-    context_window: 1000000
-    long_context:
-      threshold: 100000
-      input: 0.50
-      output: 2.50
-      cache_read: 0.05
-      cache_write: 0.625
 
   # Nous Research Hermes 4 (hermes-agent CLI is BYOK; OpenRouter market
   # rates, Jul 2026). No published cache discount -- cache reads/writes

@@ -3,7 +3,7 @@
 Single source of truth for:
 - Claude transcript discovery and per-model cost parsing
 - Session savings aggregation (live events + session_stats)
-- savings --segment output formatting (consumed by statusline.sh via ``lc runtime savings --segment``)
+- savings --segment output formatting (consumed by statusline.sh via ``lc savings --segment``)
 
 Previously this logic was spread across:
 - integrations/claude/plugin/scripts/statusline.sh (inline Python heredoc)
@@ -17,7 +17,6 @@ import os
 import re
 import threading
 import time
-from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC
@@ -958,7 +957,7 @@ def _price_savings_row(ev: dict[str, Any]) -> tuple[int, float, int, float, int]
 
     Returns ``(priced_tokens, priced_usd, calls, calls_usd, unpriced_tokens)``.
 
-    The statusline, stop hook, ``lc runtime savings`` CLI, dashboard, and web
+    The statusline, stop hook, ``lc savings`` CLI, dashboard, and web
     Savings page all run rows through this one function so their realized-savings
     numbers agree.  The rule mirrors the long-standing live/statusline pricing:
 
@@ -1139,38 +1138,9 @@ def read_session_end_carry(session_id: str, lemoncrow_root: Path) -> tuple[float
     """
     if not session_id:
         return None
-    try:
-        path = _find_savings_sidecar(session_id, lemoncrow_root)
-    except ValueError:
-        # Not a valid directory segment (e.g. a session key over 128 chars), so
-        # no sidecar can exist for it. Raising here zeroed the dashboard's whole
-        # per-session savings and logged a traceback on every load.
+    path = _find_savings_sidecar(session_id, lemoncrow_root)
+    if not path.exists():
         return None
-    try:
-        st = path.stat()
-    except OSError:
-        return None
-    # The sidecar is append-only: while its file state is unchanged, so is the
-    # answer (the dashboard asks for every session in its window per load).
-    key = (str(path), st.st_ino, st.st_mtime_ns, st.st_size)
-    with _session_end_carry_lock:
-        if key in _session_end_carry_memo:
-            _session_end_carry_memo.move_to_end(key)
-            return _session_end_carry_memo[key]
-    result = _read_session_end_carry(path)
-    with _session_end_carry_lock:
-        _session_end_carry_memo[key] = result
-        if len(_session_end_carry_memo) > _SESSION_END_CARRY_MEMO_MAX:
-            _session_end_carry_memo.popitem(last=False)
-    return result
-
-
-_SESSION_END_CARRY_MEMO_MAX = 4096
-_session_end_carry_memo: OrderedDict[tuple[str, int, int, int], tuple[float, int] | None] = OrderedDict()
-_session_end_carry_lock = threading.Lock()
-
-
-def _read_session_end_carry(path: Path) -> tuple[float, int] | None:
     end_ts = 0.0
     end_carry = 0.0
     end_carry_tokens = 0
@@ -1665,8 +1635,8 @@ def compute_savings_summary(
     to the session_id stored in the workspace's session_state.json (for
     subagent scenarios where the subagent doesn't have its own sidecar).
 
-    Actual usage/cost prefers the measurement-only Claude Mod when available;
-    older sessions fall back to transcript-derived priced usage.
+    Cost baseline (``est_cost_usd``) still comes from the Claude transcript
+    since Claude Code does preserve token-usage entries there.
     """
     result = SavingsSummary()
     # A missing live session id means Claude has not bound this statusline frame
@@ -1764,24 +1734,6 @@ def compute_savings_summary(
         result.display_input_tokens = stats.input_tokens + stats.cache_write_tokens
         result.display_cache_tokens = stats.cache_read_tokens
         result.display_output_tokens = stats.output_tokens
-
-    # Claude Mod measurements are host-owned and deduplicated across the
-    # parent + subagents. Prefer them for every current-usage number shown in
-    # Stop/statusline. Transcript parsing remains the historical fallback.
-    try:
-        from lemoncrow.core.capabilities.claude_mod_usage import load_claude_mod_usage
-
-        measured = load_claude_mod_usage(root_path, session_id)
-    except Exception:
-        measured = None
-    if measured is not None and measured.total_steps > 0:
-        if measured.measured_cost_usd is not None:
-            result.est_cost_usd = measured.measured_cost_usd
-        result.total_tokens = measured.total_tokens
-        result.turns = measured.total_turns
-        result.display_input_tokens = measured.input_tokens + measured.cache_write_tokens
-        result.display_cache_tokens = measured.cache_read_tokens
-        result.display_output_tokens = measured.output_tokens
     # --- context-carry credit (separate display line; never in saved_usd) ---
     if stats is not None and (stats.turn_timestamps or stats.subagent_turn_timestamps):
         # Cap carry at the context the session actually operated in, not the
@@ -2029,29 +1981,9 @@ saved, baseline, share -- is read from this one key, so the headline cannot
 quote a figure from a window it does not name."""
 
 _SAVED_IS_MODELLED = (
-    "Saved is modelled against a no-LemonCrow baseline, not billed: it cannot be subtracted from Spend."
+    "  Saved is a modelled counterfactual against a no-LemonCrow baseline, not\n"
+    "  billed money: it cannot be subtracted from Spend or added to a refund."
 )
-
-ReportLine = tuple[str, str]
-"""``(tag, text)`` for the CLI to style: ``title`` (``name\tdetail``), ``heading``, ``dim``, ``warn`` (a
-``⚠`` line), ``next`` (``label\tcommand``) or ``""``. :func:`plain_lines` renders them unstyled."""
-
-
-def plain_lines(lines: list[ReportLine]) -> str:
-    """Tagged report lines as plain text, the way a pipe or a test reads them."""
-    out: list[str] = []
-    for tag, text in lines:
-        if tag == "title":
-            name, _, detail = text.partition("\t")
-            out.append(f"◆ {name}  {detail}" if detail else f"◆ {name}")
-        elif tag == "warn":
-            out.append(f"  ⚠ {text}")
-        elif tag == "next":
-            label, _, command = text.partition("\t")
-            out.append(f"  → {label} {command}")
-        else:
-            out.append(text)
-    return "\n".join(out)
 
 
 def _spend_for(bucket: dict[str, Any]) -> float | None:
@@ -2086,12 +2018,7 @@ def _spend_provenance(payload: dict[str, Any], window_label: str) -> str:
 
 
 def render_savings_summary(payload: dict[str, Any]) -> str:
-    """The default ``lc runtime savings`` view as plain text; see :func:`savings_summary_lines`."""
-    return plain_lines(savings_summary_lines(payload))
-
-
-def savings_summary_lines(payload: dict[str, Any]) -> list[ReportLine]:
-    """The default ``lc runtime savings`` view as a compact human summary, line by line.
+    """Render the default ``lc savings`` view as a compact human summary.
 
     The headline block is a closed arithmetic statement over ONE named window:
     ``Spend + Saved = Baseline`` and ``Share = Saved / Baseline``. It used to
@@ -2105,7 +2032,7 @@ def savings_summary_lines(payload: dict[str, Any]) -> list[ReportLine]:
     Spend comes from the usage read model (see
     ``lemoncrow.pro.capabilities.usage.spend``), so this screen and
     ``lc usage --since 30d`` read the same rows. The full raw structure stays
-    available via ``lc runtime savings --json``.
+    available via ``lc savings --json``.
     """
 
     def _int(v: Any) -> str:
@@ -2131,39 +2058,35 @@ def savings_summary_lines(payload: dict[str, Any]) -> list[ReportLine]:
     def _row(label: str, value: str, basis: str = "") -> str:
         return f"  {label:<16}{value:>12}" + (f"   {basis}" if basis else "")
 
-    lines: list[ReportLine] = [("title", "LemonCrow savings"), ("", "")]
-
-    def add(text: str, tag: str = "") -> None:
-        lines.append((tag, text))
-
-    add(_row("Window", HEADLINE_WINDOW_LABEL))
+    lines: list[str] = ["LemonCrow savings", "─" * 56]
+    lines.append(_row("Window", HEADLINE_WINDOW_LABEL))
     if spend_w is None:
         # Absent, not zero: say so instead of implying a free window.
-        add(_row("Spend", "unavailable", "the usage read model could not be read"))
+        lines.append(_row("Spend", "unavailable", "the usage read model could not be read"))
     else:
-        add(_row("Spend", _fmt_usd(spend_w), _spend_provenance(payload, HEADLINE_WINDOW_LABEL)))
-    add(_row("Saved (est.)", _fmt_usd(saved_w), "modelled counterfactual, not billed"))
+        lines.append(_row("Spend", _fmt_usd(spend_w), _spend_provenance(payload, HEADLINE_WINDOW_LABEL)))
+    lines.append(_row("Saved (est.)", _fmt_usd(saved_w), "modelled counterfactual, not billed"))
     if spend_w is not None:
         baseline = spend_w + saved_w
-        add(_row("Baseline", _fmt_usd(baseline), "= Spend + Saved, the modelled no-LemonCrow cost"))
+        lines.append(_row("Baseline", _fmt_usd(baseline), "= Spend + Saved, the modelled no-LemonCrow cost"))
         if baseline > 0:
-            add(_row("Share", _fmt_pct(saved_w / baseline * 100), "= Saved / Baseline"))
-    add(_row("Calls avoided", _int(calls)))
-    add(_row("Tokens kept out", _fmt_tok(tokens)))
+            lines.append(_row("Share", _fmt_pct(saved_w / baseline * 100), "= Saved / Baseline"))
+    lines.append(_row("Calls avoided", _int(calls)))
+    lines.append(_row("Tokens kept out", _fmt_tok(tokens)))
     faster_s = float(payload.get("time_saved_seconds") or 0.0)
     if faster_s >= 60:
-        add(_row("Faster (est.)", f"~{fmt_duration(faster_s)}", "fewer round-trips"))
+        lines.append(_row("Faster (est.)", f"~{fmt_duration(faster_s)}", "fewer round-trips"))
     routing_w = float(head.get("routing") or 0.0)
     if routing_w > 0:
-        add(_row("Routing saved", _fmt_usd(routing_w), "model routing · included in Saved"))
+        lines.append(_row("Routing saved", _fmt_usd(routing_w), "model routing · included in Saved"))
 
     if breakdown:
         has_routing = any(float((breakdown.get(k) or {}).get("routing") or 0.0) > 0 for k in ("1D", "7D", "30D"))
-        add("")
+        lines.append("")
         header = f"  {'By window':<12}{'spend':>11}{'saved':>11}{'calls':>8}{'tokens':>10}"
         if has_routing:
             header += f"{'routing':>11}"
-        add(header, "heading")
+        lines.append(header)
         for key, label in (("1D", "1 day"), ("7D", "7 days"), ("30D", "30 days")):
             w = breakdown.get(key) or {}
             w_spend = _spend_for(w)
@@ -2174,35 +2097,41 @@ def savings_summary_lines(payload: dict[str, Any]) -> list[ReportLine]:
             )
             if has_routing:
                 row += f"{_fmt_usd(float(w.get('routing') or 0.0)):>11}"
-            add(row)
+            lines.append(row)
 
-    add("")
-    if lifetime_saved > 0:
-        add(f"  Lifetime saved (all history, modelled): {_fmt_usd(lifetime_saved)}.")
+    lines.append("")
+    lines.append(_SAVED_IS_MODELLED)
     unpriced = int(head.get("spend_unpriced_rows") or 0)
     spend_rows = int(head.get("spend_rows") or 0)
     if unpriced > 0 and spend_w is not None:
-        add(
-            f"{unpriced:,} of {spend_rows:,} rows in this window carry no price and are in neither figure, "
-            "so Spend is a floor and Share an upper bound.",
-            "warn",
+        lines.append(
+            f"  {unpriced:,} of {spend_rows:,} rows in this window carry no price and are in\n"
+            "  neither figure, so Spend is a floor and Share an upper bound."
         )
-    add(f"  {_SAVED_IS_MODELLED}", "dim")
-    add("")
-    # Cost-history details have one canonical command under usage.
-    add("In detail:\tlc usage optimize detail", "next")
-    return lines
+    if lifetime_saved > 0:
+        lines.append(f"  Lifetime saved (all history, modelled): {_fmt_usd(lifetime_saved)}.")
+
+    note = str(payload.get("local_note") or "").strip()
+    if note:
+        lines.append(f"  {note}")
+
+    lines.append("")
+    # Spelled with the promoted names: `lc savings` is a hidden back-compat
+    # alias now, so pointing a reader at it points them at `lc --help` coming up
+    # empty. Both spellings resolve; only one is discoverable.
+    lines.append("  detail: lc usage optimize detail      json: lc usage optimize --json")
+    return "\n".join(lines)
 
 
 def render_savings_markdown(payload: dict[str, Any]) -> str:
-    """Render the ``lc runtime savings`` figures as chat-renderable markdown.
+    """Render the ``lc savings`` figures as chat-renderable markdown.
 
     Same payload and same numbers as :func:`render_savings_summary`; only the
     presentation differs -- no ANSI, no fixed-width columns -- so hosts that
     render markdown (chat UIs, no terminal) show a real table instead of a
     mangled box. Consumed by the ``statusline_segment`` MCP tool
     (``format="markdown"``), which is how the lemoncrow skill answers "what are
-    my savings?" where no shell is available to run ``lc runtime savings``.
+    my savings?" where no shell is available to run ``lc savings``.
 
     Carries the same closed arithmetic as the text view: one named window, and
     ``Spend + Saved = Baseline`` with ``Share = Saved / Baseline``. Lifetime
@@ -3369,14 +3298,6 @@ def aggregate_usage_totals_by_day(root: str | Path, *, since_day: str, today: st
     return by_day
 
 
-def ledger_session_ids(root: str | Path) -> set[str]:
-    """Ids of the sessions the daily public rollup already reports: those with at
-    least one day in the savings ledger (see :func:`aggregate_usage_totals_by_day`).
-    Reporting one of them again per session would count its usage twice."""
-    agg = reconcile_savings_aggregate(Path(root))
-    return {Path(str(key)).name for key, entry in agg.get("sessions", {}).items() if entry.get("days")}
-
-
 def aggregate_usage_totals_since_day(root: str | Path, *, since_day: str, today: str) -> dict[str, float | int]:
     """Whole-window sum of :func:`aggregate_usage_totals_by_day` -- kept for
     callers that want one total rather than the per-day breakdown."""
@@ -3640,7 +3561,7 @@ def savings_frames(
 
     Frames (non-empty only):
       0  cost + I/C/O breakdown, then total saved (realized+output+routing+carry, usage-gated) w/ recycle+carry+output+routing breakdown (weighted 3x)
-      1  runway: turns so far, estimated turns left, including estimated LC contribution (weighted 3x)
+      1  runway: turns left at the current burn + turns LemonCrow bought (weighted 3x)
       2  1-day historical savings
       3  7-day historical savings
       4  30-day historical savings
@@ -3731,18 +3652,14 @@ def savings_frames(
     # Sample first, then read the burn off the ring: both numbers below are
     # measured over recent turns, so /compact rebases them instead of skewing
     # them for the rest of the session.
-    # Input-style savings count cache tokens not re-sent on each request.
-    # They reduce billing repeatedly without freeing that many distinct tokens
-    # in the window. Only one-time context reductions belong in this estimate.
-    runway_ctx_saved = max(0, summary.ctx_saved - summary.input_saved_tokens)
-    _samples = _record_ctx_sample(session_id, root, summary.turns, ctx_tok, runway_ctx_saved)
-    burn, saved_rate, saved_in_window = _burn_rates(_samples, summary.turns, ctx_tok, runway_ctx_saved)
+    _samples = _record_ctx_sample(session_id, root, summary.turns, ctx_tok, summary.ctx_saved)
+    burn, saved_rate, saved_in_window = _burn_rates(_samples, summary.turns, ctx_tok, summary.ctx_saved)
     turns_left = _runway_turns(ctx_tok, ctx_pct, summary.turns, burn)
     if turns_left > 0:
-        runway = f"{C_DIM}{summary.turns} turns {SEP} ~{turns_left} left{C_RESET}"
+        runway = f"{C_DIM}~{turns_left} turns left{C_RESET}"
         from_lc = _runway_turns_from_lemoncrow(saved_in_window, turns_left, burn, saved_rate)
         if from_lc > 0:
-            runway += f" {C_GREEN}(~{from_lc} with lc){C_RESET}"
+            runway += f" {C_GREEN}(+{from_lc} from lc){C_RESET}"
         runway_idx = len(frames)
         frames.append((False, runway))
 
@@ -3819,7 +3736,7 @@ def savings_segment(
 ) -> str:
     """Return ONE pre-formatted rotating statusline frame.
 
-    Subprocess/CLI path (``lc runtime savings --segment``): builds all frames via
+    Subprocess/CLI path (``lc savings --segment``): builds all frames via
     :func:`savings_frames` and picks the current one from the shared rolling
     counter at ``<root>/statusline_frame_state.json`` (advances every
     ``_SEGMENT_INTERVAL_S`` seconds). The MCP sidecar path writes the full

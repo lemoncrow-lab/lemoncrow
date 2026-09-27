@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from lemoncrow.gateway.tools.registry import registered_tools
-from lemoncrow.gateway.tools.surface import mcp_tool_profile, tool_profile_allows_call
+from lemoncrow.gateway.tools.surface import mcp_tool_profile
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,9 +67,6 @@ def prepare_tool_call(
     if name == "run":
         name = "bash"
     args = _normalized_arguments(params)
-
-    if not tool_profile_allows_call(name):
-        raise ToolCallPreparationError(-32601, f"unknown tool: {name}")
 
     tools = registered_tools()
     spec = broker_spec if name == "tool" and mcp_tool_profile() == "core" else tools.get(name)

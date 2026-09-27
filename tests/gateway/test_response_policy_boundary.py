@@ -4,6 +4,12 @@ from lemoncrow.gateway.adapters import mcp_server
 from lemoncrow.gateway.tools import loop_review, savings
 
 
+def test_mcp_reexports_canonical_savings_helpers() -> None:
+    assert mcp_server._coerce_saved_tokens is savings.coerce_saved_tokens
+    assert mcp_server._extract_tokens_saved is savings.extract_tokens_saved
+    assert mcp_server._extract_compact_output_tokens_saved is savings.extract_compact_output_tokens_saved
+
+
 def test_loop_tracker_state_identity_is_preserved() -> None:
     assert mcp_server._loop_tracker_sessions is loop_review.loop_tracker_sessions
     assert mcp_server._LOOP_TRACKER_LOCK is loop_review.LOOP_TRACKER_LOCK

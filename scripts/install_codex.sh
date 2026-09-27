@@ -41,7 +41,6 @@ PLUGIN_ID="lemoncrow@lemoncrow-local"
 ROLES="code"            # comma-separated role ids to install (--roles=code,explore,...)
 INCLUDE_SKILLS=""       # comma-separated public skill names to ship (--include-skills=benchmark,...)
 KEEP_NATIVE_TOOLS=false # --keep-native-tools: leave Codex's duplicated natives enabled
-HOSTED=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -49,7 +48,6 @@ while [[ $# -gt 0 ]]; do
         --print-only) PRINT_ONLY=true ;;
         --strict)     STRICT=true ;;
         --keep-native-tools) KEEP_NATIVE_TOOLS=true ;;
-        --hosted) HOSTED=true ;;
         --workspace)
             if [ $# -lt 2 ]; then
                 echo "Missing value for --workspace" >&2
@@ -83,8 +81,6 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 IFS=',' read -ra ROLES_ARR <<< "$ROLES"
-MCP_ACTION="lite-mcp"
-$HOSTED && MCP_ACTION="mcp"
 
 if $WORKSPACE_SET; then
     WORKSPACE="$(cd "$WORKSPACE" && pwd)"
@@ -112,8 +108,8 @@ MCP_SERVER_KEY="lc"  # single source of truth: server key registered in ${PLUGIN
 CODEX_MARKETPLACE="${MARKETPLACE_ROOT}/.agents/plugins/marketplace.json"
 USER_CODEX_CONFIG="${USER_CODEX_HOME}/config.toml"
 
-info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lc:codex] $*" || true; }
-warn()  { echo "[lc:codex] WARN: $*" >&2; }
+info()  { [[ "${LEMONCROW_VERBOSE:-0}" == "1" ]] && echo "[lemoncrow:codex] $*" || true; }
+warn()  { echo "[lemoncrow:codex] WARN: $*" >&2; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 
 print_manual_steps() {
@@ -146,7 +142,7 @@ fi
 
 if ! command -v codex &>/dev/null; then
     if $STRICT; then
-        echo "[lc:codex] ERROR: 'codex' CLI not found. Install from https://github.com/openai/codex" >&2
+        echo "[lemoncrow:codex] ERROR: 'codex' CLI not found. Install from https://github.com/openai/codex" >&2
         exit 1
     fi
     if $DRY_RUN; then
@@ -193,7 +189,7 @@ resolve_lemoncrow_launcher() {
         [[ -n "$candidate" ]] || candidate="${HOME}/.local/bin/lc"
     fi
     if [[ "$candidate" != /* ]] || [[ ! -x "$candidate" ]]; then
-        echo "[lc:codex] ERROR: cannot resolve an absolute executable for the LemonCrow MCP server" >&2
+        echo "[lemoncrow:codex] ERROR: cannot resolve an absolute executable for the LemonCrow MCP server" >&2
         exit 1
     fi
     printf '%s\n' "$candidate"
@@ -210,7 +206,7 @@ resolve_lemoncrow_runtime_python() {
     lemoncrow_python="$(head -n 1 "$lemoncrow_launcher")"
     lemoncrow_python="${lemoncrow_python#\#!}"
     if [[ "$lemoncrow_python" != /* ]] || [ ! -x "$lemoncrow_python" ]; then
-        echo "[lc:codex] ERROR: cannot resolve LemonCrow Python interpreter from $lemoncrow_launcher" >&2
+        echo "[lemoncrow:codex] ERROR: cannot resolve LemonCrow Python interpreter from $lemoncrow_launcher" >&2
         exit 1
     fi
     printf '%s\n' "$lemoncrow_python"
@@ -221,7 +217,7 @@ resolve_lemoncrow_hook_python() {
     if [[ "${LEMONCROW_BINARY_MODE:-0}" == "1" ]]; then
         lemoncrow_launcher="$(command -v lemoncrow || true)"
         if [ -z "$lemoncrow_launcher" ]; then
-            echo "[lc:codex] ERROR: cannot resolve LemonCrow launcher: 'lemoncrow' is not on PATH" >&2
+            echo "[lemoncrow:codex] ERROR: cannot resolve LemonCrow launcher: 'lemoncrow' is not on PATH" >&2
             exit 1
         fi
         resolve_real_path "$lemoncrow_launcher"
@@ -343,7 +339,7 @@ patch_plugin_hooks() {
     local lemoncrow_python
     lemoncrow_python="$(resolve_lemoncrow_hook_python)"
     if [[ "$lemoncrow_python" != /* ]] || [ ! -x "$lemoncrow_python" ]; then
-        echo "[lc:codex] ERROR: cannot resolve LemonCrow hook runtime from $lemoncrow_python" >&2
+        echo "[lemoncrow:codex] ERROR: cannot resolve LemonCrow hook runtime from $lemoncrow_python" >&2
         exit 1
     fi
     HOOKS_PATH="${PLUGIN_DIR}/hooks/hooks.json" LEMONCROW_PYTHON="$lemoncrow_python" LEMONCROW_REPO_SRC="${LEMONCROW_REPO}/src" python3 - <<'PYEOF'
@@ -364,12 +360,12 @@ PYEOF
 
 patch_plugin_mcp() {
     if $DRY_RUN; then
-        echo "  [dry-run] patch $PLUGIN_MCP_JSON to run an absolute LemonCrow launcher: ${MCP_ACTION} --host codex"
+        echo "  [dry-run] patch $PLUGIN_MCP_JSON to run an absolute LemonCrow launcher: mcp --host codex"
         return
     fi
     local lemoncrow_launcher
     lemoncrow_launcher="$(resolve_lemoncrow_launcher)"
-    PLUGIN_MCP_JSON_PATH="$PLUGIN_MCP_JSON" MCP_SERVER_KEY="$MCP_SERVER_KEY" LEMONCROW_MCP_COMMAND="$lemoncrow_launcher" LEMONCROW_MCP_ACTION="$MCP_ACTION" LEMONCROW_WORKSPACE_MODE="$($WORKSPACE_SET && printf 1 || printf 0)" LEMONCROW_WORKSPACE_VALUE="$WORKSPACE" python3 - <<'PYEOF'
+    PLUGIN_MCP_JSON_PATH="$PLUGIN_MCP_JSON" MCP_SERVER_KEY="$MCP_SERVER_KEY" LEMONCROW_MCP_COMMAND="$lemoncrow_launcher" LEMONCROW_WORKSPACE_MODE="$($WORKSPACE_SET && printf 1 || printf 0)" LEMONCROW_WORKSPACE_VALUE="$WORKSPACE" python3 - <<'PYEOF'
 import json
 import os
 from pathlib import Path
@@ -378,12 +374,9 @@ data = json.loads(path.read_text(encoding="utf-8"))
 server = data.setdefault(os.environ["MCP_SERVER_KEY"], {})
 data.pop("lemoncrow", None)
 server["command"] = os.environ["LEMONCROW_MCP_COMMAND"]
-server["args"] = ["runtime", os.environ["LEMONCROW_MCP_ACTION"], "--host", "codex"]
+server["args"] = ["mcp", "--host", "codex"]
 env = dict(server.get("env") or {})
-if os.environ["LEMONCROW_MCP_ACTION"] == "mcp":
-    env["LEMONCROW_MCP_TOOL_PROFILE"] = "core"
-else:
-    env.pop("LEMONCROW_MCP_TOOL_PROFILE", None)
+env["LEMONCROW_MCP_TOOL_PROFILE"] = "core"
 if os.environ["LEMONCROW_WORKSPACE_MODE"] == "1":
     env["LEMONCROW_WORKSPACE_ROOT"] = os.environ["LEMONCROW_WORKSPACE_VALUE"]
 else:
@@ -397,7 +390,7 @@ PYEOF
 
 verify_plugin_mcp_startup() {
     local command="$1"
-    LEMONCROW_MCP_COMMAND="$command" LEMONCROW_MCP_ACTION="$MCP_ACTION" python3 - <<'PYEOF'
+    LEMONCROW_MCP_COMMAND="$command" python3 - <<'PYEOF'
 import json
 import os
 import subprocess
@@ -419,11 +412,10 @@ requests = [
     {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
 ]
 env = dict(os.environ)
-if os.environ["LEMONCROW_MCP_ACTION"] == "mcp":
-    env["LEMONCROW_MCP_TOOL_PROFILE"] = "core"
+env["LEMONCROW_MCP_TOOL_PROFILE"] = "core"
 try:
     result = subprocess.run(
-        [command, "runtime", os.environ["LEMONCROW_MCP_ACTION"], "--host", "codex"],
+        [command, "mcp", "--host", "codex"],
         input="".join(json.dumps(request) + "\n" for request in requests),
         text=True,
         capture_output=True,
@@ -432,7 +424,7 @@ try:
         check=False,
     )
 except (OSError, subprocess.TimeoutExpired) as exc:
-    print(f"[lc:codex] MCP startup probe failed: {exc}", file=sys.stderr)
+    print(f"[lemoncrow:codex] MCP startup probe failed: {exc}", file=sys.stderr)
     raise SystemExit(1)
 
 responses = {}
@@ -450,9 +442,9 @@ tool_names = {
     for tool in listed.get("tools", [])
     if isinstance(tool, dict) and isinstance(tool.get("name"), str)
 }
-if result.returncode != 0 or initialized.get("serverInfo", {}).get("name") != ("lc" if os.environ["LEMONCROW_MCP_ACTION"] == "mcp" else "lemoncrow-runtime-lite") or not {"read", "bash"} <= tool_names:
+if result.returncode != 0 or initialized.get("serverInfo", {}).get("name") != "lc" or not {"read", "bash"} <= tool_names:
     print(
-        "[lc:codex] MCP startup probe did not initialize lc with core tools\n"
+        "[lemoncrow:codex] MCP startup probe did not initialize lc with core tools\n"
         f"exit={result.returncode}\nstdout={result.stdout[-2000:]}\nstderr={result.stderr[-2000:]}",
         file=sys.stderr,
     )
@@ -492,7 +484,7 @@ if text:
     text += "\n"
 if text != original:
     path.write_text(text, encoding="utf-8")
-    print(f"[lc:codex] removed obsolete LemonCrow config entries from {path}")
+    print(f"[lemoncrow:codex] removed obsolete LemonCrow config entries from {path}")
 PYEOF
 }
 
@@ -514,50 +506,41 @@ PYEOF
 # would rather keep that fallback than the savings.
 # Each key is tagged so uninstall_codex.sh removes exactly what we set.
 CODEX_TOOL_MARKER="# lemoncrow:native-tool-substitution"
+CODEX_TOOL_MARKER="# lemoncrow:native-tool-substitution"
 write_codex_tool_config() {
-    if $DRY_RUN; then
-        if $KEEP_NATIVE_TOOLS; then
-            echo "  [dry-run] enable Codex plugin hooks; leave native tools enabled in ${CODEX_CONFIG}"
-        else
-            echo "  [dry-run] enable Codex plugin hooks and disable natives replaced by LemonCrow tools in ${CODEX_CONFIG}"
-        fi
+    if $KEEP_NATIVE_TOOLS; then
+        info "--keep-native-tools: leaving Codex native tools enabled"
         return
     fi
-    if $KEEP_NATIVE_TOOLS; then
-        info "--keep-native-tools: leaving Codex native tools enabled; lifecycle hooks remain enabled"
+    if $DRY_RUN; then
+        echo "  [dry-run] disable Codex natives replaced by LemonCrow tools in ${CODEX_CONFIG}"
+        return
     fi
     backup_file "$CODEX_CONFIG"
     mkdir -p "$(dirname "$CODEX_CONFIG")"
-    LEMONCROW_KEEP_NATIVE_TOOLS="$($KEEP_NATIVE_TOOLS && printf 1 || printf 0)" CODEX_CONFIG_PATH="$CODEX_CONFIG" CODEX_TOOL_MARKER="$CODEX_TOOL_MARKER" python3 - <<'PYEOF'
+    CODEX_CONFIG_PATH="$CODEX_CONFIG" CODEX_TOOL_MARKER="$CODEX_TOOL_MARKER" python3 - <<'PYEOF'
 import os
 import re
 from pathlib import Path
 
 path = Path(os.environ["CODEX_CONFIG_PATH"])
 marker = os.environ["CODEX_TOOL_MARKER"]
-keep_native_tools = os.environ.get("LEMONCROW_KEEP_NATIVE_TOOLS") == "1"
 # table -> key -> (value, why-it-is-safe-to-drop); "" = top-level key
 DESIRED = {
     "features": {
-        "hooks": ("true", "LemonCrow lifecycle capture requires Codex plugin hooks"),
+        "shell_tool": ("false", "lc.bash replaces it"),
+        "unified_exec": ("false", "the other half of native exec; lc.bash replaces it"),
+        "multi_agent": ("false", "LemonCrow role agents replace the spawn_agent family"),
+        "browser_use": ("false", "not part of the LemonCrow tool loop"),
+        "computer_use": ("false", "not part of the LemonCrow tool loop"),
+        "in_app_browser": ("false", "not part of the LemonCrow tool loop"),
+        "image_generation": ("false", "not part of the LemonCrow tool loop"),
+        "goals": ("false", "LemonCrow tracks task state itself"),
+    },
+    "": {
+        "web_search": ('"disabled"', "lc.web_fetch replaces it"),
     },
 }
-if not keep_native_tools:
-    DESIRED["features"].update(
-        {
-            "shell_tool": ("false", "lc.bash replaces it"),
-            "unified_exec": ("false", "the other half of native exec; lc.bash replaces it"),
-            "multi_agent": ("false", "LemonCrow role agents replace the spawn_agent family"),
-            "browser_use": ("false", "not part of the LemonCrow tool loop"),
-            "computer_use": ("false", "not part of the LemonCrow tool loop"),
-            "in_app_browser": ("false", "not part of the LemonCrow tool loop"),
-            "image_generation": ("false", "not part of the LemonCrow tool loop"),
-            "goals": ("false", "LemonCrow tracks task state itself"),
-        }
-    )
-    DESIRED[""] = {
-        "web_search": ('"disabled"', "lc.web_fetch replaces it"),
-    }
 
 lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
 changed = False
@@ -633,7 +616,7 @@ for table, keys in DESIRED.items():
             changed = replace_line(hit, rendered) or changed
 if changed:
     path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
-    print(f"[lc:codex] disabled Codex natives replaced by LemonCrow tools in {path}")
+    print(f"[lemoncrow:codex] disabled Codex natives replaced by LemonCrow tools in {path}")
 PYEOF
 }
 write_marketplace() {
@@ -707,7 +690,7 @@ for path in cache_root.iterdir():
         if path.lstat().st_mtime > cutoff:
             continue
         path.unlink()
-        print(f"[lc:codex] pruned old plugin cache alias: {path}")
+        print(f"[lemoncrow:codex] pruned old plugin cache alias: {path}")
     except FileNotFoundError:
         pass
 PYEOF
@@ -738,7 +721,7 @@ for raw in snapshot.read_text(encoding="utf-8").splitlines():
         continue
     try:
         old.symlink_to(target, target_is_directory=True)
-        print(f"[lc:codex] preserved running-session plugin cache path: {old} -> {target}")
+        print(f"[lemoncrow:codex] preserved running-session plugin cache path: {old} -> {target}")
     except FileExistsError:
         pass
 PYEOF
@@ -785,7 +768,7 @@ repo_root = Path(os.environ["LEMONCROW_REPO_VALUE"])
 workspace = Path(os.environ["LEMONCROW_WORKSPACE_VALUE"]) if os.environ["LEMONCROW_WORKSPACE_MODE"] == "1" else None
 role_ids = tuple(r for r in os.environ["LEMONCROW_ROLES_VALUE"].split(",") if r)
 written = write_codex_agents(agents_dir, model_workspace=workspace, repo_root=repo_root, role_ids=role_ids)
-print(f"[lc:codex] projected {len(written)} custom Codex agents into {agents_dir}")
+print(f"[lemoncrow:codex] projected {len(written)} custom Codex agents into {agents_dir}")
 PYEOF
 }
 
@@ -819,7 +802,7 @@ fi
 info "Running post-install verification..."
 VFAIL=0
 vpass() { info "PASS: $*"; }
-vfail() { echo "[lc:codex] FAIL: $*" >&2; VFAIL=1; }
+vfail() { echo "[lemoncrow:codex] FAIL: $*" >&2; VFAIL=1; }
 vwarn() { warn "$*"; }
 
 [ -f "${PLUGIN_DIR}/.codex-plugin/plugin.json" ] && vpass "Codex plugin manifest installed" || vfail "Codex plugin manifest missing"
@@ -840,15 +823,15 @@ PYEOF
     MCP_COMMAND="$(printf '%s\n' "$MCP_STATUS" | sed -n '1p')"
     MCP_ARGS="$(printf '%s\n' "$MCP_STATUS" | sed -n '2p')"
     MCP_WORKSPACE_ROOT="$(printf '%s\n' "$MCP_STATUS" | sed -n '3p')"
-    if [[ "$MCP_COMMAND" == /* ]] && [[ -x "$MCP_COMMAND" ]] && [[ "$MCP_ARGS" = "runtime ${MCP_ACTION} --host codex" ]]; then
-        vpass "plugin MCP config points at executable $MCP_COMMAND runtime ${MCP_ACTION} --host codex"
+    if [[ "$MCP_COMMAND" == /* ]] && [[ -x "$MCP_COMMAND" ]] && [[ "$MCP_ARGS" = "mcp --host codex" ]]; then
+        vpass "plugin MCP config points at executable $MCP_COMMAND mcp --host codex"
         if verify_plugin_mcp_startup "$MCP_COMMAND"; then
             vpass "local lc MCP initializes and lists its core tools"
         else
             vfail "local lc MCP failed its initialize/tools-list probe"
         fi
     else
-        vfail "plugin MCP config must use an absolute executable path with args: runtime ${MCP_ACTION} --host codex"
+        vfail "plugin MCP config must use an absolute executable path with args: mcp --host codex"
     fi
     if $WORKSPACE_SET && [ "$MCP_WORKSPACE_ROOT" != "$WORKSPACE" ]; then vfail "plugin MCP config expected LEMONCROW_WORKSPACE_ROOT=$WORKSPACE"; fi
 else
@@ -877,21 +860,6 @@ else
     vfail "Codex plugin lifecycle hooks missing"
 fi
 
-CODEX_HOOKS_ENABLED="$(CODEX_CONFIG_PATH="$CODEX_CONFIG" python3 - <<'PYEOF'
-import os
-import tomllib
-from pathlib import Path
-
-path = Path(os.environ["CODEX_CONFIG_PATH"])
-try:
-    data = tomllib.loads(path.read_text(encoding="utf-8"))
-except (OSError, tomllib.TOMLDecodeError):
-    data = {}
-print("yes" if (data.get("features") or {}).get("hooks") is True else "no")
-PYEOF
-)"
-[ "$CODEX_HOOKS_ENABLED" = "yes" ] && vpass "Codex lifecycle hook feature enabled" || vfail "Codex lifecycle hook feature is disabled"
-
 [ -f "$AGENTS_FILE" ] && grep -q "lemoncrow:code" "$AGENTS_FILE" 2>/dev/null && vpass "AGENTS.md contains LemonCrow instructions" || vfail "AGENTS.md missing or has no lemoncrow:code persona"
 
 # EXPECTED_AGENT_IDS mirrors whatever --roles requested (default: code only).
@@ -918,7 +886,7 @@ LEMONCROW_STATUS_COMMAND="$(resolve_lemoncrow_launcher)"
 "$LEMONCROW_STATUS_COMMAND" status --help >/dev/null 2>&1 && vpass "lemoncrow status command is available at $LEMONCROW_STATUS_COMMAND" || vfail "lemoncrow status command unavailable"
 
 if [ "$VFAIL" -ne 0 ]; then
-    echo "[lc:codex] ERROR: post-install verification failed." >&2
+    echo "[lemoncrow:codex] ERROR: post-install verification failed." >&2
     exit 1
 fi
 if $PLUGIN_INSTALL_PENDING; then warn "Installation succeeded; plugin activation will complete after Codex restart or manual enablement in /plugins."; fi

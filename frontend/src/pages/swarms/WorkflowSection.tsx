@@ -1,4 +1,3 @@
-import { Button as UiButton } from "../../components/ui/button";
 import { useEffect, useMemo, useState } from "react";
 import { Pause, RefreshCw, Square } from "lucide-react";
 import { api, type WorkflowCurrentDetail } from "../../api";
@@ -13,8 +12,7 @@ import {
   cx,
 } from "../../components/WorkbenchUI";
 import { fmtDate } from "../../lib/format";
-import { setVisibleInterval } from "../../lib/visibleInterval";
-import { statusChipTone } from "../../lib/status";
+import { statusTone } from "../../lib/status";
 
 function snippet(value: unknown): string {
   if (value == null) return "{}";
@@ -56,7 +54,10 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
   }, [projectRoot]);
 
   useEffect(() => {
-    return setVisibleInterval(loadCurrent, 15000);
+    const intervalId = window.setInterval(() => {
+      void loadCurrent();
+    }, 15000);
+    return () => window.clearInterval(intervalId);
   }, [projectRoot]);
 
   const summary = detail?.summary;
@@ -117,7 +118,7 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
       </div>
 
       {error ? (
-        <Card className="border-red-500/30 bg-red-500/10 p-3 text-heading text-red-100">
+        <Card className="border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-100">
           {error}
         </Card>
       ) : null}
@@ -126,10 +127,10 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
         <Card className="space-y-3 p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-heading font-semibold uppercase tracking-tag text-muted-foreground">
+              <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">
                 Snapshot
               </h2>
-              <p className="text-heading text-muted-foreground">
+              <p className="text-sm text-slate-500">
                 There is at most one current workflow snapshot per workspace.
               </p>
             </div>
@@ -137,33 +138,33 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
           </div>
 
           {loading ? (
-            <p className="text-heading text-muted-foreground">Loading workflow snapshot…</p>
+            <p className="text-sm text-slate-500">Loading workflow snapshot…</p>
           ) : hasSnapshot && summary ? (
-            <UiButton unstyled
+            <button
               type="button"
-              className="w-full border border-input/40 bg-muted-foreground/10 px-3 py-3 text-left"
+              className="w-full border border-brand-500/40 bg-brand-500/10 px-3 py-3 text-left"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="truncate text-heading font-semibold text-foreground">
+                  <div className="truncate text-sm font-semibold text-neutral-100">
                     {summary.workflow_id || "Current workflow"}
                   </div>
-                  <div className="mt-1 text-body text-muted-foreground">
+                  <div className="mt-1 text-xs text-slate-400">
                     run_id: {summary.run_id}
                   </div>
                 </div>
-                <Chip tone={statusChipTone(summary.status)}>{summary.status}</Chip>
+                <Chip tone={statusTone(summary.status)}>{summary.status}</Chip>
               </div>
-              <div className="mt-3 grid gap-2 text-body text-muted-foreground">
+              <div className="mt-3 grid gap-2 text-xs text-slate-400">
                 <div>current step: {summary.current_step || "—"}</div>
                 <div>
                   progress: {summary.completed_steps}/{summary.step_count}
                 </div>
                 <div>updated: {fmtDate(summary.updated_at)}</div>
               </div>
-            </UiButton>
+            </button>
           ) : (
-            <Card className="border-dashed border-border bg-background/60 p-4 text-heading text-muted-foreground">
+            <Card className="border-dashed border-neutral-800 bg-neutral-950/60 p-4 text-sm text-slate-500">
               No persisted workflow snapshot for this workspace yet.
             </Card>
           )}
@@ -171,7 +172,7 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
 
         <div className="space-y-4">
           {!hasSnapshot || !detail || !summary ? (
-            <Card className="border-dashed border-border/70 bg-background/60 p-4 text-heading text-muted-foreground">
+            <Card className="border-dashed border-neutral-800 bg-neutral-950/60 p-6 text-sm text-slate-500">
               Run a workflow first, then this section will show its persisted
               state, route, review metadata, and step outputs.
             </Card>
@@ -181,26 +182,26 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
                 <Card className="p-4">
                   <FieldLabel>Status</FieldLabel>
                   <div className="mt-2 flex items-center gap-2">
-                    <Chip tone={statusChipTone(summary.status)}>
+                    <Chip tone={statusTone(summary.status)}>
                       {summary.status}
                     </Chip>
                   </div>
                 </Card>
                 <Card className="p-4">
                   <FieldLabel>Current step</FieldLabel>
-                  <div className="mt-2 text-heading text-foreground">
+                  <div className="mt-2 text-sm text-neutral-100">
                     {summary.current_step || "—"}
                   </div>
                 </Card>
                 <Card className="p-4">
                   <FieldLabel>Progress</FieldLabel>
-                  <div className="mt-2 text-heading text-foreground">
+                  <div className="mt-2 text-sm text-neutral-100">
                     {summary.completed_steps}/{summary.step_count}
                   </div>
                 </Card>
                 <Card className="p-4">
                   <FieldLabel>Review decision</FieldLabel>
-                  <div className="mt-2 text-heading text-foreground">
+                  <div className="mt-2 text-sm text-neutral-100">
                     {summary.review_decision || "pending / none"}
                   </div>
                 </Card>
@@ -209,10 +210,10 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
               <Card className="space-y-4 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <h2 className="text-heading font-semibold uppercase tracking-tag text-muted-foreground">
+                    <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">
                       Actions
                     </h2>
-                    <p className="text-heading text-muted-foreground">
+                    <p className="text-sm text-slate-500">
                       Pause/stop affect the persisted snapshot only. Resume
                       payloads are copyable because the actual resume path still
                       runs through the host workflow tool.
@@ -278,7 +279,7 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
                         />
                       ) : null}
                     </div>
-                    <p className="text-body text-muted-foreground">
+                    <p className="text-xs text-slate-500">
                       {detail.notes.summary}
                     </p>
                   </div>
@@ -314,10 +315,10 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
               <Card className="space-y-3 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-heading font-semibold uppercase tracking-tag text-muted-foreground">
+                    <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">
                       Step outputs
                     </h2>
-                    <p className="text-heading text-muted-foreground">
+                    <p className="text-sm text-slate-500">
                       Expand each step to inspect output, error state, and
                       execution receipt.
                     </p>
@@ -331,27 +332,27 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
                       <details
                         key={stepId}
                         className={cx(
-                          "border bg-background/50 px-4 py-3",
+                          "border bg-neutral-950/50 px-4 py-3",
                           summary.current_step === stepId
-                            ? "border-input/40"
-                            : "border-border"
+                            ? "border-brand-500/40"
+                            : "border-neutral-800"
                         )}
                         open={summary.current_step === stepId}
                       >
                         <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2">
                           <div className="min-w-0">
-                            <div className="font-semibold text-foreground">
+                            <div className="font-semibold text-neutral-100">
                               {stepId}
                             </div>
-                            <div className="mt-1 text-body text-muted-foreground">
+                            <div className="mt-1 text-xs text-slate-500">
                               {result?.kind || "step"}
                             </div>
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
-                            <Chip tone={statusChipTone(result?.status || "idle")}>
+                            <Chip tone={statusTone(result?.status || "idle")}>
                               {result?.status || "unknown"}
                             </Chip>
-                            <span className="text-body text-muted-foreground">
+                            <span className="text-xs text-slate-500">
                               {result?.duration_seconds
                                 ? `${result.duration_seconds.toFixed(2)}s`
                                 : "—"}
@@ -378,7 +379,7 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-heading text-muted-foreground">
+                  <p className="text-sm text-slate-500">
                     No step outputs persisted yet.
                   </p>
                 )}
@@ -387,25 +388,25 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
               <Card className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-4">
                 <div>
                   <FieldLabel>Workspace</FieldLabel>
-                  <div className="mt-2 break-all text-heading text-foreground">
+                  <div className="mt-2 break-all text-sm text-neutral-100">
                     {detail.workspace_root || "—"}
                   </div>
                 </div>
                 <div>
                   <FieldLabel>Created</FieldLabel>
-                  <div className="mt-2 text-heading text-foreground">
+                  <div className="mt-2 text-sm text-neutral-100">
                     {fmtDate(summary.created_at)}
                   </div>
                 </div>
                 <div>
                   <FieldLabel>Updated</FieldLabel>
-                  <div className="mt-2 text-heading text-foreground">
+                  <div className="mt-2 text-sm text-neutral-100">
                     {fmtDate(summary.updated_at)}
                   </div>
                 </div>
                 <div>
                   <FieldLabel>Session phase</FieldLabel>
-                  <div className="mt-2 text-heading text-foreground">
+                  <div className="mt-2 text-sm text-neutral-100">
                     {summary.session_phase || "—"}
                   </div>
                 </div>

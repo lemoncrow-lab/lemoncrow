@@ -2,13 +2,18 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ValidationError
 
-from lemoncrow.gateway.adapters.mcp.errors import tool_exception_response
+from lemoncrow.gateway.adapters import mcp_server
+from lemoncrow.gateway.adapters.mcp.errors import tool_error_code, tool_exception_response
 from lemoncrow.gateway.adapters.mcp.framework import _ToolArgumentError
 from lemoncrow.infra.storage.memory_store import MemoryConcurrencyError, MemorySidecarUnavailable
 
 
 class _Required(BaseModel):
     value: int
+
+
+def test_mcp_server_reexports_canonical_error_code_helper() -> None:
+    assert mcp_server._tool_error_code is tool_error_code
 
 
 def test_argument_error_keeps_invalid_params_code() -> None:

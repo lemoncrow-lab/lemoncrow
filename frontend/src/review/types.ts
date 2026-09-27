@@ -8,8 +8,6 @@
  * a value invites the UI to invent one.
  */
 
-import type { AgentActionApproval, AgentApproval } from "./agentApprovalsApi";
-
 export type MarkState =
   | "unreviewed"
   | "reviewed"
@@ -46,18 +44,6 @@ export interface ReviewOutcomeProjection {
   history: ReviewOutcome[];
 }
 
-/**
- * A reviewer's scoped request, supplied by a hosted composition. Its targets
- * are the default queue and Brief; every other target stays reachable behind a
- * visible "outside your request" control. Matching is the server's own rule:
- * a `paths` scope names target paths, a `targets` scope names unit keys.
- */
-export interface ReviewRequestScope {
-  kind: "paths" | "targets";
-  values: readonly string[];
-  requestedBy?: string;
-}
-
 export interface ReviewTargetSpan {
   side: "old" | "new";
   start_line: number;
@@ -68,7 +54,7 @@ export interface ReviewTargetSpan {
 export interface ReviewTarget {
   target_id: string;
   unit_key: string;
-  kind: "symbol" | "hunk" | "file" | "dependency" | "document_section";
+  kind: "symbol" | "hunk" | "file" | "dependency";
   path: string;
   label: string;
   symbol: string;
@@ -87,49 +73,6 @@ export interface ReviewTarget {
   fingerprint_method: string;
   verification: { pass: number; fail: number; unknown: number };
   annotation_counts: { open: number; orphaned: number; addressed_needs_rereview: number };
-  /** Canonical queue placement from the server; clients never re-rank. */
-  priority?: ReviewTargetPriority;
-  /**
-   * Movement since what this reviewer last judged (or the previous Snapshot).
-   * `base_only`: only the diff base moved under it (rebase/merge-base); its
-   * authored patch is equivalent and the judgment was kept. Undecidable cases
-   * are `authored`, never `base_only`.
-   */
-  movement?: ReviewTargetMovement;
-}
-
-export type ReviewTargetMovement = "unchanged" | "authored" | "base_only" | "added";
-
-/** Deterministic classification of what moved between two Snapshots (Phase 9 item 34). */
-export interface ReviewMovementSummary {
-  kind: "none" | "authored" | "base_only" | "rebase_only" | "rebase_with_authored_changes";
-  base_moved: boolean;
-  head_moved: boolean;
-  deterministic: boolean;
-  base_only_paths: string[];
-  authored_paths: string[];
-  undecided_paths: string[];
-  unit_counts: { unchanged: number; authored: number; base_only: number; added: number; removed: number };
-  reason: string;
-  relative_to: "your_review" | "previous_snapshot";
-  from_revision_number: number;
-  base_only_targets: number;
-  authored_targets: number;
-}
-
-export interface ReviewPriorityReason {
-  code: string;
-  /** Display text; never parsed by clients. */
-  detail: string;
-}
-
-export interface ReviewTargetPriority {
-  version: number;
-  tier: number;
-  attention: "review_first" | "understand" | "routine" | "done";
-  outstanding: boolean;
-  position: number;
-  reasons: ReviewPriorityReason[];
 }
 
 export interface ReviewProgress {
@@ -153,16 +96,6 @@ export interface ReviewOutlineItem {
   mechanical: number;
   attention_rank: number;
   reasons: string[];
-  section?: "review_first" | "unreviewed" | "mechanical" | "done";
-  position?: number;
-  next_target_id?: string;
-  next_reason?: string;
-  next_reason_code?: string;
-  review_first?: number;
-  understand?: number;
-  routine?: number;
-  /** Stable per-file paging weight supplied by the large-review startup index. */
-  changed_lines?: number;
 }
 
 export interface ReviewTargetList {
@@ -171,9 +104,6 @@ export interface ReviewTargetList {
   targets: ReviewTarget[];
   progress: ReviewProgress;
   outline: ReviewOutlineItem[];
-  movement?: ReviewMovementSummary | null;
-  /** False only for the bounded large-review startup projection. */
-  complete?: boolean;
 }
 
 /** How the Reader presents a plugin artifact; the surface kind is never consulted. */
@@ -253,83 +183,8 @@ export interface ReviewSurfaceRunResponse {
   result: ReviewSurfaceRunResult;
 }
 
-export type ReviewRuntimeValidationStatus =
-  | "PASS"
-  | "FAIL"
-  | "UNKNOWN"
-  | "NOT_RUN"
-  | "QUEUED"
-  | "RUNNING"
-  | "CANCEL_REQUESTED"
-  | "SUCCEEDED"
-  | "FAILED"
-  | "CANCELLED"
-  | string;
-
-export interface ReviewRuntimeValidationRequest {
-  identity: string;
-  review_id: string;
-  revision_id: string;
-  snapshot_identity: string;
-  scenario_kind: "browser" | "surface" | string;
-  scenario_id: string;
-  side: "old" | "new";
-  viewport_key: string;
-  runtime_id: string;
-  runtime_config_digest: string;
-  trusted_policy_digest: string;
-  scope_digest: string;
-  target_ids: string[];
-  schema_version: number;
-  execution_version: number;
-}
-
-export interface ReviewRuntimeValidationJob {
-  job_id?: string;
-  state: string;
-  attempt?: number;
-  retry_count?: number;
-  reclaim_count?: number;
-  cancel_requested?: boolean;
-  last_error?: string;
-  detail?: string;
-  execution_intent?: "current" | "explicit_historical" | string;
-  historical?: boolean;
-  superseded?: boolean;
-  publication_state?: "current" | "historical" | "superseded" | string;
-  result_refs?: string[];
-  evidence_refs?: string[];
-}
-
-export interface ReviewRuntimeValidationRecord {
-  status: ReviewRuntimeValidationStatus;
-  status_reasons?: string[];
-  summary?: string;
-  deterministic_checks?: Array<{
-    name: string;
-    status: "PASS" | "FAIL" | "UNKNOWN" | string;
-    expected?: unknown;
-    actual?: unknown;
-    detail?: string;
-  }>;
-  job?: ReviewRuntimeValidationJob;
-}
-
-export interface ReviewRuntimeValidationResponse {
-  request: ReviewRuntimeValidationRequest;
-  reused: boolean;
-  execution_intent?: "current" | "explicit_historical" | string;
-  historical?: boolean;
-  runtime_validation: ReviewRuntimeValidationRecord;
-  evidence?: ReviewEvidence;
-  verification: ReviewVerificationProjection;
-}
-
-export type ReviewMapLevel = "architecture" | "file" | "symbol";
-export type ReviewMapLane = "used_by" | "uses" | "";
-export type ReviewMapExactness = "snapshot" | "current_index" | "inferred" | "unknown";
-export type ReviewMapProjection = "change_map" | "architecture_delta";
-export type ReviewArchitectureDeltaStatus = "added" | "removed" | "changed" | "unchanged" | "context_only" | "unknown";
+export type ReviewMapLevel = "architecture" | "symbol";
+export type ReviewMapExactness = "snapshot" | "current_index";
 export type ReviewMapStatus = "changed" | "new" | "impacted" | "context";
 
 export interface ReviewMapSelection {
@@ -351,17 +206,12 @@ export interface ReviewMapSelection {
   source_id?: string;
   target_id?: string;
   relation?: string;
-  projection?: ReviewMapProjection | string;
-  delta_status?: ReviewArchitectureDeltaStatus | string;
-  architecture_source?: string;
-  architecture_comparison?: string;
 }
 
 export interface ReviewMapMemberSymbol {
   id: string;
   label: string;
   qualified_name: string;
-  kind?: string;
   path: string;
   line: number;
   end_line: number;
@@ -370,18 +220,6 @@ export interface ReviewMapMemberSymbol {
   usage_count: number;
   centrality_rank: number | null;
   centrality_percentile: number | null;
-  target_ids?: string[];
-}
-
-export interface ReviewMapReviewProgress {
-  targets: number;
-  reviewed: number;
-  needs_changes: number;
-  changed_since_review: number;
-  open_threads: number;
-  attention: "high" | "normal" | "mechanical" | "";
-  outstanding?: number;
-  next_position?: number;
 }
 
 export interface ReviewMapNode {
@@ -390,24 +228,11 @@ export interface ReviewMapNode {
   qualified_name?: string;
   kind: string;
   component?: string;
-  /** Parent directory; absent from older servers (derive from `path`). */
-  module?: string;
-  /** Which side of the change a surrounding file sits on; "" for the subject. */
-  lane?: ReviewMapLane;
   path: string;
   line: number;
   end_line: number;
   status: ReviewMapStatus;
   change?: string;
-  old_path?: string;
-  additions?: number;
-  deletions?: number;
-  category?: string;
-  language?: string;
-  rank?: number;
-  reasons?: string[];
-  review?: ReviewMapReviewProgress | null;
-  symbol_count?: number;
   exactness: ReviewMapExactness;
   changed_file_count?: number;
   impacted_file_count?: number;
@@ -430,8 +255,6 @@ export interface ReviewMapNode {
   centrality_percentile?: number | null;
   relationship_count?: number;
   provenance?: { host?: string; model?: string; certainty?: string; method?: string };
-  delta_status?: ReviewArchitectureDeltaStatus | string;
-  architecture_provenance?: ReviewArchitectureProvenance;
   selection: ReviewMapSelection;
 }
 
@@ -442,147 +265,9 @@ export interface ReviewMapEdge {
   kind: string;
   exactness: ReviewMapExactness;
   weight: number;
-  base_weight?: number;
-  snapshot_weight?: number;
-  delta_status?: ReviewArchitectureDeltaStatus | string;
-  architecture_provenance?: ReviewArchitectureProvenance;
   uncertain: boolean;
-  evidence?: { kind: string; path: string; line: number; uncertainty: string; symbol?: string; snippet?: string }[];
-  /** Names the relationship lands on, most frequent first. */
-  symbols?: { name: string; count: number }[];
+  evidence?: { kind: string; path: string; line: number; uncertainty: string }[];
   selection: ReviewMapSelection;
-}
-
-export interface ReviewMapStats {
-  changed_files?: number;
-  new_files?: number;
-  deleted_files?: number;
-  impacted_files?: number;
-  context_files?: number;
-  shown_changed?: number;
-  shown_impacted?: number;
-  shown_context?: number;
-  relationships?: number;
-  shown_relationships?: number;
-  filtered_relationships?: number;
-  filtered_reasons?: Record<string, number>;
-  architecture_changed_edges?: number;
-  architecture_context_edges?: number;
-  /** Symbol focus: outgoing calls could be attributed to the symbol's exact span. */
-  outgoing_attributed?: boolean;
-}
-
-export interface ReviewArchitectureProvenance {
-  source: "snapshot_comparison" | "snapshot_fact" | "current_index" | "inferred_explanation" | "unavailable" | string;
-  exactness: ReviewMapExactness | string;
-  comparison: "base_vs_snapshot" | "none" | string;
-  note: string;
-}
-
-export interface ReviewArchitectureComponent {
-  id: string;
-  label: string;
-  delta_status: ReviewArchitectureDeltaStatus | string;
-  base_file_count: number;
-  snapshot_file_count: number;
-  paths: string[];
-  paths_truncated: boolean;
-}
-
-export interface ReviewArchitectureFlowStep {
-  edge_id: string;
-  from: string;
-  to: string;
-  relationship: string;
-  delta_status: ReviewArchitectureDeltaStatus | string;
-  base_weight: number;
-  snapshot_weight: number;
-  /** Observed when a planned run's call trace on this side matched the step; otherwise inferred (R7). */
-  grounding?: "observed" | "inferred";
-  trace?: {
-    side: "base" | "head";
-    caller_fn: string;
-    callee_fn: string;
-    recipe: string;
-    evidence_ref: string;
-    record_id: string;
-  } | null;
-}
-
-export interface ReviewObservedCall {
-  from: string;
-  from_fn: string;
-  to: string;
-  to_fn: string;
-  evidence_ref: string;
-}
-
-export interface ReviewArchitectureObservedFlow {
-  available: boolean;
-  comparable: boolean;
-  grounded_steps: number;
-  inferred_steps: number;
-  base: ReviewObservedCall[];
-  head: ReviewObservedCall[];
-  added: ReviewObservedCall[];
-  removed: ReviewObservedCall[];
-  note: string;
-}
-
-export interface ReviewArchitectureDelta {
-  version: number;
-  digest: string;
-  status: "ready" | "degraded" | "unavailable" | string;
-  reason: string;
-  base_identity: string;
-  snapshot_identity: string;
-  grouping: {
-    strategy: string;
-    version: number;
-    stable_for_identical_input: boolean;
-    components: ReviewArchitectureComponent[];
-  };
-  summary: {
-    material: boolean;
-    status: string;
-    changed_components: number;
-    changed_nodes: number;
-    changed_edges: number;
-    added_edges: number;
-    removed_edges: number;
-    modified_edges: number;
-    context_only_edges: number;
-    unknown_edges: number;
-    important_concerns: string[];
-    exactness: ReviewMapExactness | string;
-    degraded: string[];
-  };
-  flow: {
-    applicable: boolean;
-    kind: string;
-    reason: string;
-    steps: ReviewArchitectureFlowStep[];
-    observed?: ReviewArchitectureObservedFlow;
-  };
-  graph: ReviewMapGraph;
-}
-
-export interface ReviewArchitectureExplanation {
-  summary: string;
-  why_it_matters: string[];
-  grounded_edge_ids: string[];
-  flow: { edge_id: string; explanation: string }[];
-  limitations: string[];
-  provenance: "deterministic" | "inferred_explanation" | string;
-  exactness: ReviewMapExactness | string;
-}
-
-export interface ReviewArchitectureExplanationResponse {
-  status: "ready" | "failed" | "cancelled" | "not_applicable" | string;
-  architecture_delta_digest: string;
-  result: ReviewArchitectureExplanation;
-  intelligence?: Record<string, unknown> | null;
-  error?: string;
 }
 
 export interface ReviewMapGraph {
@@ -592,7 +277,6 @@ export interface ReviewMapGraph {
   edges: ReviewMapEdge[];
   truncated: boolean;
   omitted_node_count?: number;
-  stats?: ReviewMapStats;
   reason?: string;
 }
 
@@ -601,8 +285,6 @@ export interface ReviewMapPayload {
   revision_id: string;
   revision_number: number;
   level: ReviewMapLevel;
-  projection?: ReviewMapProjection;
-  architecture_delta?: ReviewArchitectureDelta;
   snapshot: {
     exactness: "snapshot";
     tree_fingerprint: string;
@@ -610,8 +292,6 @@ export interface ReviewMapPayload {
     base_sha: string;
     head_sha: string;
     degraded: string[];
-    /** One plain sentence per degraded signal, in the order of `degraded`. */
-    degraded_notes?: { name: string; note: string }[];
     provenance: { host: string; model: string; certainty: string; method: string };
     verification: {
       pass: number;
@@ -647,7 +327,6 @@ export interface ReviewSessionInfo {
   subject_type: string;
   range_mode: string;
   source_ref: string;
-  review_base_sha?: string;
   status: ReviewSessionStatus;
   actor_type: string;
   reviewer_id: string;
@@ -658,84 +337,6 @@ export interface ReviewSessionInfo {
   revision_id?: string;
   comment_count?: number;
   open_comment_count?: number;
-  /** Present once this local Review is explicitly attached: hosted owns its collaborative state. */
-  hosted?: HostedAttachmentInfo;
-}
-
-/** The hosted Change a local Review is attached to; `id`/`ref` above are then the hosted ones. */
-export interface HostedAttachmentInfo {
-  reference: string;
-  origin: string;
-  url: string;
-  /** Diagnostic provenance only: the local Review this attachment lives on. */
-  local_review_id: string;
-  principal_id?: string;
-  synced_at?: string;
-  owns?: string[];
-}
-
-export type HostedActionKind = "mark" | "comment" | "reply" | "outcome" | "request_complete";
-export type HostedActionState = "pending" | "applied" | "conflict" | "discarded";
-
-/** One collaborative action queued for hosted, bound to the hosted Snapshot it was made on. */
-export interface HostedAction {
-  id: string;
-  sequence: number;
-  kind: HostedActionKind;
-  snapshot_id: string;
-  supersede_key: string;
-  payload: Record<string, unknown>;
-  preconditions: Record<string, unknown>;
-  state: HostedActionState;
-  reason: string;
-  result: Record<string, unknown>;
-  created_at: string;
-  resolved_at: string;
-}
-
-export interface HostedAttachmentStatus {
-  attached: boolean;
-  review_id: string;
-  reference?: string;
-  attachment?: {
-    origin: string;
-    hosted_repo_id: string;
-    hosted_review_id: string;
-    principal_id: string;
-    attached_at: string;
-    synced_at: string;
-    url: string;
-  };
-  owns?: string[];
-  /** Hosted's view for this reviewer as of the last sync; ``[]``/``{}`` when it could not be read. */
-  projection?: HostedProjection | unknown[];
-  actions?: HostedAction[];
-  counts?: Record<HostedActionState, number>;
-  limits?: { unresolved: number; resolved_kept: number };
-}
-
-/** The parts of hosted's projection the Reader reads; hosted stays the authority. */
-export interface HostedProjection {
-  snapshot?: { id: string; number: number };
-  /** The reviewer's own current verdict on hosted; ``summary`` is absent from older hosted servers. */
-  my_outcome?: { id: string; outcome: string; revision_id: string; summary?: string } | null;
-}
-
-/** A Reader write on an attached Review: queued for hosted (HTTP 202), never applied locally. */
-export interface HostedQueuedWrite {
-  queued: true;
-  reference: string;
-  actions: HostedAction[];
-  superseded: string[];
-  counts: Record<HostedActionState, number>;
-}
-
-export interface HostedDetachResult {
-  detached: true;
-  review_id: string;
-  discarded_unresolved: number;
-  removed_resolved: number;
-  kept: string;
 }
 
 export interface RevisionInfo {
@@ -750,14 +351,6 @@ export interface RevisionInfo {
   merge_base_sha?: string;
   source_fingerprint?: string;
   dirty: boolean;
-  capture_kind?: "legacy" | "draft" | "commit" | "revision";
-  commit_sha?: string;
-  commit_number?: number | null;
-  commit_state?: "active" | "superseded" | null;
-  draft_number?: number | null;
-  branch_ref?: string;
-  worktree_key?: string;
-  title?: string;
   degraded: string[];
   provenance_host: string;
   provenance_model: string;
@@ -765,10 +358,8 @@ export interface RevisionInfo {
   provenance_certainty: string;
   created_at: string;
   is_latest?: boolean;
-  is_published_snapshot?: boolean;
   is_last_reviewed?: boolean;
   is_last_commented?: boolean;
-  has_review_feedback?: boolean;
   previous_revision_number?: number | null;
   semantic_changed?: boolean;
   source_identity_changed?: boolean;
@@ -796,69 +387,6 @@ export interface ReviewRevisionState {
 
 export interface ReviewRevisionHistory extends ReviewRevisionState {
   revisions: RevisionInfo[];
-}
-
-export type FixLineStatus = "fixing" | "applied" | "applied_with_conflicts" | "abandoned";
-
-export interface FixLineSnapshot {
-  id: string;
-  fix_number: number;
-  display_number: number;
-  created_at: string;
-}
-
-export interface FixLineChecklistItem {
-  annotation_id: string;
-  path: string;
-  start_line: number;
-  end_line: number;
-  body: string;
-  state: "open" | "touched" | "resolved";
-}
-
-export interface FixLine {
-  id: string;
-  review_id: string;
-  snapshot_revision_id: string;
-  snapshot_number: number;
-  child_review_id: string;
-  status: FixLineStatus;
-  worktree_path: string;
-  branch: string;
-  base_commit: string;
-  worktree_missing: boolean;
-  applied_revision_id: string;
-  applied_files: string[];
-  applied_at: string;
-  snapshots: FixLineSnapshot[];
-  checklist: FixLineChecklistItem[];
-  unreviewed: number;
-}
-
-export interface FixApplyPlan {
-  fix_line_id: string;
-  revision_id: string;
-  fix_number: number;
-  files: Array<{ path: string; outcome: "write" | "delete" | "conflict" | "unchanged"; reason: string }>;
-  conflicts: string[];
-  warnings: string[];
-}
-
-export interface FixLineList {
-  fix_lines: FixLine[];
-  fix_of: FixLine | null;
-}
-
-export interface FixLineCloseResult {
-  closed: boolean;
-  dirty_files: string[];
-  fix_line: FixLine;
-}
-
-export interface FixLineApplyResult {
-  applied: boolean;
-  fix_line: FixLine;
-  plan: FixApplyPlan;
 }
 
 export interface ReviewRevisionCompareFile {
@@ -987,18 +515,11 @@ export interface AnnotationVersion {
   resolved_revision_id: string;
   changed_by: string;
   changed_by_actor: ReviewActorType;
-  change_kind: "created" | "edited" | "state_changed" | "author_response" | "thread_reply" | "finding_disposition";
-  finding_disposition?: FindingDisposition;
-  finding_disposition_reason?: FindingDismissalReason;
-  finding_disposition_revision_id?: string;
-  finding_disposition_reviewer_id?: string;
-  finding_disposition_evidence?: string[];
+  change_kind: "created" | "edited" | "state_changed" | "author_response" | "thread_reply";
   created_at: string;
 }
 
 export interface SourceState {
-  /** SSE confirms a matching observation after source has been quiet. */
-  settled?: boolean;
   supported: boolean;
   changed: boolean;
   fingerprint: string;
@@ -1081,22 +602,12 @@ export interface DegradedNote {
   name: string;
   note: string;
 }
-/** Where a typed execution result was verified, and what that environment could not verify. */
-export interface ExecutionVerification {
-  executor_class: "author_machine" | "customer_worker" | "managed_sandbox";
-  location: string;
-  image_digest: string;
-  network: string;
-  statement: string;
-  not_verified: { name: string; reason: string }[];
-}
 export interface EvidenceRow {
   name: string;
   status: "PASS" | "FAIL" | "NOT_RUN" | "UNKNOWN";
   detail: string;
   source: string;
   scope?: "review" | "file";
-  execution?: ExecutionVerification | null;
 }
 
 export type ReviewEvidenceKind =
@@ -1110,10 +621,7 @@ export type ReviewEvidenceKind =
   | "sbom"
   | "provenance"
   | "vulnerability_scan"
-  | "waiver"
-  | "intent"
-  | "premerge_check"
-  | "deployment";
+  | "waiver";
 export type ReviewEvidenceSource = "human" | "agent" | "test" | "ci" | "external";
 
 /** Outcome/verification evidence bound to one exact ReviewRevision. */
@@ -1134,26 +642,6 @@ export interface ReviewEvidence {
   verification_status: "" | "PASS" | "FAIL" | "NOT_RUN" | "UNKNOWN";
   detail: string;
   created_at: string;
-  attestation_class?:
-    | ""
-    | "provider_ci"
-    | "lemoncrow_verification"
-    | "trusted_security_feed"
-    | "signed_attestation"
-    | "human_observation"
-    | "human_waiver";
-  stable_key?: string;
-  provider?: string;
-  integration_id?: string;
-  provider_revision?: string;
-  branch?: string;
-  environment?: string;
-  attestation_scope?: string;
-  attested_by?: string;
-  remote_identity?: string;
-  observed_at?: string;
-  waived_requirement_key?: string;
-  execution_intent?: string;
   status: "current" | "stale";
   content_url: string;
 }
@@ -1177,11 +665,6 @@ export interface ReviewVerificationCheck {
   source: string;
   source_ref: string;
   lane: string;
-  /** Typed identity of the row; the name is presentation only. */
-  check_key?: string;
-  stable_key?: string;
-  attestation_class?: string;
-  authority?: string;
   path: string;
   detail: string;
   observed_at: string;
@@ -1467,17 +950,13 @@ export interface DevelopmentProjection {
   intent: string;
   plan: DevelopmentBrief | null;
   contributors: DevelopmentContributor[];
-  counts: { authors: number; verifiers: number; investigators: number; files: number; decisions: number; open_items: number; outside_workspace?: number };
+  counts: { authors: number; verifiers: number; investigators: number; files: number; decisions: number; open_items: number };
   decisions: DevelopmentBrief[];
   open_items: DevelopmentBrief[];
   verification: { pass: number; fail: number; pending: number; checks: DevelopmentCheck[] };
   changed_paths: DevelopmentChangedPath[];
   unattributed_paths: string[];
   feedback: DevelopmentFeedbackLink[];
-  /** Consequential agent actions outside the repository, newest first (Phase 9R item 17). */
-  outside_workspace?: DevelopmentOutsideAction[];
-  /** Human decisions on risky agent actions recorded in this projection, newest first (P12-AGENT). */
-  approval_events?: DevelopmentApprovalEvent[];
   latest_event: DevelopmentBrief | null;
   event_count: number;
   cursor: number;
@@ -1486,38 +965,6 @@ export interface DevelopmentProjection {
   watermark?: number | null;
   newer_paths?: string[];
   active?: boolean;
-}
-
-export interface DevelopmentOutsideAction {
-  id: string;
-  /** secret_access | git_push | cloud | database | outside_write | package_install | network */
-  category: string;
-  summary: string;
-  detail: string;
-  host: string;
-  session_id: string;
-  role: string;
-  at: string;
-  sequence: number;
-  /** Exact identity of the observed action; a pre-approval covers only this. */
-  action_digest?: string;
-  /** `run_ledger` when LemonCrow observed it; self-reported actions are never covered. */
-  source?: string;
-  /** Whether a human pre-approved exactly this action; `null` when none was required. */
-  approval?: AgentActionApproval;
-}
-
-export interface DevelopmentApprovalEvent {
-  id: string;
-  /** approved | denied */
-  status: string;
-  summary: string;
-  detail: string;
-  host: string;
-  session_id: string;
-  at: string;
-  sequence: number;
-  action_digest: string;
 }
 
 export interface ReviewDevelopment {
@@ -1531,8 +978,6 @@ export interface ReviewDevelopment {
   /** Strictly newer than the Snapshot's watermark; never merged into `snapshot`. */
   since: DevelopmentProjection | null;
   reason: string;
-  /** Approval requests for risky agent actions on this Change, newest first (P12-AGENT). */
-  agent_approvals?: AgentApproval[];
 }
 
 export type DevelopmentTimelineView = "all" | "authors" | "verification" | "decisions" | "changes";
@@ -1642,7 +1087,7 @@ export interface DiscardedVerdict {
 export interface RevisionTargetRef {
   target_id: string;
   unit_key: string;
-  kind: "symbol" | "hunk" | "file" | "dependency" | "document_section";
+  kind: "symbol" | "hunk" | "file" | "dependency";
   path: string;
   label: string;
   symbol: string;
@@ -1667,8 +1112,6 @@ export interface RefreshInfo {
   previous_revision_number: number;
   reopened: number;
   carried: number;
-  /** Judgments kept across base-only movement (their unit bytes moved only because the base did). */
-  rebased?: number;
   added: number;
   /** Units that left the review, named — they are gone from every pane. */
   removed: UnitRef[];
@@ -1693,84 +1136,6 @@ export interface ReviewBriefItem {
   path: string;
   rank: number;
   reason: string;
-  reason_code?: string;
-  target_id?: string;
-}
-
-export interface ReviewRuleInfo {
-  ref: string;
-  stable_key: string;
-  instruction: string;
-  paths: string[];
-  origin: string;
-  trust_class: string;
-  source_identity: string;
-  source_location: string;
-  digest: string;
-  authoritative: boolean;
-}
-
-export interface ReviewContentAccessRuleInfo {
-  mode: "external_allowed" | "customer_local_only" | "ai_denied";
-  paths: string[];
-  origin: string;
-  trust_class: string;
-  source_identity: string;
-  source_location: string;
-  digest: string;
-  authoritative: boolean;
-}
-
-export interface ReviewFuturePolicyChange {
-  path: string;
-  change: "added" | "changed" | "removed";
-  category: "review_policy" | "review_rules" | "owner_routing" | "instruction_context" | string;
-  summary: string;
-  effects: string[];
-  current_authority: false;
-  future_policy: true;
-}
-
-export interface ReviewRuleSuggestion {
-  id: string;
-  repository_scope: string;
-  candidate_statement: string;
-  paths: string[];
-  supporting_feedback_refs: string[];
-  supporting_count: number;
-  state: "suggested" | "dismissed";
-  active: false;
-  created_at: string;
-  updated_at: string;
-}
-
-/** The reviewable patch that would adopt a rule suggestion; never applied by the product. */
-export interface ReviewRuleAdoptionProposal {
-  suggestion_id: string;
-  state: "proposed";
-  effective: false;
-  stable_key: string;
-  instruction: string;
-  paths: string[];
-  target_path: string;
-  change: "added" | "changed";
-  base_sha256: string;
-  patch: string;
-  proposed_content: string;
-  supporting_feedback_refs: string[];
-  how_to_land: string;
-}
-
-export interface ReviewPolicyProjection {
-  authority: {
-    base_state: "present" | "absent" | "provisional" | string;
-    rules: ReviewRuleInfo[];
-    ai_content_access: ReviewContentAccessRuleInfo[];
-    rule_documents: string[];
-    errors: string[];
-  };
-  future_changes: ReviewFuturePolicyChange[];
-  suggestions: ReviewRuleSuggestion[];
 }
 
 export interface ReviewBrief {
@@ -1828,73 +1193,17 @@ export interface ReviewChangeContext {
   work_items: ReviewRelationshipInfo[];
   scm_requirements: ReviewRelationshipInfo[];
   landing?: ReviewRelationshipInfo[];
-  /** Read-only stack awareness (Phase 9 item 24); null when this Change is not stacked. */
-  stack?: ReviewStackInfo | null;
-  /** Multi-repository change set (Phase 9R item 42): linked members are counted; the set is `/change-set`. */
-  change_set?: { available: boolean; linked: boolean; links: number };
-}
-
-export interface ReviewStackMember {
-  position: "lower" | "upper";
-  distance: number;
-  change_ref: string;
-  review_id: string;
-  title: string;
-  provider: string;
-  external_id: string;
-  url: string;
-  head_ref: string;
-  head_sha: string;
-  status: string;
-  readiness: { state: "landed" | "closed" | "changes_requested" | "approved" | "in_review" | "unknown"; label: string; detail: string };
-  /** Lower layers: `exact` (this diff starts at its head), `moved`, or `included` (its commits are in this diff). */
-  relation: "exact" | "moved" | "included" | "";
-  owned_paths: string[];
-}
-
-export interface ReviewStackInfo {
-  version: number;
-  source: "provider" | "local_ancestry";
-  /** Always read-only: LemonCrow never creates, rebases or retargets a stacked branch. */
-  mutation: "read_only";
-  layer: number;
-  depth: number;
-  base: { kind: "trunk" | "lower_change" | "includes_lower_changes"; ref: string; sha: string; change_ref: string };
-  head_ref: string;
-  lower: ReviewStackMember[];
-  upper: ReviewStackMember[];
-  note: string;
-  complete: boolean;
-}
-
-/** Evidence a readiness condition relies on, with its freshness at evaluation time. */
-export interface ReviewReadinessEvidenceRef {
-  evidence_id: string;
-  /** `external_observation` expires (advisory scans, security feeds); the others stay current for their Snapshot. */
-  freshness_class: "" | "snapshot_intrinsic" | "execution_bound" | "external_observation";
-  state: "" | "current" | "expired" | "unknown";
-  observed_at: string;
-  source_revision: string;
-  expires_at: string;
-  reason: string;
 }
 
 export interface ReviewLandingCondition {
   id: string;
   label: string;
-  /**
-   * `waived`: a human override that does not block, never shown as `pass`.
-   * `unknown`: cannot be decided now (e.g. an expired external observation); blocks like `pending`.
-   */
-  state: "pass" | "fail" | "pending" | "unknown" | "not_applicable" | "waived";
+  /** `waived`: a human override that does not block, never shown as `pass`. */
+  state: "pass" | "fail" | "pending" | "not_applicable" | "waived";
   detail: string;
   owner: "lemoncrow" | "scm";
   category: string;
   url: string;
-  reason?: string;
-  evidence_refs?: ReviewReadinessEvidenceRef[];
-  /** `change-set:*` conditions: the whole set's state (`ready`, `blocked`, `needs_decision`, `incomplete`). */
-  set_state?: string;
 }
 
 export interface ReviewLandingState {
@@ -1909,218 +1218,6 @@ export interface ReviewLandingState {
   detail: string;
   url: string;
   mechanism: string;
-  /** Policy generation the intent was armed (or last revalidated) under. */
-  policy_generation?: string;
-  /** Armed under a generation other than the current one: a stale decision awaiting revalidation. */
-  policy_stale?: boolean;
-  readiness_valid_until?: string;
-  /** `pending` while a withdrawal (cancel/discard) is owed to the provider and not yet confirmed. */
-  provider_cancel?: string;
-  /** The provider's own auto-merge / merge-queue state: shown, never owned, by LemonCrow. */
-  scm?: ReviewLandingScmState;
-  /** `break_glass` when the landing was enabled by an authorized responder bypassing named blockers. */
-  basis?: string;
-  break_glass_id?: string;
-  bypassed?: string[];
-  auto_approval?: ReviewAutoApprovalState;
-  /** Break-glass records of this Change (newest last), each with its follow-up review state. */
-  break_glass?: ReviewBreakGlassRecord[];
-}
-
-export interface ReviewLandingScmState {
-  managed_by: string;
-  mechanism: string;
-  /** `enabled` / `disabled` as the provider reports it; empty when unknown. */
-  auto_merge: string;
-  /** The provider merge queue entry (`queued`, `checks_requested`, `merged`, `dequeued`, …); empty when none. */
-  queue_state: string;
-}
-
-/** The organization-policy approval of this Change (deterministic gates; never a model decision). */
-export interface ReviewAutoApprovalState {
-  /** `none`, `approving` (delivery owed), `approved`, `withdrawn`, `stale` (an earlier Snapshot's) or `unknown`. */
-  state: string;
-  revision_id?: string;
-  decision_digest?: string;
-  policy_generation?: string;
-  decided_at?: string;
-  delivery?: string;
-  provider_cancel?: string;
-  detail?: string;
-  /** The latest decision on this Snapshot; `null` when none was made. */
-  eligible?: boolean | null;
-  /** Labels of the gates that did not pass. */
-  blocking?: string[];
-  evaluated_at?: string;
-}
-
-export interface ReviewBreakGlassRecord {
-  id: string;
-  revision_id: string;
-  actor_id: string;
-  reason: string;
-  incident_url: string;
-  bypassed: { id: string; label: string; state: string; reason: string }[];
-  created_at: string;
-  policy_generation: string;
-  follow_up: { state: "open" | "overdue" | "completed"; due_at: string; completed_at: string; completed_by: string };
-}
-
-/** Why a Change cannot land yet, in the one vocabulary the Inbox and the SCM status share. */
-export interface ReviewBlockingReason {
-  id: string;
-  owner: "lemoncrow" | "scm";
-  state: string;
-  action: string;
-}
-
-/** Durable identity of the effective Review policy readiness was evaluated against. */
-export interface ReviewPolicyGeneration {
-  digest: string;
-  short: string;
-  /** `provisional` when a policy layer (e.g. the trusted base) could not be read. */
-  authority: "final" | "provisional";
-  layers: { layer: string; source: string; digest: string; state: "final" | "provisional" }[];
-}
-
-/** One concrete citation of a pre-merge check result (path, intent, description, fact, verification, rule). */
-export interface ReviewPremergeEvidence {
-  kind: string;
-  ref: string;
-  detail: string;
-}
-
-/** An authorized human waiver: bound to one policy generation and scope; it never turns a check into PASS. */
-export interface ReviewPremergeWaiver {
-  evidence_id: string;
-  revision_id: string;
-  snapshot_number: number | null;
-  requirement_key: string;
-  actor: string;
-  reason: string;
-  scope: "snapshot" | "review";
-  expires_at: string;
-  policy_generation: string;
-  policy_generation_short: string;
-  paths: string[];
-  created_at: string;
-}
-
-export interface ReviewPremergeCheck {
-  id: string;
-  requirement_key: string;
-  title: string;
-  /** `warning`: a trial that never blocks; `would_block` says what enforcing it would do. */
-  mode: "error" | "warning";
-  status: "PASS" | "FAIL" | "UNKNOWN" | "NOT_RUN";
-  state: "not_applicable" | "pass" | "waived" | "fail" | "unknown" | "pending";
-  applicable: boolean;
-  detail: string;
-  evidence: ReviewPremergeEvidence[];
-  evaluator: string;
-  source: string;
-  layer: string;
-  definition_digest: string;
-  blocking: boolean;
-  would_block: boolean;
-  waivable: boolean;
-  waiver: ReviewPremergeWaiver | null;
-  /** Why an earlier waiver no longer applies (expired, policy changed, out of scope). */
-  waiver_note: string;
-  model: { status: string; explanation: string; evidence: { kind: string; ref: string; quote?: string }[]; reason: string; model: string } | null;
-  /** Why a model-evaluated check is NOT_RUN: `limited_by_budget`, `skipped`, `not_planned`, `ai_unavailable`, `stale`, `pending`. */
-  not_run_reason?: string;
-}
-
-/** One immutable capture of a linked intent source (or the PR description). */
-export interface ReviewIntentCapture {
-  evidence_id: string;
-  revision_id: string;
-  snapshot_number: number | null;
-  ref: string;
-  kind: string;
-  origin: string;
-  role: string;
-  title: string;
-  digest: string;
-  state: string;
-  truncated: boolean;
-  source_revision: string;
-  fetched_at: string;
-  url: string;
-  note: string;
-  actor: string;
-  created_at: string;
-}
-
-export interface ReviewIntentBinding {
-  ref: string;
-  kind: string;
-  origin: string;
-  bound: ReviewIntentCapture;
-  /** Newer capture that differs from the bound one; never silently re-bound. */
-  latest: ReviewIntentCapture | null;
-  changed: boolean;
-  changed_note: string;
-  /** The provider deleted the linked source; checks stay bound to the captured text. */
-  deleted?: boolean;
-}
-
-/** The Snapshot's effective run-plan entry that schedules model-evaluated checks. */
-export interface ReviewPremergeRunState {
-  entry: string;
-  /** A run-plan entry status, or `not_planned` when the plan does not select the entry. */
-  status: string;
-  reason: string;
-  origin: string;
-  depth: string;
-  executor: string;
-  plan_digest: string;
-}
-
-export interface ReviewPremergePolicyCheck {
-  id: string;
-  title: string;
-  mode: "error" | "warning";
-  source: string;
-  layer: string;
-  model_evaluated: boolean;
-  waivable: boolean;
-  waivable_by: string[];
-}
-
-/** Pre-merge checks on the readiness Snapshot (present only when a trusted policy configures them). */
-export interface ReviewPremergeProjection {
-  configured?: boolean;
-  checks: ReviewPremergeCheck[];
-  policy_errors: string[];
-  policy_generation: string;
-  evaluated_at: string;
-  trial: { would_block: string[]; summary: string };
-  snapshot_id: string;
-  snapshot_number: number;
-  policy: {
-    checks: ReviewPremergePolicyCheck[];
-    waivers: { allowed: string[]; max_hours: number };
-    errors: string[];
-    sources: string[];
-  };
-  intents: ReviewIntentBinding[];
-  intent_changed: string[];
-  description: {
-    title: string;
-    digest: string;
-    evidence_id: string;
-    revision_id: string;
-    snapshot_number?: number | null;
-    origin: string;
-    truncated: boolean;
-    body_chars: number;
-  } | null;
-  /** Why model-evaluated checks cannot run (they stay NOT_RUN, never PASS); empty when available. */
-  ai_unavailable: string;
-  /** How the effective run plan schedules model-evaluated checks (absent when none are configured). */
-  run?: ReviewPremergeRunState | null;
 }
 
 export interface ReviewLandingReadiness {
@@ -2135,16 +1232,8 @@ export interface ReviewLandingReadiness {
   blocker_count: number;
   local_blocker_count: number;
   conditions_hash: string;
-  /** Every unsatisfied condition as a short action (LemonCrow-owned first), at most 20 rows. */
-  blocking_reasons?: ReviewBlockingReason[];
   work_items: ReviewRelationshipInfo[];
   landing: ReviewLandingState;
-  policy_generation?: ReviewPolicyGeneration;
-  evaluated_at?: string;
-  /** Earliest expiry of time-sensitive evidence a satisfied condition relies on; empty when none. */
-  valid_until?: string;
-  freshness_policy?: { external_max_age_seconds: number; source: string; error: string };
-  premerge?: ReviewPremergeProjection;
 }
 
 export interface ReviewOverview {
@@ -2169,11 +1258,7 @@ export interface ReviewOverview {
   /** Compact orientation for large reviews; derived from deterministic Intent chapters. */
   change_story?: string[];
   change_story_more?: number;
-  brief?: ReviewBrief | null;
-  /** True only for the bounded large-review startup projection. */
-  startup_compact?: boolean;
-  /** Current authority, future-policy changes, and inert learned-rule suggestions. */
-  policy?: ReviewPolicyProjection;
+  brief?: ReviewBrief;
   provenance: ProvenanceInfo;
   attributions?: ReviewAttributionInfo[];
   evidence: EvidenceRow[];
@@ -2192,8 +1277,6 @@ export interface ReviewOverview {
   discarded: DiscardedVerdict[];
   /** Present only on the response to a refresh: what that refresh changed. */
   refreshed?: RefreshInfo;
-  /** Movement since this reviewer's last judged Snapshot; absent on history views. */
-  movement?: ReviewMovementSummary | null;
 }
 export interface MarkdownPreview {
   kind: "markdown";
@@ -2224,20 +1307,6 @@ export interface MediaPreview {
 export type FilePreview = MarkdownPreview | CsvPreview | WebPreview | MediaPreview;
 
 /** One file's patch plus everything the right pane says about it. */
-export interface ReviewFileContents {
-  path: string;
-  revision_id: string;
-  old_path: string;
-  status: string;
-  old_content: string | null;
-  new_content: string | null;
-}
-
-export interface ReviewComparisonFileContents extends ReviewFileContents {
-  from_revision_id: string;
-  to_revision_id: string;
-}
-
 export interface FileDetail {
   path: string;
   /** Exact Review revision backing this projection. */
@@ -2259,48 +1328,7 @@ export interface FileDetail {
   provenance?: ProvenanceInfo;
   evidence?: EvidenceRow[];
   degraded: DegradedNote[];
-  /** Semantic delta for a rename-only, mode-only, symlink or submodule change; null for an ordinary diff. */
-  special_change?: ReviewSpecialChange | null;
 }
-
-/** Server projection over the packet entry (8F); never derived in the browser. */
-export type ReviewSpecialChange =
-  | { kind: "rename"; old_path: string; new_path: string; copied: boolean; similarity: number; mode: string }
-  | {
-    kind: "mode";
-    old_path: string;
-    new_path: string;
-    old_mode: string;
-    new_mode: string;
-    executable: "added" | "removed" | "unchanged";
-  }
-  | {
-    kind: "symlink";
-    old_path: string;
-    new_path: string;
-    old_type: "symlink" | "file" | "absent";
-    new_type: "symlink" | "file" | "absent";
-    old_target: string;
-    new_target: string;
-    target_recorded: boolean;
-    target_unchanged: boolean;
-    resolved_target: string;
-    escapes_repository: boolean;
-    trust_area: string;
-    warnings: string[];
-  }
-  | {
-    kind: "submodule";
-    old_path: string;
-    new_path: string;
-    change: "added" | "removed" | "updated";
-    old_commit: string;
-    new_commit: string;
-    repository_url: string;
-    commit_url: string;
-    compare_url: string;
-  }
-  | { kind: "metadata"; old_path: string; new_path: string; old_mode: string; new_mode: string; modes_recorded: boolean };
 
 export interface MarkResult {
   unit_key: string;
@@ -2312,30 +1340,15 @@ export interface MarkResult {
   target?: ReviewTarget;
   progress?: ReviewProgress;
   outline_updates?: ReviewOutlineItem[];
-  /** Every target's fresh queue placement: a verdict moves targets it did not judge. */
-  priorities?: Record<string, ReviewTargetPriority>;
-  outline?: ReviewOutlineItem[];
   groups: AttentionGroup[];
   group_counts: Record<GroupKey, number>;
 }
 
-export interface BulkUndoResult {
-  undone: { unit_key: string; path: string }[];
-  skipped: { unit_key: string; path: string; reason: string }[];
-  progress?: ReviewProgress;
-  outline_updates?: ReviewOutlineItem[];
-  priorities?: Record<string, ReviewTargetPriority>;
-  outline?: ReviewOutlineItem[];
-  group_counts: Record<GroupKey, number>;
-}
-
 export interface BulkMarkResult {
-  marked: { unit_key: string; path: string; event_id: string }[];
+  marked: { unit_key: string; path: string }[];
   skipped: { unit_key: string; path: string; reason: string }[];
   progress?: ReviewProgress;
   outline_updates?: ReviewOutlineItem[];
-  priorities?: Record<string, ReviewTargetPriority>;
-  outline?: ReviewOutlineItem[];
   group_counts: Record<GroupKey, number>;
 }
 
@@ -2396,20 +1409,15 @@ export interface ReviewChangeProposalApplyResult {
 }
 
 export type AnnotationSource = "human" | "author" | "lemoncrow" | "ai_review";
-export type FindingDisposition = "" | "open" | "confirmed_by_reviewer" | "dismissed" | "fixed" | "superseded_stale";
-export type FindingDismissalReason = "" | "incorrect" | "accepted_risk" | "duplicate" | "not_applicable";
 
 export type ReviewDirectoryStatus = "all" | ReviewSessionStatus;
 
-/** A Reviews-list row; in the Inbox view mode it also carries the per-viewer Inbox signals. */
-export interface ReviewDirectoryRow extends Partial<InboxSignals> {
+export interface ReviewDirectoryRow {
   id: string;
   ref: string;
   review_path: string;
   repo_id: string;
   title: string;
-  auto_title?: string;
-  title_is_custom?: boolean;
   source_ref: string;
   range_mode?: string;
   status: ReviewSessionStatus;
@@ -2426,180 +1434,12 @@ export interface ReviewDirectoryRow extends Partial<InboxSignals> {
   branch?: string;
   revision?: string;
   detached?: boolean;
-  /** The inbox bucket that best says what this Review needs now. */
-  primary_bucket?: string;
-  reason?: string;
-  returned_thread_count?: number;
-  waiting_on_agent_count?: number;
-  waiting_on_author_count?: number;
-  /** Who a waiting handoff is with: "author", a host label, or "coding agent". */
-  handoff_label?: string;
-  /** An archived Review's provider cancellation still owed by its discard (until the provider confirms). */
-  owed_cancellation?: { provider: string; landing_status: string; reason: string; detail: string; error: string } | null;
 }
-export interface ReviewDirectoryPage extends Partial<Omit<InboxViewPageMeta, "status" | "query" | "next_cursor">> {
+export interface ReviewDirectoryPage {
   reviews: ReviewDirectoryRow[];
-  status: ReviewDirectoryStatus | "none";
-  query: string;
-  next_cursor: string;
-}
-
-/* -- Review Inbox views (P9-INBOX): the view-mode contract of GET /v1/reviews?view=... ------------- */
-
-export type InboxView =
-  | "all"
-  | "to_review"
-  | "assigned_to_my_teams"
-  | "authored_by_me"
-  | "participated"
-  | "waiting_on_me"
-  | "ready"
-  | "blocked";
-
-export type InboxWorkflowState =
-  | "needs_review"
-  | "waiting_on_reviewer"
-  | "waiting_on_author"
-  | "waiting_on_checks"
-  | "needs_decision"
-  | "ready_to_merge"
-  | "monitoring"
-  | "closed";
-
-/** Where the work stands; independent of priority, next-action owner and readiness. */
-export interface InboxWorkflow {
-  state: InboxWorkflowState;
-  label: string;
-  rule: string;
-  explanation: string;
-}
-
-/** P9-PRIO triage: what to open first, never who acts next. */
-export interface InboxPriority {
-  level: "urgent" | "high" | "normal" | "low";
-  computed: boolean;
-  computed_level: string;
-  criticality: string;
-  evidence_state: string;
-  overridden: boolean;
-  revision_id: string;
-}
-
-export interface InboxReason {
-  principal_id: string;
-  kind: string;
-  fact: string;
-  since: string;
-}
-
-export interface InboxNextAction {
-  owner_ids: string[];
-  for_me: boolean;
-  my_reasons: InboxReason[];
-  reasons: InboxReason[];
-}
-
-/** The stored readiness record as the Inbox may state it; only `ready` can make a Review ready to merge. */
-export interface InboxReadiness {
-  state: "ready" | "not_ready" | "stale" | "unknown";
-  reason: string;
-  evaluated_at: string;
-  valid_until: string;
-  blocker_count: number;
-  scm_blockers: number;
-  pending_checks: number;
-  failed_checks: number;
-  scm_conditions: number;
-  /** The exact blocking actions from the content-free readiness record (bounded; `reason` counts the rest). */
-  blocking?: { id: string; owner: string; state: string; action: string }[];
-}
-
-/** Your review / team review / merge readiness: three axes, never folded into one status. */
-export interface InboxAxes {
-  your_review: { state: string; [key: string]: unknown };
-  team_review: { state: string; waiting_on?: string[]; reason?: string; [key: string]: unknown };
-  scm: {
-    state: "ready" | "not_ready" | "unknown" | "not_connected";
-    connected: boolean;
-    provider: string;
-    failed_checks: number;
-    pending_checks: number;
-    [key: string]: unknown;
-  };
-}
-
-export interface InboxAttentionFactor {
-  key: string;
-  label: string;
-  points: number;
-  detail: string;
-}
-
-/** The viewer's explainable attention score; it orders the Inbox and changes nothing. */
-export interface InboxAttention {
-  score: number;
-  waiting_since: string;
-  factors: InboxAttentionFactor[];
-}
-
-/** The per-viewer fields every view-mode row carries (local and hosted). */
-export interface InboxSignals {
-  views: InboxView[];
-  workflow: InboxWorkflow;
-  priority: InboxPriority;
-  next_action: InboxNextAction;
-  readiness: InboxReadiness;
-  axes: InboxAxes;
-  attention: InboxAttention;
-  teams: string[];
-  team_requests: number;
-}
-
-export interface InboxFilterDefinition {
-  view: InboxView;
   status: ReviewDirectoryStatus;
-  repos: string[];
-  teams: string[];
-  workflow_states: InboxWorkflowState[];
-  priorities: string[];
   query: string;
-}
-
-export interface SavedInboxFilter {
-  id: string;
-  name: string;
-  definition: InboxFilterDefinition;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface SavedInboxFilterList {
-  filters: SavedInboxFilter[];
-  limit: number;
-  teams_supported?: boolean;
-}
-
-/** Page metadata of the view mode; `total` spans every page, `counts` every view. */
-export interface InboxViewPageMeta {
-  mode: "views";
-  view: InboxView | "none";
-  status: ReviewDirectoryStatus | "none";
-  query: string;
-  selection: Omit<InboxFilterDefinition, "view" | "status"> & {
-    view: InboxView | "none";
-    status: ReviewDirectoryStatus | "none";
-    matches_nothing: boolean;
-  };
-  filter: SavedInboxFilter | null;
-  counts: Record<InboxView, number>;
-  total: number;
-  limit: number;
   next_cursor: string;
-  as_of: string;
-  repositories: number;
-  views: { id: InboxView; label: string }[];
-  workflow_states: { id: InboxWorkflowState; label: string }[];
-  teams_supported: boolean;
 }
 
 /** `@pierre/diffs`' name for a diff side. Ours is `old`/`new`; the edge translates. */
@@ -2629,48 +1469,20 @@ export interface Annotation {
   created_by_actor: string;
   source?: AnnotationSource;
   source_id?: string;
-  agent_role?: string;
-  agent_host?: string;
-  agent_model?: string;
-  parent_session_id?: string;
-  source_message_id?: string;
-  comment_scope?: "code" | "change";
   title?: string;
   evidence?: string[];
-  /** Canonical rule provenance for AI findings; never source-code evidence. */
-  rule_refs?: string[];
-  /** Kept for run details only; the default finding UI does not display raw model confidence. */
   confidence?: number | null;
-  finding_disposition?: FindingDisposition;
-  finding_disposition_reason?: FindingDismissalReason;
-  finding_disposition_revision_id?: string;
-  finding_disposition_reviewer_id?: string;
-  finding_disposition_evidence?: string[];
   author_response?: "none" | "addressed";
   author_response_source_id?: string;
   author_response_at?: string;
   origin_revision_number?: number | null;
   relation_to_revision?: "originating" | "inherited" | "future";
-  /** Stacked Change: the lower layer that introduced the anchored code (feedback and fixes belong there). */
-  owning_change?: { change_ref: string; review_id: string; title: string; reason: string };
   author_addressed_revision_number?: number | null;
   addressed_by_revision?: boolean;
   resolved_revision_number?: number | null;
   turn_owner_kind?: "none" | "author" | "reviewer";
   turn_owner_id?: string;
   is_human_judgment?: boolean;
-  /**
-   * Client-only: an AI finding the current finding threshold hides
-   * (`projection.triage.hidden_finding_ids`). Lists fold it behind one
-   * "N below threshold" disclosure; counts and readiness still include it.
-   */
-  below_threshold?: boolean;
-  /**
-   * P0/P1/P2 of an AI finding, from the server's one severity rule (`criticality.severity_for`, the same
-   * function the pull request bot uses). Present only on AI findings that have severity evidence; a human
-   * comment never carries it (it keeps its `kind`) and an older server omits it. Never guess it client-side.
-   */
-  severity?: "p0" | "p1" | "p2";
   created_at: string;
   updated_at: string;
   anchor_method: string;
@@ -2728,8 +1540,6 @@ export interface AnnotationResult {
   target?: ReviewTarget | null;
   progress?: ReviewProgress | null;
   outline_updates?: ReviewOutlineItem[];
-  priorities?: Record<string, ReviewTargetPriority> | null;
-  outline?: ReviewOutlineItem[] | null;
 }
 
 /** What the server will store, assembled from a `SelectedLineRange` plus a body. */
@@ -2766,94 +1576,10 @@ export interface ReviewAskScope {
   end_line: number;
 }
 
-/** One Project Knowledge citation: the evolution event, Review or committed source it came from. */
-export interface ReviewProjectCitation {
-  ref: string;
-  kind: "generation" | "source" | "review" | "revision" | "merge" | "index" | string;
-  label?: string;
-  resolved: boolean;
-  review_id?: string;
-  generation_id?: string;
-  event_id?: string;
-  path?: string;
-}
-
-export interface ReviewProjectEvolutionEvent {
-  event_id: string;
-  kind: "baseline" | "merged_change" | "source_advance" | string;
-  generation_id: string;
-  previous_generation_id: string;
-  observed_at: string;
-}
-
-/** PK2: one landed-history entry. Advisory context, never Snapshot evidence. */
-export interface ReviewProjectContextEntry {
-  entry_id: string;
-  context_class: "project_knowledge" | "ai_narration";
-  subject: { kind: string; key: string };
-  knowledge_kind: string;
-  summary: string;
-  summary_truncated: boolean;
-  state: "current" | "superseded" | "historical" | "uncertain";
-  state_label: string;
-  freshness_label: string;
-  stale_for_snapshot: boolean;
-  support: string;
-  canonical_ref: string;
-  relevance: "changed_path" | "subject" | "neighborhood" | "question";
-  /** Order relative to this Change, proven from the generation chain; absent from older servers. */
-  relation_to_change?: "unrelated" | "this_change" | "predates" | "after_base" | "unknown_order";
-  source_paths: string[];
-  /** Source paths beyond the bounded list. */
-  source_paths_omitted?: number;
-  observed_at: string;
-  history: { origin: ReviewProjectEvolutionEvent | null; superseded_by: ReviewProjectEvolutionEvent | null };
-  citations: ReviewProjectCitation[];
-  /** Citations beyond the bounded list; they were never looked up. */
-  citations_omitted?: number;
-}
-
-export interface ReviewProjectContext {
-  purpose: "brief" | "map" | "ask" | "ai_review";
-  available: boolean;
-  reason: string;
-  context_class: "project_knowledge";
-  authority: "advisory";
-  authority_note: string;
-  current_generation: string;
-  entries: ReviewProjectContextEntry[];
-  narration: ReviewProjectContextEntry[];
-  omitted: number;
-  truncated: boolean;
-  filtered_by_content_access: number;
-}
-
-export interface ReviewProjectContextResponse {
-  review_id: string;
-  revision_id: string;
-  revision_number: number;
-  project_context: ReviewProjectContext;
-}
-
-export interface ReviewProjectContextSelection {
-  history?: "decisions" | "checks";
-  terms?: string[];
-  paths?: string[];
-  components?: string[];
-  edges?: string[];
-  symbols?: string[];
-}
-
 export interface ReviewAskReference {
-  kind?: "source" | "review_map_node" | "review_map_edge" | "project_knowledge" | string;
+  kind?: "source" | "review_map_node" | "review_map_edge" | string;
   label?: string;
-  exactness?: "snapshot" | "current_index" | "historical" | "ai_narration" | string;
-  /** project_knowledge references only. */
-  entry_id?: string;
-  state?: string;
-  freshness_label?: string;
-  stale_for_snapshot?: boolean;
-  review_id?: string;
+  exactness?: "snapshot" | "current_index" | string;
   path?: string;
   side?: string;
   start_line?: number;
@@ -2861,7 +1587,6 @@ export interface ReviewAskReference {
   target_unit_key?: string;
   symbol?: string;
   map_selection?: ReviewMapSelection;
-  evidence_id?: string;
 }
 
 export interface ReviewAskAction {
@@ -2895,27 +1620,6 @@ export interface ReviewAskMessage {
   references: ReviewAskReference[];
   action: ReviewAskAction;
   created_at: string;
-  conversation_id?: string;
-}
-
-export interface ReviewAskConversationOrigin {
-  kind: "review" | "code" | "map" | "selection" | string;
-  label?: string;
-  revision_number?: number | null;
-  path?: string;
-  symbol?: string;
-  start_line?: number;
-  end_line?: number;
-}
-
-export interface ReviewAskConversationSummary {
-  id: string;
-  title: string;
-  origin: ReviewAskConversationOrigin;
-  created_at: string;
-  updated_at: string;
-  message_count: number;
-  legacy?: boolean;
 }
 
 export type ReviewAskDriver = "configured" | "claude" | "codex" | "opencode" | "ollama" | "openai" | "litellm";
@@ -2924,8 +1628,6 @@ export interface ReviewAskAIOptions {
   driver: ReviewAskDriver;
   model: string;
   models: string[];
-  /** Drivers this server runs; a hosted server omits the agent CLIs. */
-  drivers?: ReviewAskDriver[];
   models_by_driver?: Partial<Record<ReviewAskDriver, string[]>>;
 }
 
@@ -2933,15 +1635,12 @@ export interface ReviewAskConversation {
   review_id: string;
   latest_revision_number: number;
   messages: ReviewAskMessage[];
-  conversations?: ReviewAskConversationSummary[];
-  active_conversation_id?: string;
   ai?: ReviewAskAIOptions;
 }
 
 export interface ReviewAskResult {
   review_id: string;
   latest_revision_number: number;
-  conversation_id?: string;
   human: ReviewAskMessage;
   assistant: ReviewAskMessage;
 }
@@ -2950,11 +1649,8 @@ export interface ReviewAskInput {
   revision_number: number;
   base_revision_number?: number;
   body: string;
-  conversation_id?: string;
   driver?: ReviewAskDriver;
   model?: string;
-  mentioned_paths?: string[];
-  evidence_ids?: string[];
   context?: ReviewMapSelection;
   target_unit_key?: string;
   path?: string;
@@ -2962,7 +1658,6 @@ export interface ReviewAskInput {
   side?: "new" | "old" | "additions" | "deletions";
   start_line?: number;
   end_line?: number;
-  selected_text?: string;
 }
 
 export interface ReviewAskHandoffResult {
@@ -2973,9 +1668,6 @@ export interface ReviewAskHandoffResult {
   operation_id: string;
 }
 
-/** How the Reader sends a handoff: resume or inbox an exact session, start one, copy it, or publish to the PR. */
-export type FeedbackRouteKind = "agent" | "new_session" | "export" | "github";
-
 export interface FeedbackDeliveryCapability {
   supported: boolean;
   host: string;
@@ -2983,59 +1675,6 @@ export interface FeedbackDeliveryCapability {
   target_ref: string;
   label: string;
   reason: string;
-  kind?: FeedbackRouteKind;
-  /** The saved destination this route came from. */
-  destination?: ReviewDestinationKind;
-  /** Author routing found no exact session, so this is the fallback route. */
-  fallback?: boolean;
-  targets?: string[];
-}
-
-export type ReviewDestinationKind = "auto" | "session" | "new_session" | "github_pr" | "export";
-
-/** Where this Review's feedback goes: what the reviewer saved and what it resolves to now. */
-export interface ReviewDestinationState {
-  review_id: string;
-  destination: {
-    kind: ReviewDestinationKind;
-    host: string;
-    session_id: string;
-    external_ref: string;
-    updated_at: string;
-  };
-  effective: {
-    kind: FeedbackRouteKind;
-    label: string;
-    host: string;
-    session_id: string;
-    available: boolean;
-    fallback: boolean;
-    reason: string;
-  };
-}
-
-export interface ReviewDestinationOption {
-  kind: ReviewDestinationKind;
-  label: string;
-  detail: string;
-  available: boolean;
-  reason: string;
-  host?: string;
-  session_id?: string;
-  external_ref?: string;
-  /** Most recent recorded activity for this exact session. */
-  activity_at?: string;
-}
-
-export interface ReviewDestinationOptions extends ReviewDestinationState {
-  options: ReviewDestinationOption[];
-}
-
-export interface ReviewDestinationChoice {
-  kind: ReviewDestinationKind;
-  host?: string;
-  session_id?: string;
-  external_ref?: string;
 }
 
 export interface FeedbackExport {
@@ -3092,8 +1731,6 @@ export interface GitHubPublishResult {
 /** Exact target-based completion snapshot used by the finish sheet and mutation result. */
 export interface ReviewClosure {
   status: ReviewSessionStatus;
-  /** Fresh analysis limitations from the same preview used to build this closure. */
-  degraded?: DegradedNote[];
   target_count: number;
   reviewed_targets: number;
   unreviewed_targets: number;
@@ -3107,979 +1744,4 @@ export interface ReviewClosure {
   /** Superseded proof kept for audit/history; not itself outstanding work. */
   previous_revision_evidence: number;
   discarded_verdicts: number;
-  /** Decision progress, separate from code inspection (Phase 3b). */
-  decisions?: {
-    total: number;
-    open: number;
-    change_requested: number;
-    deferred: number;
-    needs_reconsideration: number;
-    implementation_changed: number;
-    unverified: number;
-    accepted: number;
-  };
-  /** Claims the current evidence does not support (spec §4.7). */
-  evidence_gaps?: {
-    total: number;
-    claims: { id: string; item_id: string; title: string; summary: ReviewProjectionClaim["summary"]; summary_text: string }[];
-  };
-}
-
-/* ------------------------------------------------------------------------ */
-/* Review projection (GET /reviews/{id}/projection) — the Brief's payload.   */
-/* Server-ordered; clients render it and never re-rank it.                  */
-/* ------------------------------------------------------------------------ */
-
-export type ReviewProjectionAttention = "review_first" | "understand" | "routine" | "done";
-
-export interface ReviewProjectionQuestion {
-  id: string;
-  reason: string;
-  title: string;
-  detail: string;
-  item_ids: string[];
-  target_ids: string[];
-  actions: string[];
-  tier: number;
-  /** "ai" when a validated model synthesis raised it (tier 3 at most). */
-  origin?: "lemoncrow" | "ai";
-}
-
-export interface ReviewProjectionResolution {
-  ref: { path: string; symbol: string; start_line: number; end_line: number };
-  outcome: string;
-  target_ids: string[];
-  detail: string;
-}
-
-export interface ReviewProjectionItem {
-  id: string;
-  key: string;
-  kind: "behavior" | "mechanical" | "area" | "other";
-  title: string;
-  before: string;
-  after: string;
-  rationale: string;
-  /** "inferred": an AI explanation of the changed code, never the author's words. */
-  rationale_origin: "author" | "inferred" | "none";
-  source_label: string;
-  producer: string;
-  stale: boolean;
-  attention: ReviewProjectionAttention;
-  tier: number;
-  position: number | null;
-  primary_target_ids: string[];
-  related_target_ids: string[];
-  claim_ids: string[];
-  question_ids: string[];
-  concerns: { scope: string; reason: string }[];
-  unresolved_refs: ReviewProjectionResolution[];
-  limitations?: string[];
-  /** The author states no external behavior is intended to change (spec §3). */
-  internal_only?: boolean;
-}
-
-export interface ReviewProjectionEvidence {
-  key: string;
-  title: string;
-  status: string;
-  state: string;
-  snapshot_number: number | null;
-  mapping: "explicit" | "inferred";
-  relevance: string;
-  /** When the check ran, who recorded it, and its environment when recorded (spec §8). */
-  observed_at?: string;
-  source?: string;
-  environment?: Record<string, string>;
-}
-
-export interface ReviewProjectionClaim {
-  id: string;
-  statement: string;
-  source: string;
-  target_ids: string[];
-  limitations: string[];
-  evidence: ReviewProjectionEvidence[];
-  summary: "observed" | "author_cited" | "inferred" | "inferred_failing" | "partial" | "contradictory" | "none";
-  summary_text: string;
-  result_line: string;
-}
-
-export interface ReviewProjectionDecision {
-  key: string;
-  producer: string;
-  question: string;
-  options: { key: string; label: string }[];
-  selected_option: string;
-  reason_human_required: string;
-  assumptions: { key: string; value: string; statement: string }[];
-  contract_scope: string[];
-  relied_checks: string[];
-  target_ids: string[];
-  stale: boolean;
-  read_only: boolean;
-  /** Phase 3b: present once decisions carry human dispositions. */
-  conflict?: boolean;
-  positions?: ReviewDecisionPosition[];
-  state?: ReviewDecisionState;
-  actions?: ReviewDecisionAction[];
-}
-
-export type ReviewDecisionAction = "accept" | "reconfirm" | "request_change" | "ask" | "defer" | "reopen";
-export type ReviewDecisionDisposition = "open" | "accepted" | "change_requested" | "deferred";
-export type ReviewDecisionValidity =
-  | "current"
-  | "implementation_changed_since_acceptance"
-  | "needs_reconsideration"
-  | "unverified";
-
-export interface ReviewDecisionPosition {
-  producer: string;
-  selected_option: string;
-  option_keys: string[];
-  assumptions: { key: string; value: string }[];
-}
-
-export interface ReviewDecisionState {
-  disposition: ReviewDecisionDisposition;
-  validity: ReviewDecisionValidity | null;
-  changed_inputs: string[];
-  outstanding: boolean;
-  navigable: boolean;
-  withdrawn: boolean;
-  trigger: { kind: string; check_key: string; note: string } | null;
-  trigger_fired: boolean;
-  accepted_option: string;
-  latest_event_id: string;
-  /** The decision scope this state shows; a decision write must name it. */
-  semantic_fingerprint?: string;
-  latest_action: string;
-  latest_reason: string;
-  event_snapshot_number: number | null;
-  reason: string;
-  detail: string;
-  tier: number;
-  limitations: string[];
-}
-
-export interface ReviewDecisionEventInput {
-  action: Exclude<ReviewDecisionAction, "ask">;
-  option_key?: string;
-  reason?: string;
-  trigger?: string;
-  feedback_body?: string;
-}
-
-export interface ReviewDecisionEventResult {
-  event: {
-    id: string;
-    action: string;
-    disposition: ReviewDecisionDisposition;
-    option_key: string;
-    revision_id: string;
-    trigger_kind: string;
-    trigger_check_key: string;
-    trigger_note: string;
-  };
-  decision: ReviewProjectionDecision;
-}
-
-export interface ReviewSnapshotDelta {
-  since_snapshot: number;
-  added: string[];
-  changed: string[];
-  removed: number;
-  stale_evidence: string[];
-  reopened_decisions: string[];
-  /** The behavior and items the moved targets belong to, in Brief order (spec §9). */
-  items?: { id: string; title: string; kind: ReviewProjectionItem["kind"]; changed: string[]; added: string[] }[];
-}
-
-export type ReviewIntelligenceMode =
-  | "deterministic_only"
-  | "cached_synthesis"
-  | "synthesized"
-  | "skipped_by_budget"
-  | "unavailable"
-  | "error";
-
-export interface ReviewModelContextExclusion {
-  target_id?: string;
-  path: string;
-  mode: "external_allowed" | "customer_local_only" | "ai_denied" | string;
-  reason: string;
-  route_trust?: string;
-  policy_refs?: string[];
-  digest?: string;
-}
-
-export interface ReviewExecutionTrace {
-  execution_locus?: "managed" | "customer" | "local" | string;
-  worker_id?: string;
-  execution_class?: string;
-  provider?: string;
-  model?: string;
-  model_route_id?: string;
-  model_data_locus?: "customer_local" | "external" | "unknown" | "managed" | string;
-  tools?: string[];
-  source_ranges?: string[];
-  evidence_refs?: string[];
-  artifact_refs?: string[];
-  external_domains?: string[];
-  policy_digest?: string;
-  content_access_exclusions?: string[];
-  source_trust?: string;
-  duration_ms?: number;
-  budget?: Record<string, unknown>;
-  provider_calls?: number;
-  provider_cost?: number | null;
-  currency?: string;
-  cache_status?: string;
-}
-
-export interface ReviewAiExecutionStatus {
-  status: string;
-  job_id?: string;
-  revision_id?: string;
-  effort?: string;
-  trigger?: string;
-  execution_locus?: "managed" | "customer" | "local" | string;
-  metering_owner?: "lemoncrow_managed" | "customer_provider" | string;
-  budget?: Record<string, unknown>;
-  provider?: string;
-  model?: string;
-  cache_status?: string;
-  exclusions?: string[];
-  network_policy?: Record<string, unknown>;
-  trace?: ReviewExecutionTrace;
-  cancel_requested?: boolean;
-  /** An explicit reviewer/admin fresh re-run (P11 item 15b), not an ordinary request. */
-  fresh_rerun?: boolean;
-  /**
-   * Hosted only (G10-FAIR, RC8): why a queued job has not started -- a fair share it
-   * would borrow past once a slot idles (`organization_model_budget`,
-   * `repository_model_budget`, `organization_deep_budget`, `repository_deep_budget`),
-   * a hard ceiling it never passes (`organization_model_ceiling`, `repository_model_ceiling`,
-   * `organization_deep_ceiling`, `repository_deep_ceiling`), `retry_backoff` or
-   * `capacity`. Empty unless queued.
-   */
-  wait_reason?: string;
-}
-
-/** Requested vs observed model of one AI run (P11 item 15a); never a guessed default. */
-export interface ReviewModelIdentity {
-  driver: string;
-  requested_model: string;
-  observed_models: string[];
-  observed_truncated: boolean;
-  unverified_model?: string;
-  source: "observed" | "pinned" | "unreported_default" | "unverified";
-  label: string;
-  families?: string[];
-}
-
-export type ReviewIndependenceStatus =
-  | "independent"
-  | "not_independent"
-  | "unknown_author"
-  | "unreported_reviewer"
-  | "unverified_reviewer"
-  | "unknown_reviewer"
-  | "not_applicable"
-  | "not_run";
-
-export type ReviewIndependenceRequirement =
-  | "not_required"
-  | "not_applicable"
-  | "preferred_met"
-  | "preferred_unmet"
-  | "satisfied"
-  | "unsatisfied";
-
-/** Is the AI reviewer provably independent of the agent that authored the change (P11 item 14)? */
-export interface ReviewAiIndependence {
-  status: ReviewIndependenceStatus;
-  independent: boolean;
-  reason: string;
-  author?: { host: string; model: string; family: string; label: string };
-  reviewers: ReviewModelIdentity[];
-  reviewers_not_shown: number;
-  policy: {
-    mode: "off" | "prefer" | "require";
-    origin: { layer: string; source: string };
-    paths: string[];
-    matched_paths: string[];
-    matched_path_count: number;
-  };
-  requirement: ReviewIndependenceRequirement;
-}
-
-/** What a fresh re-run would execute and spend, previewed at the action boundary. */
-export interface ReviewAiFreshRerunPreview {
-  available: boolean;
-  reason: string;
-  effort: string;
-  entries: string[];
-  estimated_model_calls: number;
-  budget: { calls_used: number; max_calls: number; remaining: number };
-  within_budget: boolean;
-  cost_class: string;
-  execution_locus: "local" | "managed" | "customer" | "" | string;
-  metering_owner: "lemoncrow_managed" | "customer_provider" | "" | string;
-  model_data_locus: string;
-  provider: string;
-  model: string;
-  reuses_cache: false;
-}
-
-export interface ReviewAiAssurance {
-  identity: ReviewModelIdentity | null;
-  independence: ReviewAiIndependence;
-  execution: {
-    latest_mode: "fresh_rerun" | "executed" | "";
-    fresh_reruns: number;
-    fresh_rerun_runs: number;
-    latest_fresh_at: string;
-    runs: number;
-  };
-  fresh_rerun: ReviewAiFreshRerunPreview;
-}
-
-/** What a person with no AI model set up is told: the same words and next steps as `lc review --ai` prints. */
-export interface ReviewAiSetupHelp {
-  headline: string;
-  steps: Array<{ lead: string; command: string; note: string }>;
-  docs_url: string;
-}
-
-export interface ReviewAiReviewStatus {
-  /**
-   * Whether this deployment can run AI review at all. `false` (hosted without an executor) hides every control
-   * that would start one; absent means available, as every server before this field behaved.
-   */
-  available?: boolean;
-  /** The one sentence to show when `available` is false. */
-  unavailable_reason?: string;
-  /** The technical cause, for operators. */
-  unavailable_detail?: string;
-  status: "none" | "skipped_unnecessary" | "pending" | "ready" | "failed" | "cancelled";
-  effort: "auto" | "quick" | "thorough" | "deep";
-  candidates: number;
-  findings: number;
-  provider?: string;
-  model?: string;
-  error?: string;
-  /** Set when this server runs AI review itself and no model is set up yet (the local Reader); `error` is then its headline. */
-  setup_help?: ReviewAiSetupHelp;
-  budget: { calls_used: number; max_calls: number };
-  skipped_by_budget?: number;
-  /** Backend-derived Auto eligibility for this exact latest Snapshot. */
-  auto_eligible?: boolean;
-  coverage?: {
-    human_deterministic_targets: number;
-    ai_context_eligible_targets: number;
-    excluded_by_policy: ReviewModelContextExclusion[];
-    excluded_count: number;
-  };
-  rules?: { applicable_count: number; base_state: string; errors: string[] };
-  /** Phase-7 execution authority projection; absent when no durable execution exists yet. */
-  execution?: ReviewAiExecutionStatus;
-  /** Observed identity, reviewer independence and the fresh re-run preview (Phase 11). */
-  assurance?: ReviewAiAssurance;
-}
-
-export interface ReviewAiReviewRunResult {
-  revision_id: string;
-  status: "completed" | "skipped_unnecessary" | "degraded" | "cancelled";
-  effort: "auto" | "quick" | "thorough" | "deep";
-  candidates: number;
-  hypotheses: number;
-  findings: { confirmed: number; not_confirmed: number; unknown: number; annotations_created: number };
-  annotation_ids: string[];
-  budget: { calls_used: number; max_calls: number };
-  provider_calls: number;
-  cache_reuse: number;
-  skipped_by_budget: number;
-  provider_errors: string[];
-  reviewer: { driver: string; model: string; independent: boolean; identities?: ReviewModelIdentity[] };
-  /** ``fresh_rerun`` when an explicit fresh re-run executed this result. */
-  execution?: { mode: "standard" | "fresh_rerun" };
-  coverage?: {
-    human_deterministic_targets: number;
-    ai_checked_targets: number;
-    checked_target_ids: string[];
-    excluded_by_policy: ReviewModelContextExclusion[];
-  };
-  provider_cost?: number | null;
-  currency?: string | null;
-  /** How a manual depth request was answered: raised to a floor (with the floor and origin), never lowered. */
-  depth_request?: {
-    entry: string;
-    requested: string;
-    effective: string | null;
-    state: "honored" | "raised" | "limited_by_budget" | "limited" | "refused";
-    reason: string;
-  };
-  /** Focused per-rule checks: one bounded question per rule, with its state. */
-  rule_checks?: Array<{ ref: string; stable_key: string; state: string; reason: string; answer?: string }>;
-}
-
-export interface ReviewSynthesisStatus {
-  status: "disabled" | "none" | "pending" | "ready" | "failed";
-  mode?: ReviewIntelligenceMode;
-  model?: string;
-  driver?: string;
-  error?: string;
-  candidates?: number;
-  rejected_count?: number;
-  unsynthesized?: number;
-  policy_digest?: string;
-  cache_hit?: boolean;
-  excluded_by_policy?: ReviewModelContextExclusion[];
-  /** This Review's cumulative model calls against its shared bound. */
-  budget?: { calls_used: number; max_calls: number };
-}
-
-export interface ReviewTourEvidenceRef {
-  claim_id: string;
-  key: string;
-  title: string;
-  status: string;
-  state: string;
-  snapshot_number: number | null;
-}
-
-export interface ReviewTourStep {
-  id: string;
-  semantic_key: string;
-  title: string;
-  why: string;
-  why_origin: "deterministic" | "inferred";
-  target_ids: string[];
-  stale_target_ids: string[];
-  change_type: "current" | "added" | "changed" | "reopened";
-  signals: string[];
-  claim_ids: string[];
-  decision_refs: string[];
-  evidence_refs: ReviewTourEvidenceRef[];
-  stale: boolean;
-  synthesis_needed: boolean;
-  position: number;
-  implementation: {
-    target_id: string;
-    path: string;
-    symbol: string;
-    start_line: number;
-    end_line: number;
-  } | null;
-}
-
-export interface ReviewTourProjection {
-  schema_version: number;
-  steps: ReviewTourStep[];
-  step_count: number;
-  synthesis?: ReviewSynthesisStatus;
-}
-
-/** Existing, immutable evidence over exact captured Snapshots; not a calibrated score. */
-export interface ReviewEvaluationTimeline {
-  schema_version: number;
-  selected_revision_id: string;
-  limitations: string[];
-  current: ReviewEvaluationSnapshot | null;
-  snapshots: ReviewEvaluationSnapshot[];
-}
-
-export interface ReviewEvaluationSnapshot {
-  revision_id: string;
-  snapshot_number: number;
-  head_sha: string;
-  state: "observed" | "failed" | "unverified";
-  configuration_comparable: boolean;
-  reason: string;
-  counts: { pass: number; fail: number; not_run: number; unknown: number };
-  receipts: {
-    id: string;
-    title: string;
-    status: string;
-    trust: "typed_observation" | "reported_only";
-    raw_attempt: boolean;
-    /** Earlier retry retained for audit, excluded from current Snapshot counts and comparisons. */
-    superseded_by_newer_result?: boolean;
-    exit_code: number | null;
-    executor_class: string;
-    /** An independently dispatched worker/sandbox, not an author-machine attestation. */
-    independent_execution?: boolean;
-    /** Validated, missing, or rejected signed execution metadata. */
-    execution_provenance?: "validated" | "not_recorded" | "rejected";
-    /** Stable execution identity, not the unique attempt ID (which is evidence_id). */
-    execution_identity?: string;
-    environment_fingerprint: string;
-    recipe_digest?: string;
-    stage_outcomes?: { stage: "fetch" | "build" | "run"; status: string; exit_code: number | null }[];
-    artifact_roles?: string[];
-    unverified_integrations?: number;
-    artifact_digest: string;
-    evidence_id: string;
-  }[];
-  receipts_omitted: number;
-  comparable_results?: { scenario: string; from: "PASS" | "FAIL"; to: "PASS" | "FAIL"; change: "regression" | "recovered" | "unchanged"; evidence_ids: string[] }[];
-}
-
-export interface ReviewProjection {
-  /** Snapshot-bound evidence history. Scores withheld if evaluator configuration is unknown. */
-  evaluation_timeline?: ReviewEvaluationTimeline;
-  /** Short Snapshot summary; supporting items remain available in review details. */
-  summary?: {
-    paragraphs: string[];
-    statements?: {
-      text: string;
-      origin: "author" | "inferred" | "observed" | "mixed" | string;
-      target_ids: string[];
-      claim_ids: string[];
-    }[];
-    origin: "author" | "inferred" | "observed" | "mixed";
-    scope: string;
-    verification: string;
-    attention: string;
-    additional_explanations: number;
-  };
-  projection_version: number;
-  review_id: string;
-  revision_id: string;
-  snapshot_number: number | null;
-  historical: boolean;
-  plan: {
-    schema_version: number;
-    input_digest: string;
-    intents: { producer: string; intent: string; origin?: "guidance" | "captured" }[];
-    limitations: string[];
-  };
-  actions: ReviewProjectionQuestion[];
-  questions: ReviewProjectionQuestion[];
-  items: ReviewProjectionItem[];
-  claims: ReviewProjectionClaim[];
-  decisions: ReviewProjectionDecision[];
-  coverage: {
-    target_count: number;
-    author_explained: number;
-    fallback_grouped: number;
-    other: number;
-    routine: number;
-    unresolved_refs: number;
-    unexplained_targets: number;
-    file_count: number;
-    synthesized?: number;
-    unsynthesized_target_ids?: string[];
-  };
-  /** Presentation roles over exact targets; never changes Review scope or judgment. */
-  material?: {
-    files: {
-      path: string;
-      role: "implementation" | "tests" | "documentation" | "generated" | "agent_guidance" | "localization" | "assets" | "other";
-      source: "gitattributes" | "inferred";
-      target_ids: string[];
-      additions: number;
-      deletions: number;
-      changed_lines: number;
-      collapsed_default: boolean;
-    }[];
-    roles: Partial<Record<"implementation" | "tests" | "documentation" | "generated" | "agent_guidance" | "localization" | "assets" | "other", { files: number; changed_lines: number }>>;
-    implementation_changed_lines: number;
-    total_changed_lines: number;
-    explicit_metadata_state: "present" | "absent" | "unavailable";
-  };
-  counts: { review_first: number; understand: number; routine: number; done: number; decisions: number };
-  /** Optional AI gap filling; reading the projection never triggers inference. */
-  synthesis?: ReviewSynthesisStatus;
-  /** Cost-aware independent Review status; projection reads are passive. */
-  ai_review?: ReviewAiReviewStatus;
-  /** Current rule authority, future policy, and inert suggestions; no separate Rules view. */
-  policy?: ReviewPolicyProjection;
-  /** What changed since the previous Snapshot; null on the first. */
-  delta?: ReviewSnapshotDelta | null;
-  /** Ordered navigation projection over the same Review targets. */
-  tour?: ReviewTourProjection;
-  decision_progress?: { total: number; settled: number; outstanding: number; deferred: number; withdrawn: number };
-  queue: string[];
-  /** Observed base-vs-head behavior deltas (contract v1); null when nothing ran or applies. */
-  behavior?: ReviewBehaviorSummary | null;
-  /** Review-level priority, criticality, severity and evidence with an explanation (Phase 9). */
-  triage?: ReviewTriage;
-}
-
-/** Which layer and file/commit (or actor) set a triage value. */
-export interface ReviewTriageOrigin {
-  layer: string;
-  source: string;
-  commit: string;
-}
-
-export interface ReviewTriageExplanation {
-  field: string;
-  value: string;
-  reason: string;
-  origin: ReviewTriageOrigin;
-}
-
-/** Lightweight per-Review triage projection; priority, criticality and severity stay separate. */
-export interface ReviewTriage {
-  version: number;
-  review_id: string;
-  revision_id: string;
-  priority: "urgent" | "high" | "normal" | "low";
-  computed_priority: "urgent" | "high" | "normal" | "low";
-  criticality: "critical" | "high" | "normal" | "low";
-  severity_summary: {
-    p0: number;
-    p1: number;
-    p2: number;
-    suggestion: number;
-    unrated: number;
-    stale: number;
-    below_threshold: number;
-    highest: "p0" | "p1" | "p2" | "suggestion" | null;
-    /** The same counts by source: AI findings, behavior changes, vulnerability advisories, static findings. */
-    by_source?: Record<
-      string,
-      { p0: number; p1: number; p2: number; suggestion: number; unrated: number; stale: number }
-    >;
-  };
-  finding_threshold: { value: "critical" | "high" | "medium" | "suggestions"; label: string; origin: ReviewTriageOrigin };
-  evidence_state: "current" | "stale" | "missing";
-  review_state: "not_reviewed" | "in_progress" | "reviewed" | "unknown";
-  evidence_label: string;
-  release_urgency: "unknown";
-  dependency_changes: number;
-  required_failures: number;
-  override: {
-    level: string;
-    reason: string;
-    scope: "review" | "snapshot";
-    actor_id: string;
-    actor_type: string;
-    revision_id: string;
-    created_at: string;
-    event_id: string;
-  } | null;
-  explanation: ReviewTriageExplanation[];
-  hidden_finding_ids: string[];
-  /** `focus.require`: review categories policy requires on changed paths (a readiness input). */
-  required_focus?: { category: string; paths: string[]; origins: ReviewTriageOrigin[] }[];
-  policy_state: "final" | "provisional" | "invalid";
-  policy_errors: string[];
-  computed: boolean;
-}
-
-export type ReviewBehaviorKind =
-  | "test_outcome"
-  | "api_response"
-  | "visual"
-  | "side_effect"
-  | "migration"
-  | "verification_weakening"
-  | "spec_delta"
-  | "compatibility"
-  | "agent_instruction"
-  | "artifact"
-  | "infra";
-
-export interface ReviewBehaviorObservation {
-  side: "base" | "head";
-  status: string;
-  digest: string;
-  summary: string;
-  evidence_ref: string;
-}
-
-export interface ReviewBehaviorEvidenceRef {
-  ref: string;
-  kind: "artifact" | "check";
-  label: string;
-  digest: string;
-  side: string;
-  role: string;
-  evidence_id: string;
-  media_type: string;
-}
-
-/** Served only by the per-target read; a judgment must echo `digest`. */
-export interface ReviewBehaviorEvidence {
-  digest: string;
-  base: ReviewBehaviorObservation | null;
-  head: ReviewBehaviorObservation | null;
-  refs: ReviewBehaviorEvidenceRef[];
-  facts: { name: string; value: string }[];
-}
-
-export interface ReviewBehaviorTarget {
-  behavior_key: string;
-  kind: ReviewBehaviorKind | string;
-  kind_label: string;
-  producer: string;
-  title: string;
-  summary: string;
-  change: "added" | "changed" | "removed";
-  severity: "low" | "medium" | "high";
-  critical: boolean;
-  state: "unreviewed" | "reviewed" | "needs_changes" | "changed_since_review" | "unknown";
-  changed_since_mark: boolean;
-  reviewed_revision_id: string;
-  fingerprint: string;
-  environment_fingerprint: string;
-  executor_class: "" | "author_machine" | "customer_worker" | "managed_sandbox";
-  paths: string[];
-  target_ids: string[];
-  unverified_integrations: string[];
-  priority: ReviewTargetPriority;
-  bulk_eligible: boolean;
-  evidence?: ReviewBehaviorEvidence;
-}
-
-export interface ReviewExecutionCoverage {
-  runs: number;
-  changed_targets: number;
-  exercised: number;
-  never_executed_count: number;
-  never_executed: { target_id: string; path: string; label: string }[];
-}
-
-export interface ReviewBehaviorStatement {
-  text: string;
-  behavior_keys: string[];
-  evidence_refs: string[];
-  origin: "deterministic" | "inferred";
-}
-
-export interface ReviewBehaviorNarrative {
-  mode: "inferred" | "deterministic";
-  statements: ReviewBehaviorStatement[];
-  deterministic: ReviewBehaviorStatement[];
-  synthesis: Partial<ReviewSynthesisStatus> & { status?: string; mode?: string };
-}
-
-export interface ReviewManualCheckResult {
-  status: "PASS" | "FAIL" | "UNKNOWN" | string;
-  note: string;
-  attested_by: string;
-  observed_at: string;
-  evidence_id: string;
-  attestation_class: "human_observation";
-  label: "Human observation";
-}
-
-export interface ReviewManualCheckItem {
-  item_id: string;
-  title: string;
-  integration: string;
-  steps: string[];
-  behavior_keys: string[];
-  paths: string[];
-  origin: "policy" | "behavior";
-  required: boolean;
-  result: ReviewManualCheckResult | null;
-}
-
-export interface ReviewManualChecklist {
-  required: boolean;
-  policy_source: string;
-  policy_error: string;
-  attestation_class: "human_observation";
-  recorded: number;
-  items: ReviewManualCheckItem[];
-}
-
-/** The `side_effects.static` run on this Snapshot and its delta against the base register. */
-export interface ReviewStaticInventory {
-  status: "ran" | "pending" | "skipped" | "inapplicable" | "limited_by_budget" | "not_available" | "on_request" | "not_run" | string;
-  reason: string;
-  register: {
-    key?: string;
-    base_sha?: string;
-    state?: "complete" | "truncated" | "changed_files_only" | string;
-    files_scanned?: number;
-    identities?: number;
-    note?: string;
-  };
-  register_delta: {
-    added?: number;
-    removed?: number;
-    changed?: number;
-    by_category?: Record<string, { added: number; removed: number; changed: number }>;
-    /** Changes another review surface judges (dependencies: the dependency review); never a second target. */
-    judged_elsewhere?: Record<string, number>;
-  };
-  degraded: string[];
-  files_analyzed: number;
-  targets: number;
-  /** The process that ran it: "local" or the hosted "server" (never a sandbox). */
-  executed_by?: string;
-}
-
-/** A behavior target that makes the Snapshot ineligible for auto-approval. */
-export interface ReviewAutoApprovalBlocker {
-  code: string;
-  behavior_key: string;
-  title: string;
-  paths: string[];
-}
-
-export interface ReviewAgentAction {
-  category: string;
-  summary: string;
-  detail?: string;
-  host: string;
-  session_id: string;
-  at: string;
-  /** Whether a human pre-approved exactly this action; `null` when none was required. */
-  approval?: AgentActionApproval;
-}
-
-export interface ReviewBehaviorSummary {
-  contract_version: number;
-  revision_id: string;
-  total: number;
-  progress: {
-    total: number;
-    reviewed: number;
-    unreviewed: number;
-    changed_since_review: number;
-    needs_changes: number;
-    unknown: number;
-    critical: number;
-    outstanding: number;
-  };
-  targets: ReviewBehaviorTarget[];
-  unchanged: number;
-  execution_ran: boolean;
-  coverage: ReviewExecutionCoverage | null;
-  checklist: ReviewManualChecklist | null;
-  narrative: ReviewBehaviorNarrative | null;
-  degraded: string[];
-  producers: string[];
-  static_inventory?: ReviewStaticInventory;
-  auto_approval?: { blocked: boolean; blockers: ReviewAutoApprovalBlocker[] };
-  agent_actions?: ReviewAgentAction[];
-  /** Approval requests for risky agent actions, newest first; empty on a historical Snapshot. */
-  agent_approvals?: AgentApproval[];
-}
-
-/** Who can sign a review record here (organization key, personal key) and why not. */
-export interface ReviewRecordSigningStatus {
-  mode: string;
-  available: boolean;
-  reason: string;
-  /** not_configured | not_available | forbidden | provider_error, or "" when available. */
-  code: string;
-  key_id: string;
-  algorithm: string;
-  issuer_kind: string;
-  issuer_id: string;
-}
-
-export interface ReviewRecordDecision {
-  kind: string;
-  outcome: string;
-  actor: { id: string; type: string };
-  decided_at: string;
-  reference: string;
-  detail: Record<string, string>;
-}
-
-/** One stored review record (DSSE envelope); `label` always says UNSIGNED for unsigned records. */
-export interface ReviewRecordSummary {
-  record_id: string;
-  review_id: string;
-  revision_id: string;
-  payload_digest: string;
-  signing_state: "signed" | "unsigned" | string;
-  signing_mode: string;
-  key_id: string;
-  issued_at: string;
-  decision_kind: string;
-  label: string;
-  decision?: string;
-  decided_by?: string;
-}
-
-export interface ReviewRecordStatus {
-  review_id: string;
-  snapshot_id: string;
-  snapshot_number: number;
-  decision: ReviewRecordDecision | null;
-  signing: ReviewRecordSigningStatus;
-  records: ReviewRecordSummary[];
-}
-
-export interface ReviewRecordVerification {
-  status: "verified" | "unsigned" | "invalid" | "revoked";
-  verified: boolean;
-  headline: string;
-  reasons: string[];
-  payload_digest: string;
-  key_id: string;
-  key_status: string;
-  key_revoked_at: string;
-  signing_state: string;
-  signing_mode: string;
-  exit_code: number;
-}
-
-export interface ReviewRecordExportResult {
-  record: ReviewRecordSummary;
-  envelope: Record<string, unknown>;
-  verification: ReviewRecordVerification;
-  store: Record<string, string>;
-  matches_store: boolean;
-  reproduced_digest: string;
-  reproduced: boolean;
-}
-
-/** DS0: one summary statement and the exact thread messages (`annotation:<id>`) it is drawn from. */
-export interface ThreadSummaryStatement {
-  text: string;
-  message_refs: string[];
-}
-
-/** A thread's stored AI summary (derived presentation) beside its authoritative state. */
-export interface ThreadSummaryView {
-  thread_id: string;
-  eligible: boolean;
-  /** Read from the comments themselves, never from the summary. */
-  thread: {
-    state: AnnotationState;
-    resolved_revision_id: string;
-    turn_owner_kind: string;
-    author_response: string;
-    message_count: number;
-    last_message_at: string;
-  };
-  summary: {
-    topic: ThreadSummaryStatement;
-    open_asks: ThreadSummaryStatement[];
-    points: ThreadSummaryStatement[];
-    message_refs: string[];
-    /** False once a message was added or edited after the summary was made. */
-    current: boolean;
-    driver: string;
-    model: string;
-    created_at: string;
-    run_id: string;
-  } | null;
-  last_attempt: { status: string; error: string; created_at: string } | null;
-}
-
-export interface ThreadSummaryRead {
-  available: boolean;
-  summary: ThreadSummaryView | null;
-}
-
-export interface ThreadSummaryRun {
-  result: {
-    status: "ready" | "reused" | "failed" | "unavailable" | "not_eligible";
-    reason: string;
-    provider_calls: number;
-    cache_hit: boolean;
-  };
-  summary: ThreadSummaryView;
 }

@@ -2,26 +2,23 @@ import { describe, expect, it } from "vitest";
 
 import {
   bestTargetAfterRevision,
-  fileAttention,
   filterTargets,
   firstActionable,
   groupReaderFiles,
-  isActionable,
   nextReviewGuideTarget,
+  orderedAttentionTargets,
   outlineSections,
   progressFromTargets,
   reviewAttentionPath,
-  reviewQueue,
   reviewScopeTone,
   reviewStorySteps,
+  stepAttentionTarget,
   stepFile,
-  stepQueueTarget,
   stepTarget,
-  targetAttention,
   targetDisplayLabel,
   targetScrollLocation,
 } from "./readerModel";
-import type { RevisionTargetDelta, ReviewOutlineItem, ReviewOverview, ReviewTarget, ReviewTargetPriority } from "./types";
+import type { RevisionTargetDelta, ReviewOutlineItem, ReviewOverview, ReviewTarget } from "./types";
 
 function target(
   id: string,
@@ -51,34 +48,6 @@ function target(
     fingerprint_method: "symbol_body_sha256",
     verification: { pass: 0, fail: 0, unknown: 0 },
     annotation_counts: { open: 0, orphaned: 0, addressed_needs_rereview: 0 },
-    ...options,
-  };
-}
-
-function priority(options: Partial<ReviewTargetPriority> = {}): ReviewTargetPriority {
-  return {
-    version: 1,
-    tier: 4,
-    attention: "understand",
-    outstanding: true,
-    position: 0,
-    reasons: [{ code: "unreviewed", detail: "Not reviewed yet" }],
-    ...options,
-  };
-}
-
-function outlineRow(path: string, options: Partial<ReviewOutlineItem> = {}): ReviewOutlineItem {
-  return {
-    path,
-    target_count: 2,
-    reviewed: 0,
-    changed_since_review: 0,
-    needs_changes: 0,
-    unreviewed: 2,
-    unknown: 0,
-    mechanical: 0,
-    attention_rank: 0,
-    reasons: ["+1 -0"],
     ...options,
   };
 }
@@ -159,6 +128,16 @@ describe("reader model", () => {
     expect(stepTarget([target("a", "a.py", "reviewed")], "a", 1, { actionableOnly: true, wrap: true })).toBeNull();
   });
 
+  it("high-priority stepping includes changed and needs-changes targets", () => {
+    const rows = [
+      target("a", "a.py"),
+      target("b", "b.py", "changed_since_review"),
+      target("c", "c.py", "needs_changes"),
+    ];
+    expect(stepTarget(rows, "a", 1, { highPriorityOnly: true })?.target_id).toBe("b");
+    expect(stepTarget(rows, "b", 1, { highPriorityOnly: true })?.target_id).toBe("c");
+  });
+
   it("J/K moves files and lands on an actionable target", () => {
     const rows = [target("a", "a.py"), target("b", "b.py", "reviewed"), target("c", "b.py")];
     expect(stepFile(rows, "a", 1)?.target_id).toBe("c");
@@ -187,199 +166,82 @@ describe("reader model", () => {
     expect(firstActionable(rows)?.target_id).toBe("b");
   });
 
-  it("follows server positions and never re-ranks by reason text", () => {
-    const loud = target("t:loud", "a.py", "unreviewed", {
-      reasons: ["public contract changed"],
-      attention_level: "high",
-      priority: priority({ position: 2, tier: 4, attention: "understand" }),
-    });
-    const asked = target("t:asked", "z.py", "needs_changes", {
-      symbol: "authorize",
-      priority: priority({
-        position: 0,
-        tier: 1,
-        attention: "review_first",
-        reasons: [{ code: "request_change_open", detail: "Requested change is still open" }],
+  it("derives the next review guide target from current durable state", () => {
+    const rows = [
+      target("done", "src/done.py", "reviewed"),
+      target("returned", "src/auth.py", "unreviewed", {
+        symbol: "authorize",
+        annotation_counts: { open: 1, orphaned: 0, addressed_needs_rereview: 1 },
       }),
-    });
-    const plain = target("t:plain", "m.py", "unreviewed", {
-      priority: priority({ position: 1, tier: 4, attention: "understand" }),
-    });
-    const done = target("t:done", "b.py", "reviewed", {
-      priority: priority({ position: 3, tier: 6, attention: "done", outstanding: false }),
-    });
-    const input = [loud, done, plain, asked];
-
-    expect(reviewQueue(input).map((row) => row.target_id)).toEqual(["t:asked", "t:plain", "t:loud"]);
-    expect(nextReviewGuideTarget(input)).toEqual({
-      targetId: "t:asked",
-      path: "z.py",
+      target("later", "src/api.py", "unreviewed", { reasons: ["public API changed"] }),
+    ];
+    expect(nextReviewGuideTarget(rows)).toEqual({
+      targetId: "returned",
+      path: "src/auth.py",
       label: "authorize",
-      reason: "Requested change is still open",
-      reasonCode: "request_change_open",
-      attention: "review_first",
+      reason: "1 addressed comment needs re-review",
     });
-    expect(reviewAttentionPath(input).map((row) => row.targetId)).toEqual(["t:asked", "t:plain", "t:loud"]);
-    expect(stepQueueTarget(input, "t:asked", 1)?.target_id).toBe("t:plain");
-    expect(stepQueueTarget(input, "t:loud", 1)?.target_id).toBe("t:asked");
-    expect(stepQueueTarget(input, "t:asked", -1)?.target_id).toBe("t:loud");
-    expect(stepQueueTarget(input, "t:done", 1)?.target_id).toBe("t:asked");
-    expect(firstActionable(input)?.target_id).toBe("t:asked");
-    expect(isActionable(done)).toBe(false);
   });
 
-  it("keeps the server's pinned queue whatever the list order and legacy ranks say (stable slots)", () => {
-    // The server pinned an in-progress reviewer's order (positions 0..2) after an
-    // impact re-rank; the kept list order and the legacy scalar ranks disagree.
-    const first = target("t:first", "c.py", "unreviewed", {
-      attention_rank: 3,
-      priority: priority({ position: 0, tier: 4, attention: "understand" }),
-    });
-    const second = target("t:second", "b.py", "unreviewed", {
-      attention_rank: 2,
-      priority: priority({ position: 1, tier: 4, attention: "understand" }),
-    });
-    const third = target("t:third", "a.py", "unreviewed", {
-      attention_rank: 1,
-      priority: priority({ position: 2, tier: 4, attention: "understand" }),
-    });
-    const input = [third, second, first];
-
-    expect(reviewQueue(input).map((row) => row.target_id)).toEqual(["t:first", "t:second", "t:third"]);
-    expect(firstActionable(input)?.target_id).toBe("t:first");
-    expect(nextReviewGuideTarget(input)?.targetId).toBe("t:first");
-    expect(stepQueueTarget(input, "t:first", 1)?.target_id).toBe("t:second");
-    expect(stepQueueTarget(input, "t:third", -1)?.target_id).toBe("t:second");
-    expect([...fileAttention(input).entries()].map(([path, attention]) => [path, attention.attention_rank])).toEqual([
-      ["a.py", 2],
-      ["b.py", 1],
-      ["c.py", 0],
-    ]);
+  it("uses observed target state before generic attention prose in the guide", () => {
+    expect(nextReviewGuideTarget([
+      target("changed", "src/auth.py", "changed_since_review", { reasons: ["public contract changed"] }),
+    ])?.reason).toBe("Changed since your last review");
+    expect(nextReviewGuideTarget([
+      target("failed", "src/api.py", "unreviewed", { verification: { pass: 0, fail: 2, unknown: 0 } }),
+    ])?.reason).toBe("2 verification failures");
   });
 
-  describe("one canonical attention classification (plan §8.8)", () => {
-    // A mixed Review as the server places it: one target per tier, plus a
-    // plan question that promotes an unreviewed target to Review first. The
-    // server lists the reason that placed a target first.
-    const mixed = [
-      target("t:plain", "src/store.py", "unreviewed", {
-        start_line: 40,
-        priority: priority({ position: 3 }),
+  it("orders the attention path by durable human state before ordinary unreviewed work", () => {
+    const rows = [
+      target("normal", "src/normal.py", "unreviewed", { attention_rank: 1 }),
+      target("changed", "src/changed.py", "changed_since_review", { attention_rank: 8 }),
+      target("returned", "src/returned.py", "unreviewed", {
+        attention_rank: 9,
+        annotation_counts: { open: 1, orphaned: 0, addressed_needs_rereview: 1 },
       }),
-      target("t:done", "src/done.py", "reviewed", {
-        reasons: ["public contract changed"],
-        priority: priority({
-          position: 5,
-          tier: 6,
-          attention: "done",
-          outstanding: false,
-          reasons: [{ code: "reviewed", detail: "Reviewed; content unchanged" }],
-        }),
-      }),
-      target("t:routine", "src/fmt.py", "unreviewed", {
-        priority: priority({
-          position: 4,
-          tier: 5,
-          attention: "routine",
-          reasons: [{ code: "routine_comment_only", detail: "Comment-only change" }],
-        }),
-      }),
-      target("t:conflict", "src/store.py", "unreviewed", {
-        start_line: 5,
-        priority: priority({
-          position: 2,
-          tier: 3,
-          attention: "review_first",
-          reasons: [
-            { code: "author_guidance_conflict", detail: "Authors disagree about retention" },
-            { code: "unreviewed", detail: "Not reviewed yet" },
-          ],
-        }),
-      }),
-      target("t:changed", "src/auth.py", "changed_since_review", {
-        priority: priority({
-          position: 1,
-          tier: 2,
-          attention: "review_first",
-          reasons: [{ code: "changed_since_judgment", detail: "Changed since your review" }],
-        }),
-      }),
-      target("t:asked", "src/api.py", "needs_changes", {
-        priority: priority({
-          position: 0,
-          tier: 1,
-          attention: "review_first",
-          reasons: [{ code: "request_change_open", detail: "Requested change is still open" }],
-        }),
+      target("failed", "src/failed.py", "unreviewed", {
+        attention_rank: 7,
+        verification: { pass: 0, fail: 1, unknown: 0 },
       }),
     ];
 
-    it("orders the queue and names each reason from the same result", () => {
-      const queue = reviewQueue(mixed);
-      expect(queue.map((row) => row.target_id)).toEqual(["t:asked", "t:changed", "t:conflict", "t:plain", "t:routine"]);
-      const classified = queue.map((row) => targetAttention(row));
-      // Order is the classification's rank; tiers never go backwards along it.
-      expect(classified.map((item) => item.attention_rank)).toEqual([0, 1, 2, 3, 4]);
-      expect(classified.map((item) => item.tier)).toEqual([1, 2, 3, 4, 5]);
-      expect(classified.map((item) => [item.reason_code, item.attention])).toEqual([
-        ["request_change_open", "review_first"],
-        ["changed_since_judgment", "review_first"],
-        ["author_guidance_conflict", "review_first"],
-        ["unreviewed", "understand"],
-        ["routine_comment_only", "routine"],
-      ]);
-      // The Next card and `]` path say exactly what the classification says.
-      expect(reviewAttentionPath(mixed).map((item) => [item.targetId, item.reason, item.reasonCode, item.attention])).toEqual(
-        queue.map((row, index) => [row.target_id, classified[index].reason_label, classified[index].reason_code, classified[index].attention]),
-      );
-      expect(reviewAttentionPath(mixed)[2].reason).toBe("Authors disagree about retention");
-      expect(targetAttention(mixed[1])).toMatchObject({ actionable: false, attention: "done", tier: 6 });
-    });
+    expect(orderedAttentionTargets(rows).map((row) => row.target_id)).toEqual([
+      "returned",
+      "changed",
+      "failed",
+      "normal",
+    ]);
+    expect(reviewAttentionPath(rows).map((row) => row.reason)).toEqual([
+      "1 addressed comment needs re-review",
+      "Changed since your last review",
+      "1 verification failure",
+      "normal review order",
+    ]);
+  });
 
-    it("gives each file its first queue entry's section and reason, whatever the server row says", () => {
-      const byPath = fileAttention(mixed);
-      // store.py holds a Review-first question (rank 2) and ordinary work
-      // (rank 3); the file reads as its first queue entry.
-      expect(byPath.get("src/store.py")).toMatchObject({
-        attention: "review_first",
-        reason_code: "author_guidance_conflict",
-        reason_label: "Authors disagree about retention",
-        attention_rank: 2,
-      });
-      expect(byPath.get("src/done.py")).toMatchObject({ actionable: false, attention: "done" });
-      for (const [path, attention] of byPath) {
-        const first = reviewQueue(mixed).find((row) => row.path === path);
-        if (first) expect(attention).toEqual(targetAttention(first));
-      }
+  it("keeps pure mechanical work out of the attention path but elevates explicit blockers", () => {
+    const rows = [
+      target("mechanical", "vendor.lock", "unreviewed", { attention_level: "mechanical" }),
+      target("mechanical-comment", "generated.ts", "unreviewed", {
+        attention_level: "mechanical",
+        annotation_counts: { open: 1, orphaned: 0, addressed_needs_rereview: 0 },
+      }),
+    ];
+    expect(orderedAttentionTargets(rows).map((row) => row.target_id)).toEqual(["mechanical-comment"]);
+  });
 
-      // Server rows as they read mid-flight: stale sections and reasons. The
-      // canonical classification decides the section instead.
-      const rows = [
-        outlineRow("src/api.py", { section: "unreviewed", position: 0 }),
-        outlineRow("src/auth.py", { section: "review_first", position: 1 }),
-        outlineRow("src/store.py", { section: "unreviewed", position: 2, next_reason: "Not reviewed yet" }),
-        outlineRow("src/fmt.py", { section: "unreviewed", position: 4 }),
-        outlineRow("src/done.py", { section: "unreviewed", position: 5 }),
-      ];
-      expect(outlineSections(rows, "", byPath).map((section) => [section.key, section.rows.map((row) => row.path)])).toEqual([
-        ["review_first", ["src/api.py", "src/auth.py", "src/store.py"]],
-        ["mechanical", ["src/fmt.py"]],
-        ["done", ["src/done.py"]],
-      ]);
-    });
-
-    it("classifies a synthetic compare row by its own state, in list order", () => {
-      const compare = [
-        target("c:b", "b.py", "unknown", { reasons: ["Changed between Snapshot 2 and Snapshot 3"] }),
-        target("c:a", "a.py", "unknown", { reasons: ["+3 -1"] }),
-      ];
-      expect(compare.map((row, index) => targetAttention(row, index))).toEqual([
-        { tier: 4, attention: "understand", reason_code: "", reason_label: "Changed between Snapshot 2 and Snapshot 3", actionable: true, attention_rank: 0 },
-        { tier: 4, attention: "understand", reason_code: "", reason_label: "Needs human judgment", actionable: true, attention_rank: 1 },
-      ]);
-      expect(reviewQueue(compare).map((row) => row.target_id)).toEqual(["c:b", "c:a"]);
-      expect(nextReviewGuideTarget(compare)).toMatchObject({ reason: "Changed between Snapshot 2 and Snapshot 3", reasonCode: "", attention: "" });
-    });
+  it("steps through the deterministic attention path and wraps", () => {
+    const rows = [
+      target("normal", "src/normal.py"),
+      target("changed", "src/changed.py", "changed_since_review"),
+      target("returned", "src/returned.py", "unreviewed", {
+        annotation_counts: { open: 1, orphaned: 0, addressed_needs_rereview: 1 },
+      }),
+    ];
+    expect(stepAttentionTarget(rows, "returned", 1)?.target_id).toBe("changed");
+    expect(stepAttentionTarget(rows, "normal", 1)?.target_id).toBe("returned");
+    expect(stepAttentionTarget(rows, "returned", -1)?.target_id).toBe("normal");
   });
 
   it("maps the deterministic change story to navigable chapter paths", () => {
@@ -437,34 +299,30 @@ describe("reader model", () => {
     expect(bestTargetAfterRevision(previous, rows, delta)?.target_id).toBe("near");
   });
 
-  it("buckets outline rows by server section and keeps canonical order under a filter", () => {
+  it("builds one highest-priority outline section per file", () => {
+    const base = (path: string): ReviewOutlineItem => ({
+      path,
+      target_count: 2,
+      reviewed: 0,
+      changed_since_review: 0,
+      needs_changes: 0,
+      unreviewed: 2,
+      unknown: 0,
+      mechanical: 0,
+      attention_rank: 0,
+      reasons: ["+1 -0"],
+    });
     const rows = [
-      outlineRow("src/z.py", { section: "review_first", position: 0 }),
-      outlineRow("lib/tests/test_a.py", { section: "unreviewed", position: 1 }),
-      outlineRow("src/a.py", { section: "unreviewed", position: 2, reasons: ["public contract changed"] }),
-      outlineRow("src/done.py", { section: "done", position: 3, reviewed: 2, unreviewed: 0 }),
+      { ...base("src/a.py"), changed_since_review: 1 },
+      { ...base("tests/a.test.ts"), reasons: ["+2 -1"] },
+      { ...base("vendor.lock"), mechanical: 2 },
+      { ...base("src/done.py"), reviewed: 2, unreviewed: 0 },
     ];
-    expect(outlineSections(rows).map((section) => [section.key, section.label, section.rows.map((row) => row.path)])).toEqual([
-      ["review_first", "Review first", ["src/z.py"]],
-      ["unreviewed", "Unreviewed", ["lib/tests/test_a.py", "src/a.py"]],
-      ["done", "Done", ["src/done.py"]],
-    ]);
-    expect(outlineSections([outlineRow("src/fmt.go", { section: "mechanical", position: 0 })]).map((section) => section.label))
-      .toEqual(["Routine"]);
-    expect(outlineSections(rows, "src/").flatMap((section) => section.rows.map((row) => row.path))).toEqual([
-      "src/z.py",
-      "src/a.py",
-      "src/done.py",
-    ]);
-  });
-
-  it("falls back to counts, never reasons or paths, for a row without a server section", () => {
-    const rows = [
-      outlineRow("tests/a.test.ts", { reasons: ["public contract changed"] }),
-      outlineRow("src/done.py", { reviewed: 2, unreviewed: 0 }),
-    ];
-    expect(outlineSections(rows).map((section) => [section.key, section.rows.map((row) => row.path)])).toEqual([
-      ["unreviewed", ["tests/a.test.ts"]],
+    const sections = outlineSections(rows);
+    expect(sections.map((section) => [section.key, section.rows.map((row) => row.path)])).toEqual([
+      ["changed", ["src/a.py"]],
+      ["tests", ["tests/a.test.ts"]],
+      ["mechanical", ["vendor.lock"]],
       ["done", ["src/done.py"]],
     ]);
   });

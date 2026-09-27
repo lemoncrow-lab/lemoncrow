@@ -13,10 +13,7 @@ or user preferences.
 
 from importlib import import_module
 from pathlib import Path
-from pkgutil import extend_path
 from typing import TYPE_CHECKING, Any
-
-__path__ = extend_path(__path__, __name__)
 
 if TYPE_CHECKING:
     from lemoncrow.core.foundation.models import (
@@ -44,16 +41,9 @@ _LAZY_EXPORTS = {
 # At runtime we read the installed package metadata so they never drift.
 
 try:
-    from importlib.metadata import PackageNotFoundError as _PackageNotFoundError
     from importlib.metadata import version as _version
 
-    try:
-        __version__ = _version(__name__.split(".")[0])
-    except _PackageNotFoundError:
-        # Review-only local installs intentionally do not ship the monolithic
-        # ``lemoncrow`` distribution. The shared package lives inside the
-        # isolated Review engine distribution instead.
-        __version__ = _version("lemoncrow-review-engine")
+    __version__ = _version(__name__.split(".")[0])
 except Exception:
     # Fallback: read pyproject.toml directly for dev/uninstalled usage.
     _pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"

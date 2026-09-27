@@ -15,7 +15,6 @@ and ``litellm_client.py`` for AWS / Azure / GCP cloud-native model access.
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
 from typing import Any
 
 from lemoncrow.infra.internal_llm.exceptions import (
@@ -34,9 +33,7 @@ __all__ = [
     "LiteLLMUnavailable",
     "OllamaUnavailable",
     "chat",
-    "chat_stream",
     "chunk_entropy",
-    "configured_model",
     "logprobs",
     "summarize",
     "token_surprisals",
@@ -47,38 +44,6 @@ def _backend() -> str:
     return os.environ.get("LEMONCROW_LLM_BACKEND", "none").lower().strip()
 
 
-def _require_intelligence_enabled() -> None:
-    """The BI0 kill switch: every facade model call refuses under a disabled or invalid policy."""
-
-    from lemoncrow.pro.capabilities.review.intelligence_runtime import require_intelligence_enabled
-
-    require_intelligence_enabled()
-
-
-def configured_model() -> tuple[str, str] | None:
-    """The ``(backend, model)`` a default call would use, or ``None`` when disabled.
-
-    For labelling generated text with what produced it; it does not probe the
-    endpoint.
-    """
-    backend = _backend()
-    if backend == "openai_compatible":
-        backend = "openai"
-    if backend == "openai":
-        from lemoncrow.infra.internal_llm.openai_client import _resolve_model as _openai_model
-
-        return backend, _openai_model()
-    if backend == "litellm":
-        from lemoncrow.infra.internal_llm.litellm_client import _resolve_model as _litellm_model
-
-        return backend, _litellm_model(None)
-    if backend == "ollama":
-        from lemoncrow.infra.internal_llm.ollama_client import _resolve_model as _ollama_model
-
-        return backend, _ollama_model(None)
-    return None
-
-
 def chat(
     messages: list[dict[str, Any]],
     *,
@@ -87,7 +52,6 @@ def chat(
     backend: str | None = None,
 ) -> str | dict[str, Any]:
     """Call the configured or explicitly selected internal LLM chat endpoint."""
-    _require_intelligence_enabled()
     backend = (backend or _backend()).lower().strip()
     if backend == "openai_compatible":
         backend = "openai"
@@ -118,39 +82,6 @@ def chat(
         raise InternalLLMError(f"Internal LLM ({backend}) failed: {exc}") from exc
 
 
-def chat_stream(
-    messages: list[dict[str, Any]],
-    *,
-    on_delta: Callable[[str], None],
-    model: str | None = None,
-    json_schema: dict[str, Any] | None = None,
-    backend: str | None = None,
-) -> str | dict[str, Any]:
-    """Stream raw assistant text while preserving the normal chat return contract."""
-    _require_intelligence_enabled()
-    backend = (backend or _backend()).lower().strip()
-    if backend == "openai_compatible":
-        backend = "openai"
-    if backend not in {"none", "ollama", "openai", "litellm"}:
-        raise InternalLLMError(f"Unsupported internal LLM backend: {backend}")
-    if backend == "none":
-        raise InternalLLMError(
-            "Internal LLM disabled; set LEMONCROW_LLM_BACKEND=ollama or LEMONCROW_LLM_BACKEND=openai to enable"
-        )
-    try:
-        if backend == "openai":
-            from lemoncrow.infra.internal_llm.openai_client import chat_stream as _chat_stream
-        elif backend == "litellm":
-            from lemoncrow.infra.internal_llm.litellm_client import chat_stream as _chat_stream
-        else:
-            from lemoncrow.infra.internal_llm.ollama_client import chat_stream as _chat_stream
-        return _chat_stream(messages, on_delta=on_delta, model=model, json_schema=json_schema)
-    except Exception as exc:
-        if isinstance(exc, InternalLLMError):
-            raise
-        raise InternalLLMError(f"Internal LLM ({backend}) failed: {exc}") from exc
-
-
 def summarize(text: str, *, model: str | None = None, max_tokens: int = 4096) -> str:
     """Summarize text using the configured internal LLM.
 
@@ -159,7 +90,6 @@ def summarize(text: str, *, model: str | None = None, max_tokens: int = 4096) ->
     background summaries don't re-pay provider tokens; disable with
     ``LEMONCROW_INTERNAL_LLM_CACHE=0``.
     """
-    _require_intelligence_enabled()
     backend = _backend()
     if backend == "none":
         raise InternalLLMError(

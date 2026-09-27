@@ -175,7 +175,7 @@ class RefreshingHttpTransport(HttpTransport):
     broker. The process/file locks still serialize refresh-token rotation.
     """
 
-    __slots__ = ("_access_token", "_legacy_state_dir", "_refresh_lock", "_refresh_token", "_state_dir")
+    __slots__ = ("_access_token", "_refresh_lock", "_refresh_token", "_state_dir")
 
     def __init__(
         self,
@@ -185,11 +185,9 @@ class RefreshingHttpTransport(HttpTransport):
         state_dir: Path,
         access_token: str,
         refresh_token: str,
-        legacy_state_dir: Path | None = None,
     ) -> None:
         super().__init__(url, timeout_s=timeout_s)
         self._state_dir = state_dir
-        self._legacy_state_dir = legacy_state_dir
         self._access_token = _validate_token(access_token, "access token")
         self._refresh_token = _validate_token(refresh_token, "refresh token")
         self._refresh_lock = threading.Lock()
@@ -232,21 +230,7 @@ class RefreshingHttpTransport(HttpTransport):
             # only after taking the process lock: another CLI may have won the
             # race while this request was in flight. In that case adopt its pair
             # and retry instead of replaying the already-consumed refresh token.
-            #
-            # During the Core-state migration an existing login may still live
-            # under the legacy shared root. Import it into the new account root
-            # while holding the new lock, so concurrent new clients converge on
-            # one pair before any rotates the one-time refresh token.
             disk_access, disk_refresh = read_managed_credentials(self._state_dir)
-            if (not disk_access or not disk_refresh) and self._legacy_state_dir is not None:
-                legacy_access, legacy_refresh = read_managed_credentials(self._legacy_state_dir)
-                if legacy_access and legacy_refresh:
-                    write_managed_credentials(
-                        self._state_dir,
-                        access_token=legacy_access,
-                        refresh_token=legacy_refresh,
-                    )
-                    disk_access, disk_refresh = legacy_access, legacy_refresh
             if not disk_access or not disk_refresh:
                 return response
             self._access_token = disk_access
@@ -272,16 +256,7 @@ class RefreshingHttpTransport(HttpTransport):
                 HttpTransport(self.url, timeout_s=self._timeout_s),
                 timeout_s=self._timeout_s if timeout_s is None else timeout_s,
             )
-            try:
-                access, refresh = authward.refresh(self._refresh_token)
-            except ClientError as exc:
-                if exc.server_code == "invalid_grant":
-                    clear_managed_credentials(self._state_dir)
-                    if self._legacy_state_dir is not None:
-                        clear_managed_credentials(self._legacy_state_dir)
-                    self._access_token = ""
-                    self._refresh_token = ""
-                raise
+            access, refresh = authward.refresh(self._refresh_token)
             access = _validate_token(access, "access token")
             refresh = _validate_token(refresh, "refresh token")
             write_managed_credentials(self._state_dir, access_token=access, refresh_token=refresh)

@@ -15,7 +15,6 @@ from pathlib import Path
 
 import pytest
 from lemoncrow_client.kit.notices import spill_notice
-from lemoncrow_client.kit.spill import resolve_spill_dir
 
 from lemoncrow.gateway.adapters import mcp_server
 from lemoncrow.pro.capabilities.tool_supervision import tool_output_spill
@@ -193,7 +192,7 @@ def test_spill_bounded_and_leaves_no_temp(monkeypatch: pytest.MonkeyPatch) -> No
     # Cap to 2 then create 5 spills via the real spill() path (autouse spill dir).
     monkeypatch.setenv("LEMONCROW_MCP_SPILL_MAX_FILES", "2")
     monkeypatch.delenv("LEMONCROW_MCP_SPILL_TTL_SECONDS", raising=False)
-    spill_dir = resolve_spill_dir()
+    spill_dir = tool_output_spill._spill_dir()
     for i in range(5):
         assert tool_output_spill.spill(f"content-{i}", tool_name="bash") is not None
 

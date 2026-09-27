@@ -46,30 +46,60 @@ def _default_scored_state() -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 
 
-class TestScoreFormulas:
-    def test_route_score_contract(self) -> None:
-        cases = [
-            ((0, 0, 0), 1.0),
-            ((1, 0, 0), 0.6),
-            ((0, 2, 0), 0.7),
-            ((0, 0, 5), 0.8),
-            ((1, 2, 5), 0.1),
-            ((1, 10, 100), 0.1),
-        ]
-        for args, expected in cases:
-            assert abs(_route_score(*args) - expected) < 1e-6, args
+class TestRouteScore:
+    def test_perfect_score(self) -> None:
+        assert _route_score(0, 0, 0) == 1.0
 
-    def test_compact_score_contract(self) -> None:
-        cases = [
-            ((0.0, 0.0, 0), 1.0),
-            ((0.5, 0.0, 0), 0.0),
-            ((-0.5, 0.0, 0), 1.0),
-            ((0.0, 1.0, 0), 0.5),
-            ((0.0, 0.0, 1), 0.0),
-            ((10.0, 10.0, 5), 0.0),
-        ]
-        for args, expected in cases:
-            assert abs(_compact_score(*args) - expected) < 1e-6, args
+    def test_retry_penalty(self) -> None:
+        score = _route_score(retries_same_tool=1, model_errors_in_window=0, extra_reads=0)
+        assert abs(score - 0.6) < 1e-6
+
+    def test_model_errors_penalty(self) -> None:
+        score = _route_score(retries_same_tool=0, model_errors_in_window=2, extra_reads=0)
+        assert abs(score - 0.7) < 1e-6
+
+    def test_extra_reads_penalty(self) -> None:
+        score = _route_score(retries_same_tool=0, model_errors_in_window=0, extra_reads=5)
+        assert abs(score - 0.8) < 1e-6
+
+    def test_all_penalties_combined(self) -> None:
+        score = _route_score(retries_same_tool=1, model_errors_in_window=2, extra_reads=5)
+        # 1.0 - 0.4 - 0.3 - 0.2 = 0.1
+        assert abs(score - 0.1) < 1e-6
+
+    def test_clamped_at_zero(self) -> None:
+        # Max penalty: 0.4 + 0.3*min(1,10/2)=0.3 + 0.2*min(1,100/5)=0.2 = 0.9
+        # Minimum achievable score with this formula is 1.0 - 0.9 = 0.1
+        score = _route_score(retries_same_tool=1, model_errors_in_window=10, extra_reads=100)
+        assert abs(score - 0.1) < 1e-6
+
+    def test_clamped_at_one(self) -> None:
+        assert _route_score(0, 0, 0) == 1.0
+
+
+class TestCompactScore:
+    def test_perfect_score(self) -> None:
+        assert _compact_score(0.0, 0.0, 0) == 1.0
+
+    def test_positive_error_drift_penalty(self) -> None:
+        score = _compact_score(0.5, 0.0, 0)
+        assert abs(score - 0.0) < 1e-6
+
+    def test_negative_error_drift_no_penalty(self) -> None:
+        score = _compact_score(-0.5, 0.0, 0)
+        assert score == 1.0
+
+    def test_extra_read_rate_penalty(self) -> None:
+        score = _compact_score(0.0, 1.0, 0)
+        assert abs(score - 0.5) < 1e-6
+
+    def test_must_keep_violation_penalty(self) -> None:
+        score = _compact_score(0.0, 0.0, 1)
+        assert score == 0.0
+
+    def test_clamped_at_zero(self) -> None:
+        score = _compact_score(10.0, 10.0, 5)
+        assert score == 0.0
 
 
 # --------------------------------------------------------------------------- #

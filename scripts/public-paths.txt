@@ -10,11 +10,8 @@
 
 # === Source code, CLI, MCP server ===
 # Explicit package-level allowlist: a new sibling under src/ is private until
-# deliberately added here. These packages hold the OSS product (Runtime Lite
-# glue, local Review, local execution primitives, neutral contracts, hosted
-# clients). Advanced commercial code intelligence (engine, embeddings, ANN,
-# rerankers, learned assets, graph/lineage) lives under enterprise/ and must not
-# reappear here: scripts/audit_oss_source_boundary.py enforces that.
+# deliberately added here. Everything inside these public engine packages stays
+# OSS by design.
 src/lemoncrow/__init__.py
 src/lemoncrow/py.typed
 src/lemoncrow/bench/
@@ -23,20 +20,6 @@ src/lemoncrow/gateway/
 src/lemoncrow/infra/
 src/lemoncrow/pro/
 src/lemoncrow/sdk/
-
-# Private Runtime owned-execution implementation. These files remain in the
-# private monorepo for LemonCrow engineering/benchmarks, but are never mirrored
-# into the OSS repository. Public Runtime Lite owns integrations + local tools,
-# not LemonCrow's model/tool execution loop.
-!src/lemoncrow/gateway/cli/coding_engine.py
-!src/lemoncrow/gateway/cli/interactive.py
-!src/lemoncrow/gateway/cli/runtime.py
-!src/lemoncrow/gateway/cli/commands/_private_run.py
-!src/lemoncrow/gateway/openai_gateway/
-!src/lemoncrow/pro/capabilities/owned_agent_session/gemini_cache.py
-!src/lemoncrow/pro/capabilities/owned_agent_session/keepalive.py
-!src/lemoncrow/pro/capabilities/owned_agent_session/phase_runner.py
-!src/lemoncrow/pro/capabilities/owned_agent_session/stem_prompt.py
 
 # === Public server core + local composition ===
 server/
@@ -47,81 +30,9 @@ client/
 # === Tests & benchmarks ===
 tests/
 benchmarks/
-# Built-in Review evaluation corpus (synthetic, Apache-2.0), fixtures and Gate I
-# baseline. Organization corpora are never committed (tests enforce it).
-evals/review/
-# The seeded-bug corpus of repositories a public corpus may not carry (copyleft or source-available licences): commit
-# ids and fix subjects only, `visibility: private`; its reports go outside the checkout.
-!evals/review/seeded_public_bugs_nonpermissive.yaml
-# Its tests read that file, so they stay private with it.
-!tests/gateway/test_review_seeded_corpus_nonpermissive.py
-# The golden-comment corpus: 50 pull requests of repositories a public corpus may not carry, scored against an answer key
-# that has no licence (the key itself is never in this repository). Commit ids and titles only; reports go outside.
-!evals/review/golden_comment_prs.yaml
-# Its tests read that file, so they stay private with it.
-!tests/gateway/test_review_golden_corpus_shipped.py
-# Regression tests of the private code-intelligence engine (enterprise/runtime)
-# live under tests/private/ and are never published. Public tests reach the
-# engine only via the `private_engine` marker (skipped when it is absent).
-!tests/private/
-!tests/test_product_positioning.py
-!tests/gateway/test_tool_registry_boundary.py
-!tests/core/capabilities/test_stem_prompt.py
-!tests/gateway/cli/test_coding_engine.py
-!tests/gateway/cli/test_output_governor.py
-!tests/gateway/cli/test_pi_contract.py
-!tests/integrations/pi/managed.test.mjs
-!tests/gateway/cli/test_routing_runtime.py
-!tests/gateway/cli/test_runtime.py
-!tests/gateway/test_mcp_http_transport.py
-!tests/gateway/test_mcp_visibility_boundary.py
-!tests/gateway/test_openai_gateway.py
-!tests/gateway/test_request_context_compressor.py
-!benchmarks/mini/runner.py
-# The G9-SLO speed gate reads its private target table (evals/performance/) and
-# is kept identical to a private plan; the stable-slot tests drive its fixtures.
-!benchmarks/review_slo.py
-!tests/benchmarks/test_review_slo.py
-!tests/gateway/test_review_stable_slots.py
-# The G11-RELEASE gate (scripts/release_gate.py, private like every unlisted script)
-# names enterprise test paths and private gates; its test stays private with it.
-!tests/test_release_gate.py
-!tests/test_release_canary_env.py
-!tests/test_release_record.py
-# Imports scripts/release_gate.py, release_impact.py and release_record.py, which are private.
-!tests/test_release_impact.py
-!tests/test_verify_compiled_candidate.py
-# The support-matrix renderer reads the private status index; only its page is public.
-!tests/gateway/test_support_matrix.py
-# Client tests that size or drive the private hosted server are never published.
-!client/tests/test_enterprise_scale_budget.py
-!client/tests/test_end_to_end_server.py
-!client/tests/test_mcp_startup_budget.py
-!client/tests/test_shipped_server_search.py
-!client/tests/test_shipped_retrieval_navigation.py
 
 # === Public documentation & docs site ===
-# Explicit subtree allowlist: a new docs/ sibling is private until deliberately
-# added here. Internal planning ledgers, marketing/pricing strategy, and
-# execution specs (docs/planning, docs/marketing, docs/superpowers) describe the
-# hosted platform and its commercial plan; they are never published. Only the two
-# user-facing roadmaps under docs/planning are public.
-docs/README.md
-docs/architecture/
-docs/_category_.json
-docs/providers.json.example
-docs/assets/
-docs/benchmarks/
-docs/hosts/
-docs/legal/
-docs/operations/
-docs/reference/
-!docs/reference/openai-gateway.md
-docs/reports/
-docs/sdk/
-docs/setup/
-docs/planning/roadmap.md
-docs/planning/savings-optimization-roadmap.md
+docs/
 docs-site/
 
 # === Web dashboard & local Review frontend ===
@@ -130,15 +41,12 @@ docs-site/
 # under enterprise/frontend and is never mirrored.
 frontend/.gitignore
 frontend/.prettierrc.json
-frontend/DESIGN_GUIDE.md
 frontend/README.md
 frontend/bun.lock
 frontend/index.html
 frontend/nginx.conf
-frontend/package.json
 frontend/package-lock.json
-# Vite runs Tailwind and autoprefixer through this file. The public mirror built the v0.8.0 Reader
-# without it, so the release shipped raw @tailwind directives and an unstyled Reader.
+frontend/package.json
 frontend/postcss.config.js
 frontend/tailwind.config.ts
 frontend/test-results.json
@@ -154,36 +62,22 @@ frontend/src/App.test.tsx
 frontend/src/App.tsx
 frontend/src/index.css
 frontend/src/main.tsx
-frontend/src/shared.ts
 frontend/src/vite-env.d.ts
-frontend/src/code/
 frontend/src/components/
-frontend/src/assets/
-frontend/src/design/
-frontend/src/control/
 frontend/src/lib/
-frontend/src/map/
 frontend/src/pages/
 frontend/src/review/
 frontend/src/test/
-# landing/ is a submodule of a PRIVATE repository (marketing site): never
-# published. scripts/mirror.py also regenerates .gitmodules so the public repo
-# names only gitlinks that are published AND declared public.
+landing/
+
 # === Agent integrations ===
 integrations/
-!integrations/pi/managed.mjs
 
 # === Scripts (installers, builders, mirror) ===
-# Hosted Review and Runtime client installers/builders are public product surfaces.
-# The managed hosted platform implementation remains private under enterprise/ and services/.
 scripts/LICENSE
-scripts/audit_oss_source_boundary.py
-scripts/audit_release_boundary.py
 scripts/build_host_skills.sh
 scripts/build.sh
-scripts/build_review_client.sh
-scripts/build_review_engine.sh
-scripts/build_runtime_client.sh
+scripts/build_hosted.sh
 scripts/bundle.sh
 scripts/install_agents.sh
 scripts/install_antigravity.sh
@@ -195,41 +89,19 @@ scripts/install_hermes.sh
 scripts/install_hosts.sh
 scripts/install_lemoncode.sh
 scripts/install_opencode.sh
-scripts/opencode_v2_config.py
 scripts/install_pi.sh
 scripts/install.sh
 scripts/hosted.sh
-scripts/review_engine.sh
-scripts/engine_install.sh
-scripts/stage_release.sh
-scripts/pin_release_installer.sh
-scripts/verify_client_distribution.py
-scripts/runtime.sh
-scripts/local_runtime.sh
-scripts/local_review.sh
-scripts/uninstall_product.sh
-scripts/uninstall_review.sh
-scripts/uninstall_runtime.sh
 scripts/local_server.sh
 scripts/cleanup_legacy_runtime.sh
 scripts/lib/
+scripts/local.sh
 scripts/managed_context.sh
 scripts/mirror.py
 scripts/public-paths.txt
 scripts/reconcile.sh
 scripts/refresh_model_prices.py
-# Renders the published code-review benchmark table (README and landing copy) from evals/review/published/; its test is public.
-scripts/render_code_review_benchmark.py
-scripts/release_changelog.py
-scripts/release_notes.py
-scripts/release_preflight.py
-scripts/release_previous_tag.py
-scripts/release_version.py
 scripts/sessions.sh
-scripts/verify_release_upgrade.sh
-scripts/verify_release_review_bootstrap.py
-scripts/release_drill_env.sh
-scripts/compiled_candidate_slice.py
 scripts/status.sh
 scripts/sync_agent_context.py
 scripts/uninstall_antigravity.sh
@@ -240,7 +112,6 @@ scripts/uninstall_cursor.sh
 scripts/uninstall_hermes.sh
 scripts/uninstall_lemoncode.sh
 scripts/uninstall_opencode.sh
-scripts/uninstall_pi.sh
 scripts/uninstall.sh
 scripts/verify_agent_clis.sh
 scripts/verify_lemoncrow_postgres.sh
@@ -249,20 +120,9 @@ scripts/verify_claude.sh
 scripts/verify_codex.sh
 scripts/verify_copilot.sh
 scripts/verify_opencode.sh
-# Executed or named by published tests, integrations and benchmarks
-# (tests/test_mirror_denylist.py fails when a public file references an omitted script).
-scripts/verify_cursor.sh
-scripts/verify_lemoncode.sh
-scripts/smoke_cursor.sh
-scripts/rebuild_isolated_bench_secondary_dbs.py
 
 # === Examples ===
 examples/
-# Local Review demo and example preview plugin: documented in
-# docs/reference/review-demo.md and review-preview-plugins.md, and exercised by
-# the published Review tests.
-demo/review-surfaces/
-demo/review-preview-plugin/
 
 # === Vendored stubs (required by pyproject.toml path dependency) ===
 vendor/babel-stub/
@@ -285,13 +145,10 @@ vendor/babel-99.0.0-py3-none-any.whl
 .cursor-plugin/
 
 # === Root-level files ===
-# action.yml is the GitHub Action (`uses: lemoncrow-lab/lemoncrow@<sha>`, see docs/setup/github-action.md): it must sit at the repository root.
-action.yml
 AGENTS.md
 BENCHMARKS.md
 CLA.md
 CLAUDE.md
-CHANGELOG.md
 CONTRIBUTING.md
 LICENSE
 LICENSE-APACHE
@@ -307,17 +164,13 @@ uv.lock
 .gitmodules
 requirements-audit.txt
 
-# === Public/private source boundary ==========================================
-# Public `src/lemoncrow/pro/` keeps only public contracts, neutral rendering and
-# local capability glue. The advanced engine is contributed into that namespace
-# by the private enterprise runtime distribution (enterprise/runtime), which is
-# never mirrored. See docs/reference/open-source-boundary.md.
+# === Engine: published, Apache-2.0 ===========================================
+# `src/lemoncrow/pro/` is intentionally public, Apache-2.0 like the rest of the
+# local engine. The explicit package allowlist above is about future leakage,
+# not shrinking the OSS runtime.
 
 # Large generated embedding corpus (build artifact); excluded to keep the mirror small.
 !benchmarks/embedding/corpus.jsonl
 
 # Tests that intentionally validate private documentation and cannot run in the public checkout.
 !tests/gateway/test_host_trace_confidence.py
-# The status index (docs/status/, private by default) cites private plans and
-# enterprise contract tests; its check runs under `make docs-check` only when present.
-!tests/gateway/test_status_index.py

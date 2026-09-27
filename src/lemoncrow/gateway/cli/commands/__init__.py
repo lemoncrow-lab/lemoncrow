@@ -29,10 +29,6 @@ def register(cli: click.Group) -> None:
     """Register relocated command modules onto the root ``cli`` group."""
     from lemoncrow.gateway.cli.commands._shared import _IMPORT_FAILED
 
-    from .development import dev_command
-
-    cli.add_command(_h(dev_command))
-
     try:
         from . import admin as admin_commands
 
@@ -40,6 +36,9 @@ def register(cli: click.Group) -> None:
         cli.add_command(admin_commands.uninstall)
         _h(admin_commands.env_group)  # internal validation
         cli.add_command(admin_commands.env_group)
+        # status_cmd is registered as 'dashboard' later (with 'status' as hidden alias)
+        _h(admin_commands.share_cmd)
+        cli.add_command(admin_commands.share_cmd)
         cli.add_command(admin_commands.plugin_settings_group)
         doctor_cmd = getattr(admin_commands, "doctor_cmd", None)
         if doctor_cmd is not None:
@@ -50,6 +49,8 @@ def register(cli: click.Group) -> None:
             cli.add_command(cast("click.Command", reset_cmd))
         _h(admin_commands.audit_group)
         cli.add_command(admin_commands.audit_group)
+        _h(admin_commands.insights_cmd)
+        cli.add_command(admin_commands.insights_cmd)
 
     except (ModuleNotFoundError, ImportError):
         _IMPORT_FAILED = True
@@ -61,11 +62,13 @@ def register(cli: click.Group) -> None:
     except ImportError:
         _IMPORT_FAILED = True
     try:
-        from .agents_skills import agent_group, install_group, skill_group
+        from .agents_skills import agent_group, install_group, skill_group, stale_nudge_cmd
 
         cli.add_command(agent_group)
         cli.add_command(skill_group)
         cli.add_command(install_group)
+        _h(stale_nudge_cmd)  # internal plumbing for statusline/opencode nudge, not interactive
+        cli.add_command(stale_nudge_cmd)
     except (ModuleNotFoundError, ImportError):
         _IMPORT_FAILED = True
 
@@ -75,6 +78,34 @@ def register(cli: click.Group) -> None:
 
         _admin_cmds.audit_group.add_command(audit_context_cmd)
         _admin_cmds.audit_group.add_command(audit_bash_cmd)
+    except (ModuleNotFoundError, ImportError):
+        _IMPORT_FAILED = True
+
+    try:
+        from .playbooks import (
+            add_playbook,
+            domain_group,
+            import_style_guide_cmd,
+            list_blocks_cmd,
+            playbook_group,
+            reembed,
+            report_cmd,
+        )
+
+        _h(domain_group)
+        cli.add_command(domain_group)
+        _h(report_cmd)
+        cli.add_command(report_cmd)
+        _h(playbook_group)
+        cli.add_command(playbook_group)
+        _h(list_blocks_cmd)
+        cli.add_command(list_blocks_cmd)
+        _h(add_playbook)
+        cli.add_command(cast("click.Command", add_playbook))
+        _h(import_style_guide_cmd)
+        cli.add_command(import_style_guide_cmd)
+        _h(reembed)
+        cli.add_command(cast("click.Command", reembed))
     except (ModuleNotFoundError, ImportError):
         _IMPORT_FAILED = True
 
@@ -96,19 +127,21 @@ def register(cli: click.Group) -> None:
     try:
         from .map import map_cmd
 
-        cli.add_command(map_cmd)  # mounted under `lc rt` with the other Runtime commands
+        _h(map_cmd)  # compatibility shortcut; Map is a tab in `lc dashboard open`
+        cli.add_command(map_cmd)
     except (ModuleNotFoundError, ImportError):
         _IMPORT_FAILED = True
 
     try:
         from . import admin as admin_commands
-        from .tools import tools_group
+        from .tools import tool_mode, tools_group
 
+        tools_group.add_command(tool_mode, name="mode")
         tools_group.add_command(admin_commands.tool_report_cmd, name="report")
         _h(tools_group)
         cli.add_command(tools_group)
 
-        # 'lc runtime mcp' starts the stdio MCP server (replaces the legacy standalone binary)
+        # 'lc mcp' starts the stdio MCP server (replaces the legacy standalone binary)
         try:
             from .mcp import mcp_group
 
@@ -119,31 +152,15 @@ def register(cli: click.Group) -> None:
         _IMPORT_FAILED = True
 
     try:
-        from .local_savings import (
-            local_savings_auto,
-            local_savings_disable,
-            local_savings_doctor,
-            local_savings_enable,
-            local_savings_learn,
-            local_savings_status,
-            local_savings_undo,
+        from .savings import (
+            optimize_group,
+            savings_cmd,
         )
-        from .runtime import runtime_group
-        from .savings import savings_cmd
 
-        # Keep existing aggregate savings/accounting semantics; Local Savings
-        # is an additive product control surface under the same command.
-        for command in (
-            local_savings_enable,
-            local_savings_status,
-            local_savings_doctor,
-            local_savings_auto,
-            local_savings_undo,
-            local_savings_learn,
-            local_savings_disable,
-        ):
-            savings_cmd.add_command(command)
-        runtime_group.add_command(savings_cmd)
+        # savings is the headline metric — kept visible in --help.
+        cli.add_command(savings_cmd)
+        _h(optimize_group)  # advanced tuning advisor — internal
+        cli.add_command(optimize_group)
     except (ModuleNotFoundError, ImportError):
         _IMPORT_FAILED = True
 
@@ -163,30 +180,9 @@ def register(cli: click.Group) -> None:
         _IMPORT_FAILED = True
 
     try:
-        from .runtime import runtime_group
-
-        cli.add_command(runtime_group)
-    except (ModuleNotFoundError, ImportError):
-        _IMPORT_FAILED = True
-
-    try:
-        from .product_status import product_status_cmd
-
-        cli.add_command(product_status_cmd)
-    except (ModuleNotFoundError, ImportError):
-        _IMPORT_FAILED = True
-
-    try:
         from .model import model_group
 
         cli.add_command(model_group)
-    except (ModuleNotFoundError, ImportError):
-        _IMPORT_FAILED = True
-
-    try:
-        from .work import work_group
-
-        cli.add_command(work_group)
     except (ModuleNotFoundError, ImportError):
         _IMPORT_FAILED = True
 
@@ -198,12 +194,24 @@ def register(cli: click.Group) -> None:
         _IMPORT_FAILED = True
 
     try:
+        from .resume_context import resume_context_cmd
+
+        _h(resume_context_cmd)  # bounded continuation brief; promote once users pull it
+        cli.add_command(resume_context_cmd)
+    except (ModuleNotFoundError, ImportError):
+        _IMPORT_FAILED = True
+
+    try:
         from .savings import optimize_group as _optimize_group
+        from .savings import savings_cmd as _savings_cmd
         from .usage import usage_group
 
         # `lc usage` is the canonical accounting surface (plan 2026-09-07 §4.2).
         usage_group.add_command(_optimize_group, name="optimize")
         cli.add_command(usage_group)
+        # `savings` stays a permanent back-compat alias: installed statusline
+        # scripts shell out to `lc savings --segment` from outside this repo.
+        _h(_savings_cmd)
     except (ModuleNotFoundError, ImportError):
         _IMPORT_FAILED = True
 
@@ -218,6 +226,16 @@ def register(cli: click.Group) -> None:
         from .benchmark import benchmark_group
 
         cli.add_command(benchmark_group)
+    except (ModuleNotFoundError, ImportError):
+        _IMPORT_FAILED = True
+
+    try:
+        from .mcp_serve import chatgpt_group
+
+        # `lc mcp serve` is the real name now; the old top-level group stays
+        # registered (hidden) so existing scripts keep working.
+        _h(chatgpt_group)
+        cli.add_command(chatgpt_group)
     except (ModuleNotFoundError, ImportError):
         _IMPORT_FAILED = True
 
@@ -246,30 +264,65 @@ def register(cli: click.Group) -> None:
         _IMPORT_FAILED = True
 
     try:
-        from .code import code_group, host_group, runtime_index_cmd, zoekt_group
+        from .defaults import defaults_group
+
+        _h(defaults_group)
+        cli.add_command(defaults_group)
+    except (ModuleNotFoundError, ImportError):
+        _IMPORT_FAILED = True
+
+    try:
+        from .code import code_group, zoekt_group
 
         _h(code_group.commands.get("train"))  # [EXPERIMENTAL] embedder finetune — internal
         cli.add_command(code_group)
-        cli.add_command(runtime_index_cmd)
-        cli.add_command(host_group)
         _h(zoekt_group)  # search-backend infra used transparently by code_search
         cli.add_command(zoekt_group)
     except (ModuleNotFoundError, ImportError):
         _IMPORT_FAILED = True
 
     try:
-        from .route import route_public_group
+        from .perf import perf_group
 
-        _h(route_public_group)
-        cli.add_command(route_public_group)
+        _h(perf_group)
+        cli.add_command(perf_group)
     except (ModuleNotFoundError, ImportError):
         _IMPORT_FAILED = True
 
     try:
-        from .lessons import checkpoint, ledger
+        from .route import proof_group, route_public_group
 
-        cli.add_command(_h(ledger))
-        cli.add_command(_h(checkpoint))
+        _h(route_public_group)
+        cli.add_command(route_public_group)
+        _h(proof_group)
+        cli.add_command(proof_group)
+    except (ModuleNotFoundError, ImportError):
+        _IMPORT_FAILED = True
+
+    try:
+        from .hosts import global_import
+
+        _h(global_import)
+        cli.add_command(global_import)
+    except (ModuleNotFoundError, ImportError):
+        _IMPORT_FAILED = True
+
+    try:
+        from .eval import eval_
+        from .lessons import (
+            checkpoint,
+            ledger,
+            lesson,
+        )
+
+        _h(ledger)
+        cli.add_command(ledger)
+        _h(checkpoint)
+        cli.add_command(checkpoint)
+        _h(lesson)
+        cli.add_command(lesson)
+        _h(eval_)
+        cli.add_command(eval_)
     except (ModuleNotFoundError, ImportError):
         _IMPORT_FAILED = True
 
@@ -319,6 +372,14 @@ def register(cli: click.Group) -> None:
         _IMPORT_FAILED = True
 
     try:
+        from .letta import letta_group
+
+        _h(letta_group)
+        cli.add_command(letta_group)
+    except (ModuleNotFoundError, ImportError):
+        _IMPORT_FAILED = True
+
+    try:
         import click as _click
 
         from . import admin as admin_commands
@@ -326,22 +387,15 @@ def register(cli: click.Group) -> None:
         @_click.group("dashboard", invoke_without_command=True)
         @_click.pass_context
         def dashboard_group(ctx: _click.Context) -> None:
-            """Spend and savings over the last 7 days, and the latest runs.
+            """Show the LemonCrow spend & savings dashboard.
 
-            lc rt dashboard open opens the web dashboard when LemonCrow
-            Review's local server is running.
+            Run with no arguments for the terminal rollup (last 7 days + recent
+            runs). Use ``lc dashboard open`` for the browser analytics UI.
             """
             if ctx.invoked_subcommand is None:
-                from lemoncrow.gateway.cli import style
-                from lemoncrow.gateway.cli.sessions_ui import overview_lines
-                from lemoncrow.infra.runtime.dashboard_url import discover_dashboard_url
+                from lemoncrow.core.capabilities.reporting.dashboard import render_overview
 
-                root = ctx.obj["root"]
-                with style.working("Adding up sessions…"):
-                    lines = overview_lines(
-                        root, width=style.terminal_width(80), browser=discover_dashboard_url(root) is not None
-                    )
-                _click.echo("\n".join(lines))
+                _click.echo(render_overview(ctx.obj["root"]))
 
         @dashboard_group.command("open")
         @_click.option(
@@ -349,39 +403,76 @@ def register(cli: click.Group) -> None:
         )
         @_click.pass_context
         def dashboard_open_cmd(ctx: _click.Context, port: int | None) -> None:
-            """Open the web dashboard served by LemonCrow Review's local server."""
+            """Open the already-running LemonCrow web UI."""
             import webbrowser
-            from pathlib import Path
 
-            from lemoncrow.gateway.cli import style
-            from lemoncrow.gateway.cli.commands.product_status import _review_installed
             from lemoncrow.infra.runtime.dashboard_url import discover_dashboard_url
 
             frontend_url = discover_dashboard_url(ctx.obj["root"], requested_port=port)
             if frontend_url is None:
-                if port is not None:
-                    message, text, command = f"Nothing answers on port {port}.", "Find the server with", "lc doctor"
-                elif _review_installed(Path(ctx.obj["root"])):
-                    message, text, command = "LemonCrow's local server isn't running.", "See why with", "lc doctor"
-                else:
-                    message = "The web dashboard comes with LemonCrow Review; Runtime Lite has none."
-                    text, command = "The same numbers are in the terminal:", "lc rt dashboard"
-                _click.echo(f"{style.mark('fail')} {message}", err=True)
-                _click.echo(style.next_step(text, command), err=True)
-                if command == "lc rt dashboard":
-                    _click.echo(style.next_step("Sessions one by one:", "lc session"), err=True)
-                    _click.echo(style.next_step("The code map:", "lc rt map"), err=True)
-                ctx.exit(1)
-            from lemoncrow.gateway.cli.commands.review import arm_local_browser_url
-
+                requested = f" on port {port}" if port is not None else ""
+                _click.echo(
+                    f"  LemonCrow dashboard is not running{requested}.\n\n"
+                    f"  Restart the LemonCrow local loopback server, then run:\n"
+                    f"    lc dashboard open"
+                )
+                return
             url = f"{frontend_url.rstrip('/')}/"
-            _click.echo(f"{style.accent('◆')} Opening the LemonCrow dashboard: {url}")
-            arm_local_browser_url(url)
+            _click.echo(f"  ◆ Opening LemonCrow dashboard: {url}")
             webbrowser.open(url)
 
         cli.add_command(dashboard_group)
-        # The old dashboard-style `status` alias was retired when `lc status`
-        # became the product orientation surface. Analytics live at `lc dashboard`.
+        # Keep 'status' as a hidden alias for backward compatibility
+        _h(admin_commands.status_cmd)
+        cli.add_command(admin_commands.status_cmd)
+    except (ModuleNotFoundError, ImportError):
+        _IMPORT_FAILED = True
+
+    try:
+        import click as _click
+
+        @_click.command("serve-openai")
+        @_click.option(
+            "--port", default=8790, show_default=True, help="Port to listen on (8787 is the LemonCrow service port)"
+        )
+        @_click.option(
+            "--host",
+            default="127.0.0.1",
+            show_default=True,
+            help="Bind address (default loopback-only; the gateway runs an auto-approving agent)",
+        )
+        @_click.option("--project-root", default=None, help="Project root directory")
+        @_click.option(
+            "--no-yolo",
+            is_flag=True,
+            default=False,
+            help="Require manual approval for tool calls (default: auto-approve)",
+        )
+        def serve_openai_cmd(port: int, host: str, project_root: str | None, no_yolo: bool) -> None:
+            """Start the OpenAI-compatible chat completions gateway.
+
+            Any TUI that supports custom OpenAI-compatible endpoints can connect.
+
+            \b
+            OpenCode  (opencode.json):
+              "provider": {"lemoncrow": {"npm": "@ai-sdk/openai-compatible",
+                "options": {"baseURL": "http://localhost:8787/v1", "apiKey": "local"}}}
+
+            Crush  (crush.json):
+              "providers": {"lemoncrow": {"type": "openai-compat",
+                "base_url": "http://localhost:8787/v1", "api_key": "local"}}
+
+            Codex  (~/.codex/config.toml):
+              [model_providers.lemoncrow]
+              base_url = "http://localhost:8787/v1"
+              wire_api = "chat"
+            """
+            from lemoncrow.gateway.openai_gateway.serve import serve
+
+            serve(port=port, host=host, project_root=project_root, yolo=not no_yolo)
+
+        serve_openai_cmd.hidden = True  # internal: integrated into lc service
+        cli.add_command(serve_openai_cmd, name="serve-openai")
     except (ModuleNotFoundError, ImportError):
         _IMPORT_FAILED = True
 
@@ -406,63 +497,13 @@ def register(cli: click.Group) -> None:
     except ImportError:
         _IMPORT_FAILED = True
 
-    # `lc with <host>` is the low-friction trial path. It adds LemonCrow MCP
-    # only to that child process; it never persists host registration.
     try:
-        from .host_trial import with_group
+        from .project import project_cmd
 
-        cli.add_command(with_group)
-    except (ModuleNotFoundError, ImportError):
-        _IMPORT_FAILED = True
-
-    # Runtime is a product namespace, not a second implementation tree. Mount
-    # each visible Runtime-owned command object under `lc runtime` after the
-    # root registry is complete so canonical and compatibility spellings cannot
-    # drift in options, behavior or help.
-    try:
-        from .runtime import runtime_group
-
-        _mount_runtime_product_commands(cli, runtime_group)
-    except (ModuleNotFoundError, ImportError):
-        _IMPORT_FAILED = True
-
-
-def _mount_runtime_product_commands(cli: click.Group, runtime_group: click.Group) -> None:
-    import copy
-
-    from lemoncrow.gateway.cli.product_ownership import (
-        COMMAND_OWNERSHIP,
-        PRODUCT_ALIASES,
-        RUNTIME_ENGINE_SHORTCUTS,
-        RUNTIME_PROMOTED_COMMANDS,
-        ProductOwner,
-    )
-
-    # Runtime ownership does not imply an extra word for frequent user jobs.
-    # Promoted commands remain first-class root commands and the exact same
-    # Click command objects are also mounted beneath `lc runtime`. Less-frequent
-    # Runtime machinery is moved into the namespace and removed from root.
-    for name, owner in COMMAND_OWNERSHIP.items():
-        if owner is not ProductOwner.RUNTIME or name in {"runtime", *PRODUCT_ALIASES}:
-            continue
-        if name in RUNTIME_ENGINE_SHORTCUTS:
-            continue
-        if name in RUNTIME_PROMOTED_COMMANDS:
-            command = cli.commands.get(name)
-            if command is not None and name not in runtime_group.commands:
-                runtime_group.add_command(command, name=name)
-            continue
-        command = cli.commands.pop(name, None)
-        if command is None or name in runtime_group.commands:
-            continue
-        runtime_group.add_command(command, name=name)
-
-    # `lc rt ...` is a deliberate shorthand for the Runtime product namespace.
-    # Keep it out of root help/completion so `runtime` remains the one canonical
-    # product name and we do not recreate a second command hierarchy.
-    rt_alias = copy.copy(runtime_group)
-    rt_alias.hidden = True
-    cli.add_command(rt_alias, name="rt")
+        _h(project_cmd)
+        cli.add_command(project_cmd, name="project")
+    except ImportError:
+        pass
 
 
 def _completion_entries(cli: click.Group) -> list[tuple[str, str]]:

@@ -18,31 +18,6 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: "doc",
-          id: "setup/ai-review",
-          label: "Your first AI review",
-        },
-        {
-          type: "doc",
-          id: "setup/pro-hosted-runtime",
-          label: "LemonCrow Pro: Hosted Runtime",
-        },
-        {
-          type: "doc",
-          id: "setup/github-action",
-          label: "GitHub Action: AI pull request review",
-        },
-        {
-          type: "doc",
-          id: "setup/importing-review-rules",
-          label: "Importing review rules",
-        },
-        {
-          type: "doc",
-          id: "setup/hosted-review",
-          label: "Hosted Review: administrator guide",
-        },
-        {
-          type: "doc",
           id: "setup/privacy",
         },
         {
@@ -121,15 +96,11 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: "doc",
-          id: "reference/review",
-        },
-        {
-          type: "doc",
-          id: "reference/review-walkthrough",
-        },
-        {
-          type: "doc",
           id: "reference/architecture",
+        },
+        {
+          type: "doc",
+          id: "reference/openai-gateway",
         },
       ],
     },
@@ -190,6 +161,10 @@ const sidebars: SidebarsConfig = {
         {
           type: "doc",
           id: "operations/production-readiness",
+        },
+        {
+          type: "doc",
+          id: "operations/maintenance-mode-transition",
         },
       ],
     },

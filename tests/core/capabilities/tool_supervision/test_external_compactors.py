@@ -21,20 +21,21 @@ def test_enabled_by_default() -> None:
     assert ec.external_compactors_enabled() is True
 
 
-def test_opt_out_via_env(monkeypatch) -> None:
-    for value in ["0", "false", "no", "off", "False", "OFF"]:
-        monkeypatch.setenv(ec._ENV_ENABLED, value)
-        assert ec.external_compactors_enabled() is False
+@pytest.mark.parametrize("value", ["0", "false", "no", "off", "False", "OFF"])
+def test_opt_out_via_env(monkeypatch, value: str) -> None:
+    monkeypatch.setenv(ec._ENV_ENABLED, value)
+    assert ec.external_compactors_enabled() is False
 
 
-def test_explicit_enable_values(monkeypatch) -> None:
-    for value in ["1", "true", "yes", "on", "anything-else"]:
-        monkeypatch.setenv(ec._ENV_ENABLED, value)
-        assert ec.external_compactors_enabled() is True
+@pytest.mark.parametrize("value", ["1", "true", "yes", "on", "anything-else"])
+def test_explicit_enable_values(monkeypatch, value: str) -> None:
+    monkeypatch.setenv(ec._ENV_ENABLED, value)
+    assert ec.external_compactors_enabled() is True
 
 
-def test_compactor_for_command() -> None:
-    for tokens, expected in [
+@pytest.mark.parametrize(
+    ("tokens", "expected"),
+    [
         (["git", "status"], "rtk"),
         (["git", "log", "-n", "5"], "rtk"),
         (["pytest", "-q"], "rtk"),
@@ -54,29 +55,36 @@ def test_compactor_for_command() -> None:
         (["pnpm", "list"], "rtk"),
         (["pip", "list"], "rtk"),
         (["aws", "s3", "ls"], "rtk"),
+        # Transparent-runner wrappers: uv run/poetry run/pipenv run/npx exec
+        # their trailing argv unchanged, so they should match same as bare.
         (["uv", "run", "pytest", "-q"], "rtk"),
         (["uv", "run", "ruff", "check", "."], "rtk"),
         (["poetry", "run", "pytest"], "rtk"),
         (["pipenv", "run", "pytest"], "rtk"),
         (["npx", "jest"], "rtk"),
-        (["poetry", "run", "uv", "run", "pytest"], "rtk"),
+        (["poetry", "run", "uv", "run", "pytest"], "rtk"),  # chained wrappers
+        # npm/yarn/pnpm `run <script>` is opaque (package.json alias) --
+        # deliberately NOT treated as a match even if the script name happens
+        # to collide with a real allowlisted command.
         (["npm", "run", "pytest"], None),
         (["yarn", "run", "pytest"], None),
         (["docker", "rm", "web"], None),
         (["kubectl", "delete", "pod", "x"], None),
         (["aws", "s3", "cp", "a", "b"], None),
         (["pip", "install", "requests"], None),
-        (["git", "branch", "foo"], None),
+        (["git", "branch", "foo"], None),  # mutating -- not on the allowlist
         (["git", "commit", "-m", "x"], None),
         (["docker", "run", "x"], None),
-        (["docker", "build", "."], None),
+        (["docker", "build", "."], None),  # build stays native post-hoc only
         (["kubectl", "apply", "-f", "x.yaml"], None),
         (["biome", "format", "--write", "."], None),
-        (["prettier", "."], None),
+        (["prettier", "."], None),  # missing --check -> mutates in place
         ([], None),
-    ]:
-        compactor = ec.compactor_for_command(tokens)
-        assert (compactor.name if compactor else None) == expected
+    ],
+)
+def test_compactor_for_command(tokens: list[str], expected: str | None) -> None:
+    compactor = ec.compactor_for_command(tokens)
+    assert (compactor.name if compactor else None) == expected
 
 
 def test_resolve_compactor_caches_result(monkeypatch) -> None:

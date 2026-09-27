@@ -232,12 +232,6 @@ _BASH_IDLE_FLOOR_S = _bash_env_float("LEMONCROW_BASH_IDLE_FLOOR", 120.0)
 _BASH_IDLE_GRACE_S = _bash_env_float("LEMONCROW_BASH_IDLE_GRACE", 75.0)
 # How often progress is sampled while waiting.
 _BASH_IDLE_TICK_S = _bash_env_float("LEMONCROW_BASH_IDLE_TICK", 3.0)
-# Small synchronous completion-edge grace: if the child exits exactly as its
-# response budget expires, give the watcher/poller one final chance to reap the
-# terminal result instead of returning a handle that immediately flips state.
-# This must stay tiny: `timeout` is a response wait budget, not `timeout + 10s`.
-_BASH_COMPLETION_EDGE_GRACE_S = 0.25
-
 # Bound one MCP response independently from the managed command's own wait
 # budget. Hosts often impose a shorter RPC/orchestration window; returning the
 # durable shell id before that boundary avoids losing the run and re-starting it.
@@ -409,149 +403,6 @@ def _start_idle_deadline_watcher(
 
     thread = threading.Thread(target=_run, name="lemoncrow-bash-idle", daemon=True)
     thread.start()
-
-
-_HOST_MARKERS = ("LEMONCROW_AGENT", "CLAUDE_CODE", "CLAUDECODE", "CLAUDE_CODE_SESSION_ID")
-
-
-def _verified_work_host() -> str:
-    """Host label for the Auto gate.
-
-    ``detect_host`` falls back to ``claude`` when nothing identifies the host;
-    that fallback must not qualify an unknown host (e.g. Codex without a
-    label) for transparent repair, so it maps to ``""`` (unsupported).
-    """
-    from lemoncrow.gateway.adapters.mcp.ledger import _detect_agent, _request_session
-
-    ctx = getattr(_request_session, "value", None)
-    if isinstance(ctx, dict) and ctx.get("host"):
-        return str(ctx["host"])
-    host = _detect_agent()
-    if host == "claude" and not any(os.environ.get(name, "").strip() for name in _HOST_MARKERS):
-        return ""
-    return host
-
-
-def _apply_verified_work_after_bash(command: str, effective_cwd: str, result: dict[str, Any]) -> dict[str, Any]:
-    """Apply optional verifier-triggered local work to a terminal Bash result.
-
-    Shadow mode queues background observation and returns the exact original
-    result. Enforce mode changes the result only after a candidate has passed the
-    exact verifier, promoted transactionally, and passed the verifier again in
-    the live checkout -- and only in a repository that opted in to Auto for
-    that model and kind on a qualified host. Otherwise enforce behaves like
-    Learning; the first refusal for want of an opt-in appends one notice.
-    All failures are fail-open to the original Bash result.
-    """
-
-    try:
-        exit_code = int(result.get("exit_code", 0) or 0)
-    except (TypeError, ValueError):
-        return result
-    if exit_code == 0 or result.get("blocked"):
-        return result
-    if os.environ.get("LEMONCROW_BASH_WORKSPACE_ROOT", "").strip():
-        return result
-    try:
-        from lemoncrow.core.capabilities.verified_work import (
-            build_opportunity,
-            evaluate_eligibility,
-            load_verified_work_settings,
-        )
-
-        settings = load_verified_work_settings()
-        if settings.mode == "off":
-            return result
-
-        from lemoncrow.gateway.adapters.mcp.ledger import _get_claude_session_id, _get_ledger
-        from lemoncrow.pro.capabilities.verified_work.consent import auto_gate, consent_notice_for
-        from lemoncrow.pro.capabilities.verified_work.repairs import promotion_notice
-        from lemoncrow.pro.capabilities.verified_work.runtime import run_enforced_repair_bounded
-
-        workspace_raw = (
-            os.environ.get("CLAUDE_WORKSPACE_ROOT") or os.environ.get("LEMONCROW_WORKSPACE_ROOT") or effective_cwd
-        )
-        workspace = Path(workspace_raw).expanduser().resolve()
-        cwd = Path(effective_cwd).expanduser().resolve()
-        if not workspace.is_dir() or not cwd.is_dir():
-            return result
-        opportunity = build_opportunity(
-            session_id=_get_claude_session_id() or "_global",
-            workspace=workspace,
-            command=command,
-            cwd=cwd,
-            exit_code=exit_code,
-            stdout=str(result.get("stdout") or ""),
-            stderr=str(result.get("stderr") or ""),
-        )
-        if opportunity is None:
-            return result
-        decision = evaluate_eligibility(opportunity, settings)
-        host = _verified_work_host()
-        gate = (
-            auto_gate(settings, workspace=workspace, kind=opportunity.kind, host=host)
-            if settings.mode == "enforce" and decision.eligible
-            else None
-        )
-        if settings.mode == "shadow" or (gate is not None and not gate.allowed):
-            if decision.eligible:
-                from lemoncrow.core.foundation.paths import default_store_root
-                from lemoncrow.pro.capabilities.verified_work.jobs import enqueue_and_spawn
-
-                enqueue_and_spawn(
-                    default_store_root(),
-                    {
-                        "host": "mcp",
-                        "session_id": opportunity.session_id,
-                        "workspace": str(workspace),
-                        "cwd": str(cwd),
-                        "command": command,
-                        "exit_code": exit_code,
-                        "stdout": str(result.get("stdout") or ""),
-                        "stderr": str(result.get("stderr") or ""),
-                    },
-                )
-            notice = consent_notice_for(gate)
-            if not notice:
-                return result
-            noticed = dict(result)
-            stdout = str(result.get("stdout") or "")
-            separator = "\n" if stdout and not stdout.endswith("\n") else ""
-            noticed["stdout"] = f"{stdout}{separator}{notice}\n"
-            return noticed
-
-        sink = _get_ledger()
-        repair = run_enforced_repair_bounded(
-            opportunity,
-            decision,
-            sink=sink,
-            settings=settings,
-            host=host,
-            allowed_models=gate.models if gate is not None else None,
-        )
-        if not repair.promoted:
-            return result
-        updated = dict(result)
-        updated["exit_code"] = 0
-        updated["stderr"] = ""
-        updated["stdout"] = promotion_notice(
-            repair.changed_paths, attempts=repair.attempts, record_id=repair.repair_record_id
-        )
-        updated["verified_work"] = {
-            "promoted": True,
-            "model": repair.model,
-            "attempts": repair.attempts,
-            "changed_paths": list(repair.changed_paths),
-            "diff_lines": repair.diff_lines,
-            "verifier_duration_ms": repair.verifier_duration_ms,
-            "network_isolated": repair.network_isolated,
-            "resource_limited": repair.resource_limited,
-            "repair_record_id": repair.repair_record_id,
-        }
-        return updated
-    except Exception:
-        logger.debug("verified-work execution failed", exc_info=True)
-        return result
 
 
 def _run_bash_tool(
@@ -1037,15 +888,6 @@ def _run_bash_tool(
         return started  # blocked by policy
     _record_mcp_managed_bash(started)
 
-    if background:
-        # Detach means detach immediately. A very short command can finish
-        # between start_managed_command() and the first poll below; polling it
-        # here would reap the session and strip its id, making bg batches return
-        # `?` for whichever command won that race. The durable handle remains
-        # pollable even when the watcher records completion immediately after
-        # this return.
-        return started
-
     if interactive:
         # An interactive session never finishes on its own -- hand the handle
         # back immediately; the model feeds it with action="send".
@@ -1095,7 +937,6 @@ def _run_bash_tool(
                 shipped_chars=len(str(polled.get("stdout") or "")) + len(str(polled.get("stderr") or "")),
                 omitted_chars=chars_omitted,
             )
-            polled = _apply_verified_work_after_bash(_stats_command, effective_cwd, polled)
             return polled
 
         def _register(cb: Callable[[], None]) -> bool:
@@ -1125,7 +966,7 @@ def _run_bash_tool(
     # deadline, so we return that reaped terminal result instead of a handle
     # to a session that's about to change state anyway.
     if inline_wait >= float(timeout):
-        inline_wait = float(timeout) + _BASH_COMPLETION_EDGE_GRACE_S
+        inline_wait = float(timeout) + 10.0
     start_wait = time.monotonic()
     deadline = start_wait + inline_wait
     # Idle early-return for the synchronous path (CLI/tests; the MCP server takes
@@ -1180,7 +1021,6 @@ def _run_bash_tool(
         shipped_chars=len(str(polled.get("stdout") or "")) + len(str(polled.get("stderr") or "")),
         omitted_chars=chars_omitted,
     )
-    polled = _apply_verified_work_after_bash(_stats_command, effective_cwd, polled)
     return polled
 
 

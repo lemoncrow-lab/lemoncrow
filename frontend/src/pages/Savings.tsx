@@ -1,4 +1,3 @@
-import { Button as UiButton } from "../components/ui/button";
 import { useEffect, useState } from "react";
 import { useTimeRange } from "../lib/TimeRangeContext";
 import LeverBar from "../components/LeverBar";
@@ -75,11 +74,11 @@ export default function Savings() {
     api
       .savingsSummary(days)
       .then(setData)
-      .catch((e) => setErr(e instanceof Error ? e.message : String(e)));
+      .catch((e) => setErr(String(e)));
   }, [days]);
 
-  if (err) return <div role="alert" className="p-4 text-body leading-6 text-muted-foreground">{err}</div>;
-  if (!data) return <div className="text-muted-foreground">Loading…</div>;
+  if (err) return <div className="text-red-300">Error: {err}</div>;
+  if (!data) return <div className="text-neutral-400">Loading…</div>;
 
   const latestBenchmark = data.latest_benchmark ?? null;
   const toolAggregates = data.tool_aggregates ?? [];
@@ -132,21 +131,21 @@ export default function Savings() {
   };
 
   return (
-    <div className="space-y-4">
-      <section className="rounded-lg border border-border/70 bg-background/60 p-4">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+    <div className="space-y-8">
+      <section className="border border-cyan-900/60 bg-gradient-to-r from-cyan-950/60 to-neutral-950 p-6">
+        <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6">
           <div>
-            <div className="text-label font-mono uppercase tracking-tag text-cyan-300">
+            <div className="text-[11px] font-mono uppercase tracking-[0.22em] text-cyan-300">
               {headlineLabel}
             </div>
-            <div className="mt-1 text-h2 font-semibold leading-none text-foreground">
+            <div className="text-6xl md:text-7xl font-semibold leading-none text-cyan-200 mt-2">
               {fmtPct(
                 data.cost_basis === "session_ledger"
                   ? (data.saved_pct ?? 0)
                   : data.reduction_pct
               )}
             </div>
-            <p className="text-heading text-muted-foreground mt-3">
+            <p className="text-sm text-neutral-400 mt-3">
               {fmtUsd(totalSavedUsd)} saved of{" "}
               {fmtUsd(data.would_have_cost_usd ?? 0)} would-have-cost over the
               last {data.window_days} days —{" "}
@@ -163,7 +162,7 @@ export default function Savings() {
               )}{" "}
               avoided calls.
             </p>
-            <p className="max-w-3xl text-body text-muted-foreground mt-3 leading-relaxed">
+            <p className="max-w-3xl text-xs text-neutral-400 mt-3 leading-relaxed">
               {data.cost_basis === "context_budget"
                 ? "Proof-oriented reduction from persisted context-budget rows. Ledger totals remain visible below for statusline/CLI reconciliation."
                 : "Realized savings from the per-session ledger — the same figure shown by the statusline and the LemonCrow savings CLI."}
@@ -171,7 +170,7 @@ export default function Savings() {
           </div>
           <div className="w-full md:w-auto">
             <Sparkline values={sparkValues} />
-            <p className="font-mono text-caption text-muted-foreground uppercase tracking-wider mt-2">
+            <p className="font-mono text-[10px] text-neutral-400 uppercase tracking-wider mt-2">
               Daily reduction trend
             </p>
           </div>
@@ -179,37 +178,37 @@ export default function Savings() {
       </section>
 
       <section className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-        <div className="rounded-lg border border-border/70 border-l-2 border-l-emerald-600/50 bg-background/60 p-4">
-          <div className="text-caption font-mono uppercase tracking-widest text-emerald-300 mb-1">
+        <div className="border border-emerald-900/60 bg-emerald-950/30 p-4">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-emerald-300 mb-1">
             Cost Saved
           </div>
-          <div className="text-h3 font-semibold text-emerald-300">
+          <div className="text-2xl font-semibold text-emerald-300">
             {fmtUsd(data.saved_usd ?? 0)}
           </div>
           {(data.saved_pct ?? 0) > 0 && (
-            <div className="text-body text-emerald-300 mt-1">
+            <div className="text-xs text-emerald-300 mt-1">
               {fmtPct(data.saved_pct ?? 0)} vs baseline
             </div>
           )}
           {(data.routing_saved_usd ?? 0) > 0 && (
-            <div className="text-body text-muted-foreground mt-1">
+            <div className="text-xs text-neutral-400 mt-1">
               + {fmtUsd(data.routing_saved_usd ?? 0)} routing (separate)
             </div>
           )}
           {(data.ops_saved_usd ?? 0) > 0 && (
-            <div className="text-body text-muted-foreground mt-1">
+            <div className="text-xs text-neutral-400 mt-1">
               internal ops: {fmtUsd(data.ops_saved_usd ?? 0)}
             </div>
           )}
         </div>
-        <div className="rounded-lg border border-border/70 bg-background/60 p-4">
-          <div className="text-caption font-mono uppercase tracking-widest text-muted-foreground/70 mb-1">
+        <div className="border border-neutral-800 bg-neutral-950/50 p-4">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-400/70 mb-1">
             Actual Cost
           </div>
-          <div className="text-h3 font-semibold text-foreground">
+          <div className="text-2xl font-semibold text-neutral-200">
             {fmtUsd(data.actually_cost_usd ?? 0)}
           </div>
-          <div className="text-body text-muted-foreground mt-1">
+          <div className="text-xs text-neutral-400 mt-1">
             {data.cost_basis === "session_ledger"
               ? `realized session spend (${fmtUsd(data.saved_usd ?? 0)} saved)`
               : data.cost_basis === "context_budget"
@@ -217,18 +216,18 @@ export default function Savings() {
                 : `live estimate ${fmtUsd(data.live_saved_usd ?? 0)}`}
           </div>
         </div>
-        <div className="rounded-lg border border-border/70 bg-background/60 p-4">
-          <div className="text-caption font-mono uppercase tracking-widest text-muted-foreground/70 mb-1">
+        <div className="border border-neutral-800 bg-neutral-950/50 p-4">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-400/70 mb-1">
             Calls Saved
           </div>
-          <div className="text-h3 font-semibold text-foreground">
+          <div className="text-2xl font-semibold text-neutral-200">
             {fmtTok(
               data.cost_basis === "session_ledger"
                 ? (data.ledger_calls_saved ?? 0)
                 : (data.live_calls_saved ?? 0)
             )}
           </div>
-          <div className="text-body text-muted-foreground mt-1">
+          <div className="text-xs text-neutral-400 mt-1">
             {(data.total_calls ?? 0) > 0
               ? `${fmtTok(data.total_calls ?? 0)} LLM calls tracked`
               : trackedToolCalls > 0
@@ -236,43 +235,43 @@ export default function Savings() {
                 : "0 tracked calls yet"}
           </div>
         </div>
-        <div className="rounded-lg border border-border/70 bg-background/60 p-4">
-          <div className="text-caption font-mono uppercase tracking-widest text-muted-foreground/70 mb-1">
+        <div className="border border-neutral-800 bg-neutral-950/50 p-4">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-400/70 mb-1">
             Actual Tool Tokens
           </div>
-          <div className="text-h3 font-semibold text-foreground">
+          <div className="text-2xl font-semibold text-neutral-200">
             {fmtTok(data.total_actual_tokens)}
           </div>
-          <div className="text-body text-muted-foreground mt-1">
+          <div className="text-xs text-neutral-400 mt-1">
             persisted compacted tool-output tokens
           </div>
         </div>
-        <div className="rounded-lg border border-border/70 border-l-2 border-l-emerald-600/50 bg-background/60 p-4">
-          <div className="text-caption font-mono uppercase tracking-widest text-emerald-300 mb-1">
+        <div className="border border-teal-900/60 bg-teal-950/30 p-4">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-teal-300 mb-1">
             Read Savings
           </div>
-          <div className="text-h3 font-semibold text-emerald-300">
+          <div className="text-2xl font-semibold text-teal-300">
             {fmtUsd(data.read_saved_usd ?? 0)}
           </div>
-          <div className="text-body text-muted-foreground mt-1">
+          <div className="text-xs text-neutral-400 mt-1">
             cache-read / retrieval cost avoided
           </div>
         </div>
-        <div className="rounded-lg border border-border/70 bg-muted/60 p-4">
-          <div className="mb-1 text-caption font-medium text-muted-foreground">
+        <div className="rounded-lg border border-neutral-800/70 bg-neutral-900/60 p-4">
+          <div className="mb-1 text-[10px] font-medium text-neutral-500">
             Context Carry
           </div>
-          <div className="text-h3 font-semibold text-foreground">
+          <div className="text-2xl font-semibold text-neutral-100">
             {fmtUsd(data.carry_usd ?? 0)}
           </div>
-          <div className="text-body text-muted-foreground mt-1">
+          <div className="text-xs text-neutral-400 mt-1">
             {fmtTok(data.carry_tokens ?? 0)} tokens carried
           </div>
         </div>
       </section>
 
       {(data.unpriced_cache_write_tokens ?? 0) > 0 && (
-        <section className="rounded-lg border border-border/70 border-l-2 border-l-amber-600/50 bg-background/60 p-4 text-body text-subtle">
+        <section className="border border-amber-900/50 bg-amber-950/20 p-4 text-xs text-neutral-300">
           <span className="font-mono uppercase tracking-widest text-amber-300 mr-2">
             Cost Note
           </span>
@@ -292,15 +291,15 @@ export default function Savings() {
           description={
             <>
               Run any task with{" "}
-              <code className="bg-muted px-1">lc mcp</code> enabled to
+              <code className="bg-neutral-900 px-1">lc mcp</code> enabled to
               start collecting savings telemetry.
             </>
           }
         />
       ) : (
         <>
-          <section className="rounded-lg border border-border/70 bg-background/60 p-4">
-            <h2 className="text-body uppercase tracking-widest text-muted-foreground mb-4">
+          <section className="border border-neutral-800 bg-neutral-950/70 p-5">
+            <h2 className="text-xs uppercase tracking-widest font-mono text-neutral-400 mb-4">
               Per-lever savings
             </h2>
             <div className="space-y-4">
@@ -318,45 +317,45 @@ export default function Savings() {
           <SavingsTimeChart data={data.by_day} windowDays={data.window_days} />
 
           {latestBenchmark && (
-            <section className="rounded-lg border border-border/70 border-l-2 border-l-cyan-600/45 bg-background/60 p-4">
-              <h2 className="text-body uppercase tracking-widest text-cyan-300 mb-4">
+            <section className="border border-cyan-900/50 bg-cyan-950/20 p-5">
+              <h2 className="text-xs uppercase tracking-widest font-mono text-cyan-300 mb-4">
                 Latest paired benchmark
               </h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-heading">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                 <div>
-                  <div className="text-caption uppercase tracking-widest text-muted-foreground">
+                  <div className="text-[10px] uppercase tracking-widest text-neutral-400">
                     Token reduction
                   </div>
-                  <div className="text-h3 font-semibold text-cyan-200">
+                  <div className="text-2xl font-semibold text-cyan-200">
                     {fmtPct(latestBenchmark.reduction_pct)}
                   </div>
                 </div>
                 <div>
-                  <div className="text-caption uppercase tracking-widest text-muted-foreground">
+                  <div className="text-[10px] uppercase tracking-widest text-neutral-400">
                     Cost saved
                   </div>
-                  <div className="text-h3 font-semibold text-emerald-300">
+                  <div className="text-2xl font-semibold text-emerald-300">
                     {fmtUsd(latestBenchmark.cost_saved_usd)}
                   </div>
                 </div>
                 <div>
-                  <div className="text-caption uppercase tracking-widest text-muted-foreground">
+                  <div className="text-[10px] uppercase tracking-widest text-neutral-400">
                     Tasks
                   </div>
-                  <div className="text-h3 font-semibold text-foreground">
+                  <div className="text-2xl font-semibold text-neutral-200">
                     {fmtTok(latestBenchmark.n_prompts)}
                   </div>
                 </div>
                 <div>
-                  <div className="text-caption uppercase tracking-widest text-muted-foreground">
+                  <div className="text-[10px] uppercase tracking-widest text-neutral-400">
                     Success
                   </div>
-                  <div className="text-h3 font-semibold text-foreground">
+                  <div className="text-2xl font-semibold text-neutral-200">
                     {fmtPct(latestBenchmark.lemoncrow_success_rate * 100, 0)}
                   </div>
                 </div>
               </div>
-              <p className="mt-3 text-body text-muted-foreground">
+              <p className="mt-3 text-xs text-neutral-400">
                 Real paired command run: baseline{" "}
                 {fmtTok(latestBenchmark.total_tokens_baseline)} tokens vs
                 LemonCrow-enabled {fmtTok(latestBenchmark.total_tokens_lc)}{" "}
@@ -366,13 +365,13 @@ export default function Savings() {
           )}
 
           {topSources.length > 0 && (
-            <section className="rounded-lg border border-border/70 bg-background/60 p-4">
-              <h2 className="text-body uppercase tracking-widest text-muted-foreground mb-4">
+            <section className="border border-neutral-800 bg-neutral-950/70 p-5">
+              <h2 className="text-xs uppercase tracking-widest font-mono text-neutral-400 mb-4">
                 Top savings sources
               </h2>
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-body">
-                  <thead className="text-caption uppercase tracking-widest text-muted-foreground">
+                <table className="w-full text-left text-xs">
+                  <thead className="text-[10px] uppercase tracking-widest text-neutral-400">
                     <tr>
                       <th className="pb-2 pr-4">Lever</th>
                       <th className="pb-2 pr-4">Tool</th>
@@ -385,12 +384,12 @@ export default function Savings() {
                     {topSources.map((source) => (
                       <tr
                         key={`${source.lever}:${source.tool_name}`}
-                        className="border-t border-border text-subtle"
+                        className="border-t border-neutral-900 text-neutral-300"
                       >
                         <td className="py-2 pr-4 font-semibold text-cyan-200">
                           {toTitle(source.lever)}
                         </td>
-                        <td className="py-2 pr-4 text-muted-foreground">
+                        <td className="py-2 pr-4 text-neutral-400">
                           {source.tool_name}
                         </td>
                         <td className="py-2 pr-4 text-right">
@@ -407,7 +406,7 @@ export default function Savings() {
                   </tbody>
                 </table>
               </div>
-              <p className="mt-3 text-body text-muted-foreground">
+              <p className="mt-3 text-xs text-neutral-400">
                 These rows use an equivalent-call estimator: search, edit, and
                 SQL tools count the built-in calls they replace, then apply live
                 token constants to estimate avoided cost.
@@ -416,13 +415,13 @@ export default function Savings() {
           )}
 
           {toolAggregates.length > 0 && (
-            <section className="rounded-lg border border-border/70 bg-background/60 p-4">
-              <h2 className="text-body uppercase tracking-widest text-muted-foreground mb-4">
+            <section className="border border-neutral-800 bg-neutral-950/70 p-5">
+              <h2 className="text-xs uppercase tracking-widest font-mono text-neutral-400 mb-4">
                 Per-tool cost proof
               </h2>
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-body">
-                  <thead className="text-caption uppercase tracking-widest text-muted-foreground">
+                <table className="w-full text-left text-xs">
+                  <thead className="text-[10px] uppercase tracking-widest text-neutral-400">
                     <tr>
                       <th className="pb-2 pr-4">Tool</th>
                       <th className="pb-2 pr-4">Lever</th>
@@ -438,12 +437,12 @@ export default function Savings() {
                     {toolAggregates.map((tool) => (
                       <tr
                         key={`${tool.tool_name}:${tool.lever}`}
-                        className="border-t border-border text-subtle"
+                        className="border-t border-neutral-900 text-neutral-300"
                       >
                         <td className="py-2 pr-4 font-semibold text-cyan-200">
                           {displayToolName(tool.tool_name)}
                         </td>
-                        <td className="py-2 pr-4 text-muted-foreground">
+                        <td className="py-2 pr-4 text-neutral-400">
                           {toTitle(tool.lever)}
                         </td>
                         <td className="py-2 pr-4 text-right">
@@ -452,10 +451,10 @@ export default function Savings() {
                         <td className="py-2 pr-4 text-right">
                           {fmtTok(tool.session_count)}
                         </td>
-                        <td className="py-2 pr-4 text-right text-foreground">
+                        <td className="py-2 pr-4 text-right text-neutral-200">
                           {fmtUsd(tool.actual_cost_usd)}
                         </td>
-                        <td className="py-2 pr-4 text-right text-muted-foreground">
+                        <td className="py-2 pr-4 text-right text-neutral-400">
                           {fmtUsd(tool.baseline_cost_usd)}
                         </td>
                         <td className="py-2 pr-4 text-right text-emerald-300">
@@ -469,7 +468,7 @@ export default function Savings() {
                   </tbody>
                 </table>
               </div>
-              <p className="mt-3 text-body text-muted-foreground leading-relaxed">
+              <p className="mt-3 text-xs text-neutral-400 leading-relaxed">
                 These rows are built from persisted proof items. Actual and
                 baseline cost reflect the tracked tokens on each tool turn.
                 Baseline here is the naive tool-output baseline, not audited
@@ -482,10 +481,10 @@ export default function Savings() {
           {sessionProof.length > 0 && (
             <section className="space-y-4">
               <div>
-                <h2 className="text-body uppercase tracking-widest text-muted-foreground mb-2">
+                <h2 className="text-xs uppercase tracking-widest font-mono text-neutral-400 mb-2">
                   Session proof
                 </h2>
-                <p className="text-body text-muted-foreground">
+                <p className="text-xs text-neutral-400">
                   Each session below links saved tokens and cost back to
                   concrete tool turns. Expand a session to inspect the stored
                   ledger, imported trace conversation, and command/tool
@@ -506,29 +505,29 @@ export default function Savings() {
           )}
 
           {coverageGaps.length > 0 && (
-            <section className="rounded-lg border border-border/70 border-l-2 border-l-red-600/45 bg-background/60 p-4">
-              <h2 className="text-body uppercase tracking-widest text-red-300 mb-4">
+            <section className="border border-red-900/40 bg-red-950/10 p-5">
+              <h2 className="text-xs uppercase tracking-widest font-mono text-red-300 mb-4">
                 Coverage gaps
               </h2>
               <div className="space-y-3">
                 {coverageGaps.map((gap) => (
                   <div
                     key={gap.session_id}
-                    className="rounded-md border border-border/70 border-l-2 border-l-red-600/45 bg-background/60 p-4"
+                    className="border border-red-900/20 bg-neutral-950/40 p-4"
                   >
-                    <div className="flex flex-wrap items-center gap-2 mb-2 text-caption font-mono uppercase tracking-widest">
+                    <div className="flex flex-wrap items-center gap-2 mb-2 text-[10px] font-mono uppercase tracking-widest">
                       <span className="px-2 py-0.5 border border-red-500/40 text-red-300">
                         {gap.agent}
                       </span>
                       {gap.trace_confidence && (
-                        <span className="px-2 py-0.5 border border-border text-muted-foreground">
+                        <span className="px-2 py-0.5 border border-neutral-700 text-neutral-400">
                           {gap.trace_confidence}
                         </span>
                       )}
-                      <span className="text-muted-foreground">{gap.session_id}</span>
+                      <span className="text-neutral-400">{gap.session_id}</span>
                     </div>
-                    <div className="text-heading text-foreground">{gap.task}</div>
-                    <p className="mt-2 text-body text-muted-foreground leading-relaxed">
+                    <div className="text-sm text-neutral-200">{gap.task}</div>
+                    <p className="mt-2 text-xs text-neutral-400 leading-relaxed">
                       {gap.reason}
                     </p>
                   </div>
@@ -554,20 +553,20 @@ function ManualVerificationPanel({
     verification.compact_output_saved_tokens ?? 0;
 
   return (
-    <section className="rounded-lg border border-border/70 border-l-2 border-l-amber-600/45 bg-background/60 p-4 space-y-4">
+    <section className="border border-amber-900/40 bg-amber-950/10 p-5 space-y-4">
       <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
         <div>
-          <h2 className="text-body uppercase tracking-widest text-amber-300 mb-2">
+          <h2 className="text-xs uppercase tracking-widest font-mono text-amber-300 mb-2">
             Manual verification
           </h2>
-          <p className="text-heading text-subtle leading-relaxed max-w-3xl">
+          <p className="text-sm text-neutral-300 leading-relaxed max-w-3xl">
             This section shows the raw proof coverage behind the headline so you
             can audit whether the aggregate is broad-based or dominated by a
             small number of tool turns.
           </p>
         </div>
         {verification.warning && (
-          <div className="max-w-xl rounded-lg border border-border/70 border-l-2 border-l-amber-600/50 bg-background/60 p-3 text-body text-amber-200 leading-relaxed">
+          <div className="max-w-xl border border-amber-700/40 bg-neutral-950/50 p-3 text-xs text-amber-200 leading-relaxed">
             {verification.warning}
           </div>
         )}
@@ -601,15 +600,15 @@ function ManualVerificationPanel({
       </div>
 
       {compactOutputRows > 0 && (
-        <div className="rounded-lg border border-border/70 bg-background/60 p-4 space-y-2">
-          <div className="text-caption font-mono uppercase tracking-widest text-muted-foreground">
+        <div className="border border-neutral-800 bg-neutral-950/50 p-4 space-y-2">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-400">
             Excluded Compact Output Rows
           </div>
-          <div className="text-lead font-semibold text-cyan-200">
+          <div className="text-lg font-semibold text-cyan-200">
             {fmtTok(compactOutputRows)} row
             {compactOutputRows === 1 ? "" : "s"}
           </div>
-          <div className="text-body text-muted-foreground leading-relaxed">
+          <div className="text-xs text-neutral-400 leading-relaxed">
             {fmtTok(compactOutputSavedTokens)} saved tokens remain visible in
             session proof, but are excluded from the top-line headline because
             they represent tool-output compaction rather than audited
@@ -619,68 +618,68 @@ function ManualVerificationPanel({
       )}
 
       <div className="grid xl:grid-cols-2 gap-3">
-        <div className="rounded-lg border border-border/70 bg-background/60 p-4 space-y-2">
-          <div className="text-caption font-mono uppercase tracking-widest text-muted-foreground">
+        <div className="border border-neutral-800 bg-neutral-950/50 p-4 space-y-2">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-400">
             Dominant Session
           </div>
           {dominantRun ? (
             <>
-              <div className="text-lead font-semibold text-cyan-200">
+              <div className="text-lg font-semibold text-cyan-200">
                 {fmtPct(verification.dominant_run_share_pct)} of saved tokens
               </div>
-              <div className="text-body text-muted-foreground font-mono break-all">
+              <div className="text-xs text-neutral-400 font-mono break-all">
                 {dominantRun.session_id}
               </div>
 
-              <div className="text-heading text-subtle">
+              <div className="text-sm text-neutral-300">
                 {dominantRun.agent ?? "unknown"}
               </div>
-              <p className="text-body text-muted-foreground leading-relaxed">
+              <p className="text-xs text-neutral-400 leading-relaxed">
                 {truncate(dominantRun.task ?? "No trace task attached.", 180)}
               </p>
-              <div className="text-body text-muted-foreground">
+              <div className="text-xs text-neutral-400">
                 {fmtTok(dominantRun.saved_tokens)} saved tokens
               </div>
             </>
           ) : (
-            <div className="text-heading text-muted-foreground">
+            <div className="text-sm text-neutral-400">
               No tracked session data yet.
             </div>
           )}
         </div>
 
-        <div className="rounded-lg border border-border/70 bg-background/60 p-4 space-y-2">
-          <div className="text-caption font-mono uppercase tracking-widest text-muted-foreground">
+        <div className="border border-neutral-800 bg-neutral-950/50 p-4 space-y-2">
+          <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-400">
             Largest Proof Row
           </div>
           {dominantItem ? (
             <>
-              <div className="text-lead font-semibold text-cyan-200">
+              <div className="text-lg font-semibold text-cyan-200">
                 {fmtPct(verification.dominant_item_share_pct)} of saved tokens
               </div>
-              <div className="text-heading text-subtle">
+              <div className="text-sm text-neutral-300">
                 {dominantItem.tool_name} · {toTitle(dominantItem.lever)} · turn{" "}
                 {dominantItem.turn_index}
               </div>
-              <div className="text-body text-muted-foreground font-mono break-all">
+              <div className="text-xs text-neutral-400 font-mono break-all">
                 {dominantItem.session_id}
               </div>
 
-              <div className="text-body text-muted-foreground leading-relaxed">
+              <div className="text-xs text-neutral-400 leading-relaxed">
                 {fmtTok(dominantItem.saved_tokens)} saved tokens from{" "}
                 {fmtTok(dominantItem.naive_tokens)} naive vs{" "}
                 {fmtTok(dominantItem.actual_tokens)} compacted tokens.
               </div>
             </>
           ) : (
-            <div className="text-heading text-muted-foreground">
+            <div className="text-sm text-neutral-400">
               No tracked proof rows yet.
             </div>
           )}
         </div>
       </div>
 
-      <p className="text-body text-muted-foreground font-mono break-all">
+      <p className="text-xs text-neutral-400 font-mono break-all">
         Data root: {verification.data_root}
       </p>
     </section>
@@ -721,20 +720,20 @@ function SessionProofCard({
       : "This session only has persisted context-budget rows. No live ledger or imported trace survived, so detailed proof beyond the token rows cannot be reconstructed.";
 
   return (
-    <article className="rounded-lg border border-border/70 bg-background/60 p-4 space-y-4">
+    <article className="border border-neutral-800 bg-neutral-950/70 p-5 space-y-4">
       <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
         <div className="space-y-2 min-w-0">
-          <div className="flex flex-wrap items-center gap-2 text-caption font-mono uppercase tracking-widest">
+          <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono uppercase tracking-widest">
             <span
               className={`px-2 py-0.5 border ${statusTone(session.status)}`}
             >
               {session.status}
             </span>
-            <span className="px-2 py-0.5 border border-border text-muted-foreground">
+            <span className="px-2 py-0.5 border border-neutral-700 text-neutral-400">
               {session.agent}
             </span>
             {session.trace_confidence && (
-              <span className="px-2 py-0.5 border border-border text-muted-foreground">
+              <span className="px-2 py-0.5 border border-neutral-700 text-neutral-400">
                 {session.trace_confidence}
               </span>
             )}
@@ -755,20 +754,20 @@ function SessionProofCard({
               </span>
             ))}
           </div>
-          <div className="text-heading text-foreground break-words">
+          <div className="text-sm text-neutral-100 break-words">
             {session.task}
           </div>
-          <div className="text-caption font-mono text-muted-foreground break-all">
+          <div className="text-[10px] font-mono text-neutral-400 break-all">
             Session: {session.session_id}
           </div>
           {session.note && (
-            <p className="text-body text-amber-300 leading-relaxed">
+            <p className="text-xs text-amber-300 leading-relaxed">
               {session.note}
             </p>
           )}
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-body min-w-[280px]">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs min-w-[280px]">
           <Metric label="Saved Cost" value={fmtUsd(session.saved_cost_usd)} />
           <Metric label="Saved Tokens" value={fmtTok(session.saved_tokens)} />
           <Metric
@@ -783,8 +782,8 @@ function SessionProofCard({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-left text-body">
-          <thead className="text-caption uppercase tracking-widest text-muted-foreground">
+        <table className="w-full text-left text-xs">
+          <thead className="text-[10px] uppercase tracking-widest text-neutral-400">
             <tr>
               <th className="pb-2 pr-4">Turn</th>
               <th className="pb-2 pr-4">Tool</th>
@@ -799,21 +798,21 @@ function SessionProofCard({
             {session.items.map((item) => (
               <tr
                 key={`${item.session_id}:${item.turn_index}:${item.tool_name}`}
-                className="border-t border-border text-subtle"
+                className="border-t border-neutral-900 text-neutral-300"
               >
-                <td className="py-2 pr-4 font-mono text-muted-foreground">
+                <td className="py-2 pr-4 font-mono text-neutral-400">
                   {item.turn_index}
                 </td>
                 <td className="py-2 pr-4 text-cyan-200 font-semibold">
                   {displayToolName(item.tool_name)}
                 </td>
-                <td className="py-2 pr-4 text-muted-foreground">
+                <td className="py-2 pr-4 text-neutral-400">
                   {toTitle(item.lever)}
                 </td>
                 <td className="py-2 pr-4 text-right">
                   {fmtTok(item.actual_tokens)}
                 </td>
-                <td className="py-2 pr-4 text-right text-muted-foreground">
+                <td className="py-2 pr-4 text-right text-neutral-400">
                   {fmtTok(item.naive_tokens)}
                 </td>
                 <td className="py-2 pr-4 text-right">
@@ -829,43 +828,42 @@ function SessionProofCard({
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <UiButton
+        <button
           type="button"
           onClick={onToggle}
-          size="xs"
-          variant="outline"
+          className="text-[11px] px-2.5 py-1 border border-neutral-700 text-neutral-300 hover:text-cyan-300 hover:border-cyan-500/50 transition"
         >
           {expanded ? "Hide evidence details" : "Inspect evidence details"}
-        </UiButton>
+        </button>
         {session.has_ledger && (
-          <span className="text-caption font-mono uppercase tracking-widest text-muted-foreground">
+          <span className="text-[10px] font-mono uppercase tracking-widest text-neutral-400">
             stored ledger available
           </span>
         )}
       </div>
 
       {expanded && (
-        <div className="rounded-lg border border-border/70 bg-background/60 p-4 space-y-4">
+        <div className="border border-neutral-900 bg-neutral-950/60 p-4 space-y-4">
           {loading && (
-            <div className="text-body text-muted-foreground">
+            <div className="text-xs text-neutral-400">
               Loading ledger proof…
             </div>
           )}
           {!loading && ledger?.error && (
-            <div className="text-body text-red-300">{ledger.error}</div>
+            <div className="text-xs text-red-300">{ledger.error}</div>
           )}
           {!loading && !ledger?.error && (
             <>
               {!hasEvidence ? (
-                <div className="rounded-lg border border-border/70 border-l-2 border-l-amber-600/50 bg-background/60 p-4 space-y-2 text-body">
-                  <div className="text-caption font-mono uppercase tracking-widest text-amber-300">
+                <div className="border border-amber-900/40 bg-amber-950/10 p-4 space-y-2 text-xs">
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-amber-300">
                     Capture gap
                   </div>
-                  <div className="text-foreground">
+                  <div className="text-neutral-200">
                     No detailed tool-call, command, or conversation proof was
                     stored for this session.
                   </div>
-                  <p className="text-muted-foreground leading-relaxed">
+                  <p className="text-neutral-400 leading-relaxed">
                     {missingEvidenceMessage}
                   </p>
                   {session.note && (
@@ -875,14 +873,14 @@ function SessionProofCard({
                   )}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 text-body">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 text-xs">
                   <div>
-                    <div className="text-caption font-mono uppercase tracking-widest text-muted-foreground mb-2">
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-400 mb-2">
                       Tool calls
                     </div>
                     <div className="space-y-2">
                       {toolsCalled.length === 0 ? (
-                        <div className="text-muted-foreground">
+                        <div className="text-neutral-400">
                           No tool-call detail captured for this session.
                         </div>
                       ) : (
@@ -891,16 +889,16 @@ function SessionProofCard({
                           .map((tool: any, index: number) => (
                             <div
                               key={`${tool.name}:${index}`}
-                              className="rounded-md border border-border/70 p-2"
+                              className="border border-neutral-900 p-2"
                             >
                               <div className="text-cyan-200 font-semibold">
                                 {tool.name}
                               </div>
-                              <div className="text-muted-foreground font-mono">
+                              <div className="text-neutral-400 font-mono">
                                 x{tool.count ?? 1}
                               </div>
                               {tool.result_summary && (
-                                <div className="mt-1 text-muted-foreground leading-relaxed">
+                                <div className="mt-1 text-neutral-400 leading-relaxed">
                                   {truncate(String(tool.result_summary), 120)}
                                 </div>
                               )}
@@ -911,12 +909,12 @@ function SessionProofCard({
                   </div>
 
                   <div>
-                    <div className="text-caption font-mono uppercase tracking-widest text-muted-foreground mb-2">
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-400 mb-2">
                       Commands
                     </div>
                     <div className="space-y-2">
                       {commandsRun.length === 0 ? (
-                        <div className="text-muted-foreground">
+                        <div className="text-neutral-400">
                           No command detail captured for this session.
                         </div>
                       ) : (
@@ -930,9 +928,9 @@ function SessionProofCard({
                             return (
                               <div
                                 key={`${commandText}:${index}`}
-                                className="rounded-md border border-border/70 p-2"
+                                className="border border-neutral-900 p-2"
                               >
-                                <div className="font-mono text-subtle break-all">
+                                <div className="font-mono text-neutral-300 break-all">
                                   {truncate(commandText, 140)}
                                 </div>
                               </div>
@@ -943,12 +941,12 @@ function SessionProofCard({
                   </div>
 
                   <div>
-                    <div className="text-caption font-mono uppercase tracking-widest text-muted-foreground mb-2">
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-400 mb-2">
                       Conversation / LLM response
                     </div>
                     <div className="space-y-2">
                       {conversations.length === 0 ? (
-                        <div className="text-muted-foreground">
+                        <div className="text-neutral-400">
                           No conversation transcript was attached to this
                           session.
                         </div>
@@ -958,16 +956,16 @@ function SessionProofCard({
                           .map((entry: any, index: number) => (
                             <div
                               key={`${entry.kind}:${index}`}
-                              className="rounded-md border border-border/70 p-2"
+                              className="border border-neutral-900 p-2"
                             >
-                              <div className="text-caption font-mono uppercase tracking-widest text-muted-foreground">
+                              <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-400">
                                 {entry.kind}
                               </div>
-                              <div className="mt-1 text-foreground leading-relaxed">
+                              <div className="mt-1 text-neutral-200 leading-relaxed">
                                 {truncate(String(entry.summary ?? ""), 120)}
                               </div>
                               {entry.content && (
-                                <div className="mt-1 text-muted-foreground leading-relaxed whitespace-pre-wrap break-words">
+                                <div className="mt-1 text-neutral-400 leading-relaxed whitespace-pre-wrap break-words">
                                   {truncate(String(entry.content), 180)}
                                 </div>
                               )}
@@ -988,11 +986,11 @@ function SessionProofCard({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-border/70 bg-background/60 p-3">
-      <div className="text-caption font-mono uppercase tracking-widest text-muted-foreground mb-1">
+    <div className="border border-neutral-900 bg-neutral-950/40 p-3">
+      <div className="text-[10px] font-mono uppercase tracking-widest text-neutral-400 mb-1">
         {label}
       </div>
-      <div className="text-heading font-semibold text-foreground">{value}</div>
+      <div className="text-sm font-semibold text-neutral-200">{value}</div>
     </div>
   );
 }

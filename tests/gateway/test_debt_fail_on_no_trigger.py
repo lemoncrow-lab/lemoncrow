@@ -29,7 +29,7 @@ def _git_repo_with_marker(tmp_path: Path, note: str) -> Path:
 def test_debt_fail_on_no_trigger_exits_nonzero_when_marker_has_no_trigger(tmp_path: Path, monkeypatch) -> None:
     root = _git_repo_with_marker(tmp_path, "revisit if slow")
     monkeypatch.chdir(root)
-    result = CliRunner().invoke(cli, ["runtime", "debt", "--fail-on-no-trigger"])
+    result = CliRunner().invoke(cli, ["debt", "--fail-on-no-trigger"])
     assert result.exit_code == 1, result.output
     assert "no-trigger" in result.output
 
@@ -37,7 +37,7 @@ def test_debt_fail_on_no_trigger_exits_nonzero_when_marker_has_no_trigger(tmp_pa
 def test_debt_fail_on_no_trigger_exits_zero_when_all_markers_have_trigger(tmp_path: Path, monkeypatch) -> None:
     root = _git_repo_with_marker(tmp_path, "revisit if slow; move to a background job")
     monkeypatch.chdir(root)
-    result = CliRunner().invoke(cli, ["runtime", "debt", "--fail-on-no-trigger"])
+    result = CliRunner().invoke(cli, ["debt", "--fail-on-no-trigger"])
     assert result.exit_code == 0, result.output
 
 
@@ -45,5 +45,5 @@ def test_debt_without_flag_still_exits_zero_on_no_trigger_markers(tmp_path: Path
     # Default behavior (no flag) must stay unchanged: informational only.
     root = _git_repo_with_marker(tmp_path, "revisit if slow")
     monkeypatch.chdir(root)
-    result = CliRunner().invoke(cli, ["runtime", "debt"])
+    result = CliRunner().invoke(cli, ["debt"])
     assert result.exit_code == 0, result.output

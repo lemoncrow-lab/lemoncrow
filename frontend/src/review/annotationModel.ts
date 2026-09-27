@@ -16,8 +16,6 @@
  */
 
 import type { Annotation, AnnotationKind, AnnotationSource, DiffSide } from "./types";
-import type { BadgeTone } from "../components/ui/badge";
-import type { HunkRail } from "../components/ui/hunk";
 
 /** New human comments have three dispositions. `looks_good` remains render-only compatibility. */
 export const KIND_ORDER: AnnotationKind[] = ["comment", "request_change", "suggestion"];
@@ -36,119 +34,28 @@ export const SOURCE_LABELS: Record<AnnotationSource, string> = {
   ai_review: "AI REVIEW",
 };
 
-/**
- * Who is making the claim is attribution, not severity: sources are neutral chips. Only AI and agent
- * authorship takes the `ai` (violet) tone, and only in these chips; red, amber and cyan stay reserved
- * for P0, P1 and P2 and the human kinds below.
- */
-export const SOURCE_BADGE_TONES: Record<AnnotationSource, BadgeTone> = {
-  human: "neutral",
-  author: "ai",
-  lemoncrow: "neutral",
-  ai_review: "ai",
-};
-
-/** Text colour for a source label shown outside a badge (lists, replies). */
 export const SOURCE_ACCENTS: Record<AnnotationSource, string> = {
-  human: "text-muted-foreground",
-  author: "text-ai",
-  lemoncrow: "text-muted-foreground",
-  ai_review: "text-ai",
+  human: "border-sky-900 text-sky-300",
+  author: "border-amber-900 text-amber-300",
+  lemoncrow: "border-emerald-900 text-emerald-300",
+  ai_review: "border-violet-900 text-violet-300",
 };
 
 export function annotationSource(annotation: Annotation): AnnotationSource {
   return annotation.source ?? "human";
 }
 
-export function annotationIdentityColor(annotation: Annotation): string {
-  return annotation.created_by_actor === "agent" ? "text-ai" : SOURCE_ACCENTS[annotationSource(annotation)];
-}
-
-/** Badge tone for the source chip of one annotation: AI and agent authorship is `ai`, everything else neutral. */
-export function annotationSourceTone(annotation: Annotation): BadgeTone {
-  return annotation.created_by_actor === "agent" ? "ai" : SOURCE_BADGE_TONES[annotationSource(annotation)];
-}
-
-export function annotationIdentityLabel(annotation: Annotation): string {
-  const source = annotationSource(annotation);
-  return (source === "author" || source === "ai_review") && annotation.agent_role
-    ? `Agent(${annotation.agent_role})`
-    : SOURCE_LABELS[source];
-}
-
-export function annotationProducerDetail(annotation: Annotation): string {
-  const hosts: Record<string, string> = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode" };
-  return annotation.agent_host
-    ? [hosts[annotation.agent_host] || annotation.agent_host, annotation.agent_model].filter(Boolean).join(" · ")
-    : annotation.source_id || annotation.created_by;
-}
-
-export function annotationProducerTitle(annotation: Annotation): string {
-  return [
-    annotation.source_id && `Session: ${annotation.source_id}`,
-    annotation.parent_session_id && `Parent session: ${annotation.parent_session_id}`,
-    annotation.source_message_id && `Message: ${annotation.source_message_id}`,
-  ].filter(Boolean).join("\n");
-}
-
-export function isUnanchoredComment(annotation: Annotation): boolean {
-  return annotation.comment_scope !== "change" && (annotation.state === "orphaned" || !annotation.anchored);
-}
-
 export function isHumanJudgment(annotation: Annotation): boolean {
   return (annotation.is_human_judgment ?? annotationSource(annotation) === "human") === true;
 }
 
-/**
- * Tailwind accents per disposition (the composer's kind toggle). A request for change must not read as
- * a note: request_change is P0 red, suggestion is P2 cyan, a plain comment is neutral.
- */
+/** Tailwind accents per disposition. A request for change must not read as a note. */
 export const KIND_ACCENTS: Record<AnnotationKind, string> = {
-  comment: "border-border bg-muted text-foreground",
-  request_change: "border-p0-line bg-p0-bg text-p0",
-  suggestion: "border-p2-line bg-p2-bg text-p2",
-  looks_good: "border-ok-line bg-ok-bg text-ok",
+  comment: "border-sky-900 text-sky-300",
+  request_change: "border-rose-900 text-rose-300",
+  suggestion: "border-violet-900 text-violet-300",
+  looks_good: "border-emerald-900 text-emerald-300",
 };
-
-/** The same dispositions as `Badge` tones. */
-export const KIND_BADGE_TONES: Record<AnnotationKind, BadgeTone> = {
-  comment: "neutral",
-  request_change: "p0",
-  suggestion: "p2",
-  looks_good: "success",
-};
-
-/** Severity of an AI finding, as the annotation wire carries it. */
-export type FindingSeverityLevel = NonNullable<Annotation["severity"]>;
-
-export const SEVERITY_LABELS: Record<FindingSeverityLevel, string> = {
-  p0: "P0",
-  p1: "P1",
-  p2: "P2",
-};
-
-/** Badge tone for a severity: the severity tones are named after the levels. */
-export function severityTone(severity: FindingSeverityLevel): BadgeTone {
-  return severity;
-}
-
-/** The severity an AI finding carries, if the server gave it one. A reply never has one. */
-export function annotationSeverity(annotation: Annotation): FindingSeverityLevel | null {
-  return annotation.source === "ai_review" && !annotation.parent_id ? annotation.severity ?? null : null;
-}
-
-/**
- * The 3px gutter rail of a thread card. It carries state, never decoration, and is always redundant with
- * a text badge: AI findings by severity, human comments by kind (request_change red, suggestion cyan,
- * a plain comment neutral).
- */
-export function annotationRail(annotation: Annotation): HunkRail {
-  if (annotation.source === "ai_review") {
-    return annotationSeverity(annotation) ?? "neutral";
-  }
-  const byKind: Record<AnnotationKind, HunkRail> = { comment: "neutral", request_change: "p0", suggestion: "p2", looks_good: "ok" };
-  return byKind[annotation.kind];
-}
 
 /**
  * Tailwind accent for the line that says how a comment got where it is drawn.
@@ -163,10 +70,10 @@ export function annotationRail(annotation: Annotation): HunkRail {
  * or not the line number happened to change.
  */
 export function anchorAccent(annotation: Annotation): string {
-  if (!annotation.anchored) return "border-p1-line bg-p1-bg text-p1";
+  if (!annotation.anchored) return "border-amber-800 text-amber-300";
   return annotation.anchor_exact
-    ? "border-border text-muted-foreground"
-    : "border-p1-line text-p1";
+    ? "border-neutral-800 text-neutral-500"
+    : "border-amber-900/70 text-amber-300/80";
 }
 
 /** The id a draft comment carries while it has no server id yet. */
@@ -187,9 +94,6 @@ export interface Draft {
   mode?: "annotation" | "proposal";
   sourceAction?: "suggest" | "edit" | "quick";
   replacementText?: string;
-  /** New-side source already loaded to render the selected range. */
-  selectedText?: string;
-  selectedRevisionId?: string;
   proposalIntent?: string;
   proposalId?: string;
   /** Anchor changed underneath this draft; the human must choose a new one. */
@@ -252,52 +156,31 @@ function annotationMarkerKey(annotation: Annotation): string {
 }
 
 /**
- * Where the viewer can draw a card for a range: a rendered line of that range,
- * or 0 when the viewer renders none of it. Never a line outside the range.
- */
-export type MarkerDisplayLine = (side: DiffSide, startLine: number, endLine: number) => number;
-
-/**
  * One `DiffLineAnnotation` per anchored comment, plus the draft if there is one.
  *
  * Comments ending on the same line collapse to a single marker: `renderAnnotation`
  * is called once per entry, and two entries on one line would draw two
  * overlapping cards. The card itself renders every comment on that line.
- *
- * `displayLine` lets the viewer draw a card whose last line is hidden (collapsed
- * unchanged context) under the last line of its range it does render. Only the
- * card moves: `metadata.key` stays the comment's own anchor.
- *
- * A finding below the finding threshold (`below_threshold`) gets no marker: a
- * marker is surfacing, and the threshold decides what is surfaced. It stays
- * readable behind the "N below threshold" disclosure of the lists, and inside
- * the card of a surfaced comment that shares its line.
  */
 export function markerLines(
   annotations: Annotation[],
   path: string,
   draft: Draft | null,
-  displayLine?: MarkerDisplayLine,
 ): { side: DiffSide; lineNumber: number; metadata: { key: string } }[] {
-  const groups = new Map<string, { side: DiffSide; startLine: number; endLine: number }>();
-  const add = (key: string, side: DiffSide, startLine: number, endLine: number) => {
-    const group = groups.get(key);
-    if (group) group.startLine = Math.max(group.startLine, Math.min(startLine, endLine));
-    else groups.set(key, { side, startLine: Math.min(startLine, endLine), endLine: anchorLine(startLine, endLine) });
-  };
+  const seen = new Set<string>();
+  const out: { side: DiffSide; lineNumber: number; metadata: { key: string } }[] = [];
   for (const annotation of partition(annotations, path).anchored) {
-    if (annotation.file_level || annotation.start_line < 1 || annotation.below_threshold) continue;
-    add(annotationMarkerKey(annotation), markerSide(annotation.side), annotation.start_line, annotation.end_line);
+    if (annotation.file_level || annotation.start_line < 1) continue;
+    const side = markerSide(annotation.side);
+    const key = annotationMarkerKey(annotation);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ side, lineNumber: anchorLine(annotation.start_line, annotation.end_line), metadata: { key } });
   }
   if (draft && draft.path === path && !draft.fileLevel && draft.startLine > 0) {
-    add(draftMarkerKey(draft), draft.side, draft.startLine, draft.endLine);
+    const key = draftMarkerKey(draft);
+    if (!seen.has(key)) out.push({ side: draft.side, lineNumber: anchorLine(draft.startLine, draft.endLine), metadata: { key } });
   }
-  const out = [...groups].map(([key, group]) => ({
-    side: group.side,
-    // A card shared by several ranges stays inside every one of them.
-    lineNumber: displayLine?.(group.side, group.startLine, group.endLine) || group.endLine,
-    metadata: { key },
-  }));
   return out.sort((a, b) => a.lineNumber - b.lineNumber || a.side.localeCompare(b.side));
 }
 
@@ -322,7 +205,7 @@ export function commentsAt(annotations: Annotation[], path: string, key: string)
  */
 export function markerSignature(annotations: Annotation[], path: string, draft: Draft | null): string {
   const parts = partition(annotations, path)
-    .anchored.map((item) => `${item.id}@${markerSide(item.side)}:${item.start_line}-${item.end_line}:${item.state}:${item.kind}${item.below_threshold ? ":below" : ""}`)
+    .anchored.map((item) => `${item.id}@${markerSide(item.side)}:${item.start_line}-${item.end_line}:${item.state}:${item.kind}`)
     .sort();
   const replies = annotations.filter((item) => item.parent_id && item.path === path).length;
   const drafted = draft && draft.path === path ? `${draft.side}:${draft.startLine}-${draft.endLine}` : "";

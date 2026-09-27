@@ -12,7 +12,7 @@ session artifacts in the LemonCrow store (cursor / antigravity) — via the shar
 :func:`parse_session_turns`, so it is deterministic, instant, and
 costs nothing. Savings are *inferred* from the loop structure (calls and turns
 eliminated) and labelled as such — they are not a re-measured A/B (that stays
-``lc rt benchmark local``).
+``lc benchmark local``).
 """
 
 from __future__ import annotations
@@ -811,11 +811,6 @@ _ReplayEntry = tuple[str, str, str]
 def _opencode_db_path() -> Path | None:
     """Current opencode session store (SQLite), or None when absent."""
     candidates: list[Path] = []
-    override = os.environ.get("OPENCODE_DB")
-    if override and override != ":memory:":
-        value = Path(override).expanduser()
-        data_root = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
-        candidates.append(value if value.is_absolute() else data_root / "opencode" / value)
     xdg = os.environ.get("XDG_DATA_HOME")
     if xdg:
         candidates.append(Path(xdg) / "opencode" / "opencode.db")

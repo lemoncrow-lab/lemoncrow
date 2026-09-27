@@ -26,7 +26,6 @@ import pytest
 
 from lemoncrow.core.foundation.memory_models import ArchivalPassage, MemoryBlock
 from lemoncrow.core.service.jobs import (
-    JOB_BACKGROUND_INTELLIGENCE,
     JOB_BOOTSTRAP_CONTEXT,
     JOB_COMPUTE_EMBEDDINGS,
     JOB_CONSOLIDATE_BLOCKS,
@@ -40,7 +39,6 @@ from lemoncrow.core.service.jobs import (
 from lemoncrow.gateway.adapters.mcp_server import _handle
 from lemoncrow.gateway.tools.state import tool_call_raw_result
 from lemoncrow.infra.storage.sqlite_memory_store import SqliteMemoryStore
-from tests.helpers import init_store_at
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -78,22 +76,6 @@ def ctx_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return root
 
 
-@pytest.mark.private_engine
-def test_context_tool_call_renders_markdown_for_the_model(ctx_root: Path) -> None:
-    response = _handle(
-        {
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "tools/call",
-            "params": {"name": "context", "arguments": {"task": "write tests for the auth module"}},
-        }
-    )
-    assert response is not None and "result" in response, response
-    text = response["result"]["content"][0]["text"]
-    assert text.startswith("<context_procedures>")
-    assert "prefix_plan" not in text
-
-
 # ---------------------------------------------------------------------------
 # Basic response structure
 # ---------------------------------------------------------------------------
@@ -106,25 +88,6 @@ def test_context_omits_prefix_plan_by_default(ctx_root: Path) -> None:
     assert "prefix_plan" not in payload
 
 
-def test_context_without_private_engine_reports_bootstrap_and_queues_nothing(
-    ctx_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from lemoncrow.core.capabilities import code_intelligence_provider as seam
-    from lemoncrow.core.capabilities.code_context_contract import workspace_repo_id
-    from lemoncrow.infra.storage.factory import create_store
-
-    monkeypatch.setattr(seam, "private_code_intelligence_available", lambda: False)
-    payload = _call_context({"task": "write tests for the auth module"})
-    boot = payload["bootstrap"]
-    assert boot["repo_id"] == workspace_repo_id(ctx_root.parent)
-    assert boot["status"] == "cold"
-    assert boot["queued"] is False and boot.get("job_id") is None
-    init_store_at(str(ctx_root))
-    store = create_store(ctx_root)
-    assert store.jobs.list_jobs(job_type=JOB_BOOTSTRAP_CONTEXT, limit=10) == []
-
-
-@pytest.mark.private_engine
 def test_context_emits_prefix_plan_when_diagnostics_opted_in(ctx_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # Behind the diagnostics opt-in the planner output is still surfaced.
     monkeypatch.setenv("LEMONCROW_MCP_DEBUG", "1")
@@ -133,7 +96,6 @@ def test_context_emits_prefix_plan_when_diagnostics_opted_in(ctx_root: Path, mon
     assert isinstance(payload["prefix_plan"], dict)
 
 
-@pytest.mark.private_engine
 def test_context_always_includes_bootstrap_key(ctx_root: Path) -> None:
     payload = _call_context({"task": "refactor database layer"})
     assert "bootstrap" in payload
@@ -143,7 +105,6 @@ def test_context_always_includes_bootstrap_key(ctx_root: Path) -> None:
     assert boot["status"] in {"warm", "warming", "cold", "partial"}
 
 
-@pytest.mark.private_engine
 def test_context_bootstrap_status_not_warm_queues_job(ctx_root: Path) -> None:
     """When bootstrap is cold, a job should be enqueued."""
     payload = _call_context({"task": "check CI configuration"})
@@ -153,7 +114,6 @@ def test_context_bootstrap_status_not_warm_queues_job(ctx_root: Path) -> None:
         assert boot.get("queued") is True or boot.get("job_id") is not None
 
 
-@pytest.mark.private_engine
 def test_context_missing_labels_present(ctx_root: Path) -> None:
     payload = _call_context({"task": "explore entry points"})
     boot = payload["bootstrap"]
@@ -166,7 +126,6 @@ def test_context_missing_labels_present(ctx_root: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.private_engine
 def test_context_calls_get_context_exactly_once(ctx_root: Path) -> None:
     """The MCP handler must not call retrieve() then get_context() (double retrieve).
     We verify this by patching rt.get_context and counting calls."""
@@ -186,7 +145,6 @@ def test_context_calls_get_context_exactly_once(ctx_root: Path) -> None:
     assert call_count[0] == 1, f"get_context called {call_count[0]} times, expected exactly 1"
 
 
-@pytest.mark.private_engine
 def test_context_retrieve_not_called_separately(ctx_root: Path) -> None:
     """context_reuse.retrieve should NOT be called directly from the MCP handler
     (only inside rt.get_context internally)."""
@@ -215,7 +173,6 @@ def test_context_retrieve_not_called_separately(ctx_root: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.private_engine
 def test_context_recall_false_no_agent_id(ctx_root: Path) -> None:
     """With recall=False and no agent_id, response is still valid."""
     payload = _call_context({"task": "deploy to staging", "recall": False})
@@ -223,7 +180,6 @@ def test_context_recall_false_no_agent_id(ctx_root: Path) -> None:
     assert "bootstrap" in payload
 
 
-@pytest.mark.private_engine
 def test_context_with_agent_id_returns_recalled_passages(ctx_root: Path) -> None:
     """When agent_id is set, payload should include recalled_passages list."""
     # Insert a passage for this agent
@@ -244,7 +200,6 @@ def test_context_with_agent_id_returns_recalled_passages(ctx_root: Path) -> None
     assert isinstance(payload["recalled_passages"], list)
 
 
-@pytest.mark.private_engine
 def test_context_with_agent_id_includes_memory_facts(ctx_root: Path) -> None:
     mem = SqliteMemoryStore(ctx_root)
     block = MemoryBlock(
@@ -283,7 +238,6 @@ def test_context_no_agent_id_returns_empty_recalled_passages(ctx_root: Path) -> 
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.private_engine
 def test_context_max_blocks_forwarded(ctx_root: Path) -> None:
     """max_blocks is forwarded to the retrieval engine."""
     import lemoncrow.gateway.adapters.mcp_server as mcp
@@ -302,7 +256,6 @@ def test_context_max_blocks_forwarded(ctx_root: Path) -> None:
     assert captured.get("max_blocks") == 3
 
 
-@pytest.mark.private_engine
 def test_context_domain_forwarded(ctx_root: Path) -> None:
     import lemoncrow.gateway.adapters.mcp_server as mcp
 
@@ -320,7 +273,6 @@ def test_context_domain_forwarded(ctx_root: Path) -> None:
     assert captured.get("domain") == "python"
 
 
-@pytest.mark.private_engine
 def test_context_token_budget_forwarded(ctx_root: Path) -> None:
     import lemoncrow.gateway.adapters.mcp_server as mcp
 
@@ -395,13 +347,12 @@ def test_spawn_worker_if_idle_allows_after_window(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.private_engine
 def test_bootstrap_failed_job_does_not_block_requeue(ctx_root: Path) -> None:
     """A failed bootstrap job must not prevent re-queuing on next context call."""
     from lemoncrow.infra.storage.factory import create_store
 
-    init_store_at(str(ctx_root))
     store = create_store(ctx_root)
+    store.init()
 
     # Simulate a failed bootstrap job for the current repo
     import lemoncrow.gateway.adapters.mcp_server as mcp
@@ -409,9 +360,7 @@ def test_bootstrap_failed_job_does_not_block_requeue(ctx_root: Path) -> None:
 
     repo_id = CodeContextEngine(mcp._workspace_root().resolve()).repo_id
     jid = store.jobs.enqueue_job(JOB_BOOTSTRAP_CONTEXT, {"repo_root": str(mcp._workspace_root()), "repo_id": repo_id})
-    claimed = store.jobs.claim_job("test-worker")
-    assert claimed is not None and claimed["id"] == jid
-    assert store.jobs.fail_job(jid, "simulated failure", locked_by="test-worker") is True
+    store.jobs.fail_job(jid, "simulated failure")
 
     # Now calling _bootstrap_context_status should still enqueue a new job
     status = mcp._bootstrap_context_status(ctx_root)
@@ -427,8 +376,8 @@ def test_worker_run_once_empty_queue_returns_none(ctx_root: Path) -> None:
     from lemoncrow.core.service.worker import Worker
     from lemoncrow.infra.storage.factory import create_store
 
-    init_store_at(str(ctx_root))
     store = create_store(ctx_root)
+    store.init()
     worker = Worker(store=store)
     result = worker.run_once()
     assert result is None
@@ -438,8 +387,8 @@ def test_worker_run_once_processes_consolidate_job(ctx_root: Path) -> None:
     from lemoncrow.core.service.worker import Worker
     from lemoncrow.infra.storage.factory import create_store
 
-    init_store_at(str(ctx_root))
     store = create_store(ctx_root)
+    store.init()
     job_id = store.jobs.enqueue_job(JOB_CONSOLIDATE_BLOCKS, {"dry_run": True})
     worker = Worker(store=store)
     result = worker.run_once()
@@ -456,8 +405,8 @@ def test_worker_run_once_unknown_job_type_fails_gracefully(ctx_root: Path) -> No
     from lemoncrow.core.service.worker import Worker
     from lemoncrow.infra.storage.factory import create_store
 
-    init_store_at(str(ctx_root))
     store = create_store(ctx_root)
+    store.init()
     # max_attempts=1 so the job becomes 'dead' after one failure instead of staying retryable
     job_id = store.jobs.enqueue_job("totally_unknown_type", {}, max_attempts=1)
     worker = Worker(store=store)
@@ -473,8 +422,8 @@ def test_worker_run_once_known_unhandled_job_type_fails(ctx_root: Path) -> None:
     from lemoncrow.core.service.worker import Worker
     from lemoncrow.infra.storage.factory import create_store
 
-    init_store_at(str(ctx_root))
     store = create_store(ctx_root)
+    store.init()
 
     # Use a job type that is KNOWN but has no handler in default_dispatch
     unhandled_types = [t for t in KNOWN_JOB_TYPES if t not in {JOB_CONSOLIDATE_BLOCKS, JOB_BOOTSTRAP_CONTEXT}]
@@ -494,8 +443,8 @@ def test_worker_run_once_handler_exception_marks_failed(ctx_root: Path) -> None:
     from lemoncrow.core.service.worker import Worker
     from lemoncrow.infra.storage.factory import create_store
 
-    init_store_at(str(ctx_root))
     store = create_store(ctx_root)
+    store.init()
 
     def boom(_: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError("boom!")
@@ -520,7 +469,6 @@ def test_all_known_job_types_defined(ctx_root: Path) -> None:
         JOB_BOOTSTRAP_CONTEXT,
         JOB_INGEST_SESSION_FILE,
         JOB_INGEST_SESSION_DIRECTORY,
-        JOB_BACKGROUND_INTELLIGENCE,
     }
     assert expected == KNOWN_JOB_TYPES
 

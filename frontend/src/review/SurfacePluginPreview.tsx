@@ -1,9 +1,7 @@
-import { Button as UiButton } from "../components/ui/button";
 import { useEffect, useMemo, useState } from "react";
 import { Download, RotateCw } from "lucide-react";
 
 import ImageOverlayCompare from "./ImageOverlayCompare";
-import { prettyJsonText } from "./prettyJson";
 import { currentReviewId, fetchSurfacePreview } from "./reviewApi";
 import type { ReviewSurfaceInfo, ReviewSurfacePreviewDescriptor, ReviewSurfaceRunResult } from "./types";
 
@@ -63,6 +61,14 @@ function blobText(blob: Blob): Promise<string> {
   });
 }
 
+function prettyJson(text: string): string {
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2);
+  } catch {
+    return text;
+  }
+}
+
 function useSidePreviews(surface: ReviewSurfaceInfo, revisionId: string, sides: Side[], attempt: number): Record<Side, SideState | undefined> {
   const [states, setStates] = useState<Record<Side, SideState | undefined>>({ old: undefined, new: undefined });
   const sidesKey = sides.join(",");
@@ -79,10 +85,9 @@ function useSidePreviews(surface: ReviewSurfaceInfo, revisionId: string, sides: 
       void fetchSurfacePreview(currentReviewId(), surface.provider, surface.id, side, revisionId)
         .then(async (artifact) => {
           const text = TEXT_DISPLAYS.has(display) ? await blobText(artifact.blob) : "";
-          // After cleanup ran, a URL created here would never be revoked.
-          if (!live) return;
           const url = URL.createObjectURL(artifact.blob);
           urls.push(url);
+          if (!live) return;
           setStates((current) => ({
             ...current,
             [side]: { state: "ready", url, text, mediaType: artifact.mediaType, filename: artifact.filename, size: artifact.blob.size },
@@ -122,23 +127,22 @@ function ArtifactBody({ display, side, value, label }: { display: string; side: 
   }
   if (display === "text" || display === "json") {
     return (
-      <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap p-3 font-mono text-label leading-5 text-subtle">
-        {display === "json" ? prettyJsonText(value.text) : value.text}
+      <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap p-3 font-mono text-[11px] leading-5 text-neutral-300">
+        {display === "json" ? prettyJson(value.text) : value.text}
       </pre>
     );
   }
   return (
-    <div className="flex items-center gap-3 p-3 text-label text-muted-foreground">
+    <div className="flex items-center gap-3 p-3 text-[11px] text-neutral-400">
       <span className="min-w-0 flex-1 truncate font-mono">{value.filename}</span>
-      <span className="text-muted-foreground">{value.mediaType} · {formatBytes(value.size)}</span>
-      <UiButton
+      <span className="text-neutral-600">{value.mediaType} · {formatBytes(value.size)}</span>
+      <button
         type="button"
-        variant="outline"
-        size="xs"
         onClick={() => saveBlobUrl(value.url, value.filename)}
+        className="inline-flex items-center gap-1 rounded border border-neutral-700 px-2 py-1 text-[10px] text-neutral-200 hover:border-neutral-500"
       >
-        <Download size={14} /> Download {side}
-      </UiButton>
+        <Download size={11} /> Download {side}
+      </button>
     </div>
   );
 }
@@ -157,24 +161,24 @@ function SidePane({
   onRetry(): void;
 }) {
   return (
-    <div className="min-w-0 overflow-hidden rounded border border-border bg-background" data-testid={`plugin-preview-side:${side}`}>
-      <div className="flex items-center gap-2 border-b border-border px-2.5 py-1.5 text-micro">
-        <span className="font-medium text-subtle">{SIDE_LABEL[side]}</span>
-        {value?.state === "ready" && <span className="ml-auto font-mono text-muted-foreground">{value.filename}</span>}
+    <div className="min-w-0 overflow-hidden rounded border border-neutral-800 bg-neutral-950" data-testid={`plugin-preview-side:${side}`}>
+      <div className="flex items-center gap-2 border-b border-neutral-800 px-2.5 py-1.5 text-[9px]">
+        <span className="font-medium text-neutral-300">{SIDE_LABEL[side]}</span>
+        {value?.state === "ready" && <span className="ml-auto font-mono text-neutral-600">{value.filename}</span>}
       </div>
       {!value || value.state === "loading" ? (
-        <div className="flex min-h-40 items-center justify-center text-caption text-muted-foreground" role="status">
+        <div className="flex min-h-40 items-center justify-center text-[10px] text-neutral-500" role="status">
           Rendering exact Snapshot {side} side…
         </div>
       ) : value.state === "error" ? (
-        <div className="min-h-40 p-3 text-label" role="alert">
-          <div className="font-medium text-red-300">Preview unavailable</div>
-          <pre className="mt-1 max-h-52 overflow-auto whitespace-pre-wrap font-mono text-caption leading-4 text-muted-foreground">{value.message}</pre>
-          <div className="mt-2 flex items-center gap-3 text-caption text-muted-foreground">
+        <div className="min-h-40 p-3 text-[11px]" role="alert">
+          <div className="font-medium text-rose-300">Preview unavailable</div>
+          <pre className="mt-1 max-h-52 overflow-auto whitespace-pre-wrap font-mono text-[10px] leading-4 text-neutral-500">{value.message}</pre>
+          <div className="mt-2 flex items-center gap-3 text-[10px] text-neutral-600">
             <span>Source review below is unaffected.</span>
-            <UiButton type="button" variant="link" onClick={onRetry} className="text-muted-foreground hover:text-foreground">
-              <RotateCw size={14} /> Retry
-            </UiButton>
+            <button type="button" onClick={onRetry} className="inline-flex items-center gap-1 text-neutral-400 hover:text-neutral-100">
+              <RotateCw size={10} /> Retry
+            </button>
           </div>
         </div>
       ) : (
@@ -197,10 +201,10 @@ function DescriptorPreview({ surface, descriptor, revisionId, mode }: {
   const label = descriptor.label || `${descriptor.renderer} preview`;
   if (unavailable) {
     return (
-      <div className="rounded border border-amber-900/50 bg-amber-950/10 p-3 text-label" role="alert">
+      <div className="rounded border border-amber-900/50 bg-amber-950/10 p-3 text-[11px]" role="alert">
         <div className="font-medium text-amber-300">{label} unavailable</div>
-        <div className="mt-1 text-caption text-muted-foreground">{descriptor.reason || "The preview renderer is unavailable."}</div>
-        <div className="mt-1 text-caption text-muted-foreground">Source review below is unaffected.</div>
+        <div className="mt-1 text-[10px] text-neutral-400">{descriptor.reason || "The preview renderer is unavailable."}</div>
+        <div className="mt-1 text-[10px] text-neutral-600">Source review below is unaffected.</div>
       </div>
     );
   }
@@ -252,22 +256,22 @@ function metadataValue(value: unknown): string {
 function RunPane({ side, result }: { side: Side; result?: ReviewSurfaceRunResult }) {
   if (!result) {
     return (
-      <div className="flex min-h-20 items-center justify-center rounded border border-border text-caption text-muted-foreground">
+      <div className="flex min-h-20 items-center justify-center rounded border border-neutral-800 text-[10px] text-neutral-600">
         Not run yet
       </div>
     );
   }
-  const tone = result.status === "passed" ? "text-emerald-300" : result.status === "failed" ? "text-red-300" : "text-amber-300";
+  const tone = result.status === "passed" ? "text-emerald-300" : result.status === "failed" ? "text-rose-300" : "text-amber-300";
   return (
-    <div className="min-w-0 rounded border border-border">
-      <div className="flex items-center gap-2 border-b border-border px-2.5 py-1.5 text-caption">
-        <span className="text-muted-foreground">{SIDE_LABEL[side]}</span>
+    <div className="min-w-0 rounded border border-neutral-800">
+      <div className="flex items-center gap-2 border-b border-neutral-800 px-2.5 py-1.5 text-[10px]">
+        <span className="text-neutral-500">{SIDE_LABEL[side]}</span>
         <span className={tone}>{result.status}</span>
-        <span className="ml-auto font-mono text-muted-foreground">{result.duration_ms} ms</span>
+        <span className="ml-auto font-mono text-neutral-600">{result.duration_ms} ms</span>
       </div>
-      <div className="px-2.5 py-1.5 text-caption text-muted-foreground">{result.summary}</div>
+      <div className="px-2.5 py-1.5 text-[10px] text-neutral-400">{result.summary}</div>
       {result.output && (
-        <pre className="max-h-52 overflow-auto whitespace-pre-wrap border-t border-border p-2.5 font-mono text-caption leading-4 text-muted-foreground">{result.output}</pre>
+        <pre className="max-h-52 overflow-auto whitespace-pre-wrap border-t border-neutral-900 p-2.5 font-mono text-[10px] leading-4 text-neutral-500">{result.output}</pre>
       )}
     </div>
   );
@@ -289,48 +293,49 @@ function GenericSurfaceFacts({ surface, mode, run, running, onRun, onOpenPath }:
   const executable = surface.capabilities.includes("execute") && Boolean(surface.runtime);
   const metadata = Object.entries(surface.metadata ?? {}).filter(([, value]) => metadataValue(value) !== "");
   return (
-    <div className="space-y-3 text-label">
-      <div className="text-caption text-muted-foreground">
-        No preview is declared for <span className="font-mono text-subtle">{surface.kind}</span>; showing the surface as its provider described it. Source review below is unaffected.
+    <div className="space-y-3 text-[11px]">
+      <div className="text-[10px] text-neutral-500">
+        No preview is declared for <span className="font-mono text-neutral-300">{surface.kind}</span>; showing the surface as its provider described it. Source review below is unaffected.
       </div>
-      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1 text-caption">
-        <dt className="text-muted-foreground">Provider</dt><dd className="font-mono text-subtle">{surface.provider}</dd>
-        <dt className="text-muted-foreground">Locator</dt><dd className="break-all font-mono text-subtle">{surface.locator || surface.id}</dd>
-        <dt className="text-muted-foreground">Runtime</dt><dd className="font-mono text-subtle">{surface.runtime || "none bound"}</dd>
-        <dt className="text-muted-foreground">Capabilities</dt><dd className="font-mono text-subtle">{surface.capabilities.join(" · ") || "none"}</dd>
+      <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1 text-[10px]">
+        <dt className="text-neutral-600">Provider</dt><dd className="font-mono text-neutral-300">{surface.provider}</dd>
+        <dt className="text-neutral-600">Locator</dt><dd className="break-all font-mono text-neutral-300">{surface.locator || surface.id}</dd>
+        <dt className="text-neutral-600">Runtime</dt><dd className="font-mono text-neutral-300">{surface.runtime || "none bound"}</dd>
+        <dt className="text-neutral-600">Capabilities</dt><dd className="font-mono text-neutral-300">{surface.capabilities.join(" · ") || "none"}</dd>
         {metadata.map(([key, value]) => (
           <div key={key} className="contents">
-            <dt className="text-muted-foreground">{key}</dt>
-            <dd className="break-all font-mono text-muted-foreground">{metadataValue(value)}</dd>
+            <dt className="text-neutral-600">{key}</dt>
+            <dd className="break-all font-mono text-neutral-400">{metadataValue(value)}</dd>
           </div>
         ))}
       </dl>
       {surface.affected_paths.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {surface.affected_paths.map((path) => (
-            <UiButton unstyled
+            <button
               key={path}
               type="button"
               onClick={() => onOpenPath?.(path)}
-              className="rounded border border-border px-1.5 py-0.5 font-mono text-meta text-muted-foreground hover:text-foreground"
+              className="rounded border border-neutral-800 px-1.5 py-0.5 font-mono text-[10px] text-neutral-400 hover:border-neutral-600 hover:text-neutral-100"
             >
               {path}
-            </UiButton>
+            </button>
           ))}
         </div>
       )}
       {executable && (
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <UiButton
+            <button
               type="button"
               disabled={running}
               onClick={() => onRun?.(mode === "compare")}
+              className="rounded border border-neutral-700 px-2 py-1 text-[10px] text-neutral-200 hover:border-neutral-500 disabled:opacity-50"
             >
               {mode === "compare" ? "Run compare" : "Run"}
-            </UiButton>
-            {running && <span className="text-caption text-amber-400/70" role="status">Running…</span>}
-            {run?.error && <span className="text-caption text-red-300" role="alert">{run.error}</span>}
+            </button>
+            {running && <span className="text-[10px] text-amber-400/70" role="status">Running…</span>}
+            {run?.error && <span className="text-[10px] text-rose-300" role="alert">{run.error}</span>}
           </div>
           <div className={mode === "compare" ? "grid gap-3 lg:grid-cols-2" : ""}>
             {mode === "compare" && <RunPane side="old" result={run?.old} />}

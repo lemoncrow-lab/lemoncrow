@@ -224,16 +224,6 @@ class ChangedFile:
     declaration order, so an appended field is additive (SS5.4)."""
     diff_omitted_reason: str = ""
     """Explicit per-file explanation when a size limit prevents showing a diff."""
-    old_mode: int = 0
-    """Git file mode on the old side: ``0o100644``, ``0o100755``, ``0o120000``
-    (symlink) or ``0o160000`` (gitlink).
-
-    ``0`` means *not recorded*: the side does not exist, the capture predates
-    this field, or the provider that produced the packet does not report modes.
-    It never means "not executable". Appended after ``diff_omitted_reason`` for
-    the same additive-key reason as ``submodule_pointer``."""
-    new_mode: int = 0
-    """Git file mode on the new side; ``0`` means not recorded (see ``old_mode``)."""
 
 
 @dataclass(frozen=True)
@@ -434,8 +424,6 @@ class ReviewPacket:
     """Observable author-session context; never hidden chain-of-thought."""
     attributions: tuple[ProvenanceAttribution, ...] = ()
     """Exact contributor evidence scoped to source paths; never heuristic routing hints."""
-    scope_paths: tuple[str, ...] = ()
-    """A scoped Review's repo-relative paths (one agent session's files); empty is the whole range."""
 
     def to_dict(self) -> dict[str, Any]:
         """Return the exact ``--json`` payload: asdict semantics, declaration order."""
@@ -449,8 +437,8 @@ def review_packet_from_dict(raw: Mapping[str, Any]) -> ReviewPacket:
     The packet is a public contract, but until hosted Review every producer and
     consumer lived in one Python process. Hosted capture needs the inverse of
     :meth:`ReviewPacket.to_dict`; keeping it here makes local and server-side
-    Review share one decoder instead of duplicating LemonCrow's packet schema
-    in a second package.
+    Review share one decoder instead of teaching the enterprise package a copy
+    of LemonCrow's packet schema.
 
     Unknown additive fields are ignored. Known fields are type-checked and
     enum-like values are validated so a malformed client packet cannot create
@@ -480,12 +468,6 @@ def review_packet_from_dict(raw: Mapping[str, Any]) -> ReviewPacket:
         if not isinstance(value, int) or isinstance(value, bool):
             raise ValueError(f"{field_name} must be an integer")
         return value
-
-    def file_mode(value: Any, field_name: str) -> int:
-        mode = integer(value, field_name)
-        if mode < 0 or mode > 0o177777:
-            raise ValueError(f"{field_name} must be a Git file mode")
-        return mode
 
     def number(value: Any, field_name: str, default: float = 0.0) -> float:
         if value is None:
@@ -560,8 +542,6 @@ def review_packet_from_dict(raw: Mapping[str, Any]) -> ReviewPacket:
                 hunks=tuple(hunk(row, i) for i, row in enumerate(seq(item.get("hunks", ()), "file.hunks"))),
                 submodule_pointer=submodule,
                 diff_omitted_reason=text(item.get("diff_omitted_reason"), "file.diff_omitted_reason"),
-                old_mode=file_mode(item.get("old_mode"), "file.old_mode"),
-                new_mode=file_mode(item.get("new_mode"), "file.new_mode"),
             )
         )
 
@@ -763,7 +743,6 @@ def review_packet_from_dict(raw: Mapping[str, Any]) -> ReviewPacket:
         stats=stats,
         journal=tuple(journal),
         attributions=tuple(attributions),
-        scope_paths=tuple(text(item, "scope_paths") for item in seq(raw.get("scope_paths", ()), "scope_paths")),
     )
 
 

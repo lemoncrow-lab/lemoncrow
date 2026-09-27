@@ -3,7 +3,7 @@
 Keeps the shared code-context SQLite index warm for every active MCP
 workspace so the per-request MCP path never has to trigger a synchronous
 cold build.  The service daemon owns this; it scans the ``mcp_sessions``
-registry, fires ``lc runtime index`` as a detached subprocess per active
+registry, fires ``lc code index`` as a detached subprocess per active
 workspace, and lets the subprocess write the SQLite index and exit —
 releasing all indexing memory (ProcessPool, AST data, CoW pages) after
 each run.  The parent daemon process footprint is unaffected.
@@ -21,7 +21,6 @@ import subprocess
 import sys
 import tempfile
 import threading
-import time
 from pathlib import Path
 
 from lemoncrow.core.foundation.paths import default_store_root, resolve_workspace_store_dir
@@ -123,129 +122,8 @@ def discover_workspaces() -> list[Path]:
     return workspaces
 
 
-def _report_int(value: object) -> int:
-    if isinstance(value, bool):
-        return 0
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str):
-        try:
-            return int(value)
-        except ValueError:
-            return 0
-    return 0
-
-
-def prepare_stdio_workspace(
-    workspace: str | Path,
-    *,
-    timeout_s: float | None = None,
-) -> dict[str, object]:
-    """Synchronously make a workspace query-ready for an explicit stdio trial.
-
-    Unlike :func:`warm_stdio_workspace`, this is a user-initiated readiness
-    barrier: it waits for the *incremental* ``lc runtime index`` pass to finish,
-    so the coding agent cannot race an empty first index. Indexing still runs
-    in a child process, keeping parser/index-builder memory out of the long-lived
-    launcher/MCP process. The durable DB remains under
-    ``<workspace>/.lemoncrow/workspace``.
-    """
-    global _stdio_warmed
-    started = time.monotonic()
-    # This is an explicit user-requested readiness barrier, not the optional
-    # daemon warmer. LEMONCROW_SERVICE_CODE_WARM may disable background warming
-    # but must not make `lc with` launch with a knowingly unprepared code index.
-    try:
-        resolved = Path(workspace).expanduser().resolve()
-    except OSError as exc:
-        return {"ok": False, "reason": f"cannot resolve workspace: {exc}", "elapsed_s": 0.0}
-    if not resolved.is_dir():
-        return {"ok": False, "reason": f"workspace is not a directory: {resolved}", "elapsed_s": 0.0}
-
-    from lemoncrow_client.lite.index import LiteIndex
-
-    index_path = LiteIndex(resolved).db_path
-    cold = not index_path.exists()
-    command = [
-        sys.executable,
-        "-m",
-        "lemoncrow.gateway.cli",
-        "runtime",
-        "index",
-        "--repo-root",
-        str(resolved),
-        "--no-stats",
-        "--json",
-    ]
-    env = dict(os.environ)
-    # Explicit trial preparation should wait behind an already-running writer
-    # instead of failing after the short interactive default lock timeout.
-    env.setdefault("LEMONCROW_INDEX_LOCK_TIMEOUT_S", "600")
-    try:
-        completed = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=timeout_s,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        return {
-            "ok": False,
-            "reason": f"incremental code index failed to start: {exc}",
-            "workspace": str(resolved),
-            "index_path": str(index_path),
-            "elapsed_s": round(time.monotonic() - started, 3),
-        }
-    if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or "").strip()[-2000:]
-        return {
-            "ok": False,
-            "reason": detail or f"code index exited {completed.returncode}",
-            "workspace": str(resolved),
-            "index_path": str(index_path),
-            "elapsed_s": round(time.monotonic() - started, 3),
-        }
-
-    payload: dict[str, object] = {}
-    try:
-        candidate = json.loads(completed.stdout)
-    except (TypeError, ValueError):
-        candidate = None
-    if isinstance(candidate, dict):
-        payload = candidate
-    else:
-        # Defensive compatibility with any wrapper that prefixes/suffixes a
-        # single-line JSON record around diagnostics.
-        for line in reversed(completed.stdout.splitlines()):
-            try:
-                candidate = json.loads(line)
-            except (TypeError, ValueError):
-                continue
-            if isinstance(candidate, dict):
-                payload = candidate
-                break
-    _stdio_warmed = resolved
-    reported_path = str(payload.get("index_path") or index_path)
-    reported_cold = payload.get("cold") if isinstance(payload.get("cold"), bool) else cold
-    generation = _report_int(payload.get("generation", payload.get("index_version", 0)))
-    return {
-        "ok": True,
-        "reason": "",
-        "workspace": str(resolved),
-        "index_path": reported_path,
-        "cold": reported_cold,
-        "files_indexed": _report_int(payload.get("files_indexed", 0)),
-        "symbols_indexed": _report_int(payload.get("symbols_indexed", 0)),
-        "generation": generation,
-        "index_version": generation,
-        "elapsed_s": round(time.monotonic() - started, 3),
-    }
-
-
 def _fire_index_subprocess(workspace: Path) -> None:
-    """Launch ``lc runtime index`` in a fully detached child process.
+    """Launch ``lc code index`` in a fully detached child process.
 
     Fire-and-forget: the caller does not wait for completion.  The subprocess
     acquires the SQLite write-lock, indexes the workspace, and exits — all
@@ -257,7 +135,7 @@ def _fire_index_subprocess(workspace: Path) -> None:
             sys.executable,
             "-m",
             "lemoncrow.gateway.cli",
-            "runtime",
+            "code",
             "index",
             "--repo-root",
             str(workspace),
@@ -343,7 +221,7 @@ class _CodeWarmer:
 # stdio MCP server (``mcp_server.serve``) instead owns exactly one workspace
 # and is not warmed by the service daemon, so it pays cold-start on
 # Zoekt/ast-grep subprocesses at the first code-context tool call.
-# ``warm_stdio_workspace`` fires a detached ``lc runtime index`` subprocess
+# ``warm_stdio_workspace`` fires a detached ``lc code index`` subprocess
 # for that workspace on startup.  It is idempotent and fail-open.
 
 _stdio_warmed: Path | None = None
@@ -353,7 +231,7 @@ _stdio_lock = threading.Lock()
 def warm_stdio_workspace(workspace: str | Path) -> bool:
     """Warm the code-context index for a single stdio workspace (idempotent).
 
-    Fires ``lc runtime index`` as a detached subprocess so the parent MCP
+    Fires ``lc code index`` as a detached subprocess so the parent MCP
     process never takes on the indexing memory cost.  Returns ``True`` when a
     subprocess was launched, ``False`` when warming was skipped (disabled,
     missing dir, already warm) or failed.  Never raises.

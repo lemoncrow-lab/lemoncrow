@@ -1,48 +1,38 @@
-# Pi in LemonCrow Runtime
+# Pi managed host
 
-Pi is a public coding-agent host supported by LemonCrow. It is not a paid Runtime mode and it is not hidden behind Hosted or Enterprise.
-
-LemonCrow manages a reviewed, pinned Pi binary through the public `lc rt host` surface:
+Pi is LemonCrow's default managed frontend for the owned coding runtime. LemonCrow pins the reviewed upstream Pi release **v0.84.2** at commit `914cf1472e715297caa30db4b9535d534a9eb718`; the managed installer verifies the platform asset against the release SHA-256 before replacing the host binary.
 
 ```bash
-lc rt host install --engine pi
-lc rt host status --engine pi
-lc rt host update --engine pi
-lc rt host remove --engine pi --yes
+lc code host install --engine pi
+lc code host status --engine pi
+lc code
+lc code -p "fix the failing parser test"
+lc code --resume <pi-session-id>
 ```
 
-Source builds are also explicit:
+`auto` prefers Pi. Fresh installs select and install the managed Pi host by default. For an immediate rollback, use `lc code --engine lemoncode` or `LEMONCROW_CODE_AUTO_ENGINE=lemoncode lc code`.
+
+## Managed boundary
+
+The launcher isolates Pi under `<LEMONCROW_ROOT>/hosts/pi/`, loads only `integrations/pi/managed.mjs`, and starts Pi with project trust, context-file discovery, **all Pi tools**, skills, prompt templates, package refresh, telemetry, update checks, compaction, and retries disabled. Pi talks only to the token-authenticated LemonCrow loopback gateway. The extension removes Pi system/developer messages and host tool transcripts before the provider request. If a provider response nevertheless contains a tool call, the extension aborts at Pi's `message_end` barrier before tool preflight and also blocks `tool_call` as defense in depth. Direct `!` shell execution and the equivalent RPC `bash` command return a denied result without executing the command. LemonCrow remains the only model/tool execution loop.
+
+Pi's model picker is populated only from LemonCrow's exact runnable `lc` provider/model catalog. Managed RPC rejects attempts to select a provider/model outside that catalog, and a successful model switch is forwarded as the identical model id to the loopback gateway. Vision capability is advertised per model using LemonCrow's LiteLLM metadata; image parts are passed through only for models known to accept images, while text-only models remain text-only.
+
+## Status and sessions
+
+The extension renders LemonCrow's structured status sidecar in Pi TUI mode using Pi's status/widget APIs; print mode performs no UI work. Sessions are stored in the isolated managed Pi session directory. `lc import --host pi` also discovers the external Pi default session directory and imports v3 JSONL without modifying it. The importer preserves the complete raw branching file while traces and replay use the active parent chain.
 
 ```bash
-lc rt host build --engine pi --source /path/to/pi
+lc import --host pi
+lc import --host pi --path "/path/with spaces/session.jsonl"
 ```
 
-The managed-host lifecycle verifies the pinned release and keeps Pi separate from the LemonCrow CLI itself.
+## Source build and removal
 
-Running `lc rt host install --engine pi`, registers
-LemonCrow in `~/.pi/agent/settings.json`. The extension lives at
-`~/.pi/agent/lemoncrow/lite.mjs`. Both paths respect `PI_CODING_AGENT_DIR`.
-Existing models, authentication, settings, and other extensions are preserved.
-Normal Pi launches inside a Git repository load LemonCrow automatically.
+```bash
+lc code host build --engine pi --source /path/to/pi
+lc code host update --engine pi
+lc code host remove --engine pi --yes
+```
 
-The downloaded executable remains at `~/.lemoncrow/bin/pi-host`.
-`lc rt host remove --engine pi --yes` removes the executable and LemonCrow’s Pi
-registration; uninstalling LemonCrow also removes its Pi integration.
-
-## Relationship to Runtime Lite
-
-Pi is a coding agent, just like Claude Code, Codex, OpenCode, and LemonCode. The public Pi host lifecycle is therefore part of the open-source Runtime distribution.
-
-`lc with pi` launches the normal Pi agent with LemonCrow Runtime Lite tools. It reuses the installed extension when present and otherwise loads a temporary extension without writing Pi settings. Pi keeps its own provider/model/session behavior; this is not LemonCrow-owned execution. Installing or using Pi this way does not turn on Hosted Runtime or require a Pro plan.
-
-## Relationship to Hosted `lc code`
-
-`lc code` is LemonCrow's Hosted owned-agent entry point. Hosted Runtime may use Pi as one implementation/frontend choice, but that does not make Pi itself private. The private boundary is LemonCrow's hosted execution, routing, policy, budgets, cache orchestration, and advanced intelligence—not the Pi binary.
-
-A Pro plan grants access to Hosted Runtime. Enterprise Runtime can place the same class of private LemonCrow execution in customer-controlled or dedicated infrastructure.
-
-## Internal managed-mode qualification
-
-LemonCrow engineering also uses Pi in a fail-closed managed mode when qualifying the private owned loop. In that mode Pi-native tools and competing model/tool loops are disabled while LemonCrow owns execution. That internal managed-mode wiring is separate from the public `lc rt host` lifecycle above.
-
-Managed Pi reaches models only through the LemonCrow gateway. It runs with its own configuration directory under the LemonCrow store (`PI_CODING_AGENT_DIR`), so it never reads the authentication or settings in `~/.pi/agent`. Pi's built-in providers also sign in from environment variables, and the pinned Pi release has no setting that turns a built-in provider off. LemonCrow therefore removes those variables from the managed Pi process: every `*_API_KEY` and `AWS_*` variable, plus `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_OAUTH_TOKEN`, `COPILOT_GITHUB_TOKEN`, `HF_TOKEN`, `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CLOUD_PROJECT`, `GCLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION`. Without this, a credential in your shell would list that provider's models next to LemonCrow's and let the session switch to it, bypassing the gateway. Your shell keeps these variables, and normal Pi launches and `lc with pi` are unaffected.
+Source builds are a developer path; release installs are the normal pinned path. LemonCode remains supported during the migration and is not removed by any Pi host command.

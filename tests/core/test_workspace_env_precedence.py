@@ -39,18 +39,17 @@ def _mk(tmp_path: Path, *names: str) -> list[Path]:
     return out
 
 
-def test_pin_beats_each_inherited_var(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    for case_index, stale in enumerate(paths_mod._HOST_WORKSPACE_ENV_VARS):
-        case_tmp_path = tmp_path / f"case-{case_index}"
-        case_tmp_path.mkdir()
-        with monkeypatch.context() as case_monkeypatch:
-            "Parametrised over EVERY var, so none can be the next one that wins."
-            _clear(case_monkeypatch)
-            mine, theirs = _mk(case_tmp_path, "mine", "theirs")
-            case_monkeypatch.setenv(stale, str(theirs))
-            case_monkeypatch.setenv(paths_mod._HOST_WORKSPACE_FOLDERS_VAR, str(theirs))
-            pin_workspace_env(mine)
-            assert host_workspace_root() == mine
+@pytest.mark.parametrize("stale", paths_mod._HOST_WORKSPACE_ENV_VARS)
+def test_pin_beats_each_inherited_var(stale: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Parametrised over EVERY var, so none can be the next one that wins."""
+    _clear(monkeypatch)
+    mine, theirs = _mk(tmp_path, "mine", "theirs")
+    monkeypatch.setenv(stale, str(theirs))
+    monkeypatch.setenv(paths_mod._HOST_WORKSPACE_FOLDERS_VAR, str(theirs))
+
+    pin_workspace_env(mine)
+
+    assert host_workspace_root() == mine
 
 
 def test_pin_beats_a_fully_populated_stale_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

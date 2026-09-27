@@ -23,7 +23,6 @@ goodbye, and its derived layers go with it.
 
 from __future__ import annotations
 
-import logging
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -55,8 +54,6 @@ class ViewTreeStore(Protocol):
 
     def sweep(self) -> int: ...
 
-
-_LOG = logging.getLogger(__name__)
 
 #: How long a blob stays after the last view stopped referencing it.
 DEFAULT_RETENTION_S: Final[float] = 7 * 24 * 60 * 60.0
@@ -177,17 +174,8 @@ class Maintenance:
         partitions = partition_fn() if partition_fn is not None else (self._backend,)
         external_by_org: dict[str, set[str]] = {}
         external_by_partition: dict[tuple[str, str], set[str]] = {}
-        references_known = True
         for provider in self._reference_providers:
-            try:
-                provided = provider()
-            except Exception:
-                # What a failed provider would name is unknown, so no content is
-                # marked or swept this pass; the rest of maintenance still runs.
-                _LOG.exception("a retention reference provider failed; keeping all content this pass")
-                references_known = False
-                continue
-            for scope, digests in provided.items():
+            for scope, digests in provider().items():
                 if isinstance(scope, tuple):
                     if len(scope) != 2:
                         raise RuntimeError("external reference partition keys must be (org_id, repo_id)")
@@ -211,7 +199,7 @@ class Maintenance:
                     raise RuntimeError("repository partition is missing its (org_id, repo_id) identity")
                 retained_digests = external_by_partition.get(partition_key)
                 external = {} if not retained_digests else {partition_key[0]: set(retained_digests)}
-            reports.append(self._run_partition(backend, now, external, sweep_content=references_known))
+            reports.append(self._run_partition(backend, now, external))
         trees_dropped = self._trees.sweep() if self._trees is not None else 0
         self._backend.reclaim_storage()
         self._last = MaintenanceReport(
@@ -226,9 +214,7 @@ class Maintenance:
         )
         return self._last
 
-    def _run_partition(
-        self, backend: IndexBackend, now: float, external: Mapping[str, set[str]], *, sweep_content: bool = True
-    ) -> MaintenanceReport:
+    def _run_partition(self, backend: IndexBackend, now: float, external: Mapping[str, set[str]]) -> MaintenanceReport:
         evicted = backend.views.evict_expired(now)
         trees_dropped = 0
         for view_id in evicted:
@@ -243,11 +229,6 @@ class Maintenance:
             # expired physical view cannot remain live in accounting forever.
             if self._on_view_evicted is not None:
                 self._on_view_evicted(view_id)
-        # Explicit closes and expiries both leave generation ANNs behind until
-        # released here; this pass runs off the event loop. Looked up on the
-        # type so a routing proxy's __getattr__ never fabricates the method.
-        if callable(getattr(type(backend.semantic), "release_idle", None)):
-            backend.semantic.release_idle()
 
         # Manifest roots outlive their views on purpose -- that is what makes a
         # reopened worktree warm -- so they are reclaimed here, on the same
@@ -255,19 +236,6 @@ class Maintenance:
         # names them. This runs *before* reference counting so the digests a
         # swept root was keeping alive stop counting in the same pass.
         roots_swept = backend.views.sweep_manifest_roots(now - self._retention_s)
-
-        if not sweep_content:
-            # A marked blob a failed provider still names would be swept below.
-            return MaintenanceReport(
-                ran_at=now,
-                views_evicted=len(evicted),
-                blobs_marked=0,
-                blobs_swept=0,
-                analysis_rows_dropped=0,
-                bytes_reclaimed=0,
-                manifest_roots_swept=roots_swept,
-                view_trees_dropped=trees_dropped,
-            )
 
         combined: dict[str, set[str]] = {
             org_id: set(view_digests) for org_id, view_digests in backend.views.referenced_digests().items()

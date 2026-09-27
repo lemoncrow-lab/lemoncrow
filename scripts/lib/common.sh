@@ -251,6 +251,13 @@ LEMONCROW_ADVANCED="${LEMONCROW_ADVANCED:-0}"
 LEMONCROW_MEMORY_BACKEND="${LEMONCROW_MEMORY_BACKEND:-}"   # letta | openmemory | (empty = none)
 LEMONCROW_TELEGRAPHIC="${LEMONCROW_TELEGRAPHIC:-}"         # ultra | lite | off (empty = prompt, default ultra)
 LEMONCROW_AUTO_OPTIMIZE="${LEMONCROW_AUTO_OPTIMIZE:-1}"   # 1 = enable periodic optimize automation
+# Local knowledge extraction (opt-in; off by default to bound spend). Distils
+# review rules from .lessons into the reviewer overlay.
+[[ -n "${LEMONCROW_KB_EXTRACT+x}" ]] && LEMONCROW_KB_EXTRACT_PRESET=1 || LEMONCROW_KB_EXTRACT_PRESET=0
+LEMONCROW_KB_EXTRACT="${LEMONCROW_KB_EXTRACT:-0}"      # 1 = run knowledge extraction during setup
+LEMONCROW_KB_HOST="${LEMONCROW_KB_HOST:-auto}"        # auto | claude | codex | ollama
+LEMONCROW_KB_MODEL="${LEMONCROW_KB_MODEL:-}"          # model id (required for ollama)
+LEMONCROW_KB_MAX_SPEND="${LEMONCROW_KB_MAX_SPEND:-0.50}"  # hard USD cap per run (auto/claude)
 # All-sessions Recall. Background-index past transcripts so recall spans every
 # session. On by default (the local embedder is free; set to 0 to disable).
 # Claude has no embeddings API, so it is not an embedder choice.
@@ -362,26 +369,6 @@ degrade() {
     else
         warn "$*"
     fi
-}
-
-# Server details stay in the install log unless verbose output is requested.
-# Failures always relay stdout and preserve the child's exit status; stderr
-# remains visible for warnings and errors.
-relay_output() {
-    local _out _line _rc=0 _color
-    _out="$("$@")" || _rc=$?
-    [[ -z "$_out" ]] || printf '%s\n' "$_out" >>"$LEMONCROW_INSTALL_LOG_FILE"
-    if [[ "$_rc" -eq 0 && "$LEMONCROW_VERBOSE" != "1" ]]; then
-        return 0
-    fi
-    if [[ "$_rc" -eq 0 ]]; then _color="$C_GREEN"; else _color="$C_RED"; fi
-    _spinner_pause
-    while IFS= read -r _line; do
-        [[ -n "$_line" ]] || continue
-        printf "%b│%b  %b◇%b  %s\n" "$C_FRAME" "$C_RESET" "$_color" "$C_RESET" "$_line"
-    done <<<"$_out"
-    _spinner_resume
-    return "$_rc"
 }
 
 _spinner_run() {
@@ -696,25 +683,6 @@ print_final_report() {
     verbose ""
     print_issue_group "Errors"   "$C_RED"    "${ERRORS[@]+"${ERRORS[@]}"}"
     print_issue_group "Warnings" "$C_YELLOW" "${WARNINGS[@]+"${WARNINGS[@]}"}"
-}
-
-# footer_command <cli> <command> <description>
-# One quick-start line of the closing banner: the binary in the brand colour,
-# the subcommand bold, the description dim. Padding keeps the descriptions on
-# one column (they start at column 24) whether or not colour is enabled, so a
-# piped/no-TTY run prints exactly what it printed before.
-footer_command() {
-    local cli="$1" cmd="$2" desc="$3"
-    local full="${cli} ${cmd}"
-    local pad=$(( 22 - ${#full} ))
-    if (( pad < 1 )); then
-        pad=1
-    fi
-    printf "  %b%s%b %b%s%b%*s%b%s%b\n" \
-        "$C_PURPLE" "$cli" "$C_RESET" \
-        "$C_BOLD" "$cmd" "$C_RESET" \
-        "$pad" "" \
-        "$C_DIM" "$desc" "$C_RESET"
 }
 
 supports_interactive_selector() {
@@ -1117,7 +1085,7 @@ prompt_update_selection() {
     [[ "$LEMONCROW_NON_INTERACTIVE" == "1" ]] && return 0
     has_interactive_input || return 0
     supports_interactive_selector || return 0
-    local up_idx=0
+    local up_idx=2
     interactive_single_select \
         "How should LemonCrow handle updates?" \
         up_idx \
@@ -1275,43 +1243,24 @@ lemoncrow_install_attribution_hook() {
 # Managed by LemonCrow. Appends the co-author trailer unless already present.
 # Skips merge/squash commit messages.
 #
-# The committing session's own model is folded into the co-author name --
-# lemoncrow+<model> -- so a single trailer says both who and which model. The
-# session is the one whose id the host exports to this commit (e.g.
-# CLAUDE_CODE_SESSION_ID); its model is read from that session's own
-# sessions/<date>/<host>/<id>/stats.json, never from state other sessions share.
-# The bot email is what GitHub links, so it is also the dedupe key. Without the
-# session's own model the name is plain lemoncrow.
+# The model (from the session state SessionStart already wrote) is folded into
+# the co-author name -- lemoncrow+<model> -- so a single trailer says both who
+# and which model. The bot email is what GitHub links, so it is also the dedupe
+# key. With no model in the session state the name is plain lemoncrow.
 BODY
         echo "LEMONCROW_NAME=\"$name\""
         echo "LEMONCROW_EMAIL=\"$email\""
         cat <<'BODY'
-lemoncrow_json_value() {
-  [ -f "$2" ] || return 0
-  sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$2" 2>/dev/null | head -n 1
-}
-lemoncrow_own_model() {
-  for LEMONCROW_PASS in agent any; do
-    for LEMONCROW_PAIR in CLAUDE_CODE_SESSION_ID:claude ANTIGRAVITY_SESSION_ID:antigravity AGY_SESSION_ID:antigravity CODEX_SESSION_ID:codex LEMONCODE_SESSION_ID:lemoncode OPENCODE_SESSION_ID:opencode CURSOR_SESSION_ID:cursor HERMES_SESSION_ID:hermes GITHUB_COPILOT_SESSION_ID:copilot; do
-      LEMONCROW_HOST="${LEMONCROW_PAIR#*:}"
-      if [ "$LEMONCROW_PASS" = agent ] && [ "$LEMONCROW_HOST" != "${LEMONCROW_AGENT:-}" ]; then continue; fi
-      eval "LEMONCROW_SID=\"\${${LEMONCROW_PAIR%%:*}:-}\""
-      [ -n "$LEMONCROW_SID" ] || continue
-      case "$LEMONCROW_SID" in .*|*[!A-Za-z0-9._-]*) return 0 ;; esac
-      for LEMONCROW_STATS in "${LEMONCROW_ROOT:-$HOME/.lemoncrow}"/sessions/*/*/*/"$LEMONCROW_HOST"/"$LEMONCROW_SID"/stats.json; do
-        LEMONCROW_M="$(lemoncrow_json_value last_model "$LEMONCROW_STATS")"
-        [ -n "$LEMONCROW_M" ] || LEMONCROW_M="$(lemoncrow_json_value model "$LEMONCROW_STATS")"
-        if [ -n "$LEMONCROW_M" ]; then printf %s "$LEMONCROW_M"; return 0; fi
-      done
-      return 0
-    done
-  done
+LEMONCROW_STATE="$(git rev-parse --show-toplevel 2>/dev/null)/.lemoncrow/workspace/session_state.json"
+lemoncrow_state_value() {
+  [ -f "$LEMONCROW_STATE" ] || return 0
+  sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$LEMONCROW_STATE" 2>/dev/null | head -n 1
 }
 case "$2" in
   merge|squash) ;;
   *)
     if ! grep -qF "<$LEMONCROW_EMAIL>" "$1" 2>/dev/null; then
-      LEMONCROW_MODEL="$(printf %s "$(lemoncrow_own_model)" | tr -c 'A-Za-z0-9._:/-' '-' | sed 's/^-*//; s/-*$//')"
+      LEMONCROW_MODEL="$(printf %s "$(lemoncrow_state_value model)" | tr -c 'A-Za-z0-9._:/-' '-' | sed 's/^-*//; s/-*$//')"
       LEMONCROW_WHO="$LEMONCROW_NAME"
       if [ -n "$LEMONCROW_MODEL" ]; then LEMONCROW_WHO="$LEMONCROW_NAME+$LEMONCROW_MODEL"; fi
       printf '\nCo-Authored-By: %s <%s>\n' "$LEMONCROW_WHO" "$LEMONCROW_EMAIL" >> "$1"
@@ -1843,13 +1792,6 @@ host_target_for_name() {
     local raw_name="$1"
     local host_name="${raw_name%% *}"
 
-    if [[ "$host_name" == "pi" ]]; then
-        local settings="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/settings.json"
-        [[ "$settings" != "$HOME/"* ]] || settings="~/${settings#"$HOME/"}"
-        printf "%s" "$settings"
-        return 0
-    fi
-
     if host_scope_is_workspace; then
         printf "%s" "."
         return 0
@@ -1859,8 +1801,8 @@ host_target_for_name() {
         claude)      printf "%s" "~/.claude" ;;
         codex)       printf "%s" "~/.codex" ;;
         opencode)    printf "%s" "~/.config/opencode" ;;
+        pi)          printf "%s" "~/.lemoncrow/bin/pi-host" ;;
         lemoncode)   printf "%s" "~/.config/lemoncode" ;;
-        cursor)      printf "%s" "~/.cursor" ;;
         *)           printf "%s" "~/.config" ;;
     esac
 }
@@ -1895,7 +1837,7 @@ ensure_local_zoekt_runtime() {    # Kept for legacy --zoekt-auto-install flag pa
 
 # Stop stale LemonCrow background/servicectl/stack processes before reinstalling so a
 # new install never leaves an old binary serving requests. Does NOT kill the MCP
-# server launched by the host agent (lc runtime mcp --host) — that process stays
+# server launched by the host agent (lc mcp --host) — that process stays
 # alive and gets reloaded via /mcp reconnect on the next agent session.
 stop_existing_lemoncrow_processes() {
     [[ "$LEMONCROW_INSTALL_CLEAN_PROCESSES" == "1" ]] || return 0
@@ -1913,7 +1855,7 @@ stop_existing_lemoncrow_processes() {
         [[ "$pid" == "$current_pid" || "$pid" == "$parent_pid" ]] && continue
 
         # Kill servicectl and stack-run processes only. The MCP server
-        # (lc runtime mcp --host) is deliberately left alive so the host agent
+        # (lc mcp --host) is deliberately left alive so the host agent
         # doesn't lose connectivity mid-install; the user runs /mcp reconnect
         # afterwards if they want a fresh server process.
         case "$args" in
@@ -1990,12 +1932,13 @@ _ensure_cli_alias() {
     return 0
 }
 
-# lc remains the short alias for the full CLI. Coding-agent hosts keep distinct binaries.
+# lc remains the short alias for the full CLI. lemoncode maps directly to lc code.
 ensure_lc_alias() {
     LC_ALIAS_AVAILABLE=0
     if _ensure_cli_alias "lc"; then
         LC_ALIAS_AVAILABLE=1
     fi
+    _ensure_cli_alias "lemoncode" || true
 }
 
 # Install uv (Python package/tool manager) via the official installer.
@@ -2121,12 +2064,12 @@ _zoekt_provision_background() {
         _companion_record_version zoekt "${LEMONCROW_PIN_ZOEKT:-latest}"
         echo "Zoekt ${LEMONCROW_PIN_ZOEKT:-latest} installed"
         # Build the trigram index immediately so search is ready without
-        # requiring a manual 'lc runtime index' re-run after installation.
+        # requiring a manual 'lc code index' re-run after installation.
         local lemoncrow_bin="${LEMONCROW_BIN_DIR:-${HOME}/.local/bin}/lc"
         if [[ -x "$lemoncrow_bin" ]]; then
             echo "Building Zoekt trigram index for $(pwd)..."
-            "$lemoncrow_bin" runtime index --no-stats 2>&1 \
-                || echo "Zoekt index build failed — will be built on next 'lc runtime index' run."
+            "$lemoncrow_bin" code index --no-stats 2>&1 \
+                || echo "Zoekt index build failed — will be built on next 'lc code index' run."
         fi
     else
         echo "Zoekt build failed — search stays on ripgrep. Re-run the installer to retry."
@@ -2147,7 +2090,7 @@ install_local_zoekt_if_selected() {
     # Fire-and-forget: a first-time build pulls Go (~150MB) and compiles four
     # binaries — minutes of work. Detach it so the installer never blocks. Search
     # uses ripgrep meanwhile. Once the binaries are ready, _zoekt_provision_background
-    # calls 'lc runtime index' to build the trigram index automatically, so the
+    # calls 'lc code index' to build the trigram index automatically, so the
     # user never needs to re-run indexing manually. Progress and any failure land in $log.
     ( _zoekt_provision_background ) >"$log" 2>&1 </dev/null &
     disown 2>/dev/null || true
@@ -2501,7 +2444,7 @@ _detect_shell_profile() {
 # Write sentinel-guarded PATH exports to the user's shell profile.
 # Replaces on re-install instead of duplicating.
 _ensure_path_persistence() {
-    local profile_file sentinel_start sentinel_end node_user_bin
+    local profile_file sentinel_start sentinel_end node_user_bin lemoncrow_dir
     local tmp_input tmp_output in_block line
 
     profile_file="$(_detect_shell_profile)"
@@ -2515,13 +2458,21 @@ _ensure_path_persistence() {
     tmp_input="$(mktemp)"
     tmp_output="$(mktemp)"
 
-    # Build the new sentinel block. lcr is a real executable now; rewriting an
-    # older LemonCrow-owned block intentionally removes its legacy shell alias.
+    # Build the new sentinel block
     {
         printf '%s\n' "$sentinel_start"
         printf 'export PATH="%s:$PATH"\n' "$LEMONCROW_BIN_DIR"
         if [[ -d "$node_user_bin" ]]; then
             printf 'export PATH="%s:$PATH"\n' "$node_user_bin"
+        fi
+        # `lc review` is the command people run many times a day. It lives in
+        # the sentinel block so uninstall removes it with everything else, and
+        # so a re-install rewrites rather than duplicates it.
+        if [[ "${LEMONCROW_NO_ALIAS:-0}" != "1" ]]; then
+            case "$profile_file" in
+                *config.fish) printf "alias lcr 'lc review'\n" ;;
+                *)            printf "alias lcr='lc review'\n" ;;
+            esac
         fi
         printf '%s\n' "$sentinel_end"
     } > "$tmp_input"
@@ -2548,11 +2499,8 @@ _ensure_path_persistence() {
 
     rm -f "$tmp_input" "$tmp_output"
 
-    local bin_display="$LEMONCROW_BIN_DIR"
-    local profile_display="$profile_file"
-    [[ "$bin_display" != "$HOME/"* ]] || bin_display="~/${bin_display#"$HOME/"}"
-    [[ "$profile_display" != "$HOME/"* ]] || profile_display="~/${profile_display#"$HOME/"}"
-    printf "%b│%b  %b✓%b  %s\n" "$C_FRAME" "$C_RESET" "$C_GREEN" "$C_RESET" "PATH configured in $profile_display ($bin_display)"
+    lemoncrow_dir="${LEMONCROW_BIN_DIR%/bin}"
+    printf "%b│%b  %b✓%b  %s\n" "$C_FRAME" "$C_RESET" "$C_GREEN" "$C_RESET" "Added ${lemoncrow_dir} to PATHs in ${profile_file/#$HOME/~}"
 }
 
 # _capture_install_previous_version — preserve the executable version before
@@ -2643,6 +2591,95 @@ pathlib.Path(sys.argv[4]).write_text(json.dumps(data, indent=2), encoding='utf-8
 # LemonCrow CLI is available at "$LEMONCROW_BIN_DIR/lemoncrow": code tools, memory /
 # zoekt selection, host integrations, init, indexing, optimize automation,
 # background services, PATH persistence, and the final report.
+prompt_knowledge_extraction() {
+    # Opt-in. Honor an explicit env preset (CI / scripted installs); only ask
+    # when interactive and the user hasn't already decided.
+    [[ "$LEMONCROW_KB_EXTRACT_PRESET" == "1" ]] && return 0
+    [[ "$LEMONCROW_NON_INTERACTIVE" == "1" ]] && return 0
+    has_interactive_input || return 0
+
+    if supports_interactive_selector; then
+        local kb_yn=1
+        interactive_single_select \
+            "Auto-extract review rules from .lessons files?" \
+            kb_yn \
+            1 \
+            "Yes – populate reviewer knowledge base" \
+            "No"
+        if [[ "$kb_yn" != "0" ]]; then
+            LEMONCROW_KB_EXTRACT=0
+            return 0
+        fi
+        LEMONCROW_KB_EXTRACT=1
+
+        local backend_idx=0
+        interactive_single_select \
+            "Knowledge extraction backend?" \
+            backend_idx \
+            0 \
+            "auto (LemonCrow model)" \
+            "claude" \
+            "codex" \
+            "ollama"
+        case "$backend_idx" in
+            1) LEMONCROW_KB_HOST=claude ;;
+            2) LEMONCROW_KB_HOST=codex ;;
+            3) LEMONCROW_KB_HOST=ollama ;;
+            *) LEMONCROW_KB_HOST=auto ;;
+        esac
+    else
+        local ans=""
+        printf "  ◇  Auto-extract review rules from .lessons files? [y/N] "
+        IFS= read -r ans </dev/tty 2>/dev/null || ans=""
+        case "$ans" in
+            y | Y | yes | YES) LEMONCROW_KB_EXTRACT=1 ;;
+            *) LEMONCROW_KB_EXTRACT=0; return 0 ;;
+        esac
+
+        local choice=""
+        printf "  ◇  Backend  1) auto (LemonCrow model)  2) claude  3) codex  4) ollama  [1] "
+        IFS= read -r choice </dev/tty 2>/dev/null || choice=""
+        case "$choice" in
+            2) LEMONCROW_KB_HOST=claude ;;
+            3) LEMONCROW_KB_HOST=codex ;;
+            4) LEMONCROW_KB_HOST=ollama ;;
+            *) LEMONCROW_KB_HOST=auto ;;
+        esac
+    fi
+
+    if [[ "$LEMONCROW_KB_HOST" == "ollama" ]]; then
+        local model=""
+        printf "  ◇  Ollama model name [llama3.1]: "
+        IFS= read -r model </dev/tty 2>/dev/null || model=""
+        LEMONCROW_KB_MODEL="${model:-llama3.1}"
+    fi
+
+    if [[ "$LEMONCROW_KB_HOST" == "auto" || "$LEMONCROW_KB_HOST" == "claude" ]]; then
+        local cap=""
+        printf "  ◇  Max spend per run in USD [%s]: " "$LEMONCROW_KB_MAX_SPEND"
+        IFS= read -r cap </dev/tty 2>/dev/null || cap=""
+        [[ -n "$cap" ]] && LEMONCROW_KB_MAX_SPEND="$cap"
+    fi
+}
+
+run_knowledge_extraction_if_selected() {
+    [[ "$LEMONCROW_KB_EXTRACT" == "1" ]] || return 0
+    local lemoncrow_bin="$LEMONCROW_BIN_DIR/lemoncrow"
+    [[ -x "$lemoncrow_bin" ]] || lemoncrow_bin="lemoncrow"
+    command -v "$lemoncrow_bin" >/dev/null 2>&1 || { degrade "knowledge extraction skipped (lemoncrow binary not found)"; return 0; }
+    step_start "Extracting knowledge from .lessons (host=$LEMONCROW_KB_HOST)"
+    if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
+        info "[dry-run] $lemoncrow_bin knowledge extract --host $LEMONCROW_KB_HOST --max-spend $LEMONCROW_KB_MAX_SPEND"
+    else
+        local kb_args=(knowledge extract --host "$LEMONCROW_KB_HOST" --max-spend "$LEMONCROW_KB_MAX_SPEND")
+        [[ -n "$LEMONCROW_KB_MODEL" ]] && kb_args+=(--model "$LEMONCROW_KB_MODEL")
+        if ! "$lemoncrow_bin" "${kb_args[@]}"; then
+            degrade "knowledge extraction did not complete (continuing install)"
+        fi
+    fi
+    step_done
+}
+
 configure_recall_if_selected() {
     # Persist only when an explicit env preset was given, so a re-install never
     # resets a prior recall config. Without a preset, Recall stays on by default
@@ -3027,22 +3064,24 @@ run_setup() {
         printf "%b│%b  ✓  Recall configured\n" "$C_FRAME" "$C_RESET"
     fi
     # Persistent connector state is durable across reinstalls, while the user
-    # services are generated. The remote MCP gateway is served by the client
-    # (`python -m lemoncrow_client runtime mcp gateway`); reconcile the units
-    # after replacing the package so an old command line (including the retired
-    # `lemoncrow_server_core mcp-gateway`) never keeps running. The repair is a
-    # no-op without connectors and never provisions Cloudflare or changes DNS.
+    # service is generated. Reconcile that generated unit after replacing the
+    # package so `make dev`/`make prod` cannot leave an old topology or command
+    # line running. The repair command is a no-op when no connectors exist and
+    # never provisions Cloudflare resources or changes DNS.
     if [[ "${LEMONCROW_INSTALL_MODE:-legacy}" == "local" ]]; then
-        local mcp_python="${LEMONCROW_TOOL_DIR}/lemoncrow/bin/python"
         if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-            echo "[dry-run] $mcp_python -m lemoncrow_client runtime mcp service repair"
-        elif [[ -x "$mcp_python" ]]; then
-            "$mcp_python" -m lemoncrow_client runtime mcp service repair >>"$LEMONCROW_INSTALL_LOG_FILE" 2>&1 \
-                || degrade "Could not reconcile the persistent MCP gateway; run 'lc runtime mcp service repair'."
+            echo "[dry-run] $LEMONCROW_BIN_DIR/lemoncrow mcp service repair"
+        elif [[ -x "$LEMONCROW_BIN_DIR/lemoncrow" ]]; then
+            "$LEMONCROW_BIN_DIR/lemoncrow" mcp service repair >>"$LEMONCROW_INSTALL_LOG_FILE" 2>&1 \
+                || degrade "Could not reconcile the persistent MCP tunnel; run '$LEMONCROW_BIN_DIR/lemoncrow mcp service repair'."
         fi
     fi
     [[ "$init_step" != "1" ]] || step_done
 
+    # Knowledge extraction from .lessons prints its own named step box (only
+    # when selected) -- kept outside "Finishing up" rather than folded in, so
+    # it stays a separately-titled, independently-ticked step.
+    run_knowledge_extraction_if_selected
     # Bundle installs may defer the local-server restart until every setup step
     # above is finished. Source installs do not define this hook.
     if declare -F finalize_runtime_mode >/dev/null 2>&1; then
@@ -3051,23 +3090,30 @@ run_setup() {
     _write_install_update_state
 
     print_final_report
-    local completion_color="$C_GREEN"
-    local completion_label="✓ Installation complete"
+    local completion_title_line="✓ Installation Complete!                              "
     if [[ ${#ERRORS[@]} -gt 0 ]]; then
-        completion_color="$C_RED"
-        completion_label="✗ Installation completed with errors"
+        completion_title_line="✗ Installation Completed with Errors                  "
     elif [[ ${#WARNINGS[@]} -gt 0 ]]; then
-        completion_color="$C_YELLOW"
-        completion_label="⚠ Installation completed with warnings"
+        completion_title_line="⚠ Installation Completed with Warnings                "
     fi
-    printf "%b└  %b%b%s%b\n\n" "$C_FRAME" "$completion_color" "$C_BOLD" "$completion_label" "$C_RESET"
+
+    if [[ ${#ERRORS[@]} -gt 0 ]]; then
+        info "${C_BOLD}${C_RED}Completed with errors.${C_RESET}"
+    elif [[ ${#WARNINGS[@]} -gt 0 ]]; then
+        info "${C_BOLD}${C_YELLOW}Completed with warnings.${C_RESET}"
+    fi
+    printf "%b└%b\n\n" "$C_FRAME" "$C_RESET"
+
+    printf "  %b┌─────────────────────────────────────────────────────────┐%b\n" "$C_PURPLE" "$C_RESET"
+    printf "  %b│  %s │%b\n" "$C_PURPLE" "$completion_title_line" "$C_RESET"
+    printf "  %b└─────────────────────────────────────────────────────────┘%b\n\n" "$C_PURPLE" "$C_RESET"
 
     # `lemoncrow init` registers this project locally. It runs fully offline with
     # no account and no login prompt, so it is safe to run non-interactively.
     # (stdout/stderr reconnect to fd 7 — the real terminal saved before the
     # `exec > >(tee ...)` redirect — so init's output reaches the user directly.)
     local cli="lemoncrow"
-    [[ -x "${LEMONCROW_BIN_DIR}/lc" ]] && cli="lc"
+    [[ "${LC_ALIAS_AVAILABLE:-0}" == "1" ]] && cli="lc"
     if [[ -n "$index_target" ]]; then
         case "${LEMONCROW_INSTALL_MODE:-legacy}" in
             local|hosted)
@@ -3079,30 +3125,74 @@ run_setup() {
             *)
                 printf "%bInitializing this project:%b\n\n" "$C_PURPLE" "$C_RESET"
                 if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
-                    echo "[dry-run] $lemoncrow_cli runtime init"
+                    echo "[dry-run] $lemoncrow_cli init"
                 else
-                    "$lemoncrow_cli" runtime init >&7 2>&7 || true
+                    "$lemoncrow_cli" init >&7 2>&7 || true
                 fi
                 printf "\n"
                 ;;
         esac
     fi
 
-    local code_display="${LEMONCROW_BIN_DIR}/${cli}"
-    local state_display="${LEMONCROW_ROOT:-$HOME/.lemoncrow}"
-    [[ "$code_display" != "$HOME/"* ]] || code_display="~/${code_display#"$HOME/"}"
-    [[ "$state_display" != "$HOME/"* ]] || state_display="~/${state_display#"$HOME/"}"
-    printf "  %bCLI:%b    %b%s%b\n" "$C_PURPLE" "$C_RESET" "$C_BOLD" "$code_display" "$C_RESET"
-    printf "  %bState:%b  %b%s%b\n\n" "$C_PURPLE" "$C_RESET" "$C_BOLD" "$state_display" "$C_RESET"
-    printf "Restart your coding agent in a repository to load %bLemonCrow%b.\n\n" \
-        "$C_PURPLE" "$C_RESET"
-    footer_command "$cli" "review" "Review the current change"
-    footer_command "$cli" "runtime mcp check" "Check the agent connection"
-    footer_command "$cli" "doctor" "Diagnose installation problems"
-    if [[ ${#WARNINGS[@]} -gt 0 || ${#ERRORS[@]} -gt 0 ]]; then
-        printf "\n  %bInstaller log:%b %s\n" "$C_DIM" "$C_RESET" "$LEMONCROW_INSTALL_LOG_FILE"
+    local code_display="${LEMONCROW_BIN_DIR}/lemoncrow"
+    code_display="${code_display/#$HOME/~}"
+    printf "%b📁 Your files:%b\n\n" "$C_PURPLE" "$C_RESET"
+    printf "   LemonCrow dir:   %s\n" "~/.lemoncrow"
+    printf "   Binary:        %s\n\n" "$code_display"    
+    printf "%b─────────────────────────────────────────────────────────%b\n\n" "$C_PURPLE" "$C_RESET"
+    if [[ "${LEMONCROW_INSTALL_MODE:-legacy}" == "local" || "${LEMONCROW_INSTALL_MODE:-legacy}" == "hosted" ]]; then
+        printf "%b🚀 Get started:%b open your coding agent in a repository, then try:\n\n" "$C_PURPLE" "$C_RESET"
+        # "Heading" entries (no '|') print as group labels; others are "command|description".
+        local -a cmd_rows=(
+            "mcp check|Verify the agent <-> server connection"
+            "review|Review a diff or PR in the browser"
+            "doctor|Diagnose install, services, MCP servers"
+            ""
+            "Track & recall"
+            "dashboard|Spend & savings (dashboard open: web UI)"
+            "usage|Usage by host, model, project"
+            "session stats|Per-session cost and savings"
+            "session recall|Search past sessions"
+            ""
+            "Work"
+            "code|Run a coding CLI over LemonCrow"
+            "swarm|Parallel attempts in git worktrees"
+            "model|Bring your own model"
+            "skill / agent|Install skills and agent roles"
+            ""
+            "Remote MCP (ChatGPT, Claude web, Cursor)"
+            "mcp serve|Public MCP URL (--persistent --hostname H: stable)"
+            "mcp service|Persistent tunnels: list, restart, logs"
+            ""
+            "Manage"
+            "settings|Local settings"
+            "update|Check for updates"
+        )
+        local row
+        for row in "${cmd_rows[@]}"; do
+            if [[ -z "$row" ]]; then
+                printf "\n"
+            elif [[ "$row" != *"|"* ]]; then
+                printf "   %s\n" "$row"
+            else
+                printf "   %b%s %-*s%b %s\n" "$C_PURPLE" "$cli" 16 "${row%%|*}" "$C_RESET" "${row#*|}"
+            fi
+        done
+        printf "\n"
+    else
+        printf "%b🚀 Commands:%b\n\n" "$C_PURPLE" "$C_RESET"
+        printf "   %b%s%b init                Initialize LemonCrow for a new project\n" "$C_PURPLE" "$cli" "$C_RESET"
+        printf "   %b%s%b status              View active runs\n" "$C_PURPLE" "$cli" "$C_RESET"
+        printf "   %b%s%b import              Import past agent sessions\n" "$C_PURPLE" "$cli" "$C_RESET"
+        printf "   %b%s%b memory recall       Search memory\n" "$C_PURPLE" "$cli" "$C_RESET"
+        printf "   %b%s%b code index          Index current repository\n" "$C_PURPLE" "$cli" "$C_RESET"
+        printf "   %b%s%b review              Review a diff or PR\n" "$C_PURPLE" "$cli" "$C_RESET"
+        printf "   %b%s%b doctor              Check service status\n\n" "$C_PURPLE" "$cli" "$C_RESET"
     fi
-    printf "\n"
+    if [[ ${#WARNINGS[@]} -gt 0 || ${#ERRORS[@]} -gt 0 ]]; then
+        printf "   installer log: %s\n\n" "$LEMONCROW_INSTALL_LOG_FILE"
+    fi
+    printf "%b─────────────────────────────────────────────────────────%b\n\n" "$C_PURPLE" "$C_RESET"
 
     return "$FINAL_EXIT_CODE"
 }

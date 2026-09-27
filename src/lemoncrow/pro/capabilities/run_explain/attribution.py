@@ -19,7 +19,9 @@ distinguishable.
 JSON rather than through ``RunLedger.load``: the loader reconstructs each event
 without its ``at`` field (``run_ledger.py:736-742``), so every event would come
 back stamped with the moment the report was generated. A report whose whole
-value is pointing at real evidence cannot afford invented times.
+value is pointing at real evidence cannot afford invented times. The same
+plain-JSON read is what ``resume_context.builder._load_ledger`` already does,
+for the adjacent reason that the loader raises on a corrupt file.
 
 The cost block is not recomputed here. It is ``usage.explain_run`` verbatim, so
 there is exactly one accounting path in the codebase and this report cannot

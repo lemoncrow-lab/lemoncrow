@@ -12,7 +12,6 @@ from lemoncrow.pro.capabilities.review.landing import (
     landing_metadata,
     landing_relationship,
     local_github_landing,
-    owe_discard_withdrawal,
     reconcile_local_github_landing,
     record_landing_state,
 )
@@ -447,65 +446,6 @@ def test_an_owed_cancel_that_finds_the_reviewed_head_merged_records_the_merge(
     status, detail = _landing_status(store, session)
     assert status == "merged"
     assert "was cancelled" not in detail
-
-
-def _github_outage() -> None:
-    raise GitHubCliError("GitHub is unavailable")
-
-
-def test_an_owed_cancel_that_failed_stays_owed_and_the_watch_retries_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    store, session = _armed_pull_request(tmp_path)
-    _captured_new_semantic_snapshot(store, session)
-    fake = _use(
-        monkeypatch, _FakeGitHub(mergeStateStatus="CLEAN", autoMergeRequest={"enabledAt": "2026-09-25T00:00:00Z"})
-    )
-    fake.on_state_query = _github_outage
-
-    reconcile_local_github_landing(store, session)
-
-    owed = landing_relationship(store, session.id)
-    assert owed is not None and owed.status == "stale"
-    assert landing_metadata(owed)["provider_cancel"] == "pending"
-    assert "FAILED" in landing_metadata(owed)["detail"]
-
-    fake.on_state_query = None
-    reconcile_local_github_landing(store, session)
-
-    status, detail = _landing_status(store, session)
-    assert status == "stale"
-    assert "was cancelled" in detail
-    settled = landing_relationship(store, session.id)
-    assert settled is not None and landing_metadata(settled)["provider_cancel"] == "done"
-    assert ["pr", "merge", "7", "--repo", "acme/widgets", "--disable-auto"] in fake.calls
-    assert fake.merges() == []
-
-
-def test_a_discarded_changes_failed_withdrawal_stays_armed_until_github_confirms(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    store, session = _armed_pull_request(tmp_path)
-    archived = _discarded(store, session)
-    # What the Reader's discard records before it asks the provider.
-    owe_discard_withdrawal(store, session.id)
-    fake = _use(monkeypatch, _FakeGitHub(mergeStateStatus="CLEAN"))
-    fake.on_state_query = _github_outage
-
-    reconcile_local_github_landing(store, archived)
-
-    owed = landing_relationship(store, archived.id)
-    assert owed is not None and owed.status == "armed"
-    assert landing_metadata(owed)["provider_cancel"] == "pending"
-    assert fake.merges() == []
-
-    fake.on_state_query = None
-    reconcile_local_github_landing(store, archived)
-
-    status, detail = _landing_status(store, archived)
-    assert status == "cancelled"
-    assert "discarded" in detail
-    assert fake.merges() == []
 
 
 def test_an_owed_cancel_that_finds_an_unreviewed_head_merged_says_so(

@@ -35,10 +35,7 @@ _DEFAULT_DEBOUNCE_S = 0.45
 _DEFAULT_WATCH_IDLE_S = 30 * 60.0
 _DEFAULT_POLL_WATCH_IDLE_S = 60.0
 _DEFAULT_POLL_INTERVAL_S = 5.0
-# With a live watcher, the semantic fingerprint (a full working-tree git read) is
-# recomputed on a relevant event, or at this slow heartbeat to catch dropped events.
-_WATCHDOG_RECHECK_S = 60.0
-_WATCH_IGNORED_ROOTS = frozenset({".claude", ".lc-worktrees", ".lemoncrow", ".venv", "node_modules", "__pycache__"})
+_WATCH_IGNORED_ROOTS = frozenset({".lc-worktrees", ".lemoncrow", ".venv", "node_modules", "__pycache__"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,8 +50,6 @@ class LiveReviewBinding:
     author_session_id: str = ""
     review_short_id: str = ""
     revision_short_id: str = ""
-    branch_ref: str = ""
-    worktree_key: str = ""
     updated_at: float = 0.0
     claimed_at: float = 0.0
 
@@ -101,71 +96,39 @@ _REQUEST_PROCESS_LOCK = threading.RLock()
 
 
 @contextlib.contextmanager
-def _cross_process_lock(path: Path, process_lock: threading.RLock, *, blocking: bool = True) -> Iterator[None]:
-    """Hold *path*'s lock across threads and processes.
+def _cross_process_lock(path: Path, process_lock: threading.RLock) -> Iterator[None]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with process_lock:
+        handle = path.open("a+b")
+        try:
+            if os.name == "nt":
+                import msvcrt
 
-    With *blocking* false a held lock raises ``BlockingIOError`` instead of
-    waiting. A holder may delete the lock file (a swept Review precompute
-    slot): a waiter that then wins the lock on the deleted file locks the
-    path's current file instead, so holders still exclude each other.
-    """
+                handle.seek(0, os.SEEK_END)
+                if handle.tell() == 0:
+                    handle.write(b"\0")
+                    handle.flush()
+                handle.seek(0)
+                api: Any = msvcrt
+                api.locking(handle.fileno(), api.LK_LOCK, 1)
+            else:
+                import fcntl
 
-    if not process_lock.acquire(blocking=blocking):
-        raise BlockingIOError(f"{path} is locked")
-    try:
-        while True:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            handle = path.open("a+b")
-            locked = False
-            try:
-                try:
-                    if os.name == "nt":
-                        import msvcrt
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            yield
+        finally:
+            with contextlib.suppress(OSError):
+                if os.name == "nt":
+                    import msvcrt
 
-                        handle.seek(0, os.SEEK_END)
-                        if handle.tell() == 0:
-                            handle.write(b"\0")
-                            handle.flush()
-                        handle.seek(0)
-                        api: Any = msvcrt
-                        api.locking(handle.fileno(), api.LK_LOCK if blocking else api.LK_NBLCK, 1)
-                    else:
-                        import fcntl
+                    handle.seek(0)
+                    api = msvcrt
+                    api.locking(handle.fileno(), api.LK_UNLCK, 1)
+                else:
+                    import fcntl
 
-                        fcntl.flock(handle.fileno(), fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB)
-                except OSError as exc:
-                    if blocking:
-                        raise
-                    raise BlockingIOError(f"{path} is locked") from exc
-                locked = True
-                # Windows refuses to delete a file another process holds open,
-                # so only POSIX can win the lock on a file already deleted.
-                if os.name != "nt":
-                    held = os.fstat(handle.fileno())
-                    try:
-                        current = os.stat(path)
-                    except FileNotFoundError:
-                        continue
-                    if (current.st_dev, current.st_ino) != (held.st_dev, held.st_ino):
-                        continue
-                yield
-                return
-            finally:
-                with contextlib.suppress(OSError):
-                    if locked:
-                        if os.name == "nt":
-                            import msvcrt
-
-                            handle.seek(0)
-                            api = msvcrt
-                            api.locking(handle.fileno(), api.LK_UNLCK, 1)
-                        else:
-                            import fcntl
-
-                            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-                handle.close()
-    finally:
-        process_lock.release()
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            handle.close()
 
 
 @contextlib.contextmanager
@@ -294,8 +257,6 @@ def _write_live_review_binding_unlocked(
             "author_session_id": author_session_id,
             "review_short_id": binding.review_short_id,
             "revision_short_id": binding.revision_short_id,
-            "branch_ref": binding.branch_ref,
-            "worktree_key": binding.worktree_key,
             "updated_at": binding.updated_at or time.time(),
             "claimed_at": claimed_at,
         },
@@ -343,8 +304,6 @@ def load_live_review_binding(
             author_session_id=str(raw.get("author_session_id") or "").strip(),
             review_short_id=str(raw.get("review_short_id") or "").strip(),
             revision_short_id=str(raw.get("revision_short_id") or "").strip(),
-            branch_ref=str(raw.get("branch_ref") or "").strip(),
-            worktree_key=str(raw.get("worktree_key") or "").strip(),
             updated_at=float(raw.get("updated_at") or 0.0),
             claimed_at=float(raw.get("claimed_at") or 0.0),
         )
@@ -390,8 +349,6 @@ def claim_live_review_binding(
             author_session_id=binding.author_session_id,
             review_short_id=binding.review_short_id,
             revision_short_id=binding.revision_short_id,
-            branch_ref=binding.branch_ref,
-            worktree_key=binding.worktree_key,
             updated_at=binding.updated_at,
             claimed_at=time.time(),
         )
@@ -431,8 +388,6 @@ def _read_binding_unscoped(path: Path) -> LiveReviewBinding | None:
             author_session_id=str(raw.get("author_session_id") or ""),
             review_short_id=str(raw.get("review_short_id") or ""),
             revision_short_id=str(raw.get("revision_short_id") or ""),
-            branch_ref=str(raw.get("branch_ref") or ""),
-            worktree_key=str(raw.get("worktree_key") or ""),
             updated_at=float(raw.get("updated_at") or 0.0),
             claimed_at=float(raw.get("claimed_at") or 0.0),
         )
@@ -493,18 +448,11 @@ def request_live_review_prepare(
 ) -> LiveReviewRequest | None:
     """Signal source change and detach one fail-open preparation attempt."""
 
-    prewarm = os.environ.get("LEMONCROW_LIVE_REVIEW_PREWARM", "1").strip().lower()
-    if prewarm in {"0", "false", "no", "off"}:
+    if os.environ.get("LEMONCROW_LIVE_REVIEW_PREWARM", "1").strip().lower() in {"0", "false", "no", "off"}:
         return None
     root = Path(store_root).expanduser().resolve()
     repo = Path(repo_root).expanduser().resolve()
     if not repo.is_dir() or not (repo / ".git").exists():
-        return None
-    # Temp checkouts are merge/test scratch, not work to review; ``always`` opts them in.
-    from lemoncrow.pro.capabilities.verify_gate import temp_roots
-
-    posix = repo.as_posix()
-    if prewarm != "always" and any(posix == r or posix.startswith(r + "/") for r in temp_roots()):
         return None
     try:
         request = _write_request(root, repo, host=host, session_id=session_id)
@@ -609,6 +557,11 @@ def _source_fingerprint(repo_root: Path) -> str:
     return source_state(repo_root, rng).fingerprint
 
 
+def _binding_claimed(store_root: Path, repo_root: Path) -> bool:
+    binding = _read_binding_unscoped(_binding_path(store_root, repo_root))
+    return binding is not None and binding.claimed_at > 0
+
+
 def _wait_with_watchdog(
     store_root: Path,
     repo_root: Path,
@@ -645,9 +598,10 @@ def _wait_with_watchdog(
             observer.stop()
         return None
     deadline = time.monotonic() + max(0.0, timeout_s)
-    last_check = time.monotonic()
     try:
         while time.monotonic() < deadline:
+            if _binding_claimed(store_root, repo_root):
+                return False
             latest_request = _read_request(store_root, repo_root)
             if baseline_request_id and latest_request is not None and latest_request.request_id != baseline_request_id:
                 return "request"
@@ -663,11 +617,7 @@ def _wait_with_watchdog(
                 if debounce_s > 0:
                     time.sleep(debounce_s)
             # Watchdog is only a wake-up accelerator. Semantic identity remains
-            # authoritative even if an OS event is coalesced or dropped, so it is
-            # rechecked on a slow heartbeat; reading it every poll pinned a core.
-            if not event_seen and time.monotonic() - last_check < _WATCHDOG_RECHECK_S:
-                continue
-            last_check = time.monotonic()
+            # authoritative even if an OS event is coalesced or dropped.
             try:
                 if _source_fingerprint(repo_root) != baseline_fingerprint:
                     return "source"
@@ -693,7 +643,7 @@ def _wait_for_out_of_band_change(
     """Wait for source changes or a newer durable watcher heartbeat.
 
     Returns ``"source"`` or ``"request"`` when the worker should loop, and
-    ``False`` when idle. Boolean test doubles remain compatible: ``True``
+    ``False`` on idle/claim. Boolean test doubles remain compatible: ``True``
     is treated by the caller as a source-change signal.
     """
 
@@ -715,6 +665,8 @@ def _wait_for_out_of_band_change(
     deadline = time.monotonic() + min(max(0.0, watch_idle_s), _DEFAULT_POLL_WATCH_IDLE_S)
     interval = max(0.2, poll_interval_s)
     while time.monotonic() < deadline:
+        if _binding_claimed(store_root, repo_root):
+            return False
         latest_request = _read_request(store_root, repo_root)
         if baseline_request_id and latest_request is not None and latest_request.request_id != baseline_request_id:
             return "request"
@@ -735,12 +687,7 @@ def prepare_live_review_worker(
     watch_idle_s: float = 0.0,
     poll_interval_s: float = _DEFAULT_POLL_INTERVAL_S,
 ) -> int:
-    """Draft the latest requested working-tree Snapshot, coalescing edit bursts.
-
-    Drafting prepares the Snapshot's source build locally and never publishes:
-    no Review or Snapshot exists until ``lc review`` (or the Reader's Snapshot
-    action) creates one, and that capture reuses the prepared build.
-    """
+    """Capture the latest requested working-tree Review, coalescing edit bursts."""
 
     root = Path(store_root).expanduser().resolve()
     repo = Path(repo_root).expanduser().resolve()
@@ -757,15 +704,17 @@ def prepare_live_review_worker(
             if request is None:
                 return 0
             request_id = request.request_id
-            prepared_fingerprint = ""
-            # Drafting never publishes, so it keeps going after a human opens the
-            # Review: the next explicit Snapshot is then ready too.
             existing_binding = _read_binding_unscoped(_binding_path(root, repo))
+            if existing_binding is not None and existing_binding.claimed_at > 0:
+                # Human review now owns checkpoint cadence. The live authoring
+                # View continues to update independently, while Review Reader's
+                # feedback/addressed flow decides when to capture a new rr/.
+                return 0
             try:
                 from lemoncrow_client.config import load_config
 
                 from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range, source_state
-                from lemoncrow.pro.capabilities.review.hosted import prepare_local_source_build
+                from lemoncrow.pro.capabilities.review.hosted import capture_server_review
 
                 config = load_config(cwd=repo)
                 if config.hosted:
@@ -779,24 +728,71 @@ def prepare_live_review_worker(
                     if existing_binding is not None:
                         clear_live_review_binding(root, repo, expected_revision_id=existing_binding.revision_id)
                     return 0
-                if not (
+                if (
                     existing_binding is not None
                     and existing_binding.server_url == config.url.rstrip("/")
                     and existing_binding.source_fingerprint == before.fingerprint
                 ):
-                    # An unchanged source is already published; anything else is
-                    # drafted locally for the next explicit Snapshot. The watch
-                    # baseline is the plain working-tree fingerprint, even when
-                    # the draft is taken against a frozen branch base.
-                    prepared_fingerprint = before.fingerprint
-                    prepare_local_source_build(
+                    # A prompt heartbeat proves session liveness, not authorship.
+                    # Never retarget exact Review feedback unless source changed
+                    # and a capture/provenance step established the new author.
+                    after = before
+                else:
+                    baseline_fingerprint = before.fingerprint
+
+                    def superseded(
+                        request_id: str = request_id,
+                        baseline_fingerprint: str = baseline_fingerprint,
+                    ) -> bool:
+                        latest_request = _read_request(root, repo)
+                        return (
+                            latest_request is not None and latest_request.request_id != request_id
+                        ) or _source_fingerprint(repo) != baseline_fingerprint
+
+                    captured = capture_server_review(
                         config,
                         repo,
                         rng,
                         store_root=root,
                         session_id=request.session_id or None,
+                        session_id_is_hint=True,
                         limit=40,
+                        with_impact=True,
+                        with_provenance=True,
+                        respect_human_claim=True,
+                        superseded=superseded,
                     )
+                    after = source_state(repo, rng)
+                    response_revision = captured.response.get("revision")
+                    revision = response_revision if isinstance(response_revision, dict) else {}
+                    revision_id = str(revision.get("id") or "")
+                    revision_number = int(revision.get("revision_number") or 0)
+                    if before.fingerprint == after.fingerprint and revision_id:
+                        author_host = ""
+                        author_session_id = ""
+                        try:
+                            provenance = captured.build.packet.provenance
+                            if provenance.certainty == "exact":
+                                author_host = str(provenance.host or "")
+                                author_session_id = str(provenance.session_id or "")
+                        except (AttributeError, TypeError, ValueError):
+                            # Source/revision identity is authoritative even when
+                            # optional provenance enrichment is unavailable.
+                            pass
+                        write_live_review_binding(
+                            root,
+                            repo,
+                            LiveReviewBinding(
+                                server_url=config.url,
+                                repo_id=captured.repo_id,
+                                review_id=captured.review_id,
+                                revision_id=revision_id,
+                                revision_number=revision_number,
+                                source_fingerprint=after.fingerprint,
+                                author_host=author_host,
+                                author_session_id=author_session_id,
+                            ),
+                        )
             except Exception:
                 # Background prewarm is strictly an optimization. A normal lcr
                 # invocation retains the complete synchronous fallback path.
@@ -806,7 +802,7 @@ def prepare_live_review_worker(
             if latest is not None and latest.request_id != request_id:
                 continue
             baseline = _read_binding_unscoped(_binding_path(root, repo))
-            baseline_fingerprint = prepared_fingerprint or (baseline.source_fingerprint if baseline is not None else "")
+            baseline_fingerprint = baseline.source_fingerprint if baseline is not None else ""
             wake_reason = _wait_for_out_of_band_change(
                 root,
                 repo,

@@ -30,7 +30,7 @@ _BASELINE_SNAPSHOT = {
 def _init_runtime(tmp_path: Path) -> LemonCrowRuntimeCore:
     root = tmp_path / ".lemoncrow"
     runner = CliRunner()
-    result = runner.invoke(cli, ["--root", str(root), "runtime", "init", "--no-index"])
+    result = runner.invoke(cli, ["--root", str(root), "init", "--no-index"])
     assert result.exit_code == 0, result.output
     return LemonCrowRuntimeCore(root)
 

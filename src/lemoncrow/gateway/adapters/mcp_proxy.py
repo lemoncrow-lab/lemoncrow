@@ -46,8 +46,7 @@ def _is_self(config: MCPServerConfig) -> bool:
 
     Matches LemonCrow's real self-registration shapes (``command="lc"`` or
     ``command="lemoncrow"`` -- the CLI's two console-script aliases -- with
-    canonical ``args=["runtime", "mcp", ...]`` and legacy ``args=["mcp", ...]``
-    registrations, optionally wrapped in ``uv run``/``uvx``, by exact
+    ``args=["mcp", ...]``, optionally wrapped in ``uv run``/``uvx``) by exact
     token, not substring: a substring match on the full command path would
     false-positive on any command whose absolute path happens to contain
     "lc" (e.g. an arg or path segment that happens to contain those two

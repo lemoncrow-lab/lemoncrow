@@ -75,15 +75,15 @@ def test_idle_ttl_kills_an_unused_session() -> None:
 
 
 def test_send_resets_the_idle_clock() -> None:
-    started = bx.start_managed_command("python3 -u -i -q", interactive=True, idle_ttl=1.0)
+    started = bx.start_managed_command("python3 -u -i -q", interactive=True, idle_ttl=1.5)
     sid = str(started["session_id"])
     try:
         # Keep poking well past the TTL: the sliding window must keep it alive.
         for _ in range(4):
-            time.sleep(0.3)
+            time.sleep(0.6)
             result = bx.send_managed_input(sid, "1 + 1", wait=5.0)
             assert result["status"] == "running"
-        # 4 * 0.3s = 1.2s elapsed > idle_ttl -- alive only because sends reset it.
+        # 4 * 0.6s = 2.4s elapsed > idle_ttl -- alive only because sends reset it.
         snap = bx.peek_managed_command(sid)
         assert snap["status"] == "running"
     finally:

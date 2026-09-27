@@ -7,13 +7,13 @@ import hashlib
 import hmac
 import json
 import logging
-import re
 import shutil
+import subprocess
 import threading
 import time
 import uuid
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from dataclasses import dataclass, replace
@@ -22,9 +22,11 @@ from typing import Any, Final
 
 from aiohttp import web
 
-from lemoncrow.pro.capabilities.review.gitdiff import RevRange
 from lemoncrow.pro.capabilities.review.models import oversized_diff_reason, review_packet_from_dict
-from lemoncrow.pro.capabilities.review.review_plan import review_brief_enabled
+from lemoncrow.pro.capabilities.review.relationships import change_context_payload
+from lemoncrow.pro.capabilities.review.revisions import compute_frontier
+from lemoncrow.pro.capabilities.review.sources.local import read_packet_json
+from lemoncrow.pro.capabilities.review.targets import derive_review_targets, review_progress
 
 from .app import (
     HEADER_HOST,
@@ -40,7 +42,7 @@ from .config import LocalServerConfig
 from .context import Principal, TenantContext, validate_opaque_id
 from .decisions import AuditDecision
 from .degradation import DegradationPolicy
-from .dispatch import ToolDispatcher, UnavailableDispatcher
+from .dispatch import ToolDispatcher
 from .errors import AgentAction, ErrorCode, ServerError, error_payload
 from .http.wire import json_response, require_int, require_object, require_str
 from .index.analysis import profile_for_path
@@ -51,42 +53,21 @@ from .index.localfs import LocalFsGrant, LocalFsSource
 from .index.manifest import chunk_manifest, manifest_root
 from .index.query import IndexQuery
 from .limits import CancellationRegistry, ConcurrencyGate
-from .local_agent_guard import is_approval_decision, is_judgment_request, peer_agent_host
+from .local_agent_guard import is_judgment_request, peer_agent_host
 from .local_browser_auth import (
     LOCAL_BROWSER_CLAIM_PATH,
     LOCAL_BROWSER_PAIR_PATH,
     LOCAL_BROWSER_PAIR_TTL_S,
     LOCAL_BROWSER_SESSION_HEADER,
-    LOCAL_BROWSER_SESSION_TTL_S,
     LocalBrowserSessions,
     browser_authorized_path,
     local_browser_refusal,
-    local_host_refusal,
 )
 from .local_review import LocalReviewSurface
-from .local_review_service import (  # noqa: F401 -- the title/location helpers are re-exported for callers
-    LocalReviewService,
-    _automatic_review_title,
-    _public_snapshot_number,
-    _review_location_metadata,
-)
 from .local_reviews import LocalReviewReader, LocalReviewRepository
-from .protocol import CAPTURE_OPTIONS, require_capture_mode, require_packet_schema, review_capabilities
+from .registry_dispatch import PublicRegistryDispatcher
 from .result_reuse import ResultReuseValidator
-from .review_derivation import derive_review_packet_from_views, gitlinks_from_wire, review_range_from_wire
 from .review_drafts import ReviewDrafts
-from .review_jobs import ReviewCaptureJobs
-from .service_process import ServiceProcess, service_command
-from .service_protocol import (
-    HEADER_SERVICE_TOKEN,
-    INTERNAL_PREFIX,
-    PRINCIPAL_KEY,
-    SERVICE_DASHBOARD,
-    SERVICE_REVIEW,
-    jsonable,
-    token_matches,
-)
-from .service_proxy import LocalServices
 from .sessions import Session, SessionAccess, SessionRegistry
 from .workspace import ViewMaterializer
 
@@ -97,25 +78,83 @@ _PUBLIC_PATHS: Final[frozenset[str]] = frozenset(
     {"/healthz", "/readyz", "/.well-known/lemoncrow-server.json", "/v1/handshake", LOCAL_BROWSER_CLAIM_PATH}
 )
 _SAFE_BROWSER_METHODS: Final[frozenset[str]] = frozenset({"GET", "HEAD", "OPTIONS"})
-#: The loopback server captures client-built packets and derives packets from
-#: the client's own synced base/head Views (``derive_packet``, as ``lcr`` sends).
-LOCAL_CAPTURE_MODES: Final[frozenset[str]] = frozenset({"derived", "packet"})
-_DIGEST: Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{64}")
-# What a service may ask of the index this process owns: read-only lookups.
-_CODE_INTELLIGENCE_METHODS: Final[frozenset[str]] = frozenset(
-    {
-        "probe",
-        "readiness",
-        "find_symbol",
-        "neighborhood",
-        "file_relationships",
-        "references",
-        "semantic_search",
-        "ranking_metadata",
-        "repository_file_links",
-        "path_digest",
+PRINCIPAL_KEY: Final[web.RequestKey[Principal]] = web.RequestKey("lemoncrow_local_principal", Principal)
+
+
+def _git_stdout(root: Path, *args: str) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), *args],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _public_snapshot_number(revision: Any | None) -> int:
+    """Translate one-based persistence ordinals to the public Snapshot number."""
+
+    if revision is None:
+        return 0
+    return max(0, int(getattr(revision, "revision_number", 0) or 0) - 1)
+
+
+def _review_location_hint(root: str) -> dict[str, Any]:
+    """Project a packet workspace path without treating it as readable source.
+
+    The path is client-supplied display metadata.  Do not resolve it, stat it, or
+    run Git against it here: only a negotiated local-fs grant can authorize
+    filesystem reads.
+    """
+
+    path = Path(root).expanduser()
+    if not path.is_absolute():
+        return {}
+    name = path.name or str(path)
+    return {
+        "directory": str(path.parent),
+        "project": name,
+        "project_root": str(path),
+        "worktree": name,
+        "worktree_root": str(path),
+        "branch": "",
+        "revision": "",
+        "detached": False,
     }
-)
+
+
+def _review_location_metadata(root: Path) -> dict[str, Any]:
+    """Describe the exact proven checkout/worktree behind a local review."""
+
+    resolved = root.expanduser().resolve(strict=False)
+    branch = ""
+    revision = ""
+    project_root = resolved
+    if resolved.is_dir():
+        branch = _git_stdout(resolved, "branch", "--show-current")
+        revision = _git_stdout(resolved, "rev-parse", "--short", "HEAD")
+        common_dir_raw = _git_stdout(resolved, "rev-parse", "--git-common-dir")
+        if common_dir_raw:
+            common_dir = Path(common_dir_raw)
+            if not common_dir.is_absolute():
+                common_dir = (resolved / common_dir).resolve(strict=False)
+            if common_dir.name == ".git":
+                project_root = common_dir.parent
+
+    return {
+        "directory": str(resolved.parent),
+        "project": project_root.name,
+        "project_root": str(project_root),
+        "worktree": resolved.name,
+        "worktree_root": str(resolved),
+        "branch": branch or (f"detached@{revision}" if revision else "unknown"),
+        "revision": revision,
+        "detached": not bool(branch),
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,11 +189,24 @@ class _LocalViewOwners:
         self._owners.pop((org_id, view_id), None)
 
 
+class _LocalScope:
+    def shares_repository(self, principal: Principal, org_id: str, repo_id: str) -> bool:
+        del repo_id
+        return principal.org_id == org_id
+
+    def note_view(self, *, org_id: str, view_id: str, repo_id: str) -> None:
+        del org_id, view_id, repo_id
+
+    def forget_view(self, org_id: str, view_id: str) -> None:
+        del org_id, view_id
+
+
 class _LocalAuthorizer:
     """Single-principal authorization: tenancy is impossible on loopback local mode."""
 
     def __init__(self, dispatcher: ToolDispatcher) -> None:
         self._dispatcher = dispatcher
+        self.scoped = _LocalScope()
 
     def allowed_tools(self, principal: Principal) -> frozenset[str]:
         del principal
@@ -207,70 +259,25 @@ class LocalServerApp(CoreServerRoutes):
     def _server_identity(self) -> dict[str, Any]:
         payload = super()._server_identity()
         payload["deployment"] = {"mode": "local"}
-        dashboard = {
-            "installed": self.config.dashboard_enabled,
-            "configured": self.config.dashboard_enabled,
-            "available": self.config.dashboard_enabled,
-        }
-        payload["products"] = {
-            "core": {"installed": True, "configured": True, "available": True},
+        payload["product_capabilities"] = {
             "review": {
-                "installed": self.config.review_enabled,
-                "configured": self.config.review_enabled,
-                "available": self.config.review_enabled,
-            },
-            "dashboard": dashboard,
-            # The web app still gates its Dashboard pages on the Runtime product.
-            "runtime": dict(dashboard),
-        }
-        payload["product_capabilities"] = {}
-        if self.config.dashboard_enabled:
-            payload["product_capabilities"]["dashboard"] = {
-                "code_map": True,
-                "code_ask": True,
-                "local_editor": True,
-                "review_capture": self.config.review_enabled,
-                # /api/project-knowledge is a local Review service route.
-                "project_knowledge": self.config.review_enabled,
+                "local_workspace": True,
+                "workspace_refresh": True,
+                "cross_device_history": False,
+                "collaboration": False,
+                "participants": False,
+                "requests": False,
+                "provider_sync": False,
+                "organization_policy": False,
+                "sharing": False,
+                "guest_review": False,
+                "private_drafts": False,
+                "audit_history": False,
             }
-        if self.config.review_enabled:
-            payload["product_capabilities"]["review"] = review_capabilities(
-                {
-                    "local_workspace": True,
-                    "workspace_refresh": True,
-                    "cross_device_history": False,
-                    "collaboration": False,
-                    "participants": False,
-                    "requests": False,
-                    "provider_sync": False,
-                    "organization_policy": False,
-                    "sharing": False,
-                    "guest_review": False,
-                    "private_drafts": False,
-                    "audit_history": False,
-                    "brief": review_brief_enabled(),
-                    "ask": self.review_reader.ask_enabled,
-                    "capture": True,
-                    "evidence_read": True,
-                    "evidence_upload": True,
-                },
-                capture_modes=LOCAL_CAPTURE_MODES,
-                capture_options=CAPTURE_OPTIONS,
-            )
+        }
         return payload
 
     """Runnable public composition: one loopback user, one shared engine."""
-
-    async def ready(self, request: web.Request) -> web.StreamResponse:
-        # No tool dispatcher to wait on: readiness is the engine's storage.
-        if self._draining:
-            return json_response({"status": "not_ready"}, status=503)
-        try:
-            await self._in_worker(self._check_readiness_sync)
-        except Exception as exc:
-            _LOG.warning("readiness check failed: %s", type(exc).__name__)
-            return json_response({"status": "not_ready"}, status=503)
-        return json_response({"status": "ready"})
 
     def _tool_runtime_identity(self, request: web.Request, session: Session) -> tuple[str, str, str]:
         sid = request.headers.get(HEADER_HOST_SESSION, "").strip()
@@ -295,9 +302,7 @@ class LocalServerApp(CoreServerRoutes):
     ) -> None:
         self.config = config
         self.backend = backend
-        self.dispatcher = (
-            dispatcher if dispatcher is not None else UnavailableDispatcher("Runtime product is not configured")
-        )
+        self.dispatcher = dispatcher if dispatcher is not None else PublicRegistryDispatcher()
         self.local_principal = Principal(
             subject="user_local",
             org_id="org_local",
@@ -357,41 +362,34 @@ class LocalServerApp(CoreServerRoutes):
             config.resolved_review_root,
             source_content_reader=lambda digest: backend.content.get("org_local", digest),
         )
+        from .review_code_intelligence import NativeReviewCodeIntelligence
+
         self.review_reader = LocalReviewReader(
             self.review_repository,
             listen_port=config.listen_port,
-            code_intelligence_factory=self._review_code_intelligence,
+            code_intelligence_factory=lambda repo_id, revision: NativeReviewCodeIntelligence(
+                backend=self.backend,
+                queries=self.queries,
+                org_id=self.local_principal.org_id,
+                repo_id=repo_id,
+                subject=lambda: self.local_principal.subject,
+                content_size_cap=self.config.limits.max_indexed_content_bytes,
+                preferred_view_id=str(getattr(revision, "source_view_id", "") or ""),
+                preferred_view_revision=int(getattr(revision, "source_view_revision", 0) or 0),
+                restore_view=lambda: self._restore_review_view(repo_id, revision),
+                keep_view_leased=self._renew_review_view,
+            ),
         )
         self._review_restore_lock = threading.Lock()
-        # Review and Dashboard are hosted here only when services are not
-        # isolated; otherwise the same routes are forwarded to their workers.
-        self.review_service = LocalReviewService(
-            self.review_repository,
-            self.review_reader,
-            principal=self._principal,
-            body=self._body,
-            run_blocking=self._in_worker,
-        )
-        # Runtime Dashboard stays outside the Review-only import/package boundary.
-        if config.dashboard_enabled:
-            from .dashboard_service import DashboardService
-
-            # Looked up per request, so a replaced `_legacy_dashboard` takes effect.
-            self.dashboard_service = DashboardService(lambda: self._legacy_dashboard())
-        else:
-            self.dashboard_service = None
-        self.services: LocalServices | None = _isolated_services(config) if config.isolate_services else None
         self.review_surface = LocalReviewSurface(
             config.resolved_review_root,
             port=config.listen_port,
             frontend_dir=config.frontend_dir,
-            landing="/home" if config.dashboard_enabled else "/reviews",
         )
         self.review_drafts = ReviewDrafts(
             max_drafts=config.limits.max_review_drafts,
             max_bytes=config.limits.max_review_draft_bytes,
         )
-        self.review_capture_jobs = ReviewCaptureJobs()
         self._executor = ThreadPoolExecutor(
             max_workers=config.limits.dispatch_workers,
             thread_name_prefix="lc-tool",
@@ -468,20 +466,6 @@ class LocalServerApp(CoreServerRoutes):
 
     @web.middleware
     async def _auth_middleware(self, request: web.Request, handler: Any) -> web.StreamResponse:
-        if request.path.startswith(INTERNAL_PREFIX):
-            # The services' back-channel: only a live service token reaches it, and
-            # without one it is indistinguishable from a route that does not exist.
-            services = self.services
-            if services is None or not token_matches(request.headers.get(HEADER_SERVICE_TOKEN, ""), services.tokens()):
-                raise ServerError(ErrorCode.TOOL_UNKNOWN, "no such route")
-            request[PRINCIPAL_KEY] = self.local_principal
-            internal: web.StreamResponse = await handler(request)
-            return internal
-        # Every other route, whatever the auth mode (--local-no-auth included):
-        # the listener is loopback-only, so any other Host is a rebinding page.
-        host_refusal = local_host_refusal(request)
-        if host_refusal:
-            raise ServerError(ErrorCode.FORBIDDEN, host_refusal)
         resource = request.match_info.route.resource
         canonical = "" if resource is None else resource.canonical
         if (
@@ -515,8 +499,8 @@ class LocalServerApp(CoreServerRoutes):
             raise ServerError(ErrorCode.UNAUTHENTICATED, "a bearer credential is required")
         return principal
 
-    def _access(self, principal: Principal) -> SessionAccess:
-        return SessionAccess(org_id=principal.org_id, subject=principal.subject)
+    def _access(self, principal: Principal, *, cross_subject: bool = False) -> SessionAccess:
+        return SessionAccess(org_id=principal.org_id, subject=principal.subject, cross_subject=cross_subject)
 
     def _session(self, request: web.Request, principal: Principal, session_id: str | None = None) -> Session:
         sid = session_id or request.headers.get("X-LemonCrow-Session", "")
@@ -608,90 +592,213 @@ class LocalServerApp(CoreServerRoutes):
             return Path(raw_repo_root).expanduser().resolve(strict=False)
         return None
 
-    def _review_code_intelligence(self, repo_id: str, revision: Any) -> Any:
-        """Current-index code intelligence for one Review revision."""
-        from .review_code_intelligence import NativeReviewCodeIntelligence
+    def _review_location_wire(self, repo_id: str, session: Any) -> dict[str, Any]:
+        """Human identity for a Change, independent of source-read authority."""
 
-        return NativeReviewCodeIntelligence(
-            backend=self.backend,
-            queries=self.queries,
-            org_id=self.local_principal.org_id,
-            repo_id=repo_id,
-            subject=lambda: self.local_principal.subject,
-            content_size_cap=self.config.limits.max_indexed_content_bytes,
-            preferred_view_id=str(getattr(revision, "source_view_id", "") or ""),
-            preferred_view_revision=int(getattr(revision, "source_view_revision", 0) or 0),
-            restore_view=lambda: self._restore_review_view(repo_id, revision),
-            keep_view_leased=self._renew_review_view,
+        hint = self.review_repository.workspace_root_hint(repo_id, str(session.id))
+        branch_hint = self.review_repository.workspace_branch_hint(repo_id, str(session.id))
+        trusted = self.review_repository.checkout_root(repo_id)
+        if hint:
+            if trusted is not None:
+                try:
+                    if trusted == Path(hint).expanduser().resolve(strict=False):
+                        return _review_location_metadata(trusted)
+                except (OSError, ValueError):
+                    pass
+            hinted = _review_location_hint(hint)
+            if hinted:
+                if branch_hint:
+                    hinted["branch"] = branch_hint
+                return hinted
+        if trusted is not None:
+            return _review_location_metadata(trusted)
+        return {
+            "directory": "",
+            "project": "",
+            "project_root": "",
+            "worktree": "",
+            "worktree_root": "",
+            "branch": "",
+            "revision": "",
+            "detached": False,
+        }
+
+    def _review_session_wire(
+        self,
+        repo_id: str,
+        session: Any,
+        *,
+        location: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        revision = self.review_repository.store(repo_id).latest_revision(session.id)
+        short_id = self.review_repository.short_review_reference(session.id)
+        if location is None:
+            location = self._review_location_wire(repo_id, session)
+        return {
+            "id": session.id,
+            "short_id": short_id,
+            "ref": f"r/{short_id}",
+            "object": "change",
+            "change_ref": f"r/{short_id}",
+            "review_path": f"/r/{short_id}",
+            "repo_id": repo_id,
+            "title": session.title,
+            "subject_type": session.subject_type,
+            "source_ref": session.source_ref,
+            "range_mode": session.range_mode,
+            "actor_type": session.actor_type,
+            "status": session.status,
+            "created_at": session.created_at,
+            "updated_at": session.updated_at,
+            "revision_number": _public_snapshot_number(revision),
+            "revision_id": "" if revision is None else revision.id,
+            **location,
+        }
+
+    def _review_progress_wire(self, repo_id: str, session: Any, revision: Any | None) -> dict[str, int]:
+        if revision is None:
+            return {
+                "target_count": 0,
+                "reviewed": 0,
+                "changed_since_review": 0,
+                "needs_changes": 0,
+                "unreviewed": 0,
+                "unknown": 0,
+                "mechanical": 0,
+            }
+        store = self.review_repository.store(repo_id)
+        units = store.list_units(revision.id)
+        marks = store.list_marks(session.id, reviewer_id=session.reviewer_id)
+        annotations = store.list_annotations(session.id)
+        frontier = compute_frontier(
+            session.id,
+            session.reviewer_id,
+            revision,
+            units,
+            marks,
+            annotations=annotations,
+        )
+        progress = review_progress(
+            derive_review_targets(
+                units,
+                frontier.entries,
+                read_packet_json(store, revision),
+                annotations=annotations,
+            )
+        )
+        return {
+            "target_count": progress.target_count,
+            "reviewed": progress.reviewed,
+            "changed_since_review": progress.changed_since_review,
+            "needs_changes": progress.needs_changes,
+            "unreviewed": progress.unreviewed,
+            "unknown": progress.unknown,
+            "mechanical": progress.mechanical,
+        }
+
+    def _review_rows(self, *, status: str = "") -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for repo_id in self.review_repository.list_repository_ids():
+            sessions = self.review_repository.list_reviews(repo_id, status=status, limit=None)
+            if not sessions:
+                continue
+            rows.extend(self._review_session_wire(repo_id, session) for session in sessions)
+        rows.sort(key=lambda row: (str(row["updated_at"]), str(row["id"])), reverse=True)
+        return rows
+
+    async def review_inbox(self, request: web.Request) -> web.StreamResponse:
+        """List local Reviews without projecting hosted collaboration state."""
+
+        self._principal(request)
+        status = request.query.get("status", "all").strip() or "all"
+        if status not in {"all", "open", "finished", "archived"}:
+            raise ServerError(ErrorCode.PAYLOAD_INVALID, "status must be one of all, open, finished, archived")
+        query = request.query.get("q", "").strip().lower()
+        try:
+            limit = int(request.query.get("limit", "50"))
+        except ValueError as exc:
+            raise ServerError(ErrorCode.PAYLOAD_INVALID, "limit must be an integer") from exc
+        limit = max(1, min(limit, 100))
+        # Listing opens every repository's Review store: off the loop.
+        page_rows = await self._in_worker(self._review_inbox_page, status, query, limit)
+        return json_response(
+            {
+                "reviews": page_rows,
+                "status": status,
+                "query": query,
+                "next_cursor": "",
+            }
         )
 
-    def _scoped_code_intelligence(self, scope: Mapping[str, Any]) -> Any | None:
-        project_root = scope.get("project_root")
-        if isinstance(project_root, str) and project_root:
-            return self._code_intelligence_for_root(Path(project_root))
-        repo_id = validate_opaque_id(str(scope.get("repo_id") or ""), "repo_id")
-        revision_id = validate_opaque_id(str(scope.get("revision_id") or ""), "revision_id")
-        # Re-read per call: a restored View is recorded on the revision row.
-        revision = self.review_repository.store(repo_id).get_revision(revision_id)
-        return None if revision is None else self._review_code_intelligence(repo_id, revision)
+    def _review_inbox_page(self, status: str, query: str, limit: int) -> list[dict[str, Any]]:
+        rows = self._review_rows(status="" if status == "all" else status)
+        if query:
+            terms = query.split()
+            search_keys = (
+                "id",
+                "repo_id",
+                "title",
+                "source_ref",
+                "directory",
+                "project",
+                "worktree",
+                "branch",
+                "worktree_root",
+            )
+            rows = [
+                row
+                for row in rows
+                if all(term in " ".join(str(row.get(key) or "") for key in search_keys).lower() for term in terms)
+            ]
+        page_rows: list[dict[str, Any]] = []
+        for row in rows[:limit]:
+            store, session = self.review_repository.require_review(str(row["repo_id"]), str(row["id"]))
+            revision = store.latest_revision(session.id)
+            projected = dict(row)
+            projected["progress"] = self._review_progress_wire(str(row["repo_id"]), session, revision)
+            page_rows.append(projected)
+        return page_rows
 
-    def _internal_code_intelligence_sync(
-        self, scope: Mapping[str, Any], method: str, args: list[Any], kwargs: dict[str, Any]
-    ) -> Any:
-        provider = self._scoped_code_intelligence(scope)
-        if method == "probe":
-            return provider is not None
-        if provider is None:
-            raise ServerError(ErrorCode.VIEW_UNKNOWN, "no native View backs this code-intelligence scope")
-        call = getattr(provider, method, None)
-        if not callable(call):
-            raise ServerError(ErrorCode.PAYLOAD_INVALID, f"code intelligence has no {method}")
-        if method == "file_relationships" and args and isinstance(args[0], list):
-            args = [tuple(args[0]), *args[1:]]
-        result = call(*args, **kwargs)
-        return result.to_wire() if method == "readiness" else result
+    async def review_list(self, request: web.Request) -> web.StreamResponse:
+        self._principal(request)
+        repo_id = validate_opaque_id(request.match_info["repo_id"], "repo_id")
+        return json_response({"reviews": await self._in_worker(self._review_list_rows, repo_id)})
 
-    async def internal_code_intelligence(self, request: web.Request) -> web.StreamResponse:
-        """A service's code-intelligence call, answered from the index this process owns."""
-        body = await self._body(request)
-        scope = require_object(body, "scope")
-        method = require_str(body, "method", max_len=64)
-        if method not in _CODE_INTELLIGENCE_METHODS:
-            raise ServerError(ErrorCode.PAYLOAD_INVALID, f"code intelligence has no {method}")
-        args = body.get("args", [])
-        kwargs = body.get("kwargs", {})
-        if not isinstance(args, list) or not isinstance(kwargs, dict):
-            raise ServerError(ErrorCode.PAYLOAD_INVALID, "args must be a list and kwargs an object")
-        result = await self._in_worker(self._internal_code_intelligence_sync, scope, method, args, kwargs)
-        return json_response({"result": jsonable(result)})
+    def _review_list_rows(self, repo_id: str) -> list[dict[str, Any]]:
+        return [
+            self._review_session_wire(repo_id, row) for row in self.review_repository.list_reviews(repo_id, limit=200)
+        ]
 
-    async def internal_content(self, request: web.Request) -> web.StreamResponse:
-        """Content-addressed bytes a Review needs; the store is keyed by digest alone."""
-        digest = request.match_info["digest"]
-        if not _DIGEST.fullmatch(digest):
-            raise ServerError(ErrorCode.PAYLOAD_INVALID, "digest must be a sha256 hex string")
-        data = await self._in_worker(self.backend.content.get, self.local_principal.org_id, digest)
-        if data is None:
-            return web.Response(status=404)
-        return web.Response(body=data, content_type="application/octet-stream")
+    async def review_get(self, request: web.Request) -> web.StreamResponse:
+        self._principal(request)
+        repo_id = validate_opaque_id(request.match_info["repo_id"], "repo_id")
+        review_id = validate_opaque_id(request.match_info["review_id"], "review_id")
+        return json_response(await self._in_worker(self._review_get_payload, repo_id, review_id))
 
-    def start_services(self, core_url: str) -> None:
-        if self.services is not None:
-            self.services.start(core_url)
-
-    async def stop_services(self) -> None:
-        if self.services is not None:
-            await self.services.stop()
-
-    def _served_by(
-        self, service: str, handler: Callable[[web.Request], Awaitable[web.StreamResponse]]
-    ) -> Callable[[web.Request], Awaitable[web.StreamResponse]]:
-        async def route(request: web.Request) -> web.StreamResponse:
-            if self.services is not None:
-                return await self.services.forwarder(service)(request)
-            return await handler(request)
-
-        return route
+    def _review_get_payload(self, repo_id: str, review_id: str) -> dict[str, Any]:
+        store, session = self.review_repository.require_review(repo_id, review_id)
+        revision = store.latest_revision(session.id)
+        return {
+            "review": self._review_session_wire(repo_id, session),
+            "change": change_context_payload(store, session),
+            "revision": (
+                None
+                if revision is None
+                else {
+                    "id": revision.id,
+                    "object": "snapshot",
+                    "snapshot_ref": f"rr/{revision.id}",
+                    "revision_number": _public_snapshot_number(revision),
+                    "base_sha": revision.base_sha,
+                    "head_sha": revision.head_sha,
+                    "merge_base_sha": revision.merge_base_sha,
+                    "source_fingerprint": revision.source_fingerprint,
+                    "dirty": revision.dirty,
+                    "created_at": revision.created_at,
+                }
+            ),
+            "revision_count": len(store.list_revisions(session.id)),
+        }
 
     def _review_references(self) -> Mapping[tuple[str, str], frozenset[str]]:
         return self.review_repository.referenced_digests(self.local_principal.org_id)
@@ -742,6 +849,7 @@ class LocalServerApp(CoreServerRoutes):
                 for path, row in sorted(tree.items())
             )
             chunks = chunk_manifest(entries)
+            shared = self.authorizer.scoped.shares_repository(self.local_principal, org_id, repo_id)
             opened = self.backend.views.open(
                 org_id=org_id,
                 repo_id=repo_id,
@@ -749,7 +857,7 @@ class LocalServerApp(CoreServerRoutes):
                 manifest_root=manifest_root(entries),
                 chunk_ids=tuple(chunk.chunk_id for chunk in chunks),
                 lease_s=self.config.view_lease_s,
-                content_subject=self._content_subject_for_view(self.local_principal, repo_id),
+                content_subject="" if shared else subject,
                 owner_subject=subject,
             )
             view_id = opened.state.view_id
@@ -762,7 +870,7 @@ class LocalServerApp(CoreServerRoutes):
                     entries=by_id[chunk_id].entries,
                 )
             self.view_owners.record(org_id=org_id, view_id=view_id, subject=subject)
-            self._note_view_scope(org_id=org_id, view_id=view_id, repo_id=repo_id)
+            self.authorizer.scoped.note_view(org_id=org_id, view_id=view_id, repo_id=repo_id)
             self._note_view_leased(view_id)
             state = self.backend.views.get(org_id, view_id)
             if state.manifest_complete:
@@ -778,19 +886,6 @@ class LocalServerApp(CoreServerRoutes):
         if owner is None or owner.subject != principal.subject:
             raise ServerError(ErrorCode.VIEW_UNKNOWN, "view is not available", details={"view_id": view_id})
         return self.backend.views.get(principal.org_id, view_id)
-
-    def _review_derivation_root(self) -> Path:
-        """Private parent for derived-capture scratch repositories, beside the Review stores.
-
-        Each derivation creates and removes its own temporary directory below it;
-        nothing here is a Review store, so the stores' directory stays untouched.
-        """
-
-        # lc-debt: a process killed mid-derivation leaves its derive-* directory
-        # (a copy of the two Views) here; sweep stale derive-* entries at startup.
-        root = self.config.resolved_review_root.parent / "review-derive"
-        root.mkdir(mode=0o700, parents=True, exist_ok=True)
-        return root
 
     @staticmethod
     def _membership_fingerprint(membership: Mapping[str, Any]) -> str:
@@ -823,130 +918,29 @@ class LocalServerApp(CoreServerRoutes):
             return json_response(ack or {}, status=202)
         # Capture reads the whole source View and writes the Snapshot: seconds
         # of SQLite and hashing that must not stall the loop's other requests.
-        if "respond-async" in request.headers.get("Prefer", "").lower():
-            # The client asked not to hold a request open for the capture: answer
-            # at once and let it poll, so a big diff on a busy host cannot hit a
-            # client timeout. A client that does not ask gets the answer below.
-            owner = (principal.org_id, principal.subject, repo_id)
-
-            progress: dict[str, Any] = {}
-            loop = asyncio.get_running_loop()
-
-            def report(detail: str) -> None:
-                # Worker feedback is applied on the loop that serves job polls.
-                loop.call_soon_threadsafe(progress.update, {"detail": detail})
-
-            async def run() -> tuple[int, dict[str, Any]]:
-                return 201, await self._in_worker(self._review_capture_sync, principal, repo_id, assembled, report)
-
-            job_id = self.review_capture_jobs.submit(owner, run, progress=progress)
-            # A small capture often finishes in <250ms. Do not impose a fixed
-            # one-second delay before the first readiness check.
-            return json_response({"job_id": job_id, "state": "running", "poll_after_s": 0.1}, status=202)
         captured = await self._in_worker(self._review_capture_sync, principal, repo_id, assembled)
         return json_response(captured, status=201)
 
-    async def review_capture_job(self, request: web.Request) -> web.StreamResponse:
-        principal = self._principal(request)
-        repo_id = validate_opaque_id(request.match_info["repo_id"], "repo_id")
-        job_id = validate_opaque_id(request.match_info["job_id"], "job_id")
-        state, status, payload = self.review_capture_jobs.get((principal.org_id, principal.subject, repo_id), job_id)
-        if state == "running":
-            return json_response(
-                {"job_id": job_id, "state": "running", "poll_after_s": 0.25, "progress": dict(payload)}
-            )
-        if state == "done":
-            return json_response({"job_id": job_id, "state": "done", "result": payload})
-        return json_response({"job_id": job_id, "state": "failed", "error": payload, "status": status})
-
-    def _review_capture_sync(
-        self, principal: Principal, repo_id: str, body: dict[str, Any], progress: Callable[[str], None] | None = None
-    ) -> dict[str, Any]:
-        if progress is not None:
-            progress("Validating snapshot source")
-        # Version skew fails closed before anything is read or written.
-        require_capture_mode(body, modes=LOCAL_CAPTURE_MODES)
-        derive_packet = body.get("derive_packet", False)
-        if not isinstance(derive_packet, bool):
-            raise ServerError(
-                ErrorCode.PAYLOAD_INVALID,
-                "derive_packet must be a boolean",
-                details={"field": "derive_packet"},
-                action=AgentAction.FIX_REQUEST,
-            )
+    def _review_capture_sync(self, principal: Principal, repo_id: str, body: dict[str, Any]) -> dict[str, Any]:
         view_id = validate_opaque_id(require_str(body, "view_id", max_len=128), "view_id")
         view_revision = require_int(body, "view_revision")
         source_ref = require_str(body, "source_ref", max_len=1024)
-        packet_raw: dict[str, Any] | None = None
-        blobs_raw: Mapping[str, Any] = {}
-        range_spec: RevRange | None = None
-        base_gitlinks: dict[str, str] = {}
-        head_gitlinks: dict[str, str] = {}
-        with_impact = True
-        if derive_packet:
-            # The server builds the packet from the Views, exactly as hosted does;
-            # a client-built packet or source blob alongside would be ambiguous.
-            if body.get("packet") is not None or body.get("new_blobs") not in (None, {}):
-                raise ServerError(
-                    ErrorCode.PAYLOAD_INVALID,
-                    "derived Review capture must not supply a client-built packet or source blobs",
-                    details={"field": "derive_packet"},
-                    action=AgentAction.FIX_REQUEST,
-                )
-            range_spec = review_range_from_wire(require_object(body, "range"))
-            base_gitlinks, head_gitlinks = gitlinks_from_wire(
-                require_object(body, "gitlinks") if body.get("gitlinks") is not None else {}
-            )
-            with_impact_raw = body.get("with_impact", True)
-            if not isinstance(with_impact_raw, bool):
-                raise ServerError(
-                    ErrorCode.PAYLOAD_INVALID,
-                    "with_impact must be a boolean",
-                    details={"field": "with_impact"},
-                    action=AgentAction.FIX_REQUEST,
-                )
-            with_impact = with_impact_raw
-        else:
-            packet_raw = require_object(body, "packet")
-            require_packet_schema(packet_raw)
-            blobs_raw = require_object(body, "new_blobs")
+        packet_raw = require_object(body, "packet")
+        blobs_raw = require_object(body, "new_blobs")
         base_view_raw = body.get("base_view_id", "")
         if not isinstance(base_view_raw, str):
             raise ServerError(ErrorCode.PAYLOAD_INVALID, "base_view_id must be a string")
         base_view_id = validate_opaque_id(base_view_raw, "base_view_id") if base_view_raw else ""
-        if range_spec is not None and range_spec.base_sha and not base_view_id:
-            raise ServerError(
-                ErrorCode.PAYLOAD_INVALID,
-                "derived Review capture with a non-empty base revision requires base_view_id",
-                details={"field": "base_view_id"},
-                action=AgentAction.FIX_REQUEST,
-            )
         base_revision_raw = body.get("base_view_revision", 0)
         if isinstance(base_revision_raw, bool) or not isinstance(base_revision_raw, int):
             raise ServerError(ErrorCode.PAYLOAD_INVALID, "base_view_revision must be an integer")
         restore_archived = body.get("restore_archived", False)
         if not isinstance(restore_archived, bool):
             raise ServerError(ErrorCode.PAYLOAD_INVALID, "restore_archived must be a boolean")
-        force_new_review = body.get("force_new_review", False)
-        if not isinstance(force_new_review, bool):
-            raise ServerError(ErrorCode.PAYLOAD_INVALID, "force_new_review must be a boolean")
-        continue_review_raw = body.get("continue_review_id", "")
-        if not isinstance(continue_review_raw, str) or len(continue_review_raw) > 256:
-            raise ServerError(ErrorCode.PAYLOAD_INVALID, "continue_review_id must be a short string")
-        continue_review_id = continue_review_raw.strip()
-        reuse_closed_review = body.get("reuse_closed_review", False)
-        if not isinstance(reuse_closed_review, bool):
-            raise ServerError(ErrorCode.PAYLOAD_INVALID, "reuse_closed_review must be a boolean")
-        if force_new_review and continue_review_id:
-            raise ServerError(
-                ErrorCode.PAYLOAD_INVALID, "force_new_review and continue_review_id are mutually exclusive"
-            )
-        client_packet = None
-        if packet_raw is not None:
-            try:
-                client_packet = review_packet_from_dict(packet_raw)
-            except ValueError as exc:
-                raise ServerError(ErrorCode.PAYLOAD_INVALID, "review packet is invalid") from exc
+        try:
+            packet = review_packet_from_dict(packet_raw)
+        except ValueError as exc:
+            raise ServerError(ErrorCode.PAYLOAD_INVALID, "review packet is invalid") from exc
 
         view = self._require_local_view(principal, view_id)
         if view.repo_id != repo_id:
@@ -964,7 +958,6 @@ class LocalServerApp(CoreServerRoutes):
 
         old_source_tree: dict[str, dict[str, int | str]] | None = None
         old_blobs: dict[str, str] = {}
-        base_membership: Mapping[str, ManifestEntry] = {}
         if base_view_id:
             base_view = self._require_local_view(principal, base_view_id)
             if base_view.repo_id != repo_id:
@@ -989,40 +982,7 @@ class LocalServerApp(CoreServerRoutes):
                 path: {"content_digest": entry.content_digest, "mode": entry.mode, "size": entry.size}
                 for path, entry in base_membership.items()
             }
-
-        if client_packet is not None:
-            packet = client_packet
-        else:
-            assert range_spec is not None
-            # The one derivation hosted runs, over the two Views this principal
-            # owns: their bytes, never a client revision string, are diffed.
-            packet = derive_review_packet_from_views(
-                org_id=principal.org_id,
-                repo_id=repo_id,
-                content=self.backend.content,
-                base_membership=base_membership,
-                head_membership=membership,
-                range_spec=range_spec,
-                scratch_root=self._review_derivation_root(),
-                base_gitlinks=base_gitlinks,
-                head_gitlinks=head_gitlinks,
-                with_impact=with_impact,
-                # The identity LocalReviewRepository records for the repository.
-                repo_root=f"local:{repo_id}",
-            ).packet
-
-        if base_view_id:
             base_size_limit = self.config.limits.max_indexed_content_bytes
-            base_payloads = self.backend.content.get_many(
-                principal.org_id,
-                tuple(
-                    entry.content_digest
-                    for changed in packet.files
-                    if changed.status != "added" and not changed.is_binary and changed.submodule_pointer is None
-                    if (entry := base_membership.get(changed.old_path or changed.path)) is not None
-                    and entry.size <= base_size_limit
-                ),
-            )
             for changed in packet.files:
                 if changed.status == "added" or changed.is_binary or changed.submodule_pointer is not None:
                     continue
@@ -1030,7 +990,7 @@ class LocalServerApp(CoreServerRoutes):
                 entry = base_membership.get(old_path)
                 if entry is None or entry.size > base_size_limit:
                     continue
-                payload = base_payloads.get(entry.content_digest)
+                payload = self.backend.content.get(principal.org_id, entry.content_digest)
                 if payload is None:
                     raise ServerError(
                         ErrorCode.BLOB_MISSING, "review base content is absent from the committed source view"
@@ -1058,17 +1018,6 @@ class LocalServerApp(CoreServerRoutes):
                 for changed in packet.files
             ),
         )
-        # One bounded bulk read avoids queuing every changed file separately
-        # behind index work while the human waits for the Review to open.
-        payloads = self.backend.content.get_many(
-            principal.org_id,
-            tuple(
-                entry.content_digest
-                for changed in packet.files
-                if changed.status != "deleted" and changed.submodule_pointer is None
-                if (entry := membership.get(changed.path)) is not None and entry.size <= size_limit
-            ),
-        )
         for changed in packet.files:
             entry = membership.get(changed.path)
             if changed.status == "deleted":
@@ -1086,7 +1035,7 @@ class LocalServerApp(CoreServerRoutes):
             if entry.size > size_limit:
                 new_blobs.pop(changed.path, None)
                 continue
-            payload = payloads.get(entry.content_digest)
+            payload = self.backend.content.get(principal.org_id, entry.content_digest)
             if payload is None:
                 raise ServerError(ErrorCode.BLOB_MISSING, "review content is absent from the committed source view")
             if changed.is_binary:
@@ -1114,11 +1063,6 @@ class LocalServerApp(CoreServerRoutes):
         captured_source_fingerprint = body.get("source_fingerprint", "")
         if not isinstance(captured_source_fingerprint, str) or len(captured_source_fingerprint) > 256:
             raise ServerError(ErrorCode.PAYLOAD_INVALID, "source_fingerprint must be a short string")
-        # The same source in the identity form Snapshots were recorded under before
-        # the tree-id form; matched only while that compatibility lasts (gitdiff).
-        legacy_source_fingerprint = body.get("legacy_source_fingerprint", "")
-        if not isinstance(legacy_source_fingerprint, str) or len(legacy_source_fingerprint) > 256:
-            raise ServerError(ErrorCode.PAYLOAD_INVALID, "legacy_source_fingerprint must be a short string")
         workspace_branch = body.get("workspace_branch", "")
         if (
             not isinstance(workspace_branch, str)
@@ -1128,37 +1072,7 @@ class LocalServerApp(CoreServerRoutes):
         ):
             raise ServerError(ErrorCode.PAYLOAD_INVALID, "workspace_branch must be a short single-line string")
         workspace_branch = workspace_branch.strip()
-        # A scoped Review (one agent session's files in a shared worktree) is its
-        # own workstream: it must neither continue nor take over the branch's
-        # Review, so it routes by a worktree key derived from the scope.
-        review_scope = body.get("review_scope", "")
-        if (
-            not isinstance(review_scope, str)
-            or len(review_scope) > 200
-            or not re.fullmatch(r"[A-Za-z0-9._:@/-]*", review_scope)
-        ):
-            raise ServerError(ErrorCode.PAYLOAD_INVALID, "review_scope must be a short identifier")
-        if review_scope:
-            workspace_branch = ""
-        supplied_title = body.get("title", "")
-        if not isinstance(supplied_title, str):
-            raise ServerError(ErrorCode.PAYLOAD_INVALID, "title must be a string")
-        supplied_title = supplied_title.strip()
-        if len(supplied_title) > 120 or any(ord(char) < 32 for char in supplied_title):
-            raise ServerError(ErrorCode.PAYLOAD_INVALID, "title must be at most 120 characters on one line")
         local_grant = self._local_fs_grants.get((principal.org_id, view_id))
-        worktree_root = str(local_grant.root) if local_grant is not None else ""
-        worktree_key = (
-            hashlib.sha256(f"{worktree_root}\0{review_scope}".encode("utf-8", errors="surrogateescape")).hexdigest()[
-                :32
-            ]
-            if review_scope
-            else (
-                hashlib.sha256(worktree_root.encode("utf-8", errors="surrogateescape")).hexdigest()[:32]
-                if local_grant is not None
-                else ""
-            )
-        )
         capture = self.review_repository.capture(
             repo_id=repo_id,
             reviewer_id=principal.subject,
@@ -1171,27 +1085,16 @@ class LocalServerApp(CoreServerRoutes):
             old_source_tree=old_source_tree,
             source_fingerprint=self._membership_fingerprint(membership),
             source_state_fingerprint=captured_source_fingerprint,
-            legacy_source_fingerprint=legacy_source_fingerprint,
             source_view_id=view_id,
             source_view_revision=view_revision,
             checkout_root=local_grant.root if local_grant is not None else None,
             title=str(body.get("title") or ""),
             restore_archived=restore_archived,
-            workspace_branch=workspace_branch,
-            worktree_key=worktree_key,
-            force_new_review=force_new_review,
-            continue_review_id=continue_review_id,
-            reuse_closed_review=reuse_closed_review,
-            progress=progress,
         )
-        if supplied_title and supplied_title.lower() not in {"working tree", "staged changes"}:
-            self.review_repository.set_author_snapshot_title(repo_id, capture.revision.id, supplied_title)
         self.review_repository.set_workspace_root_hint(repo_id, capture.session.id, packet.repo_root)
-        if local_grant is not None:
-            self.review_repository.set_review_checkout_root(repo_id, capture.session.id, local_grant.root)
         if workspace_branch:
             self.review_repository.set_workspace_branch_hint(repo_id, capture.session.id, workspace_branch)
-        review = self.review_service.review_session_wire(repo_id, capture.session)
+        review = self._review_session_wire(repo_id, capture.session)
         return {
             "review": review,
             "revision": {
@@ -1202,6 +1105,55 @@ class LocalServerApp(CoreServerRoutes):
             },
             "revision_created": capture.revision_created,
         }
+
+    async def review_enrich_projection(self, request: web.Request) -> web.StreamResponse:
+        """Identity-safe metadata enrichment for an already-visible revision."""
+
+        self._principal(request)
+        repo_id = validate_opaque_id(request.match_info["repo_id"], "repo_id")
+        review_id = validate_opaque_id(request.match_info["review_id"], "review_id")
+        revision_id = validate_opaque_id(request.match_info["revision_id"], "revision_id")
+        body = await self._body(request)
+        packet = require_object(body, "packet")
+        revision = await self._in_worker(
+            lambda: self.review_repository.enrich_projection(
+                repo_id=repo_id,
+                review_id=review_id,
+                revision_id=revision_id,
+                packet=packet,
+            )
+        )
+        return json_response(
+            {
+                "review_id": review_id,
+                "revision_id": revision.id,
+                "revision_number": _public_snapshot_number(revision),
+                "enriched": True,
+            }
+        )
+
+    async def review_update_preparation(self, request: web.Request) -> web.StreamResponse:
+        """Publish source-first preparation state for the waiting Reader."""
+
+        self._principal(request)
+        repo_id = validate_opaque_id(request.match_info["repo_id"], "repo_id")
+        review_id = validate_opaque_id(request.match_info["review_id"], "review_id")
+        body = await self._body(request)
+        preparation_id = require_str(body, "preparation_id", max_len=128).strip()
+        stage = require_str(body, "state", max_len=64).strip()
+        detail_raw = body.get("detail", "")
+        if not isinstance(detail_raw, str):
+            raise ServerError(ErrorCode.PAYLOAD_INVALID, "detail must be a string")
+        await self._in_worker(
+            lambda: self.review_repository.update_preparation(
+                repo_id=repo_id,
+                review_id=review_id,
+                preparation_id=preparation_id,
+                stage=stage,
+                detail=detail_raw,
+            )
+        )
+        return json_response({"review_id": review_id, "preparation_id": preparation_id, "state": stage})
 
     async def review_attach_base(self, request: web.Request) -> web.StreamResponse:
         """Attach the exact old-side tree after a Review is already visible.
@@ -1278,45 +1230,6 @@ class LocalServerApp(CoreServerRoutes):
         except OSError:
             return False
 
-    @staticmethod
-    def _display_integration_path(path: Path, home: Path) -> str:
-        try:
-            return f"~/{path.relative_to(home).as_posix()}"
-        except ValueError:
-            return str(path)
-
-    def _local_integration_component(
-        self,
-        *,
-        component_id: str,
-        label: str,
-        description: str,
-        paths: tuple[Path, ...],
-        home: Path,
-        match: str = "exists",
-    ) -> dict[str, Any]:
-        present_path: Path | None = None
-        for path in paths:
-            if match == "mentions":
-                present = self._mentions_lemoncrow(path)
-            elif match == "file":
-                present = path.is_file()
-            elif match == "dir":
-                present = path.is_dir()
-            else:
-                present = path.exists()
-            if present:
-                present_path = path
-                break
-        display_path = present_path or (paths[0] if paths else None)
-        return {
-            "id": component_id,
-            "label": label,
-            "description": description,
-            "present": present_path is not None,
-            "path": self._display_integration_path(display_path, home) if display_path is not None else None,
-        }
-
     def _local_integration_rows(self) -> tuple[list[dict[str, Any]], bool]:
         home = Path.home()
         status_path = home / ".lemoncrow" / "hosts" / "status.json"
@@ -1328,23 +1241,21 @@ class LocalServerApp(CoreServerRoutes):
         except (OSError, ValueError, TypeError):
             cached = {}
 
-        xdg = home / ".config"
-        specs = (
+        xdg = Path.home() / ".config"
+        specs: tuple[tuple[str, str, str, tuple[str, ...], tuple[Path, ...]], ...] = (
             (
                 "claude",
                 "Claude Code",
                 "Claude plugin and MCP integration.",
                 ("claude",),
                 (home / ".claude.json", home / ".claude" / "settings.json"),
-                "supported",
             ),
             (
                 "codex",
                 "Codex",
                 "Codex MCP registration and LemonCrow plugin context.",
                 ("codex",),
-                (home / ".codex" / "config.toml", home / ".codex" / "plugins" / "lemoncrow" / ".mcp.json"),
-                "supported",
+                (home / ".codex" / "config.toml",),
             ),
             (
                 "opencode",
@@ -1352,23 +1263,13 @@ class LocalServerApp(CoreServerRoutes):
                 "OpenCode MCP integration and imported-session support.",
                 ("opencode",),
                 (xdg / "opencode" / "opencode.json", xdg / "opencode" / "opencode.jsonc"),
-                "supported",
             ),
             (
                 "lemoncode",
                 "LemonCode",
-                "Public managed LemonCode host; Hosted execution chooses its frontend separately.",
+                "LemonCrow-managed coding host.",
                 ("lemoncode",),
-                (home / ".lemoncrow" / "bin" / "lemoncode-host", home / ".lemoncrow" / "bin" / "lemoncode-host.json"),
-                "supported",
-            ),
-            (
-                "pi",
-                "Pi",
-                "Default LemonCrow-managed coding frontend.",
-                (),
-                (home / ".lemoncrow" / "hosts" / "pi-host.json",),
-                "supported",
+                (xdg / "lemoncode" / "opencode.json", xdg / "lemoncode" / "opencode.jsonc"),
             ),
             (
                 "copilot",
@@ -1376,7 +1277,13 @@ class LocalServerApp(CoreServerRoutes):
                 "VS Code MCP integration and generated instructions.",
                 ("code",),
                 (xdg / "Code" / "User" / "mcp.json",),
-                "supported",
+            ),
+            (
+                "antigravity",
+                "Antigravity",
+                "Antigravity MCP integration and companion workflow.",
+                ("antigravity", "agy"),
+                (xdg / "Antigravity" / "User" / "mcp.json", xdg / "Code" / "User" / "mcp.json"),
             ),
             (
                 "cursor",
@@ -1384,216 +1291,25 @@ class LocalServerApp(CoreServerRoutes):
                 "Cursor MCP integration and project guidance.",
                 ("cursor", "cursor-agent"),
                 (home / ".cursor" / "mcp.json",),
-                "supported",
-            ),
-            (
-                "antigravity",
-                "Antigravity",
-                "Antigravity integration is not part of the current setup wizard yet.",
-                ("antigravity", "agy"),
-                (xdg / "Antigravity" / "User" / "mcp.json", xdg / "Code" / "User" / "mcp.json"),
-                "coming_soon",
             ),
             (
                 "hermes",
                 "Hermes Agent",
-                "Hermes integration is not part of the current setup wizard yet.",
+                "Global Hermes MCP registration.",
                 ("hermes",),
                 (home / ".hermes" / "config.yaml",),
-                "coming_soon",
             ),
         )
-        component_specs: dict[str, tuple[tuple[str, str, str, tuple[Path, ...], str], ...]] = {
-            "claude": (
-                (
-                    "mcp",
-                    "MCP registration",
-                    "Short-name lc MCP server registered with Claude.",
-                    (home / ".claude.json", home / ".claude" / "settings.json"),
-                    "mentions",
-                ),
-                (
-                    "plugin",
-                    "Plugin bundle",
-                    "LemonCrow Claude plugin package.",
-                    (home / ".lemoncrow" / "claude-plugin" / ".claude-plugin" / "plugin.json",),
-                    "file",
-                ),
-                (
-                    "hooks",
-                    "Lifecycle hooks",
-                    "Claude session and tool lifecycle hooks.",
-                    (home / ".lemoncrow" / "claude-plugin" / "hooks" / "hooks.json",),
-                    "file",
-                ),
-            ),
-            "codex": (
-                (
-                    "mcp",
-                    "MCP registration",
-                    "LemonCrow MCP server exposed through the Codex plugin.",
-                    (home / ".codex" / "plugins" / "lemoncrow" / ".mcp.json",),
-                    "file",
-                ),
-                (
-                    "plugin",
-                    "Plugin bundle",
-                    "Installed LemonCrow Codex plugin.",
-                    (home / ".codex" / "plugins" / "lemoncrow" / ".codex-plugin" / "plugin.json",),
-                    "file",
-                ),
-                (
-                    "hooks",
-                    "Lifecycle hooks",
-                    "Codex session, prompt, tool, and stop hooks.",
-                    (home / ".codex" / "plugins" / "lemoncrow" / "hooks" / "hooks.json",),
-                    "file",
-                ),
-                (
-                    "instructions",
-                    "AGENTS instructions",
-                    "LemonCrow guidance merged into Codex instructions.",
-                    (home / ".codex" / "AGENTS.md",),
-                    "mentions",
-                ),
-            ),
-            "opencode": (
-                (
-                    "mcp",
-                    "MCP registration",
-                    "lc MCP server in the OpenCode config.",
-                    (xdg / "opencode" / "opencode.json", xdg / "opencode" / "opencode.jsonc"),
-                    "mentions",
-                ),
-                (
-                    "plugin",
-                    "Prompt plugin",
-                    "Prompt-time LemonCrow nudge plugin.",
-                    (xdg / "opencode" / "plugins" / "lemoncrow-nudge.js",),
-                    "file",
-                ),
-            ),
-            "lemoncode": (
-                (
-                    "binary",
-                    "Managed host",
-                    "LemonCode rollback host binary managed by LemonCrow.",
-                    (home / ".lemoncrow" / "bin" / "lemoncode-host",),
-                    "file",
-                ),
-                (
-                    "metadata",
-                    "Release metadata",
-                    "Installed LemonCode host release metadata.",
-                    (home / ".lemoncrow" / "bin" / "lemoncode-host.json",),
-                    "file",
-                ),
-            ),
-            "pi": (
-                (
-                    "binary",
-                    "Managed host",
-                    "Checksum-pinned Pi host binary installed by LemonCrow.",
-                    (home / ".lemoncrow" / "bin" / "pi-host",),
-                    "file",
-                ),
-                (
-                    "metadata",
-                    "Release metadata",
-                    "Pinned Pi release and verification metadata.",
-                    (home / ".lemoncrow" / "hosts" / "pi-host.json",),
-                    "file",
-                ),
-                (
-                    "settings",
-                    "Isolated runtime settings",
-                    "Fail-closed Pi settings created when the managed host runs.",
-                    (home / ".lemoncrow" / "hosts" / "pi" / "config" / "settings.json",),
-                    "file",
-                ),
-            ),
-            "copilot": (
-                (
-                    "mcp",
-                    "MCP registration",
-                    "LemonCrow MCP server in VS Code.",
-                    (xdg / "Code" / "User" / "mcp.json",),
-                    "mentions",
-                ),
-                (
-                    "instructions",
-                    "Copilot instructions",
-                    "LemonCrow instructions available to Copilot.",
-                    (home / ".copilot" / "instructions" / "lemoncrow.instructions.md",),
-                    "file",
-                ),
-                (
-                    "tasks",
-                    "VS Code tasks",
-                    "LemonCrow task wiring in the VS Code task file.",
-                    (xdg / "Code" / "User" / "tasks.json",),
-                    "mentions",
-                ),
-            ),
-            "cursor": (
-                (
-                    "mcp",
-                    "MCP registration",
-                    "Global LemonCrow MCP server used by Cursor IDE and CLI.",
-                    (home / ".cursor" / "mcp.json",),
-                    "mentions",
-                ),
-                (
-                    "hooks",
-                    "Lifecycle hooks",
-                    "Cursor session-start and stop hooks.",
-                    (home / ".cursor" / "hooks.json",),
-                    "mentions",
-                ),
-            ),
-        }
 
         rows: list[dict[str, Any]] = []
-        for host_id, label, description, commands, _config_paths, support in specs:
+        for host_id, label, description, commands, config_paths in specs:
             detected = any(shutil.which(command) is not None for command in commands)
             if host_id == "cursor":
                 detected = detected or (home / ".cursor").is_dir()
-            elif host_id == "pi":
-                detected = (home / ".lemoncrow" / "bin" / "pi-host").is_file()
-            elif host_id == "hermes":
+            if host_id == "hermes":
                 detected = detected or (home / ".hermes" / "config.yaml").is_file()
-
             cached_status = cached.get(host_id)
-            components = [
-                self._local_integration_component(
-                    component_id=component_id,
-                    label=component_label,
-                    description=component_description,
-                    paths=component_paths,
-                    home=home,
-                    match=match,
-                )
-                for component_id, component_label, component_description, component_paths, match in component_specs.get(
-                    host_id, ()
-                )
-            ]
-            if host_id == "opencode":
-                agents_dir = xdg / "opencode" / "agents"
-                agent_paths = sorted(agents_dir.glob("lemoncrow.*.md")) if agents_dir.is_dir() else []
-                legacy_agent = agents_dir / "code.md"
-                if not agent_paths and legacy_agent.is_file():
-                    agent_paths = [legacy_agent]
-                components.extend(
-                    {
-                        "id": f"agent:{path.stem}",
-                        "label": f"Agent · {path.stem.removeprefix('lemoncrow.')}",
-                        "description": "Installed LemonCrow OpenCode agent role.",
-                        "present": True,
-                        "path": self._display_integration_path(path, home),
-                    }
-                    for path in agent_paths
-                )
-            configured = support == "supported" and any(component["present"] for component in components)
+            configured = cached_status == "installed" or any(self._mentions_lemoncrow(path) for path in config_paths)
             rows.append(
                 {
                     "id": host_id,
@@ -1603,40 +1319,42 @@ class LocalServerApp(CoreServerRoutes):
                     "configured": configured,
                     "status": "configured" if configured else ("detected" if detected else "not_detected"),
                     "cached_status": cached_status,
-                    "support": support,
-                    "components": components,
                 }
             )
         return rows, status_path.is_file()
 
-    def _advertised_mcp_tools(self) -> list[dict[str, Any]]:
-        # Runtime owns MCP advertisement policy. The Review-only engine does not
-        # ship that policy module and never imports it.
-        if not self.config.dashboard_enabled:
-            return []
-        from .runtime_product_surface import advertised_runtime_mcp_tools
+    @staticmethod
+    def _advertised_mcp_tools() -> list[dict[str, Any]]:
+        # The server execution matrix is deliberately broader than the MCP
+        # surface shown to coding agents. Reuse the canonical MCP advertisement
+        # policy so this UI matches tools/list exactly instead of leaking hidden
+        # implementation capabilities into the operator view.
+        from lemoncrow.gateway.tools.registry import advertised_tools
 
-        return advertised_runtime_mcp_tools()
+        return [
+            {
+                "name": str(tool.get("name") or ""),
+                "description": str(tool.get("description") or ""),
+            }
+            for tool in advertised_tools()
+        ]
 
     async def local_integrations(self, request: web.Request) -> web.StreamResponse:
         self._principal(request)
         hosts, cached_status_available = self._local_integration_rows()
-        tools = self._advertised_mcp_tools()
         return json_response(
             {
                 "hosts": hosts,
-                "tools": tools,
-                # Runtime Lite serves tools inside each agent's own MCP
-                # process, so an agent's connection never waits on this server.
-                "dispatcher_available": True,
+                "tools": self._advertised_mcp_tools(),
+                "dispatcher_available": self.dispatcher.available,
                 "cached_status_available": cached_status_available,
-                "internal_dispatchable_count": len(tools),
+                "internal_dispatchable_count": len(self.dispatcher.tools),
             }
         )
 
     async def local_system_status(self, request: web.Request) -> web.StreamResponse:
         self._principal(request)
-        ready = not self._draining
+        ready = not self._draining and self.dispatcher.available
         if ready:
             try:
                 await self._in_worker(self._check_readiness_sync)
@@ -1652,7 +1370,7 @@ class LocalServerApp(CoreServerRoutes):
                 "protocol_version": str(identity.get("protocol_version") or ""),
                 "capabilities": list(identity.get("capabilities") or []),
                 "tool_count": len(advertised_tools),
-                "review_count": await self._in_worker(self.review_service.review_count),
+                "review_count": len(await self._in_worker(self._review_rows)),
                 "allow_local_fs": self.config.allow_local_fs,
                 "listen": f"{self.config.listen_host}:{self.config.listen_port}",
             }
@@ -1675,12 +1393,12 @@ class LocalServerApp(CoreServerRoutes):
                 action=AgentAction.FIX_REQUEST,
             )
         browser_sessions.arm(path)
-        if path == "/":
-            # ``/`` redirects before the SPA claims, so arm where it lands too.
-            browser_sessions.arm(self.review_surface.landing)
         return json_response({"state": "armed", "expires_in": int(LOCAL_BROWSER_PAIR_TTL_S)})
 
     async def local_browser_claim(self, request: web.Request) -> web.StreamResponse:
+        browser_sessions = self.browser_sessions
+        if browser_sessions is None:
+            raise ServerError(ErrorCode.UNAUTHENTICATED, "local browser pairing is not configured")
         refusal = local_browser_refusal(request, require_same_origin_context=True)
         if refusal:
             raise ServerError(ErrorCode.FORBIDDEN, refusal, action=AgentAction.REQUEST_ACCESS)
@@ -1692,118 +1410,114 @@ class LocalServerApp(CoreServerRoutes):
                 "local browser claim path must be a Review UI path",
                 action=AgentAction.FIX_REQUEST,
             )
-        browser_sessions = self.browser_sessions
-        if browser_sessions is None:
-            if self.config.local_no_auth:
-                # Test/demo loopback servers deliberately have no machine
-                # credential to derive an origin-bound browser capability from.
-                # The middleware already trusts every request in this explicit
-                # mode, so return a non-secret no-op capability that lets the
-                # normal Reader bootstrap without a special frontend path.
-                return json_response(
-                    {
-                        "token": "local-no-auth",
-                        "expires_at": int(time.time() + LOCAL_BROWSER_SESSION_TTL_S),
-                    }
-                )
-            raise ServerError(ErrorCode.UNAUTHENTICATED, "local browser pairing is not configured")
-        # Headers alone cannot prove a browser: any local process can send a
-        # loopback Origin. A fresh capability therefore needs either a CLI
-        # pairing armed with the machine bearer in the last few seconds, or a
-        # still-valid capability (renewal keeps reloads and long sessions
-        # working without re-arming).
-        presented = request.headers.get(LOCAL_BROWSER_SESSION_HEADER, "").strip()
-        if presented:
-            token, expires_at = browser_sessions.renew(presented, request.host)
-        else:
-            token, expires_at = browser_sessions.claim(path, request.host)
+        # Every UI route is served by this loopback origin. A Review deep link
+        # needs the same browser access as the directory, including on reload
+        # after its previous capability has expired.
+        token, expires_at = browser_sessions.issue(request.host)
         return json_response({"token": token, "expires_at": expires_at})
 
     def _legacy_dashboard(self) -> Any:
-        from .dashboard_service import default_dashboard_app
-
         if self._legacy_dashboard_app is None:
-            self._legacy_dashboard_app = default_dashboard_app(self._code_intelligence_for_root)
+            from lemoncrow.core.service.api import create_app
+
+            self._legacy_dashboard_app = create_app()
         return self._legacy_dashboard_app
 
-    def _code_intelligence_for_root(self, project_root: Path) -> Any | None:
-        """The native View kept in sync for *project_root*, or ``None``.
+    async def legacy_dashboard_api(self, request: web.Request) -> web.StreamResponse:
+        """Bridge the existing dashboard API into the one-process loopback server.
 
-        A View belongs to a worktree through the same-host grant its client
-        proved for that directory; the newest grant wins. Without one, `/code`
-        falls back to the legacy engine and labels it.
+        Browser authentication terminates at this aiohttp server. The legacy
+        FastAPI application is invoked in-process against the same LemonCrow
+        store; no second listener or daemon is started.
         """
 
-        from .review_code_intelligence import NativeReviewCodeIntelligence
-
-        org_id = self.local_principal.org_id
-        subject = self.local_principal.subject
-        try:
-            target = project_root.resolve()
-            owned = set(self.backend.views.view_ids_for_user(org_id, subject))
-        except Exception:
-            return None
-        best: tuple[float, str, Any] | None = None
-        for (grant_org, view_id), grant in list(self._local_fs_grants.items()):
-            if grant_org != org_id or view_id not in owned:
-                continue
-            try:
-                if Path(grant.root).resolve() != target:
-                    continue
-                state = self.backend.views.get(org_id, view_id)
-            except Exception:
-                continue
-            if best is None or float(grant.granted_at) > best[0]:
-                best = (float(grant.granted_at), view_id, state)
-        if best is None:
-            return None
-        _granted, view_id, state = best
-        return NativeReviewCodeIntelligence(
-            backend=self.backend,
-            queries=self.queries,
-            org_id=org_id,
-            repo_id=state.repo_id,
-            subject=lambda: self.local_principal.subject,
-            content_size_cap=self.config.limits.max_indexed_content_bytes,
-            preferred_view_id=view_id,
-            preferred_view_revision=int(state.view_revision),
-        )
-
-    async def legacy_dashboard_api(self, request: web.Request) -> web.StreamResponse:
-        """The Runtime Dashboard service, when the Dashboard is enabled."""
-
         self._principal(request)
-        if not self.config.dashboard_enabled or self.dashboard_service is None:
-            raise web.HTTPNotFound(text="the LemonCrow Dashboard is not enabled")
-        if self.services is not None:
-            return await self.services.forwarder(SERVICE_DASHBOARD)(request)
-        return await self.dashboard_service.handle(request)
+        app = self._legacy_dashboard()
+        body = await request.read()
+        tail = str(request.match_info.get("tail") or "")
+        path = "/" + tail.lstrip("/")
+
+        headers: list[tuple[bytes, bytes]] = []
+        for key, value in request.raw_headers:
+            lowered = key.lower()
+            if lowered in {
+                b"authorization",
+                b"x-lemoncrow-browser-session",
+                b"host",
+                b"content-length",
+                b"connection",
+            }:
+                continue
+            headers.append((lowered, value))
+
+        from lemoncrow.core.service.config import cfg as legacy_cfg
+
+        if legacy_cfg.require_auth and legacy_cfg.api_key:
+            headers.append((b"authorization", f"Bearer {legacy_cfg.api_key}".encode()))
+        headers.append((b"host", request.host.encode("latin-1", errors="ignore")))
+
+        transport = request.transport
+        peer = transport.get_extra_info("peername") if transport is not None else None
+        sock = transport.get_extra_info("sockname") if transport is not None else None
+        client = (str(peer[0]), int(peer[1])) if isinstance(peer, tuple) and len(peer) >= 2 else None
+        server = (str(sock[0]), int(sock[1])) if isinstance(sock, tuple) and len(sock) >= 2 else None
+
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.3"},
+            "http_version": f"{request.version.major}.{request.version.minor}",
+            "method": request.method,
+            "scheme": request.scheme,
+            "path": path,
+            "raw_path": path.encode("utf-8"),
+            "query_string": request.query_string.encode("latin-1"),
+            "root_path": "",
+            "headers": headers,
+            "client": client,
+            "server": server,
+            "state": {},
+        }
+        received = False
+
+        async def receive() -> dict[str, Any]:
+            nonlocal received
+            if received:
+                return {"type": "http.disconnect"}
+            received = True
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        status = 500
+        response_headers: list[tuple[bytes, bytes]] = []
+        chunks: list[bytes] = []
+
+        async def send(message: dict[str, Any]) -> None:
+            nonlocal status, response_headers
+            message_type = message.get("type")
+            if message_type == "http.response.start":
+                status = int(message.get("status", 500))
+                response_headers = list(message.get("headers") or [])
+            elif message_type == "http.response.body":
+                chunks.append(bytes(message.get("body") or b""))
+
+        await app(scope, receive, send)
+        outgoing: dict[str, str] = {}
+        for key, value in response_headers:
+            name = key.decode("latin-1")
+            if name.lower() in {"content-length", "connection", "transfer-encoding"}:
+                continue
+            outgoing[name] = value.decode("latin-1")
+        return web.Response(status=status, body=b"".join(chunks), headers=outgoing)
 
     async def review_reader_api(self, request: web.Request) -> web.StreamResponse:
         principal = self._principal(request)
-        if principal.auth_method != self.browser_principal.auth_method and is_approval_decision(
-            request.method, request.path
-        ):
-            # P12-AGENT: approving an agent's risky action needs the human. Unlike
-            # other judgment, an unresolved caller is refused (fail closed).
-            host = await asyncio.to_thread(peer_agent_host, request.transport)
-            if host != "":
-                caller = f"a coding-agent process ({host})" if host else "a caller that could not be identified"
-                raise ServerError(
-                    ErrorCode.FORBIDDEN,
-                    f"approving or denying an agent action cannot come from {caller}; "
-                    "decide it in the Review Reader in your browser",
-                    action=AgentAction.ABANDON,
-                )
-        elif principal.auth_method != self.browser_principal.auth_method and is_judgment_request(
+        if principal.auth_method != self.browser_principal.auth_method and is_judgment_request(
             request.method, request.path
         ):
             host = await asyncio.to_thread(peer_agent_host, request.transport)
             if host is None:
                 # lc-debt: fail-open where the caller cannot be resolved
-                # (unsupported platform, restricted /proc, and on macOS a caller
-                # that closes before lsof sees it); the CLI guard still applies
-                # there. Upgrade: an OS peer-credential lookup.
+                # (unsupported platform, restricted /proc); the CLI guard still
+                # applies there. Upgrade: an OS peer-credential lookup.
                 _LOG.debug("review judgment caller unresolved; allowing %s %s", request.method, request.path)
             elif host:
                 raise ServerError(
@@ -1814,79 +1528,78 @@ class LocalServerApp(CoreServerRoutes):
                 )
         tail = str(request.match_info.get("tail") or "")
         review_roots = ("reviews", "revisions", "annotations", "evidence", "proposals")
-        if any(tail == root or tail.startswith(f"{root}/") for root in review_roots) or tail == "compare":
-            if self.services is not None:
-                return await self.services.forwarder(SERVICE_REVIEW)(request)
-            return await self.review_service.reader_api(request)
+        if any(tail == root or tail.startswith(f"{root}/") for root in review_roots):
+            return await self.review_reader.handle(request)
+        if tail == "compare":
+            return await self.review_reader.handle(request)
         return await self.legacy_dashboard_api(request)
+
+    async def review_api_directory(self, request: web.Request) -> web.StreamResponse:
+        self._principal(request)
+        rows = await self._in_worker(self._review_rows)
+        return json_response({"reviews": rows, "repo_root": "", "status_filter": "all"})
 
     def build(self) -> web.Application:
         app = web.Application(
             middlewares=[self._error_middleware, self._lifecycle_middleware, self._auth_middleware],
             client_max_size=self.config.limits.max_request_bytes * 2,
         )
-        app.add_routes(list(self.core_route_defs(include_tools=False)))
+        app.add_routes(list(self.core_route_defs()))
         if self.review_surface.available:
-            ui = self.review_surface.ui
             app.add_routes(
                 [
                     web.get("/", self.review_surface.home),
-                    web.get("/review", ui),
-                    web.get("/reviews", ui),
-                    web.get("/settings", ui),
-                    web.get("/settings/{tail:.*}", ui),
-                    web.get("/system", ui),
-                    web.get("/system/{tail:.*}", ui),
-                    web.get("/reviews/{tail:.*}", ui),
-                    web.get("/r/{tail:.*}", ui),
-                    web.get("/rr/{tail:.*}", ui),
+                    web.get("/home", self.review_surface.ui),
+                    web.get("/runs", self.review_surface.ui),
+                    web.get("/runs/{tail:.*}", self.review_surface.ui),
+                    web.get("/code", self.review_surface.ui),
+                    web.get("/knowledge", self.review_surface.ui),
+                    web.get("/knowledge/{tail:.*}", self.review_surface.ui),
+                    web.get("/usage", self.review_surface.ui),
+                    web.get("/review", self.review_surface.ui),
+                    web.get("/reviews", self.review_surface.ui),
+                    web.get("/settings", self.review_surface.ui),
+                    web.get("/settings/{tail:.*}", self.review_surface.ui),
+                    web.get("/system", self.review_surface.ui),
+                    web.get("/system/{tail:.*}", self.review_surface.ui),
+                    web.get("/reviews/{tail:.*}", self.review_surface.ui),
+                    web.get("/r/{tail:.*}", self.review_surface.ui),
+                    web.get("/rr/{tail:.*}", self.review_surface.ui),
                     web.get("/assets/{tail:.*}", self.review_surface.asset),
-                    *self.review_surface.public_asset_route_defs(),
+                    web.get("/favicon.svg", self.review_surface.root_asset),
+                    web.get("/lemoncrow-card.png", self.review_surface.root_asset),
+                    web.get("/lemoncrow-card.svg", self.review_surface.root_asset),
+                    web.get("/site.webmanifest", self.review_surface.root_asset),
+                    web.get("/robots.txt", self.review_surface.root_asset),
                 ]
             )
-            if self.config.dashboard_enabled:
-                # Runtime Dashboard pages: never served when only Review runs.
-                app.add_routes(
-                    [
-                        web.get("/home", ui),
-                        web.get("/activity", ui),
-                        web.get("/activity/{tail:.*}", ui),
-                        web.get("/runs", ui),
-                        web.get("/runs/{tail:.*}", ui),
-                        web.get("/code", ui),
-                        web.get("/knowledge", ui),
-                        web.get("/knowledge/{tail:.*}", ui),
-                        web.get("/usage", ui),
-                    ]
-                )
-        product_routes: list[web.RouteDef] = [web.get("/api/local/system", self.local_system_status)]
-        if self.config.dashboard_enabled:
-            product_routes.append(web.get("/api/local/integrations", self.local_integrations))
-        if self.config.review_enabled:
-            product_routes.extend(
-                [
-                    web.post(LOCAL_BROWSER_PAIR_PATH, self.local_browser_pair),
-                    web.post(LOCAL_BROWSER_CLAIM_PATH, self.local_browser_claim),
-                    web.get("/v1/reviews/manifest", self.review_manifest),
-                    web.post("/v1/repos/{repo_id}/reviews", self.review_capture),
-                    web.post("/v1/repos/{repo_id}/reviews/drafts/{draft_id}", self.review_capture),
-                    web.get("/v1/repos/{repo_id}/reviews/jobs/{job_id}", self.review_capture_job),
-                    web.post(
-                        "/v1/repos/{repo_id}/reviews/{review_id}/revisions/{revision_id}/base-view",
-                        self.review_attach_base,
-                    ),
-                    *(
-                        web.route(method, path, self._served_by(SERVICE_REVIEW, handler))
-                        for method, path, handler in self.review_service.route_table()
-                    ),
-                    web.post(INTERNAL_PREFIX + "code-intelligence", self.internal_code_intelligence),
-                    web.get(INTERNAL_PREFIX + "content/{digest}", self.internal_content),
-                    web.route("*", "/api/{tail:.*}", self.review_reader_api),
-                ]
-            )
-        elif self.config.dashboard_enabled:
-            product_routes.append(web.route("*", "/api/{tail:.*}", self.legacy_dashboard_api))
-        app.add_routes(product_routes)
+        app.add_routes(
+            [
+                web.post(LOCAL_BROWSER_PAIR_PATH, self.local_browser_pair),
+                web.post(LOCAL_BROWSER_CLAIM_PATH, self.local_browser_claim),
+                web.get("/v1/reviews", self.review_inbox),
+                web.get("/v1/repos/{repo_id}/reviews", self.review_list),
+                web.post("/v1/repos/{repo_id}/reviews", self.review_capture),
+                web.post("/v1/repos/{repo_id}/reviews/drafts/{draft_id}", self.review_capture),
+                web.get("/v1/repos/{repo_id}/reviews/{review_id}", self.review_get),
+                web.post(
+                    "/v1/repos/{repo_id}/reviews/{review_id}/revisions/{revision_id}/projection",
+                    self.review_enrich_projection,
+                ),
+                web.post(
+                    "/v1/repos/{repo_id}/reviews/{review_id}/preparation",
+                    self.review_update_preparation,
+                ),
+                web.post(
+                    "/v1/repos/{repo_id}/reviews/{review_id}/revisions/{revision_id}/base-view",
+                    self.review_attach_base,
+                ),
+                web.get("/api/local/integrations", self.local_integrations),
+                web.get("/api/local/system", self.local_system_status),
+                web.get("/api/reviews", self.review_api_directory),
+                web.route("*", "/api/{tail:.*}", self.review_reader_api),
+            ]
+        )
         app.on_shutdown.append(self._on_shutdown)
         return app
 
@@ -1895,13 +1608,10 @@ class LocalServerApp(CoreServerRoutes):
         if not self.draining:
             self.begin_drain()
             await self.wait_drained(self.config.shutdown_timeout_s)
-        await self.review_capture_jobs.close(self.config.shutdown_timeout_s)
         index_worker = getattr(self, "index_worker", None)
         if index_worker is not None:
             await asyncio.to_thread(index_worker.close)
-        # Cancelling an asyncio job does not stop its running worker thread.
-        # Finish those writes before closing the dispatcher and workspace.
-        await asyncio.to_thread(self._executor.shutdown, wait=True, cancel_futures=True)
+        self._executor.shutdown(wait=False, cancel_futures=True)
         if self._analysis_executor is not None:
             self._analysis_executor.shutdown(wait=True, cancel_futures=True)
             self._analysis_executor = None
@@ -1930,25 +1640,3 @@ def build_local_app(
         clock=clock,
     )
     return state, state.build()
-
-
-def _isolated_services(config: LocalServerConfig) -> LocalServices:
-    """Review and Dashboard as worker processes over the same state root."""
-
-    assert config.state_root is not None
-    extra = (
-        "--state-root",
-        str(config.state_root),
-        "--review-root",
-        str(config.resolved_review_root),
-        "--max-request-bytes",
-        str(config.limits.max_request_bytes),
-        "--maintenance-interval-s",
-        str(config.maintenance_interval_s),
-    )
-    names: list[str] = []
-    if config.review_enabled:
-        names.append(SERVICE_REVIEW)
-    if config.dashboard_enabled:
-        names.append(SERVICE_DASHBOARD)
-    return LocalServices(ServiceProcess(name, service_command(name, extra=extra)) for name in names)

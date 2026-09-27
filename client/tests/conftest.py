@@ -12,7 +12,6 @@ resolves a hostname or opens an outbound connection.
 from __future__ import annotations
 
 import os
-import subprocess
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
@@ -38,50 +37,18 @@ def write_tree(root: Path, files: Mapping[str, bytes]) -> None:
         target.write_bytes(data)
 
 
-@pytest.fixture(autouse=True)
-def _no_real_browser(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Never launch a desktop browser from tests; print the URL instead."""
-    import webbrowser
-
-    monkeypatch.setenv("LEMONCROW_NO_BROWSER", "1")
-
-    def _print_url(url: str, *args: object, **kwargs: object) -> bool:
-        print(f"[test] browser open suppressed: {url}")
-        return True
-
-    monkeypatch.setattr(webbrowser, "open", _print_url)
-
-
 @pytest.fixture
 def worktree(tmp_path: Path) -> Path:
     """A small repository-shaped directory, with a ``.git`` marker and ignores."""
-    # Parametrized test names can exceed the per-environment-entry exec limit.
-    monkeypatch_env = {key: value for key, value in os.environ.items() if key != "PYTEST_CURRENT_TEST"}
     root = tmp_path / "worktree"
     root.mkdir()
     write_tree(root, SAMPLE_FILES)
-    subprocess.run(["git", "init", "-q", str(root)], check=True, env=monkeypatch_env)
+    (root / ".git").mkdir()
+    (root / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
     (root / ".gitignore").write_text("build/\n*.log\n", encoding="utf-8")
     (root / "build").mkdir()
     (root / "build" / "artifact.o").write_bytes(b"\x00binary\x00")
     (root / "noisy.log").write_text("ignored\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(root), "add", "."], check=True, env=monkeypatch_env)
-    subprocess.run(
-        [
-            "git",
-            "-C",
-            str(root),
-            "-c",
-            "user.name=Tests",
-            "-c",
-            "user.email=tests@example.invalid",
-            "commit",
-            "-qm",
-            "fixture",
-        ],
-        check=True,
-        env=monkeypatch_env,
-    )
     return root
 
 
@@ -151,5 +118,3 @@ def _no_ambient_lemoncrow_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in list(os.environ):
         if name.startswith("LEMONCROW_"):
             monkeypatch.delenv(name, raising=False)
-    # No background sync threads or sockets unless a test asks for them.
-    monkeypatch.setenv("LEMONCROW_AUTOSYNC", "0")

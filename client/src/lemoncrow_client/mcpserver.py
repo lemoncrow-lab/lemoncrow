@@ -11,8 +11,8 @@ their legacy local implementations start another MCP/LemonCrow process. Where
 an advertised tool *runs* is decided by :mod:`lemoncrow_client.routing` and is
 invisible from here.
 
-Bootstrap belongs to this process and is fail-open. MCP ``initialize`` starts opening
-the remote session/view in the background and returns immediately. If bootstrap fails, the
+Bootstrap belongs to this process and is fail-open. MCP ``initialize`` opens
+the remote session/view and holds it until stdin closes. If bootstrap fails, the
 reason is recorded and client-side tools keep working; a later server-dependent
 tool retries bootstrap after a short cooldown, so a local server that finishes
 starting does not leave indexing disabled for the lifetime of the host session.
@@ -24,20 +24,16 @@ to remove.
 from __future__ import annotations
 
 import json
-import os
 import sys
 import threading
 import time
 from collections.abc import Mapping
-from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Final, TextIO
 
 from . import CLIENT_VERSION, toolbroker
-from .autosync import AutoSync
 from .config import ClientConfig, load_config
 from .dispatcher import Dispatcher
 from .errors import ClientError, ErrorCode
-from .localtools.shell import cancel_active_bash_commands
 from .routing import Site, route_for
 from .search_dedup import SearchResultDedup
 from .session import BootstrapReport, RemoteSession
@@ -51,23 +47,12 @@ MCP_PROTOCOL_VERSION: Final[str] = "2025-06-18"
 SERVER_NAME: Final[str] = "lc"
 _MAX_LINE_BYTES: Final[int] = 32 * 1024 * 1024
 _OFFLINE_RETRY_INTERVAL_S: Final[float] = 1.0
-#: Client-side tools that can rewrite the tree without pushing what they wrote
-#: (``edit`` and ``codemod`` push their own changes).
-_MAY_REWRITE_TREE: Final[frozenset[str]] = frozenset({"bash"})
-#: Tools answered beside the request loop instead of on it. ``bash`` runs as
-#: long as its caller asks (up to an hour); answered inline, one hung command
-#: held every later request -- an ``edit``, a ``read`` -- until the host timed
-#: each out in turn. Everything else stays on the loop: server-routed calls
-#: share one session and View, and hosts expect them answered in order.
-_BESIDE_THE_LOOP: Final[frozenset[str]] = frozenset({"bash"})
-_MAX_BESIDE_THE_LOOP: Final[int] = 8
 
 _INSTRUCTIONS: Final[str] = (
     "LemonCrow thin client. This one stdio process owns the LemonCrow session for its lifetime; "
     "it starts no LemonCrow daemon, local server, MCP child server or second LemonCrow executable. "
-    "Lead with code_search for code discovery; read known paths, edit files, run commands with bash, "
-    "and use web_fetch for public pages. Indexed tools run on the configured LemonCrow server. "
-    "A degraded result says why, and a refusal carries the next step."
+    "Local tools are bash, edit, grep, blame, scan, codemod and sql; indexed/intelligence tools run "
+    "on the configured LemonCrow server. A degraded result says why, and a refusal carries the next step."
 )
 
 
@@ -76,9 +61,6 @@ class McpServer:
 
     _bootstrap_report: BootstrapReport | None
     __slots__ = (
-        "_autosync",
-        "_bootstrap_executor",
-        "_bootstrap_future",
         "_bootstrap_lock",
         "_bootstrap_report",
         "_config",
@@ -102,15 +84,6 @@ class McpServer:
         # The gateway runs stateless client-site tools concurrently with the
         # serial lane; this keeps a cold session from bootstrapping twice.
         self._bootstrap_lock = threading.Lock()
-        self._bootstrap_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="lc-bootstrap")
-        self._bootstrap_future: Future[None] | None = None
-        # Pushes host-hook and editor changes ahead of the next call; freshness
-        # itself never depends on it. ``LEMONCROW_AUTOSYNC=0`` turns it off.
-        self._autosync: AutoSync | None = (
-            None
-            if os.environ.get("LEMONCROW_AUTOSYNC", "1").strip() == "0"
-            else AutoSync(self._session.sync_if_changed, config.repo_root, config.runtime_state_dir)
-        )
 
     @property
     def dispatcher(self) -> Dispatcher:
@@ -126,10 +99,7 @@ class McpServer:
         if method == "initialize":
             self._search_dedup.clear()
             self._initialized = True
-            # Tool discovery must never wait for repository bytes or indexing.
-            # The session owns and joins this worker before closing HTTP state.
-            if self._bootstrap_future is None:
-                self._bootstrap_future = self._bootstrap_executor.submit(self._ensure_session, retry=True)
+            self._ensure_session()
             return _ok(
                 request_id,
                 {
@@ -181,14 +151,8 @@ class McpServer:
             retry_bootstrap = route_for(name).site is not Site.CLIENT
         except ClientError:
             pass
-        if retry_bootstrap:
-            self._ensure_session(retry=True)
-        if self._autosync is not None and self._session.bootstrapped and self._session.indexed:
-            self._autosync.start()
-            self._autosync.touch()
+        self._ensure_session(retry=retry_bootstrap)
         outcome = self._dispatcher.call(name, arguments)
-        if name in _MAY_REWRITE_TREE:
-            self._sync_after_rewrite()
         if name == "code_search":
             outcome = self._search_dedup.compact(
                 outcome,
@@ -212,10 +176,7 @@ class McpServer:
                     return
             self._last_bootstrap_attempt = now
             try:
-                budget = self._config.startup_budget_s
-                if retry:
-                    budget = max(budget, self._config.request_timeout_s)
-                report = self._session.bootstrap(deadline_s=budget)
+                report = self._session.bootstrap(deadline_s=self._config.startup_budget_s)
             except ClientError as exc:  # pragma: no cover - bootstrap is fail-open
                 self._session.state.go_offline(f"{exc.server_code}: {exc.message}")
                 return
@@ -232,38 +193,11 @@ class McpServer:
             return f"LemonCrow: server-side tools unavailable ({reason}); client-side tools still work"
         return "LemonCrow: session bootstrap pending"
 
-    def answers_beside_the_loop(self, request: Mapping[str, Any]) -> bool:
-        """Whether ``serve`` may answer this request concurrently with later ones."""
-        if request.get("method") != "tools/call" or request.get("id") is None:
-            return False
-        params = request.get("params")
-        return isinstance(params, Mapping) and params.get("name") in _BESIDE_THE_LOOP
-
     def background_running(self) -> bool:
         """A live ``bash bg=true`` run keeps this session from being evicted as idle."""
         return self._dispatcher.background_running()
 
-    def _sync_after_rewrite(self) -> None:
-        """Push what a command changed before answering it, only if it changed.
-
-        The next index call then finds the View current instead of paying for
-        the sync itself. Synchronous on purpose after bootstrap. Best effort -- freshness never depends on
-        it, because every View-reading call still checks the tree first -- so it
-        can never fail the command it follows, and it skips rather than waits
-        when another call holds the session, or when this same tree already
-        failed to push (a hung server would otherwise hold every later command).
-        """
-        if not (self._session.bootstrapped and self._session.indexed):
-            return
-        try:
-            self._session.sync_if_changed(retry_failed=False)
-        except Exception:  # never fail the command this follows
-            return
-
     def close(self) -> None:
-        self._bootstrap_executor.shutdown(wait=True, cancel_futures=True)
-        if self._autosync is not None:
-            self._autosync.close()  # joins its threads before the session goes away
         self._dispatcher.close_background()
         self._dispatcher.close_worktrees()
         self._search_dedup.clear()
@@ -271,9 +205,9 @@ class McpServer:
 
 
 def _advertised_tools() -> list[ToolSpec]:
-    """The visible ``tools/list`` payload; hidden exact-name calls remain available."""
+    """The full ``tools/list`` payload: routed tools, plus the broker if active."""
     tools = tool_list()
-    if toolbroker.broker_advertised():
+    if toolbroker.broker_enabled():
         tools = sorted([*tools, ToolSpec(toolbroker.broker_spec())], key=lambda spec: str(spec["name"]))
     return tools
 
@@ -287,64 +221,34 @@ def serve(
     source = stdin if stdin is not None else sys.stdin
     sink = stdout if stdout is not None else sys.stdout
     try:
-        resolved = config if config is not None else load_config(product="runtime")
+        resolved = config if config is not None else load_config()
     except ClientError as exc:
         # A misconfiguration is fatal and must be visible. Writing a JSON-RPC
         # error would be answering a request nobody made.
         print(f"lemoncrow-client: {exc.message}", file=sys.stderr)
         return 2
     server = McpServer(resolved)
-    write_lock = threading.Lock()
-
-    def emit(payload: Mapping[str, Any]) -> None:
-        with write_lock:
-            _write(sink, payload)
-
-    def answer(request: Mapping[str, Any]) -> None:
-        try:
-            response = server.handle(request)
-        except Exception as exc:  # a worker answers; it never dies silently
-            response = _err(request.get("id"), -32603, f"internal error: {type(exc).__name__}")
-        if response is not None:
-            try:
-                emit(response)
-            except BrokenPipeError:  # the host is gone; the loop sees it too
-                return
-
-    # Threads start only when a ``bash`` call arrives, and all are joined below.
-    pool = ThreadPoolExecutor(max_workers=_MAX_BESIDE_THE_LOOP, thread_name_prefix="lc-call")
-    abandoned = False
     try:
         for line in source:
             if not line.strip():
                 continue
             if len(line) > _MAX_LINE_BYTES:
-                emit(_err(None, -32600, "request exceeds the client's line limit"))
+                _write(sink, _err(None, -32600, "request exceeds the client's line limit"))
                 continue
             try:
                 request = json.loads(line)
             except (ValueError, RecursionError):
-                emit(_err(None, -32700, "parse error"))
+                _write(sink, _err(None, -32700, "parse error"))
                 continue
             if not isinstance(request, Mapping):
-                emit(_err(None, -32600, "request must be a JSON object"))
-                continue
-            if server.answers_beside_the_loop(request):
-                pool.submit(answer, request)
+                _write(sink, _err(None, -32600, "request must be a JSON object"))
                 continue
             response = server.handle(request)
             if response is not None:
-                emit(response)
+                _write(sink, response)
     except (BrokenPipeError, KeyboardInterrupt):
-        abandoned = True
         return 0
     finally:
-        if abandoned:
-            # Nobody will read the answers: end the commands instead of waiting.
-            cancel_active_bash_commands()
-        # Otherwise every request already read is answered before exit, exactly
-        # as when the loop answered all of them itself.
-        pool.shutdown(wait=True, cancel_futures=abandoned)
         server.close()
     return 0
 

@@ -3,14 +3,6 @@ import { authenticatedFetch } from "../review/reviewApi";
 const BASE = "/api";
 const TELEMETRY_ACK_STORAGE_KEY = "lemoncrow.telemetry.acknowledged";
 
-/** Where daily anonymous rollups go. `auto` is a saved setting only. */
-export type TelemetryDestinationKind =
-  | "off"
-  | "lemoncrow"
-  | "server"
-  | "custom";
-export type TelemetryDestinationSetting = TelemetryDestinationKind | "auto";
-
 export interface TelemetryConfig {
   remote_enabled: boolean;
   lexical_frustration_enabled: boolean;
@@ -20,28 +12,6 @@ export interface TelemetryConfig {
   acknowledged: boolean;
   service_version: string;
   dev_mode: boolean;
-  /** Effective destination after policy, env opt-out and defaults. */
-  destination: TelemetryDestinationKind;
-  destination_setting: TelemetryDestinationSetting;
-  destination_source: "default" | "user" | "policy" | "env" | "test";
-  destination_url: string;
-  destination_error: string;
-  /** Saved custom host base URL. */
-  endpoint: string;
-  token_set: boolean;
-  server_url: string;
-  server_hosted: boolean;
-  /** An administrator policy fixes the destination. */
-  managed: boolean;
-  policy_path: string;
-}
-
-export interface TelemetryConfigUpdate {
-  lexical_frustration_enabled?: boolean;
-  destination?: TelemetryDestinationSetting;
-  endpoint?: string;
-  /** "" clears the saved token; omit to keep it. */
-  token?: string;
 }
 
 export interface TelemetryEvent {
@@ -108,26 +78,14 @@ export function getTelemetryConfig(): Promise<TelemetryConfig> {
   }));
 }
 
-export async function updateTelemetryConfig(
-  payload: TelemetryConfigUpdate
-): Promise<TelemetryConfig> {
-  const response = await authenticatedFetch(`${BASE}/telemetry/config`, {
+export function updateTelemetryConfig(payload: {
+  lexical_frustration_enabled?: boolean;
+}): Promise<TelemetryConfig> {
+  return request<TelemetryConfig>("/telemetry/config", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!response.ok) {
-    // 400 (invalid URL/token) and 409 (managed by policy) carry a reason.
-    const body = (await response.json().catch(() => null)) as {
-      detail?: unknown;
-    } | null;
-    throw new Error(
-      typeof body?.detail === "string"
-        ? body.detail
-        : `${response.status} ${response.statusText}`
-    );
-  }
-  return response.json();
 }
 
 export function acknowledgeTelemetry(): Promise<TelemetryConfig> {

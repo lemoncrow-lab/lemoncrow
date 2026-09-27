@@ -23,7 +23,7 @@ class FakeTransport:
         return self.responses.pop(0)
 
 
-def _server_discovery(*, product_scopes: tuple[str, ...] = ()) -> Response:
+def _server_discovery() -> Response:
     return Response(
         200,
         {
@@ -31,7 +31,7 @@ def _server_discovery(*, product_scopes: tuple[str, ...] = ()) -> Response:
                 "authorization_server": "https://auth.example",
                 "resource": "https://api.lemoncrow.com",
                 "client_id": "lemoncrow-cli",
-                "scopes": ["openid", "email", "offline_access", "lemoncrow:access", *product_scopes],
+                "scopes": ["openid", "email", "offline_access", "lemoncrow:access"],
             }
         },
     )
@@ -122,68 +122,6 @@ def test_direct_authward_device_refresh_and_revoke_use_only_authward_origin() ->
     assert auth.calls[5][1] == "https://auth.example/oauth/revoke"
 
 
-def test_isolated_lemoncrow_issuer_discovers_nested_device_and_token_endpoints() -> None:
-    issuer = "https://auth.olaryn.com/api/realms/lemoncrow/auth"
-    expected_endpoint = issuer + "/device/code"
-    server = FakeTransport(
-        "https://api.lemoncrow.com",
-        [
-            Response(
-                200,
-                {
-                    "authentication": {
-                        "authorization_server": issuer,
-                        "client_id": "isolated-lemoncrow-cli",
-                        "resource": "https://api.lemoncrow.com",
-                        "scopes": ["openid", "profile", "email", "offline_access", "lemoncrow:access"],
-                    }
-                },
-            )
-        ],
-    )
-    auth = FakeTransport(
-        issuer,
-        [
-            Response(
-                200,
-                {
-                    "issuer": issuer,
-                    "device_authorization_endpoint": expected_endpoint,
-                    "token_endpoint": issuer + "/oauth2/token",
-                    "revocation_endpoint": issuer + "/oauth2/revoke",
-                },
-            ),
-            Response(
-                200,
-                {
-                    "device_code": "device-code",
-                    "user_code": "ABCD-EFGH",
-                    "verification_uri": "https://auth.olaryn.com/realms/lemoncrow/device",
-                },
-            ),
-        ],
-    )
-
-    def factory(url: str, *, timeout_s: float):
-        assert url == issuer
-        return auth
-
-    client = discover_authward(server, timeout_s=5, transport_factory=factory)  # type: ignore[arg-type]
-    assert client.start_device()["user_code"] == "ABCD-EFGH"
-    assert auth.calls == [
-        ("GET", "/.well-known/openid-configuration", {}),
-        (
-            "POST",
-            expected_endpoint,
-            {
-                "client_id": "isolated-lemoncrow-cli",
-                "scope": "openid profile email offline_access lemoncrow:access",
-                "resource": "https://api.lemoncrow.com",
-            },
-        ),
-    ]
-
-
 def test_authward_discovery_refuses_foreign_token_endpoint_before_credentials_leave_origin() -> None:
     server = FakeTransport("https://api.lemoncrow.com", [_server_discovery()])
     auth = FakeTransport(
@@ -243,119 +181,3 @@ def test_authward_refresh_keeps_refresh_token_when_provider_does_not_rotate_it()
     )
 
     assert client.refresh("refresh-stable") == ("authward-access-2", "refresh-stable")
-
-
-@pytest.mark.parametrize(
-    ("oauth_error", "http_status", "expected_code", "retryable"),
-    [
-        ("invalid_grant", 400, ErrorCode.UNAUTHENTICATED, False),
-        ("invalid_client", 401, ErrorCode.NOT_CONFIGURED, False),
-        ("authorization_pending", 400, ErrorCode.UNAUTHENTICATED, True),
-        ("slow_down", 429, ErrorCode.UNAUTHENTICATED, True),
-        ("expired_token", 400, ErrorCode.UNAUTHENTICATED, False),
-        ("access_denied", 403, ErrorCode.FORBIDDEN, False),
-    ],
-)
-def test_device_polling_oauth_error_field_not_http_status(
-    oauth_error: str,
-    http_status: int,
-    expected_code: ErrorCode,
-    retryable: bool,
-) -> None:
-    server = FakeTransport("https://api.lemoncrow.com", [_server_discovery()])
-    auth = FakeTransport("https://auth.example", [_oidc_discovery(), Response(http_status, {"error": oauth_error})])
-    client = discover_authward(
-        server,
-        timeout_s=5,
-        transport_factory=lambda _url, *, timeout_s: auth,  # type: ignore[arg-type]
-    )
-    with pytest.raises(ClientError) as caught:
-        client.poll_device("device-code")
-    assert caught.value.code == expected_code
-    assert caught.value.server_code == oauth_error
-    assert caught.value.retryable is retryable
-    assert len(auth.calls) == 2
-
-
-@pytest.mark.parametrize(("oauth_error", "status"), [("invalid_grant", 400), ("invalid_client", 400)])
-def test_cli_refresh_does_not_retry_terminal_oauth_errors(oauth_error: str, status: int) -> None:
-    server = FakeTransport("https://api.lemoncrow.com", [_server_discovery()])
-    auth = FakeTransport("https://auth.example", [_oidc_discovery(), Response(status, {"error": oauth_error})])
-    client = discover_authward(
-        server,
-        timeout_s=5,
-        transport_factory=lambda _url, *, timeout_s: auth,  # type: ignore[arg-type]
-    )
-    with pytest.raises(ClientError) as caught:
-        client.refresh("refresh-token")
-    assert caught.value.server_code == oauth_error
-    assert caught.value.retryable is False
-    assert len(auth.calls) == 2
-    assert ("session has ended" in caught.value.message) == (oauth_error == "invalid_grant")
-
-
-@pytest.mark.parametrize(
-    ("product", "scope"),
-    [("review", "lemoncrow:review"), ("runtime", "lemoncrow:runtime")],
-)
-def test_product_client_requests_only_its_advertised_authward_scope(product: str, scope: str) -> None:
-    server = FakeTransport(
-        "https://api.lemoncrow.com",
-        [_server_discovery(product_scopes=("lemoncrow:review", "lemoncrow:runtime"))],
-    )
-    auth = FakeTransport(
-        "https://auth.example",
-        [
-            _oidc_discovery(),
-            Response(
-                200,
-                {
-                    "device_code": "dev-product",
-                    "user_code": "PRODUCT",
-                    "verification_uri": "https://auth.example/device",
-                },
-            ),
-        ],
-    )
-    client = discover_authward(
-        server,  # type: ignore[arg-type]
-        timeout_s=5,
-        product=product,
-        transport_factory=lambda _url, *, timeout_s: auth,  # type: ignore[arg-type]
-    )
-
-    client.start_device()
-
-    requested = auth.calls[1][2]["scope"].split()
-    assert "lemoncrow:access" in requested
-    assert scope in requested
-    other = "lemoncrow:runtime" if product == "review" else "lemoncrow:review"
-    assert other not in requested
-
-
-@pytest.mark.parametrize("product", ["review", "runtime"])
-def test_product_client_falls_back_when_server_does_not_advertise_product_scopes(product: str) -> None:
-    server = FakeTransport("https://api.lemoncrow.com", [_server_discovery()])
-    auth = FakeTransport(
-        "https://auth.example",
-        [
-            _oidc_discovery(),
-            Response(
-                200,
-                {"device_code": "dev-legacy", "user_code": "LEGACY", "verification_uri": "https://auth.example/device"},
-            ),
-        ],
-    )
-    client = discover_authward(
-        server,  # type: ignore[arg-type]
-        timeout_s=5,
-        product=product,
-        transport_factory=lambda _url, *, timeout_s: auth,  # type: ignore[arg-type]
-    )
-
-    client.start_device()
-
-    requested = auth.calls[1][2]["scope"].split()
-    assert "lemoncrow:access" in requested
-    assert "lemoncrow:review" not in requested
-    assert "lemoncrow:runtime" not in requested

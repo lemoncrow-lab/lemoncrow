@@ -1,11 +1,11 @@
-"""Retrieval provider MRR benchmark over each provider's client surface.
+"""Retrieval provider MRR benchmark -- every provider, LemonCrow included, over
+the same stdio/CLI surface. No provider gets in-process shortcuts.
 
-LemonCrow defaults to the shipped thin client over persistent HTTP; the explicit
-legacy channel uses stdio. Neither bypasses the server query path. All providers
-use the same gold set and output format; history and delta reporting live here.
+Providers: lemoncrow / ctags / ast-grep / serena / code-index-mcp / jcodemunch /
+cg / rg / cmm / fff / graphify / graft. Same gold set and output JSON format as the
+retired fitness_explore_mrr.py; history + delta reporting live here now.
 
 Run via:
-    uv run python benchmarks/codebench/eval_external_provider_mrr.py --provider lemoncrow-shared
     uv run python benchmarks/codebench/eval_external_provider_mrr.py --provider lemoncrow
     uv run python benchmarks/codebench/eval_external_provider_mrr.py --provider ctags
 """
@@ -185,7 +185,6 @@ _parser.add_argument(
     choices=[
         "lemoncrow",
         "lemoncrow-shared",
-        "lemoncrow-lite",
         "ctags",
         "ast-grep",
         "serena",
@@ -1982,7 +1981,7 @@ class LemonCrowProvider(Provider):
         routed_db = ws_dir / "code_context.sqlite"
         if not routed_db.is_symlink() or routed_db.resolve() != db.resolve():
             raise RuntimeError(
-                f"benchmark snapshot routing failed for {ws.name}: engine path {routed_db} does not resolve to {db}"
+                f"benchmark snapshot routing failed for {ws.name}: " f"engine path {routed_db} does not resolve to {db}"
             )
         self._clear_retrieval_cache(routed_db)
         self._warn_if_stale(ws.name, routed_db)
@@ -2408,76 +2407,6 @@ class LemonCrowProvider(Provider):
             return []
 
 
-class LemonCrowLiteProvider(LemonCrowProvider):
-    """Runtime Lite through its real local-only stdio MCP boundary."""
-
-    name = "lemoncrow-lite"
-
-    def start(self, ws: Path) -> None:
-        self.stop()
-        self._memo = {}
-        # Mirror the actual lc with path: index readiness is synchronous and
-        # complete before the coding host starts its stdio MCP child. This also
-        # keeps large cold repositories outside the MCP initialize timeout.
-        from lemoncrow_client.lite.index import prepare_lite_workspace
-
-        prepare_lite_workspace(ws)
-        repo_root = Path(__file__).resolve().parents[2]
-        env = dict(os.environ)
-        env["LEMONCROW_WORKSPACE_ROOT"] = str(ws)
-        env["LEMONCROW_RUNTIME_LITE"] = "1"
-        env["LEMONCROW_LITE_PREPARED"] = "1"
-        existing_pythonpath = env.get("PYTHONPATH", "")
-        env["PYTHONPATH"] = os.pathsep.join(
-            part for part in (str(repo_root / "client" / "src"), existing_pythonpath) if part
-        )
-        # Runtime Lite ignores account/endpoint state by construction. Removing
-        # these here also makes the benchmark process topology unambiguous.
-        for key in (
-            "LEMONCROW_URL",
-            "LEMONCROW_TOKEN",
-            "LEMONCROW_TOKEN_FILE",
-            "LEMONCROW_INSTALL_MODE",
-        ):
-            env.pop(key, None)
-        client = _JsonRpcLineClient(
-            [
-                sys.executable,
-                "-m",
-                "lemoncrow_client",
-                "runtime",
-                "lite-mcp",
-                "--host",
-                "benchmark",
-            ],
-            cwd=ws,
-            env=env,
-        )
-        client.start()
-        self._client = client
-
-    def _search(self, query: str, ws: Path, *, timeout: float = 120) -> list[str]:
-        if query in self._memo:
-            return self._memo[query]
-        if self._client is None:
-            return []
-        response = self._client.call(
-            "tools/call",
-            {"name": "code_search", "arguments": {"query": query, "limit": 10}},
-            timeout=timeout,
-        )
-        result = response.get("result", {})
-        if result.get("isError"):
-            self._memo[query] = []
-            return []
-        payload: dict = result.get("structuredContent") or {}
-        files = self._paths_from_payload(payload, ws) if payload else []
-        if not files:
-            files = _extract_paths_text(json.dumps(result), ws)
-        self._memo[query] = files
-        return files
-
-
 class LemonCrowSharedProvider(LemonCrowProvider):
     """Current thin client against the already-running central LemonCrow server.
 
@@ -2550,7 +2479,7 @@ class LemonCrowSharedProvider(LemonCrowProvider):
             return self._memo[query]
         server = self._shared_server
         if server is None:
-            raise RuntimeError("shared LemonCrow client is not initialized")
+            return []
         response = server.handle(
             {
                 "jsonrpc": "2.0",
@@ -2561,10 +2490,12 @@ class LemonCrowSharedProvider(LemonCrowProvider):
         )
         self._request_id += 1
         if not isinstance(response, dict) or response.get("error"):
-            raise RuntimeError(f"shared LemonCrow search failed: {response}")
+            self._memo[query] = []
+            return []
         result = response.get("result", {})
         if not isinstance(result, dict) or result.get("isError"):
-            raise RuntimeError(f"shared LemonCrow tool failed: {result}")
+            self._memo[query] = []
+            return []
         payload: dict[str, Any] = result.get("structuredContent") or {}
         if not payload:
             ranked = [
@@ -2581,11 +2512,10 @@ class LemonCrowSharedProvider(LemonCrowProvider):
         self._memo[query] = files
         return files
 
-    def search_symbol(self, query: str, ws: Path) -> list[str]:
-        return self._search(query, ws)
-
-    def search_text(self, query: str, ws: Path) -> list[str]:
-        return self._search(query, ws)
+    def _recover_client(self, ws: Path) -> None:
+        self.stop()
+        with contextlib.suppress(Exception):
+            self.start(ws)
 
 
 # ---------------------------------------------------------------------------
@@ -2595,7 +2525,6 @@ class LemonCrowSharedProvider(LemonCrowProvider):
 _PROVIDERS: dict[str, type[Provider]] = {
     "lemoncrow": LemonCrowProvider,
     "lemoncrow-shared": LemonCrowSharedProvider,
-    "lemoncrow-lite": LemonCrowLiteProvider,
     "ctags": CtagsProvider,
     "ast-grep": AstGrepProvider,
     "serena": SerenaProvider,
@@ -2707,16 +2636,10 @@ def _process_repo(prefix: str, queries: list[str]) -> dict | None:
         try:
             sym_files = prov.search_symbol(q, ws)
         except Exception:
-            if isinstance(prov, LemonCrowSharedProvider):
-                prov.stop()
-                raise
             sym_files = []
         try:
             txt_files = prov.search_text(q, ws)
         except Exception:
-            if isinstance(prov, LemonCrowSharedProvider):
-                prov.stop()
-                raise
             txt_files = []
         elapsed_q = (time.perf_counter() - t1) * 1000.0
         lats.append(elapsed_q)

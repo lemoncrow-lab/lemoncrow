@@ -101,7 +101,7 @@ def test_release_apply_runs_installer_and_records_state(monkeypatch: pytest.Monk
 
 
 def test_update_via_release_downloads_and_runs_installer(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The release path must download the published engine_install.sh and run it."""
+    """The release path must download the published install.sh and run it."""
     seen: dict[str, object] = {}
 
     class _Resp:
@@ -139,7 +139,6 @@ def test_update_via_release_downloads_and_runs_installer(monkeypatch: pytest.Mon
     assert seen["url"] == f"{update_mod._RELEASE_LATEST_URL}/{update_mod._INSTALLER_ASSET}"
     assert isinstance(seen["cmd"], list) and seen["cmd"][0] == "bash"
     assert seen["non_interactive"] == "1"
-    assert str(seen["url"]).endswith("/engine_install.sh")
 
 
 # --------------------------------------------------------------------------- #
@@ -152,11 +151,8 @@ def test_release_channel_matches_install_script() -> None:
     # update.py and install.sh must point at the same GitHub release base.
     assert update_mod._RELEASE_LATEST_URL in install_sh
     assert update_mod._GH_REPO in install_sh
-    # The full engine updates from engine_install.sh, a published release asset;
-    # install.sh still delegates to it for older LEMONCROW_ENGINE_INSTALL=1 clients.
-    assert update_mod._INSTALLER_ASSET == "engine_install.sh"
-    assert (_REPO_ROOT / "scripts" / "engine_install.sh").is_file()
-    assert "_public_fetch_helper engine_install.sh" in install_sh
+    # install.sh is the asset update re-runs; it is published by the release job.
+    assert update_mod._INSTALLER_ASSET == "install.sh"
 
 
 def test_update_has_no_pypi_or_legacy_binary_channel() -> None:

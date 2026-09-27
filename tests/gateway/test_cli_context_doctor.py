@@ -120,14 +120,12 @@ def _ctx() -> click.Context:
 
 def test_context_group_registered_and_resolvable() -> None:
     ctx = _ctx()
-    runtime = cli.get_command(ctx, "runtime")
-    assert isinstance(runtime, click.Group)
-    assert "context" in runtime.list_commands(click.Context(runtime, info_name="runtime"))
-    live = runtime.get_command(click.Context(runtime, info_name="runtime"), "context")
+    assert "context" in cli.list_commands(ctx)
+    live = cli.get_command(ctx, "context")
     assert isinstance(live, click.Group)
     assert live is context_group
 
-    result = CliRunner().invoke(cli, ["runtime", "context", "doctor", "--help"])
+    result = CliRunner().invoke(cli, ["context", "doctor", "--help"])
     assert result.exit_code == 0, result.output
     assert "--days" in result.output
     assert "--threshold" in result.output

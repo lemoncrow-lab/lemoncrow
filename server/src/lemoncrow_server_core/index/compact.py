@@ -11,9 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from collections.abc import Iterator, Sequence
-from contextlib import closing
-from typing import Any, Final
+from collections.abc import Sequence
 
 from .contracts import AnalysisArtifact
 from .sqlite import SqliteAnalysisStore, _chunks, _Db, _placeholders
@@ -58,20 +56,6 @@ def _token(org_id: str, value: str) -> str:
 
 def _tokens(org_id: str, values: Sequence[str]) -> str:
     return " ".join(_token(org_id, value) for value in sorted(set(values)))
-
-
-def _json_each_available() -> bool:
-    try:
-        with closing(sqlite3.connect(":memory:")) as conn:
-            conn.execute("SELECT value FROM json_each('[1]')").fetchall()
-    except sqlite3.Error:
-        return False
-    return True
-
-
-#: Lets one statement restrict postings to a candidate set of any size. Built
-#: into SQLite since 3.38; a build without it keeps the repository-wide read.
-_JSON_EACH: Final[bool] = _json_each_available()
 
 
 class CompactAnalysisStore(SqliteAnalysisStore):
@@ -201,59 +185,20 @@ class CompactAnalysisStore(SqliteAnalysisStore):
         if not digests or not needles:
             return {}
         _fts, instances = self._posting_table(table)
+        wanted = set(digests)
         found: dict[str, set[str]] = {}
         encoded = {_token(org_id, needle): needle for needle in needles}
-        for digest, term in self._postings(org_id, digests, instances, tuple(encoded), count=False):
-            found.setdefault(digest, set()).add(encoded[str(term)])
-        return found
-
-    def _postings(
-        self, org_id: str, digests: Sequence[str], instances: str, encoded: Sequence[str], *, count: bool
-    ) -> Iterator[tuple[str, Any]]:
-        """``(digest, term)`` postings of *encoded* terms within *digests*, or
-        ``(digest, postings)`` per digest when *count*.
-
-        Tokens already carry the organization. Reading every document's postings
-        and filtering in Python cost ~100 ms per search on a 4k-file repository.
-        """
-        value = "COUNT(*)" if count else "v.term"
-        if _JSON_EACH:
-            ids = self._document_ids(org_id, digests)
-            if not ids:
-                return
-            documents = json.dumps(sorted(ids))
-            group = " GROUP BY v.doc" if count else ""
-            for chunk in _chunks(encoded):
-                rows = self._db.rows(
-                    f"SELECT v.doc, {value} FROM {instances} v WHERE v.term IN ({_placeholders(len(chunk))}) "
-                    f"AND v.doc IN (SELECT value FROM json_each(?)){group}",
-                    (*chunk, documents),
-                )
-                for row in rows:
-                    yield ids[int(row[0])], row[1]
-            return
-        wanted = set(digests)
-        group = " GROUP BY d.digest" if count else ""
-        for chunk in _chunks(encoded):
+        for chunk in _chunks(tuple(encoded)):
             rows = self._db.rows(
-                f"SELECT d.digest, {value} FROM {instances} v JOIN search_documents d ON d.id=v.doc "
-                f"WHERE v.term IN ({_placeholders(len(chunk))}) AND d.org_id=?{group}",
+                f"SELECT d.digest, v.term FROM {instances} v JOIN search_documents d ON d.id=v.doc "
+                f"WHERE v.term IN ({_placeholders(len(chunk))}) AND d.org_id=?",
                 (*chunk, org_id),
             )
             for row in rows:
-                digest = str(row[0])
+                digest = str(row["digest"])
                 if digest in wanted:
-                    yield digest, row[1]
-
-    def _document_ids(self, org_id: str, digests: Sequence[str]) -> dict[int, str]:
-        ids: dict[int, str] = {}
-        for chunk in _chunks(tuple(dict.fromkeys(digests))):
-            rows = self._db.rows(
-                f"SELECT id, digest FROM search_documents WHERE org_id=? AND digest IN ({_placeholders(len(chunk))})",
-                (org_id, *chunk),
-            )
-            ids.update((int(row[0]), str(row[1])) for row in rows)
-        return ids
+                    found.setdefault(digest, set()).add(encoded[str(row["term"])])
+        return found
 
     def _gram_frequencies(self, org_id: str, grams: Sequence[str]) -> dict[str, int]:
         # FTS5 maintains these exact counts during insert/delete. No stale snapshot
@@ -307,6 +252,16 @@ class CompactAnalysisStore(SqliteAnalysisStore):
         found: dict[str, int] = {}
         # Each needle is counted once, including across SQL parameter batches.
         encoded = tuple(dict.fromkeys(_token(org_id, needle) for needle in needles))
-        for digest, hits in self._postings(org_id, digests, instances, encoded, count=True):
-            found[digest] = found.get(digest, 0) + int(hits)
+        wanted = set(digests)
+        for chunk in _chunks(encoded):
+            rows = self._db.rows(
+                f"SELECT d.digest, COUNT(*) AS hits FROM {instances} v "
+                "JOIN search_documents d ON d.id=v.doc "
+                f"WHERE v.term IN ({_placeholders(len(chunk))}) AND d.org_id=? GROUP BY d.digest",
+                (*chunk, org_id),
+            )
+            for row in rows:
+                digest = str(row["digest"])
+                if digest in wanted:
+                    found[digest] = found.get(digest, 0) + int(row["hits"])
         return found

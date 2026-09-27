@@ -41,42 +41,6 @@ def _pin_home_to_tmp_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
 
-@pytest.mark.parametrize("marker", ["CLAUDE_CODE", "CLAUDECODE", "CLAUDE_CODE_SESSION_ID"])
-def test_claude_runtime_markers_beat_inherited_opencode(marker: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    from lemoncrow.core.foundation.paths import detect_host, session_dir
-
-    monkeypatch.delenv("LEMONCROW_AGENT", raising=False)
-    for name in ("CLAUDE_CODE", "CLAUDECODE", "CLAUDE_CODE_SESSION_ID"):
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv(marker, "claude-session" if marker.endswith("SESSION_ID") else "1")
-    monkeypatch.setenv("OPENCODE_SESSION_ID", "inherited-opencode-session")
-    monkeypatch.setenv("OPENCODE_CLI", "1")
-
-    host = detect_host()
-    assert host == "claude"
-    assert session_dir(Path.home(), host, "claude-session").parts[-2:] == ("claude", "claude-session")
-
-
-def test_explicit_host_override_keeps_precedence_over_claude_marker(monkeypatch: pytest.MonkeyPatch) -> None:
-    from lemoncrow.core.foundation.paths import detect_host
-
-    monkeypatch.setenv("CLAUDECODE", "1")
-    monkeypatch.setenv("LEMONCROW_AGENT", "opencode")
-    assert detect_host() == "opencode"
-
-
-def test_claude_session_id_rejects_stale_opencode_override(monkeypatch: pytest.MonkeyPatch) -> None:
-    from lemoncrow.core.foundation.paths import detect_host
-
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "claude-window")
-    monkeypatch.setenv("LEMONCROW_AGENT", "opencode")
-    monkeypatch.delenv("OPENCODE_SESSION_ID", raising=False)
-    assert detect_host() == "claude"
-
-    monkeypatch.setenv("OPENCODE_SESSION_ID", "nested-opencode-session")
-    assert detect_host() == "opencode"
-
-
 def test_unregistered_non_git_dir_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_host_env(monkeypatch)
     monkeypatch.chdir(tmp_path)

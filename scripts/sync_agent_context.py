@@ -625,9 +625,12 @@ def build_outputs(*, claude_plugin_role_ids: Iterable[str] | None = None) -> dic
     registry = build_default_registry(ROOT)
     mode_outputs = build_mode_outputs(ROOT, claude_plugin_role_ids=claude_plugin_role_ids)
     agents_path = ROOT / "AGENTS.md"
+    copilot_path = ROOT / ".github/copilot-instructions.md"
     existing_agents = agents_path.read_text(encoding="utf-8") if agents_path.exists() else ""
+    existing_copilot = copilot_path.read_text(encoding="utf-8") if copilot_path.exists() else ""
     outputs = {
         agents_path: render_managed_context(existing_agents),
+        copilot_path: render_managed_context(existing_copilot),
         ROOT / "integrations/copilot/COPILOT_INSTRUCTIONS.lemoncrow.md": agent_guide() + "\n",
     }
     for role_id in registry.surfaced_role_ids("copilot_agent"):

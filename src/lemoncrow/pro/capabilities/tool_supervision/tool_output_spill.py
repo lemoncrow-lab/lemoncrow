@@ -24,19 +24,39 @@ from __future__ import annotations
 
 import contextlib
 import os
+import tempfile
 import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
 from lemoncrow_client.kit.notices import spill_notice
-from lemoncrow_client.kit.spill import resolve_spill_dir
 
 # Bounded retention so the shared spill dir can't grow without limit across a long
 # session or many sessions (nothing else ever deletes these files). The sweep runs
 # best-effort on each write. Override via env; set either axis to 0 to disable it.
 _DEFAULT_SPILL_MAX_FILES = 512
 _DEFAULT_SPILL_TTL_SECONDS = 24 * 60 * 60  # 24h
+
+
+def _spill_dir() -> Path:
+    """Resolve the spill directory, mirroring ``native_search._spill_dir``.
+
+    Honors ``LEMONCROW_MCP_SPILL_DIR`` so search spills and tool-output spills
+    share one location; otherwise uses ``<tmp>/lemoncrow-spill``.
+    """
+    configured = os.environ.get("LEMONCROW_MCP_SPILL_DIR")
+    if configured:
+        path = Path(configured).expanduser().resolve()
+    else:
+        path = Path(tempfile.gettempdir()) / "lemoncrow-spill"
+    path.mkdir(parents=True, exist_ok=True)
+    # Spill payloads can contain command output, file contents, and SQL results,
+    # so keep the directory owner-only. Best-effort: a shared/pre-existing dir we
+    # don't own may reject chmod, which is fine.
+    with contextlib.suppress(OSError):
+        path.chmod(0o700)
+    return path
 
 
 def _retention_limits() -> tuple[int, int]:
@@ -129,7 +149,7 @@ def spill(
         # `write_text` operate on str, not bytes.
         content = content.decode("utf-8", errors="replace")
     try:
-        directory = resolve_spill_dir()
+        directory = _spill_dir()
         # Short name: it is quoted verbatim in every spill footer the model
         # reads, so kind/timestamp (retention uses mtime) are pure token weight.
         del kind
@@ -169,7 +189,7 @@ def spill_bytes(
     Returns ``None`` on any write failure (best-effort).
     """
     try:
-        directory = resolve_spill_dir()
+        directory = _spill_dir()
         file_name = f"{kind}-{tool_name}-{int(time.time() * 1000)}-{uuid.uuid4().hex[:8]}{suffix}"
         spill_path = directory / file_name
         tmp_path = directory / f".{file_name}.{uuid.uuid4().hex[:8]}.tmp"

@@ -1,10 +1,8 @@
-import { Button as UiButton } from "../components/ui/button";
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "../components/ui/dialog";
-import { Input as UiInput } from "../components/ui/input";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Command, Search } from "lucide-react";
 
 import "./reviewUi.css";
+import { trapModalTab } from "./focusTrap";
 
 export interface ReviewPaletteAction {
   id: string;
@@ -12,8 +10,6 @@ export interface ReviewPaletteAction {
   detail?: string;
   shortcut?: string;
   disabled?: boolean;
-  /** This action moves focus into a newly opened view/dialog; skip Radix return-to-opener. */
-  managesFocus?: boolean;
   run(): void;
 }
 
@@ -26,17 +22,15 @@ interface ReviewCommandPaletteProps {
 const SHORTCUT_GROUPS = [
   {
     title: "Navigate",
-    scope: "global",
     rows: [
       ["j / k", "Next / previous review area"],
       ["J / K", "Next / previous file"],
-      ["] / [", "Next / previous review item"],
+      ["] / [", "Next / previous attention area"],
       ["/", "Search review"],
     ],
   },
   {
     title: "Judge",
-    scope: "global",
     rows: [
       ["r", "Mark reviewed and advance"],
       ["u", "Reopen current review area"],
@@ -46,24 +40,14 @@ const SHORTCUT_GROUPS = [
   },
   {
     title: "View",
-    scope: "global",
     rows: [
       ["e", "Toggle Context"],
       ["f", "Toggle focus mode"],
-      ["s", "Split / unified diff (cycles Auto → Split → Unified)"],
+      ["s", "Split / unified diff"],
       ["w", "Wrap / one-line code"],
       ["p", "Review actions"],
       ["?", "Keyboard shortcuts"],
       ["Esc", "Close transient UI"],
-    ],
-  },
-  {
-    title: "Web preview",
-    scope: "preview",
-    rows: [
-      ["1 / 2 / 3", "Preview / Compare / Pixels"],
-      ["d / t / m", "Desktop / tablet / mobile"],
-      ["{ / }", "Previous / next rendered route"],
     ],
   },
 ] as const;
@@ -73,8 +57,6 @@ export default function ReviewCommandPalette({ mode, actions, onClose }: ReviewC
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
-  const actionManagesFocusRef = useRef(false);
-  const listboxId = `${useId()}-actions`;
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return actions;
@@ -95,121 +77,111 @@ export default function ReviewCommandPalette({ mode, actions, onClose }: ReviewC
   function run(action: ReviewPaletteAction | undefined) {
     if (!action || action.disabled) return;
     // Close first, then run: the action may mount another dialog, and that dialog must be
-    // the only modal on screen when it focuses itself. A view/dialog action explicitly
-    // suppresses Radix's normal return-to-opener so its destination can own focus.
-    actionManagesFocusRef.current = Boolean(action.managesFocus);
+    // the only modal on screen when it focuses itself. Whoever owns the palette is
+    // responsible for not stealing focus back from it (see ReviewReader.closeCommands).
     onClose();
     action.run();
   }
 
   return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent
-        className="top-[12vh] max-w-[580px] translate-y-0"
-        onCloseAutoFocus={(event) => {
-          if (actionManagesFocusRef.current) {
-            event.preventDefault();
-            actionManagesFocusRef.current = false;
-          }
-        }}
-        onOpenAutoFocus={(event) => {
+    <div
+      className="review-sheet-backdrop absolute z-[90] items-start justify-center px-4 pt-[12vh]"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+      onKeyDown={(event) => {
+        if (trapModalTab(event)) return;
+        if (event.key === "Escape") {
+          event.stopPropagation();
+          onClose();
+          return;
+        }
+        if (mode !== "actions" || filtered.length === 0) return;
+        if (event.key === "ArrowDown") {
           event.preventDefault();
-          if (mode === "actions") inputRef.current?.focus();
-          else closeRef.current?.focus();
-        }}
-        onKeyDown={(event) => {
-          if (mode !== "actions" || filtered.length === 0) return;
-          if (event.key === "ArrowDown") {
-            event.preventDefault();
-            setSelected((current) => (current + 1) % filtered.length);
-          } else if (event.key === "ArrowUp") {
-            event.preventDefault();
-            setSelected((current) => (current - 1 + filtered.length) % filtered.length);
-          } else if (event.key === "Enter") {
-            event.preventDefault();
-            run(filtered[selected]);
-          }
-        }}
+          setSelected((current) => (current + 1) % filtered.length);
+        } else if (event.key === "ArrowUp") {
+          event.preventDefault();
+          setSelected((current) => (current - 1 + filtered.length) % filtered.length);
+        } else if (event.key === "Enter") {
+          event.preventDefault();
+          run(filtered[selected]);
+        }
+      }}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="review-command-title"
+        className="review-sheet w-full max-w-[580px] rounded-[7px]"
       >
-        <div className="flex items-center gap-3 border-b border-border/80 px-3.5 py-3">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-muted/60 text-muted-foreground">
-            <Command size={14} aria-hidden="true" />
+        <div className="flex items-center gap-3 border-b border-neutral-800/80 px-3.5 py-3">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-neutral-800 bg-neutral-900/60 text-neutral-400">
+            <Command size={13} aria-hidden="true" />
           </div>
           <div className="min-w-0 flex-1">
-            <DialogTitle className="text-body font-semibold text-foreground">
+            <h2 id="review-command-title" className="text-[12px] font-semibold text-neutral-100">
               {mode === "actions" ? "Review actions" : "Keyboard shortcuts"}
-            </DialogTitle>
-            <DialogDescription className="mt-0.5 text-caption text-muted-foreground">
+            </h2>
+            <div className="mt-0.5 text-[10px] text-neutral-600">
               {mode === "actions" ? "Type to filter · ↑↓ move · Enter run" : "Keyboard-first controls for the continuous reader"}
-            </DialogDescription>
+            </div>
           </div>
-          <DialogClose asChild>
-            <UiButton ref={closeRef} type="button" aria-label="Close review commands" className="h-7 px-2 font-mono text-meta">
-              Esc
-            </UiButton>
-          </DialogClose>
+          <button ref={closeRef} type="button" onClick={onClose} aria-label="Close review commands" className="review-toolbar-button h-7 px-2 font-mono text-[10px]">
+            Esc
+          </button>
         </div>
 
         {mode === "actions" ? (
           <>
-            <div className="border-b border-border/70 p-2.5">
+            <div className="border-b border-neutral-800/70 p-2.5">
               <div className="relative flex items-center">
-                <Search size={14} className="pointer-events-none absolute left-2.5 text-muted-foreground" />
-              <UiInput
-                uiSize="xs"
+                <Search size={13} className="pointer-events-none absolute left-2.5 text-neutral-600" />
+              <input
                 ref={inputRef}
                 value={query}
                 onChange={(event) => {
                   setQuery(event.target.value);
                   setSelected(0);
                 }}
-                role="combobox"
-                aria-expanded="true"
-                aria-controls={listboxId}
-                aria-autocomplete="list"
-                aria-activedescendant={filtered[selected] ? `${listboxId}-${filtered[selected].id}` : undefined}
                 aria-label="Filter review actions"
                 placeholder="Search actions…"
-                className="pl-8 text-body"
+                className="review-field w-full pl-8"
               />
               </div>
             </div>
-            <div id={listboxId} role="listbox" aria-label="Review actions" className="max-h-[52vh] overflow-y-auto p-1.5">
+            <div className="max-h-[52vh] overflow-y-auto p-1.5">
               {filtered.length === 0 ? (
-                <div className="px-3 py-6 text-center text-caption text-muted-foreground">No matching review action.</div>
+                <div className="px-3 py-6 text-center text-[10px] text-neutral-600">No matching review action.</div>
               ) : filtered.map((action, index) => (
-                <UiButton unstyled
+                <button
                   key={action.id}
-                  id={`${listboxId}-${action.id}`}
                   type="button"
-                  role="option"
-                  tabIndex={-1}
-                  aria-selected={index === selected}
-                  aria-disabled={action.disabled || undefined}
                   disabled={action.disabled}
                   onMouseEnter={() => setSelected(index)}
                   onClick={() => run(action)}
-                  className={`flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors disabled:opacity-35 ${index === selected ? "bg-accent text-accent-foreground" : ""}`}
+                  className={`flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors disabled:opacity-35 ${index === selected ? "bg-neutral-900 text-neutral-100" : "hover:bg-neutral-900/60"}`}
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="text-label text-foreground">{action.label}</div>
-                    {action.detail && <div className="mt-0.5 truncate text-caption text-muted-foreground">{action.detail}</div>}
+                    <div className="text-[11px] text-neutral-200">{action.label}</div>
+                    {action.detail && <div className="mt-0.5 truncate text-[10px] text-neutral-600">{action.detail}</div>}
                   </div>
-                  {action.shortcut && <kbd className="shrink-0 border border-border px-1.5 py-0.5 font-mono text-caption text-muted-foreground">{action.shortcut}</kbd>}
-                </UiButton>
+                  {action.shortcut && <kbd className="shrink-0 border border-neutral-800 px-1.5 py-0.5 font-mono text-[10px] text-neutral-500">{action.shortcut}</kbd>}
+                </button>
               ))}
             </div>
           </>
         ) : (
-          <div className="grid max-h-[60vh] gap-5 overflow-y-auto p-4 sm:grid-cols-2">
+          <div className="grid max-h-[60vh] gap-5 overflow-y-auto p-4 sm:grid-cols-3">
             {SHORTCUT_GROUPS.map((group) => (
-              <div key={group.title} data-shortcut-scope={group.scope}>
-                <div className="mb-2 text-caption font-medium uppercase tracking-tag text-muted-foreground">{group.title}</div>
+              <div key={group.title}>
+                <div className="mb-2 text-[10px] font-medium uppercase tracking-[0.14em] text-neutral-500">{group.title}</div>
                 <div className="space-y-2">
                   {group.rows.map(([keys, label]) => (
-                    <div key={keys} className="flex items-start gap-2 text-caption">
-                      <kbd className="min-w-12 shrink-0 border border-border px-1.5 py-0.5 text-center font-mono text-subtle">{keys}</kbd>
-                      <span className="leading-4 text-muted-foreground">{label}</span>
+                    <div key={keys} className="flex items-start gap-2 text-[10px]">
+                      <kbd className="min-w-12 shrink-0 border border-neutral-800 px-1.5 py-0.5 text-center font-mono text-neutral-300">{keys}</kbd>
+                      <span className="leading-4 text-neutral-500">{label}</span>
                     </div>
                   ))}
                 </div>
@@ -217,7 +189,7 @@ export default function ReviewCommandPalette({ mode, actions, onClose }: ReviewC
             ))}
           </div>
         )}
-      </DialogContent>
-    </Dialog>
+      </section>
+    </div>
   );
 }

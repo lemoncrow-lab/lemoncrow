@@ -15,6 +15,22 @@ assert vbd.detector_a and vbd.detector_b  # detectors resolve from the shared co
 
 
 # --- Detector A -------------------------------------------------------------
+def test_contract_change_detected() -> None:
+    diffs = [
+        (
+            "sympy/combinatorics/permutations.py",
+            "    @staticmethod\n    def _af_new(perm):\n        p = Basic.__new__(Perm, perm)",
+            "    @classmethod\n    def _af_new(cls, perm):\n        p = Basic.__new__(cls, perm)",
+        )
+    ]
+    assert vbd._contract_changed_symbols(diffs) == {"_af_new"}
+
+
+def test_contract_change_ignores_body_only_edit() -> None:
+    diffs = [("m.py", "    def foo(x):\n        return 1", "    def foo(x):\n        return 2")]
+    assert vbd._contract_changed_symbols(diffs) == set()
+
+
 def test_bare_call_sites_excludes_def_and_dotted(tmp_path) -> None:
     f = tmp_path / "m.py"
     f.write_text(
@@ -71,36 +87,30 @@ def test_detector_a_silent_when_all_converted(tmp_path) -> None:
 
 
 # --- Detector B -------------------------------------------------------------
+def test_second_scenario_token_backtick() -> None:
+    p = "The issue also reproduces if you create the mentioned plot using `scatterplot`."
+    assert vbd._second_scenario_token(p) == "scatterplot"
+
+
+def test_second_scenario_token_none() -> None:
+    assert vbd._second_scenario_token("A normal bug report about label formatting.") is None
+
+
+def test_detector_b_fires_single_source_module() -> None:
+    p = "Also reproduces with `scatterplot`."
+    res = vbd.detector_b(p, ["seaborn/_core/scales.py", "tests/_core/test_scales.py"])
+    assert res is not None
+    assert res[0] == "scatterplot"
+
+
+def test_detector_b_silent_two_source_modules() -> None:
+    p = "Also reproduces with `scatterplot`."
+    assert vbd.detector_b(p, ["seaborn/_core/scales.py", "seaborn/utils.py"]) is None
+
+
+def test_detector_b_silent_without_phrase() -> None:
+    assert vbd.detector_b("normal report", ["seaborn/_core/scales.py"]) is None
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
-
-
-def test_contract_change_detector_contract() -> None:
-    changed = [
-        (
-            "sympy/combinatorics/permutations.py",
-            "    @staticmethod\n    def _af_new(perm):",
-            "    @classmethod\n    def _af_new(cls, perm):",
-        )
-    ]
-    body_only = [("m.py", "    def foo(x):\n        return 1", "    def foo(x):\n        return 2")]
-    assert vbd._contract_changed_symbols(changed) == {"_af_new"}
-    assert vbd._contract_changed_symbols(body_only) == set()
-
-
-def test_second_scenario_detector_contract() -> None:
-    assert (
-        vbd._second_scenario_token("The issue also reproduces if you create the mentioned plot using `scatterplot`.")
-        == "scatterplot"
-    )
-    assert vbd._second_scenario_token("A normal bug report about label formatting.") is None
-    assert (
-        vbd.detector_b(
-            "Also reproduces with `scatterplot`.", ["seaborn/_core/scales.py", "tests/_core/test_scales.py"]
-        )[0]
-        == "scatterplot"
-    )
-    assert (
-        vbd.detector_b("Also reproduces with `scatterplot`.", ["seaborn/_core/scales.py", "seaborn/utils.py"]) is None
-    )
-    assert vbd.detector_b("normal report", ["seaborn/_core/scales.py"]) is None

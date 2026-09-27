@@ -1,11 +1,24 @@
 from __future__ import annotations
 
+import inspect
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
 
 from lemoncrow.gateway.adapters import mcp_server
+from lemoncrow.gateway.adapters.mcp import tools_search
+
+
+def test_mcp_server_reexports_extracted_search_handler_and_scope_helper() -> None:
+    assert mcp_server.tool_smart_search is tools_search.tool_smart_search
+    assert mcp_server.tool_code_search is tools_search.tool_code_search
+    assert mcp_server.tool_grep is tools_search.tool_grep
+    assert mcp_server._scope_search_matches_to_range is tools_search.scope_search_matches_to_range
+    source = inspect.getsource(mcp_server)
+    assert "def tool_smart_search(" not in source
+    assert "def _scope_search_matches_to_range(" not in source
 
 
 def test_search_hooks_are_late_bound(monkeypatch, tmp_path) -> None:
@@ -19,6 +32,11 @@ def test_search_hooks_are_late_bound(monkeypatch, tmp_path) -> None:
     hooks = mcp_server._search_handler_hooks()
     assert hooks.workspace_root() == tmp_path
     assert hooks.code_context_engine(str(tmp_path)) is marker
+
+
+def test_search_module_does_not_import_mcp_server() -> None:
+    source = Path(tools_search.__file__).read_text(encoding="utf-8")
+    assert "mcp_server" not in source
 
 
 def test_search_hooks_late_bind_grep_and_code_search(monkeypatch) -> None:

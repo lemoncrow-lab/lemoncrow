@@ -196,7 +196,7 @@ def render_text(replay: Replay, *, color: bool = True) -> str:
         lines.append(head)
         if not sav["saved_is_measured"] and not (sav["ran_with_lemoncrow"] and sav["calls_saved"] == 0):
             lines.append(
-                "  " + c(_DIM, "LemonCrow cost & saving are estimates — run `lc rt benchmark` for the measured A/B")
+                "  " + c(_DIM, "LemonCrow cost & saving are estimates — run `lc benchmark` for the measured A/B")
             )
     if not replay.turns:
         lines.append("  " + c(_ORANGE, "⚠ no turns parsed from this transcript — nothing to replay"))

@@ -27,37 +27,39 @@ def test_parse_datetime_returns_default_for_out_of_range_numeric(value: object) 
     assert parse_datetime(value, default=default) == default
 
 
-def test_parse_session_turns_supports_normalized_import_hosts() -> None:
-    for host in ["qwen", "kiro", "roo-code", "antigravity", "goose", "cursor-agent"]:
-        content = build_normalized_jsonl(
-            [
-                make_session_line("sess-1", timestamp="2026-05-11T00:00:00Z", title="demo"),
-                make_user_message("build a parser", timestamp="2026-05-11T00:00:01Z"),
-                make_assistant_message(
-                    model="gpt-5",
-                    input_tokens=120,
-                    output_tokens=40,
-                    thinking_tokens=10,
-                    texts=["Running command"],
-                    thinking_texts=["Need to inspect the schema first."],
-                    tool_calls=[
-                        make_tool_call("bash", {"command": "pytest -q"}),
-                        make_tool_call("edit", {"path": "src/app.py", "content": "patch"}),
-                    ],
-                    timestamp="2026-05-11T00:00:02Z",
-                ),
-            ]
-        )
-        turns = parse_session_turns(content, host)
-        assert [turn["kind"] for turn in turns] == [
-            "user_message",
-            "agent_message",
-            "thinking",
-            "shell_command",
-            "file_edit",
+@pytest.mark.parametrize("host", ["qwen", "kiro", "roo-code", "antigravity", "goose", "cursor-agent"])
+def test_parse_session_turns_supports_normalized_import_hosts(host: str) -> None:
+    content = build_normalized_jsonl(
+        [
+            make_session_line("sess-1", timestamp="2026-05-11T00:00:00Z", title="demo"),
+            make_user_message("build a parser", timestamp="2026-05-11T00:00:01Z"),
+            make_assistant_message(
+                model="gpt-5",
+                input_tokens=120,
+                output_tokens=40,
+                thinking_tokens=10,
+                texts=["Running command"],
+                thinking_texts=["Need to inspect the schema first."],
+                tool_calls=[
+                    make_tool_call("bash", {"command": "pytest -q"}),
+                    make_tool_call("edit", {"path": "src/app.py", "content": "patch"}),
+                ],
+                timestamp="2026-05-11T00:00:02Z",
+            ),
         ]
-        assert turns[3]["content"] == "pytest -q"
-        assert turns[4]["summary"].startswith("edit(")
+    )
+
+    turns = parse_session_turns(content, host)
+
+    assert [turn["kind"] for turn in turns] == [
+        "user_message",
+        "agent_message",
+        "thinking",
+        "shell_command",
+        "file_edit",
+    ]
+    assert turns[3]["content"] == "pytest -q"
+    assert turns[4]["summary"].startswith("edit(")
 
 
 def test_extract_session_usage_summary_defaults_missing_normalized_token_buckets() -> None:

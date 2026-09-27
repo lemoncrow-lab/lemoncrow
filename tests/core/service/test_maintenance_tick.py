@@ -103,11 +103,9 @@ def test_cli_timeout_is_swallowed(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_tick_continues_after_one_subprocess_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[str] = []
-    commands: list[list[str]] = []
 
     def run(cmd: list[str], *, timeout: int, what: str) -> bool:
-        del timeout
-        commands.append(cmd)
+        del cmd, timeout
         calls.append(what)
         return what != "session import"
 
@@ -122,7 +120,6 @@ def test_tick_continues_after_one_subprocess_failure(tmp_path: Path, monkeypatch
         mt.WORKSPACE_PRUNE_KEY: "ran",
     }
     assert calls == ["session import", "recall index", "workspace prune"]
-    assert commands[0] == [mt.sys.executable, "-m", "lemoncrow.core.service.session_import", "--root", str(tmp_path)]
     state = mt._read_state(tmp_path)
     assert mt.SESSION_IMPORT_KEY not in state
     assert state[f"{mt.SESSION_IMPORT_KEY}_last_failure_at"] == now.isoformat()

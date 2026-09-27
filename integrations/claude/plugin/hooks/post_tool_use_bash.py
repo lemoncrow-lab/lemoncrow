@@ -136,16 +136,6 @@ def _append_command_result_event(
 # ---------------------------------------------------------------------------
 
 
-def _nudge_lemoncrow_view(path: str) -> None:
-    """Wake LemonCrow clients serving this checkout; mirrors post_tool_use.py."""
-    try:
-        from lemoncrow_client.autosync import nudge_for_path
-
-        nudge_for_path(Path(path) if path else Path(os.getcwd()))
-    except Exception:  # a hook must never block the agent
-        pass
-
-
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
@@ -162,8 +152,6 @@ def main() -> int:
     command: str = tool_input.get("command", "") or ""
     if not command:
         return 0
-    # A command may have rewritten files (formatter, codegen, git checkout).
-    _nudge_lemoncrow_view(str(payload.get("cwd") or ""))
 
     stdout: str = tool_response.get("stdout", "") or ""
     stderr: str = tool_response.get("stderr", "") or ""

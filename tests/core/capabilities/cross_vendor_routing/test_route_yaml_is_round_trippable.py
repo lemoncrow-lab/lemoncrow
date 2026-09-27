@@ -25,26 +25,21 @@ def test_route_yaml_is_round_trippable(tmp_path) -> None:
 def test_detect_configured_vendors_uses_supported_env_aliases() -> None:
     from unittest import mock
 
-    with (
-        mock.patch("shutil.which", return_value=None),
-        mock.patch("lemoncrow.core.capabilities.providers.zen.has_account_key", return_value=False),
-    ):
-        # Keyless Zen must not outrank private providers. Its public tier
-        # can train on requests, so it is used only as a fallback.
+    with mock.patch("shutil.which", return_value=None):
+        # "zen" rides along by design: it is a meta-router, so `_zen_available`
+        # enables it as soon as any other vendor is configured.
         assert detect_configured_vendors({"ANTHROPIC_API_KEY": "a", "GEMINI_API_KEY": "g"}) == (
             "anthropic",
             "google",
+            "zen",
         )
 
 
 def test_detect_configured_vendors_accepts_bedrock_bearer_token() -> None:
     from unittest import mock
 
-    with (
-        mock.patch("shutil.which", return_value=None),
-        mock.patch("lemoncrow.core.capabilities.providers.zen.has_account_key", return_value=False),
-    ):
-        assert detect_configured_vendors({"AWS_BEARER_TOKEN_BEDROCK": "token"}) == ("bedrock",)
+    with mock.patch("shutil.which", return_value=None):
+        assert detect_configured_vendors({"AWS_BEARER_TOKEN_BEDROCK": "token"}) == ("bedrock", "zen")
 
 
 def test_detect_configured_vendors_uses_installed_host_clis(monkeypatch) -> None:

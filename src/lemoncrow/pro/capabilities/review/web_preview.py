@@ -2,7 +2,7 @@
 
 Review should answer *what did this UI actually look like?* without leaving the
 same immutable revision boundary as the source diff. The exact base/head tree is
-materialized and built in a network-isolated platform sandbox; dependencies
+materialized and built in a network-isolated bubblewrap sandbox; dependencies
 are reused from the proven checkout or provisioned from its lockfile when the
 reviewed dependency graph matches exactly.
 
@@ -34,13 +34,9 @@ import re
 import secrets
 import shlex
 import shutil
-import socket
 import subprocess
-import sys
-import tempfile
 import threading
 import time
-from collections import OrderedDict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -49,15 +45,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote, urlsplit
 
 from lemoncrow.core.foundation.run_file_io import RunFileLock
-from lemoncrow.pro.capabilities.review.host_tools import host_executable
 from lemoncrow.pro.capabilities.review.sandbox_limits import SandboxCapacityBusy, limit_note, run_limited
-from lemoncrow.pro.capabilities.review.scratch_cache import (
-    IDLE_GRACE_SECONDS,
-    LIGHT_TTL_SECONDS,
-    prune_cache_entries,
-    retire_tree,
-    touch_cache_entry,
-)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from lemoncrow.pro.capabilities.review.session_models import ReviewRevision
@@ -73,11 +61,11 @@ _LOCKFILES = ("package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "b
 _MAX_BUILD_SECONDS = 180
 _MAX_INSTALL_SECONDS = 300
 _MAX_CAPTURE_SECONDS = 45
-# Builds are keyed by content, not by Snapshot or Review, so every Snapshot that
-# shares a side (usually the unchanged old side at a common base) reuses one
-# build. A finished build keeps only its static output, so an entry is small;
-# the closer keeps the most recently used ones and drops any idle for days.
-KEEP_BUILDS = 32
+# Builds are keyed by content, not by Snapshot, so every Snapshot of a Review
+# that shares a side (usually the unchanged old side) reuses one build. Keep the
+# most recently used builds of a Review and drop the rest once idle a while.
+KEEP_BUILDS_PER_REVIEW = 8
+_BUILD_IDLE_SECONDS = 3600
 _BUILDS_DIR = "builds"
 _INSTALL_MARKERS = (".package-lock.json", ".modules.yaml", ".yarn-state.yml", ".yarn-integrity")
 _CAPTURE_WIDTH = 1440
@@ -888,65 +876,8 @@ def _frozen_source_tree_graph_files(
     return files
 
 
-# A Snapshot whose frozen sources cannot be assembled fails the same way for
-# every web file of one surface discovery (133 retries of the same artifact
-# reads were measured on one request). Remember a failure briefly -- long
-# enough to cover a request, short enough that an artifact written later by
-# progressive preparation is picked up.
-_FROZEN_FAILURE_TTL_S = 60.0
-_frozen_failures: dict[tuple[str, str, str, str, bool], tuple[float, type[Exception], str]] = {}
-_frozen_failures_lock = threading.Lock()
-
-
-def _without_repeated_failure(
-    kind: str,
-    load: Any,
-    repo_root: str,
-    store_root: str,
-    revision_id: str,
-    artifacts: _ArtifactStore,
-) -> dict[str, str]:
-    # A plain store_root read and an artifact-backed read see different
-    # artifacts, so one's failure must not answer for the other.
-    key = (kind, repo_root, store_root, revision_id, artifacts.store is not None)
-    now = time.monotonic()
-    with _frozen_failures_lock:
-        failed = _frozen_failures.get(key)
-        if failed is not None and now - failed[0] < _FROZEN_FAILURE_TTL_S:
-            raise failed[1](failed[2])
-    try:
-        loaded: dict[str, str] = load(repo_root, store_root, revision_id, artifacts)
-        return loaded
-    except (OSError, ValueError) as exc:
-        with _frozen_failures_lock:
-            _frozen_failures[key] = (now, type(exc), str(exc))
-            for stale in [item for item, value in _frozen_failures.items() if now - value[0] >= _FROZEN_FAILURE_TTL_S]:
-                del _frozen_failures[stale]
-        raise
-
-
-def _cached_frozen_base_sources(
-    repo_root: str,
-    store_root: str,
-    revision_id: str,
-    artifacts: _ArtifactStore = _NO_ARTIFACT_STORE,
-) -> dict[str, str]:
-    return _without_repeated_failure("base", _load_frozen_base_sources, repo_root, store_root, revision_id, artifacts)
-
-
-def _cached_frozen_revision_sources(
-    repo_root: str,
-    store_root: str,
-    revision_id: str,
-    artifacts: _ArtifactStore = _NO_ARTIFACT_STORE,
-) -> dict[str, str]:
-    return _without_repeated_failure(
-        "new", _load_frozen_revision_sources, repo_root, store_root, revision_id, artifacts
-    )
-
-
 @lru_cache(maxsize=24)
-def _load_frozen_base_sources(
+def _cached_frozen_base_sources(
     repo_root: str,
     store_root: str,
     revision_id: str,
@@ -964,7 +895,7 @@ def _load_frozen_base_sources(
 
 
 @lru_cache(maxsize=24)
-def _load_frozen_revision_sources(
+def _cached_frozen_revision_sources(
     repo_root: str,
     store_root: str,
     revision_id: str,
@@ -1025,48 +956,6 @@ def _cached_frozen_revision_graph(
 ) -> tuple[str, dict[str, str], dict[str, tuple[str, ...]]]:
     decoded = _cached_frozen_revision_sources(repo_root, store_root, revision_id, artifacts)
     return _framework(decoded), decoded, _import_graph(decoded)
-
-
-@dataclass
-class _ProjectView:
-    """One project root of one revision's sources, with its import graph once built."""
-
-    sources: Mapping[str, str]
-    scoped: dict[str, str]
-    framework: str
-    graph: dict[str, tuple[str, ...]] | None = None
-
-
-# lc-debt: count-bounded; bound by source bytes if many large Reviews are open at once.
-_PROJECT_VIEW_MAX = 16
-_project_views: OrderedDict[tuple[int, str], _ProjectView] = OrderedDict()
-_project_views_lock = threading.Lock()
-
-
-def _project_view(sources: Mapping[str, str], root: str) -> _ProjectView:
-    """Scope, framework and (lazily) import graph of *root*, once per sources mapping.
-
-    Surface discovery asks for every changed frontend file of a Snapshot, and
-    each ask re-scoped and re-scanned the whole project for imports: a
-    ~400-file change spent minutes of CPU per request. The sources mappings
-    are the shared, never-mutated results of the revision-keyed source caches,
-    so identity is their key; the entry holds the mapping so its id is not reused.
-    """
-
-    key = (id(sources), root)
-    with _project_views_lock:
-        hit = _project_views.get(key)
-        if hit is not None and hit.sources is sources:
-            _project_views.move_to_end(key)
-            return hit
-    scoped = _scope_project_sources(sources, root)
-    view = _ProjectView(sources=sources, scoped=scoped, framework=_framework(scoped))
-    with _project_views_lock:
-        _project_views[key] = view
-        _project_views.move_to_end(key)
-        while len(_project_views) > _PROJECT_VIEW_MAX:
-            _project_views.popitem(last=False)
-    return view
 
 
 def infer_web_preview_descriptor(
@@ -1176,12 +1065,11 @@ def infer_web_preview_descriptor(
             continue
         route_union: list[str] = []
         for sources in sources_by_side:
-            view = _project_view(sources, root)
-            if view.framework != framework:
+            scoped = _scope_project_sources(sources, root)
+            if _framework(scoped) != framework:
                 continue
-            if view.graph is None:
-                view.graph = _import_graph(view.scoped)
-            for route in _routes_for(view.scoped, target, framework, view.graph):
+            graph = _import_graph(scoped)
+            for route in _routes_for(scoped, target, framework, graph):
                 if route not in route_union:
                     route_union.append(route)
         if not route_union:
@@ -1225,11 +1113,18 @@ def _materialize_review_side(
 
 
 def revision_side_identity(revision: ReviewRevision, side: str) -> str:
-    """Content identity of one Snapshot side (see ``snapshot.revision_side_identity``)."""
+    """Content identity of one Snapshot side, known before materializing it.
 
-    from lemoncrow.pro.capabilities.review.snapshot import revision_side_identity as side_identity
+    Two Snapshots with the same identity for a side have byte-identical content
+    on that side, so anything derived only from that content can be shared. A
+    side without a stable identity falls back to the Snapshot id (no sharing).
+    """
 
-    return side_identity(revision, side)
+    if side == "old":
+        return revision.base_sha or f"{revision.id}:old"
+    if revision.range_mode == "commit_range":
+        return revision.head_sha or revision.id
+    return revision.source_fingerprint or revision.tree_fingerprint or revision.id
 
 
 def dependency_state(dependency_repo: Path, project_root: str = ".") -> str:
@@ -1254,6 +1149,33 @@ def dependency_state(dependency_repo: Path, project_root: str = ".") -> str:
     return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()[:16]
 
 
+def touch_cache_entry(path: Path) -> None:
+    """Mark a content-keyed cache entry as recently used (the pruner reads mtime)."""
+
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        os.utime(path)
+    except OSError:
+        pass
+
+
+def prune_cache_entries(entries_root: Path, keep: Path, *, keep_count: int, idle_seconds: float) -> None:
+    """Delete all but the *keep_count* most recently used entries once they are idle."""
+
+    try:
+        rows = [item for item in entries_root.iterdir() if item.is_dir() and item != keep]
+        rows.sort(key=lambda item: item.stat().st_mtime, reverse=True)
+    except OSError:
+        return
+    now = time.time()
+    for stale in rows[max(0, keep_count - 1) :]:
+        try:
+            if now - stale.stat().st_mtime >= idle_seconds:
+                shutil.rmtree(stale, ignore_errors=True)
+        except OSError:
+            continue
+
+
 def _build_cache_root(
     store_root: Path,
     revision: ReviewRevision,
@@ -1275,44 +1197,18 @@ def _build_cache_root(
             sort_keys=True,
         ).encode("utf-8")
     ).hexdigest()[:24]
-    return store_root / "review" / "web-previews" / _BUILDS_DIR / key
+    return store_root / "review" / "web-previews" / revision.review_id / _BUILDS_DIR / key
 
 
-def _prune_web_preview_cache(store_root: Path, keep: Path) -> None:
-    """Closer for the build cache, including the retired per-Review layouts."""
+def _prune_web_preview_cache(store_root: Path, revision: ReviewRevision, keep: Path) -> None:
+    """Closer for the build cache, including the retired per-Snapshot layout."""
 
-    previews_root = store_root / "review" / "web-previews"
+    review_root = store_root / "review" / "web-previews" / revision.review_id
     prune_cache_entries(
-        previews_root / _BUILDS_DIR,
-        keep,
-        keep_count=KEEP_BUILDS,
-        idle_seconds=IDLE_GRACE_SECONDS,
-        ttl_seconds=LIGHT_TTL_SECONDS,
+        review_root / _BUILDS_DIR, keep, keep_count=KEEP_BUILDS_PER_REVIEW, idle_seconds=_BUILD_IDLE_SECONDS
     )
-    # Builds used to live under each Review id (and before that, under each
-    # Snapshot), where a Review nobody reopened kept its builds forever.
-    prune_cache_entries(previews_root, previews_root / _BUILDS_DIR, keep_count=1, idle_seconds=IDLE_GRACE_SECONDS)
-
-
-def _keep_only_output(workspace: Path, output: Path, *, trash_dir: Path) -> None:
-    """Drop everything a finished build left except its static output.
-
-    Sources come back from the Snapshot whenever a rebuild is needed, and build
-    caches (``.next`` alone is often most of a gigabyte) are only useful to a
-    rebuild, which a cached output never needs. Serving and capture read only
-    the output directory.
-    """
-
-    current = workspace
-    for part in output.relative_to(workspace).parts:
-        try:
-            children = list(current.iterdir())
-        except OSError:
-            return
-        for child in children:
-            if child.name != part:
-                retire_tree(child, trash_dir=trash_dir)
-        current = current / part
+    # Before builds were content-keyed, each Snapshot had its own directory here.
+    prune_cache_entries(review_root, review_root / _BUILDS_DIR, keep_count=1, idle_seconds=_BUILD_IDLE_SECONDS)
 
 
 def _dependency_signature(root: Path) -> str:
@@ -1338,14 +1234,10 @@ def _dependency_signature(root: Path) -> str:
 
 
 def _sandbox_visible_executable(name: str) -> bool:
-    resolved = host_executable(name)
+    resolved = shutil.which(name)
     if not resolved:
         return False
     path = Path(resolved).expanduser().resolve()
-    if sys.platform == "darwin":
-        # Seatbelt exposes the selected runtime at its real host path, including
-        # Homebrew, nvm, and user-local Bun installations.
-        return True
     # The build sandbox binds these host trees read-only. A user-local tool
     # such as ~/.bun/bin/bun can be executable on the host yet absent inside
     # bubblewrap, which previously made Review select it and then fail at exec.
@@ -1381,9 +1273,8 @@ def _locked_dependency_install(root: Path) -> list[str]:
     )
     for lockfile, executable, command in candidates:
         if (root / lockfile).is_file():
-            found = host_executable(executable)
-            if found:
-                return [found, *command[1:]]
+            if shutil.which(executable):
+                return command
             raise WebPreviewUnavailable(
                 f"preview dependencies are missing and {lockfile} requires {executable}, but {executable} is not installed"
             )
@@ -1454,7 +1345,6 @@ def _prepare_node_modules_facade(
     live_node_modules: Path,
     *,
     project_root: str = ".",
-    dependency_mount: Path = Path("/lemoncrow-deps/node_modules"),
 ) -> None:
     """Expose checkout dependencies read-only while keeping project caches writable.
 
@@ -1486,50 +1376,9 @@ def _prepare_node_modules_facade(
         # leaves the directory behind, and a read-only link to it fails the build.
         if entry.name in {".vite", ".vite-temp", ".astro", ".cache"}:
             continue
-        (facade / entry.name).symlink_to(dependency_mount / entry.name, target_is_directory=entry.is_dir())
-
-
-def _macos_build_command(
-    workspace: Path,
-    live_node_modules: Path,
-    *,
-    repo_root: Path,
-    project_root: str,
-    package_manager: str,
-    framework: str,
-) -> list[str]:
-    """Run a revision build under Seatbelt with only its workspace writable."""
-
-    from lemoncrow.pro.capabilities.review.macos_sandbox import sandbox_command
-
-    workspace = workspace.resolve()
-    project = workspace if project_root in {"", "."} else workspace / project_root
-    _prepare_node_modules_facade(
-        workspace, live_node_modules, project_root=project_root, dependency_mount=live_node_modules.resolve()
-    )
-    read_roots = [live_node_modules.resolve()]
-    root_modules = repo_root / "node_modules"
-    if root_modules.is_dir():
-        read_roots.append(root_modules.resolve())
-    environment = {
-        "NEXT_TELEMETRY_DISABLED": "1",
-        "npm_config_offline": "true",
-        "npm_config_update_notifier": "false",
-    }
-    if framework == "next":
-        environment["NEXT_FONT_GOOGLE_MOCKED_RESPONSES"] = str(_next_font_mock(project))
-    try:
-        return sandbox_command(
-            [host_executable(package_manager) or package_manager, "run", "build"],
-            workspace=workspace,
-            cwd=project,
-            executables=("node", package_manager),
-            read_roots=read_roots,
-            writable_workspace=True,
-            env=environment,
+        (facade / entry.name).symlink_to(
+            f"/lemoncrow-deps/node_modules/{entry.name}", target_is_directory=entry.is_dir()
         )
-    except RuntimeError as exc:
-        raise WebPreviewUnavailable(str(exc)) from exc
 
 
 def _bubblewrap_prefix(
@@ -1549,7 +1398,6 @@ def _bubblewrap_prefix(
     command = [
         bwrap,
         "--die-with-parent",
-        "--unshare-all",
         "--unshare-net",
         "--unshare-pid",
         "--new-session",
@@ -1673,48 +1521,8 @@ def _ensure_built_unlocked(
         except (OSError, TypeError, ValueError):
             pass
 
-    trash_dir = cache_root.parent
-    retire_tree(workspace, trash_dir=trash_dir)
-    try:
-        identity, built_output = _build_workspace(
-            workspace,
-            repo_root,
-            revision,
-            store_root=store_root,
-            side=side,
-            framework=framework,
-            project_root=project_root,
-            store=store,
-            dependency_root=dependency_root,
-        )
-    except BaseException:
-        # A failed build is never reused (the next attempt starts clean), so its
-        # sources and partial caches go now instead of waiting for the closer.
-        retire_tree(workspace, trash_dir=trash_dir)
-        raise
-    marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.write_text(
-        json.dumps({"identity": identity, "output": built_output.relative_to(workspace).as_posix()}, sort_keys=True),
-        encoding="utf-8",
-    )
-    _keep_only_output(workspace, built_output, trash_dir=trash_dir)
-    return built_output
-
-
-def _build_workspace(
-    workspace: Path,
-    repo_root: Path,
-    revision: ReviewRevision,
-    *,
-    store_root: Path,
-    side: str,
-    framework: str,
-    project_root: str,
-    store: ReviewStore | None,
-    dependency_root: Path | None,
-) -> tuple[str, Path]:
-    """Materialize one side into *workspace* and run its sandboxed static build."""
-
+    if workspace.exists():
+        shutil.rmtree(workspace)
     identity = _materialize_review_side(
         store_root,
         repo_root,
@@ -1745,27 +1553,16 @@ def _build_workspace(
         live_modules = _ensure_checkout_dependencies(dependency_repo, live_project)
 
     package_manager = _package_manager(project_workspace)
-    if sys.platform == "darwin":
-        command = _macos_build_command(
-            workspace,
-            live_modules,
-            repo_root=dependency_repo,
-            project_root=project_root,
-            package_manager=package_manager,
-            framework=framework,
-        )
-    else:
-        prefix = _bubblewrap_prefix(workspace, live_modules, repo_root=dependency_repo, project_root=project_root)
-        root_segment = "" if project_root in {"", "."} else "/" + project_root.strip("/")
-        env_args: list[str] = []
-        if framework == "next":
-            _next_font_mock(project_workspace)
-            env_args = [
-                "--setenv",
-                "NEXT_FONT_GOOGLE_MOCKED_RESPONSES",
-                f"/workspace{root_segment}/.lemoncrow-next-font-mock.cjs",
-            ]
-        command = [*prefix[:-2], *env_args, *prefix[-2:], package_manager, "run", "build"]
+    prefix = _bubblewrap_prefix(workspace, live_modules, repo_root=dependency_repo, project_root=project_root)
+    root_segment = "" if project_root in {"", "."} else "/" + project_root.strip("/")
+    env_args: list[str] = []
+    if framework == "next":
+        env_args = [
+            "--setenv",
+            "NEXT_FONT_GOOGLE_MOCKED_RESPONSES",
+            f"/workspace{root_segment}/.lemoncrow-next-font-mock.cjs",
+        ]
+    command = [*prefix[:-2], *env_args, *prefix[-2:], package_manager, "run", "build"]
     try:
         proc = run_limited(
             command,
@@ -1788,7 +1585,12 @@ def _build_workspace(
     built_output = next((project_workspace / name for name in candidates if (project_workspace / name).is_dir()), None)
     if built_output is None:
         raise WebPreviewUnavailable("preview build completed but produced no supported static output directory")
-    return identity, built_output
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(
+        json.dumps({"identity": identity, "output": built_output.relative_to(workspace).as_posix()}, sort_keys=True),
+        encoding="utf-8",
+    )
+    return built_output
 
 
 def _ensure_built(
@@ -1805,7 +1607,7 @@ def _ensure_built(
 ) -> Path:
     lock = _operation_lock(f"build:{cache_root}:{side}")
     with lock, RunFileLock(cache_root / side / "build"):
-        output = _ensure_built_unlocked(
+        return _ensure_built_unlocked(
             cache_root,
             repo_root,
             revision,
@@ -1816,48 +1618,6 @@ def _ensure_built(
             store=store,
             dependency_root=dependency_root,
         )
-    _prune_web_preview_cache(store_root, cache_root)
-    return output
-
-
-def build_static_preview_side(
-    store_root: Path,
-    repo_root: Path,
-    revision: ReviewRevision,
-    *,
-    side: str,
-    framework: str,
-    project_root: str = ".",
-    store: ReviewStore | None = None,
-    dependency_root: Path | None = None,
-) -> Path:
-    """The revision-pinned, sandboxed static build of one side (interactive preview static mode).
-
-    Shares the web preview build cache; that cache's own pruning is its closer.
-    """
-
-    if side not in {"old", "new"}:
-        raise WebPreviewUnavailable("preview side must be old or new")
-    cache_root = _build_cache_root(
-        store_root,
-        revision,
-        side=side,
-        framework=framework,
-        project_root=project_root,
-        dependency_repo=dependency_root or repo_root,
-    )
-    touch_cache_entry(cache_root)
-    return _ensure_built(
-        cache_root,
-        repo_root,
-        revision,
-        store_root=store_root,
-        side=side,
-        framework=framework,
-        project_root=project_root,
-        store=store,
-        dependency_root=dependency_root,
-    )
 
 
 # Capture-time static server for client-routed (SPA) builds. ``http.server``
@@ -1865,13 +1625,11 @@ def build_static_preview_side(
 # preview's ``_resolve_live_file(spa_fallback=True)``, serve ``index.html`` for
 # a missing extensionless path so the router renders the requested route.
 _SPA_CAPTURE_SERVER = """
-import functools, http.server, mimetypes, os, posixpath, sys
-mimetypes.knownfiles = []
-mimetypes.init()
+import functools, http.server, os, posixpath, sys
 class Handler(http.server.SimpleHTTPRequestHandler):
     def send_head(self):
         path = self.path.split("?", 1)[0].split("#", 1)[0]
-        if (len(sys.argv) < 4 or sys.argv[3] == "spa") and not os.path.exists(self.translate_path(path)) and not posixpath.splitext(path)[1]:
+        if not os.path.exists(self.translate_path(path)) and not posixpath.splitext(path)[1]:
             self.path = "/index.html"
         return super().send_head()
     def log_message(self, *args):
@@ -1949,6 +1707,7 @@ def ensure_live_web_preview(
         store=store,
         dependency_root=dependency_root,
     )
+    _prune_web_preview_cache(store_root, revision, cache_root)
     spa_fallback = descriptor.framework == "vite"
     _static_route(
         output, route, spa_fallback=spa_fallback
@@ -1959,125 +1718,11 @@ def ensure_live_web_preview(
 
 
 def _chrome_executable() -> str:
-    if sys.platform == "darwin":
-        # Full Chrome expects session services; Headless Shell works in Seatbelt.
-        found = host_executable("chrome-headless-shell")
-        if found:
-            return found
-        for cache in (Path.home() / "Library/Caches/ms-playwright", Path.home() / ".cache/ms-playwright"):
-            for candidate in sorted(
-                cache.glob("chromium_headless_shell-*/chrome-headless-shell-mac-*/chrome-headless-shell"), reverse=True
-            ):
-                if candidate.is_file() and os.access(candidate, os.X_OK):
-                    return str(candidate)
-        raise WebPreviewUnavailable(
-            "Pixel capture on macOS requires Chrome Headless Shell; install with "
-            "npx playwright install chromium-headless-shell"
-        )
     for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
         found = shutil.which(name)
         if found:
             return str(Path(found).resolve())
     raise WebPreviewUnavailable("visual preview requires Chrome/Chromium")
-
-
-def _macos_capture(
-    output: Path,
-    route: str,
-    destination: Path,
-    *,
-    spa_fallback: bool,
-    width: int,
-    height: int,
-) -> subprocess.CompletedProcess[str]:
-    """Capture static output with private files and a loopback-only browser."""
-    from urllib.request import urlopen
-
-    from lemoncrow.pro.capabilities.review.macos_sandbox import sandbox_command
-
-    chrome = _chrome_executable()
-    # Darwin Unix-domain socket paths have a 104-byte limit.
-    with tempfile.TemporaryDirectory(prefix="lc-pixel-", dir="/tmp") as temporary:
-        scratch = Path(temporary).resolve()
-        with socket.socket() as reservation:
-            reservation.bind(("127.0.0.1", 0))
-            port = reservation.getsockname()[1]
-        server_args = [
-            sys.executable,
-            "-c",
-            _SPA_CAPTURE_SERVER,
-            str(output),
-            str(port),
-            "spa" if spa_fallback else "static",
-        ]
-        server_command = sandbox_command(
-            server_args,
-            workspace=scratch,
-            cwd=scratch,
-            executables=(sys.executable,),
-            read_roots=(output.resolve(), Path(sys.base_prefix)),
-            loopback_port=port,
-        )
-        server = subprocess.Popen(server_command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        try:
-            url = f"http://127.0.0.1:{port}{route}"
-            deadline = time.monotonic() + 5
-            while True:
-                if server.poll() is not None:
-                    raise WebPreviewUnavailable("Pixel static server exited before capture")
-                try:
-                    with urlopen(url, timeout=0.5):
-                        break
-                except OSError:
-                    if time.monotonic() >= deadline:
-                        raise WebPreviewUnavailable("Pixel static server did not become ready") from None
-                    time.sleep(0.05)
-            shot = scratch / "capture.png"
-            command = sandbox_command(
-                [
-                    chrome,
-                    "--headless",
-                    "--no-sandbox",
-                    "--disable-gpu",
-                    "--disable-background-networking",
-                    "--no-first-run",
-                    "--no-default-browser-check",
-                    "--run-all-compositor-stages-before-draw",
-                    "--virtual-time-budget=2500",
-                    f"--window-size={width},{height}",
-                    f"--user-data-dir={scratch / 'profile'}",
-                    f"--screenshot={shot}",
-                    url,
-                ],
-                workspace=scratch,
-                cwd=scratch,
-                executables=(chrome,),
-                read_roots=(Path(chrome).resolve().parent, Path("/private/var/db/timezone")),
-                writable_workspace=True,
-                loopback_port=port,
-                browser=True,
-            )
-            proc = run_limited(
-                command,
-                timeout=_MAX_CAPTURE_SECONDS,
-                cwd=scratch,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                check=False,
-            )
-            if proc.returncode == 0 and shot.is_file():
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(shot, destination)
-            return proc
-        finally:
-            if server.poll() is None:
-                server.terminate()
-                try:
-                    server.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    server.kill()
-                    server.wait(timeout=2)
 
 
 def _render_web_preview_unlocked(
@@ -2138,50 +1783,38 @@ def _render_web_preview_unlocked(
     # Capture only serves the built static output, so it takes no dependency
     # mount. Rebuilding the node_modules facade here raced concurrent captures
     # of other routes that share this content-keyed build workspace.
+    prefix = _bubblewrap_prefix(
+        workspace,
+        None,
+        repo_root=dependency_root or repo_root,
+        project_root=descriptor.root,
+        include_chrome=True,
+        capture_dir=capture_dir,
+    )
+    chrome = _chrome_executable()
+    chrome_in_sandbox = "/opt/google/chrome/google-chrome" if chrome.startswith("/opt/google/chrome/") else chrome
+    output_relative = output.relative_to(workspace).as_posix()
+    server = _capture_server_command(f"/workspace/{output_relative}", spa_fallback=spa_fallback)
+    script = (
+        f"{server} >/tmp/lc-preview-http.log 2>&1 & srv=$!; "
+        "trap 'kill $srv 2>/dev/null || true' EXIT; "
+        "sleep .15; "
+        f"{chrome_in_sandbox} --headless=new --no-sandbox --disable-gpu --disable-background-networking "
+        "--no-first-run --no-default-browser-check --run-all-compositor-stages-before-draw "
+        "--virtual-time-budget=2500 "
+        f"--window-size={width},{height} --screenshot=/capture/{temp_name} "
+        f"http://127.0.0.1:8787{static_route}; rc=$?; kill $srv 2>/dev/null || true; exit $rc"
+    )
     try:
-        if sys.platform == "darwin":
-            proc = _macos_capture(
-                output,
-                static_route,
-                temp_shot,
-                spa_fallback=spa_fallback,
-                width=width,
-                height=height,
-            )
-        else:
-            prefix = _bubblewrap_prefix(
-                workspace,
-                None,
-                repo_root=dependency_root or repo_root,
-                project_root=descriptor.root,
-                include_chrome=True,
-                capture_dir=capture_dir,
-            )
-            chrome = _chrome_executable()
-            chrome_in_sandbox = (
-                "/opt/google/chrome/google-chrome" if chrome.startswith("/opt/google/chrome/") else chrome
-            )
-            output_relative = output.relative_to(workspace).as_posix()
-            server = _capture_server_command(f"/workspace/{output_relative}", spa_fallback=spa_fallback)
-            script = (
-                f"{server} >/tmp/lc-preview-http.log 2>&1 & srv=$!; "
-                "trap 'kill $srv 2>/dev/null || true' EXIT; "
-                "sleep .15; "
-                f"{chrome_in_sandbox} --headless=new --no-sandbox --disable-gpu --disable-background-networking "
-                "--no-first-run --no-default-browser-check --run-all-compositor-stages-before-draw "
-                "--virtual-time-budget=2500 "
-                f"--window-size={width},{height} --screenshot=/capture/{temp_name} "
-                f"http://127.0.0.1:8787{static_route}; rc=$?; kill $srv 2>/dev/null || true; exit $rc"
-            )
-            proc = run_limited(
-                [*prefix, "sh", "-lc", script],
-                timeout=_MAX_CAPTURE_SECONDS,
-                cwd=repo_root,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                check=False,
-            )
+        proc = run_limited(
+            [*prefix, "sh", "-lc", script],
+            timeout=_MAX_CAPTURE_SECONDS,
+            cwd=repo_root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            check=False,
+        )
     except SandboxCapacityBusy as exc:
         raise WebPreviewUnavailable(str(exc)) from exc
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -2191,6 +1824,7 @@ def _render_web_preview_unlocked(
         raise WebPreviewUnavailable(f"preview capture failed{': ' + note if note else ''}:\n{_tail_log(proc.stdout)}")
     screenshot.parent.mkdir(parents=True, exist_ok=True)
     temp_shot.replace(screenshot)
+    _prune_web_preview_cache(store_root, revision, cache_root)
     return screenshot
 
 
@@ -2240,9 +1874,115 @@ def render_web_preview(
         )
 
 
+@dataclass(frozen=True, slots=True)
+class WebPreviewDiffScore:
+    """Deterministic pixel delta for one immutable route capture pair.
+
+    ``changed_ratio`` is the fraction of pixels whose luminance delta is at
+    least eight levels on the 0..255 scale. ``mean_delta`` is the normalized
+    mean RGB channel delta. The Reader can rank primarily by changed area and
+    break ties by change strength without hiding the measurement behind an
+    opaque heuristic score.
+    """
+
+    changed_ratio: float
+    mean_delta: float
+    width: int
+    height: int
+
+    def to_payload(self) -> dict[str, float | int]:
+        return {
+            "changed_ratio": self.changed_ratio,
+            "mean_delta": self.mean_delta,
+            "width": self.width,
+            "height": self.height,
+        }
+
+
+@lru_cache(maxsize=1024)
+def _png_difference_score(before_path: str, after_path: str) -> WebPreviewDiffScore:
+    """Score two cached Chrome PNGs without invoking reviewed code again."""
+
+    try:
+        from PIL import Image, ImageChops, ImageStat
+    except ImportError as exc:  # pragma: no cover - pdfplumber normally supplies Pillow
+        raise WebPreviewUnavailable("visual route ranking requires Pillow") from exc
+
+    try:
+        with Image.open(before_path) as before_image, Image.open(after_path) as after_image:
+            before = before_image.convert("RGB")
+            after = after_image.convert("RGB")
+    except OSError as exc:
+        raise WebPreviewUnavailable(f"visual route ranking could not read a screenshot: {exc}") from exc
+    if before.size != after.size:
+        raise WebPreviewUnavailable("old/new screenshots have different dimensions")
+
+    width, height = before.size
+    pixel_count = max(1, width * height)
+    diff = ImageChops.difference(before, after)
+    means = ImageStat.Stat(diff).mean
+    mean_delta = sum(means) / (len(means) * 255.0)
+
+    # Ignore tiny anti-aliasing noise while remaining deterministic for the
+    # exact cached PNG pair. Pillow performs this in C, avoiding a Python loop
+    # over a 1440x5000 capture.
+    luminance = diff.convert("L")
+    changed_mask = luminance.point(lambda value: 255 if value >= 8 else 0)
+    changed_pixels = changed_mask.histogram()[255]
+    return WebPreviewDiffScore(
+        changed_ratio=changed_pixels / pixel_count,
+        mean_delta=mean_delta,
+        width=width,
+        height=height,
+    )
+
+
+def rank_web_preview_difference(
+    store_root: Path,
+    repo_root: Path,
+    revision: ReviewRevision,
+    *,
+    path: str,
+    route: str,
+    width: int = _CAPTURE_WIDTH,
+    height: int = _CAPTURE_HEIGHT,
+    store: ReviewStore | None = None,
+    dependency_root: Path | None = None,
+) -> WebPreviewDiffScore:
+    """Render old/new immutable screenshots and return their pixel delta."""
+
+    before = render_web_preview(
+        store_root,
+        repo_root,
+        revision,
+        path=path,
+        route=route,
+        side="old",
+        width=width,
+        height=height,
+        store=store,
+        dependency_root=dependency_root,
+    )
+    after = render_web_preview(
+        store_root,
+        repo_root,
+        revision,
+        path=path,
+        route=route,
+        side="new",
+        width=width,
+        height=height,
+        store=store,
+        dependency_root=dependency_root,
+    )
+    return _png_difference_score(str(before), str(after))
+
+
 __all__ = [
+    "WebPreviewDiffScore",
     "ensure_live_web_preview",
     "infer_web_preview_descriptor",
     "is_web_preview_path",
+    "rank_web_preview_difference",
     "render_web_preview",
 ]

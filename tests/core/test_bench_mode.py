@@ -46,6 +46,38 @@ def reset_bench_mode(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_is_off_when_env_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """LEMONCROW_BENCH_MODE=off → is_off() returns True."""
+    monkeypatch.setenv("LEMONCROW_BENCH_MODE", "off")
+    from lemoncrow.bench.mode import is_off
+
+    assert is_off() is True
+
+
+def test_is_on_when_env_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    """LEMONCROW_BENCH_MODE=on → is_off() returns False."""
+    monkeypatch.setenv("LEMONCROW_BENCH_MODE", "on")
+    from lemoncrow.bench.mode import is_off
+
+    assert is_off() is False
+
+
+def test_is_on_when_env_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Env var not set → default is bench-on → is_off() returns False."""
+    # monkeypatch already deleted LEMONCROW_BENCH_MODE in autouse fixture
+    from lemoncrow.bench.mode import is_off
+
+    assert is_off() is False
+
+
+def test_is_off_case_insensitive(monkeypatch: pytest.MonkeyPatch) -> None:
+    """LEMONCROW_BENCH_MODE=OFF (uppercase) → is_off() returns True."""
+    monkeypatch.setenv("LEMONCROW_BENCH_MODE", "OFF")
+    from lemoncrow.bench.mode import is_off
+
+    assert is_off() is True
+
+
 # ---------------------------------------------------------------------------
 # MODE-03 — bootstrap() idempotency
 # ---------------------------------------------------------------------------
@@ -87,9 +119,53 @@ def test_mode_returns_bench_mode(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_make_arm_env_sets_root(tmp_path: Path) -> None:
+    """make_arm_env(tmp_path, mode=BenchMode.OFF) sets LEMONCROW_ROOT and LEMONCROW_BENCH_MODE=off."""
+    from lemoncrow.bench.mode import make_arm_env
+
+    env = make_arm_env(tmp_path, mode=BenchMode.OFF)
+
+    assert env["LEMONCROW_ROOT"] == str(tmp_path)
+    assert env["LEMONCROW_BENCH_MODE"] == "off"
+
+
+def test_make_arm_env_preserves_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """make_arm_env result contains pre-existing environment variables."""
+    monkeypatch.setenv("CUSTOM_TEST_VAR_12345", "sentinel_value")
+    from lemoncrow.bench.mode import make_arm_env
+
+    env = make_arm_env(tmp_path, mode=BenchMode.ON)
+
+    assert env.get("CUSTOM_TEST_VAR_12345") == "sentinel_value"
+
+
 # ---------------------------------------------------------------------------
 # MODE-04 — mcp_tool_visible_to_llm bench-off guard
 # ---------------------------------------------------------------------------
+
+
+def test_mcp_tools_hidden_bench_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """mcp_tool_visible_to_llm('compact') returns False when bench is off."""
+    monkeypatch.setenv("LEMONCROW_BENCH_MODE", "off")
+    from lemoncrow.core.environment import mcp_tool_visible_to_llm
+
+    assert mcp_tool_visible_to_llm("compact") is False
+
+
+def test_mcp_tools_visible_bench_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    """bench-on restores the normal explicit allowlist policy for MCP tools."""
+    monkeypatch.setenv("LEMONCROW_BENCH_MODE", "on")
+    from lemoncrow.core.environment import mcp_tool_visible_to_llm
+
+    assert mcp_tool_visible_to_llm("compact") is False
+
+
+def test_bench_off_overrides_dev_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """bench-off hides the public MCP surface (MODE-04)."""
+    monkeypatch.setenv("LEMONCROW_BENCH_MODE", "off")
+    from lemoncrow.core.environment import mcp_tool_visible_to_llm
+
+    assert mcp_tool_visible_to_llm("compact") is False
 
 
 # ---------------------------------------------------------------------------
@@ -130,33 +206,3 @@ def test_compression_passthrough(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert result.reduction_pct == 0.0
     assert result.dropped == []
-
-
-def test_bench_mode_environment_contract(monkeypatch: pytest.MonkeyPatch) -> None:
-    from lemoncrow.bench.mode import is_off
-
-    for value, expected in [("off", True), ("OFF", True), ("on", False), (None, False)]:
-        monkeypatch.setattr(_bm, "_mode", None)
-        if value is None:
-            monkeypatch.delenv("LEMONCROW_BENCH_MODE", raising=False)
-        else:
-            monkeypatch.setenv("LEMONCROW_BENCH_MODE", value)
-        assert is_off() is expected, value
-
-
-def test_make_arm_env_contract(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    from lemoncrow.bench.mode import make_arm_env
-
-    monkeypatch.setenv("CUSTOM_TEST_VAR_12345", "sentinel_value")
-    off = make_arm_env(tmp_path, mode=BenchMode.OFF)
-    assert off["LEMONCROW_ROOT"] == str(tmp_path) and off["LEMONCROW_BENCH_MODE"] == "off"
-    assert off["CUSTOM_TEST_VAR_12345"] == "sentinel_value"
-
-
-def test_mcp_visibility_stays_hidden_across_bench_modes(monkeypatch: pytest.MonkeyPatch) -> None:
-    from lemoncrow.core.environment import mcp_tool_visible_to_llm
-
-    for value in ("off", "on"):
-        monkeypatch.setattr(_bm, "_mode", None)
-        monkeypatch.setenv("LEMONCROW_BENCH_MODE", value)
-        assert mcp_tool_visible_to_llm("compact") is False

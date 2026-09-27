@@ -62,8 +62,6 @@ from pathlib import Path
 from typing import Final
 
 from .gitindex import GitIndex, locate_index, read_index
-from .manifest import WalkCacheStats
-from .worktrees import WorktreeCatalog
 
 __all__ = [
     "CACHE_DIRECTORY",
@@ -156,6 +154,23 @@ class WalkCacheProof:
             and self.manifest_root
             and self.manifest_chunk_rows > 0
         )
+
+
+@dataclass(frozen=True, slots=True)
+class WalkCacheStats:
+    """Where one walk's digests came from. Reported, so the claim is checkable."""
+
+    reused_by_path: int = 0
+    reused_by_blob: int = 0
+    hashed: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.reused_by_path + self.reused_by_blob + self.hashed
+
+    @property
+    def reused(self) -> int:
+        return self.reused_by_path + self.reused_by_blob
 
 
 @dataclass
@@ -343,7 +358,6 @@ class WalkCache:
         manifest_root: str = "",
         manifest_chunk_rows: int = 0,
         manifest_chunk_ids: Sequence[str] = (),
-        generation_entry_count: int | None = None,
     ) -> CacheWrite | None:
         """The bytes to persist and the stale caches to drop, or ``None``.
 
@@ -377,10 +391,6 @@ class WalkCache:
             f"{_FORMAT} {self.started_ns} {len(self.fresh_path)} {proof} {revision} "
             f"{root} {manifest_chunk_rows} {chunk_token}"
         ]
-        if generation_entry_count is not None:
-            # Git-only proofs have no per-path stat rows. Keep the independent
-            # generation row count so header validation still checks chunk counts.
-            head[0] += f" {generation_entry_count}"
         head.extend(
             f"{relpath}{_FIELD}{identity}{_FIELD}{digest}"
             for relpath, (identity, digest) in sorted(self.fresh_path.items())
@@ -447,10 +457,10 @@ def peek_walk_cache_proof(state_dir: Path, repo_root: Path) -> WalkCacheProof:
         header = raw[:-1].decode("utf-8", "strict").split(" ")
     except UnicodeDecodeError:
         return WalkCacheProof()
-    if len(header) not in {8, 9} or header[0] != _FORMAT:
+    if len(header) != 8 or header[0] != _FORMAT:
         return WalkCacheProof()
     try:
-        entry_count = int(header[8] if len(header) == 9 else header[2])
+        entry_count = int(header[2])
         chunk_rows = int(header[6])
     except ValueError:
         return WalkCacheProof()
@@ -483,41 +493,21 @@ def peek_walk_cache_proof(state_dir: Path, repo_root: Path) -> WalkCacheProof:
     )
 
 
-def _read_parsed_cache(
-    target: Path,
-) -> tuple[dict[str, tuple[str, str]], dict[str, str], str, str, str, int, tuple[str, ...]] | None:
+def load_walk_cache(state_dir: Path, repo_root: Path) -> WalkCache:
+    """Read the cache for ``repo_root``. Anything unreadable is an empty cache."""
+    cache = WalkCache(repo_root=repo_root)
+    target = cache_path(state_dir, repo_root)
     try:
         if target.stat().st_size > _MAX_CACHE_BYTES:
-            return None
+            return cache
         raw = target.read_bytes()
     except OSError:
-        return None
+        return cache
     try:
         text = raw.decode("utf-8", "surrogatepass")
     except UnicodeDecodeError:
-        return None
-    return _parse(text)
-
-
-def _linked_blob_cache(state_dir: Path, repo_root: Path) -> dict[str, str]:
-    """Blob digests learned by one sibling checkout of the same Git repository."""
-
-    current = repo_root.resolve()
-    for entry in WorktreeCatalog(current).entries():
-        root = entry.root.resolve()
-        if root == current:
-            continue
-        parsed = _read_parsed_cache(cache_path(state_dir, root))
-        if parsed is not None and parsed[1]:
-            return parsed[1]
-    return {}
-
-
-def load_walk_cache(state_dir: Path, repo_root: Path) -> WalkCache:
-    """Read this checkout's cache and import safe blob proofs from one linked checkout."""
-
-    cache = WalkCache(repo_root=repo_root)
-    parsed = _read_parsed_cache(cache_path(state_dir, repo_root))
+        return cache
+    parsed = _parse(text)
     if parsed is not None:
         (
             cache.by_path,
@@ -528,14 +518,6 @@ def load_walk_cache(state_dir: Path, repo_root: Path) -> WalkCache:
             cache.manifest_chunk_rows,
             cache.manifest_chunk_ids,
         ) = parsed
-    # Git blob ids are repository content identities, unlike path stat data and
-    # whole-worktree proofs. A linked checkout can therefore contribute only the
-    # blob->sha256 map safely; its paths/fingerprint/manifest proof stay local.
-    if not cache.by_blob:
-        for oid, digest in _linked_blob_cache(state_dir, repo_root).items():
-            if len(cache.by_blob) >= _MAX_BLOBS:
-                break
-            cache.by_blob.setdefault(oid, digest)
     return cache
 
 
@@ -547,7 +529,7 @@ def _parse(
     header = next(rows, "").split(" ")
     if not header:
         return None
-    if header[0] != _FORMAT or len(header) not in {8, 9}:
+    if header[0] != _FORMAT or len(header) != 8:
         return None
     marker = _FORMAT
     workspace_fingerprint = "" if header[3] == "-" else header[3]

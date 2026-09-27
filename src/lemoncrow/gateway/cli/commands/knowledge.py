@@ -1,109 +1,113 @@
-"""``lc knowledge`` — Project Knowledge first, then the legacy review overlay."""
+"""``lc knowledge`` — local review knowledge base (extract + view)."""
 
 from __future__ import annotations
 
 import os
-from pathlib import Path
-from typing import Any
 
 import click
 
-from lemoncrow.gateway.cli.commands._shared import _emit
-from lemoncrow.gateway.cli.commands.project_knowledge import register_project_knowledge_commands
+from lemoncrow.gateway.cli.commands._shared import _emit, require_pro
 
 
 @click.group("knowledge")
 def knowledge_group() -> None:
-    """Project Knowledge (repository history) and the legacy review overlay."""
+    """Local review knowledge base: distil rules from .lessons; view the overlay."""
 
 
-def _project_knowledge(root: Path) -> dict[str, Any]:
-    """The stored repositories under *root*; never creates the store."""
-    from lemoncrow.pro.capabilities.review.project_knowledge import ProjectKnowledgeStore
-    from lemoncrow.pro.capabilities.review.project_knowledge_surface import (
-        SYNC_COMMAND,
-        LocalKnowledgeSources,
-        knowledge_listing,
+@knowledge_group.command("extract")
+@click.option(
+    "--host",
+    default="auto",
+    show_default=True,
+    type=click.Choice(["auto", "claude", "codex", "ollama"]),
+    help="Model backend: auto (LemonCrow owned routing) or a host CLI.",
+)
+@click.option("--model", default="", help="Model id (required for ollama; optional elsewhere).")
+@click.option("--max-items", type=int, default=20, show_default=True, help="Max .lessons blocks to read.")
+@click.option(
+    "--max-spend",
+    "max_spend",
+    type=float,
+    default=0.50,
+    show_default=True,
+    help="Hard USD cap; aborts if the estimate exceeds it.",
+)
+@click.option("--dry-run", is_flag=True, help="Show rules without writing the overlay.")
+@click.option(
+    "--scope",
+    type=click.Choice(["repo", "personal"]),
+    default="repo",
+    show_default=True,
+    help="repo = team-shared (.lemoncrow/review.json, committable); personal = per-user.",
+)
+@click.option("--json", "as_json", is_flag=True)
+@click.pass_context
+def knowledge_extract_cmd(
+    ctx: click.Context,
+    host: str,
+    model: str,
+    max_items: int,
+    max_spend: float,
+    dry_run: bool,
+    scope: str,
+    as_json: bool,
+) -> None:
+    """Distil durable review rules from .lessons into the review overlay."""
+    require_pro("reasoning_library", "The review knowledge base")
+
+    from lemoncrow.pro.capabilities.knowledge_extract import extract_rules
+
+    repo_root = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
+    result = extract_rules(
+        ctx.obj["root"],
+        repo_root,
+        host=host,
+        model=model,
+        max_items=max_items,
+        max_spend_usd=max_spend,
+        dry_run=dry_run,
+        scope=scope,
     )
-    from lemoncrow.pro.capabilities.review.store import DB_NAME, ReviewStore
-
-    if not (root / DB_NAME).is_file():
-        return {"repositories": [], "truncated": False, "sync_command": SYNC_COMMAND}
-    listing = knowledge_listing(ProjectKnowledgeStore(ReviewStore(root)), LocalKnowledgeSources(root))
-    return {key: listing[key] for key in ("repositories", "truncated", "sync_command")}
+    if as_json:
+        _emit(result, as_json=True)
+        return
+    if result.get("error"):
+        raise click.ClickException(str(result["error"]))
+    if result.get("reason"):
+        click.echo(result["reason"])
+        return
+    rules = result["rules"]
+    click.echo(
+        f"Extracted {len(rules)} rule(s) from {result['sources']} lessons "
+        f"(host={result['host']}, est ${result['estimated_cost_usd']})."
+    )
+    for rule in rules:
+        click.echo(f"  - {rule}")
+    if dry_run:
+        click.echo("(dry run — overlay not modified)")
+    else:
+        click.echo(f"Applied {result['applied']} new rule(s) to {result['overlay']}.")
+        if result.get("scope") == "repo":
+            click.echo("Commit .lemoncrow/review.json (and .lessons/) to share these with your team.")
 
 
 @knowledge_group.command("show")
 @click.option("--json", "as_json", is_flag=True)
 @click.pass_context
 def knowledge_show_cmd(ctx: click.Context, as_json: bool) -> None:
-    """Show Project Knowledge, then the legacy review overlays (team and personal)."""
+    """Show the review overlays — team (repo) and personal."""
     from lemoncrow.pro.capabilities.live_reviewer.knowledge import load_overlay, load_repo_overlay
-    from lemoncrow.pro.capabilities.review.project_knowledge_surface import LEGACY_OVERLAY_NOTE
 
     repo_root = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
     team = load_repo_overlay(repo_root)
     personal = load_overlay(ctx.obj["root"])
-    knowledge = _project_knowledge(Path(ctx.obj["root"]))
     if as_json:
-        _emit(
-            {
-                "project_knowledge": knowledge,
-                "legacy_overlay_note": LEGACY_OVERLAY_NOTE,
-                "team": team,
-                "personal": personal,
-            },
-            as_json=True,
-        )
+        _emit({"team": team, "personal": personal}, as_json=True)
         return
-    click.echo("Project Knowledge (repository history; advisory context, never Review policy)")
-    if not knowledge["repositories"]:
-        click.echo(f"  nothing synced yet: {knowledge['sync_command']}")
-    for row in knowledge["repositories"]:
-        source = row.get("source") or {}
-        name = source.get("repository_key") or row["repository_id"][:23]
-        counts = row["entries"]
-        click.echo(
-            f"  {name} {row['canonical_ref']}: {counts['deterministic'] + counts['source_document']} source-backed "
-            f"entries, {counts['ai_narrated']} AI narratives (updated {row['updated_at']})"
-        )
-    click.echo("")
-    click.echo(f"Legacy review overlay. {LEGACY_OVERLAY_NOTE}")
     for label, overlay in (("team (repo, shared)", team), ("personal (you)", personal)):
-        click.echo(f"[legacy overlay: {label}]")
+        click.echo(f"[{label}]")
         for key in ("notes", "boost", "suppress"):
             values = overlay.get(key) or []
             click.echo(f"  {key} ({len(values)}):")
             for value in values:
                 click.echo(f"    - {value}")
-
-
-@knowledge_group.command("overlay-patch")
-@click.option("--include-personal", is_flag=True, help="Also convert your personal overlay into the shared document.")
-@click.option("--json", "as_json", is_flag=True)
-@click.pass_context
-def knowledge_overlay_patch_cmd(ctx: click.Context, include_personal: bool, as_json: bool) -> None:
-    """Convert the legacy review overlay into a reviewable document (a patch; nothing is written).
-
-    The document is advisory context, never a Review rule; review.json itself is left alone.
-    """
-    from lemoncrow.pro.capabilities.live_reviewer.knowledge import load_overlay, load_repo_overlay
-    from lemoncrow.pro.capabilities.review.project_knowledge_surface import legacy_overlay_patch
-
-    repo_root = os.environ.get("CLAUDE_WORKSPACE_ROOT", os.getcwd())
-    proposal = legacy_overlay_patch(
-        load_repo_overlay(repo_root), load_overlay(ctx.obj["root"]) if include_personal else None
-    )
-    if proposal is None:
-        if as_json:
-            _emit({"patch": None}, as_json=True)
-        else:
-            click.echo("No legacy review overlay to convert.", err=True)
-        return
-    if as_json:
-        _emit(proposal, as_json=True)
-    else:
-        click.echo(proposal["patch"], nl=False)
-
-
-register_project_knowledge_commands(knowledge_group)

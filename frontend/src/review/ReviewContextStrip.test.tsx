@@ -1,4 +1,3 @@
-import { Button as UiButton } from "../components/ui/button";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Clock3, GitCompareArrows, TriangleAlert } from "lucide-react";
@@ -23,9 +22,9 @@ describe("ReviewContextStrip", () => {
         chipLabel: "Historical",
         detail: "Snapshot 3 · read-only",
         testId: "historical-revision-banner",
-        actions: <UiButton unstyled type="button">Back to latest · Snapshot 5</UiButton>,
+        actions: <button type="button">Back to latest · Snapshot 5</button>,
       },
-      { id: "source", tone: "sky", icon: GitCompareArrows, label: "New revision available", chipLabel: "New revision available · 2 files", onActivate: openHistory },
+      { id: "source", tone: "sky", icon: GitCompareArrows, label: "New Snapshot available", chipLabel: "New Snapshot available · 2 files", onActivate: openHistory },
       {
         id: "failures",
         tone: "amber",
@@ -42,7 +41,7 @@ describe("ReviewContextStrip", () => {
     expect(within(strip).getByText("Historical")).toBeTruthy();
     expect(within(strip).getByRole("button", { name: "Back to latest · Snapshot 5" })).toBeTruthy();
     expect(within(strip).queryByText("Capture current source")).toBeNull();
-    await userEvent.click(within(strip).getByRole("button", { name: "New revision available · 2 files" }));
+    await userEvent.click(within(strip).getByRole("button", { name: "New Snapshot available · 2 files" }));
     expect(openHistory).toHaveBeenCalledTimes(1);
     expect(within(strip).getByText("Review evidence unavailable: offline")).toBeTruthy();
     expect(document.querySelectorAll(".review-context-strip")).toHaveLength(1);
@@ -51,11 +50,11 @@ describe("ReviewContextStrip", () => {
   it("announces blocking signals assertively", () => {
     render(
       <ReviewContextStrip
-        signals={[{ id: "advanced", tone: "rose", icon: Clock3, role: "alert", label: "Revision updated elsewhere", chipLabel: "Revision updated elsewhere" }]}
+        signals={[{ id: "advanced", tone: "rose", icon: Clock3, role: "alert", label: "Snapshot updated elsewhere", chipLabel: "Snapshot updated elsewhere" }]}
       />,
     );
     const strip = screen.getByRole("alert");
     expect(strip.getAttribute("aria-live")).toBe("assertive");
-    expect(strip.textContent).toContain("Revision updated elsewhere");
+    expect(strip.textContent).toContain("Snapshot updated elsewhere");
   });
 });

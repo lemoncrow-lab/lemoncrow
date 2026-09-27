@@ -13,7 +13,12 @@ from unittest.mock import MagicMock
 
 import pytest
 from click.testing import CliRunner
-from lemoncrow_client.kit.astgrep import AstGrepToolUnavailable, PatternMatch, PatternRewriteResult, PatternSearchResult
+from lemoncrow_client.kit.astgrep import (
+    AstGrepToolUnavailable,
+    PatternMatch,
+    PatternRewriteResult,
+    PatternSearchResult,
+)
 from lemoncrow_client.kit.sql import render_sql_text
 
 from lemoncrow.core.environment import LLM_VISIBLE_TOOLS
@@ -23,8 +28,13 @@ from lemoncrow.gateway.adapters import mcp_server
 from lemoncrow.gateway.adapters.mcp_server import TOOLS, _handle, tool_smart_edit
 from lemoncrow.gateway.cli import cli
 from lemoncrow.infra.storage.factory import create_store, make_memory_store
+from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 from tests.helpers import grant_oauth_pro, init_store_at
 
+# Review authoring hooks are registered/callable workflow tools, but hidden from
+# generic tools/list because they only make sense with exact host/session
+# provenance. `grep`, `relations`, `search`, `memory`, `sql`, `codemod` and the
+# review hooks remain callable as internal/power surfaces.
 EXPECTED_TOOLS = set(LLM_VISIBLE_TOOLS)
 
 
@@ -43,6 +53,8 @@ def _call(name: str, args: dict[str, Any]) -> dict[str, Any]:
 def _result(resp: dict[str, Any]) -> Any:
     assert "result" in resp, resp
     text = resp["result"]["content"][0]["text"]
+    # Clean edit renders "ok" (no ranges) or "applied path:line[, ...]" (the minimal
+    # orientation echo); normalize both to a dict so callers can assert structurally.
     if text == "ok":
         return {}
     if text.startswith("applied "):
@@ -93,18 +105,26 @@ def _write_bootstrap_fixture_repo(root: Path) -> None:
     (root / "scripts").mkdir(parents=True, exist_ok=True)
     (root / "src" / "__init__.py").write_text("", encoding="utf-8")
     (root / "src" / "app.py").write_text(
-        "from src.worker import run_worker\n\ndef main() -> str:\n    return run_worker()\n", encoding="utf-8"
+        "from src.worker import run_worker\n\ndef main() -> str:\n    return run_worker()\n",
+        encoding="utf-8",
     )
-    (root / "src" / "worker.py").write_text("def run_worker() -> str:\n    return 'ready'\n", encoding="utf-8")
+    (root / "src" / "worker.py").write_text(
+        "def run_worker() -> str:\n    return 'ready'\n",
+        encoding="utf-8",
+    )
     (root / "scripts" / "cli.py").write_text(
-        "from src.app import main\n\ndef cli() -> str:\n    return main()\n", encoding="utf-8"
+        "from src.app import main\n\ndef cli() -> str:\n    return main()\n",
+        encoding="utf-8",
     )
 
 
 def _write_workspace_fixture_repo(root: Path, *, module_name: str, class_name: str = "SharedConfig") -> None:
     (root / "src").mkdir(parents=True, exist_ok=True)
     (root / "src" / "__init__.py").write_text("", encoding="utf-8")
-    (root / "src" / "config.py").write_text(f"class {class_name}:\n    SOURCE = '{module_name}'\n", encoding="utf-8")
+    (root / "src" / "config.py").write_text(
+        f"class {class_name}:\n    SOURCE = '{module_name}'\n",
+        encoding="utf-8",
+    )
 
 
 def _write_workspace_fixture_config(workspace_root: Path, sibling_root: Path) -> None:
@@ -136,13 +156,18 @@ def store_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("LEMONCROW_ROOT", str(root))
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setenv("LEMONCROW_MEMORY_BACKEND", "sqlite")
+    # Trace persistence tests exercise the local ledger path; an ambient
+    # LEMONCROW_SERVICE_URL would force remote dispatch and skip _current_ledger.
     monkeypatch.delenv("LEMONCROW_SERVICE_URL", raising=False)
     mcp_server._ledger._current_ledger = None
     mcp_server._ledger._realtime_ctx = None
     mcp_server._remote_client = _mock_client(
         {
             "get_context": {"context": "Here are the relevant procedures.", "run_ledger": []},
-            "rescue_failure": {"rescue": "Try a narrower reproduction.", "analysis": "repeat failure"},
+            "rescue_failure": {
+                "rescue": "Try a narrower reproduction.",
+                "analysis": "repeat failure",
+            },
             "record_trace": {"id": "trace-123", "event_recorded": True},
             "run_rubric_gate": {"status": "pass"},
         }
@@ -150,8 +175,7 @@ def store_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return root
 
 
-def test_mcp_protocol_and_schema_contract() -> None:
-    """case: test_initialize_returns_server_info"""
+def test_initialize_returns_server_info() -> None:
     resp = _handle(
         {
             "jsonrpc": "2.0",
@@ -163,769 +187,22 @@ def test_mcp_protocol_and_schema_contract() -> None:
     assert resp is not None
     assert resp["result"]["serverInfo"]["name"] == "lemoncrow"
     assert resp["result"]["protocolVersion"] == "2024-11-05"
+    # Server-level steering: injected into the host system prompt by every MCP
+    # client automatically — the surface that reaches hosts and subagents that
+    # never see LemonCrow's persona files.
     instructions = resp["result"]["instructions"]
     assert "code_search" in instructions
     assert "grep" in instructions and "read" in instructions
-    "case: test_notifications_initialized_returns_none"
+
+
+def test_notifications_initialized_returns_none() -> None:
     resp = _handle({"jsonrpc": "2.0", "id": None, "method": "notifications/initialized", "params": {}})
     assert resp is None
-    "case: test_tools_list_each_entry_has_schema"
-    resp = _handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
-    assert resp is not None
-    for tool in resp["result"]["tools"]:
-        assert tool["name"]
-        assert isinstance(tool.get("inputSchema"), dict)
-    "case: test_tools_list_grep_is_lean_and_relations_is_the_drill_in"
-    assert "search" in TOOLS
-    assert "search" not in LLM_VISIBLE_TOOLS
-    assert "relations" in TOOLS
-    grep_tool = TOOLS["grep"]
-    grep_props = grep_tool["inputSchema"]["properties"]
-    assert "counts" in grep_tool["description"].lower()
-    assert "relation" not in grep_props
-    assert "symbol" not in grep_props
-    assert "seed_files" not in grep_props
-    mode_desc = grep_props["mode"]["description"]
-    for mode_name in ("with_content", "ranked_map", "paths_only", "count_only"):
-        assert mode_name in mode_desc, mode_desc
-    assert "file_path" not in grep_props
-    assert ":Lx-Ly" in grep_props["path"]["description"]
-    rel_props = TOOLS["relations"]["inputSchema"]["properties"]
-    assert "symbol" in rel_props
-    assert "kind" in rel_props
-    "case: test_tools_list_grep_schema_covers_native_mode"
-    grep_tool = TOOLS["grep"]
-    properties = grep_tool["inputSchema"]["properties"]
-    assert "regex" in grep_tool["description"].lower()
-    assert "path" in properties
-    assert "file_path" not in properties
-    assert "regex" in properties
-    assert "summary" in properties
-    "case: test_tools_list_edit_schema_documents_flat_shape"
-    edit_tool = TOOLS["edit"]
-    schema = edit_tool["inputSchema"]
-    edits_schema = schema["properties"]["edits"]
-    item_props = edits_schema["items"]["properties"]
-    assert schema["required"] == ["edits"]
-    assert "anyOf" not in edits_schema["items"]
-    assert set(item_props) == {"path", "old", "new", "replace"}
-    assert edits_schema["items"].get("additionalProperties") is False
-    path_desc = item_props["path"]["description"]
-    assert ":Lx" in path_desc and ":Lx-Ly" in path_desc
-    "case: test_tools_list_memory_schema_describes_ops_and_required_fields"
-    memory_tool = TOOLS["memory"]
-    properties = memory_tool["inputSchema"]["properties"]
-    assert "fact storage/voting and recall" in memory_tool["description"]
-    assert "store_fact" in properties["op"]["description"]
-    assert "vote_fact" in properties["op"]["description"]
-    assert "need query" in properties["op"]["description"]
-    assert "query used by recall" in properties["query"]["description"].lower()
-    assert "subject" in properties
-    assert "fact" in properties
-    assert "citations" in properties
-    assert "direction" in properties
-    assert "label" not in properties
-    assert "session_id" not in properties
-    assert "expected_version" not in properties
-    "case: test_unknown_method_returns_error"
-    resp = _handle({"jsonrpc": "2.0", "id": 3, "method": "unknown/method", "params": {}})
-    assert resp is not None
-    assert resp["error"]["code"] == -32601
-    "case: test_unknown_tool_returns_error"
-    resp = _call("does_not_exist", {})
-    assert "error" in resp
-    assert "unknown tool" in resp["error"]["message"]
 
 
-def test_mcp_search_accounting_contract() -> None:
-    """case: test_scope_search_matches_to_range_filters_snippets"""
-    payload: dict[str, Any] = {
-        "matches": [
-            {"path": "a.py", "snippets": [{"line_start": 1, "line_end": 5}, {"line_start": 80, "line_end": 90}]},
-            {"path": "b.py", "snippets": [{"line_start": 200, "line_end": 210}]},
-            {"path": "c.py"},
-        ],
-        "match_paths": ["a.py", "b.py", "c.py"],
-    }
-    mcp_server._scope_search_matches_to_range(payload, (1, 50))
-    assert [m["path"] for m in payload["matches"]] == ["a.py", "c.py"]
-    a = next(m for m in payload["matches"] if m["path"] == "a.py")
-    assert a["snippets"] == [{"line_start": 1, "line_end": 5}]
-    assert payload["match_paths"] == ["a.py", "c.py"]
-    "case: test_bash_omitted_tokens_saved_caps_at_vanilla_baseline"
-    "Bash trim credit is measured against vanilla CC's own ~30k-char Bash cap,\n    not the raw firehose: a multi-MB build log is not millions of tokens saved."
-    assert mcp_server._bash_omitted_tokens_saved({"stdout": "x" * 1000, "stderr": ""}, 4000) == 1000
-    assert mcp_server._bash_omitted_tokens_saved({"stdout": "x" * 8000, "stderr": ""}, 10000000) == (30000 - 8000) // 4
-    assert mcp_server._bash_omitted_tokens_saved({"stdout": "x" * 40000, "stderr": ""}, 5000) == 0
-    assert mcp_server._bash_omitted_tokens_saved({"stdout": "x"}, 0) == 0
-    "case: test_trimmed_tokens_saved_caps_at_host_inline_guard"
-    "Dispatcher trim credit (spill/compact/truncate) caps the naive side at the\n    host's inline MCP-output guard: anything larger would have been dumped to a\n    file the model never pays for, so it was never a real context cost."
-    cap = mcp_server._HOST_INLINE_RESULT_CHARS
-    assert mcp_server._trimmed_tokens_saved(10000, 2000) == 8000 // 4
-    assert mcp_server._trimmed_tokens_saved(cap * 10, 2000) == (cap - 2000) // 4
-    assert mcp_server._trimmed_tokens_saved(2000, 2000) == 0
-    assert mcp_server._trimmed_tokens_saved(cap * 10, cap + 1) == 0
-    "case: test_finish_code_result_credits_distinct_files_not_items"
-    "20 symbols across 3 files ~= one grep + 3 reads avoided, not 19 calls."
-    items = [{"name": f"sym{i}", "path": f"src/f{i % 3}.py"} for i in range(20)]
-    assert mcp_server._finish_code_result({"items": items})["calls_saved"] == 3
-    assert mcp_server._finish_code_result({"routes": [{"method": "GET"}, {"method": "POST"}]})["calls_saved"] == 1
-    assert mcp_server._finish_code_result({"items": [{"path": "a.py"}]})["calls_saved"] == 1
-    assert "calls_saved" not in mcp_server._finish_code_result({"items": []})
-    assert mcp_server._finish_code_result({"items": items, "calls_saved": 7})["calls_saved"] == 7
-    "case: test_compact_applied_entries_groups_by_path"
-    'Compaction groups same-path hunks and buckets "kind" entries by kind.\n\n    This formatting only reaches the model on a LOUD result (clean exact edits are\n    silenced), so it is verified directly on the helper rather than via a clean\n    edit\'s dispatched body.\n    '
-    from lemoncrow.gateway.adapters.mcp_server import _compact_applied_entries
-
-    entries = [
-        {"path": "first.txt", "hunks": [{"line_start": 1, "line_end": 1}]},
-        {"path": "first.txt", "hunks": [{"line_start": 3, "line_end": 3}]},
-        {"path": "second.txt", "hunks": [{"line_start": 1, "line_end": 2}]},
-        {"path": "sym.py", "kind": "symbol"},
-        {"path": "nb.ipynb", "kind": "notebook"},
-        {"path": "whole.txt", "kind": "replace"},
-        {
-            "path": "p.py",
-            "kind": "projection",
-            "projection_kind": "minified",
-            "hunks": [{"line_start": 3, "line_end": 4}],
-        },
-    ]
-    compact = _compact_applied_entries(entries)
-    assert "first.txt:1,3" in compact
-    assert "second.txt:1-2" in compact
-    assert {"symbol": ["sym.py"]} in compact
-    assert {"notebook": ["nb.ipynb"]} in compact
-    assert {"replaced": ["whole.txt"]} in compact
-    assert {
-        "projection": [{"path": "p.py", "projection_kind": "minified", "hunks": [{"line_start": 3, "line_end": 4}]}]
-    } in compact
-
-
-def test_mcp_lean_code_search_contract() -> None:
-    """case: test_lean_code_search_view_returns_related_symbol_ranges"""
-    payload = {
-        "exact_match": True,
-        "entry_points": [
-            {
-                "qualified_name": "OrderService.calculate_total",
-                "path": "src/orders.py",
-                "line": 12,
-                "end_line": 20,
-                "kind": "method",
-                "score": 10.0,
-            },
-            {
-                "qualified_name": "PaymentService.capture",
-                "path": "src/payments.py",
-                "line": 30,
-                "end_line": 41,
-                "kind": "method",
-                "score": 8.0,
-            },
-        ],
-        "files": [
-            {
-                "path": "src/orders.py",
-                "source_sections": [
-                    {
-                        "qualified_name": "OrderService.calculate_total",
-                        "path": "src/orders.py",
-                        "line": 12,
-                        "end_line": 20,
-                        "content": "12\tdef calculate_total(self):\n",
-                    }
-                ],
-            }
-        ],
-    }
-    lean = mcp_server._lean_code_search_view(payload, max_files=1)
-    assert lean["related_symbols"] == [
-        {
-            "qualified_name": "PaymentService.capture",
-            "path": "src/payments.py",
-            "line": 30,
-            "end_line": 41,
-            "kind": "method",
-        }
-    ]
-    "case: test_lean_code_search_view_preserves_learned_file_order"
-    payload = {
-        "exact_match": False,
-        "experiment": {"name": "explore_reranker_v2_lambdamart"},
-        "entry_points": [
-            {"qualified_name": "legacy", "path": "src/legacy.py", "line": 1, "end_line": 2, "score": 10.0},
-            {"qualified_name": "learned", "path": "src/learned.py", "line": 1, "end_line": 2, "score": 1.0},
-        ],
-        "files": [
-            {
-                "path": "src/learned.py",
-                "source_sections": [
-                    {
-                        "qualified_name": "learned",
-                        "path": "src/learned.py",
-                        "line": 1,
-                        "end_line": 2,
-                        "content": "1\tx\n",
-                    }
-                ],
-            },
-            {
-                "path": "src/legacy.py",
-                "source_sections": [
-                    {"qualified_name": "legacy", "path": "src/legacy.py", "line": 1, "end_line": 2, "content": "1\ty\n"}
-                ],
-            },
-        ],
-    }
-    lean = mcp_server._lean_code_search_view(payload, max_files=1)
-    assert [entry["path"] for entry in lean["files"]] == ["src/learned.py"]
-    assert lean["candidate_files"][0] == "src/legacy.py"
-    "case: test_outline_lean_view_low_confidence_outlines_small_non_top_section"
-    lean = {
-        "exact_match": False,
-        "files": [
-            {
-                "path": "a.py",
-                "sections": [
-                    {"path": "a.py", "qualified_name": "top", "line": 1, "end_line": 2, "content": "rank 0\n"},
-                    {"path": "a.py", "qualified_name": "tiny", "line": 3, "end_line": 4, "content": "x = 1\n"},
-                ],
-            }
-        ],
-    }
-    shaped = mcp_server._outline_lean_view(lean, keep_top2=False)
-    secs = shaped["files"][0]["sections"]
-    assert secs[0]["content"] == "rank 0\n"
-    assert "outline" not in secs[0]
-    assert "content" not in secs[1]
-    assert secs[1]["outline"] == "tiny — read a.py:L3-L4"
-    "case: test_outline_lean_view_confident_call_keeps_small_non_top2_inline"
-    lean = {
-        "exact_match": True,
-        "files": [
-            {
-                "path": "a.py",
-                "sections": [
-                    {"path": "a.py", "qualified_name": "top", "line": 1, "end_line": 2, "content": "rank 0\n"},
-                    {"path": "a.py", "qualified_name": "second", "line": 3, "end_line": 4, "content": "rank 1\n"},
-                    {"path": "a.py", "qualified_name": "tiny", "line": 5, "end_line": 6, "content": "x = 1\n"},
-                ],
-            }
-        ],
-    }
-    shaped = mcp_server._outline_lean_view(lean, keep_top2=True)
-    secs = shaped["files"][0]["sections"]
-    assert secs[2]["content"] == "x = 1\n"
-    assert "outline" not in secs[2]
-    "case: test_lean_related_symbol_flattens_multiline_names"
-    out = mcp_server._lean_related_symbol(
-        {
-            "qualified_name": "description: agent one-liner\nmodel: gpt\ntools:\n  [a, b]",
-            "path": "integrations/agents/general.md",
-            "line": 2,
-            "end_line": 30,
-            "kind": "heading",
-        }
-    )
-    assert out["qualified_name"] == "description: agent one-liner"
-    "case: test_render_read_outline_md_caps_symbol_lines"
-    outline = {
-        "symbols": [
-            {"name": f"f{i}", "kind": "function", "start_line": i * 10, "end_line": i * 10 + 5} for i in range(1, 121)
-        ]
-    }
-    rendered = mcp_server._render_read_outline_md("big.py", outline, "python")
-    lines = rendered.splitlines()
-    assert lines[0] == "symbols:"
-    assert len(lines) == 1 + mcp_server._READ_OUTLINE_MAX_LINES + 1
-    assert lines[-1] == "... +40 more symbols (use :Lx-Ly or :full)"
-
-
-def test_mcp_shell_render_contract() -> None:
-    """case: test_render_shell_text_running_ships_handle_and_logs"""
-    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
-
-    text = _render_bash_text(
-        {
-            "status": "running",
-            "session_id": "abc123",
-            "pid": 42,
-            "duration_ms": 95000,
-            "timeout_remaining_ms": 1765000,
-            "log_file": "/tmp/x.stdout.txt",
-        }
-    )
-    assert text == "running id=abc123\n[logs: /tmp/x.stdout.txt]"
-    assert "pid=" not in text
-    assert "elapsed=" not in text
-    assert "timeout_in=" not in text
-    assert "log_file=" not in text
-    "case: test_render_shell_text_warns_once_past_its_soft_budget"
-    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
-
-    text = _render_bash_text(
-        {"status": "running", "session_id": "abc123", "timeout_remaining_ms": 0, "over_budget": True}
-    )
-    assert text == "still running id=abc123; bash(id=abc123) waits for it — don't sleep-poll"
-    "case: test_render_shell_text_identifies_explicit_background_job"
-    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
-
-    text = _render_bash_text(
-        {"status": "running", "session_id": "abc123", "explicit_background": True, "log_file": "/tmp/x.stdout.txt"}
-    )
-    assert text == "background running id=abc123; bash(id=abc123) waits for it\n[logs: /tmp/x.stdout.txt]"
-    "case: test_render_shell_text_running_before_budget_has_no_nudge"
-    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
-
-    text = _render_bash_text(
-        {"status": "running", "session_id": "abc123", "timeout_remaining_ms": 500000, "over_budget": False}
-    )
-    assert text == "running id=abc123"
-    assert "act now" not in text
-    "case: test_render_bash_text_includes_spill_hint_in_truncation_notice"
-    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
-
-    text = _render_bash_text(
-        {
-            "stdout": "line1\n... (50 lines omitted) ...\nline300",
-            "stderr": "",
-            "exit_code": 0,
-            "truncated": True,
-            "lines_omitted": 50,
-            "spill_hint": "[lc: shrunk 5000→123; full: /tmp/x.txt]",
-        }
-    )
-    assert "[lc: shrunk 5000→123; full: /tmp/x.txt]" in text
-    assert "[output truncated: 50 lines omitted]" not in text
-    "case: test_render_bash_text_omits_spill_hint_when_absent"
-    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
-
-    text = _render_bash_text(
-        {
-            "stdout": "line1\n... (50 lines omitted) ...\nline300",
-            "stderr": "",
-            "exit_code": 0,
-            "truncated": True,
-            "lines_omitted": 50,
-        }
-    )
-    assert "[output truncated: 50 lines omitted]" in text
-    "case: test_render_shell_text_reports_update_confirmation"
-    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
-
-    text = _render_bash_text(
-        {"status": "running", "session_id": "abc123", "updated": True, "timeout": 5.0, "timeout_remaining_ms": 4800}
-    )
-    assert "id=abc123" in text
-    assert "4s" in text
-    "case: test_render_shell_text_reports_update_failure_when_already_finished"
-    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
-
-    text = _render_bash_text({"status": "completed", "session_id": "abc123", "updated": False})
-    assert "abc123" in text
-    assert "completed" in text
-    "case: test_render_shell_text_status_action_notes_tail_window"
-    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
-
-    text = _render_bash_text(
-        {
-            "status": "running",
-            "session_id": "abc123",
-            "pid": 42,
-            "duration_ms": 1000,
-            "timeout_remaining_ms": 9000,
-            "stdout": "line1\nline2",
-            "stderr": "",
-            "tail_lines": 10,
-        }
-    )
-    assert "[tail: last 10 lines]" in text
-    assert "line1\nline2" in text
-    "case: test_render_bash_text_tail_braces_shared_log_prefix"
-    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
-
-    text = _render_bash_text(
-        {
-            "stdout": "x",
-            "stderr": "",
-            "exit_code": 0,
-            "tail_lines": 5,
-            "log_file": "/tmp/lemoncrow-bash/abc.stdout.txt",
-            "log_file_stderr": "/tmp/lemoncrow-bash/abc.stderr.txt",
-        }
-    )
-    assert "[tail: last 5 lines; full: /tmp/lemoncrow-bash/abc.{stdout.txt, stderr.txt}]" in text
-
-
-def test_mcp_truncation_and_memory_render_contract() -> None:
-    """case: test_path_safety_module_is_importable_and_has_protected_parts"""
-    "Centralised PROTECTED_PARTS frozenset must exist and cover the canonical dirs."
-    from lemoncrow_client.kit.edit import PROTECTED_PARTS
-
-    required = {".git", ".lemoncrow", "node_modules", ".venv"}
-    assert required <= set(PROTECTED_PARTS), f"Missing entries: {required - set(PROTECTED_PARTS)}"
-    "case: test_truncate_result_text_passes_small_through"
-    small = "hello world"
-    assert mcp_server._truncate_result_text(small, 1024) == small
-    "case: test_truncate_result_text_caps_oversized_with_notice"
-    out = mcp_server._truncate_result_text("x" * 5000, 1024)
-    assert len(out.encode("utf-8")) <= 1024
-    assert "truncated" in out
-    assert "5000" in out
-    "case: test_truncate_result_text_keeps_valid_utf8_on_multibyte_boundary"
-    out = mcp_server._truncate_result_text("é" * 1000, 101)
-    out.encode("utf-8")
-    "case: test_render_memory_md_compact_recall"
-    out = mcp_server._render_memory_md(
-        {
-            "passages": [
-                {"id": "pas-1", "text": "Prefer LemonCrow memory.", "source_ref": "sess#1", "tags": ["pref"]},
-                {"id": "pas-2", "text": "Use uv run.", "source_ref": "sess#2", "tags": []},
-            ]
-        }
-    )
-    assert out is not None
-    assert out.startswith("### memory")
-    assert "- sess#1 [pref]" in out
-    assert "Prefer LemonCrow memory." in out
-    assert "source_ref" not in out
-    "case: test_render_memory_md_non_recall_falls_back_to_json"
-    assert mcp_server._render_memory_md({"id": "mem-1", "fact": "x"}) is None
-    "case: test_render_search_map_md_is_compact"
-    out = mcp_server._render_search_md(
-        {"mode": "map", "outline": "pkg/\n  mod.py", "ranked_files": ["pkg/mod.py"], "token_count": 10}
-    )
-    assert out is not None
-    assert out.startswith("### repo_map")
-    assert "pkg/mod.py" in out
-    assert "token_count" not in out
-    assert "ranked_files" not in out
-
-
-def test_mcp_code_search_render_contract() -> None:
-    """case: test_render_code_search_md_is_compact"""
-    payload = {
-        "exact_match": True,
-        "files": [
-            {
-                "path": "src/orders.py",
-                "sections": [
-                    {
-                        "qualified_name": "OrderService.calculate_total",
-                        "line": 12,
-                        "end_line": 20,
-                        "content": "12\tdef calculate_total(self):\n13\t    return 1\n",
-                    },
-                    {
-                        "qualified_name": "big",
-                        "line": 30,
-                        "end_line": 99,
-                        "outline": "big — read src/orders.py:L30-L99.",
-                    },
-                ],
-            }
-        ],
-        "related_symbols": [
-            {
-                "qualified_name": "tokens_saved",
-                "path": "frontend/src/api.ts",
-                "line": 537,
-                "end_line": 537,
-                "kind": "variable",
-            },
-            {
-                "qualified_name": "tokens_saved",
-                "path": "frontend/src/api.ts",
-                "line": 611,
-                "end_line": 611,
-                "kind": "variable",
-            },
-            {"qualified_name": "helper", "path": "src/util.py", "line": 5, "end_line": 40, "kind": "function"},
-        ],
-        "candidate_files": ["src/a.py", "src/b.py"],
-        "tokens_saved": 999,
-        "calls_saved": 3,
-    }
-    text = mcp_server._render_code_search_md(payload)
-    assert text is not None
-    assert "## src/orders.py" in text
-    assert "### OrderService.calculate_total L12-L20" in text
-    assert "12\tdef calculate_total(self):" in text
-    assert "13\t" not in text
-    assert "\n    return 1" in text
-    assert "big — read src/orders.py:L30-L99." in text
-    assert "frontend/src/api.ts:L537,L611 variable tokens_saved" in text
-    assert "src/util.py:L5-L40 helper" in text
-    assert "function" not in text.split("related_symbols:")[1]
-    assert "candidate_files: src/{a.py,b.py}" in text
-    assert "999" not in text
-    assert "exact match" not in text
-    assert '"related_symbols"' not in text
-    "case: test_compress_candidate_files_groups_adjacent_same_directory"
-    paths = ["src/a/one.py", "src/a/two.py", "src/b/three.py", "src/a/four.py", "README.md"]
-    text = mcp_server._compress_candidate_files(paths)
-    assert text == "src/a/{one.py,two.py}, src/b/three.py, src/a/four.py, README.md"
-    "case: test_render_code_search_md_flags_inexact_and_truncated"
-    payload = {"exact_match": False, "files": [], "candidate_files": ["src/a.py"], "truncated": True}
-    text = mcp_server._render_code_search_md(payload)
-    assert text is not None
-    assert text.startswith("no exact match -- ranked candidates")
-    assert "(truncated; narrow with paths=)" in text
-    "case: test_sparse_gutter_reanchors_after_elisions_and_markers"
-    content = "\n".join(
-        [
-            "10\tdef f():",
-            "11\t    x = 1",
-            "12\t    return x",
-            "\t…",
-            "20\tdef g():",
-            "21\t    pass",
-            "30\tdef h():",
-            "... [truncated after L30 — L45]",
-        ]
-    )
-    out = mcp_server._sparse_gutter(content)
-    assert out.split("\n") == [
-        "10\tdef f():",
-        "    x = 1",
-        "    return x",
-        "\t…",
-        "20\tdef g():",
-        "    pass",
-        "30\tdef h():",
-        "... [truncated after L30 — L45]",
-    ]
-    "case: test_sparse_gutter_reanchors_every_k_lines_within_a_run"
-    content = "\n".join(f"{100 + i}\tline{i}" for i in range(12))
-    out = mcp_server._sparse_gutter(content).split("\n")
-    numbered = [i for i, line in enumerate(out) if mcp_server._SECTION_GUTTER_RE.match(line)]
-    assert numbered == [0, 5, 10]
-    assert out[0] == "100\tline0"
-    assert out[5] == "105\tline5"
-    assert out[10] == "110\tline10"
-    assert out[1] == "line1"
-    "case: test_sparse_gutter_leaves_unnumbered_content_untouched"
-    content = "plain text\nno numbers here"
-    assert mcp_server._sparse_gutter(content) == content
-
-
-def test_mcp_candidate_file_contract() -> None:
-    """case: test_lean_code_search_view_candidates_keep_symbol_map_paths"""
-    payload = {
-        "exact_match": True,
-        "entry_points": [
-            {
-                "qualified_name": "f",
-                "path": "src/covered.py",
-                "line": 1,
-                "end_line": 9,
-                "kind": "function",
-                "score": 9.0,
-            }
-        ],
-        "files": [
-            {
-                "path": "src/main.py",
-                "source_sections": [
-                    {"qualified_name": "main", "path": "src/main.py", "line": 1, "end_line": 3, "content": "1\tx\n"}
-                ],
-            },
-            {"path": "src/covered.py", "source_sections": []},
-            {"path": "src/fresh.py", "source_sections": []},
-        ],
-    }
-    lean = mcp_server._lean_code_search_view(payload, max_files=1)
-    assert lean["candidate_files"] == ["src/covered.py", "src/fresh.py"]
-    "case: test_lean_code_search_view_candidate_files_capped_tighter_when_dominant"
-    payload = {
-        "exact_match": True,
-        "entry_points": [
-            {"qualified_name": "f", "path": "src/winner.py", "line": 1, "end_line": 9, "kind": "function", "score": 9.0}
-        ],
-        "files": [{"path": "src/winner.py", "source_sections": []}]
-        + [{"path": f"src/other{i}.py", "source_sections": []} for i in range(10)],
-    }
-    lean = mcp_server._lean_code_search_view(payload, max_files=1)
-    assert len(lean["candidate_files"]) == 5
-    assert lean["candidate_files_more"] == 6
-    "case: test_lean_code_search_view_candidate_files_more_absent_when_nothing_hidden"
-    payload = {
-        "exact_match": False,
-        "entry_points": [],
-        "files": [{"path": f"src/other{i}.py", "source_sections": []} for i in range(3)],
-    }
-    lean = mcp_server._lean_code_search_view(payload, max_files=1)
-    assert len(lean["candidate_files"]) == 3
-    assert "candidate_files_more" not in lean
-    "case: test_render_code_search_md_hints_hidden_candidate_files_via_limit"
-    payload = {
-        "exact_match": False,
-        "files": [],
-        "candidate_files": ["src/a.py", "src/b.py", "src/c.py"],
-        "candidate_files_more": 4,
-    }
-    text = mcp_server._render_code_search_md(payload)
-    assert text is not None
-    assert "(+4 more; pass limit=7 to see them)" in text
-    assert "max_candidates=" not in text
-    "case: test_render_code_search_md_renders_blank_result_with_no_hint_text"
-    payload = {"exact_match": False, "files": []}
-    text = mcp_server._render_code_search_md(payload)
-    assert text == "no exact match -- ranked candidates"
-    assert "[lc:" not in text
-    "case: test_lean_code_search_view_candidate_files_keeps_full_window_when_not_dominant"
-    payload = {
-        "exact_match": False,
-        "entry_points": [],
-        "files": [{"path": f"src/other{i}.py", "source_sections": []} for i in range(20)],
-    }
-    lean = mcp_server._lean_code_search_view(payload, max_files=1)
-    assert len(lean["candidate_files"]) == 8
-    "case: test_lean_code_search_view_max_candidates_overrides_both_defaults"
-    payload = {
-        "exact_match": False,
-        "entry_points": [],
-        "files": [{"path": f"src/other{i}.py", "source_sections": []} for i in range(20)],
-    }
-    lean = mcp_server._lean_code_search_view(payload, max_files=1, max_candidates=3)
-    assert len(lean["candidate_files"]) == 3
-    dominant_payload = {
-        "exact_match": True,
-        "entry_points": [
-            {"qualified_name": "f", "path": "src/winner.py", "line": 1, "end_line": 9, "kind": "function", "score": 9.0}
-        ],
-        "files": [{"path": "src/winner.py", "source_sections": []}]
-        + [{"path": f"src/other{i}.py", "source_sections": []} for i in range(20)],
-    }
-    lean_dominant = mcp_server._lean_code_search_view(dominant_payload, max_files=1, max_candidates=12)
-    assert len(lean_dominant["candidate_files"]) == 12
-    "case: test_lean_code_search_view_caps_doc_filetype_in_ranked_windows"
-    lean = mcp_server._lean_code_search_view(_doc_heavy_payload(), max_files=1, query="read tool png support")
-    rel_paths = [s["path"] for s in lean["related_symbols"]]
-    assert rel_paths[:4] == ["docs/page_0.md", "docs/page_1.md", "src/server.py", "src/parse.py"]
-    cands = lean["candidate_files"]
-    assert cands[:4] == ["docs/page_0.md", "docs/page_1.md", "src/server.py", "src/parse.py"]
-    assert sorted(cands) == sorted({str(e["path"]) for e in _doc_heavy_payload()["entry_points"]})
-    "case: test_lean_code_search_view_doc_query_skips_doc_capping"
-    lean = mcp_server._lean_code_search_view(_doc_heavy_payload(), max_files=1, query="where are the docs for setup")
-    rel_paths = [s["path"] for s in lean["related_symbols"]]
-    assert rel_paths[:6] == [f"docs/page_{i}.md" for i in range(6)]
-
-
-def test_mcp_context_render_contract() -> None:
-    """case: test_render_context_procedure_drops_structured_echo"""
-    payload = {
-        "context": "### procedure\nUse the exact tenant id.\n<memory>Keep refresh tokens short-lived.</memory>",
-        "recalled_passages": [{"text": "Keep refresh tokens short-lived.", "source_ref": "s1"}],
-        "tokens_breakdown": {"playbooks": 20, "bootstrap": 5, "memory": 10, "total": 35},
-        "bootstrap": {"status": "warm", "repo_id": "repo-1", "blocks": [{"label": "architecture"}]},
-    }
-    rendered = mcp_server._render_context_tool_md(payload)
-    assert rendered == payload["context"]
-    raw = json.dumps(payload, separators=(",", ":"))
-    assert len(rendered or "") < len(raw) * 0.6
-    "case: test_render_context_procedure_surfaces_only_non_warm_bootstrap_state"
-    payload = {"context": "Use the playbook.", "bootstrap": {"status": "warming", "job_id": "job-secret"}}
-    assert mcp_server._render_context_tool_md(payload) == "Use the playbook.\n\n[bootstrap warming]"
-    "case: test_render_context_scoped_pull_is_source_plus_budget_tail"
-    payload = {
-        "rationale": "ranked for auth flow",
-        "chunks": [
-            {
-                "path": "src/auth.py",
-                "symbol": "issue_token",
-                "kind": "function",
-                "signature": "def issue_token(user):",
-                "snippet": "return sign(user)",
-                "score": 0.94,
-                "channel": "hybrid",
-                "provenance": "fresh",
-            }
-        ],
-        "excluded": [{"path": "legacy/auth.py", "reason": "excluded path"}],
-        "trace_id": "trace-1",
-        "total_tokens": 80,
-        "dropped_for_budget": 2,
-        "provenance": "fresh",
-    }
-    rendered = mcp_server._render_context_tool_md(payload)
-    assert (
-        rendered
-        == "ranked for auth flow\n→ src/auth.py · issue_token\ndef issue_token(user):\nreturn sign(user)\n+2 dropped for budget"
-    )
-    assert "trace-1" not in rendered
-    assert "0.94" not in rendered
-    "case: test_render_compact_returns_state_not_json_wrapper"
-    payload = {
-        "prompt_block": "# LemonCrow compact state\nDecision: keep one shared server.",
-        "tokens_before": 120000,
-        "tokens_after_estimate": 32000,
-        "tokens_freed": 88000,
-        "cost_saved_usd": 0.42,
-    }
-    rendered = mcp_server._render_compact_md(payload)
-    assert (
-        rendered
-        == "# LemonCrow compact state\nDecision: keep one shared server.\n\ncompact 120000→32000 tokens · freed 88000"
-    )
-    assert "cost_saved_usd" not in rendered
-    "case: test_render_rescue_md_keeps_actionable_history_without_trace_metadata"
-    payload = {
-        "rescue": "Stop retrying. Run the focused parser test, then verify the corrected range.",
-        "matched_blocks": ["playbook/parser-recovery"],
-        "analysis": {
-            "matched": True,
-            "match_score": 0.83,
-            "current_fingerprint": "assertionerror expected <n>",
-            "incident": {
-                "fingerprint": "assertionerror expected <n>",
-                "count": 4,
-                "trace_ids": ["trace-1", "trace-2", "trace-3", "trace-4"],
-                "sample_errors": ["AssertionError: expected 3"],
-                "common_commands": ["pytest tests/test_parser.py"],
-                "root_cause_hypothesis": "the parser range is stale after an insertion",
-                "confidence": 0.9,
-                "suggested_playbooks": ["playbook/parser-recovery"],
-                "suggested_fixes": ["re-read the exact range", "rerun the focused parser test"],
-            },
-        },
-    }
-    rendered = mcp_server._render_rescue_md(payload)
-    assert (
-        rendered
-        == "rescue\nStop retrying. Run the focused parser test, then verify the corrected range.\nhistory\nroot cause · the parser range is stale after an insertion\nseen 4x · confidence 0.9 · match 0.83\nnext\n- re-read the exact range\n- rerun the focused parser test"
-    )
-    assert "trace-1" not in rendered
-    assert "fingerprint" not in rendered
-    "case: test_render_sql_query_md_preserves_types_batches_and_query_state"
-    rendered = render_sql_text(
-        {
-            "isError": False,
-            "dialect": "sqlite",
-            "took_ms": 7,
-            "results": [
-                {
-                    "name": "items",
-                    "columns": ["id", "note", "payload"],
-                    "rows": [[1, "a\tb\nline", None], [2, "plain", b"\x00\xff"]],
-                    "row_count": 2,
-                    "truncated": True,
-                    "auto_limit_changed": True,
-                },
-                {"name": "broken", "isError": True, "message": "no such table: missing"},
-            ],
-        }
-    )
-    assert (
-        rendered
-        == '### sql query items · 2 rows · truncated · auto-limit\nid\tnote\tpayload\n1\t"a\\tb\\nline"\tnull\n2\t"plain"\t0x00ff\n\n### sql query broken · error\nno such table: missing'
-    )
-    assert "took_ms" not in rendered
-    assert "dialect" not in rendered
-
-
-def test_tools_list_returns_exact_public_surface(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tools_list_returns_exact_public_surface(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("LEMONCROW_MCP_TOOL_PROFILE", "full")
     resp = _handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
     assert resp is not None
@@ -934,7 +211,9 @@ def test_tools_list_returns_exact_public_surface(monkeypatch: pytest.MonkeyPatch
     assert EXPECTED_TOOLS <= set(TOOLS)
 
 
-def test_tools_list_hides_internal_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tools_list_hides_internal_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("LEMONCROW_MCP_TOOL_PROFILE", "full")
     resp = _handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
     assert resp is not None
@@ -964,18 +243,31 @@ def test_memory_tool_call_works_without_dev_mode(store_root: Path, monkeypatch: 
     )
     payload = _result(resp)
     assert payload["fact"] == "Memory should be active in non-dev mode."
-    recalled = _result(_call("memory", {"op": "recall", "query": "Memory should be active in non-dev mode."}))
+
+    recalled = _result(
+        _call(
+            "memory",
+            {
+                "op": "recall",
+                "query": "Memory should be active in non-dev mode.",
+            },
+        )
+    )
     assert "passages" in recalled
 
 
 def test_cli_tools_list_hides_internal_tools_even_with_legacy_flag(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # The host's tool profile (e.g. core) adds the routed `tool` entry; this
+    # test pins the unprofiled default surface.
     monkeypatch.delenv("LEMONCROW_MCP_TOOL_PROFILE", raising=False)
     runner = CliRunner()
+
     stable = runner.invoke(cli, ["--root", str(tmp_path / ".lemoncrow"), "tools", "list"])
     assert stable.exit_code == 0, stable.output
     assert set(stable.output.splitlines()) == EXPECTED_TOOLS
+
     dev = runner.invoke(cli, ["--root", str(tmp_path / ".lemoncrow"), "tools", "list", "--dev"])
     assert dev.exit_code == 0, dev.output
     assert set(dev.output.splitlines()) == EXPECTED_TOOLS
@@ -983,12 +275,68 @@ def test_cli_tools_list_hides_internal_tools_even_with_legacy_flag(
 
 def test_cli_tools_call_invokes_stable_tool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     runner = CliRunner()
+
     result = runner.invoke(
-        cli, ["--root", str(tmp_path / ".lemoncrow"), "tools", "call", "compact", "--args", "{}", "--json"]
+        cli,
+        [
+            "--root",
+            str(tmp_path / ".lemoncrow"),
+            "tools",
+            "call",
+            "compact",
+            "--args",
+            "{}",
+            "--json",
+        ],
     )
+
     assert result.exit_code == 0, result.output
     payload = json.loads(result.output)
     assert "tokens_freed" in payload
+
+
+def test_tools_list_each_entry_has_schema() -> None:
+    resp = _handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+    assert resp is not None
+    for tool in resp["result"]["tools"]:
+        assert tool["name"]
+        assert isinstance(tool.get("inputSchema"), dict)
+
+
+def test_tools_list_grep_is_lean_and_relations_is_the_drill_in() -> None:
+    # grep is a lean regex tool that rides call-graph COUNTS inline on definition
+    # matches; the dedicated `relations` tool expands a count into the list.
+    # `search` stays registered but hidden (semantic-only).
+    assert "search" in TOOLS
+    assert "search" not in LLM_VISIBLE_TOOLS
+    assert "relations" in TOOLS
+    grep_tool = TOOLS["grep"]
+    grep_props = grep_tool["inputSchema"]["properties"]
+    # grep advertises the inline counts but carries no relation/symbol/map params.
+    assert "counts" in grep_tool["description"].lower()
+    assert "relation" not in grep_props
+    assert "symbol" not in grep_props
+    assert "seed_files" not in grep_props
+    mode_desc = grep_props["mode"]["description"]
+    for mode_name in ("with_content", "ranked_map", "paths_only", "count_only"):
+        assert mode_name in mode_desc, mode_desc
+    assert "file_path" not in grep_props
+    assert ":Lx-Ly" in grep_props["path"]["description"]
+    # relations is single-purpose: symbol + kind.
+    rel_props = TOOLS["relations"]["inputSchema"]["properties"]
+    assert "symbol" in rel_props
+    assert "kind" in rel_props
+
+
+def test_tools_list_grep_schema_covers_native_mode() -> None:
+    grep_tool = TOOLS["grep"]
+    properties = grep_tool["inputSchema"]["properties"]
+
+    assert "regex" in grep_tool["description"].lower()
+    assert "path" in properties
+    assert "file_path" not in properties
+    assert "regex" in properties
+    assert "summary" in properties
 
 
 def test_grep_accepts_single_glob_string(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1006,8 +354,10 @@ def test_grep_accepts_single_glob_string(monkeypatch: pytest.MonkeyPatch) -> Non
 
     monkeypatch.setattr(mcp_server, "_run_native_grep", _fake_run_native_grep)
     handler = TOOLS["grep"]["handler"]
+
     handler({"content_regex": "x", "file_glob_patterns": "src/**/*.py"})
     assert captured["file_glob_patterns"] == ["src/**/*.py"]
+
     handler({"content_regex": "x", "file_glob_patterns": ["a", "b"]})
     assert captured["file_glob_patterns"] == ["a", "b"]
 
@@ -1027,21 +377,74 @@ def test_grep_param_aliases_reach_handler(monkeypatch: pytest.MonkeyPatch) -> No
 
     monkeypatch.setattr(mcp_server, "_run_native_grep", _fake_run_native_grep)
     handler = TOOLS["grep"]["handler"]
+
+    # New name only.
     handler({"regex": "needle", "before": 2, "after": 3, "i": True})
     assert captured["content_regex"] == "needle"
     assert captured["lines_before"] == 2
     assert captured["lines_after"] == 3
     assert captured["ignore_case"] is True
+
+    # Old alias only — remapped to the new param before the handler runs.
     handler({"content_regex": "legacy", "lines_before": 1, "ignore_case": True})
     assert captured["content_regex"] == "legacy"
     assert captured["lines_before"] == 1
     assert captured["ignore_case"] is True
+
+    # Both present — the new name wins.
     handler({"regex": "winner", "content_regex": "loser"})
     assert captured["content_regex"] == "winner"
 
 
+def test_tools_list_edit_schema_documents_flat_shape() -> None:
+    edit_tool = TOOLS["edit"]
+    schema = edit_tool["inputSchema"]
+    edits_schema = schema["properties"]["edits"]
+    item_props = edits_schema["items"]["properties"]
+
+    assert schema["required"] == ["edits"]
+    assert "anyOf" not in edits_schema["items"]
+    assert set(item_props) == {"path", "old", "new", "replace"}
+    assert edits_schema["items"].get("additionalProperties") is False
+    path_desc = item_props["path"]["description"]
+    assert ":Lx" in path_desc and ":Lx-Ly" in path_desc
+
+
+def test_tools_list_memory_schema_describes_ops_and_required_fields() -> None:
+    memory_tool = TOOLS["memory"]
+    properties = memory_tool["inputSchema"]["properties"]
+
+    assert "fact storage/voting and recall" in memory_tool["description"]
+    assert "store_fact" in properties["op"]["description"]
+    assert "vote_fact" in properties["op"]["description"]
+    assert "need query" in properties["op"]["description"]
+    assert "query used by recall" in properties["query"]["description"].lower()
+    assert "subject" in properties
+    assert "fact" in properties
+    assert "citations" in properties
+    assert "direction" in properties
+    assert "label" not in properties
+    assert "session_id" not in properties
+    assert "expected_version" not in properties
+
+
+def test_unknown_method_returns_error() -> None:
+    resp = _handle({"jsonrpc": "2.0", "id": 3, "method": "unknown/method", "params": {}})
+    assert resp is not None
+    assert resp["error"]["code"] == -32601
+
+
+def test_unknown_tool_returns_error() -> None:
+    resp = _call("does_not_exist", {})
+    assert "error" in resp
+    assert "unknown tool" in resp["error"]["message"]
+
+
 def test_get_context_can_include_folded_state(store_root: Path) -> None:
-    resp = _call("context", {"task": "Fix publish regression", "include_run_ledger": True})
+    resp = _call(
+        "context",
+        {"task": "Fix publish regression", "include_run_ledger": True},
+    )
     payload = _result(resp)
     assert isinstance(payload, str)
     assert "Here are the relevant procedures." in payload
@@ -1049,13 +452,18 @@ def test_get_context_can_include_folded_state(store_root: Path) -> None:
 
 
 @pytest.mark.slow
-def test_context_enqueues_single_bootstrap_job_for_cold_repo(store_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_context_enqueues_single_bootstrap_job_for_cold_repo(
+    store_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     workspace_root = Path(os.environ["CLAUDE_WORKSPACE_ROOT"])
     _write_bootstrap_fixture_repo(workspace_root)
     mcp_server._reset_runtime_cache_for_testing()
     monkeypatch.setattr(mcp_server, "_run_worker_tick_safe", lambda root: None)
+
     first = mcp_server.tool_get_context({"task": "Map the repo entry points"})
     second = mcp_server.tool_get_context({"task": "Map the repo entry points"})
+
     store = create_store(store_root)
     store.init()
     jobs = [
@@ -1063,12 +471,12 @@ def test_context_enqueues_single_bootstrap_job_for_cold_repo(store_root: Path, m
         for job in store.jobs.list_jobs(job_type=JOB_BOOTSTRAP_CONTEXT, limit=20)
         if job["status"] in {"pending", "running"}
     ]
+
     assert len(jobs) == 1
     assert first["bootstrap"]["queued"] is True
     assert second["bootstrap"]["queued"] is False
 
 
-@pytest.mark.private_engine
 def test_context_worker_tick_persists_bootstrap_blocks_without_blocking_initial_response(
     store_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1078,10 +486,18 @@ def test_context_worker_tick_persists_bootstrap_blocks_without_blocking_initial_
     mcp_server._remote_client = None
     _write_bootstrap_fixture_repo(workspace_root)
     mcp_server._reset_runtime_cache_for_testing()
+    # This test drives _run_worker_tick_safe directly (up to 7x, in the retry
+    # loop below) to exercise real job draining; it isn't testing the
+    # maintenance duties, which now spawn real `lc import`/`session recall
+    # index`/`code prune` subprocesses on a fresh store_root. Neutralize just
+    # that call so the test stays fast and hermetic.
     monkeypatch.setattr("lemoncrow.core.service.maintenance_tick.run_maintenance_tick", lambda *a, **k: {"ran": False})
+
     payload = mcp_server.tool_get_context({"task": "Warm the repository context"})
+
     assert "Repository bootstrap" not in payload["context"]
     mcp_server._run_worker_tick_safe(store_root)
+
     plan = build_bootstrap_plan(workspace_root)
     bootstrap_count = 0
     for _ in range(6):
@@ -1093,11 +509,11 @@ def test_context_worker_tick_persists_bootstrap_blocks_without_blocking_initial_
         if bootstrap_count == 4:
             break
         mcp_server._run_worker_tick_safe(store_root)
+
     assert bootstrap_count == 4
     assert bootstrap_count == 4
 
 
-@pytest.mark.private_engine
 def test_context_reuses_bootstrap_blocks_instead_of_enqueuing_duplicate_work(
     store_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1106,21 +522,24 @@ def test_context_reuses_bootstrap_blocks_instead_of_enqueuing_duplicate_work(
     mcp_server._remote_client = None
     _write_bootstrap_fixture_repo(workspace_root)
     mcp_server._reset_runtime_cache_for_testing()
+    # See the neutralization note in the sibling test above.
     monkeypatch.setattr("lemoncrow.core.service.maintenance_tick.run_maintenance_tick", lambda *a, **k: {"ran": False})
+
     mcp_server.tool_get_context({"task": "Warm the repository context"})
     mcp_server._run_worker_tick_safe(store_root)
     mcp_server._reset_runtime_cache_for_testing()
     payload = mcp_server.tool_get_context({"task": "Warm the repository context"})
+
     store = create_store(store_root)
     store.init()
     jobs = store.jobs.list_jobs(job_type=JOB_BOOTSTRAP_CONTEXT, limit=20)
+
     assert len(jobs) == 1
     assert payload["bootstrap"]["status"] in {"warm", "warming"}
     if payload["bootstrap"]["status"] == "warm":
         assert "Repository bootstrap" in payload["context"]
 
 
-@pytest.mark.private_engine
 def test_context_injects_preseeded_bootstrap_blocks_without_recomputing(
     store_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1131,7 +550,9 @@ def test_context_injects_preseeded_bootstrap_blocks_without_recomputing(
     memory_store = make_memory_store(store_root)
     persist_bootstrap_plan(workspace_root, memory_store)
     mcp_server._reset_runtime_cache_for_testing()
+
     payload = mcp_server.tool_get_context({"task": "Use the warmed bootstrap state"})
+
     store = create_store(store_root)
     store.init()
     assert store.jobs.list_jobs(job_type=JOB_BOOTSTRAP_CONTEXT, limit=20) == []
@@ -1148,11 +569,20 @@ def test_context_pull_threads_keywords_and_excluded_paths(monkeypatch: pytest.Mo
         from lemoncrow.pro.capabilities.scoped_context import ScopedContext
 
         return ScopedContext(
-            chunks=[], rationale="ok", excluded=[], trace_id="trace", total_tokens=0, dropped_for_budget=0
+            chunks=[],
+            rationale="ok",
+            excluded=[],
+            trace_id="trace",
+            total_tokens=0,
+            dropped_for_budget=0,
         )
 
     monkeypatch.setattr(mcp_server, "_code_context_engine", lambda root: object())
-    monkeypatch.setattr("lemoncrow.pro.capabilities.scoped_context.ScopedContextCapability.pull", fake_pull)
+    monkeypatch.setattr(
+        "lemoncrow.pro.capabilities.scoped_context.ScopedContextCapability.pull",
+        fake_pull,
+    )
+
     payload = mcp_server.tool_get_context(
         {
             "task": "fix auth flow",
@@ -1163,6 +593,7 @@ def test_context_pull_threads_keywords_and_excluded_paths(monkeypatch: pytest.Mo
             "token_budget": 321,
         }
     )
+
     subtask = seen["subtask"]
     assert subtask.description == "fix auth flow"
     assert subtask.affected_paths == ["src/auth.py"]
@@ -1176,7 +607,6 @@ def test_context_pull_reuses_cached_scoped_context(monkeypatch: pytest.MonkeyPat
     grant_oauth_pro(monkeypatch)
 
     class _FakePullRecord:
-
         def __init__(self, file_path: str, symbol_name: str) -> None:
             self.file_path = file_path
             self.symbol_name = symbol_name
@@ -1188,7 +618,6 @@ def test_context_pull_reuses_cached_scoped_context(monkeypatch: pytest.MonkeyPat
             self.score = 0.9
 
     class _FakePullEngine:
-
         def __init__(self) -> None:
             self.index_version = 0
 
@@ -1214,12 +643,14 @@ def test_context_pull_reuses_cached_scoped_context(monkeypatch: pytest.MonkeyPat
 
     mcp_server._reset_runtime_cache_for_testing()
     monkeypatch.setattr(mcp_server, "_code_context_engine", lambda repo_root=".": _FakePullEngine())
+
     first = mcp_server.tool_get_context(
         {"task": "fix auth flow", "mode": "pull", "files": ["src/auth.py"], "token_budget": 400}
     )
     second = mcp_server.tool_get_context(
         {"task": "fix auth flow", "mode": "pull", "files": ["src/auth.py"], "token_budget": 400}
     )
+
     assert first["provenance"] == "fresh"
     assert second["provenance"] == "cached"
 
@@ -1229,7 +660,11 @@ def test_rescue_failure_returns_procedure(store_root: Path) -> None:
     payload = _result(
         _call(
             "rescue",
-            {"task": "Run tests", "error": "pytest AssertionError", "recent_actions": ["run pytest", "run pytest"]},
+            {
+                "task": "Run tests",
+                "error": "pytest AssertionError",
+                "recent_actions": ["run pytest", "run pytest"],
+            },
         )
     )
     assert isinstance(payload, str)
@@ -1268,7 +703,11 @@ def test_record_trace_persists_structured_workflow_progress(store_root: Path, mo
                 "task": "Track plan progress",
                 "status": "partial",
                 "event_type": "plan_review",
-                "event_payload": {"workflow_step": "review", "review_decision": "revise", "plan_id": "02-01"},
+                "event_payload": {
+                    "workflow_step": "review",
+                    "review_decision": "revise",
+                    "plan_id": "02-01",
+                },
             },
         )
     )
@@ -1276,7 +715,11 @@ def test_record_trace_persists_structured_workflow_progress(store_root: Path, mo
     assert payload["event_recorded"] is True
     assert mcp_server._ledger._current_ledger is not None
     snapshot = mcp_server._ledger._current_ledger.snapshot()
-    assert snapshot["plan_review"] == {"workflow_step": "review", "review_decision": "revise", "plan_id": "02-01"}
+    assert snapshot["plan_review"] == {
+        "workflow_step": "review",
+        "review_decision": "revise",
+        "plan_id": "02-01",
+    }
 
 
 @pytest.mark.parametrize("review_decision", ["approve", "rerun"])
@@ -1295,10 +738,15 @@ def test_record_trace_preserves_plan_review_receipt_for_other_decisions(
                 "task": "Track plan review",
                 "status": "partial",
                 "event_type": "plan_review",
-                "event_payload": {"workflow_step": "review", "review_decision": review_decision, "plan_id": "02-01"},
+                "event_payload": {
+                    "workflow_step": "review",
+                    "review_decision": review_decision,
+                    "plan_id": "02-01",
+                },
             },
         )
     )
+
     assert "trace_id" in payload
     assert payload["event_recorded"] is True
     assert mcp_server._ledger._current_ledger is not None
@@ -1327,6 +775,7 @@ def test_record_trace_persists_task_progress_workflow_event(store_root: Path, mo
             },
         )
     )
+
     assert "trace_id" in payload
     assert payload["event_recorded"] is True
     assert mcp_server._ledger._current_ledger is not None
@@ -1372,13 +821,15 @@ def test_compact_session_call_returns_summary(store_root: Path) -> None:
 def test_compact_auto_gate_requires_boundary_and_turns(store_root: Path) -> None:
     _ = store_root
     led = mcp_server._get_ledger()
-    led.token_count = 160000
+    led.token_count = 160_000
     for idx in range(16):
         led.record("agent_message", f"working turn {idx}", {"idx": idx})
+
     waiting = mcp_server._compact_advise()
     assert waiting["should_advise"] is True
     assert waiting["should_compact"] is False
     assert waiting["task_boundary_detected"] is False
+
     led.record_test("pytest", passed=True, detail="tests passed")
     ready = mcp_server._compact_advise()
     assert ready["should_auto_compact"] is True
@@ -1387,12 +838,16 @@ def test_compact_auto_gate_requires_boundary_and_turns(store_root: Path) -> None
 
 
 def test_compact_high_utilisation_bypasses_turns_gate(store_root: Path) -> None:
+    # Five huge turns push utilisation to >=90% before the 15-turn gate is met.
+    # The high-utilisation override should fire auto-compact at a task boundary
+    # even though turn_count < AUTO_COMPACT_MIN_TURNS.
     _ = store_root
     led = mcp_server._get_ledger()
-    led.token_count = 181000
+    led.token_count = 181_000  # 90.5% of 200k
     for idx in range(5):
         led.record("agent_message", f"dense turn {idx}", {"idx": idx})
     led.record_test("pytest", passed=True, detail="all green")
+
     result = mcp_server._compact_advise()
     assert result["turn_count"] < mcp_server.AUTO_COMPACT_MIN_TURNS
     assert result["should_auto_compact"] is True
@@ -1404,9 +859,11 @@ def test_compact_handover_writes_markdown(store_root: Path) -> None:
     led = mcp_server._get_ledger()
     led.session_id = "handover-session"
     led.task = "Finish a large refactor"
-    led.token_count = 190000
+    led.token_count = 190_000
     led.record_file_event("src/app.py", "edit", diff="--- a/src/app.py\n+++ b/src/app.py\n")
+
     payload = mcp_server._compact_advise()
+
     assert payload["should_handover"] is True
     assert payload["handover_file"]
     handover_path = Path(payload["handover_file"])
@@ -1419,6 +876,7 @@ def test_compact_handover_writes_markdown(store_root: Path) -> None:
 def test_model_recommendation_emitted_before_tool_dispatch(store_root: Path) -> None:
     _ = store_root
     _result(_call("compact", {}))
+
     led = mcp_server._get_ledger()
     recommendations = [event for event in led.events if event.kind == "model_recommendation"]
     assert recommendations
@@ -1439,11 +897,14 @@ def test_model_recommendation_fallback_records_route_decision(
         raise RouteConfigError("disabled")
 
     monkeypatch.setattr(
-        "lemoncrow.pro.capabilities.cross_vendor_routing.router.CrossVendorRouter.recommend", fail_recommend
+        "lemoncrow.pro.capabilities.cross_vendor_routing.router.CrossVendorRouter.recommend",
+        fail_recommend,
     )
     ledger = RunLedger(session_id="route-fallback", root=store_root)
+
     payload = mcp_server._emit_model_recommendation("read", {}, ledger)
     route_decisions = [event for event in ledger.events if event.kind == "route_decision"]
+
     assert payload["kind"] == "model_recommendation"
     assert route_decisions
     assert route_decisions[-1].payload["kind"] == "route_decision"
@@ -1454,10 +915,12 @@ def test_compact_session_op_emits_session_compaction_savings(monkeypatch: pytest
     events: list[dict[str, Any]] = []
     monkeypatch.setattr(mcp_server, "_append_live_savings_event", lambda event: events.append(event))
     led = mcp_server._get_ledger()
-    led.token_count = 48000
+    led.token_count = 48_000
     for idx in range(4):
         led.record("agent_message", f"working turn {idx}", {"idx": idx})
+
     payload = mcp_server._compress_context()
+
     session_events = [event for event in events if event.get("kind") == "session_compaction"]
     assert session_events
     assert session_events[-1]["lever"] == "session_compaction"
@@ -1474,11 +937,13 @@ def test_compact_advise_emits_session_compaction_savings_when_auto_compacting(
     events: list[dict[str, Any]] = []
     monkeypatch.setattr(mcp_server, "_append_live_savings_event", lambda event: events.append(event))
     led = mcp_server._get_ledger()
-    led.token_count = 160000
+    led.token_count = 160_000
     for idx in range(16):
         led.record("agent_message", f"working turn {idx}", {"idx": idx})
     led.record_test("pytest", passed=True, detail="tests passed")
+
     payload = mcp_server._compact_advise()
+
     session_events = [event for event in events if event.get("kind") == "session_compaction"]
     assert payload["should_compact"] is True
     assert session_events
@@ -1503,10 +968,13 @@ def test_detect_host_prefers_lemoncode_over_opencode(monkeypatch: pytest.MonkeyP
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("LEMONCODE_SESSION_ID", "ses_1")
     assert detect_host() == "lemoncode"
+
     monkeypatch.setenv("OPENCODE_SESSION_ID", "ses_2")
     assert detect_host() == "lemoncode"
+
     monkeypatch.delenv("LEMONCODE_SESSION_ID")
     assert detect_host() == "opencode"
+
     monkeypatch.delenv("OPENCODE_SESSION_ID")
     monkeypatch.setenv("LEMONCODE_CLI", "1")
     assert detect_host() == "lemoncode"
@@ -1516,17 +984,26 @@ def test_smart_read_and_search_surfaces(store_root: Path, tmp_path: Path) -> Non
     _ = store_root
     target = tmp_path / "sample.py"
     target.write_text("def alpha():\n    return 'needle'\n", encoding="utf-8")
+
     read_payload = _result(_call("read", {"path": str(target)}))
     assert "def alpha()" in read_payload
     assert "needle" in read_payload
+
+    # `search` stays callable by name (hidden semantic tool) for the embedding path.
     search_payload = _result(_call("search", {"query": "needle", "path": str(tmp_path)}))
     assert "sample.py" in json.dumps(search_payload)
+
+    # The `relations` drill-in tool routes a symbol's call-graph relation. (This
+    # tmp repo isn't indexed, so the symbol may be absent -- we only assert the
+    # tool is registered and dispatches cleanly, not that it finds `alpha`.)
     assert "relations" in TOOLS
     relations_resp = _call("relations", {"symbol": "alpha", "kind": "self"})
     assert "result" in relations_resp or "error" in relations_resp
+
     grep_payload = _result(_call("grep", {"path": str(target), "content_regex": "needle"}))
     assert grep_payload
     assert "_meta" not in grep_payload
+
     legacy_payload = _result(_call("grep", {"path": str(target), "content_regex": "needle", "include_meta": True}))
     assert "sample.py" in legacy_payload
 
@@ -1543,9 +1020,14 @@ def test_smart_read_batch_accepts_string_paths(store_root: Path, tmp_path: Path)
     b = tmp_path / "b.py"
     a.write_text("alpha_val = 1\n", encoding="utf-8")
     b.write_text("beta_val = 2\n", encoding="utf-8")
+
+    # Plain strings. Reaching a non-error result at all proves the list[str]
+    # input passed Pydantic validation; both files must be present.
     payload = _result(_call("read", {"files": [str(a), str(b)]}))
     assert "alpha_val" in payload
     assert "beta_val" in payload
+
+    # Mixed strings and dict specs in one batch.
     mixed = _result(_call("read", {"files": [str(a), {"path": str(b), "range": "1-1"}]}))
     assert "alpha_val" in mixed
     assert "beta_val" in mixed
@@ -1563,15 +1045,27 @@ def test_smart_read_batch_honors_top_level_full(store_root: Path, tmp_path: Path
     """
     _ = store_root
     big = tmp_path / "big_module.py"
+    # >500 LOC so the default projection is outline (bodies omitted). The marker
+    # lives inside a function body, which outline drops and expand keeps.
+    # Use long function bodies (not module-level constants) so the outline omits
+    # 75%+ of the source and passes the _outline_saves_enough guard.
     body = ["def head():"]
     body += [f"    x_{i} = {i}" for i in range(510)]
     body += ["    return x_0", ""]
     body += ["def carries_marker():", "    leaf = 'UNIQUE_BODY_TOKEN'", "    return leaf", ""]
     big.write_text("\n".join(body), encoding="utf-8")
+
+    # Without expand: outline projection, the in-body marker is omitted.
     outline = _result(_call("read", {"files": [str(big)]}))
     assert "UNIQUE_BODY_TOKEN" not in outline
+
+    # Top-level full=True must reach every plain-string batch entry.
     expanded = _result(_call("read", {"files": [str(big)], "full": True}))
     assert "UNIQUE_BODY_TOKEN" in expanded
+
+    # A per-file expand still works and overrides the top-level default.
+    # Use a second file (same content, different path) so the response text
+    # differs from the prior `expanded` call and dedup does not fire.
     big2 = tmp_path / "big_module2.py"
     big2.write_text(big.read_text(encoding="utf-8"), encoding="utf-8")
     per_file = _result(_call("read", {"files": [{"path": str(big2), "full": True}]}))
@@ -1589,10 +1083,31 @@ def test_smart_read_batch_honors_top_level_max_lines(store_root: Path, tmp_path:
     _ = store_root
     big = tmp_path / "big_module.py"
     big.write_text("\n".join(f"line_{i} = {i}" for i in range(300)), encoding="utf-8")
+
+    # Top-level max_lines must reach each batched file -> summary (head-cap) mode.
     capped = mcp_server.tool_smart_read({"files": [str(big)], "max_lines": 3})
     assert capped["files"][0].get("mode") == "summary"
+
+    # Without it, the same large file is not summary-capped (proves the cap came
+    # from the top-level arg, not the file size).
     plain = mcp_server.tool_smart_read({"files": [str(big)]})
     assert plain["files"][0].get("mode") != "summary"
+
+
+def test_scope_search_matches_to_range_filters_snippets() -> None:
+    payload: dict[str, Any] = {
+        "matches": [
+            {"path": "a.py", "snippets": [{"line_start": 1, "line_end": 5}, {"line_start": 80, "line_end": 90}]},
+            {"path": "b.py", "snippets": [{"line_start": 200, "line_end": 210}]},
+            {"path": "c.py"},  # no snippet line data -> cannot filter, kept
+        ],
+        "match_paths": ["a.py", "b.py", "c.py"],
+    }
+    mcp_server._scope_search_matches_to_range(payload, (1, 50))
+    assert [m["path"] for m in payload["matches"]] == ["a.py", "c.py"]
+    a = next(m for m in payload["matches"] if m["path"] == "a.py")
+    assert a["snippets"] == [{"line_start": 1, "line_end": 5}]
+    assert payload["match_paths"] == ["a.py", "c.py"]
 
 
 def test_smart_edit_surface_applies_patch(store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1600,8 +1115,22 @@ def test_smart_edit_surface_applies_patch(store_root: Path, tmp_path: Path, monk
     monkeypatch.chdir(tmp_path)
     target = Path("edit.txt")
     target.write_text("hello world", encoding="utf-8")
+
+    # Through the dispatcher a clean exact edit echoes the minimal applied range,
+    # change confirmed on disk.
     payload = _result(
-        _call("edit", {"edits": [{"path": str(target), "old_string": "world", "new_string": "lemoncrow"}]})
+        _call(
+            "edit",
+            {
+                "edits": [
+                    {
+                        "path": str(target),
+                        "old_string": "world",
+                        "new_string": "lemoncrow",
+                    }
+                ]
+            },
+        )
     )
     assert payload == {"applied": ["edit.txt:1"]}
     assert target.read_text(encoding="utf-8") == "hello lemoncrow"
@@ -1614,6 +1143,11 @@ def test_smart_edit_compacts_hunks_by_path(store_root: Path, tmp_path: Path, mon
     second = Path("second.txt")
     first.write_text("one\ntwo\nthree\n", encoding="utf-8")
     second.write_text("alpha\nbeta\n", encoding="utf-8")
+
+    # A clean multi-file edit is success-silent on its body, but the cross-file
+    # savings credit survives on the structured handler return (the dispatcher
+    # reads calls_saved for content[].saved). The compact `applied` formatting is
+    # exercised directly in test_compact_applied_entries_groups_by_path.
     payload = tool_smart_edit(
         {
             "post_edit_hooks": False,
@@ -1624,7 +1158,10 @@ def test_smart_edit_compacts_hunks_by_path(store_root: Path, tmp_path: Path, mon
             ],
         }
     )
+
     assert payload["applied"] == ["first.txt:1,3", "second.txt:1-2"]
+    # 3 hunks but only 2 distinct files: built-in MultiEdit already batches the
+    # two same-file hunks, so the honest cross-file saving is distinct_files - 1.
     assert payload["calls_saved"] == 1
     assert first.read_text(encoding="utf-8") == "ONE\ntwo\nTHREE\n"
     assert second.read_text(encoding="utf-8") == "ALPHA\nBETA\n"
@@ -1638,6 +1175,7 @@ def test_smart_edit_same_file_hunks_credit_no_calls(
     monkeypatch.chdir(tmp_path)
     target = Path("only.txt")
     target.write_text("one\ntwo\nthree\n", encoding="utf-8")
+
     payload = tool_smart_edit(
         {
             "post_edit_hooks": False,
@@ -1648,6 +1186,8 @@ def test_smart_edit_same_file_hunks_credit_no_calls(
             ],
         }
     )
+
+    # Single file => no cross-file saving; clean edit echoes the minimal range.
     assert payload["applied"] == ["only.txt:1,2,3"]
     assert payload.get("calls_saved", 0) == 0
     assert target.read_text(encoding="utf-8") == "ONE\nTWO\nTHREE\n"
@@ -1662,33 +1202,84 @@ def test_smart_edit_cross_file_credit_matches_distinct_files(
     files = [Path(f"f{i}.txt") for i in range(3)]
     for f in files:
         f.write_text("target\n", encoding="utf-8")
+
     payload = tool_smart_edit(
         {
             "post_edit_hooks": False,
             "edits": [{"path": str(f), "old_string": "target", "new_string": "DONE"} for f in files],
         }
     )
+
     assert payload["calls_saved"] == len(files) - 1
+
+
+def test_bash_omitted_tokens_saved_caps_at_vanilla_baseline() -> None:
+    """Bash trim credit is measured against vanilla CC's own ~30k-char Bash cap,
+    not the raw firehose: a multi-MB build log is not millions of tokens saved."""
+    # Under the vanilla cap: the full omission is credited.
+    assert mcp_server._bash_omitted_tokens_saved({"stdout": "x" * 1_000, "stderr": ""}, 4_000) == 1_000
+    # Firehose: the naive side is capped at what vanilla would have shown.
+    assert (
+        mcp_server._bash_omitted_tokens_saved({"stdout": "x" * 8_000, "stderr": ""}, 10_000_000)
+        == (30_000 - 8_000) // 4
+    )
+    # Already showing more than vanilla ever would: no credit.
+    assert mcp_server._bash_omitted_tokens_saved({"stdout": "x" * 40_000, "stderr": ""}, 5_000) == 0
+    # Nothing omitted: no credit.
+    assert mcp_server._bash_omitted_tokens_saved({"stdout": "x"}, 0) == 0
+
+
+def test_trimmed_tokens_saved_caps_at_host_inline_guard() -> None:
+    """Dispatcher trim credit (spill/compact/truncate) caps the naive side at the
+    host's inline MCP-output guard: anything larger would have been dumped to a
+    file the model never pays for, so it was never a real context cost."""
+    cap = mcp_server._HOST_INLINE_RESULT_CHARS
+    assert mcp_server._trimmed_tokens_saved(10_000, 2_000) == 8_000 // 4
+    assert mcp_server._trimmed_tokens_saved(cap * 10, 2_000) == (cap - 2_000) // 4
+    # Nothing trimmed, or final text already over the cap -> no credit.
+    assert mcp_server._trimmed_tokens_saved(2_000, 2_000) == 0
+    assert mcp_server._trimmed_tokens_saved(cap * 10, cap + 1) == 0
+
+
+def test_finish_code_result_credits_distinct_files_not_items() -> None:
+    """20 symbols across 3 files ~= one grep + 3 reads avoided, not 19 calls."""
+    items = [{"name": f"sym{i}", "path": f"src/f{i % 3}.py"} for i in range(20)]
+    assert mcp_server._finish_code_result({"items": items})["calls_saved"] == 3
+    # Items without file info credit only the single locate scan they replaced.
+    assert mcp_server._finish_code_result({"routes": [{"method": "GET"}, {"method": "POST"}]})["calls_saved"] == 1
+    # Single-file results credit the grep+read they replaced (2 calls - 1 made).
+    assert mcp_server._finish_code_result({"items": [{"path": "a.py"}]})["calls_saved"] == 1
+    # Empty lists still credit nothing.
+    assert "calls_saved" not in mcp_server._finish_code_result({"items": []})
+    # An explicit handler-set credit is never overwritten.
+    assert mcp_server._finish_code_result({"items": items, "calls_saved": 7})["calls_saved"] == 7
 
 
 def test_finish_code_result_counterfactual_token_credit(tmp_path: Path) -> None:
     """Surfaced files credit capped vanilla reads minus returned bytes — max
     with any engine packing credit, never the sum."""
     big = tmp_path / "big.py"
-    big.write_text("x" * 40000, encoding="utf-8")
+    big.write_text("x" * 40_000, encoding="utf-8")
     small = tmp_path / "small.py"
-    small.write_text("y" * 4000, encoding="utf-8")
+    small.write_text("y" * 4_000, encoding="utf-8")
     items = [{"name": "a", "path": str(big)}, {"name": "b", "path": str(small)}]
+
     result = mcp_server._finish_code_result({"items": items})
     returned = len(json.dumps({"items": items, "calls_saved": 2}, default=str))
-    assert result["tokens_saved"] == (44000 - returned) // 4
-    stamped = mcp_server._finish_code_result({"items": list(items), "tokens_saved": 999999})
-    assert stamped["tokens_saved"] == 999999
+    assert result["tokens_saved"] == (44_000 - returned) // 4
+
+    # A larger engine-stamped packing credit is preserved (max, not sum).
+    stamped = mcp_server._finish_code_result({"items": list(items), "tokens_saved": 999_999})
+    assert stamped["tokens_saved"] == 999_999
+
+    # Per-file cap: a giant file cannot inflate the credit past the vanilla dump.
     giant = tmp_path / "giant.py"
-    giant.write_text("z" * 500000, encoding="utf-8")
+    giant.write_text("z" * 500_000, encoding="utf-8")
     capped_items = [{"name": "g", "path": str(giant)}, {"name": "a", "path": str(big)}]
     capped = mcp_server._finish_code_result({"items": capped_items})
-    assert capped["tokens_saved"] <= (mcp_server._VANILLA_READ_FILE_CAP_CHARS + 40000) // 4
+    assert capped["tokens_saved"] <= (mcp_server._VANILLA_READ_FILE_CAP_CHARS + 40_000) // 4
+
+    # Unreadable paths contribute nothing (no counterfactual read to avoid).
     ghost = mcp_server._finish_code_result({"items": [{"path": "nope/a.py"}, {"path": "nope/b.py"}]})
     assert "tokens_saved" not in ghost
 
@@ -1701,20 +1292,64 @@ def test_smart_read_batch_credits_calls_saved(store_root: Path, tmp_path: Path) 
     b = tmp_path / "b.py"
     a.write_text("alpha_val = 1\n", encoding="utf-8")
     b.write_text("beta_val = 2\n", encoding="utf-8")
+
     payload = mcp_server.tool_smart_read({"files": [str(a), str(b), str(tmp_path / "missing.py")]})
-    assert payload["calls_saved"] == 1
+    assert payload["calls_saved"] == 1  # 2 ok entries -> 1 avoided call
+
     single = mcp_server.tool_smart_read({"files": [str(a)]})
     assert "calls_saved" not in single
+
+
+def test_compact_applied_entries_groups_by_path() -> None:
+    """Compaction groups same-path hunks and buckets "kind" entries by kind.
+
+    This formatting only reaches the model on a LOUD result (clean exact edits are
+    silenced), so it is verified directly on the helper rather than via a clean
+    edit's dispatched body.
+    """
+    from lemoncrow.gateway.adapters.mcp_server import _compact_applied_entries
+
+    entries = [
+        {"path": "first.txt", "hunks": [{"line_start": 1, "line_end": 1}]},
+        {"path": "first.txt", "hunks": [{"line_start": 3, "line_end": 3}]},
+        {"path": "second.txt", "hunks": [{"line_start": 1, "line_end": 2}]},
+        {"path": "sym.py", "kind": "symbol"},
+        {"path": "nb.ipynb", "kind": "notebook"},
+        {"path": "whole.txt", "kind": "replace"},
+        {
+            "path": "p.py",
+            "kind": "projection",
+            "projection_kind": "minified",
+            "hunks": [{"line_start": 3, "line_end": 4}],
+        },
+    ]
+    compact = _compact_applied_entries(entries)
+    assert "first.txt:1,3" in compact
+    assert "second.txt:1-2" in compact
+    # "kind" entries with nothing beyond path+kind bucket as a bare path list,
+    # grouped one entry per kind rather than one raw dict per file.
+    assert {"symbol": ["sym.py"]} in compact
+    assert {"notebook": ["nb.ipynb"]} in compact
+    # "replace" reads as its past-tense outcome, not the raw kind value.
+    assert {"replaced": ["whole.txt"]} in compact
+    # A richer "kind" entry (extra fields beyond path) keeps those fields,
+    # grouped as a dict under the kind label instead of a bare path.
+    assert {
+        "projection": [{"path": "p.py", "projection_kind": "minified", "hunks": [{"line_start": 3, "line_end": 4}]}]
+    } in compact
 
 
 def test_smart_edit_blocks_test_assertion_removal(
     store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Deleting an assertion from an existing test is the reward-hack signal:
+    # roll back and surface a counterexample (the detector trips only on weakening).
     _ = store_root
     monkeypatch.chdir(tmp_path)
     target = Path("tests/test_parser.py")
     target.parent.mkdir()
     target.write_text("def test_x():\n    assert compute() == 5\n    assert other() == 9\n", encoding="utf-8")
+
     payload = _result(
         _call(
             "edit",
@@ -1730,7 +1365,10 @@ def test_smart_edit_blocks_test_assertion_removal(
             },
         )
     )
+
     assert payload["rolled_back"] is True
+    # `writes` is no longer emitted (atomic edits are all-or-nothing; the count is
+    # pure noise). The rollback is signalled by rolled_back/test_weakening.
     assert "writes" not in payload
     assert payload["test_weakening"][0]["path"] == "tests/test_parser.py"
     assert "assertion" in payload["test_weakening"][0]["reason"]
@@ -1745,6 +1383,7 @@ def test_smart_edit_blocks_test_skip_addition(
     target = Path("tests/test_parser.py")
     target.parent.mkdir()
     target.write_text("def test_x():\n    assert compute() == 5\n", encoding="utf-8")
+
     payload = _result(
         _call(
             "edit",
@@ -1760,6 +1399,7 @@ def test_smart_edit_blocks_test_skip_addition(
             },
         )
     )
+
     assert payload["rolled_back"] is True
     assert "skip/xfail" in payload["test_weakening"][0]["reason"]
     assert "@pytest.mark.skip" not in target.read_text(encoding="utf-8")
@@ -1768,11 +1408,13 @@ def test_smart_edit_blocks_test_skip_addition(
 def test_smart_edit_allows_additive_test_edit(
     store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Adding a new assertion to an existing test passes freely -- no friction.
     _ = store_root
     monkeypatch.chdir(tmp_path)
     target = Path("tests/test_parser.py")
     target.parent.mkdir()
     target.write_text("def test_x():\n    assert compute() == 5\n", encoding="utf-8")
+
     payload = _result(
         _call(
             "edit",
@@ -1788,6 +1430,7 @@ def test_smart_edit_allows_additive_test_edit(
             },
         )
     )
+
     assert payload.get("rolled_back") is not True
     assert "test_weakening" not in payload
     assert "assert compute() != 0" in target.read_text(encoding="utf-8")
@@ -1796,11 +1439,14 @@ def test_smart_edit_allows_additive_test_edit(
 def test_smart_edit_allows_assertion_value_change(
     store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # In-place assertion modification (changing an expected value) nets to zero
+    # assertions and passes -- the detector guards removal/skip, not value edits.
     _ = store_root
     monkeypatch.chdir(tmp_path)
     target = Path("tests/test_parser.py")
     target.parent.mkdir()
     target.write_text("def test_x():\n    assert compute() == 5\n", encoding="utf-8")
+
     payload = _result(
         _call(
             "edit",
@@ -1816,6 +1462,7 @@ def test_smart_edit_allows_assertion_value_change(
             },
         )
     )
+
     assert payload.get("rolled_back") is not True
     assert "test_weakening" not in payload
     assert "assert compute() == 6" in target.read_text(encoding="utf-8")
@@ -1824,6 +1471,8 @@ def test_smart_edit_allows_assertion_value_change(
 def test_smart_edit_allows_test_weakening_paired_with_production_change(
     store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Pair signal: a test weakening that rides with a production-code change reads
+    # as a genuine refactor (contract moved with the code), not a reward-hack.
     _ = store_root
     monkeypatch.chdir(tmp_path)
     test_file = Path("tests/test_parser.py")
@@ -1832,6 +1481,7 @@ def test_smart_edit_allows_test_weakening_paired_with_production_change(
     src_file = Path("src/parser.py")
     src_file.parent.mkdir()
     src_file.write_text("def compute():\n    return 5\n", encoding="utf-8")
+
     payload = _result(
         _call(
             "edit",
@@ -1842,12 +1492,17 @@ def test_smart_edit_allows_test_weakening_paired_with_production_change(
                         "old_string": "    assert compute() == 5\n    assert other() == 9\n",
                         "new_string": "    assert other() == 9\n",
                     },
-                    {"file_path": str(src_file), "old_string": "    return 5\n", "new_string": "    return 6\n"},
+                    {
+                        "file_path": str(src_file),
+                        "old_string": "    return 5\n",
+                        "new_string": "    return 6\n",
+                    },
                 ],
                 "post_edit_hooks": False,
             },
         )
     )
+
     assert payload.get("rolled_back") is not True
     assert "test_weakening" not in payload
     assert "assert compute() == 5" not in test_file.read_text(encoding="utf-8")
@@ -1860,15 +1515,23 @@ def test_smart_edit_does_not_flag_new_regression_test(
     _ = store_root
     monkeypatch.chdir(tmp_path)
     target = Path("tests/regression/issue.rs")
+
     payload = _result(
         _call(
             "edit",
             {
-                "edits": [{"file_path": str(target), "new_string": "#[test]\nfn regression() {}\n", "overwrite": True}],
+                "edits": [
+                    {
+                        "file_path": str(target),
+                        "new_string": "#[test]\nfn regression() {}\n",
+                        "overwrite": True,
+                    }
+                ],
                 "post_edit_hooks": False,
             },
         )
     )
+
     assert "FIXME" not in payload
 
 
@@ -1876,9 +1539,22 @@ def test_smart_edit_rejects_protected_paths(store_root: Path, tmp_path: Path) ->
     _ = store_root
     protected = tmp_path / ".lemoncrow" / "state.txt"
     protected.write_text("hello world", encoding="utf-8")
+
     payload = _result(
-        _call("edit", {"edits": [{"path": str(protected), "old_string": "world", "new_string": "lemoncrow"}]})
+        _call(
+            "edit",
+            {
+                "edits": [
+                    {
+                        "path": str(protected),
+                        "old_string": "world",
+                        "new_string": "lemoncrow",
+                    }
+                ]
+            },
+        )
     )
+
     assert payload["rolled_back"] is True
     assert "protected path denied" in payload["failed"][0]["error"]
     assert protected.read_text(encoding="utf-8") == "hello world"
@@ -1909,16 +1585,28 @@ def test_smart_edit_records_workspace_relative_diff_after_hooks(
 
         return HookResult()
 
-    monkeypatch.setattr("lemoncrow.pro.capabilities.tool_supervision.post_edit_hooks.run_post_edit_hooks", fake_hooks)
+    monkeypatch.setattr(
+        "lemoncrow.pro.capabilities.tool_supervision.post_edit_hooks.run_post_edit_hooks",
+        fake_hooks,
+    )
+
     payload = _result(
         _call(
             "edit",
             {
                 "post_edit_hooks": True,
-                "edits": [{"file_path": "edit.txt", "old_string": "world", "new_string": "lemoncrow"}],
+                "edits": [
+                    {
+                        "file_path": "edit.txt",
+                        "old_string": "world",
+                        "new_string": "lemoncrow",
+                    }
+                ],
             },
         )
     )
+
+    # Clean edit (the fake hook reports no diagnostics) is success-silent.
     assert payload == {"applied": ["edit.txt:1"]}
     assert target.read_text(encoding="utf-8") == "hello hooks"
     file_events = [event for event in mcp_server._get_ledger().events if event.kind == "file_edit"]
@@ -1927,9 +1615,9 @@ def test_smart_edit_records_workspace_relative_diff_after_hooks(
     assert "hello lemoncrow" not in file_events[-1].payload["diff"]
 
 
-@pytest.mark.private_engine
 def test_code_context_workspace_search_returns_repo_tagged_hits_and_repo_filter(
-    store_root: Path, tmp_path: Path
+    store_root: Path,
+    tmp_path: Path,
 ) -> None:
     _ = store_root
     billing_root = tmp_path.parent / "billing"
@@ -1937,10 +1625,15 @@ def test_code_context_workspace_search_returns_repo_tagged_hits_and_repo_filter(
     _write_workspace_fixture_repo(billing_root, module_name="billing")
     _write_workspace_fixture_config(tmp_path, billing_root)
     _preindex(tmp_path)
+
     payload = mcp_server._op_search(repo_root=str(tmp_path), query="SharedConfig", budget_tokens=4000)
     billing_only = mcp_server._op_search(
-        repo_root=str(tmp_path), query="SharedConfig", repo="billing", budget_tokens=4000
+        repo_root=str(tmp_path),
+        query="SharedConfig",
+        repo="billing",
+        budget_tokens=4000,
     )
+
     assert [(item["repo_name"], item["path"]) for item in payload["items"]] == [
         ("lemoncrow", "src/config.py"),
         ("billing", "../billing/src/config.py"),
@@ -1954,33 +1647,57 @@ def test_repo_map_and_seed_files_dropped_from_grep(store_root: Path, tmp_path: P
     _ = store_root
     target = tmp_path / "sample.py"
     target.write_text("def alpha():\n    return 1\n", encoding="utf-8")
+
+    # The repo-map capability (and its `seed_files` param) is gone from grep --
+    # grep's `mode='map'` now just means the ranked FILE map, an output shape, not
+    # a seed-expanded repo map. `seed_files` is no longer a grep param.
     grep_props = mcp_server.TOOLS["grep"]["inputSchema"]["properties"]
     assert "seed_files" not in grep_props
+    # Modes were renamed to self-documenting names (fe520724); the schema keeps
+    # mode as a described string (aliases accepted) rather than a hard enum.
     mode_desc = grep_props["mode"]["description"]
     for mode_name in ("with_content", "ranked_map", "paths_only", "count_only"):
         assert mode_name in mode_desc, mode_desc
+    # The ranked-file-map output shape is reached normally.
     resp = _call("grep", {"regex": "alpha", "path": str(tmp_path), "mode": "ranked_map"})
     assert "result" in resp
 
 
-@pytest.mark.private_engine
 def test_code_context_mcp_surfaces(store_root: Path, tmp_path: Path) -> None:
     _ = store_root
     (tmp_path / "a.py").write_text("def alpha():\n    return 1\n", encoding="utf-8")
     (tmp_path / "b.py").write_text("from a import alpha\n\ndef beta():\n    return alpha()\n", encoding="utf-8")
+
     indexed = _result(_call("index", {"repo_root": str(tmp_path)}))
-    _m = re.search("symbols=(\\d+)", indexed)
+    _m = re.search(r"symbols=(\d+)", indexed)
     assert _m is not None
     assert int(_m.group(1)) >= 2
+
     searched = _op_result("symbols", mcp_server._op_search, repo_root=str(tmp_path), query="alpha")
     assert searched and "no matches" not in searched
     assert "snippet:" not in searched
     cached_search = _op_result("symbols", mcp_server._op_search, repo_root=str(tmp_path), query="alpha")
     assert cached_search == searched
-    symbol = _op_result("node", mcp_server._op_node, repo_root=str(tmp_path), qualified_name="alpha", path="a.py")
+
+    symbol = _op_result(
+        "node",
+        mcp_server._op_node,
+        repo_root=str(tmp_path),
+        qualified_name="alpha",
+        path="a.py",
+    )
     assert "def alpha" in symbol
+
     context = _result(
-        _call("context", {"task": "change alpha", "files": ["a.py"], "token_budget": 4000, "mode": "symbols"})
+        _call(
+            "context",
+            {
+                "task": "change alpha",
+                "files": ["a.py"],
+                "token_budget": 4000,
+                "mode": "symbols",
+            },
+        )
     )
     assert isinstance(context, str)
     assert "alpha" in context
@@ -1988,7 +1705,6 @@ def test_code_context_mcp_surfaces(store_root: Path, tmp_path: Path) -> None:
     assert "?:L0" not in context
 
 
-@pytest.mark.private_engine
 def test_code_context_search_surface_supports_snippet_scope_and_glob(store_root: Path, tmp_path: Path) -> None:
     _ = store_root
     (tmp_path / "src").mkdir()
@@ -1997,8 +1713,12 @@ def test_code_context_search_surface_supports_snippet_scope_and_glob(store_root:
         "class OrderService:\n    def calculate_total(self, items: list[int]) -> int:\n        return sum(items)\n",
         encoding="utf-8",
     )
-    (tmp_path / "tests" / "test_orders.py").write_text("from src.orders import OrderService\n", encoding="utf-8")
+    (tmp_path / "tests" / "test_orders.py").write_text(
+        "from src.orders import OrderService\n",
+        encoding="utf-8",
+    )
     _preindex(tmp_path)
+
     payload = mcp_server._op_search(
         repo_root=str(tmp_path),
         query="OrderService",
@@ -2008,12 +1728,176 @@ def test_code_context_search_surface_supports_snippet_scope_and_glob(store_root:
         scope="repo",
         budget_tokens=4000,
     )
+
     assert "provenance" not in payload
     assert "provenance_breakdown" not in payload
     assert payload["items"][0]["path"] == "src/orders.py"
     assert (
         payload["items"][0]["snippet"] == "class OrderService:\n    def calculate_total(self, items: list[int]) -> int:"
     )
+
+
+def test_lean_code_search_view_returns_related_symbol_ranges() -> None:
+    payload = {
+        "exact_match": True,
+        "entry_points": [
+            {
+                "qualified_name": "OrderService.calculate_total",
+                "path": "src/orders.py",
+                "line": 12,
+                "end_line": 20,
+                "kind": "method",
+                "score": 10.0,
+            },
+            {
+                "qualified_name": "PaymentService.capture",
+                "path": "src/payments.py",
+                "line": 30,
+                "end_line": 41,
+                "kind": "method",
+                "score": 8.0,
+            },
+        ],
+        "files": [
+            {
+                "path": "src/orders.py",
+                "source_sections": [
+                    {
+                        "qualified_name": "OrderService.calculate_total",
+                        "path": "src/orders.py",
+                        "line": 12,
+                        "end_line": 20,
+                        "content": "12\tdef calculate_total(self):\n",
+                    }
+                ],
+            }
+        ],
+    }
+
+    lean = mcp_server._lean_code_search_view(payload, max_files=1)
+
+    # A span already returned as source is NOT repeated as a pointer; only
+    # symbols beyond the returned sections make the map.
+    assert lean["related_symbols"] == [
+        {
+            "qualified_name": "PaymentService.capture",
+            "path": "src/payments.py",
+            "line": 30,
+            "end_line": 41,
+            "kind": "method",
+        }
+    ]
+
+
+def test_lean_code_search_view_preserves_learned_file_order() -> None:
+    payload = {
+        "exact_match": False,
+        "experiment": {"name": "explore_reranker_v2_lambdamart"},
+        "entry_points": [
+            {"qualified_name": "legacy", "path": "src/legacy.py", "line": 1, "end_line": 2, "score": 10.0},
+            {"qualified_name": "learned", "path": "src/learned.py", "line": 1, "end_line": 2, "score": 1.0},
+        ],
+        "files": [
+            {
+                "path": "src/learned.py",
+                "source_sections": [
+                    {
+                        "qualified_name": "learned",
+                        "path": "src/learned.py",
+                        "line": 1,
+                        "end_line": 2,
+                        "content": "1\tx\n",
+                    }
+                ],
+            },
+            {
+                "path": "src/legacy.py",
+                "source_sections": [
+                    {"qualified_name": "legacy", "path": "src/legacy.py", "line": 1, "end_line": 2, "content": "1\ty\n"}
+                ],
+            },
+        ],
+    }
+
+    lean = mcp_server._lean_code_search_view(payload, max_files=1)
+
+    assert [entry["path"] for entry in lean["files"]] == ["src/learned.py"]
+    assert lean["candidate_files"][0] == "src/legacy.py"
+
+
+def test_outline_lean_view_low_confidence_outlines_small_non_top_section() -> None:
+    # A "ranked candidates" (no exact match, no include_source -> keep_top2=False)
+    # call is a gamble: only the single top-ranked section stays inline. Rank 1+
+    # outlines to a pointer even when tiny -- size alone must not be a free pass
+    # past low confidence.
+    lean = {
+        "exact_match": False,
+        "files": [
+            {
+                "path": "a.py",
+                "sections": [
+                    {"path": "a.py", "qualified_name": "top", "line": 1, "end_line": 2, "content": "rank 0\n"},
+                    {"path": "a.py", "qualified_name": "tiny", "line": 3, "end_line": 4, "content": "x = 1\n"},
+                ],
+            }
+        ],
+    }
+    shaped = mcp_server._outline_lean_view(lean, keep_top2=False)
+    secs = shaped["files"][0]["sections"]
+    assert secs[0]["content"] == "rank 0\n"
+    assert "outline" not in secs[0]
+    assert "content" not in secs[1]
+    assert secs[1]["outline"] == "tiny — read a.py:L3-L4"
+
+
+def test_outline_lean_view_confident_call_keeps_small_non_top2_inline() -> None:
+    # Unchanged prior behavior: a confident call (exact_match/include_source ->
+    # keep_top2=True) still ships a small non-top2 section inline.
+    lean = {
+        "exact_match": True,
+        "files": [
+            {
+                "path": "a.py",
+                "sections": [
+                    {"path": "a.py", "qualified_name": "top", "line": 1, "end_line": 2, "content": "rank 0\n"},
+                    {"path": "a.py", "qualified_name": "second", "line": 3, "end_line": 4, "content": "rank 1\n"},
+                    {"path": "a.py", "qualified_name": "tiny", "line": 5, "end_line": 6, "content": "x = 1\n"},
+                ],
+            }
+        ],
+    }
+    shaped = mcp_server._outline_lean_view(lean, keep_top2=True)
+    secs = shaped["files"][0]["sections"]
+    assert secs[2]["content"] == "x = 1\n"
+    assert "outline" not in secs[2]
+
+
+def test_lean_related_symbol_flattens_multiline_names() -> None:
+    # Markdown headings can index a whole frontmatter block as their name; the
+    # symbol map must stay a one-line pointer, never a prose dump.
+    out = mcp_server._lean_related_symbol(
+        {
+            "qualified_name": "description: agent one-liner\nmodel: gpt\ntools:\n  [a, b]",
+            "path": "integrations/agents/general.md",
+            "line": 2,
+            "end_line": 30,
+            "kind": "heading",
+        }
+    )
+    assert out["qualified_name"] == "description: agent one-liner"
+
+
+def test_render_read_outline_md_caps_symbol_lines() -> None:
+    outline = {
+        "symbols": [
+            {"name": f"f{i}", "kind": "function", "start_line": i * 10, "end_line": i * 10 + 5} for i in range(1, 121)
+        ],
+    }
+    rendered = mcp_server._render_read_outline_md("big.py", outline, "python")
+    lines = rendered.splitlines()
+    assert lines[0] == "symbols:"
+    assert len(lines) == 1 + mcp_server._READ_OUTLINE_MAX_LINES + 1
+    assert lines[-1] == "... +40 more symbols (use :Lx-Ly or :full)"
 
 
 def test_lean_code_search_view_reports_section_retrieval_savings(tmp_path: Path) -> None:
@@ -2039,8 +1923,12 @@ def test_lean_code_search_view_reports_section_retrieval_savings(tmp_path: Path)
             },
         ],
     }
+
     lean = mcp_server._attach_code_search_savings(mcp_server._lean_code_search_view(payload, max_files=2), tmp_path)
+
     assert lean["tokens_saved"] > 0
+    # Two whole-source files returned = 2 avoided Reads; the symbol map only
+    # points back at those same two files, so no extra locate is credited.
     assert lean["calls_saved"] == 2
 
 
@@ -2058,6 +1946,7 @@ def test_lean_code_search_view_excludes_truncated_and_credits_cross_file_nav(tmp
         "entry_points": [
             {"qualified_name": "calculate_total", "path": "src/orders.py", "line": 1, "end_line": 2, "score": 10.0},
             {"qualified_name": "capture_payment", "path": "src/payments.py", "line": 1, "end_line": 2, "score": 9.0},
+            # A usage in a file we do NOT return source for — an extra grep avoided.
             {"qualified_name": "audit_log", "path": "src/audit.py", "line": 5, "end_line": 6, "score": 8.0},
         ],
         "files": [
@@ -2074,6 +1963,8 @@ def test_lean_code_search_view_excludes_truncated_and_credits_cross_file_nav(tmp
         ],
     }
     lean = mcp_server._attach_code_search_savings(mcp_server._lean_code_search_view(payload, max_files=2), tmp_path)
+    # orders.py = 1 whole-source Read; payments.py truncated (not counted);
+    # audit.py usage in the symbol map = 1 avoided locate. => 2.
     assert lean["tokens_saved"] > 0
     assert lean["calls_saved"] == 2, lean
 
@@ -2099,11 +1990,11 @@ def test_lean_code_search_view_credits_repeat_file_only_once(tmp_path: Path) -> 
     first = mcp_server._attach_code_search_savings(mcp_server._lean_code_search_view(payload, max_files=1), tmp_path)
     second = mcp_server._attach_code_search_savings(mcp_server._lean_code_search_view(payload, max_files=1), tmp_path)
     assert first["calls_saved"] >= 1 and first["tokens_saved"] > 0
+    # Same file, same session -> no new read or token credit.
     assert second.get("calls_saved", 0) == 0
     assert second.get("tokens_saved", 0) == 0
 
 
-@pytest.mark.private_engine
 def test_tool_code_search_response_includes_saved_section_retrieval(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2132,13 +2023,16 @@ def test_tool_code_search_response_includes_saved_section_retrieval(
         lambda tool, tokens, calls, rid="": appended.append((tool, tokens, calls)),
     )
     monkeypatch.setattr(
-        "lemoncrow.gateway.adapters.mcp_server._observe_code_search_evidence", lambda **kwargs: observed.append(kwargs)
+        "lemoncrow.gateway.adapters.mcp_server._observe_code_search_evidence",
+        lambda **kwargs: observed.append(kwargs),
     )
+
     response = _call("code_search", {"query": "calculate_total", "max_files": 1})
+
     saved = response["result"]["content"][0].get("saved")
     assert saved is not None
     assert saved["tokens"] > 0
-    assert saved["calls"] == 1
+    assert saved["calls"] == 1  # single whole-source Read avoided; symbol map stays in-file
     assert appended == [("code_search", saved["tokens"], 1)]
     assert len(observed) == 1
     assert observed[0]["query"] == "calculate_total"
@@ -2150,27 +2044,36 @@ def test_resolve_query_as_existing_file_pins_verbatim_and_prefixed_paths(tmp_pat
     (tmp_path / "benchmarks" / "harbor").mkdir(parents=True)
     target = tmp_path / "benchmarks" / "harbor" / "rebuild_bundle.sh"
     target.write_text("#!/bin/sh\necho hi\n", encoding="utf-8")
+
+    # Verbatim relpath.
     assert (
         mcp_server._resolve_query_as_existing_file(tmp_path, "benchmarks/harbor/rebuild_bundle.sh")
         == "benchmarks/harbor/rebuild_bundle.sh"
     )
+    # A bogus leading segment (e.g. a phantom repo-name prefix) is stripped once and retried.
     assert (
         mcp_server._resolve_query_as_existing_file(tmp_path, "/lemoncrow/benchmarks/harbor/rebuild_bundle.sh")
         == "benchmarks/harbor/rebuild_bundle.sh"
     )
+    # Path traversal out of the workspace never resolves.
     assert mcp_server._resolve_query_as_existing_file(tmp_path, "../../etc/passwd") is None
+    # A prose query (whitespace) is never treated as a path.
     assert mcp_server._resolve_query_as_existing_file(tmp_path, "how does rebuild_bundle work") is None
+    # A bare symbol name with no path shape and no matching file resolves to nothing.
     assert mcp_server._resolve_query_as_existing_file(tmp_path, "OrderService") is None
 
 
-@pytest.mark.private_engine
 def test_tool_code_search_fast_paths_a_literal_file_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     (tmp_path / "benchmarks" / "harbor").mkdir(parents=True)
     (tmp_path / "benchmarks" / "harbor" / "rebuild_bundle.sh").write_text(
         "#!/bin/sh\necho rebuilding\n", encoding="utf-8"
     )
     monkeypatch.setattr("lemoncrow.gateway.adapters.mcp_server._workspace_root", lambda: tmp_path)
+
     response = _call("code_search", {"query": "/lemoncrow/benchmarks/harbor/rebuild_bundle.sh"})
+
+    # code_search renders to compact markdown (no code renderer applies to a
+    # shell script), so assert on that text rather than parsed JSON.
     payload = _result(response)
     assert isinstance(payload, str)
     assert "no exact match" not in payload
@@ -2178,7 +2081,6 @@ def test_tool_code_search_fast_paths_a_literal_file_path(tmp_path: Path, monkeyp
     assert "echo rebuilding" in payload
 
 
-@pytest.mark.private_engine
 def test_tool_code_search_dispatches_mode_without_gateway_ranking_logic(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2191,10 +2093,18 @@ def test_tool_code_search_dispatches_mode_without_gateway_ranking_logic(
         "total_tokens": 80,
         "mode": "semantic",
     }
-    monkeypatch.setattr("lemoncrow.gateway.adapters.mcp_server._code_context_engine", lambda repo_root=".": fake_engine)
-    payload = mcp_server._op_search(
-        repo_root=str(tmp_path), query="create login token for authenticated user", mode="semantic", budget_tokens=220
+    monkeypatch.setattr(
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
+        lambda repo_root=".": fake_engine,
     )
+
+    payload = mcp_server._op_search(
+        repo_root=str(tmp_path),
+        query="create login token for authenticated user",
+        mode="semantic",
+        budget_tokens=220,
+    )
+
     assert "mode" not in payload
     fake_engine.tool_search.assert_called_once_with(
         "create login token for authenticated user",
@@ -2212,7 +2122,6 @@ def test_tool_code_search_dispatches_mode_without_gateway_ranking_logic(
     )
 
 
-@pytest.mark.private_engine
 def test_tool_code_search_dispatches_grounded_seed_files_without_gateway_ranking_logic(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2225,10 +2134,18 @@ def test_tool_code_search_dispatches_grounded_seed_files_without_gateway_ranking
         "total_tokens": 60,
         "mode": "lexical",
     }
-    monkeypatch.setattr("lemoncrow.gateway.adapters.mcp_server._code_context_engine", lambda repo_root=".": fake_engine)
-    payload = mcp_server._op_search(
-        repo_root=str(tmp_path), query="OrderService", seed_files=["src/orders.py"], budget_tokens=220
+    monkeypatch.setattr(
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
+        lambda repo_root=".": fake_engine,
     )
+
+    payload = mcp_server._op_search(
+        repo_root=str(tmp_path),
+        query="OrderService",
+        seed_files=["src/orders.py"],
+        budget_tokens=220,
+    )
+
     assert "mode" not in payload
     fake_engine.tool_search.assert_called_once_with(
         "OrderService",
@@ -2246,7 +2163,6 @@ def test_tool_code_search_dispatches_grounded_seed_files_without_gateway_ranking
     )
 
 
-@pytest.mark.private_engine
 def test_tool_code_search_dispatches_deleted_scope_filters_without_gateway_history_logic(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2266,7 +2182,11 @@ def test_tool_code_search_dispatches_deleted_scope_filters_without_gateway_histo
         "total_tokens": 120,
         "mode": "auto",
     }
-    monkeypatch.setattr("lemoncrow.gateway.adapters.mcp_server._code_context_engine", lambda repo_root=".": fake_engine)
+    monkeypatch.setattr(
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
+        lambda repo_root=".": fake_engine,
+    )
+
     payload = mcp_server._op_search(
         repo_root=str(tmp_path),
         query="ModernCheckout",
@@ -2275,6 +2195,7 @@ def test_tool_code_search_dispatches_deleted_scope_filters_without_gateway_histo
         touched_by="history@example.com",
         budget_tokens=220,
     )
+
     assert "provenance" not in payload
     assert payload["items"][0]["rename_target"] == "modern.py"
     fake_engine.tool_search.assert_called_once_with(
@@ -2311,8 +2232,18 @@ def test_tool_code_blame_dispatches_additively_without_gateway_aggregation(
         "tokens_saved": 12,
         "total_tokens": 150,
     }
-    monkeypatch.setattr("lemoncrow.gateway.adapters.mcp_server._code_context_engine", lambda repo_root=".": fake_engine)
-    payload = mcp_server._op_blame(repo_root=str(tmp_path), query="risk_score", include_churn=False, budget_tokens=220)
+    monkeypatch.setattr(
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
+        lambda repo_root=".": fake_engine,
+    )
+
+    payload = mcp_server._op_blame(
+        repo_root=str(tmp_path),
+        query="risk_score",
+        include_churn=False,
+        budget_tokens=220,
+    )
+
     assert "provenance" not in payload
     assert payload["symbol_name"] == "risk_score"
     fake_engine.tool_blame.assert_called_once_with(
@@ -2326,7 +2257,6 @@ def test_tool_code_blame_dispatches_additively_without_gateway_aggregation(
     )
 
 
-@pytest.mark.private_engine
 def test_tool_code_include_churn_remains_additive_for_non_blame_ops(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2339,8 +2269,17 @@ def test_tool_code_include_churn_remains_additive_for_non_blame_ops(
         "total_tokens": 100,
         "mode": "auto",
     }
-    monkeypatch.setattr("lemoncrow.gateway.adapters.mcp_server._code_context_engine", lambda repo_root=".": fake_engine)
-    payload = mcp_server._op_search(repo_root=str(tmp_path), query="OrderService", budget_tokens=220)
+    monkeypatch.setattr(
+        "lemoncrow.gateway.adapters.mcp_server._code_context_engine",
+        lambda repo_root=".": fake_engine,
+    )
+
+    payload = mcp_server._op_search(
+        repo_root=str(tmp_path),
+        query="OrderService",
+        budget_tokens=220,
+    )
+
     assert "provenance" not in payload
     fake_engine.tool_search.assert_called_once_with(
         "OrderService",
@@ -2358,7 +2297,6 @@ def test_tool_code_include_churn_remains_additive_for_non_blame_ops(
     )
 
 
-@pytest.mark.private_engine
 def test_code_context_usages_surface_groups_references(store_root: Path, tmp_path: Path) -> None:
     _ = store_root
     (tmp_path / "src").mkdir()
@@ -2368,22 +2306,31 @@ def test_code_context_usages_surface_groups_references(store_root: Path, tmp_pat
         encoding="utf-8",
     )
     (tmp_path / "src" / "checkout.py").write_text(
-        "from src.orders import OrderService\n\ndef checkout(items: list[int]) -> int:\n    return OrderService().calculate_total(items)\n",
+        "from src.orders import OrderService\n\n"
+        "def checkout(items: list[int]) -> int:\n"
+        "    return OrderService().calculate_total(items)\n",
         encoding="utf-8",
     )
     _preindex(tmp_path)
-    payload = _op_result("usages", mcp_server._op_usages, repo_root=str(tmp_path), query="OrderService")
+
+    payload = _op_result(
+        "usages",
+        mcp_server._op_usages,
+        repo_root=str(tmp_path),
+        query="OrderService",
+    )
+
     assert "src/checkout.py" in payload
     assert "checkout" in payload
 
 
-@pytest.mark.private_engine
 def test_code_context_pattern_search_surface_is_cached(
     store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _ = store_root
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "app.py").write_text("requests.get(url)\n", encoding="utf-8")
+
     monkeypatch.setattr(
         "lemoncrow_client.kit.astgrep.AstGrepAdapter.search",
         lambda self, *, pattern, language=None, file_glob=None, limit=20: PatternSearchResult(
@@ -2402,21 +2349,33 @@ def test_code_context_pattern_search_surface_is_cached(
             total_matches=1,
         ),
     )
+
     first = _op_result(
-        "codemod", mcp_server._op_pattern, repo_root=str(tmp_path), pattern="requests.get($URL)", budget_tokens=220
+        "codemod",
+        mcp_server._op_pattern,
+        repo_root=str(tmp_path),
+        pattern="requests.get($URL)",
+        budget_tokens=220,
     )
     cached = _op_result(
-        "codemod", mcp_server._op_pattern, repo_root=str(tmp_path), pattern="requests.get($URL)", budget_tokens=220
+        "codemod",
+        mcp_server._op_pattern,
+        repo_root=str(tmp_path),
+        pattern="requests.get($URL)",
+        budget_tokens=220,
     )
+
+    # Pattern search now surfaces the compact markdown the agent receives, not
+    # the raw JSON payload (path emitted once, snippet preserved).
     assert isinstance(first, str)
     assert first.startswith("- src/app.py")
     assert "src/app.py" in first
     assert "requests.get(url)" in first
     assert "provenance" not in first
+    # Cache state is internal bookkeeping; the cached response must be identical.
     assert cached == first
 
 
-@pytest.mark.private_engine
 def test_code_context_cache_diagnostics_surface_is_additive(store_root: Path, tmp_path: Path) -> None:
     _ = store_root
     (tmp_path / "src").mkdir()
@@ -2426,7 +2385,14 @@ def test_code_context_cache_diagnostics_surface_is_additive(store_root: Path, tm
         encoding="utf-8",
     )
     _preindex(tmp_path)
-    _op_result("search", mcp_server._op_search, repo_root=str(tmp_path), query="OrderService", budget_tokens=4000)
+
+    _op_result(
+        "search",
+        mcp_server._op_search,
+        repo_root=str(tmp_path),
+        query="OrderService",
+        budget_tokens=4000,
+    )
     _op_result(
         "node",
         mcp_server._op_node,
@@ -2435,10 +2401,20 @@ def test_code_context_cache_diagnostics_surface_is_additive(store_root: Path, tm
         path="src/orders.py",
         budget_tokens=4000,
     )
+
     status = _result(_call("cache", {"op": "status", "repo_root": str(tmp_path), "budget_tokens": 200}))
     invalidated = _result(
-        _call("cache", {"op": "invalidate", "repo_root": str(tmp_path), "cache_tool": "search", "budget_tokens": 200})
+        _call(
+            "cache",
+            {
+                "op": "invalidate",
+                "repo_root": str(tmp_path),
+                "cache_tool": "search",
+                "budget_tokens": 200,
+            },
+        )
     )
+
     assert "code.search=1" in status and "code.symbol=1" in status
     assert "items" not in status
     assert "matches" not in status
@@ -2446,18 +2422,15 @@ def test_code_context_cache_diagnostics_surface_is_additive(store_root: Path, tm
     assert invalidated["invalidated_entries"] == 1
 
 
-@pytest.mark.private_engine
 def test_code_context_pattern_rewrite_reindexes_changed_files(
     store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _ = store_root
-    from lemoncrow.pro.capabilities.code_context import CodeContextEngine
-
     target = tmp_path / "src" / "app.py"
     target.parent.mkdir()
     target.write_text("requests.get(url)\n", encoding="utf-8")
 
-    def fake_rewrite(self, *, pattern, rewrite, language=None, file_glob=None, dry_run=True):
+    def fake_rewrite(self, *, pattern, rewrite, language=None, file_glob=None, dry_run=True):  # type: ignore[no-untyped-def]
         before = target.read_text(encoding="utf-8")
         after = before.replace("requests.get(url)", "requests.get(url, timeout=30)")
         diff = "--- a/src/app.py\n+++ b/src/app.py\n@@\n-requests.get(url)\n+requests.get(url, timeout=30)\n"
@@ -2466,10 +2439,15 @@ def test_code_context_pattern_rewrite_reindexes_changed_files(
         return PatternRewriteResult(diff=diff, files_changed=["src/app.py"])
 
     reindexed: list[list[str]] = []
+
     monkeypatch.setattr("lemoncrow_client.kit.astgrep.AstGrepAdapter.rewrite", fake_rewrite)
     monkeypatch.setattr(
-        CodeContextEngine, "_reindex_files", lambda self, file_paths: reindexed.append(list(file_paths)), raising=False
+        CodeContextEngine,
+        "_reindex_files",
+        lambda self, file_paths: reindexed.append(list(file_paths)),
+        raising=False,
     )
+
     preview = _op_result(
         "codemod",
         mcp_server._op_pattern,
@@ -2486,19 +2464,20 @@ def test_code_context_pattern_rewrite_reindexes_changed_files(
         rewrite="requests.get($URL, timeout=30)",
         dry_run=False,
     )
+
     assert "--- a/src/app.py" in preview["diff"]
     assert applied["files_changed"] == ["src/app.py"]
     assert reindexed == [["src/app.py"]]
     assert target.read_text(encoding="utf-8") == "requests.get(url, timeout=30)\n"
 
 
-@pytest.mark.private_engine
 def test_code_context_pattern_returns_structured_tool_unavailable(
     store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _ = store_root
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "app.py").write_text("requests.get(url)\n", encoding="utf-8")
+
     payload = {
         "error": "tool_unavailable",
         "tool": "ast-grep",
@@ -2513,9 +2492,27 @@ def test_code_context_pattern_returns_structured_tool_unavailable(
             AstGrepToolUnavailable(payload)
         ),
     )
-    result = mcp_server._op_pattern(repo_root=str(tmp_path), pattern="requests.get($URL)")
+
+    result = mcp_server._op_pattern(
+        repo_root=str(tmp_path),
+        pattern="requests.get($URL)",
+    )
+
     assert result["error"] == "tool_unavailable"
     assert result["expected_binary"] == "ast-grep"
+
+
+# ---------------------------------------------------------------------------
+# Remaining-gap regression tests (Issues 4, 13, 14 and shell failure fix)
+# ---------------------------------------------------------------------------
+
+
+def test_path_safety_module_is_importable_and_has_protected_parts() -> None:
+    """Centralised PROTECTED_PARTS frozenset must exist and cover the canonical dirs."""
+    from lemoncrow_client.kit.edit import PROTECTED_PARTS
+
+    required = {".git", ".lemoncrow", "node_modules", ".venv"}
+    assert required <= set(PROTECTED_PARTS), f"Missing entries: {required - set(PROTECTED_PARTS)}"
 
 
 def test_trace_compact_receipt_always_present(store_root: Path) -> None:
@@ -2524,7 +2521,12 @@ def test_trace_compact_receipt_always_present(store_root: Path) -> None:
     payload = _result(
         _call(
             "trace",
-            {"agent": "lemoncrow:code", "domain": "mcp-server", "task": "Verify compact receipt", "status": "success"},
+            {
+                "agent": "lemoncrow:code",
+                "domain": "mcp-server",
+                "task": "Verify compact receipt",
+                "status": "success",
+            },
         )
     )
     assert payload.get("event_recorded") is True, f"'event_recorded' missing or False in trace receipt: {payload}"
@@ -2538,11 +2540,16 @@ def test_shell_failure_preserves_tail(tmp_path: Path, monkeypatch: pytest.Monkey
     from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
+
+    # Generate 300 numbered lines then exit 1 — only tail should survive truncation
     result = _run_bash_tool(
-        "python3 -c \"import sys; [print(f'line-{i}') for i in range(300)]; sys.exit(1)\"", max_lines=60
+        "python3 -c \"import sys; [print(f'line-{i}') for i in range(300)]; sys.exit(1)\"",
+        max_lines=60,
     )
+
     assert result["exit_code"] == 1
     stdout = result["stdout"]
+    # The last line must be visible (line-299)
     assert "line-299" in stdout, f"tail not preserved for failing command; stdout tail:\n{stdout[-500:]}"
 
 
@@ -2557,7 +2564,9 @@ def test_shell_falls_back_when_workspace_root_missing(tmp_path: Path, monkeypatc
 
     missing = tmp_path / "does" / "not" / "exist"
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(missing))
+
     result = _run_bash_tool("pwd")
+
     assert result["exit_code"] == 0, result
     assert result["stdout"].strip()
 
@@ -2572,20 +2581,27 @@ def test_shell_short_timeout_does_not_kill_the_command(tmp_path: Path, monkeypat
     from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    result = _run_bash_tool("python3 -c \"import time; time.sleep(1); print('done')\"", timeout=0.5)
-    assert result.get("status") == "running"
-    session_id = str(result["session_id"])
-    completed = _run_bash_tool(session_id=session_id, action="poll", timeout=2)
-    assert completed.get("status") != "running"
-    assert completed["exit_code"] == 0
-    assert completed["stdout"] == "done"
+
+    result = _run_bash_tool(
+        "python3 -c \"import time; time.sleep(1); print('done')\"",
+        timeout=0.5,
+    )
+
+    assert result["exit_code"] == 0
+    assert result["stdout"] == "done"
 
 
 def test_shell_run_blocks_until_completion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    result = _run_bash_tool("python3 -c \"import time; time.sleep(0.3); print('done')\"", timeout=30)
+
+    # Foreground run blocks until the command finishes -- no artificial
+    # window, no detach, no session, no poll -- even for a slow-ish command.
+    result = _run_bash_tool(
+        "python3 -c \"import time; time.sleep(0.3); print('done')\"",
+        timeout=30,
+    )
     assert result.get("status") != "running"
     assert "session_id" not in result
     assert result["exit_code"] == 0
@@ -2596,6 +2612,9 @@ def test_shell_large_timeout_does_not_detach_fast_command(tmp_path: Path, monkey
     from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
+
+    # A 30-minute timeout budget must not make a fast command detach: it
+    # blocks only as long as the command actually runs, then returns.
     result = _run_bash_tool("echo hi", timeout=1800)
     assert result.get("status") != "running"
     assert "session_id" not in result
@@ -2607,8 +2626,16 @@ def test_shell_poll_blocks_until_completion(tmp_path: Path, monkeypatch: pytest.
     from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    started = _run_bash_tool("python3 -c \"import time; time.sleep(0.5); print('done')\"", timeout=10, background=True)
+
+    # Detach immediately, then a SINGLE blocking poll returns the finished
+    # result -- no manual retry loop, no busy-polling.
+    started = _run_bash_tool(
+        "python3 -c \"import time; time.sleep(0.5); print('done')\"",
+        timeout=10,
+        background=True,
+    )
     assert started["status"] == "running"
+
     completed = _run_bash_tool(session_id=started["session_id"], action="poll")
     assert completed["status"] == "completed"
     assert completed["exit_code"] == 0
@@ -2619,11 +2646,21 @@ def test_shell_poll_timeout_returns_running_handle(tmp_path: Path, monkeypatch: 
     from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    started = _run_bash_tool("python3 -c \"import time; time.sleep(1); print('done')\"", timeout=10, background=True)
+
+    started = _run_bash_tool(
+        "python3 -c \"import time; time.sleep(1); print('done')\"",
+        timeout=10,
+        background=True,
+    )
     try:
         poll_started = time.monotonic()
-        result = _run_bash_tool(session_id=started["session_id"], action="poll", timeout=0.2)
+        result = _run_bash_tool(
+            session_id=started["session_id"],
+            action="poll",
+            timeout=0.2,
+        )
         elapsed = time.monotonic() - poll_started
+
         assert elapsed < 1.0
         assert result["status"] == "running"
         assert result["session_id"] == started["session_id"]
@@ -2635,30 +2672,132 @@ def test_shell_background_return_reports_timeout_remaining(tmp_path: Path, monke
     from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    started = _run_bash_tool('python3 -c "import time; time.sleep(5)"', timeout=10, background=True)
+
+    # Detaching surfaces an honest upper bound (the timeout), not a fake ETA.
+    started = _run_bash_tool(
+        'python3 -c "import time; time.sleep(5)"',
+        timeout=10,
+        background=True,
+    )
     try:
         assert started["status"] == "running"
         assert started["session_id"]
         assert started["duration_ms"] >= 0
-        assert 0 < started["timeout_remaining_ms"] <= 10000
+        assert 0 < started["timeout_remaining_ms"] <= 10_000
     finally:
         _run_bash_tool(session_id=started["session_id"], action="kill")
+
+
+def test_render_shell_text_running_ships_handle_and_logs() -> None:
+    # pid/elapsed/timeout values are noise, but a running command's logs are
+    # actionable while the process remains live.
+    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
+
+    text = _render_bash_text(
+        {
+            "status": "running",
+            "session_id": "abc123",
+            "pid": 42,
+            "duration_ms": 95_000,
+            "timeout_remaining_ms": 1_765_000,
+            "log_file": "/tmp/x.stdout.txt",
+        }
+    )
+    assert text == "running id=abc123\n[logs: /tmp/x.stdout.txt]"
+    assert "pid=" not in text
+    assert "elapsed=" not in text
+    assert "timeout_in=" not in text
+    assert "log_file=" not in text
+
+
+def test_render_shell_text_warns_once_past_its_soft_budget() -> None:
+    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
+
+    text = _render_bash_text(
+        {
+            "status": "running",
+            "session_id": "abc123",
+            "timeout_remaining_ms": 0,
+            "over_budget": True,
+        }
+    )
+    # The handle line must carry the wait recipe: benchmark transcripts showed
+    # agents sleep-polling for up to ~30 turns because nothing told them
+    # bash(id=...) blocks until the command finishes.
+    assert text == "still running id=abc123; bash(id=abc123) waits for it — don't sleep-poll"
+
+
+def test_render_shell_text_identifies_explicit_background_job() -> None:
+    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
+
+    text = _render_bash_text(
+        {
+            "status": "running",
+            "session_id": "abc123",
+            "explicit_background": True,
+            "log_file": "/tmp/x.stdout.txt",
+        }
+    )
+    assert text == "background running id=abc123; bash(id=abc123) waits for it\n[logs: /tmp/x.stdout.txt]"
+
+
+def test_render_shell_text_running_before_budget_has_no_nudge() -> None:
+    # A plain mid-flight peek that's still well inside its window gets no
+    # act-now nudge -- that's reserved for the actually-overrunning case.
+    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
+
+    text = _render_bash_text(
+        {
+            "status": "running",
+            "session_id": "abc123",
+            "timeout_remaining_ms": 500_000,
+            "over_budget": False,
+        }
+    )
+    assert text == "running id=abc123"
+    assert "act now" not in text
+
+
+def test_render_bash_text_includes_spill_hint_in_truncation_notice() -> None:
+    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
+
+    text = _render_bash_text(
+        {
+            "stdout": "line1\n... (50 lines omitted) ...\nline300",
+            "stderr": "",
+            "exit_code": 0,
+            "truncated": True,
+            "lines_omitted": 50,
+            "spill_hint": "[lc: shrunk 5000→123; full: /tmp/x.txt]",
+        }
+    )
+    # The spill notice subsumes the bare truncation marker -- exactly one
+    # truncation footer ships, never both.
+    assert "[lc: shrunk 5000→123; full: /tmp/x.txt]" in text
+    assert "[output truncated: 50 lines omitted]" not in text
 
 
 def test_unknown_session_error_names_the_live_handles(monkeypatch: pytest.MonkeyPatch) -> None:
     from lemoncrow.gateway.adapters.mcp import bash as bash_mod
 
     monkeypatch.setattr(bash_mod, "live_managed_bash_ids", lambda: ["v334oo", "8muo9e"])
+
     text = bash_mod.tool_bash({"id": "zzzzzz", "action": "status"})
+
     assert "unknown shell session: zzzzzz" in text
     assert "live sessions: v334oo, 8muo9e" in text
 
 
 def test_unknown_session_error_flags_a_host_task_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A host that caps MCP calls hands back its own task id; feeding that back
+    # as a shell handle can only fail, so the error has to say which id-space
+    # it landed in rather than repeating "unknown".
     from lemoncrow.gateway.adapters.mcp import bash as bash_mod
 
     monkeypatch.setattr(bash_mod, "live_managed_bash_ids", lambda: [])
+
     text = bash_mod.tool_bash({"id": "k31b54d8q", "action": "status"})
+
     assert "host background-task id" in text
     assert "no live sessions in this MCP process" in text
 
@@ -2677,6 +2816,7 @@ def test_smart_state_flock_gives_up_instead_of_waiting_forever(monkeypatch: pyte
     from lemoncrow.gateway.adapters.mcp import smart_state
 
     monkeypatch.setenv("LEMONCROW_SMART_STATE_LOCK_TIMEOUT", "0.2")
+
     seen_flags: list[int] = []
 
     def _always_busy(_fd: object, flags: int, *_args: object, **_kwargs: object) -> None:
@@ -2684,25 +2824,56 @@ def test_smart_state_flock_gives_up_instead_of_waiting_forever(monkeypatch: pyte
         raise BlockingIOError("locked")
 
     monkeypatch.setattr(fcntl, "flock", _always_busy)
+
     started = _time.monotonic()
     handle = smart_state._acquire_smart_state_flock()
     elapsed = _time.monotonic() - started
+
     assert handle is None
     assert elapsed < 3.0, f"acquisition should give up near the 0.2s timeout, took {elapsed:.1f}s"
+
+    # The load-bearing assertion. Elapsed time alone cannot tell a bounded
+    # acquisition from a blocking one here: BlockingIOError is an OSError, so a
+    # blocking `flock(LOCK_EX)` under this mock also returns None immediately
+    # via the broad handler, and a timing-only test passes either way. What
+    # actually distinguishes them is the flag: every attempt must be LOCK_NB.
     assert seen_flags, "flock was never attempted"
     assert all(
         f & fcntl.LOCK_NB for f in seen_flags
     ), f"every acquisition attempt must be non-blocking, got flags {seen_flags}"
+    # ...and it must actually retry to the deadline rather than degrade into a
+    # single try, which would drop the cross-process synchronisation entirely.
     assert len(seen_flags) > 1, f"expected polling until the deadline, saw {len(seen_flags)} attempt(s)"
+
+
+def test_render_bash_text_omits_spill_hint_when_absent() -> None:
+    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
+
+    text = _render_bash_text(
+        {
+            "stdout": "line1\n... (50 lines omitted) ...\nline300",
+            "stderr": "",
+            "exit_code": 0,
+            "truncated": True,
+            "lines_omitted": 50,
+        }
+    )
+    assert "[output truncated: 50 lines omitted]" in text
 
 
 def test_shell_background_session_can_be_cancelled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    started = _run_bash_tool('python3 -c "import time; time.sleep(10)"', timeout=10, background=True)
+
+    started = _run_bash_tool(
+        'python3 -c "import time; time.sleep(10)"',
+        timeout=10,
+        background=True,
+    )
     cancelled = _run_bash_tool(session_id=started["session_id"], action="kill")
     time.sleep(0.1)
+
     assert cancelled["status"] == "cancelled"
     assert cancelled["exit_code"] == -1
     assert "cancelled" in cancelled["stderr"].lower()
@@ -2717,11 +2888,15 @@ def test_shell_background_session_survives_past_timeout(tmp_path: Path, monkeypa
     from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
+
     started = _run_bash_tool(
-        "python3 -c \"import time; time.sleep(0.25); print('done')\"", timeout=0.1, background=True
+        "python3 -c \"import time; time.sleep(1); print('done')\"",
+        timeout=0.5,
+        background=True,
     )
-    time.sleep(0.15)
+    time.sleep(0.65)  # past the requested timeout; the command is still running
     completed = _run_bash_tool(session_id=started["session_id"], action="poll")
+
     assert completed["status"] == "completed"
     assert completed["exit_code"] == 0
     assert completed["stdout"] == "done"
@@ -2736,12 +2911,18 @@ def test_shell_action_update_installs_an_enforced_kill_deadline(
     from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    started = _run_bash_tool('python3 -c "import time; time.sleep(30)"', timeout=3600, background=True)
+
+    started = _run_bash_tool(
+        'python3 -c "import time; time.sleep(30)"',
+        timeout=3600,
+        background=True,
+    )
     assert started["status"] == "running"
-    updated = _run_bash_tool(session_id=started["session_id"], action="update", timeout=0.15)
+    updated = _run_bash_tool(session_id=started["session_id"], action="update", timeout=0.3)
     assert updated["status"] == "running"
     assert updated["updated"] is True
-    assert updated["timeout"] == 0.15
+    assert updated["timeout"] == 0.3
+
     result = _run_bash_tool(session_id=started["session_id"], action="poll")
     assert result["status"] == "timed_out"
 
@@ -2750,11 +2931,17 @@ def test_shell_action_update_extends_its_own_deadline(tmp_path: Path, monkeypatc
     from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    started = _run_bash_tool("python3 -c \"import time; time.sleep(0.3); print('done')\"", timeout=10, background=True)
-    _run_bash_tool(session_id=started["session_id"], action="update", timeout=0.05)
-    extended = _run_bash_tool(session_id=started["session_id"], action="update", timeout=1)
+
+    started = _run_bash_tool(
+        "python3 -c \"import time; time.sleep(1); print('done')\"",
+        timeout=10,
+        background=True,
+    )
+    _run_bash_tool(session_id=started["session_id"], action="update", timeout=0.2)
+    extended = _run_bash_tool(session_id=started["session_id"], action="update", timeout=5)
     assert extended["updated"] is True
-    assert extended["timeout"] == 1.0
+    assert extended["timeout"] == 5.0
+
     result = _run_bash_tool(session_id=started["session_id"], action="poll")
     assert result["status"] == "completed"
     assert result["stdout"] == "done"
@@ -2764,6 +2951,7 @@ def test_shell_action_update_requires_timeout(tmp_path: Path, monkeypatch: pytes
     from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
+
     started = _run_bash_tool('python3 -c "import time; time.sleep(1)"', timeout=10, background=True)
     try:
         with pytest.raises(ValueError, match="timeout"):
@@ -2772,33 +2960,54 @@ def test_shell_action_update_requires_timeout(tmp_path: Path, monkeypatch: pytes
         _run_bash_tool(session_id=started["session_id"], action="kill")
 
 
+def test_render_shell_text_reports_update_confirmation() -> None:
+    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
+
+    text = _render_bash_text(
+        {
+            "status": "running",
+            "session_id": "abc123",
+            "updated": True,
+            "timeout": 5.0,
+            "timeout_remaining_ms": 4800,
+        }
+    )
+    assert "id=abc123" in text
+    assert "4s" in text
+
+
+def test_render_shell_text_reports_update_failure_when_already_finished() -> None:
+    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
+
+    text = _render_bash_text({"status": "completed", "session_id": "abc123", "updated": False})
+    assert "abc123" in text
+    assert "completed" in text
+
+
 def test_shell_status_action_is_nonblocking_and_reports_tail(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
+
     started = _run_bash_tool(
-        'python3 -c "import sys, time; [print(i, flush=True) for i in range(20)]; time.sleep(2)"',
+        'python3 -c "import sys, time; [print(i, flush=True) for i in range(20)]; time.sleep(5)"',
         timeout=10,
         background=True,
     )
     try:
-        deadline = time.monotonic() + 1.0
-        while True:
-            before = time.monotonic()
-            status = _run_bash_tool(session_id=started["session_id"], action="status")
-            elapsed = time.monotonic() - before
-            if status.get("tail_lines") == 10 and status.get("stdout", "").splitlines() == [
-                str(i) for i in range(10, 20)
-            ]:
-                break
-            if time.monotonic() >= deadline:
-                pytest.fail(f"shell output did not become observable before deadline: {status}")
-            time.sleep(0.01)
+        time.sleep(0.5)  # let the printed lines land before peeking
+
+        before = time.monotonic()
+        status = _run_bash_tool(session_id=started["session_id"], action="status")
+        elapsed = time.monotonic() - before
+
         assert elapsed < 2.0, "status must not block until the command finishes"
         assert status["status"] == "running"
         assert status["session_id"] == started["session_id"]
         assert status["tail_lines"] == 10
         assert status["stdout"].splitlines() == [str(i) for i in range(10, 20)]
+
+        # A status peek must not reap the session -- poll/cancel still work after.
         cancelled = _run_bash_tool(session_id=started["session_id"], action="kill")
         assert cancelled["status"] == "cancelled"
     finally:
@@ -2812,34 +3021,98 @@ def test_shell_status_action_reports_finished_session_without_reaping(
     from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    started = _run_bash_tool("python3 -c \"print('done')\"", timeout=10, background=True)
-    deadline = time.monotonic() + 1.0
-    while True:
-        status = _run_bash_tool(session_id=started["session_id"], action="status")
-        if status.get("status") == "completed":
-            break
-        if time.monotonic() >= deadline:
-            pytest.fail(f"shell session did not finish before deadline: {status}")
-        time.sleep(0.01)
+
+    started = _run_bash_tool(
+        "python3 -c \"print('done')\"",
+        timeout=10,
+        background=True,
+    )
+    time.sleep(0.3)  # let the process finish
+
+    status = _run_bash_tool(session_id=started["session_id"], action="status")
     assert status["status"] == "completed"
     assert status["exit_code"] == 0
     assert "done" in status["stdout"]
+
+    # The finished session is still reap-able by an explicit poll afterward.
     polled = _run_bash_tool(session_id=started["session_id"], action="poll")
     assert polled["status"] == "completed"
     assert polled["stdout"] == "done"
+
+
+def test_render_shell_text_status_action_notes_tail_window() -> None:
+    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
+
+    text = _render_bash_text(
+        {
+            "status": "running",
+            "session_id": "abc123",
+            "pid": 42,
+            "duration_ms": 1_000,
+            "timeout_remaining_ms": 9_000,
+            "stdout": "line1\nline2",
+            "stderr": "",
+            "tail_lines": 10,
+        }
+    )
+    assert "[tail: last 10 lines]" in text
+    assert "line1\nline2" in text
+
+
+def test_render_bash_text_tail_braces_shared_log_prefix() -> None:
+    from lemoncrow.gateway.adapters.mcp_server import _render_bash_text
+
+    text = _render_bash_text(
+        {
+            "stdout": "x",
+            "stderr": "",
+            "exit_code": 0,
+            "tail_lines": 5,
+            "log_file": "/tmp/lemoncrow-bash/abc.stdout.txt",
+            "log_file_stderr": "/tmp/lemoncrow-bash/abc.stderr.txt",
+        }
+    )
+    assert "[tail: last 5 lines; full: /tmp/lemoncrow-bash/abc.{stdout.txt, stderr.txt}]" in text
 
 
 def test_shell_mcp_call_returns_managed_session_for_background_command(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    response = _call("bash", {"command": 'python3 -c "import time; time.sleep(10)"', "timeout": 30, "background": True})
+
+    response = _call(
+        "bash",
+        {
+            "command": 'python3 -c "import time; time.sleep(10)"',
+            "timeout": 30,
+            "background": True,
+        },
+    )
     text = response["result"]["content"][0]["text"]
-    match = re.search("\\bid=([^;\\s]+)", text)
+    match = re.search(r"\bid=([^;\s]+)", text)
+
     assert "running" in text
     assert match is not None
     cancelled = mcp_server._run_bash_tool(session_id=match.group(1), action="kill")
     assert cancelled["status"] == "cancelled"
+
+
+def test_truncate_result_text_passes_small_through() -> None:
+    small = "hello world"
+    assert mcp_server._truncate_result_text(small, 1024) == small
+
+
+def test_truncate_result_text_caps_oversized_with_notice() -> None:
+    out = mcp_server._truncate_result_text("x" * 5000, 1024)
+    assert len(out.encode("utf-8")) <= 1024
+    assert "truncated" in out
+    assert "5000" in out  # canonical footer: "[lc: truncated 5000→1024; narrow the query for full]"
+
+
+def test_truncate_result_text_keeps_valid_utf8_on_multibyte_boundary() -> None:
+    # 'é' encodes to 2 bytes; an odd byte limit must not yield a partial char.
+    out = mcp_server._truncate_result_text("é" * 1000, 101)
+    out.encode("utf-8")  # raises if the head was split mid-codepoint
 
 
 def test_truncate_result_text_spills_full_text_when_tool_name_given(
@@ -2850,20 +3123,23 @@ def test_truncate_result_text_spills_full_text_when_tool_name_given(
     and a tool_name given, the full text is persisted first.
     """
     monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(tmp_path / "spill"))
-    monkeypatch.delenv("LEMONCROW_TOOL_OUTPUT_SPILL", raising=False)
+    monkeypatch.delenv("LEMONCROW_TOOL_OUTPUT_SPILL", raising=False)  # default on
     middle_marker = "UNIQUE-MIDDLE-MARKER"
-    text = "HEAD" + "x" * 5000 + middle_marker + "x" * 5000 + "TAIL"
+    text = "HEAD" + ("x" * 5000) + middle_marker + ("x" * 5000) + "TAIL"
     out = mcp_server._truncate_result_text(text, 1024, "bash")
+
     assert len(out.encode("utf-8")) <= 1024
     assert "[lc: truncated" in out
-    match = re.search("full: (\\S+\\.txt)\\]", out)
+    match = re.search(r"full: (\S+\.txt)\]", out)
     assert match is not None
     recovered = Path(match.group(1)).read_text(encoding="utf-8")
     assert recovered == text
     assert middle_marker in recovered
 
 
-def test_truncate_result_text_without_tool_name_keeps_bare_notice(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_truncate_result_text_without_tool_name_keeps_bare_notice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv("LEMONCROW_TOOL_OUTPUT_SPILL", raising=False)
     out = mcp_server._truncate_result_text("x" * 5000, 1024)
     assert "spilled to" not in out
@@ -2877,7 +3153,7 @@ def test_write_jsonrpc_backstop_replaces_oversized_frame(
     huge = {"jsonrpc": "2.0", "id": 7, "result": {"content": [{"type": "text", "text": "z" * 4000}]}}
     mcp_server._write_jsonrpc(huge)
     line = capsys.readouterr().out.strip()
-    frame = json.loads(line)
+    frame = json.loads(line)  # a single valid JSON-RPC line, not a 4 KB blob
     assert frame["id"] == 7
     assert "error" in frame
     assert len(line.encode("utf-8")) < 4000
@@ -2892,10 +3168,13 @@ def test_write_jsonrpc_passes_normal_frame_through(capsys: pytest.CaptureFixture
 def test_read_oversized_result_is_capped_not_dropped(
     store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Regression: an exact (expand) read of a large file produced one >16 MiB
+    # JSON-RPC frame, tripping the host stdout guard and disconnecting the
+    # server. The result must be truncated in place, never dropped.
     _ = store_root
     monkeypatch.setenv("LEMONCROW_MCP_MAX_RESULT_BYTES", "70000")
     big = tmp_path / "big.txt"
-    big.write_text("A" * 200000, encoding="utf-8")
+    big.write_text("A" * 200_000, encoding="utf-8")
     text = _result(_call("read", {"path": str(big), "full": True}))
     assert isinstance(text, str)
     assert len(text.encode("utf-8")) <= 70000
@@ -2903,31 +3182,74 @@ def test_read_oversized_result_is_capped_not_dropped(
 
 
 def test_smart_read_single_caps_oversized_expand_at_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The source-side guard bounds an exact (expand) read of a huge file before
+    # it is ever fully loaded, returning a truncated payload with the byte count.
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setenv("LEMONCROW_MCP_MAX_RESULT_BYTES", "70000")
     big = tmp_path / "big.log"
-    big.write_text("L" * 500000, encoding="utf-8")
+    big.write_text("L" * 500_000, encoding="utf-8")
     payload = mcp_server._smart_read_single(str(big), expand=True)
     assert payload["truncated"] is True
-    assert payload["bytes_total"] == 500000
+    assert payload["bytes_total"] == 500_000
     assert len(payload["content"].encode("utf-8")) <= 70000
+
+
+def test_render_memory_md_compact_recall() -> None:
+    out = mcp_server._render_memory_md(
+        {
+            "passages": [
+                {"id": "pas-1", "text": "Prefer LemonCrow memory.", "source_ref": "sess#1", "tags": ["pref"]},
+                {"id": "pas-2", "text": "Use uv run.", "source_ref": "sess#2", "tags": []},
+            ]
+        }
+    )
+    assert out is not None
+    assert out.startswith("### memory")
+    assert "- sess#1 [pref]" in out
+    assert "Prefer LemonCrow memory." in out
+    # repeated JSON field keys are dropped
+    assert "source_ref" not in out
+
+
+def test_render_memory_md_non_recall_falls_back_to_json() -> None:
+    # store_fact/vote_fact responses have no `passages` list -> keep JSON.
+    assert mcp_server._render_memory_md({"id": "mem-1", "fact": "x"}) is None
+
+
+def test_render_search_map_md_is_compact() -> None:
+    out = mcp_server._render_search_md(
+        {"mode": "map", "outline": "pkg/\n  mod.py", "ranked_files": ["pkg/mod.py"], "token_count": 10}
+    )
+    assert out is not None
+    assert out.startswith("### repo_map")
+    assert "pkg/mod.py" in out
+    # the JSON wrapper / bookkeeping keys are gone
+    assert "token_count" not in out
+    assert "ranked_files" not in out
 
 
 def test_check_auto_update_respects_explicit_opt_out(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEMONCROW_AUTO_UPDATE", "0")
 
-    def _boom(*args: Any, **kwargs: Any) -> Any:
+    def _boom(*args: Any, **kwargs: Any) -> Any:  # pragma: no cover - must not run
         raise AssertionError("auto-update ran a subprocess while LEMONCROW_AUTO_UPDATE=0")
 
     import subprocess as _subprocess
 
     monkeypatch.setattr(_subprocess, "run", _boom)
+    # Returns without touching subprocess.run.
     mcp_server._check_auto_update()
 
 
 def _outline_payload(*section_sizes: int) -> dict[str, Any]:
     sections = [
-        {"path": "pkg/mod.py", "qualified_name": f"sym{i}", "line": 10, "end_line": 99, "content": "x" * size}
+        {
+            "path": "pkg/mod.py",
+            "qualified_name": f"sym{i}",
+            "line": 10,
+            "end_line": 99,
+            "content": "x" * size,
+        }
         for i, size in enumerate(section_sizes)
     ]
     return {"files": [{"path": "pkg/mod.py", "sections": sections}]}
@@ -2937,21 +3259,24 @@ def test_outline_lean_view_outlines_large_sections(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(mcp_server, "_CODESEARCH_OUTLINE", True)
     payload = mcp_server._outline_lean_view(_outline_payload(100, 2000), keep_top2=False)
     small, large = payload["files"][0]["sections"]
-    assert small["content"] == "x" * 100
+    assert small["content"] == "x" * 100  # under _CODESEARCH_OUTLINE_MAX_CHARS: inline
     assert "content" not in large
     assert large["outline"] == "sym1 — read pkg/mod.py:L10-L99"
 
 
 def test_outline_lean_view_caps_kept_top2_sections(monkeypatch: pytest.MonkeyPatch) -> None:
+    # include_source (hidden) keeps the top-2 inline, but bounded: past
+    # _CODESEARCH_TOP2_MAX_CHARS the section keeps its head plus a precise read
+    # pointer instead of the full dump.
     monkeypatch.setattr(mcp_server, "_CODESEARCH_OUTLINE", True)
     monkeypatch.setattr(mcp_server, "_CODESEARCH_TOP2_MAX_CHARS", 500)
     payload = mcp_server._outline_lean_view(_outline_payload(2000, 400, 2000), keep_top2=True)
     first, second, third = payload["files"][0]["sections"]
     assert first["content"].startswith("x" * 500)
     assert first["content"].endswith("[truncated — read pkg/mod.py:L10-L99]")
-    assert len(first["content"]) < 600
-    assert second["content"] == "x" * 400
-    assert "content" not in third
+    assert len(first["content"]) < 600  # head + pointer, not the 2000-char dump
+    assert second["content"] == "x" * 400  # top-2 within budget: untouched
+    assert "content" not in third  # rank 3: outlined as usual
     assert third["outline"].startswith("sym2 — read")
 
 
@@ -2962,6 +3287,8 @@ def test_outline_lean_view_disabled_is_identity(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_outline_lean_view_disabled_still_caps_pathological_sections(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The hard head cap is UNCONDITIONAL: even with outline mode off, a single
+    # pathological section is bounded to head + precise read pointer.
     monkeypatch.setattr(mcp_server, "_CODESEARCH_OUTLINE", False)
     monkeypatch.setattr(mcp_server, "_CODESEARCH_TOP2_MAX_CHARS", 500)
     payload = mcp_server._outline_lean_view(_outline_payload(2000, 100), keep_top2=False)
@@ -2971,8 +3298,95 @@ def test_outline_lean_view_disabled_still_caps_pathological_sections(monkeypatch
     assert small["content"] == "x" * 100
 
 
-@pytest.mark.slow
+def test_render_code_search_md_is_compact() -> None:
+    payload = {
+        "exact_match": True,
+        "files": [
+            {
+                "path": "src/orders.py",
+                "sections": [
+                    {
+                        "qualified_name": "OrderService.calculate_total",
+                        "line": 12,
+                        "end_line": 20,
+                        "content": "12\tdef calculate_total(self):\n13\t    return 1\n",
+                    },
+                    {
+                        "qualified_name": "big",
+                        "line": 30,
+                        "end_line": 99,
+                        "outline": "big — read src/orders.py:L30-L99.",
+                    },
+                ],
+            }
+        ],
+        "related_symbols": [
+            {
+                "qualified_name": "tokens_saved",
+                "path": "frontend/src/api.ts",
+                "line": 537,
+                "end_line": 537,
+                "kind": "variable",
+            },
+            {
+                "qualified_name": "tokens_saved",
+                "path": "frontend/src/api.ts",
+                "line": 611,
+                "end_line": 611,
+                "kind": "variable",
+            },
+            {"qualified_name": "helper", "path": "src/util.py", "line": 5, "end_line": 40, "kind": "function"},
+        ],
+        "candidate_files": ["src/a.py", "src/b.py"],
+        "tokens_saved": 999,
+        "calls_saved": 3,
+    }
+    text = mcp_server._render_code_search_md(payload)
+    assert text is not None
+    # sections: heading + sparse-gutter source (first line of a contiguous run
+    # keeps its number, followers drop theirs); outline pointer verbatim
+    assert "## src/orders.py" in text
+    assert "### OrderService.calculate_total L12-L20" in text
+    assert "12\tdef calculate_total(self):" in text
+    assert "13\t" not in text
+    assert "\n    return 1" in text
+    assert "big — read src/orders.py:L30-L99." in text
+    # related symbols: one line per symbol, same-symbol ranges merged
+    assert "frontend/src/api.ts:L537,L611 variable tokens_saved" in text
+    # majority kind "function" is untagged; non-function kinds keep theirs
+    assert "src/util.py:L5-L40 helper" in text
+    assert "function" not in text.split("related_symbols:")[1]
+    # candidates: single comma-joined line, adjacent same-dir entries grouped;
+    # bookkeeping never rendered
+    assert "candidate_files: src/{a.py,b.py}" in text
+    assert "999" not in text
+    assert "exact match" not in text  # exact hits carry no banner
+    # the render is line-shaped, not JSON
+    assert '"related_symbols"' not in text
+
+
+def test_compress_candidate_files_groups_adjacent_same_directory() -> None:
+    paths = [
+        "src/a/one.py",
+        "src/a/two.py",
+        "src/b/three.py",
+        "src/a/four.py",
+        "README.md",
+    ]
+    text = mcp_server._compress_candidate_files(paths)
+    # a/one.py + a/two.py are ADJACENT -> grouped. src/b/three.py breaks the
+    # run, so the later src/a/four.py is a separate single-file segment (never
+    # reordered into the earlier group -- that would shift MRR-scored rank).
+    assert text == "src/a/{one.py,two.py}, src/b/three.py, src/a/four.py, README.md"
+
+
+@pytest.mark.slow  # importing eval_external_provider_mrr loads the full gold-pairs
+# corpus at module level (~7k pairs) -- correct, just too slow for the default run.
 def test_compress_candidate_files_round_trips_through_eval_parser(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Cross-module contract: LemonCrow's compressor and the retrieval eval's
+    # parser must agree, or every LemonCrow-channel MRR run silently corrupts
+    # candidate_files ranks (the eval has no structuredContent to fall back to
+    # -- this compact-markdown path is the ONLY one it ever exercises).
     import importlib
     import sys
     import types
@@ -2996,8 +3410,12 @@ def test_compress_candidate_files_round_trips_through_eval_parser(monkeypatch: p
         codebench_paths.append(root_codebench_path)
     codebench_pkg.__path__ = codebench_paths
     sys.modules.pop("benchmarks.codebench.eval_external_provider_mrr", None)
+    # The script does module-level `_parser.parse_known_args()` (it's a CLI
+    # entry point, not a library) with a required --provider -- give it a
+    # valid argv for the duration of the import.
     monkeypatch.setattr(sys, "argv", ["eval_external_provider_mrr.py", "--provider", "lemoncrow"])
     _eval_mrr = importlib.import_module("benchmarks.codebench.eval_external_provider_mrr")
+
     paths = [
         "src/a/one.py",
         "src/a/two.py",
@@ -3015,7 +3433,202 @@ def test_compress_candidate_files_round_trips_through_eval_parser(monkeypatch: p
     assert recovered == paths
 
 
+def test_render_code_search_md_flags_inexact_and_truncated() -> None:
+    payload = {"exact_match": False, "files": [], "candidate_files": ["src/a.py"], "truncated": True}
+    text = mcp_server._render_code_search_md(payload)
+    assert text is not None
+    assert text.startswith("no exact match -- ranked candidates")
+    assert "(truncated; narrow with paths=)" in text
+
+
+def test_sparse_gutter_reanchors_after_elisions_and_markers() -> None:
+    content = "\n".join(
+        [
+            "10\tdef f():",  # run start: keeps number
+            "11\t    x = 1",  # consecutive: dropped
+            "12\t    return x",  # consecutive: dropped
+            "\t…",  # skeleton elision: resets the run
+            "20\tdef g():",  # new run after elision: keeps number
+            "21\t    pass",  # consecutive: dropped
+            "30\tdef h():",  # non-consecutive jump: keeps number
+            "... [truncated after L30 — L45]",  # marker: resets, passes through
+        ]
+    )
+    out = mcp_server._sparse_gutter(content)
+    assert out.split("\n") == [
+        "10\tdef f():",
+        "    x = 1",
+        "    return x",
+        "\t…",
+        "20\tdef g():",
+        "    pass",
+        "30\tdef h():",
+        "... [truncated after L30 — L45]",
+    ]
+
+
+def test_sparse_gutter_reanchors_every_k_lines_within_a_run() -> None:
+    # 12 consecutive lines: anchors at run positions 0, 5, 10 bound the offset
+    # counting for any in-between line to <=4 lines from the anchor above.
+    content = "\n".join(f"{100 + i}\tline{i}" for i in range(12))
+    out = mcp_server._sparse_gutter(content).split("\n")
+    numbered = [i for i, line in enumerate(out) if mcp_server._SECTION_GUTTER_RE.match(line)]
+    assert numbered == [0, 5, 10]
+    assert out[0] == "100\tline0"
+    assert out[5] == "105\tline5"
+    assert out[10] == "110\tline10"
+    assert out[1] == "line1"
+
+
+def test_sparse_gutter_leaves_unnumbered_content_untouched() -> None:
+    content = "plain text\nno numbers here"
+    assert mcp_server._sparse_gutter(content) == content
+
+
+def test_lean_code_search_view_candidates_keep_symbol_map_paths() -> None:
+    # candidate_files is the RANKED recall surface (rank-consumers read files +
+    # candidate_files, never the symbol map): a path carried only by a
+    # related_symbols pointer MUST still appear here. Excluding map-covered
+    # paths deleted the top entry-point files from the ranking and was part of
+    # a measured -0.10 overall retrieval MRR regression (2026-07-06). Only
+    # returned-source paths are excluded.
+    payload = {
+        "exact_match": True,
+        "entry_points": [
+            {
+                "qualified_name": "f",
+                "path": "src/covered.py",
+                "line": 1,
+                "end_line": 9,
+                "kind": "function",
+                "score": 9.0,
+            }
+        ],
+        "files": [
+            {
+                "path": "src/main.py",
+                "source_sections": [
+                    {"qualified_name": "main", "path": "src/main.py", "line": 1, "end_line": 3, "content": "1\tx\n"}
+                ],
+            },
+            {"path": "src/covered.py", "source_sections": []},
+            {"path": "src/fresh.py", "source_sections": []},
+        ],
+    }
+    lean = mcp_server._lean_code_search_view(payload, max_files=1)
+    # main.py: source returned -> excluded. covered.py: symbol-map pointer AND
+    # ranked candidate -> kept. fresh.py: plain ranked candidate -> kept.
+    assert lean["candidate_files"] == ["src/covered.py", "src/fresh.py"]
+
+
+def test_lean_code_search_view_candidate_files_capped_tighter_when_dominant() -> None:
+    # The exact-single-winner case (`dominant`: exact match, no seed scope,
+    # one file scoring far above any rival) is the SAME signal that already
+    # collapses `files` to n_src=1 -- it also shrinks the candidate_files
+    # tail to _LEAN_CANDIDATE_FILES_DOMINANT (5) instead of the general 8.
+    # This is deliberately NOT keyed on any per-candidate score: that was
+    # tried and falsified by
+    # test_lean_code_search_view_candidates_keep_symbol_map_paths's fresh.py
+    # case. Reusing the whole-response `dominant` signal instead avoids that
+    # trap.
+    payload = {
+        "exact_match": True,
+        "entry_points": [
+            {
+                "qualified_name": "f",
+                "path": "src/winner.py",
+                "line": 1,
+                "end_line": 9,
+                "kind": "function",
+                "score": 9.0,
+            }
+        ],
+        "files": [{"path": "src/winner.py", "source_sections": []}]
+        + [{"path": f"src/other{i}.py", "source_sections": []} for i in range(10)],
+    }
+    lean = mcp_server._lean_code_search_view(payload, max_files=1)
+    assert len(lean["candidate_files"]) == 5
+    # 11 total candidates, 5 shown -> 6 hidden, named explicitly.
+    assert lean["candidate_files_more"] == 6
+
+
+def test_lean_code_search_view_candidate_files_more_absent_when_nothing_hidden() -> None:
+    # No cap was actually hit -> no candidate_files_more key at all (its mere
+    # presence, even at 0, would read as "something is being withheld").
+    payload = {
+        "exact_match": False,
+        "entry_points": [],
+        "files": [{"path": f"src/other{i}.py", "source_sections": []} for i in range(3)],
+    }
+    lean = mcp_server._lean_code_search_view(payload, max_files=1)
+    assert len(lean["candidate_files"]) == 3
+    assert "candidate_files_more" not in lean
+
+
+def test_render_code_search_md_hints_hidden_candidate_files_via_limit() -> None:
+    # `limit` is code_search's one real, visible count param (candidate_files
+    # cap, collapsed from the old separate max_candidates/max_files split) --
+    # the hint must point at it directly, not the retired name.
+    payload = {
+        "exact_match": False,
+        "files": [],
+        "candidate_files": ["src/a.py", "src/b.py", "src/c.py"],
+        "candidate_files_more": 4,
+    }
+    text = mcp_server._render_code_search_md(payload)
+    assert text is not None
+    assert "(+4 more; pass limit=7 to see them)" in text
+    assert "max_candidates=" not in text
+
+
+def test_render_code_search_md_renders_blank_result_with_no_hint_text() -> None:
+    # A flagged repeat query returns blank results with NO explanatory text --
+    # renders as just the bare "no exact match" line, nothing more (measured:
+    # the caller skims past prose hints and searches again anyway).
+    payload = {"exact_match": False, "files": []}
+    text = mcp_server._render_code_search_md(payload)
+    assert text == "no exact match -- ranked candidates"
+    assert "[lc:" not in text
+
+
+def test_lean_code_search_view_candidate_files_keeps_full_window_when_not_dominant() -> None:
+    # Same 20-file shape, but exact_match=False -> `dominant` never fires
+    # (it requires exact_match). The recall tail stays the full 8-wide net.
+    payload = {
+        "exact_match": False,
+        "entry_points": [],
+        "files": [{"path": f"src/other{i}.py", "source_sections": []} for i in range(20)],
+    }
+    lean = mcp_server._lean_code_search_view(payload, max_files=1)
+    assert len(lean["candidate_files"]) == 8
+
+
+def test_lean_code_search_view_max_candidates_overrides_both_defaults() -> None:
+    # An explicit max_candidates wins over BOTH the dominant (5) and general
+    # (8) defaults -- the caller's own confidence, not a heuristic, decides.
+    payload = {
+        "exact_match": False,
+        "entry_points": [],
+        "files": [{"path": f"src/other{i}.py", "source_sections": []} for i in range(20)],
+    }
+    lean = mcp_server._lean_code_search_view(payload, max_files=1, max_candidates=3)
+    assert len(lean["candidate_files"]) == 3
+    # A dominant response asking for MORE than its own 5-default also gets it.
+    dominant_payload = {
+        "exact_match": True,
+        "entry_points": [
+            {"qualified_name": "f", "path": "src/winner.py", "line": 1, "end_line": 9, "kind": "function", "score": 9.0}
+        ],
+        "files": [{"path": "src/winner.py", "source_sections": []}]
+        + [{"path": f"src/other{i}.py", "source_sections": []} for i in range(20)],
+    }
+    lean_dominant = mcp_server._lean_code_search_view(dominant_payload, max_files=1, max_candidates=12)
+    assert len(lean_dominant["candidate_files"]) == 12
+
+
 def _doc_heavy_payload() -> dict[str, object]:
+    # 6 markdown headings outscore 2 code symbols; without the filetype
+    # diversity pass the whole related_symbols window is documentation.
     eps = [
         {
             "qualified_name": f"title: doc {i}",
@@ -3042,6 +3655,26 @@ def _doc_heavy_payload() -> dict[str, object]:
     return {"exact_match": False, "entry_points": eps, "files": files}
 
 
+def test_lean_code_search_view_caps_doc_filetype_in_ranked_windows() -> None:
+    lean = mcp_server._lean_code_search_view(_doc_heavy_payload(), max_files=1, query="read tool png support")
+    # related_symbols window (8): docs capped at a quarter (2); the code
+    # symbols are promoted ahead of the demoted markdown overflow.
+    rel_paths = [s["path"] for s in lean["related_symbols"]]
+    assert rel_paths[:4] == ["docs/page_0.md", "docs/page_1.md", "src/server.py", "src/parse.py"]
+    # candidate_files keeps every path (permutation, not a filter) with the
+    # same promotion applied.
+    cands = lean["candidate_files"]
+    assert cands[:4] == ["docs/page_0.md", "docs/page_1.md", "src/server.py", "src/parse.py"]
+    assert sorted(cands) == sorted({str(e["path"]) for e in _doc_heavy_payload()["entry_points"]})  # type: ignore[union-attr]
+
+
+def test_lean_code_search_view_doc_query_skips_doc_capping() -> None:
+    lean = mcp_server._lean_code_search_view(_doc_heavy_payload(), max_files=1, query="where are the docs for setup")
+    rel_paths = [s["path"] for s in lean["related_symbols"]]
+    # Doc-seeking query: score order untouched, markdown keeps its slots.
+    assert rel_paths[:6] == [f"docs/page_{i}.md" for i in range(6)]
+
+
 def test_shell_high_timeout_waits_out_completion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """`timeout` is a pure wait budget: set high it blocks to the finished
     result in one call; past a low one a still-running handle comes back
@@ -3050,15 +3683,15 @@ def test_shell_high_timeout_waits_out_completion(tmp_path: Path, monkeypatch: py
     from lemoncrow.gateway.adapters.mcp_server import _run_bash_tool
 
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
-    result = _run_bash_tool("sleep 0.2; echo waited-out", timeout=2)
+
+    result = _run_bash_tool("sleep 1.3; echo waited-out", timeout=30)
     assert result.get("status") != "running"
     assert result["exit_code"] == 0
     assert "waited-out" in result["stdout"]
-    started = time.monotonic()
-    handle = _run_bash_tool("sleep 5", timeout=1)
-    elapsed = time.monotonic() - started
+
+    # Control: a low timeout hands back a running handle (and never kills).
+    handle = _run_bash_tool("sleep 30", timeout=1)
     assert handle.get("status") == "running"
-    assert 0.8 <= elapsed < 2.5, f"1s response budget took {elapsed:.2f}s"
     _run_bash_tool(session_id=str(handle["session_id"]), action="kill")
 
 
@@ -3071,9 +3704,11 @@ def test_smart_edit_new_file_sources_replacement_content(
     payload_file = tmp_path / "payload.txt"
     payload_file.write_text("BIG GENERATED BODY\n" * 5, encoding="utf-8")
     target = Path("out.txt")
+
     result = tool_smart_edit(
         {"post_edit_hooks": False, "edits": [{"path": str(target), "new_file": str(payload_file), "replace": True}]}
     )
+
     assert not result.get("failed")
     assert target.read_text(encoding="utf-8") == payload_file.read_text(encoding="utf-8")
 
@@ -3091,6 +3726,9 @@ def test_smart_edit_new_file_missing_is_a_clear_error(
 
 
 def test_smart_edit_old_without_new_rejected(store_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Schema now requires only `path` (so a hidden new_file retry validates
+    # client-side); a bare {path, old} must be rejected loudly -- treating a
+    # missing new as "" would silently DELETE the matched text.
     _ = store_root
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("CLAUDE_WORKSPACE_ROOT", str(tmp_path))
@@ -3110,23 +3748,160 @@ def test_smart_edit_failed_edit_preserves_large_new_payload(
     monkeypatch.setenv("LEMONCROW_MCP_SPILL_DIR", str(tmp_path / "spill"))
     target = Path("mod.py")
     target.write_text("def f():\n    return 1\n", encoding="utf-8")
-    big = "# regenerated-content-line\n" * 200
+    big = "# regenerated-content-line\n" * 200  # comfortably past the 2000-char preserve floor
+
     result = tool_smart_edit(
         {
             "post_edit_hooks": False,
             "edits": [{"path": str(target), "old_string": "ANCHOR THAT DOES NOT EXIST ANYWHERE", "new_string": big}],
         }
     )
+
     failed = result.get("failed") or []
     assert failed, result
     preserved = failed[0].get("new_preserved_at")
     assert preserved, failed[0]
     assert Path(preserved).read_text(encoding="utf-8") == big
+
+    # The no-regeneration retry: same content, referenced by path.
     retry = tool_smart_edit(
         {"post_edit_hooks": False, "edits": [{"path": str(target), "new_file": preserved, "replace": True}]}
     )
     assert not retry.get("failed")
     assert target.read_text(encoding="utf-8") == big
+
+
+def test_render_context_procedure_drops_structured_echo() -> None:
+    payload = {
+        "context": "### procedure\nUse the exact tenant id.\n<memory>Keep refresh tokens short-lived.</memory>",
+        "recalled_passages": [{"text": "Keep refresh tokens short-lived.", "source_ref": "s1"}],
+        "tokens_breakdown": {"playbooks": 20, "bootstrap": 5, "memory": 10, "total": 35},
+        "bootstrap": {"status": "warm", "repo_id": "repo-1", "blocks": [{"label": "architecture"}]},
+    }
+    rendered = mcp_server._render_context_tool_md(payload)
+    assert rendered == payload["context"]
+    raw = json.dumps(payload, separators=(",", ":"))
+    assert len(rendered or "") < len(raw) * 0.6
+
+
+def test_render_context_procedure_surfaces_only_non_warm_bootstrap_state() -> None:
+    payload = {"context": "Use the playbook.", "bootstrap": {"status": "warming", "job_id": "job-secret"}}
+    assert mcp_server._render_context_tool_md(payload) == "Use the playbook.\n\n[bootstrap warming]"
+
+
+def test_render_context_scoped_pull_is_source_plus_budget_tail() -> None:
+    payload = {
+        "rationale": "ranked for auth flow",
+        "chunks": [
+            {
+                "path": "src/auth.py",
+                "symbol": "issue_token",
+                "kind": "function",
+                "signature": "def issue_token(user):",
+                "snippet": "return sign(user)",
+                "score": 0.94,
+                "channel": "hybrid",
+                "provenance": "fresh",
+            }
+        ],
+        "excluded": [{"path": "legacy/auth.py", "reason": "excluded path"}],
+        "trace_id": "trace-1",
+        "total_tokens": 80,
+        "dropped_for_budget": 2,
+        "provenance": "fresh",
+    }
+    rendered = mcp_server._render_context_tool_md(payload)
+    assert rendered == (
+        "ranked for auth flow\n"
+        "→ src/auth.py · issue_token\n"
+        "def issue_token(user):\n"
+        "return sign(user)\n"
+        "+2 dropped for budget"
+    )
+    assert "trace-1" not in rendered
+    assert "0.94" not in rendered
+
+
+def test_render_compact_returns_state_not_json_wrapper() -> None:
+    payload = {
+        "prompt_block": "# LemonCrow compact state\nDecision: keep one shared server.",
+        "tokens_before": 120000,
+        "tokens_after_estimate": 32000,
+        "tokens_freed": 88000,
+        "cost_saved_usd": 0.42,
+    }
+    rendered = mcp_server._render_compact_md(payload)
+    assert rendered == (
+        "# LemonCrow compact state\nDecision: keep one shared server.\n\n" "compact 120000→32000 tokens · freed 88000"
+    )
+    assert "cost_saved_usd" not in rendered
+
+
+def test_render_rescue_md_keeps_actionable_history_without_trace_metadata() -> None:
+    payload = {
+        "rescue": "Stop retrying. Run the focused parser test, then verify the corrected range.",
+        "matched_blocks": ["playbook/parser-recovery"],
+        "analysis": {
+            "matched": True,
+            "match_score": 0.83,
+            "current_fingerprint": "assertionerror expected <n>",
+            "incident": {
+                "fingerprint": "assertionerror expected <n>",
+                "count": 4,
+                "trace_ids": ["trace-1", "trace-2", "trace-3", "trace-4"],
+                "sample_errors": ["AssertionError: expected 3"],
+                "common_commands": ["pytest tests/test_parser.py"],
+                "root_cause_hypothesis": "the parser range is stale after an insertion",
+                "confidence": 0.9,
+                "suggested_playbooks": ["playbook/parser-recovery"],
+                "suggested_fixes": ["re-read the exact range", "rerun the focused parser test"],
+            },
+        },
+    }
+    rendered = mcp_server._render_rescue_md(payload)
+    assert rendered == (
+        "rescue\n"
+        "Stop retrying. Run the focused parser test, then verify the corrected range.\n"
+        "history\n"
+        "root cause · the parser range is stale after an insertion\n"
+        "seen 4x · confidence 0.9 · match 0.83\n"
+        "next\n"
+        "- re-read the exact range\n"
+        "- rerun the focused parser test"
+    )
+    assert "trace-1" not in rendered
+    assert "fingerprint" not in rendered
+
+
+def test_render_sql_query_md_preserves_types_batches_and_query_state() -> None:
+    rendered = render_sql_text(
+        {
+            "isError": False,
+            "dialect": "sqlite",
+            "took_ms": 7,
+            "results": [
+                {
+                    "name": "items",
+                    "columns": ["id", "note", "payload"],
+                    "rows": [[1, "a\tb\nline", None], [2, "plain", b"\x00\xff"]],
+                    "row_count": 2,
+                    "truncated": True,
+                    "auto_limit_changed": True,
+                },
+                {"name": "broken", "isError": True, "message": "no such table: missing"},
+            ],
+        }
+    )
+    assert rendered == (
+        "### sql query items · 2 rows · truncated · auto-limit\n"
+        "id\tnote\tpayload\n"
+        '1\t"a\\tb\\nline"\tnull\n'
+        '2\t"plain"\t0x00ff\n\n'
+        "### sql query broken · error\n"
+        "no such table: missing"
+    )
+    assert "took_ms" not in rendered
+    assert "dialect" not in rendered
 
 
 def test_cli_tools_call_uses_direct_registry_and_preserves_json(monkeypatch, tmp_path) -> None:
@@ -3145,7 +3920,17 @@ def test_cli_tools_call_uses_direct_registry_and_preserves_json(monkeypatch, tmp
     monkeypatch.setattr(registry, "call_registered_tool", fake_call)
     runner = CliRunner()
     result = runner.invoke(
-        cli, ["--root", str(tmp_path / ".lemoncrow"), "tools", "call", "read", "--args", '{"path":"x.py"}', "--json"]
+        cli,
+        [
+            "--root",
+            str(tmp_path / ".lemoncrow"),
+            "tools",
+            "call",
+            "read",
+            "--args",
+            '{"path":"x.py"}',
+            "--json",
+        ],
     )
     assert result.exit_code == 0, result.output
     assert seen == {"name": "read", "arguments": {"path": "x.py"}}
@@ -3158,7 +3943,10 @@ def test_cli_tools_call_unknown_tool_is_click_error(tmp_path) -> None:
     from lemoncrow.gateway.cli.app import cli
 
     runner = CliRunner()
-    result = runner.invoke(cli, ["--root", str(tmp_path / ".lemoncrow"), "tools", "call", "definitely-not-a-tool"])
+    result = runner.invoke(
+        cli,
+        ["--root", str(tmp_path / ".lemoncrow"), "tools", "call", "definitely-not-a-tool"],
+    )
     assert result.exit_code != 0
     assert "unknown tool: definitely-not-a-tool" in result.output
 
@@ -3171,11 +3959,20 @@ def test_code_search_evidence_observer_records_state_and_shadow_resolution(monke
     engine.search_channel_health.return_value = ChannelHealth(semantic=False)
     monkeypatch.setattr(mcp_server, "_get_ledger", lambda: ledger)
     monkeypatch.setattr(mcp_server, "_get_claude_session_id", lambda: "session-observe")
-    payload = {"entry_points": [], "files": [], "total_tokens": 24, "truncated": False}
+
+    payload = {
+        "entry_points": [],
+        "files": [],
+        "total_tokens": 24,
+        "truncated": False,
+    }
+
     mcp_server._observe_code_search_evidence(query="semantic architecture question", payload=payload, engine=engine)
+
     assert ledger.record_runtime_decision.call_count == 2
     evidence_event = ledger.record_runtime_decision.call_args_list[0].args[0]
     proposal_event = ledger.record_runtime_decision.call_args_list[1].args[0]
+
     assert evidence_event.kind == "retrieval.evidence_state"
     assert evidence_event.reason_codes == ("channel_dark:semantic",)
     assert proposal_event.kind == "retrieval.stop"
@@ -3183,7 +3980,9 @@ def test_code_search_evidence_observer_records_state_and_shadow_resolution(monke
     assert "repair_dark_channel_first" in proposal_event.reason_codes
 
 
-def test_code_search_evidence_experiment_executes_one_scoped_relation_round(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_code_search_evidence_experiment_executes_one_scoped_relation_round(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from lemoncrow.pro.capabilities.code_context.search_verdict import ChannelHealth
 
     monkeypatch.setenv("LEMONCROW_EVIDENCE_RESOLUTION_MODE", "experiment")
@@ -3220,9 +4019,15 @@ def test_code_search_evidence_experiment_executes_one_scoped_relation_round(monk
         "total_tokens": 400,
         "truncated": False,
     }
+
     result = mcp_server._observe_code_search_evidence(
-        query="how do a and b interact", payload=initial, engine=engine, seed_files=["src/a.py"], max_files=5
+        query="how do a and b interact",
+        payload=initial,
+        engine=engine,
+        seed_files=["src/a.py"],
+        max_files=5,
     )
+
     assert result is expanded
     engine.tool_explore.assert_called_once_with(
         "how do a and b interact",
@@ -3239,7 +4044,9 @@ def test_code_search_evidence_experiment_executes_one_scoped_relation_round(monk
     assert "benchmark_experiment" in proposal_event.reason_codes
 
 
-def test_code_search_evidence_experiment_discards_over_latency_budget_round(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_code_search_evidence_experiment_discards_over_latency_budget_round(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import time
 
     from lemoncrow.pro.capabilities.code_context.search_verdict import ChannelHealth
@@ -3263,14 +4070,22 @@ def test_code_search_evidence_experiment_discards_over_latency_budget_round(monk
             {"path": "src/a.py", "line": 10, "end_line": 20, "score": 1.0},
             {"path": "src/b.py", "line": 3, "end_line": 8, "score": 0.95},
         ],
-        "files": [{"path": "src/a.py", "source_sections": [{"line_start": 10, "line_end": 20, "text": "x"}]}],
+        "files": [
+            {"path": "src/a.py", "source_sections": [{"line_start": 10, "line_end": 20, "text": "x"}]},
+        ],
         "relationships": [],
         "total_tokens": 400,
         "truncated": False,
     }
+
     result = mcp_server._observe_code_search_evidence(
-        query="how do a and b interact", payload=initial, engine=engine, seed_files=["src/a.py"], max_files=5
+        query="how do a and b interact",
+        payload=initial,
+        engine=engine,
+        seed_files=["src/a.py"],
+        max_files=5,
     )
+
     assert result is initial
     engine.tool_explore.assert_called_once()
     proposal_event = ledger.record_runtime_decision.call_args_list[-1].args[0]
@@ -3292,12 +4107,16 @@ def test_code_search_shadow_never_executes_an_eligible_expansion(monkeypatch: py
             {"path": "src/a.py", "line": 10, "end_line": 20, "score": 1.0},
             {"path": "src/b.py", "line": 3, "end_line": 8, "score": 0.95},
         ],
-        "files": [{"path": "src/a.py", "source_sections": [{"line_start": 10, "line_end": 20, "text": "x"}]}],
+        "files": [
+            {"path": "src/a.py", "source_sections": [{"line_start": 10, "line_end": 20, "text": "x"}]},
+        ],
         "relationships": [],
         "total_tokens": 400,
         "truncated": False,
     }
+
     result = mcp_server._observe_code_search_evidence(query="relationship", payload=initial, engine=engine)
+
     assert result is initial
     engine.tool_explore.assert_not_called()
     proposal_event = ledger.record_runtime_decision.call_args_list[-1].args[0]

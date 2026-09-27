@@ -170,24 +170,6 @@ def _invoke(tmp_path: Path, args: list[str]) -> Any:
 # --- the packet -------------------------------------------------------------
 
 
-def test_without_the_private_engine_the_packet_names_the_missing_caller_signals(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # OSS Review still builds the packet; caller/centrality enrichment needs the
-    # private engine, so its absence is reported, never silently dropped.
-    from lemoncrow.core.capabilities import code_intelligence_provider as seam
-
-    def _missing() -> Any:
-        raise seam.ProEngineUnavailable(seam.PRO_ENGINE_UNAVAILABLE_MESSAGE)
-
-    monkeypatch.setattr(seam, "_private_provider", _missing)
-    packet = _packet(_repo_with_a_signature_change(tmp_path), tmp_path / "store")
-
-    assert {"symbol_relations", "centrality"} <= set(packet.degraded)
-    assert any(changed.path == "src/auth.py" for changed in packet.files), packet.files
-
-
-@pytest.mark.private_engine
 def test_packet_reaches_the_untouched_caller(tmp_path: Path) -> None:
     packet = _packet(_repo_with_a_signature_change(tmp_path), tmp_path / "store")
 
@@ -205,7 +187,6 @@ def test_packet_reaches_the_untouched_caller(tmp_path: Path) -> None:
     assert any(symbol.symbol_name == "refresh" for symbol in packet.symbols)
 
 
-@pytest.mark.private_engine
 def test_the_changed_contract_is_ranked_first_and_says_why(tmp_path: Path) -> None:
     packet = _packet(_repo_with_a_signature_change(tmp_path), tmp_path / "store")
 
@@ -243,7 +224,6 @@ def test_no_impact_still_produces_a_whole_packet(tmp_path: Path) -> None:
 # --- the rendering ----------------------------------------------------------
 
 
-@pytest.mark.private_engine
 def test_attention_names_the_untouched_call_site(tmp_path: Path) -> None:
     packet = _packet(_repo_with_a_signature_change(tmp_path), tmp_path / "store")
     text = render_review(packet, no_color=True)
@@ -256,7 +236,6 @@ def test_attention_names_the_untouched_call_site(tmp_path: Path) -> None:
     assert "src/auth.py:L" not in attention
 
 
-@pytest.mark.private_engine
 def test_a_method_signature_change_is_visible_at_all(tmp_path: Path) -> None:
     """Plan §4.1's own example, which used to render an empty ATTENTION section.
 
@@ -279,7 +258,6 @@ def test_a_method_signature_change_is_visible_at_all(tmp_path: Path) -> None:
     assert "(src/auth/session.py)" in attention
 
 
-@pytest.mark.private_engine
 def test_an_ambiguous_method_is_qualified_not_dropped_and_not_asserted(tmp_path: Path) -> None:
     """A second class defining ``refresh`` makes the receiver unknowable.
 
@@ -310,7 +288,6 @@ def test_an_ambiguous_method_is_qualified_not_dropped_and_not_asserted(tmp_path:
     assert not any("untouched impacted site(s)" in reason for reason in reasons), reasons
 
 
-@pytest.mark.private_engine
 def test_the_module_level_case_is_unchanged_by_method_support(tmp_path: Path) -> None:
     """The shape that already worked must keep working, spelled exactly as before."""
 
@@ -322,7 +299,6 @@ def test_the_module_level_case_is_unchanged_by_method_support(tmp_path: Path) ->
     assert "unverified" not in attention
 
 
-@pytest.mark.private_engine
 def test_rich_rendering_surfaces_the_same_finding(tmp_path: Path) -> None:
     packet = _packet(_repo_with_a_signature_change(tmp_path), tmp_path / "store")
     text = render_review(packet, no_color=False)
@@ -332,7 +308,6 @@ def test_rich_rendering_surfaces_the_same_finding(tmp_path: Path) -> None:
     assert "Human review  REQUIRED" in text
 
 
-@pytest.mark.private_engine
 def test_one_finding_lists_its_sites_once_not_once_per_site(tmp_path: Path) -> None:
     """A finding that reaches many files is one warning, not many.
 
@@ -376,7 +351,6 @@ def test_execution_evidence_says_unknown_rather_than_guessing(tmp_path: Path) ->
     assert text.rstrip().splitlines()[-1].startswith("index: absent")
 
 
-@pytest.mark.private_engine
 def test_start_here_names_one_file_and_carries_its_facts_and_reasons(tmp_path: Path) -> None:
     packet = _packet(_repo_with_a_signature_change(tmp_path), tmp_path / "store")
     text = render_review(packet, no_color=True)
@@ -437,7 +411,6 @@ def _repo_with_six_findings(tmp_path: Path) -> Path:
     return root
 
 
-@pytest.mark.private_engine
 def test_attention_shows_three_findings_by_default_and_all_of_them_under_all(tmp_path: Path) -> None:
     """Six findings do not fit the five seconds a reviewer spends on this screen.
 
@@ -490,7 +463,6 @@ def test_a_finding_lists_five_locations_by_default_and_counts_the_rest(tmp_path:
     assert "… and 4 more" not in every
 
 
-@pytest.mark.private_engine
 def test_the_file_table_is_behind_all_and_the_findings_are_not(tmp_path: Path) -> None:
     """``FILES`` is a ``git diff --stat`` reprint; it is not why anyone runs this."""
 
@@ -509,7 +481,6 @@ def test_the_file_table_is_behind_all_and_the_findings_are_not(tmp_path: Path) -
 # --- the CLI ----------------------------------------------------------------
 
 
-@pytest.mark.private_engine
 def test_cli_json_round_trips_the_whole_packet(tmp_path: Path) -> None:
     root = _repo_with_a_signature_change(tmp_path)
 
@@ -530,7 +501,6 @@ def test_cli_json_round_trips_the_whole_packet(tmp_path: Path) -> None:
     assert payload["provenance"]["status"] == "unknown"
 
 
-@pytest.mark.private_engine
 def test_json_is_never_capped_the_way_the_terminal_is(tmp_path: Path) -> None:
     """A machine consumer handed three of six findings is the reader who cannot tell.
 

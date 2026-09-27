@@ -46,7 +46,7 @@ else
 fi
 STAGING_DIR="${HOME}/.lemoncrow/opencode"
 
-info()  { echo "[lc:uninstall:opencode] $*"; }
+info()  { echo "[lemoncrow:uninstall:opencode] $*"; }
 run()   { $DRY_RUN && echo "  [dry-run] $*" || eval "$@"; }
 
 clean_config() {
@@ -91,23 +91,12 @@ if [ -d "$AGENTS_DIR" ]; then
 fi
 
 if [ -d "$PLUGIN_DIR" ]; then
-    for f in "$PLUGIN_DIR"/lemoncrow-nudge-v2.js "$PLUGIN_DIR"/lemoncrow-nudge.js "$PLUGIN_DIR"/lemoncrow_nudge.py "$PLUGIN_DIR"/.lemoncrow-host; do
+    for f in "$PLUGIN_DIR"/lemoncrow-nudge.js "$PLUGIN_DIR"/lemoncrow_nudge.py "$PLUGIN_DIR"/.lemoncrow-host; do
         [ -f "$f" ] || continue
         run "rm -f $(printf %q "$f")"
         info "Removed $f"
     done
     rmdir "$PLUGIN_DIR" 2>/dev/null || true
-fi
-
-# V2 terminal status plugin is globally configured in cli.json.
-GLOBAL_HOME="${OPENCODE_CONFIG_HOME:-${XDG_CONFIG_HOME:-${HOME}/.config}/opencode}"
-CLI_FILE="${GLOBAL_HOME}/cli.json"
-STATUS_V2_DIR="${GLOBAL_HOME}/lemoncrow-status-v2"
-if ! $WORKSPACE_SET && [ -f "$CLI_FILE" ]; then
-    run "python3 $(printf %q "${SCRIPT_DIR}/opencode_v2_config.py") cli-remove $(printf %q "$CLI_FILE") $(printf %q "$STATUS_V2_DIR")"
-fi
-if ! $WORKSPACE_SET && [ -d "$STATUS_V2_DIR" ]; then
-    run "rm -rf $(printf %q "$STATUS_V2_DIR")"
 fi
 
 if [ -d "$STAGING_DIR" ]; then

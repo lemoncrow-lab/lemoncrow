@@ -34,9 +34,9 @@ export default function ScreenshotEvidenceCompare({ before, after }: { before: R
 
   return (
     <section className="space-y-2" aria-label={`Screenshot diff ${after.title || after.path || after.id}`}>
-      <div className="flex items-center gap-2 text-caption">
-        <span className="font-medium text-subtle">Screenshot diff</span>
-        <span className="min-w-0 truncate text-muted-foreground">{after.title || after.path}</span>
+      <div className="flex items-center gap-2 text-[10px]">
+        <span className="font-medium text-neutral-300">Screenshot diff</span>
+        <span className="min-w-0 truncate text-neutral-600">{after.title || after.path}</span>
       </div>
       {urls ? (
         <ImageOverlayCompare
@@ -46,9 +46,9 @@ export default function ScreenshotEvidenceCompare({ before, after }: { before: R
           afterLabel="After"
         />
       ) : error ? (
-        <div className="border border-amber-950/70 bg-amber-950/10 px-2.5 py-2 text-caption text-amber-300">Screenshot comparison unavailable: {error}</div>
+        <div className="border border-amber-950/70 bg-amber-950/10 px-2.5 py-2 text-[10px] text-amber-300">Screenshot comparison unavailable: {error}</div>
       ) : (
-        <div className="border border-border px-2.5 py-3 text-caption text-muted-foreground">Loading exact Snapshot screenshots…</div>
+        <div className="border border-neutral-800 px-2.5 py-3 text-[10px] text-neutral-600">Loading exact Snapshot screenshots…</div>
       )}
     </section>
   );

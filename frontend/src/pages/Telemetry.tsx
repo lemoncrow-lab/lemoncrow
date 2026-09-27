@@ -1,5 +1,3 @@
-import { Select, SelectItem } from "../components/ui/select";
-import { Button as UiButton } from "../components/ui/button";
 import { useEffect, useMemo, useState } from "react";
 import { HelpCircle, Circle } from "lucide-react";
 import {
@@ -13,13 +11,10 @@ import {
 } from "../lib/insightsApi";
 import { Chip, MetricCard, cx } from "../components/WorkbenchUI";
 import { useTimeRange } from "../lib/TimeRangeContext";
-import { setVisibleInterval } from "../lib/visibleInterval";
-import TelemetryDestinationPanel from "./TelemetryDestination";
 
 const RECENT_EVENT_LIMIT = 20;
 const TIMELINE_LIMIT = 5000;
 const POLL_INTERVAL_MS = 2000;
-const SUMMARY_MAX_AGE_MS = 30_000;
 const TIMELINE_WIDTH = 1120;
 const TIMELINE_PAD_LEFT = 196;
 const TIMELINE_PAD_RIGHT = 24;
@@ -72,15 +67,14 @@ interface TimelinePoint {
 
 function HintButton({ label, hint }: { label: string; hint: string }) {
   return (
-    <UiButton
+    <button
       type="button"
       aria-label={label}
-      tooltip={hint}
-      size="icon"
-      variant="ghost"
+      title={hint}
+      className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-neutral-800 bg-neutral-950 text-neutral-400 transition hover:border-cyan-500/60 hover:text-cyan-300"
     >
-      <HelpCircle size={14} />
-    </UiButton>
+      <HelpCircle size={12} />
+    </button>
   );
 }
 
@@ -96,15 +90,15 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="hunk">
-      <div className="hunk-head">
-        <div className="flex min-w-0 items-center gap-2">
-          <h2 className="hunk-label">{title}</h2>
+    <section className="border border-neutral-800 bg-neutral-950/70 p-5">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="flex items-center gap-2">
+          <h2 className="text-lg font-semibold text-neutral-100">{title}</h2>
           {hint && <HintButton label={`${title} hint`} hint={hint} />}
         </div>
         {action}
       </div>
-      <div className="p-4">{children}</div>
+      <div className="mt-5">{children}</div>
     </section>
   );
 }
@@ -144,16 +138,16 @@ function FilterSelect({
   children: React.ReactNode;
 }) {
   return (
-    <label className="flex items-center gap-3 text-caption font-mono uppercase tracking-tag text-muted-foreground">
+    <label className="flex items-center gap-3 text-[10px] font-mono uppercase tracking-[0.22em] text-neutral-400">
       <span className="whitespace-nowrap">{label}</span>
-      <Select
+      <select
         aria-label={label}
         value={value}
-        onValueChange={onChange}
-        className="min-w-[148px] border border-border bg-background px-3 py-2 text-heading normal-case tracking-normal text-foreground outline-none transition focus:border-cyan-500/70"
+        onChange={(event) => onChange(event.target.value)}
+        className="min-w-[148px] border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm normal-case tracking-normal text-neutral-100 outline-none transition hover:border-neutral-700 focus:border-cyan-500/70"
       >
         {children}
-      </Select>
+      </select>
     </label>
   );
 }
@@ -167,18 +161,18 @@ function CountBars({
 }) {
   const max = Math.max(1, ...items.map((item) => item.count));
   if (items.length === 0) {
-    return <div className="text-heading text-muted-foreground">{emptyLabel}</div>;
+    return <div className="text-sm text-neutral-400">{emptyLabel}</div>;
   }
   return (
     <div className="space-y-3">
       {items.slice(0, 8).map((item) => (
         <div key={item.name}>
-          <div className="mb-1 flex justify-between gap-3 text-body text-muted-foreground">
+          <div className="mb-1 flex justify-between gap-3 text-xs text-neutral-400">
             <span className="truncate">{item.name}</span>
             <span>{fmt.format(item.count)}</span>
           </div>
           <svg viewBox="0 0 100 8" className="h-2 w-full" aria-hidden="true">
-            <rect x="0" y="0" width="100" height="8" fill="rgb(var(--n-900))" />
+            <rect x="0" y="0" width="100" height="8" fill="#171717" />
             <rect
               x="0"
               y="0"
@@ -216,13 +210,6 @@ function formatAxisTick(ts: number, rangeSeconds: number): string {
   return DAY_FORMAT.format(date);
 }
 
-// Event ids only grow, so any newly stored event in the feed raises the max id.
-function telemetryFeedKey(events: TelemetryEvent[]): string {
-  let maxId = 0;
-  for (const event of events) if (event.id > maxId) maxId = event.id;
-  return `${maxId}:${events.length}`;
-}
-
 function buildQuery(
   windowSeconds: number | null,
   host: string,
@@ -256,7 +243,7 @@ function TimelineChart({
 }) {
   if (points.length === 0) {
     return (
-      <div className="flex min-h-[280px] items-center justify-center border border-dashed border-border bg-background/60 text-heading text-muted-foreground">
+      <div className="flex min-h-[280px] items-center justify-center border border-dashed border-neutral-800 bg-black/20 text-sm text-neutral-400">
         {emptyLabel}
       </div>
     );
@@ -290,7 +277,7 @@ function TimelineChart({
     TIMELINE_PAD_TOP + index * laneHeight + laneHeight / 2;
 
   return (
-    <div className="overflow-x-auto border border-border bg-surface-code">
+    <div className="overflow-x-auto border border-neutral-800 bg-black/35">
       <svg
         viewBox={`0 0 ${TIMELINE_WIDTH} ${height}`}
         className="min-w-[820px] w-full"
@@ -302,7 +289,7 @@ function TimelineChart({
           y="0"
           width={TIMELINE_WIDTH}
           height={height}
-          fill="rgb(var(--surface-sunken))"
+          fill="#050505"
         />
         {eventTypes.map((eventName, index) => {
           const y = yFor(index);
@@ -313,13 +300,13 @@ function TimelineChart({
                 x2={TIMELINE_WIDTH - TIMELINE_PAD_RIGHT}
                 y1={y}
                 y2={y}
-                stroke="rgb(var(--n-800))"
+                stroke="#1f1f1f"
                 strokeWidth="1"
               />
               <text
                 x={TIMELINE_PAD_LEFT - 12}
                 y={y + 4}
-                fill="rgb(var(--n-400))"
+                fill="#a3a3a3"
                 fontSize="11"
                 textAnchor="end"
               >
@@ -328,7 +315,7 @@ function TimelineChart({
               <text
                 x={TIMELINE_WIDTH - TIMELINE_PAD_RIGHT + 8}
                 y={y + 4}
-                fill="rgb(var(--n-500))"
+                fill="#737373"
                 fontSize="11"
               >
                 {counts.get(eventName)}
@@ -348,13 +335,13 @@ function TimelineChart({
                 x2={x}
                 y1={TIMELINE_PAD_TOP - 8}
                 y2={height - TIMELINE_PAD_BOTTOM + 4}
-                stroke="rgb(var(--n-900))"
+                stroke="#171717"
                 strokeDasharray="4 6"
               />
               <text
                 x={x}
                 y={height - 10}
-                fill="rgb(var(--n-500))"
+                fill="#737373"
                 fontSize="10"
                 textAnchor="middle"
               >
@@ -375,7 +362,7 @@ function TimelineChart({
               cy={y}
               r="5"
               fill={point.color}
-              stroke="rgb(var(--surface-sunken))"
+              stroke="#050505"
               strokeWidth="1.5"
               opacity="0.92"
             >
@@ -389,7 +376,7 @@ function TimelineChart({
           x2={TIMELINE_PAD_LEFT}
           y1={TIMELINE_PAD_TOP - 8}
           y2={height - TIMELINE_PAD_BOTTOM + 4}
-          stroke="rgb(var(--n-700))"
+          stroke="#3f3f46"
           strokeWidth="1"
         />
       </svg>
@@ -414,30 +401,30 @@ function EventRow({
     typeof item.props.agent_host === "string" ? item.props.agent_host : null;
 
   return (
-    <details className="border border-border bg-background/60 transition">
+    <details className="border border-neutral-800 bg-black/20 transition hover:border-neutral-700">
       <summary className="flex cursor-pointer list-none items-start justify-between gap-4 px-4 py-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <Circle size={14} fill={color} stroke="none" className="mt-0.5" />
-            <span className="font-mono text-body uppercase tracking-widest text-foreground">
+            <Circle size={10} fill={color} stroke="none" className="mt-0.5" />
+            <span className="font-mono text-xs uppercase tracking-widest text-neutral-100">
               {item.event}
             </span>
-            {commandName && <Chip tone="warning">{commandName}</Chip>}
-            {hostName && <Chip tone="info">{hostName}</Chip>}
-            {item.exported && <Chip tone="success">Exported</Chip>}
+            {commandName && <Chip tone="amber">{commandName}</Chip>}
+            {hostName && <Chip tone="cyan">{hostName}</Chip>}
+            {item.exported && <Chip tone="emerald">Exported</Chip>}
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-body text-muted-foreground">
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-neutral-400">
             <span>{formatTimestamp(item.ts, rangeSeconds ?? undefined)}</span>
             <span>{formatRelative(item.ts)}</span>
             {item.session_id && <span>session {item.session_id}</span>}
           </div>
         </div>
-        <span className="pt-0.5 text-caption font-mono uppercase tracking-tag text-muted-foreground">
+        <span className="pt-0.5 text-[10px] font-mono uppercase tracking-[0.22em] text-neutral-400">
           JSON
         </span>
       </summary>
-      <div className="border-t border-border px-4 py-4">
-        <pre className="overflow-x-auto bg-background p-4 text-body leading-relaxed text-subtle">
+      <div className="border-t border-neutral-800 px-4 py-4">
+        <pre className="overflow-x-auto bg-neutral-950 p-4 text-xs leading-relaxed text-neutral-300">
           {JSON.stringify(
             {
               id: item.id,
@@ -520,33 +507,17 @@ export default function Telemetry() {
 
   useEffect(() => {
     let active = true;
-    // The aggregate over the window only changes when an event lands or one
-    // ages out, so it is refetched when the feed shows a new event and at least
-    // every SUMMARY_MAX_AGE_MS; a multi-day summary is too costly to rebuild
-    // on every poll. The feed is read first, so a summary always covers it.
-    let summaryFeedKey: string | null = null;
-    let summaryAt = 0;
     const refresh = async () => {
       const query = buildQuery(windowSeconds, hostFilter, eventFilter);
-      const nextEvents = await getTelemetryEvents({
-        ...query,
-        limit: TIMELINE_LIMIT,
-      });
-      if (!active) return;
-      const feedKey = telemetryFeedKey(nextEvents.events);
-      const nextSummary =
-        feedKey !== summaryFeedKey ||
-        Date.now() - summaryAt >= SUMMARY_MAX_AGE_MS
-          ? await getTelemetrySummary(query)
-          : null;
+      const [nextEvents, nextSummary] = await Promise.all([
+        getTelemetryEvents({ ...query, limit: TIMELINE_LIMIT }),
+        getTelemetrySummary(query),
+      ]);
       if (!active) return;
       setEvents(nextEvents.events);
+      setSummary(nextSummary);
       setLastUpdated(Date.now());
       setError(null);
-      if (!nextSummary) return;
-      summaryFeedKey = feedKey;
-      summaryAt = Date.now();
-      setSummary(nextSummary);
       setKnownHosts((current) => {
         const merged = new Set(current);
         nextSummary.agent_hosts.forEach((item) => merged.add(item.name));
@@ -562,14 +533,13 @@ export default function Telemetry() {
       setError(String(err));
     });
 
-    const stopPolling = setVisibleInterval(
-      () => refresh().catch(() => undefined),
-      POLL_INTERVAL_MS
-    );
+    const id = window.setInterval(() => {
+      void refresh().catch(() => undefined);
+    }, POLL_INTERVAL_MS);
 
     return () => {
       active = false;
-      stopPolling();
+      window.clearInterval(id);
     };
   }, [windowSeconds, hostFilter, eventFilter]);
 
@@ -647,7 +617,7 @@ export default function Telemetry() {
   }
 
   if (!summary || !schema) {
-    return <div className="text-muted-foreground">Loading...</div>;
+    return <div className="text-neutral-400">Loading...</div>;
   }
 
   const liveHint =
@@ -674,14 +644,7 @@ export default function Telemetry() {
   ].join("\n");
 
   return (
-    <div className="space-y-4">
-      <Section
-        title="Destination"
-        hint="Local events and this page never leave this machine. Only the daily anonymous rollups (savings and event counts) go to the destination."
-      >
-        <TelemetryDestinationPanel />
-      </Section>
-
+    <div className="space-y-6">
       <Section
         title="Telemetry Live View"
         hint={liveHint}
@@ -692,11 +655,11 @@ export default function Telemetry() {
               value={hostFilter}
               onChange={setHostFilter}
             >
-              <SelectItem value="all">All hosts</SelectItem>
+              <option value="all">All hosts</option>
               {hostOptions.map((host) => (
-                <SelectItem key={host} value={host}>
+                <option key={host} value={host}>
                   {host}
-                </SelectItem>
+                </option>
               ))}
             </FilterSelect>
             <FilterSelect
@@ -704,17 +667,17 @@ export default function Telemetry() {
               value={eventFilter}
               onChange={setEventFilter}
             >
-              <SelectItem value="all">All events</SelectItem>
+              <option value="all">All events</option>
               {Object.keys(schema.events)
                 .sort((left, right) => left.localeCompare(right))
                 .map((eventName) => (
-                  <SelectItem key={eventName} value={eventName}>
+                  <option key={eventName} value={eventName}>
                     {eventName}
-                  </SelectItem>
+                  </option>
                 ))}
             </FilterSelect>
             <div className="flex items-center gap-2 pb-2">
-              <Chip tone="success">Live</Chip>
+              <Chip tone="emerald">Live</Chip>
               <HintButton label="Refresh status hint" hint={refreshHint} />
             </div>
           </div>
@@ -724,7 +687,7 @@ export default function Telemetry() {
           <MetricTile
             label="Events in window"
             value={fmt.format(summary.events_total)}
-            tone="info"
+            tone="cyan"
             hint={
               windowSeconds === null
                 ? "All retained telemetry currently in storage."
@@ -740,19 +703,19 @@ export default function Telemetry() {
           <MetricTile
             label="Event types"
             value={fmt.format(summary.unique_event_types)}
-            tone="warning"
+            tone="amber"
             hint="Distinct telemetry event names currently visible in the selected filter set."
           />
           <MetricTile
             label="Active sessions"
             value={fmt.format(summary.active_sessions)}
-            tone="success"
+            tone="emerald"
             hint="Sessions represented by the currently visible telemetry rows."
           />
           <MetricTile
             label="Command events"
             value={fmt.format(commandEvents)}
-            tone="neutral"
+            tone="violet"
             hint={
               summary.last_event_ts
                 ? `Combined cli command invoke and complete events. Latest event ${formatRelative(summary.last_event_ts)}.`
@@ -763,7 +726,7 @@ export default function Telemetry() {
       </Section>
 
       {error && (
-        <div className="border border-red-900/40 bg-red-950/20 px-4 py-3 text-heading text-red-200">
+        <div className="border border-red-900/40 bg-red-950/20 px-4 py-3 text-sm text-red-200">
           Refresh error: {error}
         </div>
       )}
@@ -788,7 +751,7 @@ export default function Telemetry() {
         />
       </Section>
 
-      <div className="grid gap-4 xl:grid-cols-3">
+      <div className="grid gap-6 xl:grid-cols-3">
         <Section title="Event Mix">
           <CountBars items={eventBreakdown} emptyLabel="No event mix yet." />
         </Section>
@@ -812,7 +775,7 @@ export default function Telemetry() {
       >
         <div className="space-y-3">
           {recentEvents.length === 0 ? (
-            <div className="text-heading text-muted-foreground">
+            <div className="text-sm text-neutral-400">
               No telemetry rows match the current filters.
             </div>
           ) : (
@@ -833,9 +796,9 @@ export default function Telemetry() {
         hint="Allowlisted telemetry properties and example payloads for each event type."
       >
         <div className="overflow-auto">
-          <table className="min-w-full border-collapse text-left text-heading">
+          <table className="min-w-full border-collapse text-left text-sm">
             <thead>
-              <tr className="border-b border-border text-body uppercase tracking-widest text-muted-foreground">
+              <tr className="border-b border-neutral-800 text-xs uppercase tracking-widest text-neutral-400">
                 <th className="py-2 pr-4">Event</th>
                 <th className="py-2 pr-4">Allowlisted properties</th>
                 <th className="py-2">Example payload</th>
@@ -845,18 +808,18 @@ export default function Telemetry() {
               {Object.entries(schema.events).map(([eventName, spec]) => (
                 <tr
                   key={eventName}
-                  className="border-b border-border align-top"
+                  className="border-b border-neutral-900 align-top"
                 >
                   <td className="py-3 pr-4 font-mono text-cyan-300">
                     {eventName}
                   </td>
-                  <td className="py-3 pr-4 text-subtle">
+                  <td className="py-3 pr-4 text-neutral-300">
                     {spec.props.join(", ")}
                   </td>
                   <td className="py-3">
                     <code
                       className={cx(
-                        "whitespace-pre-wrap text-body text-muted-foreground"
+                        "whitespace-pre-wrap text-xs text-neutral-400"
                       )}
                     >
                       {JSON.stringify(spec.example)}

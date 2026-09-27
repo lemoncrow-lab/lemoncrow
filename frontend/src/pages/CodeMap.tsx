@@ -1,123 +1,90 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Boxes, Braces, FileCode2, Loader2, Network, Search, Share2, Sparkles, X } from "lucide-react";
-
-import FileTypeIcon from "../components/FileTypeIcon";
-import { selectedEditor } from "../lib/editorPreference";
-import { setVisibleInterval } from "../lib/visibleInterval";
-import { Button as UiButton } from "../components/ui/button";
-import { EmptyState } from "../components/ui/empty-state";
-import { Input as UiInput } from "../components/ui/input";
-import { Select, SelectItem } from "../components/ui/select";
-import { currentReturnPath, returnPathFrom, withReturnPath } from "../lib/codeLinks";
-import { useResolvedProductCapabilities } from "../lib/RuntimeCapabilities";
-import type { ReviewAskSelection } from "../review/ReviewAskDrawer";
-import { createCodeAskTransport } from "../code/codeAskTransport";
-import CodeChangesMenu from "../code/CodeChangesMenu";
-import CodeExplorer from "../code/CodeExplorer";
-import CodeInspector, { type InspectorSubject, type ModuleLink, type ReviewScope } from "../code/CodeInspector";
-import CodeMapView, { type Crumb } from "../code/CodeMapView";
-import CodeSourceView from "../code/CodeSourceView";
-import CodeTopologyView from "../code/CodeTopologyView";
 import {
-  formatMapSpec,
-  liveByPath,
-  liveMarksByPath,
-  moduleOfPath,
-  nodeAtLine,
-  parseMapSpec,
-  sessionMarks,
-  type MapSpec,
-} from "../code/codeModel";
-import type { MapMemberSymbol, MapNode } from "../map/types";
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import {
+  Boxes,
+  Braces,
+  FileCode2,
+  GitPullRequest,
+  Layers3,
+  Loader2,
+  Maximize2,
+  Network,
+  Search,
+  X,
+} from "lucide-react";
+import FileTypeIcon from "../components/FileTypeIcon";
+import CodeSourceWorkspace from "../components/code/CodeSourceWorkspace";
+import CodeMapWorkspace from "../code/CodeMapWorkspace";
+import { projectCodeMapGraph } from "../code/codeMapGraphModel";
 import {
   api,
-  type CodeChangedFile,
-  type CodeChanges,
-  type CodeFocusPayload,
-  type CodeHotspots,
   type CodeMapActivityEvent,
-  type CodeMapActivitySession,
-  type CodeMapEditorCapability,
+  type CodeMapActivityKind,
+  type CodeMapFacet,
+  type CodeMapFull,
+  type CodeMapGraph,
   type CodeMapNode,
+  type CodeMapEditorCapability,
   type CodeMapProject,
   type CodeMapReference,
   type CodeMapReferences,
+  type CodeMapSymbol,
   type CodeMapTextMatch,
-  type CodeModulesOverview,
-  type CodeRelationships,
 } from "../api";
 
-type CodeSearchItem = { type: "node"; id: string; node: CodeMapNode } | { type: "text"; id: string; match: CodeMapTextMatch };
-type CodeSurface = "source" | "map" | "2d" | "3d";
+const EMPTY_GRAPH: CodeMapGraph = {
+  focus: null,
+  nodes: [],
+  edges: [],
+  truncated: false,
+};
 
-/** The map does not move under the reader's hands: Follow waits this long after input. */
-// The Ask drawer carries the markdown renderer (~350 KB); load it on first open.
-const ReviewAskDrawer = lazy(() => import("../review/ReviewAskDrawer"));
-
-const FOLLOW_QUIET_MS = 8_000;
-const CHANGES_POLL_MS = 10_000;
-const ACTIVITY_POLL_MS = 2_500;
-
-function fileNodeFor(path: string): CodeMapNode {
-  const slash = path.lastIndexOf("/");
-  return {
-    id: `file::${path}`,
-    label: slash >= 0 ? path.slice(slash + 1) : path,
-    qualified_name: path,
-    path,
-    kind: "source",
-    node_type: "file",
-    line: 1,
-    end_line: 1,
-  };
-}
-
-function errorText(caught: unknown, fallback: string): string {
-  return caught instanceof Error && caught.message ? caught.message : fallback;
-}
+type CodeSearchItem =
+  | { type: "node"; id: string; node: CodeMapNode }
+  | { type: "text"; id: string; match: CodeMapTextMatch };
 
 export default function CodeMap() {
   const navigate = useNavigate();
-  const routerLocation = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedProject = searchParams.get("repo") || undefined;
   const requestedFile = searchParams.get("file") || undefined;
   const requestedSymbol = searchParams.get("symbol") || undefined;
-  const requestedSurface = searchParams.get("view");
-  const surface: CodeSurface = requestedSurface === "map" || requestedSurface === "2d" || requestedSurface === "3d" ? requestedSurface : "source";
-  const mapSpecValue = searchParams.get("map");
-  const mapSpec = useMemo(() => parseMapSpec(mapSpecValue), [mapSpecValue]);
-  const selectedModuleId = searchParams.get("module");
-  const sessionFilter = searchParams.get("session");
-  const returnTo = returnPathFrom(searchParams);
-  const returnLabel = /^\/(?:r|reviews?)(?:\/|$|\?)/.test(returnTo) ? "Review" : "Back";
+  const requestedView = searchParams.get("view");
   const requestedLineValue = Number(searchParams.get("line"));
   const requestedEndValue = Number(searchParams.get("end"));
-  const requestedLine = Number.isInteger(requestedLineValue) && requestedLineValue > 0 ? requestedLineValue : null;
-  const requestedEnd = Number.isInteger(requestedEndValue) && requestedEndValue >= (requestedLine ?? 1) ? requestedEndValue : requestedLine;
-  const locationRange = useMemo(
-    () => (requestedLine ? ([requestedLine, requestedEnd ?? requestedLine] as const) : null),
-    [requestedEnd, requestedLine],
-  );
-
-  const [explorerWidth, setExplorerWidth] = useState(270);
+  const requestedLine =
+    Number.isInteger(requestedLineValue) && requestedLineValue > 0
+      ? requestedLineValue
+      : null;
+  const requestedEnd =
+    Number.isInteger(requestedEndValue) && requestedEndValue >= (requestedLine ?? 1)
+      ? requestedEndValue
+      : requestedLine;
   const [projects, setProjects] = useState<CodeMapProject[]>([]);
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [projectsError, setProjectsError] = useState<string | null>(null);
-  const [files, setFiles] = useState<CodeMapNode[]>([]);
-  const [showIgnored, setShowIgnored] = useState(false);
-  const [ignoredTruncated, setIgnoredTruncated] = useState(false);
-  const [projectLabel, setProjectLabel] = useState<string>("");
-  const [sourceProject, setSourceProject] = useState<{ reference: string; root: string } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [full, setFull] = useState<CodeMapFull | null>(null);
+  const [sourceFiles, setSourceFiles] = useState<CodeMapNode[]>([]);
   const [selectedFileSymbols, setSelectedFileSymbols] = useState<CodeMapNode[]>([]);
+  const [focusGraph, setFocusGraph] = useState<CodeMapGraph>(EMPTY_GRAPH);
+  const [surfaceMode, setSurfaceMode] = useState<"source" | "map">(
+    requestedView === "map" ? "map" : "source"
+  );
+  const [viewMode, setViewMode] = useState<"full" | "focus">("full");
+  const [dimension, setDimension] = useState<"2d" | "3d">("2d");
+  const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
+  const [selectedFileTypes, setSelectedFileTypes] = useState<Set<string>>(
+    new Set()
+  );
+  const [selectedLanguage, setSelectedLanguage] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [extraNodes, setExtraNodes] = useState<CodeMapNode[]>([]);
-  const [relationships, setRelationships] = useState<CodeRelationships | null>(null);
-  const [relationshipsLoading, setRelationshipsLoading] = useState(false);
-  const [relationshipsError, setRelationshipsError] = useState<string | null>(null);
+  const [detail, setDetail] = useState<CodeMapSymbol | null>(null);
   const [references, setReferences] = useState<CodeMapReferences | null>(null);
   const [referencesLoading, setReferencesLoading] = useState(false);
   const [referencesError, setReferencesError] = useState<string | null>(null);
@@ -127,118 +94,108 @@ export default function CodeMap() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [activeSearchIndex, setActiveSearchIndex] = useState(0);
+  const [loading, setLoading] = useState(true);
   const [editorCapability, setEditorCapability] = useState<CodeMapEditorCapability | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
+  const [expandingId, setExpandingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [liveEnabled, setLiveEnabled] = useState(true);
   const [activityStatus, setActivityStatus] = useState("idle");
   const [activityHost, setActivityHost] = useState<string | null>(null);
   const [activitySessionId, setActivitySessionId] = useState<string | null>(null);
-  const [followedSession, setFollowedSession] = useState<string | null>(null);
-  const [activitySessions, setActivitySessions] = useState<CodeMapActivitySession[]>([]);
-  const [askOpen, setAskOpen] = useState(false);
-  const [askScope, setAskScope] = useState<ReviewAskSelection | null>(null);
+  const [activityHandoffSupported, setActivityHandoffSupported] = useState(false);
+  const [activityAgentRunSupported, setActivityAgentRunSupported] = useState(false);
   const [events, setEvents] = useState<CodeMapActivityEvent[]>([]);
-  // Last edit in the first activity snapshot: that snapshot replays history,
-  // so only edits after it should refetch changes and hotspots.
-  const [snapshotEditId, setSnapshotEditId] = useState("");
-  const [changes, setChanges] = useState<CodeChanges | null>(null);
-  const [hotspots, setHotspots] = useState<CodeHotspots | null>(null);
-  const [purposeBusy, setPurposeBusy] = useState<string | null>(null);
-  const [purposeError, setPurposeError] = useState<{ module: string; message: string } | null>(null);
-  const [overview, setOverview] = useState<CodeModulesOverview | null>(null);
-  const [overviewLoading, setOverviewLoading] = useState(false);
-  const [overviewError, setOverviewError] = useState<string | null>(null);
-  const [focus, setFocus] = useState<CodeFocusPayload | null>(null);
-  const [focusLoading, setFocusLoading] = useState(false);
-  const [focusError, setFocusError] = useState<string | null>(null);
-  const [mapReload, setMapReload] = useState(0);
-  const [selectedFocusId, setSelectedFocusId] = useState<string | null>(null);
-  const [follow, setFollow] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
+  const [activityByNode, setActivityByNode] = useState<
+    Record<string, CodeMapActivityKind>
+  >({});
+  const [followNodeId, setFollowNodeId] = useState<string | null>(null);
   const activityCursor = useRef<string | null>(null);
   const activitySession = useRef<string | null>(null);
-  const lastInteraction = useRef(0);
-  const fileSymbolsCache = useRef<Map<string, { editId: string; symbols: CodeMapNode[] }>>(new Map());
+  const lastActiveNode = useRef<string | null>(null);
+  const graphNodes = useRef<Map<string, CodeMapNode>>(new Map());
+  const graphNodesByPath = useRef<Map<string, CodeMapNode[]>>(new Map());
+  const fileSymbolsCache = useRef<
+    Map<string, { editId: string; symbols: CodeMapNode[] }>
+  >(new Map());
+  const highlightTimers = useRef<number[]>([]);
   const searchInput = useRef<HTMLInputElement | null>(null);
-  const askReturnFocus = useRef<HTMLElement | null>(null);
 
   const requestedProjectEntry = requestedProject
-    ? projects.find((project) => project.project_id === requestedProject || project.root === requestedProject)
+    ? projects.find(
+        (project) =>
+          project.project_id === requestedProject || project.root === requestedProject
+      )
     : undefined;
   const selectedProject =
     requestedProjectEntry ||
-    (!requestedProject ? projects.find((project) => project.active && project.indexed) || projects.find((project) => project.indexed) : undefined);
-  const selectedProjectReference = selectedProject?.project_id || requestedProject || selectedProject?.root;
-  const projectRoot = selectedProject?.root ?? (sourceProject && sourceProject.reference === selectedProjectReference ? sourceProject.root : undefined);
-  const projectUrlReference = selectedProject?.project_id || selectedProject?.root || requestedProject || projectRoot;
-  // A local Dashboard serves only the deterministic map (runtime.code_map):
-  // Code Ask, the editor, references, module purposes and Review capture stay
-  // with the full product unless the host resolves them separately, and are
-  // hidden, not shown broken.
-  const productCapabilities = useResolvedProductCapabilities();
-  const fullCode = productCapabilities?.features["runtime.code"] === true;
-  const codeAskAvailable = productCapabilities?.features["runtime.code_ask"] === true;
-  const localEditorAvailable = productCapabilities?.features["runtime.local_editor"] === true;
-  const projectKnowledgeAvailable = productCapabilities?.features["runtime.project_knowledge"] === true;
-  // Hosted Code reads an immutable tenant View: no Review from live changes
-  // and no developer-local sessions or edit ledgers.
-  const reviewCaptureAvailable =
-    productCapabilities?.runtime.localReviewCapture === true &&
-    (fullCode || Boolean(productCapabilities?.products.review.available));
-  const liveWorkspace = productCapabilities?.features["runtime.live_workspace"] !== false;
-  const codeAskTransport = useMemo(
-    () => (codeAskAvailable && projectUrlReference ? createCodeAskTransport(projectUrlReference) : null),
-    [codeAskAvailable, projectUrlReference],
-  );
-  useEffect(() => {
-    setAskOpen(false);
-    setAskScope(null);
-  }, [projectUrlReference]);
-
-  const nodesById = useMemo(() => {
+    (!requestedProject
+      ? projects.find((project) => project.active && project.indexed) ||
+        projects.find((project) => project.indexed)
+      : undefined);
+  const selectedProjectReference =
+    selectedProject?.project_id || requestedProject || selectedProject?.root;
+  const projectRoot = full?.project.root || selectedProject?.root;
+  const projectUrlReference =
+    selectedProject?.project_id || selectedProject?.root || requestedProject || projectRoot;
+  const baseGraph =
+    viewMode === "full" ? (full?.graph ?? EMPTY_GRAPH) : focusGraph;
+  const sourceNodes = useMemo(() => {
     const byId = new Map<string, CodeMapNode>();
-    for (const node of files) byId.set(node.id, node);
-    for (const node of extraNodes) byId.set(node.id, node);
+    for (const node of sourceFiles) byId.set(node.id, node);
+    for (const node of full?.graph.nodes ?? []) {
+      if (node.node_type !== "file") byId.set(node.id, node);
+    }
     for (const node of selectedFileSymbols) byId.set(node.id, node);
-    return byId;
-  }, [extraNodes, files, selectedFileSymbols]);
-  const filesByPath = useMemo(() => new Map(files.map((node) => [node.path, node])), [files]);
-  const selectedNode = selectedId ? nodesById.get(selectedId) ?? null : null;
-  const symbolsByPath = useMemo(() => {
-    const byPath = new Map<string, CodeMapNode[]>();
-    for (const node of selectedFileSymbols) {
-      const list = byPath.get(node.path) ?? [];
-      list.push(node);
-      byPath.set(node.path, list);
-    }
-    for (const list of byPath.values()) list.sort((a, b) => a.line - b.line || a.label.localeCompare(b.label));
-    return byPath;
-  }, [selectedFileSymbols]);
-  const changedByPath = useMemo(() => new Map<string, CodeChangedFile>((changes?.files ?? []).map((row) => [row.path, row])), [changes]);
-  const hotspotByPath = useMemo(() => new Map((hotspots?.files ?? []).map((row) => [row.path, row])), [hotspots]);
-  const marks = useMemo(() => sessionMarks(changes, activitySessions), [activitySessions, changes]);
-  const livePaths = useMemo(() => (liveEnabled ? liveByPath(events, now) : new Map()), [events, liveEnabled, now]);
-  const liveMarks = useMemo(
-    () => liveMarksByPath(livePaths, new Map(), marks, followedSession),
-    [followedSession, livePaths, marks],
+    return [...byId.values()];
+  }, [full?.graph.nodes, selectedFileSymbols, sourceFiles]);
+  const activeIds = useMemo(
+    () => new Set(Object.keys(activityByNode)),
+    [activityByNode]
   );
-  const overviewWithChanges = useMemo(() => {
-    if (!overview) return null;
-    const counts = new Map<string, number>();
-    for (const path of changedByPath.keys()) {
-      const module = moduleOfPath(path, overview.modules);
-      if (module !== null) counts.set(module, (counts.get(module) ?? 0) + 1);
-    }
-    return { ...overview, modules: overview.modules.map((module) => ({ ...module, changed: counts.get(module.id) ?? 0 })) };
-  }, [changedByPath, overview]);
+  const graph = useMemo(
+    () =>
+      projectCodeMapGraph({
+        baseGraph,
+        groupCount: full?.groups.length ?? 0,
+        fileTypeCount: full?.file_types.length ?? 0,
+        selectedGroups,
+        selectedFileTypes,
+        selectedLanguage,
+        activeNodeIds: activeIds,
+        focused: viewMode === "focus",
+      }),
+    [
+      activeIds,
+      baseGraph,
+      full?.groups.length,
+      full?.file_types.length,
+      selectedGroups,
+      selectedFileTypes,
+      selectedLanguage,
+      viewMode,
+    ]
+  );
 
-  // ------------------------------------------------------------------ search
+  const selectedNode = useMemo(
+    () =>
+      baseGraph.nodes.find((node) => node.id === selectedId) ??
+      sourceNodes.find((node) => node.id === selectedId) ??
+      null,
+    [baseGraph.nodes, selectedId, sourceNodes]
+  );
+
   const fileSearchResults = useMemo(() => {
     const clean = query.trim().toLowerCase();
     if (clean.length < 2) return [];
-    return files.filter((node) => `${node.label} ${node.path}`.toLowerCase().includes(clean)).slice(0, 6);
-  }, [files, query]);
+    return sourceFiles
+      .filter((node) =>
+        `${node.label} ${node.path}`.toLowerCase().includes(clean)
+      )
+      .slice(0, 6);
+  }, [query, sourceFiles]);
+
   const searchResults = useMemo<CodeSearchItem[]>(() => {
     const seen = new Set<string>();
     const nodes = [...fileSearchResults, ...results]
@@ -248,19 +205,22 @@ export default function CodeMap() {
         return true;
       })
       .map((node) => ({ type: "node" as const, id: node.id, node }));
-    const text = textResults.map((match) => ({ type: "text" as const, id: match.id, match }));
+    const text = textResults.map((match) => ({
+      type: "text" as const,
+      id: match.id,
+      match,
+    }));
     return [...nodes, ...text].slice(0, 30);
   }, [fileSearchResults, results, textResults]);
 
-  useEffect(() => setActiveSearchIndex(0), [query, searchResults.length]);
+  useEffect(() => {
+    setActiveSearchIndex(0);
+  }, [query, searchResults.length]);
 
   useEffect(() => {
-    if (!localEditorAvailable) {
-      setEditorCapability(null);
-      return;
-    }
     let cancelled = false;
-    void api.codeMapEditorCapability()
+    void api
+      .codeMapEditorCapability()
       .then((capability) => {
         if (!cancelled) setEditorCapability(capability);
       })
@@ -270,7 +230,7 @@ export default function CodeMap() {
     return () => {
       cancelled = true;
     };
-  }, [localEditorAvailable]);
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -290,11 +250,49 @@ export default function CodeMap() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 15_000);
-    return () => window.clearInterval(timer);
-  }, []);
+    setSurfaceMode(requestedView === "map" ? "map" : "source");
+  }, [requestedView]);
 
-  // ---------------------------------------------------------------- projects
+  useEffect(() => {
+    if (!full) return;
+    const requestedNode = requestedSymbol
+      ? full.graph.nodes.find((node) => node.id === requestedSymbol)
+      : requestedFile
+        ? sourceFiles.find((node) => node.path === requestedFile) ??
+          full.graph.nodes.find((node) => node.path === requestedFile)
+        : null;
+    if (requestedNode) {
+      setSelectedId((current) => {
+        if (current === requestedNode.id) return current;
+        setDetail(null);
+        return requestedNode.id;
+      });
+      return;
+    }
+    if (!requestedSymbol || !projectRoot) return;
+
+    let cancelled = false;
+    void api
+      .codeMapNeighborhood(requestedSymbol, projectRoot, 1, 160)
+      .then((incoming) => {
+        if (cancelled) return;
+        const node = incoming.nodes.find(
+          (candidate) => candidate.id === requestedSymbol
+        );
+        if (!node) return;
+        setFocusGraph(incoming);
+        setViewMode("focus");
+        setSelectedId(node.id);
+        setDetail(null);
+      })
+      .catch(() => {
+        // A stale/invalid deep link should not make the whole Code page fail.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [full, projectRoot, requestedFile, requestedSymbol, sourceFiles]);
+
   useEffect(() => {
     void api
       .codeMapProjects()
@@ -304,13 +302,21 @@ export default function CodeMap() {
       })
       .catch(() => {
         setProjects([]);
-        setProjectsError("Code index API unavailable. Restart the dashboard service, then reopen Code.");
+        setProjectsError(
+          "Code index API unavailable. Restart the dashboard service, then reopen Code."
+        );
       })
       .finally(() => setProjectsLoaded(true));
   }, []);
 
   useEffect(() => {
-    if (!requestedProject || !selectedProject?.project_id || requestedProject === selectedProject.project_id) return;
+    if (
+      !requestedProject ||
+      !selectedProject?.project_id ||
+      requestedProject === selectedProject.project_id
+    ) {
+      return;
+    }
     const next = new URLSearchParams(searchParams);
     next.set("repo", selectedProject.project_id);
     setSearchParams(next, { replace: true });
@@ -319,44 +325,55 @@ export default function CodeMap() {
   useEffect(() => {
     if (requestedProject || !projectsLoaded || selectedProjectReference) return;
     setLoading(false);
-    setFiles([]);
-    setError(projectsError || "No indexed project is available in this dashboard session.");
+    setFull(null);
+    setSourceFiles([]);
+    setSelectedFileSymbols([]);
+    setError(
+      projectsError ||
+        "No indexed project is available in this dashboard session."
+    );
   }, [projectsError, projectsLoaded, requestedProject, selectedProjectReference]);
 
   useEffect(() => {
     if (!selectedProjectReference) return;
+    let cancelled = false;
     setLoading(true);
+    setError(null);
+    setDetail(null);
     setSelectedId(null);
-    setFiles([]);
-    setIgnoredTruncated(false);
+    setSourceFiles([]);
     setSelectedFileSymbols([]);
-    setOverview(null);
-    setFocus(null);
-    setChanges(null);
-    setHotspots(null);
+    setViewMode("full");
     activityCursor.current = null;
     activitySession.current = null;
-    setEvents([]);
     setActivityHost(null);
     setActivitySessionId(null);
-  }, [selectedProjectReference]);
-
-  // Source's first paint depends only on the file list.
-  useEffect(() => {
-    if (!selectedProjectReference) return;
-    let cancelled = false;
-    setError(null);
-    void api
-      .codeMapFiles(selectedProjectReference, showIgnored)
-      .then((payload) => {
+    setActivityHandoffSupported(false);
+    setEvents([]);
+    void Promise.all([
+      api.codeMapFull(selectedProjectReference),
+      api.codeMapFiles(selectedProjectReference).catch(() => null),
+    ])
+      .then(([payload, filePayload]) => {
         if (cancelled) return;
-        setFiles(payload.files);
-        setIgnoredTruncated(Boolean(payload.ignored_truncated));
-        setProjectLabel(payload.project.label);
-        setSourceProject({ reference: selectedProjectReference, root: payload.project.root });
+        setFull(payload);
+        setSourceFiles(
+          filePayload?.files ??
+            payload.graph.nodes.filter((node) => node.node_type === "file")
+        );
+        setFocusGraph(EMPTY_GRAPH);
+        setSelectedGroups(new Set(payload.groups.map((facet) => facet.id)));
+        setSelectedFileTypes(
+          new Set(payload.file_types.map((facet) => facet.id))
+        );
       })
       .catch((caught: unknown) => {
-        if (!cancelled) setError(errorText(caught, "Could not list the project's files."));
+        if (!cancelled)
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : "Could not load the code map."
+          );
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -364,47 +381,28 @@ export default function CodeMap() {
     return () => {
       cancelled = true;
     };
-  }, [selectedProjectReference, showIgnored]);
-
-  // --------------------------------------------------------------- selection
-  const selectedPath = selectedNode?.path ?? requestedFile ?? null;
-  useEffect(() => {
-    if (!requestedFile) return;
-    if (requestedSymbol) {
-      const symbol = nodesById.get(requestedSymbol);
-      if (symbol) {
-        setSelectedId(symbol.id);
-        return;
-      }
-    }
-    const fileNode = filesByPath.get(requestedFile);
-    if (fileNode) {
-      setSelectedId(fileNode.id);
-      return;
-    }
-    if (!loading) {
-      // Outside the listing (ignored, generated, or new): still openable.
-      const synthetic = fileNodeFor(requestedFile);
-      setExtraNodes((current) => (current.some((node) => node.id === synthetic.id) ? current : [...current, synthetic]));
-      setSelectedId(synthetic.id);
-    }
-  }, [filesByPath, loading, nodesById, requestedFile, requestedSymbol]);
+  }, [selectedProjectReference]);
 
   useEffect(() => {
-    if (!projectRoot || !selectedPath) {
+    const path = selectedNode?.path;
+    if (surfaceMode !== "source" || !projectRoot || !path) {
       setSelectedFileSymbols([]);
       return;
     }
-    const editId = [...events].reverse().find((event) => event.kind === "edit" && event.path === selectedPath)?.id ?? "";
-    const cacheKey = `${projectRoot}\n${selectedPath}`;
+    const editId =
+      [...events].reverse().find((event) => event.kind === "edit" && event.path === path)
+        ?.id ?? "";
+    const cacheKey = `${projectRoot}\n${path}`;
     const cached = fileSymbolsCache.current.get(cacheKey);
     if (cached?.editId === editId) {
       setSelectedFileSymbols(cached.symbols);
       return;
     }
+
     let cancelled = false;
+    setSelectedFileSymbols([]);
     void api
-      .codeMapFileSymbols(selectedPath, projectRoot)
+      .codeMapFileSymbols(path, projectRoot)
       .then((payload) => {
         if (cancelled) return;
         const cache = fileSymbolsCache.current;
@@ -421,61 +419,20 @@ export default function CodeMap() {
     return () => {
       cancelled = true;
     };
-  }, [events, projectRoot, selectedPath]);
-
-  // Used by / Uses for the selected file or symbol, from the shared provider.
-  const relationshipKey = selectedNode ? `${selectedNode.node_type === "file" ? "file" : "symbol"}:${selectedNode.node_type === "file" ? selectedNode.path : selectedNode.id}` : "";
-  useEffect(() => {
-    if (!projectRoot || !selectedNode) {
-      setRelationships(null);
-      setRelationshipsError(null);
-      setRelationshipsLoading(false);
-      return;
-    }
-    const controller = new AbortController();
-    setRelationshipsLoading(true);
-    setRelationshipsError(null);
-    setRelationships(null);
-    const target = selectedNode.node_type === "file" ? { path: selectedNode.path } : { symbolId: selectedNode.id };
-    void api
-      .codeMapRelationships(target, projectRoot, controller.signal)
-      .then((payload) => setRelationships(payload))
-      .catch((caught: unknown) => {
-        if (!controller.signal.aborted) setRelationshipsError(errorText(caught, "Could not read relationships for this selection."));
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setRelationshipsLoading(false);
-      });
-    return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectRoot, relationshipKey]);
+  }, [events, projectRoot, selectedNode?.path, surfaceMode]);
 
   useEffect(() => {
-    if (!fullCode || !selectedNode || selectedNode.node_type === "file" || !projectRoot) {
-      setReferences(null);
-      setReferencesLoading(false);
-      setReferencesError(null);
-      return;
+    const allNodes = [...sourceNodes, ...focusGraph.nodes];
+    graphNodes.current = new Map(allNodes.map((node) => [node.id, node]));
+    const byPath = new Map<string, CodeMapNode[]>();
+    for (const node of allNodes) {
+      if (!node.path) continue;
+      const bucket = byPath.get(node.path);
+      if (bucket) bucket.push(node);
+      else byPath.set(node.path, [node]);
     }
-    let cancelled = false;
-    setReferences(null);
-    setReferencesLoading(true);
-    setReferencesError(null);
-    void api
-      .codeMapReferences(selectedNode.id, projectRoot, 60)
-      .then((payload) => {
-        if (!cancelled) setReferences(payload);
-      })
-      .catch(() => {
-        if (!cancelled) setReferencesError("Could not load references for this symbol.");
-      })
-      .finally(() => {
-        if (!cancelled) setReferencesLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [fullCode, projectRoot, selectedNode]);
+    graphNodesByPath.current = byPath;
+  }, [focusGraph.nodes, sourceNodes]);
 
   useEffect(() => {
     const clean = query.trim();
@@ -493,16 +450,18 @@ export default function CodeMap() {
       void api
         .codeMapSearch(clean, projectRoot, 12)
         .then((payload) => {
-          if (cancelled) return;
-          setResults(payload.results);
-          setTextResults(payload.text_results);
-          setSearchError(null);
+          if (!cancelled) {
+            setResults(payload.results);
+            setTextResults(payload.text_results);
+            setSearchError(null);
+          }
         })
         .catch(() => {
-          if (cancelled) return;
-          setResults([]);
-          setTextResults([]);
-          setSearchError("Code search is temporarily unavailable.");
+          if (!cancelled) {
+            setResults([]);
+            setTextResults([]);
+            setSearchError("Code search is temporarily unavailable.");
+          }
         })
         .finally(() => {
           if (!cancelled) setSearching(false);
@@ -514,169 +473,336 @@ export default function CodeMap() {
     };
   }, [projectRoot, query]);
 
-  // ----------------------------------------------------------------- location
-  const updateLocation = useCallback(
-    (mutate: (next: URLSearchParams) => void, replace = false) => {
+  const updateNodeLocation = useCallback(
+    (
+      node: CodeMapNode,
+      view: "source" | "map",
+      replace = false,
+      range?: { start: number; end?: number } | null
+    ) => {
       const next = new URLSearchParams(searchParams);
       if (projectUrlReference) next.set("repo", projectUrlReference);
-      mutate(next);
+      next.set("file", node.path);
+      if (node.node_type === "file") next.delete("symbol");
+      else next.set("symbol", node.id);
+      if (range && range.start > 0) {
+        next.set("line", String(range.start));
+        const end = range.end ?? range.start;
+        if (end > range.start) next.set("end", String(end));
+        else next.delete("end");
+      } else {
+        next.delete("line");
+        next.delete("end");
+      }
+      next.set("view", view);
       setSearchParams(next, { replace });
     },
-    [projectUrlReference, searchParams, setSearchParams],
+    [projectUrlReference, searchParams, setSearchParams]
   );
 
-  const locateNode = useCallback(
-    (node: CodeMapNode, view: CodeSurface, replace = false, range?: { start: number; end?: number } | null) => {
-      updateLocation((next) => {
-        next.set("file", node.path);
-        if (node.node_type === "file") next.delete("symbol");
-        else next.set("symbol", node.id);
-        if (range && range.start > 0) {
-          next.set("line", String(range.start));
-          const end = range.end ?? range.start;
-          if (end > range.start) next.set("end", String(end));
-          else next.delete("end");
-        } else {
-          next.delete("line");
-          next.delete("end");
-        }
-        next.set("view", view);
-        if (view === "source") next.delete("module");
-      }, replace);
+  const changeSurface = useCallback(
+    (view: "source" | "map") => {
+      setSurfaceMode(view);
+      if (selectedNode) {
+        updateNodeLocation(selectedNode, view, true);
+        return;
+      }
+      const next = new URLSearchParams(searchParams);
+      if (projectUrlReference) next.set("repo", projectUrlReference);
+      next.set("view", view);
+      setSearchParams(next, { replace: true });
     },
-    [updateLocation],
+    [projectUrlReference, searchParams, selectedNode, setSearchParams, updateNodeLocation]
   );
 
-  const remember = useCallback((node: CodeMapNode) => {
-    setExtraNodes((current) => (current.some((item) => item.id === node.id) ? current : [...current.slice(-200), node]));
-  }, []);
+  const selectNode = useCallback(
+    (nodeId: string | null) => {
+      setSelectedId((current) => {
+        if (current !== nodeId) setDetail(null);
+        return nodeId;
+      });
+      if (!nodeId) return;
+      const node = graphNodes.current.get(nodeId);
+      if (node) updateNodeLocation(node, surfaceMode, false);
+    },
+    [surfaceMode, updateNodeLocation]
+  );
 
-  const openNode = useCallback(
-    (node: CodeMapNode, range?: { start: number; end?: number } | null) => {
+  useEffect(() => {
+    if (
+      surfaceMode !== "map" ||
+      !selectedNode ||
+      selectedNode.node_type === "file" ||
+      !projectRoot
+    ) {
+      setDetail(null);
+      return;
+    }
+    let cancelled = false;
+    void api
+      .codeMapSymbol(selectedNode.id, projectRoot)
+      .then((payload) => {
+        if (!cancelled) setDetail(payload);
+      })
+      .catch(() => {
+        if (!cancelled) setDetail(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectRoot, selectedNode, surfaceMode]);
+
+  useEffect(() => {
+    if (
+      surfaceMode !== "source" ||
+      !selectedNode ||
+      selectedNode.node_type === "file" ||
+      !projectRoot
+    ) {
+      setReferences(null);
+      setReferencesLoading(false);
+      setReferencesError(null);
+      return;
+    }
+    let cancelled = false;
+    setReferences(null);
+    setReferencesLoading(true);
+    setReferencesError(null);
+    void api
+      .codeMapReferences(selectedNode.id, projectRoot, 60)
+      .then((payload) => {
+        if (!cancelled) setReferences(payload);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setReferences(null);
+          setReferencesError("Could not load references for this symbol.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setReferencesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectRoot, selectedNode, surfaceMode]);
+
+  const focusNode = useCallback(
+    (
+      nodeId: string,
+      locationView: "source" | "map" = "map",
+      range?: { start: number; end?: number } | null,
+      replaceLocation = false
+    ) => {
+      const node = graphNodes.current.get(nodeId);
+      setSelectedId(nodeId);
+      if (node) updateNodeLocation(node, locationView, replaceLocation, range);
+      if (!projectRoot || node?.node_type === "file") return;
+      setExpandingId(nodeId);
+      void api
+        .codeMapNeighborhood(nodeId, projectRoot, 1, 160)
+        .then((incoming) => {
+          setFocusGraph(incoming);
+          setViewMode("focus");
+          setFollowNodeId(nodeId);
+        })
+        .catch((caught: unknown) =>
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : "Could not focus this symbol."
+          )
+        )
+        .finally(() => setExpandingId(null));
+    },
+    [projectRoot, updateNodeLocation]
+  );
+
+  const openSearchResult = useCallback(
+    (
+      node: CodeMapNode,
+      range?: { start: number; end?: number } | null
+    ) => {
       setQuery("");
       setResults([]);
       setTextResults([]);
-      remember(node);
+      setSurfaceMode("source");
       setSelectedId(node.id);
-      locateNode(node, "source", false, range);
+      setDetail(null);
+      updateNodeLocation(node, "source", false, range);
+      if (full?.graph.nodes.some((candidate) => candidate.id === node.id)) {
+        setViewMode("full");
+        setFollowNodeId(node.id);
+      } else if (node.node_type !== "file") {
+        focusNode(node.id, "source", range, true);
+      }
     },
-    [locateNode, remember],
+    [focusNode, full?.graph.nodes, updateNodeLocation]
   );
 
-  const openPath = useCallback(
-    (path: string, line?: number) => {
-      const known = line ? nodeAtLine([...nodesById.values()], path, line) : undefined;
-      const node = known ?? filesByPath.get(path) ?? fileNodeFor(path);
-      openNode(node, line ? { start: line, end: line } : null);
+  const openTextMatch = useCallback(
+    (match: CodeMapTextMatch) => {
+      const pathTargets = graphNodesByPath.current.get(match.path) ?? [];
+      const containingSymbol = pathTargets
+        .filter(
+          (node) =>
+            node.node_type !== "file" &&
+            node.line <= match.line &&
+            node.end_line >= match.line
+        )
+        .sort((a, b) => a.end_line - a.line - (b.end_line - b.line))[0];
+      const fileTarget = pathTargets.find((node) => node.node_type === "file");
+      const target = containingSymbol ?? fileTarget ?? pathTargets[0];
+      if (target) {
+        openSearchResult(target, { start: match.line, end: match.line });
+      }
     },
-    [filesByPath, nodesById, openNode],
+    [openSearchResult]
   );
 
-  const openTextMatch = useCallback((match: CodeMapTextMatch) => openPath(match.path, match.line), [openPath]);
   const openSearchItem = useCallback(
     (item: CodeSearchItem) => {
       if (item.type === "text") openTextMatch(item.match);
-      else openNode(item.node);
+      else openSearchResult(item.node);
     },
-    [openNode, openTextMatch],
+    [openSearchResult, openTextMatch]
   );
 
-  const openReference = useCallback(
-    (reference: CodeMapReference) => {
-      const node = nodeAtLine([...nodesById.values()], reference.path, reference.line) ?? filesByPath.get(reference.path) ?? fileNodeFor(reference.path);
-      openNode(node, { start: reference.line, end: Math.max(reference.line, reference.end_line) });
+  const askAgent = useCallback(
+    (
+      message: string,
+      engine?: "auto" | "lemoncode" | "pi" | "codex" | "claude"
+    ) => {
+      if (!selectedNode || !projectUrlReference || (!engine && !activitySessionId)) {
+        return Promise.reject(
+          new Error(
+            engine
+              ? "No project is available for this agent run."
+              : "No exact coding-agent session is available for this project."
+          )
+        );
+      }
+      const line =
+        requestedLine ??
+        (selectedNode.node_type !== "file" ? selectedNode.line : undefined);
+      const endLine = requestedLine
+        ? requestedEnd ?? requestedLine
+        : selectedNode.node_type !== "file"
+          ? selectedNode.end_line
+          : undefined;
+      return api.codeMapAgentHandoff({
+        project_root: projectUrlReference,
+        expected_session_id: engine ? undefined : activitySessionId ?? undefined,
+        engine,
+        path: selectedNode.path,
+        line: line ?? undefined,
+        end_line: endLine ?? undefined,
+        symbol:
+          selectedNode.node_type !== "file"
+            ? selectedNode.qualified_name || selectedNode.label
+            : undefined,
+        message,
+      });
     },
-    [filesByPath, nodesById, openNode],
-  );
-
-  const openActivity = useCallback(
-    (event: CodeMapActivityEvent) => {
-      const symbol = (event.symbol_ids ?? []).map((id) => nodesById.get(id)).find((node): node is CodeMapNode => Boolean(node && node.node_type !== "file"));
-      if (symbol) openNode(symbol, event.line ? { start: event.line, end: event.line } : null);
-      else if (event.path) openPath(event.path, event.line);
-    },
-    [nodesById, openNode, openPath],
+    [
+      activitySessionId,
+      projectUrlReference,
+      requestedEnd,
+      requestedLine,
+      selectedNode,
+    ]
   );
 
   const openLine = useCallback(
     (line: number) => {
-      if (selectedNode && line > 0) openPath(selectedNode.path, line);
+      if (!selectedNode || line < 1) return;
+      const pathTargets = graphNodesByPath.current.get(selectedNode.path) ?? [];
+      const containingSymbol = pathTargets
+        .filter(
+          (node) =>
+            node.node_type !== "file" &&
+            node.line <= line &&
+            node.end_line >= line
+        )
+        .sort((a, b) => a.end_line - a.line - (b.end_line - b.line))[0];
+      const fileTarget = pathTargets.find((node) => node.node_type === "file");
+      const target = containingSymbol ?? fileTarget ?? selectedNode;
+      openSearchResult(target, { start: line, end: line });
     },
-    [openPath, selectedNode],
+    [openSearchResult, selectedNode]
   );
 
-  const changeSurface = useCallback(
-    (view: CodeSurface) => {
-      const enteringVisualFromSource = surface === "source" && view !== "source";
-      if (enteringVisualFromSource) setSelectedFocusId(null);
-      updateLocation((next) => {
-        next.set("view", view);
-        if (surface === "source" && view === "map" && selectedNode) {
-          const spec: MapSpec = selectedNode.node_type === "file"
-            ? { level: "file", id: selectedNode.path }
-            : { level: "symbol", id: selectedNode.id };
-          const value = formatMapSpec(spec);
-          if (value) next.set("map", value);
-        } else if (surface === "source" && (view === "2d" || view === "3d")) {
-          next.delete("map");
-          next.delete("module");
-        }
-      }, true);
+  const openReference = useCallback(
+    (reference: CodeMapReference) => {
+      const pathTargets = graphNodesByPath.current.get(reference.path) ?? [];
+      const containingSymbol = pathTargets
+        .filter(
+          (node) =>
+            node.node_type !== "file" &&
+            node.line <= reference.line &&
+            node.end_line >= reference.line
+        )
+        .sort(
+          (a, b) =>
+            a.end_line - a.line - (b.end_line - b.line)
+        )[0];
+      const fileTarget = pathTargets.find((node) => node.node_type === "file");
+      const target = containingSymbol ?? fileTarget ?? pathTargets[0];
+      if (target) {
+        openSearchResult(target, {
+          start: reference.line,
+          end: Math.max(reference.line, reference.end_line),
+        });
+      }
     },
-    [selectedNode, surface, updateLocation],
-  );
-  const setMapSpec = useCallback(
-    (spec: MapSpec, replace = false) => {
-      setSelectedFocusId(null);
-      updateLocation((next) => {
-        next.set("view", surface === "source" ? "map" : surface);
-        const value = formatMapSpec(spec);
-        if (value) next.set("map", value);
-        else next.delete("map");
-        if (spec?.level === "module") next.set("module", spec.id);
-        else if (!spec) next.delete("module");
-      }, replace);
-    },
-    [surface, updateLocation],
+    [openSearchResult]
   );
 
-  const selectModule = useCallback(
-    (id: string | null) => {
-      updateLocation((next) => {
-        if (id === null) next.delete("module");
-        else next.set("module", id);
-      }, true);
+  const openActivity = useCallback(
+    (event: CodeMapActivityEvent) => {
+      const symbolTarget = (event.symbol_ids ?? [])
+        .map((id) => graphNodes.current.get(id))
+        .find((node): node is CodeMapNode => !!node);
+      const pathTargets = event.path
+        ? graphNodesByPath.current.get(event.path) ?? []
+        : [];
+      const lineTarget =
+        event.line !== undefined
+          ? pathTargets.find(
+              (node) =>
+                node.node_type !== "file" &&
+                node.line <= event.line! &&
+                node.end_line >= event.line!
+            )
+          : undefined;
+      const fileTarget = pathTargets.find((node) => node.node_type === "file");
+      const target = symbolTarget ?? lineTarget ?? fileTarget ?? pathTargets[0];
+      if (target) {
+        openSearchResult(
+          target,
+          event.line ? { start: event.line, end: event.line } : null
+        );
+      }
     },
-    [updateLocation],
+    [openSearchResult]
   );
 
-  const setSessionFilter = useCallback(
-    (session: string | null) => {
-      updateLocation((next) => {
-        if (session) next.set("session", session);
-        else next.delete("session");
-      });
-      if (session && session !== "unattributed") setFollowedSession(session);
-    },
-    [updateLocation],
-  );
-
-  // ------------------------------------------------------------ live activity
-  const followTarget = sessionFilter && sessionFilter !== "unattributed" ? sessionFilter : null;
   useEffect(() => {
     if (!projectRoot || !liveEnabled) return;
     let cancelled = false;
-    activityCursor.current = null;
-    activitySession.current = null;
     const poll = async () => {
       try {
-        const firstSnapshot = activityCursor.current === null;
-        const payload = await api.codeMapActivity(projectRoot, activityCursor.current, 60, followTarget);
+        const payload = await api.codeMapActivity(
+          projectRoot,
+          activityCursor.current,
+          60
+        );
         if (cancelled) return;
-        if (firstSnapshot) {
-          setSnapshotEditId([...payload.events].reverse().find((event) => event.kind === "edit")?.id ?? "");
-        }
-        if (activitySession.current && payload.session_id && activitySession.current !== payload.session_id) {
+        if (
+          activitySession.current &&
+          payload.session_id &&
+          activitySession.current !== payload.session_id
+        ) {
           activityCursor.current = null;
           setEvents([]);
         }
@@ -684,358 +810,281 @@ export default function CodeMap() {
         activityCursor.current = payload.cursor ?? activityCursor.current;
         setActivitySessionId(payload.session_id);
         setActivityHost(payload.host ?? null);
-
+        setActivityHandoffSupported(Boolean(payload.handoff_supported));
+        setActivityAgentRunSupported(Boolean(payload.agent_run_supported));
         setActivityStatus(payload.status);
-        setActivitySessions(payload.sessions ?? []);
-        setFollowedSession(payload.selected_session ?? null);
         if (!payload.events.length) return;
         setEvents((current) => {
           const merged = new Map(current.map((event) => [event.id, event]));
           for (const event of payload.events) merged.set(event.id, event);
-          return [...merged.values()].slice(-40);
+          return [...merged.values()].slice(-18);
         });
+
+        const highlights: Record<string, CodeMapActivityKind> = {};
+        let newestTarget: string | null = null;
+        for (const event of payload.events) {
+          let targets = (event.symbol_ids ?? []).filter((id) =>
+            graphNodes.current.has(id)
+          );
+          if (!targets.length && event.path) {
+            targets = (graphNodesByPath.current.get(event.path) ?? [])
+              .slice(0, 6)
+              .map((node) => node.id);
+          }
+          if (!targets.length && event.query) {
+            const needle = event.query.toLowerCase();
+            const matched: string[] = [];
+            for (const node of graphNodes.current.values()) {
+              if (
+                `${node.label} ${node.qualified_name}`
+                  .toLowerCase()
+                  .includes(needle)
+              ) {
+                matched.push(node.id);
+                if (matched.length >= 6) break;
+              }
+            }
+            targets = matched;
+          }
+          if (event.kind === "verify" && !targets.length) {
+            const fallback =
+              lastActiveNode.current || selectedId || baseGraph.focus;
+            if (fallback) targets = [fallback];
+          }
+          for (const id of targets) highlights[id] = event.kind;
+          if (targets[0]) newestTarget = targets[0];
+        }
+        if (newestTarget) {
+          lastActiveNode.current = newestTarget;
+          setFollowNodeId(newestTarget);
+        }
+        if (Object.keys(highlights).length) {
+          setActivityByNode((current) => ({ ...current, ...highlights }));
+          const timer = window.setTimeout(() => {
+            setActivityByNode((current) => {
+              const next = { ...current };
+              for (const id of Object.keys(highlights)) delete next[id];
+              return next;
+            });
+          }, 3600);
+          highlightTimers.current.push(timer);
+        }
       } catch {
         if (!cancelled) setActivityStatus("offline");
       }
     };
     void poll();
-    const stopPolling = setVisibleInterval(poll, ACTIVITY_POLL_MS);
+    const timer = window.setInterval(() => void poll(), 2500);
     return () => {
       cancelled = true;
-      stopPolling();
+      window.clearInterval(timer);
     };
-  }, [followTarget, liveEnabled, projectRoot]);
-
-  // Uncommitted changes by session: polled, and refreshed on agent edits.
-  const lastEditId = [...events].reverse().find((event) => event.kind === "edit")?.id ?? "";
-  const freshEditId = lastEditId === snapshotEditId ? "" : lastEditId;
-  useEffect(() => {
-    if (!projectRoot) return;
-    let cancelled = false;
-    const load = () => {
-      void api
-        .codeMapChanges(projectRoot)
-        .then((payload) => {
-          if (!cancelled) setChanges(payload);
-        })
-        .catch(() => undefined);
-    };
-    load();
-    const stopPolling = setVisibleInterval(load, CHANGES_POLL_MS);
-    return () => {
-      cancelled = true;
-      stopPolling();
-    };
-  }, [freshEditId, projectRoot]);
-
-  // Files agents keep re-editing: recorded edits over the last week, refreshed
-  // when the followed session edits.
-  useEffect(() => {
-    if (!projectRoot) return;
-    let cancelled = false;
-    void api
-      .codeMapHotspots(projectRoot)
-      .then((payload) => {
-        if (!cancelled && Array.isArray(payload.files)) setHotspots(payload);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [freshEditId, projectRoot]);
-
-  // Follow: keep the map (or Source) on the file the followed session edits,
-  // but never while the reader is using it.
-  const lastFollowed = useRef<string>("");
-  useEffect(() => {
-    if (!follow || !liveEnabled) return;
-    const edit = [...events].reverse().find((event) => event.kind === "edit" && event.path);
-    if (!edit?.path || edit.id === lastFollowed.current) return;
-    if (Date.now() - lastInteraction.current < FOLLOW_QUIET_MS) return;
-    lastFollowed.current = edit.id;
-    if (surface !== "source") setMapSpec({ level: "file", id: edit.path }, true);
-    else {
-      const node = filesByPath.get(edit.path) ?? fileNodeFor(edit.path);
-      remember(node);
-      setSelectedId(node.id);
-      locateNode(node, "source", true, edit.line ? { start: edit.line } : null);
-    }
-  }, [events, filesByPath, follow, liveEnabled, locateNode, remember, setMapSpec, surface]);
-
-  // --------------------------------------------------------------------- map
-  useEffect(() => {
-    if (surface === "source" || !projectRoot || (overview && !mapReload)) return;
-    const controller = new AbortController();
-    setOverviewLoading(true);
-    setOverviewError(null);
-    void api
-      .codeMapModules(projectRoot, controller.signal)
-      .then((payload) => setOverview(payload))
-      .catch((caught: unknown) => {
-        if (!controller.signal.aborted) setOverviewError(errorText(caught, "Could not group the repository into modules."));
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setOverviewLoading(false);
-      });
-    return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapReload, projectRoot, surface]);
+  }, [baseGraph.focus, liveEnabled, projectRoot, selectedId]);
 
   useEffect(() => {
-    if (surface === "source" || !projectRoot || !mapSpec) {
-      setFocus(null);
-      setFocusError(null);
-      return;
+    if (!liveEnabled) {
+      setActivityByNode({});
+      setFollowNodeId(null);
     }
-    const controller = new AbortController();
-    setFocusLoading(true);
-    setFocusError(null);
-    void api
-      .codeMapFocus(mapSpec.level, mapSpec.id, projectRoot, controller.signal)
-      .then((payload) => setFocus(payload))
-      .catch((caught: unknown) => {
-        if (!controller.signal.aborted) {
-          setFocus(null);
-          setFocusError(errorText(caught, "Could not map this subject."));
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setFocusLoading(false);
-      });
-    return () => controller.abort();
-  }, [mapReload, mapSpec, projectRoot, surface]);
+  }, [liveEnabled]);
 
-  const crumbs = useMemo<Crumb[]>(() => {
-    const root: Crumb = { label: selectedProject?.project || projectLabel || "Repository", spec: null };
-    if (!mapSpec) return [root];
-    const modules = overviewWithChanges?.modules ?? [];
-    const moduleCrumb = (path: string): Crumb[] => {
-      const module = moduleOfPath(path, modules);
-      return module !== null && modules.some((item) => item.id === module && item.kind === "module")
-        ? [{ label: module || "(root)", spec: { level: "module", id: module } }]
-        : [];
-    };
-    if (mapSpec.level === "module") return [root, { label: mapSpec.id || "(root)", spec: mapSpec }];
-    if (mapSpec.level === "file") {
-      return [root, ...moduleCrumb(mapSpec.id), { label: mapSpec.id.split("/").pop() || mapSpec.id, spec: mapSpec, source: { path: mapSpec.id } }];
-    }
-    const path = focus?.subject.path || nodesById.get(mapSpec.id)?.path || "";
-    const label = focus?.subject.label || nodesById.get(mapSpec.id)?.label || "symbol";
-    const line = nodesById.get(mapSpec.id)?.line;
-    return [
-      root,
-      ...(path ? moduleCrumb(path) : []),
-      ...(path ? [{ label: path.split("/").pop() || path, spec: { level: "file" as const, id: path }, source: { path } }] : []),
-      { label, spec: mapSpec, source: path ? { path, symbolId: mapSpec.id, line } : undefined },
-    ];
-  }, [focus, mapSpec, nodesById, overviewWithChanges, projectLabel, selectedProject?.project]);
-
-  const pathOfFocusNode = (node: MapNode): string => node.path;
-  const openFocusNode = (node: MapNode) => {
-    if (mapSpec?.level === "symbol" && node.id === focus?.graph.focus) {
-      openSource({ path: node.path, symbolId: mapSpec.id, line: node.line });
-      return;
-    }
-    if (mapSpec?.level === "file" && node.id === focus?.graph.focus) {
-      openSource({ path: node.path });
-      return;
-    }
-    setMapSpec({ level: "file", id: pathOfFocusNode(node) });
-  };
-  const selectFocusNode = (node: MapNode | null) => {
-    setSelectedFocusId(node?.id ?? null);
-    if (!node) return;
-    if (mapSpec?.level === "symbol" && node.id === focus?.graph.focus) {
-      const symbol = nodesById.get(mapSpec.id);
-      if (symbol) {
-        setSelectedId(symbol.id);
-        return;
-      }
-    }
-    const fileNode = filesByPath.get(node.path) ?? fileNodeFor(node.path);
-    remember(fileNode);
-    setSelectedId(fileNode.id);
-    updateLocation((next) => {
-      next.set("file", fileNode.path);
-      next.delete("symbol");
-      next.delete("line");
-      next.delete("end");
-      next.delete("module");
-    }, true);
-  };
-  const openFocusSymbol = (symbol: MapMemberSymbol) => {
-    remember({
-      id: symbol.id,
-      label: symbol.label,
-      qualified_name: symbol.qualified_name,
-      path: symbol.path,
-      kind: symbol.kind ?? "symbol",
-      node_type: "symbol",
-      line: symbol.line,
-      end_line: symbol.end_line,
-    });
-    setMapSpec({ level: "symbol", id: symbol.id });
-  };
-  const openSource = (target: { path: string; symbolId?: string; line?: number }) => {
-    const node = (target.symbolId && nodesById.get(target.symbolId)) || filesByPath.get(target.path) || fileNodeFor(target.path);
-    openNode(node, target.line ? { start: target.line } : null);
-  };
-
-  // --------------------------------------------------------------- inspector
-  const moduleSubject = useMemo<InspectorSubject | null>(() => {
-    if (surface === "source" || selectedModuleId === null || !overviewWithChanges) return null;
-    const module = overviewWithChanges.modules.find((item) => item.id === selectedModuleId);
-    if (!module) return null;
-    const label = (id: string) => overviewWithChanges.modules.find((item) => item.id === id)?.path || "(repository root)";
-    const link = (id: string, edge: { weight: number; kinds: Record<string, number> }): ModuleLink => ({ id, label: label(id), weight: edge.weight, kinds: edge.kinds });
-    return {
-      kind: "module",
-      module,
-      usedBy: overviewWithChanges.edges.filter((edge) => edge.target === module.id).map((edge) => link(edge.source, edge)).sort((a, b) => b.weight - a.weight),
-      uses: overviewWithChanges.edges.filter((edge) => edge.source === module.id).map((edge) => link(edge.target, edge)).sort((a, b) => b.weight - a.weight),
-    };
-  }, [overviewWithChanges, selectedModuleId, surface]);
-  const inspectorSubject: InspectorSubject | null =
-    (surface !== "source" && !mapSpec && moduleSubject) ||
-    (selectedNode
-      ? {
-          kind: selectedNode.node_type === "file" ? "file" : "symbol",
-          node: selectedNode,
-          range: locationRange ?? (selectedNode.node_type !== "file" ? ([selectedNode.line, selectedNode.end_line] as const) : null),
-        }
-      : moduleSubject);
-
-  // ------------------------------------------------------------------ actions
-  const describeModule = useCallback(
-    (id: string) => {
-      if (!projectRoot) return;
-      setPurposeBusy(id);
-      setPurposeError(null);
-      void api
-        .codeMapModulePurpose(id, projectRoot)
-        .then((result) => {
-          const { purpose, purpose_kind, purpose_source, purpose_at, purpose_evidence } = result;
-          const described = { purpose, purpose_kind, purpose_source, purpose_at, purpose_evidence };
-          setOverview((current) => current && { ...current, modules: current.modules.map((row) => (row.id === id ? { ...row, ...described } : row)) });
-        })
-        .catch((caught: unknown) => setPurposeError({ module: id, message: errorText(caught, "Could not describe this module.") }))
-        .finally(() => setPurposeBusy((current) => (current === id ? null : current)));
+  useEffect(
+    () => () => {
+      for (const timer of highlightTimers.current) window.clearTimeout(timer);
     },
-    [projectRoot],
+    []
   );
-  const openCodeAsk = useCallback((range?: readonly [number, number], selectedText?: string) => {
-    if (!selectedNode || !codeAskTransport) return;
-    askReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const selectedRange = range ?? locationRange ?? (selectedNode.node_type !== "file" ? ([selectedNode.line, selectedNode.end_line] as const) : null);
-    setAskScope({
-      path: selectedNode.path,
-      symbol: selectedNode.node_type !== "file" ? selectedNode.qualified_name || selectedNode.label : "",
-      start_line: selectedRange?.[0],
-      end_line: selectedRange?.[1],
-      selected_text: selectedText,
-    });
-    setAskOpen(true);
-  }, [codeAskTransport, locationRange, selectedNode]);
-
-  const closeCodeAsk = useCallback(() => {
-    setAskOpen(false);
-    const target = askReturnFocus.current;
-    window.requestAnimationFrame(() => {
-      if (target?.isConnected) target.focus();
-      else document.querySelector<HTMLElement>('aside[aria-label="Inspector"] button[aria-label^="Ask about"]')?.focus();
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!askOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !event.defaultPrevented) closeCodeAsk();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [askOpen, closeCodeAsk]);
 
   const openEditor = useCallback(() => {
-    if (!selectedNode || !projectUrlReference) return Promise.reject(new Error("Open a file or symbol before launching the editor."));
-    const line = requestedLine ?? (selectedNode.node_type !== "file" ? selectedNode.line : 1);
-    return api.codeMapOpenEditor(projectUrlReference, selectedNode.path, line, 1, editorCapability ? selectedEditor(editorCapability)?.id : undefined);
-  }, [editorCapability, projectUrlReference, requestedLine, selectedNode]);
+    if (!selectedNode || !projectUrlReference) {
+      return Promise.reject(new Error("Open a file or symbol before launching the editor."));
+    }
+    const line =
+      requestedLine ??
+      (selectedNode.node_type !== "file" ? selectedNode.line : 1);
+    return api.codeMapOpenEditor(
+      projectUrlReference,
+      selectedNode.path,
+      line,
+      1
+    );
+  }, [projectUrlReference, requestedLine, selectedNode]);
 
-  const openReview = useCallback(
-    async (scope: ReviewScope | null) => {
-      if (!projectUrlReference || reviewBusy) return;
-      setReviewBusy(true);
-      setReviewError(null);
-      try {
-        const review = await api.codeMapReview(projectUrlReference, scope ?? undefined);
-        // The Review's Back returns to this exact Code location.
-        navigate(withReturnPath(review.review_path, currentReturnPath(routerLocation)));
-      } catch (caught: unknown) {
-        setReviewError(errorText(caught, "Could not prepare the durable review."));
-      } finally {
-        setReviewBusy(false);
+  const openReview = useCallback(async () => {
+    if (!projectUrlReference || reviewBusy) return;
+    setReviewBusy(true);
+    setReviewError(null);
+    try {
+      const review = await api.codeMapReview(projectUrlReference);
+      navigate(review.review_path);
+    } catch (caught: unknown) {
+      setReviewError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not prepare the durable review."
+      );
+    } finally {
+      setReviewBusy(false);
+    }
+  }, [navigate, projectUrlReference, reviewBusy]);
+
+  const toggleFacet = (
+    setter: React.Dispatch<React.SetStateAction<Set<string>>>,
+    id: string
+  ) => {
+    setter((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const toggleAll = (
+    setter: React.Dispatch<React.SetStateAction<Set<string>>>,
+    facets: CodeMapFacet[],
+    current: Set<string>
+  ) => {
+    setter(
+      current.size === facets.length
+        ? new Set()
+        : new Set(facets.map((facet) => facet.id))
+    );
+  };
+  const { incomingCount, outgoingCount, callers, callees } = useMemo(() => {
+    const empty = {
+      incomingCount: 0,
+      outgoingCount: 0,
+      callers: [] as CodeMapNode[],
+      callees: [] as CodeMapNode[],
+    };
+    if (!selectedId) return empty;
+    const byId = new Map(baseGraph.nodes.map((node) => [node.id, node]));
+    const callerMap = new Map<string, CodeMapNode>();
+    const calleeMap = new Map<string, CodeMapNode>();
+    for (const edge of baseGraph.edges) {
+      if (edge.kind !== "calls") continue;
+      if (edge.target === selectedId) {
+        const node = byId.get(edge.source);
+        if (node) callerMap.set(node.id, node);
       }
-    },
-    [navigate, projectUrlReference, reviewBusy, routerLocation],
+      if (edge.source === selectedId) {
+        const node = byId.get(edge.target);
+        if (node) calleeMap.set(node.id, node);
+      }
+    }
+    const byLabel = (a: CodeMapNode, b: CodeMapNode) =>
+      a.label.localeCompare(b.label);
+    const callerList = [...callerMap.values()].sort(byLabel);
+    const calleeList = [...calleeMap.values()].sort(byLabel);
+    return {
+      incomingCount: callerList.length,
+      outgoingCount: calleeList.length,
+      callers: callerList,
+      callees: calleeList,
+    };
+  }, [baseGraph.edges, baseGraph.nodes, selectedId]);
+  const graphCallCount = useMemo(
+    () =>
+      graph.edges.reduce(
+        (total, edge) => total + (edge.kind === "calls" ? 1 : 0),
+        0
+      ),
+    [graph.edges]
   );
 
-  const followAvailable = Boolean(followedSession || activitySessionId);
-  const liveSessionCount = activitySessions.filter((session) => session.live).length;
-  const markInteraction = useCallback(() => {
-    lastInteraction.current = Date.now();
-  }, []);
-
   return (
-    <section className="flex min-h-[calc(100vh-80px)] flex-col bg-surface-sunken text-foreground xl:h-[calc(100dvh-41px)] xl:min-h-0 xl:overflow-hidden">
-      <div className="border-b border-border bg-background/75 px-3 lg:px-4">
-        <div className="flex h-10 items-center gap-1.5 overflow-x-auto whitespace-nowrap">
-          {returnTo && (
-            <UiButton type="button" size="xs" variant="ghost" className="shrink-0" onClick={() => navigate(returnTo)} title={returnLabel === "Review" ? "Back to the Review location you came from" : "Back to where you came from"}>
-              <ArrowLeft size={14} /> {returnLabel}
-            </UiButton>
-          )}
-          <div className="flex min-w-0 shrink items-center gap-2 text-caption">
-            <Select
-              className="max-w-72"
-              contentClassName="min-w-72"
-              uiSize="xs"
-              value={selectedProject?.project_id || selectedProject?.root || ""}
-              onValueChange={(value) => setSearchParams({ repo: value })}
-              aria-label="Project and worktree"
-              placeholder={projectLabel || "Select project and worktree"}
-              searchable
-              searchPlaceholder="Search projects"
-              disabled={projects.length === 0}
-            >
-              {projects.map((project) => (
-                <SelectItem key={project.project_id || project.root} value={project.project_id || project.root} title={project.root}>
-                  {project.project || project.label} / {project.worktree || project.label} · {project.branch || "unknown branch"}
-                  {!project.indexed ? " · index pending" : ""}
-                </SelectItem>
-              ))}
-            </Select>
-            <span className="shrink-0 text-muted-foreground">{files.length.toLocaleString()} files</span>
-            {projectKnowledgeAvailable && (
-              <UiButton type="button" size="xs" variant="ghost" className="shrink-0" onClick={() => navigate("/knowledge/project")}>
-                Project Knowledge
-              </UiButton>
+    <section className="min-h-[calc(100vh-80px)] bg-surface-sunken text-neutral-200">
+      <div className="border-b border-neutral-800 bg-neutral-950/75 px-3 lg:px-4">
+        <div className="flex h-8 items-center gap-1.5 overflow-x-auto whitespace-nowrap">
+          <div
+            className="flex shrink-0 items-center gap-1.5 text-[10px]"
+            title={selectedProject?.worktree_root || selectedProject?.root}
+          >
+            <span className="text-neutral-600">dir</span>
+            <span className="max-w-36 truncate font-medium text-neutral-300">
+              {selectedProject?.directory?.split("/").filter(Boolean).pop() || "local"}
+            </span>
+            <span className="text-neutral-700">·</span>
+            <span className="text-neutral-600">project</span>
+            <span className="max-w-36 truncate font-medium text-neutral-300">
+              {selectedProject?.project || full?.project.label || "local index"}
+            </span>
+            <span className="text-neutral-700">·</span>
+            <span className="text-neutral-600">worktree</span>
+            <span className="max-w-40 truncate font-medium text-neutral-300">
+              {selectedProject?.worktree || full?.project.label || "local index"}
+            </span>
+            <span className="text-neutral-700">·</span>
+            <span className="text-neutral-600">branch</span>
+            <span className="max-w-40 truncate font-medium text-neutral-300">
+              {selectedProject?.branch || "…"}
+            </span>
+            <span className="text-neutral-700">·</span>
+            <span className="text-neutral-500">
+              {(full?.total_symbols ?? 0).toLocaleString()} symbols
+            </span>
+            <span className="text-neutral-700">·</span>
+            <span className="text-neutral-500">
+              {(full?.total_files ?? 0).toLocaleString()} files
+            </span>
+            {surfaceMode === "map" && (
+              <>
+                <span className="text-neutral-700">·</span>
+                <span className="text-neutral-500">
+                  {graph.nodes.length.toLocaleString()} nodes
+                </span>
+                <span className="text-neutral-700">·</span>
+                <span className="text-neutral-500">
+                  {graphCallCount.toLocaleString()} calls
+                </span>
+              </>
+            )}
+            {full?.truncated && (
+              <>
+                <span className="text-neutral-700">·</span>
+                <span className="text-amber-300">bounded</span>
+              </>
             )}
           </div>
 
-          <div className="ml-auto flex shrink-0 items-center gap-1.5 text-caption">
+          <div className="ml-auto flex shrink-0 items-center gap-1.5 text-[10px]">
+            {projects.length > 1 && (
+              <select
+                className="h-6 max-w-44 border border-neutral-700 bg-neutral-900 px-2 text-[10px] text-neutral-200"
+                value={selectedProject?.project_id || selectedProject?.root || ""}
+                onChange={(event) =>
+                  setSearchParams({ repo: event.target.value })
+                }
+                aria-label="Indexed project"
+              >
+                {projects.map((project) => (
+                  <option
+                    key={project.project_id || project.root}
+                    value={project.project_id || project.root}
+                  >
+                    {project.label}
+                    {project.active ? " · active" : ""}
+                  </option>
+                ))}
+              </select>
+            )}
             <div className="relative w-[280px] shrink-0">
-              <Search size={14} className="pointer-events-none absolute left-2 top-2.5 text-muted-foreground" />
-              <UiInput
+              <Search
+                size={12}
+                className="pointer-events-none absolute left-2 top-1.5 text-neutral-500"
+              />
+              <input
                 ref={searchInput}
                 type="search"
-                uiSize="xs"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={(event) => {
                   if (!searchResults.length) return;
                   if (event.key === "ArrowDown") {
                     event.preventDefault();
-                    setActiveSearchIndex((index) => Math.min(index + 1, searchResults.length - 1));
+                    setActiveSearchIndex((index) =>
+                      Math.min(index + 1, searchResults.length - 1)
+                    );
                   } else if (event.key === "ArrowUp") {
                     event.preventDefault();
                     setActiveSearchIndex((index) => Math.max(index - 1, 0));
@@ -1046,293 +1095,276 @@ export default function CodeMap() {
                   }
                 }}
                 placeholder="Find files, symbols, or text…"
-                className="w-full pl-7 pr-12"
+                className="h-6 w-full border border-neutral-700 bg-neutral-900 pl-7 pr-12 text-[10px] text-neutral-100 outline-none placeholder:text-neutral-600 focus:border-brand-500/60"
                 aria-label="Find code"
                 aria-controls={searchResults.length ? "code-search-results" : undefined}
               />
               {!query && (
-                <span className="pointer-events-none absolute right-1.5 top-1.5 rounded border border-border px-1 text-micro text-muted-foreground">
+                <span className="pointer-events-none absolute right-1.5 top-1 border border-neutral-800 px-1 text-[9px] text-neutral-600">
                   {navigator.platform?.toLowerCase().includes("mac") ? "⌘K" : "Ctrl K"}
                 </span>
               )}
-              {searching && <Loader2 size={14} className="absolute right-2 top-2.5 animate-spin text-muted-foreground" />}
-              {query.trim().length >= 2 && !searching && searchError && (
-                <div className="absolute right-0 top-9 z-30 w-full rounded-lg border border-red-900/60 bg-background px-3 py-2.5 text-label text-red-300 shadow-float">{searchError}</div>
+              {searching && (
+                <Loader2
+                  size={11}
+                  className="absolute right-2 top-1.5 animate-spin text-brand-300"
+                />
               )}
-              {query.trim().length >= 2 && !searching && !searchError && searchResults.length === 0 && (
-                <div className="absolute right-0 top-9 z-30 w-full rounded-lg border border-border/80 bg-background px-3 py-2.5 text-label text-muted-foreground shadow-float">
-                  No matching files, symbols, or text.
+              {query.trim().length >= 2 && !searching && searchError && (
+                <div className="absolute right-0 top-8 z-30 w-full border border-red-900/70 bg-neutral-950 px-3 py-3 text-[11px] text-red-300 shadow-2xl">
+                  {searchError}
                 </div>
               )}
+              {query.trim().length >= 2 &&
+                !searching &&
+                !searchError &&
+                searchResults.length === 0 && (
+                  <div className="absolute right-0 top-8 z-30 w-full border border-neutral-700 bg-neutral-950 px-3 py-3 text-[11px] text-neutral-500 shadow-2xl">
+                    No matching files, symbols, or text.
+                  </div>
+                )}
               {searchResults.length > 0 && (
-                <div id="code-search-results" className="absolute right-0 top-9 z-30 max-h-96 w-full overflow-y-auto rounded-lg border border-border/80 bg-background p-1 shadow-float">
+                <div
+                  id="code-search-results"
+                  className="absolute right-0 top-8 z-30 max-h-96 w-full overflow-y-auto border border-neutral-700 bg-neutral-950 shadow-2xl"
+                >
                   {searchResults.map((result, index) => {
-                    const label = result.type === "text" ? result.match.text || query.trim() : result.node.label;
-                    const path = result.type === "text" ? result.match.path : result.node.path;
-                    const line = result.type === "text" ? result.match.line : result.node.line;
-                    const badge = result.type === "text" ? "text" : result.node.node_type === "file" ? "file" : result.node.kind;
+                    const label =
+                      result.type === "text"
+                        ? result.match.text || query.trim()
+                        : result.node.label;
+                    const path =
+                      result.type === "text" ? result.match.path : result.node.path;
+                    const line =
+                      result.type === "text" ? result.match.line : result.node.line;
+                    const badge =
+                      result.type === "text"
+                        ? "text"
+                        : result.node.node_type === "file"
+                          ? "file"
+                          : result.node.kind;
                     return (
-                      <UiButton
-                        unstyled
+                      <button
                         key={result.id}
                         type="button"
-                        className={`block w-full rounded-md px-2.5 py-2 text-left transition-colors hover:bg-muted ${index === activeSearchIndex ? "bg-muted" : ""}`}
+                        className={`block w-full border-b border-neutral-800 px-3 py-2 text-left transition last:border-0 hover:bg-neutral-900 ${
+                          index === activeSearchIndex ? "bg-neutral-900" : ""
+                        }`}
                         onMouseEnter={() => setActiveSearchIndex(index)}
                         onClick={() => openSearchItem(result)}
                         aria-label={`${label} ${path}`}
                       >
                         <span className="flex items-center gap-2">
-                          <FileTypeIcon path={path} />
-                          <span className="min-w-0 flex-1 truncate text-body text-foreground">{label}</span>
-                          <span className="shrink-0 text-micro font-semibold uppercase tracking-wider text-muted-foreground">{badge}</span>
+                          <FileTypeIcon path={path} size={13} />
+                          <span className="min-w-0 flex-1 truncate text-xs text-neutral-100">
+                            {label}
+                          </span>
+                          <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wider text-neutral-600">
+                            {badge}
+                          </span>
                         </span>
-                        <span className="mt-0.5 block truncate pl-[21px] text-caption text-muted-foreground">
+                        <span className="mt-0.5 block truncate pl-[21px] text-[10px] text-neutral-500">
                           {path}
-                          {result.type === "text" || result.node.node_type !== "file" ? `:${line}` : ""}
+                          {result.type === "text" || result.node.node_type !== "file"
+                            ? `:${line}`
+                            : ""}
                         </span>
-                      </UiButton>
+                      </button>
                     );
                   })}
                 </div>
               )}
             </div>
 
-            <CodeChangesMenu
-              changes={changes}
-              marks={marks}
-              reviewBusy={reviewBusy}
-              reviewError={reviewError}
-              onReview={reviewCaptureAvailable ? (scope) => void openReview(scope) : undefined}
-              onFilter={(session) => setSessionFilter(session)}
-            />
-            <div className="flex h-7 shrink-0 overflow-hidden rounded-md border border-border/80 bg-background">
-              <UiButton
-                unstyled
+            <button
+              type="button"
+              onClick={() => void openReview()}
+              disabled={!projectUrlReference || reviewBusy}
+              className="inline-flex h-6 shrink-0 items-center gap-1.5 border border-neutral-700 bg-neutral-900/70 px-2 text-neutral-300 hover:border-neutral-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {reviewBusy ? (
+                <Loader2 size={11} className="animate-spin" />
+              ) : (
+                <GitPullRequest size={11} />
+              )}
+              {reviewBusy ? "Preparing…" : "Review changes"}
+            </button>
+            {reviewError && (
+              <span className="max-w-40 truncate text-[10px] text-red-300/80" title={reviewError}>
+                {reviewError}
+              </span>
+            )}
+            <div className="flex h-7 shrink-0 border border-neutral-700 bg-neutral-900/70">
+              <button
                 type="button"
                 onClick={() => changeSurface("source")}
-                aria-pressed={surface === "source"}
-                style={{ borderRadius: 0 }}
-                className={`inline-flex h-full items-center gap-1.5 border-0 text-label px-2 ${surface === "source" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                aria-pressed={surfaceMode === "source"}
+                className={`inline-flex h-full items-center gap-1.5 px-2 ${surfaceMode === "source" ? "bg-neutral-700 text-white" : "text-neutral-400"}`}
               >
-                <FileCode2 size={14} /> Source
-              </UiButton>
-              <UiButton
-                unstyled
+                <FileCode2 size={11} /> Source
+              </button>
+              <button
                 type="button"
                 onClick={() => changeSurface("map")}
-                aria-pressed={surface === "map"}
-                style={{ borderRadius: 0 }}
-                className={`inline-flex h-full items-center gap-1.5 border-0 text-label border-l border-border px-2 ${surface === "map" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                aria-pressed={surfaceMode === "map"}
+                className={`inline-flex h-full items-center gap-1.5 border-l border-neutral-700 px-2 ${surfaceMode === "map" ? "bg-neutral-700 text-white" : "text-neutral-400"}`}
               >
-                <Network size={14} /> Map
-              </UiButton>
-              <UiButton
-                unstyled
-                type="button"
-                onClick={() => changeSurface("2d")}
-                aria-pressed={surface === "2d"}
-                style={{ borderRadius: 0 }}
-                className={`inline-flex h-full items-center gap-1.5 border-0 text-label border-l border-border px-2 ${surface === "2d" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                <Share2 size={14} /> 2D
-              </UiButton>
-              <UiButton
-                unstyled
-                type="button"
-                onClick={() => changeSurface("3d")}
-                aria-pressed={surface === "3d"}
-                style={{ borderRadius: 0 }}
-                className={`inline-flex h-full items-center gap-1.5 border-0 text-label border-l border-border px-2 ${surface === "3d" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-              >
-                <Boxes size={14} /> 3D
-              </UiButton>
+                <Network size={11} /> Map
+              </button>
             </div>
-            {codeAskTransport && (
-              <UiButton
-                type="button"
-                size="xs"
-                variant={askOpen ? "outline" : "ghost"}
-                onClick={() => openCodeAsk()}
-                disabled={!selectedNode}
-                aria-pressed={askOpen}
-                aria-label="Ask AI about code"
-                tooltip={selectedNode ? "Ask AI about the selected file or symbol" : "Open a file or symbol to ask AI"}
-                className="h-7 shrink-0"
-              >
-                <Sparkles size={14} /> Ask AI
-              </UiButton>
+            {surfaceMode === "map" && (
+              <>
+                <div className="flex h-7 shrink-0 border border-neutral-700 bg-neutral-900/70">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("full")}
+                    aria-pressed={viewMode === "full"}
+                    className={`inline-flex h-full items-center gap-1.5 px-2 ${viewMode === "full" ? "bg-neutral-700 text-white" : "text-neutral-400"}`}
+                  >
+                    <Maximize2 size={11} /> Full
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!focusGraph.nodes.length}
+                    onClick={() => setViewMode("focus")}
+                    aria-pressed={viewMode === "focus"}
+                    className={`inline-flex h-full items-center gap-1.5 border-l border-neutral-700 px-2 disabled:opacity-40 ${viewMode === "focus" ? "bg-neutral-700 text-white" : "text-neutral-400"}`}
+                  >
+                    <Layers3 size={11} /> Focus
+                  </button>
+                </div>
+                <div className="flex h-7 shrink-0 border border-neutral-700 bg-neutral-900/70">
+                  <button
+                    type="button"
+                    onClick={() => setDimension("2d")}
+                    aria-pressed={dimension === "2d"}
+                    className={`inline-flex h-full items-center px-2 ${dimension === "2d" ? "bg-neutral-700 text-white" : "text-neutral-400"}`}
+                  >
+                    2D
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDimension("3d")}
+                    aria-pressed={dimension === "3d"}
+                    className={`inline-flex h-full items-center gap-1.5 border-l border-neutral-700 px-2 ${dimension === "3d" ? "bg-neutral-700 text-white" : "text-neutral-400"}`}
+                  >
+                    <Boxes size={11} /> 3D
+                  </button>
+                </div>
+              </>
             )}
-            <UiButton
-              unstyled
+            <button
               type="button"
               onClick={() => setLiveEnabled((enabled) => !enabled)}
-              className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-border/80 bg-background px-2 text-meta tabular-nums text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="inline-flex h-6 shrink-0 items-center gap-1.5 border border-neutral-700 bg-neutral-900/70 px-2 text-neutral-400 hover:text-neutral-200"
               aria-pressed={liveEnabled}
-              aria-label={`Live activity: ${liveSessionCount} active ${liveSessionCount === 1 ? "session" : "sessions"}. Click to turn live overlay ${liveEnabled ? "off" : "on"}.`}
-              title={activitySessions.length ? `${liveSessionCount} live of ${activitySessions.length} recent sessions` : "No agent session in this worktree yet"}
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${liveEnabled && activityStatus !== "offline" && liveSessionCount > 0 ? "bg-emerald-400" : "bg-muted-foreground"}`} />
-              {liveSessionCount}
-            </UiButton>
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${liveEnabled && activityStatus !== "offline" ? "bg-emerald-400" : "bg-neutral-600"}`}
+              />
+              Live {liveEnabled ? "on" : "off"}
+            </button>
           </div>
         </div>
       </div>
 
       {error && (
-        <div className="flex items-start justify-between border-b border-red-900/60 bg-red-950/20 px-4 py-2.5 text-label text-red-200">
+        <div className="flex items-start justify-between border-b border-red-900/60 bg-red-950/30 px-6 py-3 text-sm text-red-200">
           <span>{error}</span>
-          <UiButton type="button" onClick={() => setError(null)} size="icon" variant="ghost" aria-label="Dismiss error">
-            <X size={16} />
-          </UiButton>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            aria-label="Dismiss error"
+          >
+            <X size={15} />
+          </button>
         </div>
       )}
       {loading ? (
-        <div className="flex min-h-[560px] items-center justify-center gap-3 text-heading text-subtle">
-          <Loader2 className="animate-spin text-subtle" size={16} /> Listing files…
+        <div className="flex min-h-[560px] items-center justify-center gap-3 text-sm text-neutral-300">
+          <Loader2 className="animate-spin text-brand-300" size={18} /> Loading
+          code index…
         </div>
-      ) : !files.length && !error ? (
-        <div className="flex min-h-[560px] items-center justify-center px-4">
-          <EmptyState
-            label="No files"
-            className="w-full max-w-lg"
-            icon={<Braces aria-hidden="true" />}
-            title="No files in this project yet"
-            description={<>Index the repository, then return here: <code className="rounded-sm bg-muted px-1 font-mono text-code text-foreground">{fullCode ? "lc code index" : "lc runtime index"}</code></>}
-            action={<UiButton type="button" size="xs" variant="outline" onClick={() => setShowIgnored((value) => !value)}>{showIgnored ? "Hide Git ignored files" : "Show Git ignored files"}</UiButton>}
-          />
+      ) : !full?.graph.nodes.length ? (
+        <div className="flex min-h-[560px] items-center justify-center px-6">
+          <div className="max-w-lg rounded-sm border border-neutral-800 bg-neutral-950/70 p-6 text-center">
+            <Braces className="mx-auto text-brand-300" size={28} />
+            <h3 className="mt-4 text-base font-semibold text-neutral-100">
+              No indexed symbols yet
+            </h3>
+            <p className="mt-2 text-sm leading-6 text-neutral-300">
+              Build this repository&apos;s local graph, then return here.
+            </p>
+            <code className="mt-5 inline-block border border-neutral-700 bg-black px-4 py-2 text-sm text-emerald-300">
+              lc code index
+            </code>
+          </div>
         </div>
+      ) : surfaceMode === "source" ? (
+        <CodeSourceWorkspace
+          projectRoot={projectRoot ?? ""}
+          allNodes={sourceNodes}
+          selectedNode={selectedNode}
+          callers={callers}
+          callees={callees}
+          references={references}
+          referencesLoading={referencesLoading}
+          referencesError={referencesError}
+          locationRange={
+            requestedLine
+              ? ([requestedLine, requestedEnd ?? requestedLine] as const)
+              : null
+          }
+          events={events}
+          liveEnabled={liveEnabled}
+          agentHost={liveEnabled ? activityHost : null}
+          agentSessionId={liveEnabled ? activitySessionId : null}
+          agentHandoffSupported={liveEnabled && activityHandoffSupported}
+          agentRunSupported={activityAgentRunSupported}
+          editorCapability={editorCapability}
+          onSelect={openSearchResult}
+          onOpenMap={(node) => {
+            setSurfaceMode("map");
+            focusNode(node.id, "map");
+          }}
+          onOpenActivity={openActivity}
+          onOpenReference={openReference}
+          onOpenLine={openLine}
+          onOpenEditor={openEditor}
+          onAskAgent={askAgent}
+        />
       ) : (
-        <div style={{ "--explorer-width": `min(${explorerWidth}px, 45vw)` } as CSSProperties} className={`relative grid min-h-[650px] flex-1 grid-cols-1 xl:min-h-0 xl:overflow-hidden ${askOpen ? "xl:grid-cols-[var(--explorer-width)_minmax(0,1fr)_400px]" : "xl:grid-cols-[var(--explorer-width)_minmax(0,1fr)_320px]"}`}>
-          <CodeExplorer
-            key={projectUrlReference}
-            files={files}
-            symbolsByPath={symbolsByPath}
-            selectedNode={selectedNode}
-            changes={changes}
-            changed={changedByPath}
-            showIgnored={showIgnored}
-            onShowIgnored={setShowIgnored}
-            ignoredTruncated={ignoredTruncated}
-            live={livePaths}
-            activitySessions={activitySessions}
-            marks={marks}
-            sessionFilter={sessionFilter}
-            onSessionFilter={setSessionFilter}
-            onSelect={(node) => openNode(node)}
-            hotspots={hotspots}
-            liveWorkspace={liveWorkspace}
-            onResizeWidth={setExplorerWidth}
-          />
-          {surface === "source" ? (
-            <CodeSourceView
-              projectRoot={projectRoot ?? ""}
-              selectedNode={selectedNode}
-              locationRange={locationRange}
-              events={events}
-              change={selectedNode ? changedByPath.get(selectedNode.path) : undefined}
-              editorCapability={editorCapability}
-              onOpenLine={openLine}
-              onOpenEditor={openEditor}
-              onAskSelection={codeAskAvailable ? (range, text) => openCodeAsk(range, text) : undefined}
-            />
-          ) : surface === "map" ? (
-            <CodeMapView
-              spec={mapSpec}
-              crumbs={crumbs}
-              overview={overviewWithChanges}
-              overviewLoading={overviewLoading}
-              overviewError={overviewError}
-              focus={focus}
-              focusLoading={focusLoading}
-              focusError={focusError}
-              selectedModuleId={selectedModuleId}
-              selectedFocusId={selectedFocusId}
-              live={liveMarks}
-              follow={follow}
-              followAvailable={followAvailable}
-              onFollow={setFollow}
-              onRetry={() => setMapReload((value) => value + 1)}
-              onSpec={(spec) => setMapSpec(spec)}
-              onSelectModule={(id) => {
-                if (id && id.startsWith("fold:")) return;
-                selectModule(id);
-              }}
-              onSelectFocusNode={selectFocusNode}
-              onOpenFocusNode={openFocusNode}
-              onOpenSymbol={openFocusSymbol}
-              onOpenSource={openSource}
-              onInteract={markInteraction}
-            />
-          ) : (
-            <CodeTopologyView
-              mode={surface}
-              cacheKey={projectUrlReference ?? projectRoot ?? "repository"}
-              spec={mapSpec}
-              overview={overviewWithChanges}
-              overviewLoading={overviewLoading}
-              overviewError={overviewError}
-              focus={focus}
-              focusLoading={focusLoading}
-              focusError={focusError}
-              selectedModuleId={selectedModuleId}
-              selectedFocusId={selectedFocusId}
-              live={liveMarks}
-              onRetry={() => setMapReload((value) => value + 1)}
-              onSpec={(spec) => setMapSpec(spec)}
-              onSelectModule={selectModule}
-              onSelectFocusNode={selectFocusNode}
-              onOpenFocusNode={openFocusNode}
-              onInteract={markInteraction}
-            />
-          )}
-          {askOpen && codeAskTransport ? (
-            <div className="absolute inset-y-0 right-0 z-30 w-[min(400px,92vw)] min-h-0 border-l border-border bg-background shadow-float xl:static xl:w-auto xl:shadow-none">
-              <Suspense fallback={null}>
-                <ReviewAskDrawer
-                  reviewId={projectUrlReference ?? ""}
-                  revisionNumber={0}
-                  latestRevisionNumber={0}
-                  filePaths={files.map((file) => file.path)}
-                  scope={askScope}
-                  onClearScope={() => setAskScope((current) => current?.path ? { path: current.path } : null)}
-                  onClose={closeCodeAsk}
-                  onSwitchLatest={() => {}}
-                  onOpenReference={(reference) => { if (reference.path) openPath(reference.path, reference.start_line); }}
-                  transport={codeAskTransport}
-                />
-              </Suspense>
-            </div>
-          ) : <CodeInspector
-            subject={inspectorSubject}
-            relationships={inspectorSubject?.kind === "module" ? null : relationships}
-            relationshipsLoading={relationshipsLoading}
-            relationshipsError={relationshipsError}
-            references={references}
-            referencesAvailable={fullCode}
-            referencesLoading={referencesLoading}
-            referencesError={referencesError}
-            events={events}
-            activityHost={liveEnabled ? activityHost : null}
-            change={selectedNode ? changedByPath.get(selectedNode.path) : undefined}
-            changes={changes}
-            marks={marks}
-            reviewBusy={reviewBusy}
-            reviewError={reviewError}
-            onOpenPath={openPath}
-            onOpenReference={openReference}
-            onOpenActivity={openActivity}
-            onSelectModule={(id) => selectModule(id)}
-            onFocusModule={(id) => setMapSpec({ level: "module", id })}
-            onReview={reviewCaptureAvailable ? (scope) => void openReview(scope) : undefined}
-            hotspot={selectedNode ? hotspotByPath.get(selectedNode.path) : undefined}
-            hotspotDays={hotspots?.days}
-            purposeModel={fullCode && overview?.purpose_generation?.available ? overview.purpose_generation.model : ""}
-            purposeBusy={inspectorSubject?.kind === "module" && purposeBusy === inspectorSubject.module.id}
-            purposeError={inspectorSubject?.kind === "module" && purposeError?.module === inspectorSubject.module.id ? purposeError.message : null}
-            onDescribeModule={fullCode ? describeModule : undefined}
-            onAsk={codeAskAvailable ? () => openCodeAsk() : undefined}
-          />}
-        </div>
+        <CodeMapWorkspace
+          graph={graph}
+          groups={full.groups}
+          fileTypes={full.file_types}
+          languages={full.languages}
+          selectedGroups={selectedGroups}
+          selectedFileTypes={selectedFileTypes}
+          selectedLanguage={selectedLanguage}
+          dimension={dimension}
+          selectedId={selectedId}
+          selectedNode={selectedNode}
+          detail={detail}
+          callers={callers}
+          callees={callees}
+          incomingCount={incomingCount}
+          outgoingCount={outgoingCount}
+          expandingId={expandingId}
+          activityByNode={activityByNode}
+          followNodeId={followNodeId}
+          liveEnabled={liveEnabled}
+          events={events}
+          onToggleGroup={(id) => toggleFacet(setSelectedGroups, id)}
+          onToggleAllGroups={() => toggleAll(setSelectedGroups, full.groups, selectedGroups)}
+          onToggleFileType={(id) => toggleFacet(setSelectedFileTypes, id)}
+          onToggleAllFileTypes={() => toggleAll(setSelectedFileTypes, full.file_types, selectedFileTypes)}
+          onLanguageChange={setSelectedLanguage}
+          onSelect={selectNode}
+          onFocus={focusNode}
+          onPick={openSearchResult}
+          onOpenActivity={openActivity}
+        />
       )}
     </section>
   );

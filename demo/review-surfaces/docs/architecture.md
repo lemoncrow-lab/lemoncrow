@@ -1,8 +1,8 @@
-# Cloud billing architecture
+# Demo architecture
 
-The product has two application processes and two review-only verification paths.
+The demo has two product processes and two review-only verification paths.
 
-![Application mark](../frontend/public/cloud-mark.svg)
+![Demo application mark](../frontend/public/demo-mark.svg)
 
 ## Product processes
 

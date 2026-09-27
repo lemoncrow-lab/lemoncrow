@@ -75,30 +75,19 @@ def resolved_host_session() -> tuple[str, str]:
     req_sid, req_host = ledger._request_session_identity()
     if req_sid:
         return req_sid, req_host or ledger._detect_agent()
-
-    host = ledger._detect_agent()
-    # Claude's window resolver is deliberately stronger than its launch-time
-    # env id, but it is Claude-specific state. A long-lived process can retain a
-    # resolved Claude window while a request is explicitly running as another
-    # host; never let that stale identity override the host selected by
-    # LEMONCROW_AGENT/native host detection.
-    if host == "claude":
-        sid = ledger._resolve_live_session_id()
-        if sid:
-            return sid, "claude"
-        claude_sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
-        if claude_sid:
-            return claude_sid, "claude"
-
-    for env_var, env_host in HOST_SESSION_ENVS:
-        if env_host != host:
-            continue
+    sid = ledger._resolve_live_session_id()
+    if sid:
+        return sid, "claude"
+    claude_sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "").strip()
+    if claude_sid:
+        return claude_sid, "claude"
+    for env_var, host in HOST_SESSION_ENVS:
         env_sid = os.environ.get(env_var, "").strip()
         if env_sid:
-            return env_sid, env_host
+            return env_sid, host
     bridge_sid = workspace_bridge_session_id()
     if bridge_sid:
-        return bridge_sid, host
+        return bridge_sid, ledger._detect_agent()
     return "", ""
 
 

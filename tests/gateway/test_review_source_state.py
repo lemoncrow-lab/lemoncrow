@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -96,43 +95,6 @@ def test_working_tree_source_state_moves_when_head_moves_under_same_file_bytes(t
     assert second_range.base_sha != first_range.base_sha
     assert second.paths == first.paths == ("app.py",)
     assert second.fingerprint != first.fingerprint
-
-
-def _git(root: Path, *args: str) -> str:
-    return subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True).stdout.strip()
-
-
-def test_working_tree_source_state_names_its_base_by_tree_so_a_reworded_and_pruned_base_is_unchanged(
-    tmp_path: Path,
-) -> None:
-    root = tmp_path / "repo"
-    repo = _repo(root)
-    _write(root, "value = 1\n")
-    _commit(repo, "base")
-    _write(root, "value = 2\n")
-    first_range = resolve_rev_range(root, working_tree=True)
-    first = source_state(root, first_range)
-    assert first.legacy_fingerprint and first.legacy_fingerprint != first.fingerprint
-
-    # Reword the base and prune the old commit: same tree, another commit id.
-    lost = first_range.base_sha
-    _git(root, "commit", "-q", "--amend", "-m", "base, reworded")
-    _git(root, "reflog", "expire", "--expire=now", "--all")
-    _git(root, "gc", "-q", "--prune=now")
-    gone = subprocess.run(["git", "-C", str(root), "cat-file", "-e", f"{lost}^{{commit}}"], capture_output=True)
-    assert gone.returncode != 0
-
-    second_range = resolve_rev_range(root, working_tree=True)
-    second = source_state(root, second_range)
-    assert second_range.base_sha != lost
-    assert second.fingerprint == first.fingerprint
-    # The commit-id form a Snapshot recorded before the change moved with the commit.
-    assert second.legacy_fingerprint != first.legacy_fingerprint
-    assert second.matches(first.fingerprint) and not second.matches(first.legacy_fingerprint)
-    assert first.matches(first.legacy_fingerprint) and not first.matches("")
-
-    _write(root, "value = 3\n")
-    assert source_state(root, second_range).fingerprint != first.fingerprint
 
 
 def test_source_state_rereads_a_file_that_changed_while_it_was_hashed(

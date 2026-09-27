@@ -8,10 +8,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.core.capabilities.code_context_contract import CodeIntelligenceProvider
 from lemoncrow.core.foundation.memory_models import ArchivalPassage, MemoryBlock
 from lemoncrow.core.foundation.models import FileEditRecord, Trace
 from lemoncrow.infra.storage.memory_store import MemoryStore
+from lemoncrow.pro.capabilities.code_context import CodeContextEngine
 from lemoncrow.pro.capabilities.code_context.models import SymbolRecord
 from lemoncrow.pro.capabilities.repo_map.budget import count_tokens
 
@@ -27,7 +27,7 @@ class SymbolRecallCapability:
         self,
         *,
         repo_root: str | Path,
-        engine: CodeIntelligenceProvider,
+        engine: CodeContextEngine,
         memory_store: MemoryStore,
         trace_store: Any,
     ) -> None:

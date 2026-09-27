@@ -24,7 +24,6 @@ import yaml
 from lemoncrow.pro.capabilities.review.session_models import ReviewRevision
 
 if TYPE_CHECKING:
-    from lemoncrow.pro.capabilities.review.hermetic import HermeticContext
     from lemoncrow.pro.capabilities.review.store import ReviewStore
 
 CONFIG_RELATIVE_PATH = Path(".lemoncrow/review.yaml")
@@ -242,13 +241,6 @@ class SurfaceContext:
     store: ReviewStore | None = None
     scratch_root: Path | None = None
     dependency_root: Path | None = None
-    # The git checkout a runner materializes a Snapshot side from when the
-    # Review holds no frozen tree for it. ``repo_root`` can itself be a
-    # materialized side (no git), which cannot.
-    source_root: Path | None = None
-    # Trusted-base hermetic execution policy and the dispatcher's executor
-    # class. Never derived from head content.
-    execution: HermeticContext | None = None
 
 
 @dataclass(frozen=True)

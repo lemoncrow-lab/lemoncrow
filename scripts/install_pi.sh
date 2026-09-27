@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install_pi.sh — Install pinned Pi and register LemonCrow in Pi's native settings.
+# install_pi.sh — Install LemonCrow's checksum-pinned managed Pi frontend.
 set -euo pipefail
 
 DRY_RUN=false
@@ -28,16 +28,16 @@ elif command -v lc >/dev/null 2>&1; then
 elif command -v lemoncrow >/dev/null 2>&1; then
     CLI="$(command -v lemoncrow)"
 else
-    echo "[lc:pi] ERROR: LemonCrow CLI is not installed yet" >&2
+    echo "[lemoncrow:pi] ERROR: LemonCrow CLI is not installed yet" >&2
     exit 1
 fi
 
 if $DRY_RUN || $PRINT_ONLY; then
-    printf '%q host install --engine pi\n' "$CLI"
+    printf '%q code host install --engine pi\n' "$CLI"
     exit 0
 fi
 
 # Reinstall the release pinned by this LemonCrow build. This upgrades an older
-# public managed Pi host pin and re-verifies the release checksum on every LemonCrow install.
-"$CLI" host install --engine pi
-echo "[lc:pi] Pi host and native integration ready"
+# managed Pi pin and re-verifies the release checksum on every LemonCrow install.
+"$CLI" code host install --engine pi
+echo "[lemoncrow:pi] managed Pi frontend ready"

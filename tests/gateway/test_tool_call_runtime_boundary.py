@@ -87,3 +87,12 @@ def test_finalize_payload_turns_deferred_into_execution_error() -> None:
 
     run = ToolCallRun(lifecycle=Lifecycle(), result=object(), deferred=True)  # type: ignore[arg-type]
     assert "deferred tool result" in finalize_tool_payload(run)["error"]
+
+
+def test_server_registry_dispatch_does_not_import_mcp_server() -> None:
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    source = (repo / "server/src/lemoncrow_server_core/registry_dispatch.py").read_text(encoding="utf-8")
+    assert "from lemoncrow.gateway.adapters import mcp_server" not in source
+    assert "lemoncrow.gateway.adapters.mcp_server" not in source.split("from __future__", 1)[1]

@@ -34,7 +34,7 @@ from lemoncrow.gateway.cli.commands._shared import (
 logger = logging.getLogger(__name__)
 
 
-@click.group("savings", invoke_without_command=True, short_help="Total savings from caching, reuse and routing.")
+@click.group("savings", invoke_without_command=True)
 @click.option("--json", "as_json", is_flag=True, help="Output JSON instead of text.")
 @click.option(
     "--segment",
@@ -113,46 +113,15 @@ def savings_cmd(ctx: click.Context, as_json: bool, segment: bool) -> None:
     if as_json:
         _emit(payload, as_json=True)
     else:
-        from lemoncrow.core.capabilities.savings_summary import savings_summary_lines
-        from lemoncrow.gateway.cli import style
+        from lemoncrow.core.capabilities.savings_summary import render_savings_summary
 
-        lines = savings_summary_lines(payload)
-        # The hint closes the screen, after the verified-work block.
-        hint = lines.pop() if lines and lines[-1][0] == "next" else None
-        local = payload.get("verified_local_work")
-        if isinstance(local, dict):
-            calibration = local.get("calibration")
-            outcomes = local.get("outcomes")
-            if isinstance(calibration, dict) and isinstance(outcomes, dict):
-                raw_totals = outcomes.get("totals")
-                totals: dict[str, Any] = raw_totals if isinstance(raw_totals, dict) else {}
-                pairs = int(calibration.get("pairs") or 0)
-                calibrated = calibration.get("calibrated_net_savings_usd")
-                lines += [
-                    ("heading", "  Local verified work"),
-                    ("", f"    {'Promoted repairs:':<24}{int(totals.get('promoted') or 0)}"),
-                    ("", f"    {'Local-model cost:':<24}${float(totals.get('provider_cost_usd') or 0):.2f}"),
-                ]
-                if calibration.get("status") == "qualified" and calibrated is not None:
-                    lines.append(("", f"    {'Calibrated net saved:':<24}${float(calibrated):.2f}"))
-                    lines.append(
-                        ("dim", f"    {'Evidence:':<24}{pairs} paired Learning baselines · paired measured host usage")
-                    )
-                else:
-                    minimum = int(calibration.get("min_pairs") or 0)
-                    lines.append(
-                        ("", f"    {'Calibrated net saved:':<24}learning ({pairs}/{minimum} paired baselines)")
-                    )
-                lines.append(("", ""))
-        if hint is not None:
-            lines.append(hint)
-        click.echo("\n".join(style.tagged(lines)))
+        click.echo(render_savings_summary(payload))
 
 
 def build_savings_payload(root: Path) -> dict[str, Any]:
     """The savings report payload, extracted verbatim from ``savings_cmd``.
 
-    Lifted out so ``lc usage optimize`` and ``lc runtime savings`` render the identical
+    Lifted out so ``lc usage optimize`` and ``lc savings`` render the identical
     dict rather than two drifting copies of it.
 
     One deliberate departure from the old body: before returning, every spend
@@ -203,18 +172,8 @@ def build_savings_payload(root: Path) -> dict[str, Any]:
     payload["bad_plans_blocked"] = bad_plans_blocked
     payload["rescue_events"] = rescue_events
     payload["rubric_failures_caught"] = rubric_failures
-    from lemoncrow.core.capabilities.verified_work.settings import load_verified_work_settings
     from lemoncrow.pro.capabilities.usage.spend import reconcile_spend
-    from lemoncrow.pro.capabilities.verified_work.calibration import summarize_calibration
-    from lemoncrow.pro.capabilities.verified_work.outcomes import summarize_outcomes
 
-    settings = load_verified_work_settings()
-    payload["verified_local_work"] = {
-        "outcomes": summarize_outcomes(root=root),
-        "calibration": summarize_calibration(root=root, min_pairs=settings.calibration_min_pairs),
-        "provenance": "paired_shadow_host_usage",
-        "included_in_modeled_total_saved": False,
-    }
     return reconcile_spend(payload, root)
 
 
@@ -223,7 +182,7 @@ def _recent_traces(store: Any, *, days: int) -> list[Any]:
 
     Every consumer below discards anything older than ``days`` anyway; letting
     SQLite apply the cutoff avoids deserializing thousands of out-of-window
-    payloads through pydantic (the dominant cost of `lc runtime savings`).
+    payloads through pydantic (the dominant cost of `lc savings`).
     """
     from datetime import UTC, datetime, timedelta
 
@@ -287,8 +246,7 @@ def optimize_group(ctx: click.Context, host: str | None, days: int, limit: int, 
         return
 
     from lemoncrow.core.capabilities.reporting.dashboard import _render_optimization_summary
-    from lemoncrow.core.capabilities.savings_summary import savings_summary_lines
-    from lemoncrow.gateway.cli import style
+    from lemoncrow.core.capabilities.savings_summary import render_savings_summary
     from lemoncrow.pro.capabilities.optimization import append_history
 
     report = _legacy_optimize_report(ctx, host, days, limit)
@@ -297,13 +255,13 @@ def optimize_group(ctx: click.Context, host: str | None, days: int, limit: int, 
     report["advisor"] = result.to_dict()
     # `lc usage optimize` is the optimisation surface, and "what you already
     # saved" is half of that answer. Added as a key rather than replacing the
-    # payload so `lc usage optimize --json` keeps every field it has always had.
+    # payload so `lc optimize --json` keeps every field it has always had.
     savings = build_savings_payload(ctx.obj["root"])
     report["savings"] = savings
     if as_json:
         _emit(report, as_json=True)
         return
-    click.echo("\n".join(style.tagged(savings_summary_lines(savings))))
+    click.echo(render_savings_summary(savings))
     click.echo("")
     _render_optimization_summary(result, days=days)
     click.echo("")
@@ -938,17 +896,10 @@ def savings_detail(ctx: click.Context, as_json: bool, limit: int) -> None:
             as_json=True,
         )
         return
-
-    def format_dollars(value: float | None) -> str:
-        return _fmt_usd(value) if value is not None else "unknown"
-
-    def format_percent(value: float | None) -> str:
-        return _fmt_pct(value) if value is not None else "unknown"
-
     click.echo(
         f"Tracked operations: {summary['operations_tracked']}  "
         f"calls={summary['total_calls']}  "
-        f"saved={format_dollars(summary['saved_usd'])} ({format_percent(summary['saved_pct'])})"
+        f"saved={_fmt_usd(summary['saved_usd'])} ({_fmt_pct(summary['saved_pct'])})"
     )
     click.echo("-" * 92)
     click.echo(
@@ -959,9 +910,9 @@ def savings_detail(ctx: click.Context, as_json: bool, limit: int) -> None:
     for r in rows:
         click.echo(
             f"{r['op_key']:18} {r['calls_count']:>5} "
-            f"{format_dollars(r['baseline_cost_usd']):>10} {format_dollars(r['last_cost_usd']):>10} "
-            f"{format_dollars(r['current_cost_usd']):>10} {format_dollars(r['delta_vs_last_usd']):>10} "
-            f"{format_dollars(r['delta_vs_base_usd']):>10} {format_percent(r['pct_vs_base']):>6}  "
+            f"{_fmt_usd(r['baseline_cost_usd']):>10} {_fmt_usd(r['last_cost_usd']):>10} "
+            f"{_fmt_usd(r['current_cost_usd']):>10} {_fmt_usd(r['delta_vs_last_usd']):>10} "
+            f"{_fmt_usd(r['delta_vs_base_usd']):>10} {_fmt_pct(r['pct_vs_base']):>6}  "
             f"{r.get('domain', '-')}"
         )
 
@@ -986,6 +937,10 @@ def savings_reset(ctx: click.Context, force: bool, dry_run: bool) -> None:
     click.echo("savings reset (cache + cost history)")
 
 
-# Cost-history detail/reset belong only to `lc usage optimize`.
+savings_cmd.add_command(savings_detail, name="detail")
+savings_cmd.add_command(savings_reset, name="reset")
+# The same two objects also hang off `optimize`, which registers as
+# `lc usage optimize`: `lc usage optimize detail` / `... reset` are the
+# forward-facing spellings of `lc savings detail` / `lc savings reset`.
 optimize_group.add_command(savings_detail, name="detail")
 optimize_group.add_command(savings_reset, name="reset")

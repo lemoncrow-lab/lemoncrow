@@ -9,23 +9,19 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import socket
 import subprocess
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 from aiohttp import ClientSession
 from lemoncrow_server_core.bootstrap import build_local_server
 from lemoncrow_server_core.config import LocalServerConfig
 from lemoncrow_server_core.local_agent_guard import (
-    UNIDENTIFIED_CALLER,
     ProcessRecord,
     agent_host_in_ancestry,
     caller_agent_host,
     is_judgment_request,
-    peer_agent_host,
 )
 
 
@@ -41,7 +37,6 @@ from lemoncrow_server_core.local_agent_guard import (
         ("POST", "/api/reviews/rv-1/verification/waivers", True),
         ("POST", "/api/reviews/rv-1/landing/arm", True),
         ("POST", "/api/reviews/rv-1/github/publish", True),
-        ("PUT", "/api/reviews/rv-1/destination", True),
         # Agents legitimately report checks, refresh, ask and read.
         ("POST", "/api/reviews/rv-1/verification", False),
         ("POST", "/api/reviews/rv-1/refresh", False),
@@ -49,8 +44,6 @@ from lemoncrow_server_core.local_agent_guard import (
         ("POST", "/api/reviews/rv-1/landing/cancel", False),
         ("GET", "/api/reviews/rv-1/marks", False),
         ("GET", "/api/reviews/rv-1/annotations", False),
-        ("GET", "/api/reviews/rv-1/destination/options", False),
-        ("PUT", "/api/reviews/rv-1/title", False),
     ],
 )
 def test_judgment_routes_are_the_human_only_writes(method: str, path: str, judgment: bool) -> None:
@@ -92,22 +85,6 @@ def test_the_server_and_the_process_that_launched_it_are_its_operator() -> None:
     assert caller_agent_host(60, own=50, lookup=table.get) == "claude"
 
 
-@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="peer-process lookup is exercised on Linux")
-def test_a_caller_that_closes_before_it_is_identified_is_not_trusted() -> None:
-    # Send-and-close: a caller can write its whole request and let go of the socket
-    # before the server looks it up. Its end then lingers ownerless or is gone.
-    with socket.create_server(("127.0.0.1", 0)) as listener:
-        client = socket.create_connection(listener.getsockname())
-        accepted, _address = listener.accept()
-        with accepted:
-            ends = {"peername": accepted.getpeername(), "sockname": accepted.getsockname()}
-            transport = SimpleNamespace(get_extra_info=ends.get)
-            # While it waits for its answer the caller resolves: this process, no agent.
-            assert peer_agent_host(transport) == ""
-            client.close()
-            assert peer_agent_host(transport) == UNIDENTIFIED_CALLER
-
-
 _POST = """
 import sys, urllib.request, urllib.error
 request = urllib.request.Request(
@@ -136,9 +113,7 @@ async def _exercise_guard(tmp_path: Path) -> None:
     url = await server.start()
     try:
         marks = f"{url}/api/reviews/rv-missing/marks"
-        env = dict(os.environ)
-        env.pop("LEMONCROW_REMOTE_MCP_SESSION", None)
-        env["CLAUDECODE"] = "1"
+        env = {**os.environ, "CLAUDECODE": "1"}
         result = await asyncio.to_thread(
             subprocess.run,
             [sys.executable, "-c", _POST, marks, token],

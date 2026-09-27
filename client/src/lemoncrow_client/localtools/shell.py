@@ -24,11 +24,9 @@ deliberately does **not** do is as important:
   ``SIGKILL``.
 
 Before a command runs it passes the main package's command policy
-(:mod:`lemoncrow_client.kit.command_policy`): destructive git operations are
-refused, shell writes are confined to the worktree or OS scratch roots,
-literal-file ``cat``/``head``/``tail``/``wc`` run in-process, and
-``od <big file> | tail`` seeks. Shell execution itself may use those same
-scratch roots as ``cwd`` so temporary worktrees and build directories work.
+(:mod:`lemoncrow_client.kit.command_policy`): destructive git operations and
+shell writes outside the worktree are refused, literal-file ``cat``/``head``/
+``tail``/``wc`` run in-process, and ``od <big file> | tail`` seeks.
 
 Output goes through the main package's own pipeline
 (:mod:`lemoncrow_client.kit.bash_output`): ANSI stripped, repeats collapsed,
@@ -56,7 +54,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
 from ..errors import AgentAction, ClientError, ErrorCode
-from ..kit.spill import resolve_spill_dir
 from . import LocalContext, LocalResult, text_result
 
 if TYPE_CHECKING:
@@ -92,18 +89,6 @@ _STATUS_TAIL_BYTES: Final[int] = 4000
 
 _ACTIVE_PROCESSES: set[subprocess.Popen[str]] = set()
 _ACTIVE_PROCESSES_LOCK = threading.Lock()
-#: Finished runs whose output a poll already delivered, remembered by id so a
-#: second poll says so instead of "unknown id". Oldest dropped past the bound.
-_MAX_RETIRED_BG: Final[int] = 64
-
-
-def _shell() -> str | None:
-    """The program commands run under: bash, as this tool's name promises.
-
-    ``None`` keeps ``subprocess``'s platform default (``/bin/sh``, ``cmd.exe``)
-    where no bash is installed, and always on Windows.
-    """
-    return shutil.which("bash") if os.name != "nt" else None
 
 
 class _BackgroundRun:
@@ -185,6 +170,21 @@ def _refuse(reason: str, detail: str) -> ClientError:
     )
 
 
+def _spill_dir(state_dir: Path) -> Path:
+    """Resolve the spill directory: ``LEMONCROW_MCP_SPILL_DIR`` or ``<state_dir>/spill``.
+
+    Honoring the same env var as the private server's spill store lets the two
+    share one directory when they run on the same machine, so a spilled bash
+    result is recoverable the same way regardless of which one produced it.
+    """
+    configured = os.environ.get("LEMONCROW_MCP_SPILL_DIR")
+    directory = Path(configured).expanduser().resolve() if configured else state_dir / "spill"
+    directory.mkdir(parents=True, exist_ok=True)
+    with contextlib.suppress(OSError):
+        directory.chmod(0o700)
+    return directory
+
+
 def _retention_limits() -> tuple[int, int]:
     """Return ``(max_files, max_age_seconds)``; either ``<= 0`` disables that axis."""
 
@@ -227,14 +227,13 @@ def _enforce_retention(directory: Path, pattern: str) -> None:
                 p.unlink()
 
 
-def spill_text(text: str, *, kind: str = "bash", suffix: str = ".txt") -> Path | None:
-    """Persist *text* in the shared ephemeral spill directory.
+def spill_text(text: str, state_dir: Path, *, kind: str = "bash", suffix: str = ".txt") -> Path | None:
+    """Persist *text* as ``<kind>-<id><suffix>`` and return its path, or ``None`` on any failure.
 
-    Returns the path, or ``None`` on any failure. Each kind keeps its own bounded
-    retention.
+    Each kind keeps its own bounded retention.
     """
     try:
-        directory = resolve_spill_dir()
+        directory = _spill_dir(state_dir)
         file_name = f"{kind}-{uuid.uuid4().hex[:8]}{suffix}"
         spill_path = directory / file_name
         tmp_path = directory / f".{file_name}.tmp"
@@ -278,7 +277,7 @@ def _present(
     )
 
     def store(text: str) -> str | None:
-        path = spill_text(text)
+        path = spill_text(text, context.config.state_dir)
         return None if path is None else str(path)
 
     # Run-and-dedup, not a cache: the command ran. Its output is already in
@@ -327,42 +326,6 @@ def _kill_group(process: subprocess.Popen[Any]) -> None:
             continue
 
 
-def _resolve_bash_cwd(context: LocalContext, raw: object | None) -> Path:
-    """Resolve bash ``cwd`` inside the worktree or a conventional temp root.
-
-    Relative paths stay worktree-relative. Absolute scratch paths are useful
-    for disposable worktrees, build trees, formatter runs, extracted archives,
-    and test fixtures, so they share the same temp-root allowance as shell
-    writes. Symlinks are resolved before containment is checked.
-    """
-    if raw is None or not str(raw).strip():
-        return context.repo_root
-    spelled = str(raw).strip()
-    candidate = Path(spelled)
-    if not candidate.is_absolute():
-        return context.resolve(spelled)
-    try:
-        resolved = candidate.resolve()
-    except OSError as exc:
-        raise ClientError(
-            ErrorCode.PAYLOAD_INVALID,
-            f"cwd is not resolvable: {spelled}",
-            action=AgentAction.FIX_REQUEST,
-        ) from exc
-
-    from ..kit.command_policy import temporary_roots
-
-    roots = (context.repo_root.resolve(), *temporary_roots())
-    if not any(resolved == root or resolved.is_relative_to(root) for root in roots):
-        raise ClientError(
-            ErrorCode.PAYLOAD_INVALID,
-            "cwd is outside the worktree and allowed temporary directories",
-            details={"path": spelled, "allowed_temp_roots": [str(root) for root in temporary_roots()]},
-            action=AgentAction.FIX_REQUEST,
-        )
-    return resolved
-
-
 def run_bash(context: LocalContext, arguments: Mapping[str, Any]) -> LocalResult:
     """Run one or more shell commands, each in its own subshell."""
     if arguments.get("interactive"):
@@ -388,13 +351,11 @@ def run_bash(context: LocalContext, arguments: Mapping[str, Any]) -> LocalResult
         timeout_s = min(float(raw_timeout), _MAX_TIMEOUT_S)
 
     cwd_argument = arguments.get("cwd")
-    cwd = _resolve_bash_cwd(context, cwd_argument)
+    cwd = context.resolve(str(cwd_argument)) if cwd_argument else context.repo_root
     if not cwd.is_dir():
-        # Name the resolved path: with no cwd argument this is the worktree
-        # root itself, and printing the missing argument said only "None".
         raise ClientError(
             ErrorCode.PAYLOAD_INVALID,
-            f"cwd is not a directory: {cwd}",
+            f"cwd is not a directory: {cwd_argument}",
             action=AgentAction.FIX_REQUEST,
         )
 
@@ -408,7 +369,7 @@ def run_bash(context: LocalContext, arguments: Mapping[str, Any]) -> LocalResult
     failed = False
     for index, command in enumerate(commands, start=1):
         header = f"## lc:cmd {index}/{len(commands)}" if len(commands) > 1 else ""
-        policy = classify_command(command, allowed_write_roots=[context.repo_root, *context.write_roots()], cwd=cwd)
+        policy = classify_command(command, allowed_write_roots=[context.repo_root], cwd=cwd)
         timed_out = False
         if policy.action == "block":
             code, body = -1, policy.reason
@@ -439,7 +400,6 @@ def _run_one(command: str, cwd: Path, timeout_s: float, environment: dict[str, s
         process = subprocess.Popen(
             command,
             shell=True,
-            executable=_shell(),
             cwd=str(cwd),
             env=environment or None,
             stdout=subprocess.PIPE,
@@ -552,21 +512,7 @@ def _purge_finished(context: LocalContext) -> None:
     for run_id, run in tuple(context.memory.background.items()):
         if _is_done(run) and now - run.finished_at > _BG_KEEP_FINISHED_S:
             del context.memory.background[run_id]
-            _retire(
-                context,
-                run_id,
-                f"[exit {int(run.process.returncode or 0)}; unpolled for over an hour, output discarded]",
-            )
             _forget(run)
-
-
-def _retire(context: LocalContext, run_id: str, state: str) -> None:
-    """Remember a finished run's last state line. Caller holds the lock."""
-    retired = context.memory.retired_background
-    retired.pop(run_id, None)
-    retired[run_id] = state
-    while len(retired) > _MAX_RETIRED_BG:
-        del retired[next(iter(retired))]
 
 
 def background_running(memory: Any) -> bool:
@@ -583,7 +529,6 @@ def close_background(memory: Any) -> int:
     with memory.background_lock:
         runs = tuple(memory.background.values())
         memory.background.clear()
-        memory.retired_background.clear()
     for run in runs:
         if not _is_done(run):
             _kill_run(run)
@@ -596,8 +541,7 @@ def _capped(exec_command: str) -> str:
     binary = shutil.which("timeout")
     if binary is None:
         return exec_command
-    shell = shlex.quote(_shell() or "sh")
-    return f"exec {shlex.quote(binary)} --kill-after=5 {int(_MAX_BG_TIMEOUT_S)} {shell} -c {shlex.quote(exec_command)}"
+    return f"exec {shlex.quote(binary)} --kill-after=5 {int(_MAX_BG_TIMEOUT_S)} sh -c {shlex.quote(exec_command)}"
 
 
 def _start_background(
@@ -609,7 +553,7 @@ def _start_background(
     from ..kit.command_policy import classify_command
 
     command = commands[0]
-    policy = classify_command(command, allowed_write_roots=[context.repo_root, *context.write_roots()], cwd=cwd)
+    policy = classify_command(command, allowed_write_roots=[context.repo_root], cwd=cwd)
     if policy.action == "block":
         return text_result(f"{policy.reason}\n[exit -1]", is_error=True)
     exec_command, _note = inject_stable_flags(command)
@@ -621,7 +565,7 @@ def _start_background(
     if isinstance(raw_timeout, (int, float)) and not isinstance(raw_timeout, bool) and raw_timeout > 0:
         deadline_s = max(deadline_s, min(float(raw_timeout), _MAX_BG_TIMEOUT_S))
 
-    log_dir = context.config.runtime_state_dir / "bash-bg"
+    log_dir = context.config.state_dir / "bash-bg"
     log_dir.mkdir(parents=True, exist_ok=True)
     with contextlib.suppress(OSError):
         log_dir.chmod(0o700)
@@ -639,7 +583,6 @@ def _start_background(
             process = subprocess.Popen(
                 _capped(exec_command),
                 shell=True,
-                executable=_shell(),
                 cwd=str(cwd),
                 env=dict(context.environment) or None,
                 stdout=fd,
@@ -715,7 +658,6 @@ def _reply(context: LocalContext, run: _BackgroundRun, *, peek: bool) -> tuple[s
     if not running and not peek and not more:
         with context.memory.background_lock:
             context.memory.background.pop(run.id, None)
-            _retire(context, run.id, state)
         _forget(run)
     return f"{body}\n{state}".strip("\n"), not running and code != 0
 
@@ -752,13 +694,9 @@ def _background_action(context: LocalContext, arguments: Mapping[str, Any]) -> L
     for run_id in ids:
         with context.memory.background_lock:
             run = context.memory.background.get(run_id)
-            retired = context.memory.retired_background.get(run_id) if run is None else None
-        if run is None and retired is not None:
-            # Asking again after the output was delivered is not an error.
-            body, bad = f"[bg id {run_id} already finished; an earlier poll delivered its output]\n{retired}", False
-        elif run is None:
+        if run is None:
             body, bad = (
-                f"[unknown bg id {run_id}: no run with this id in this session; ids do not survive a restart]",
+                f"[unknown bg id {run_id}: a finished run is removed once polled, and ids do not survive a restart]",
                 True,
             )
         elif action == "status":

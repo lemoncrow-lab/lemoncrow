@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final
 
-__all__ = ["QueryIntent", "QueryPlan", "plan_code_query", "split_pipe_alternatives"]
+__all__ = ["QueryIntent", "QueryPlan", "plan_code_query"]
 
 _PRECISE_SYMBOL: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$")
 _DEFINITION: Final[re.Pattern[str]] = re.compile(
@@ -30,10 +30,6 @@ _PATH_SUFFIX: Final[re.Pattern[str]] = re.compile(
     re.IGNORECASE,
 )
 _TOKEN: Final[re.Pattern[str]] = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-#: A plain prose word: letters, with inner hyphens or apostrophes.
-_PROSE_WORD: Final[re.Pattern[str]] = re.compile(r"[A-Za-z][A-Za-z'-]*")
-#: This many plain words make a query prose, where ``TONE[tone]`` indexes code.
-_PROSE_WORDS: Final[int] = 3
 _IMPACT_STOP: Final[frozenset[str]] = frozenset(
     {
         "caller",
@@ -109,44 +105,14 @@ def _looks_regex(query: str) -> bool:
         return True
     if re.search(r"\\[()\[\]{}.^$*+?|bBdDsSwWAZz]", stripped):
         return True
-    if sum(1 for word in stripped.split() if _PROSE_WORD.fullmatch(word)) >= _PROSE_WORDS:
-        # A bracket in prose is a subscript (``TONE_SOLID[tone] usage in badges``),
-        # not a character class; as a regex it forced a full-view body scan.
-        return False
     return len(stripped) <= 256 and re.search(r"\[[^\]\n]{1,32}\]", stripped) is not None
-
-
-def split_pipe_alternatives(query: str) -> tuple[str, ...]:
-    """Interpret grep-style ``a|b|c`` as retrieval alternatives, not a body scan.
-
-    Historical LemonCrow queries commonly came from grep/agent traces and use a
-    pipe as an OR between identifiers/literals. Treating every such query as a
-    regular expression forces an O(view) source scan and discards the exact
-    definition channel. This mirrors the legacy retriever's normalization while
-    leaving genuine non-pipe regexes on the bounded regex path.
-    """
-    if "|" not in query:
-        return ()
-    seen: dict[str, None] = {}
-    for part in query.split("|"):
-        stripped = part.strip().lstrip("^").rstrip("$")
-        stripped = re.sub(r"\\[bBsSwWdD]", "", stripped).strip()
-        if len(stripped) < 3 or not re.search(r"[A-Za-z0-9_]", stripped):
-            continue
-        seen[stripped] = None
-    return tuple(seen) if len(seen) >= 2 else ()
 
 
 def _pipe(query: str) -> bool:
     if "|" not in query:
         return False
     meaningful = [part.strip().lstrip("^").rstrip("$") for part in query.split("|")]
-    # Only alternatives retrieval can actually split: a grouped regex such as
-    # ``(a|aa)+$`` would otherwise run neither as alternatives nor as a regex.
-    return (
-        sum(bool(_TOKEN.search(part)) and len(part) >= 2 for part in meaningful) >= 2
-        and len(split_pipe_alternatives(query)) >= 2
-    )
+    return sum(bool(_TOKEN.search(part)) and len(part) >= 2 for part in meaningful) >= 2
 
 
 def _path_query(query: str) -> str:

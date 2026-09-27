@@ -1,8 +1,9 @@
 """The tool execution matrix, as data.
 
-Site (client-side or server-side execution) is a property of the tool, not of
-a product tier, so the table belongs in one place that both the routes and the
-authorizer read.
+Source of truth: ``docs-internal/enterprise/hosted-mcp-thin-client.md``
+section 5 ("Tool execution matrix"), which the enterprise plan's Phase 11B
+adopts. Site is a property of the tool, not of a product tier, so the table
+belongs in one place that both the routes and the authorizer read.
 
 Every tool name registered by the public ``lemoncrow`` MCP server is classified
 here. ``tests/test_matrix.py`` asserts, against the real registry when the
@@ -60,11 +61,11 @@ SERVER_TOOLS: Final[frozenset[str]] = frozenset(
         "rescue",
         "compact",
         "orient",
+        "web_fetch",  # keeps egress where policy can see it
         "statusline_segment",  # session state moves server-side
         "review_rationale",  # review_*, except local capture
         "review_evidence",
         "review_feedback_addressed",
-        "review_guidance",
     }
 )
 
@@ -73,9 +74,9 @@ SERVER_TOOLS: Final[frozenset[str]] = frozenset(
 #: server-side and gated on the ``admin`` role.
 SERVER_ADMIN_TOOLS: Final[frozenset[str]] = frozenset({"cache"})
 
-#: Public tools intentionally absent from the remote thin-client surface. They
-#: spawn another MCP/LemonCrow process locally, which a remote client must
-#: never do.
+#: Public tools intentionally absent from the enterprise thin client. They
+#: spawn another MCP/LemonCrow process locally, which the enterprise client is
+#: structurally forbidden to do.
 SECURITY_EXCLUDED_TOOLS: Final[frozenset[str]] = frozenset({"mcp", "agent", "workflow"})
 
 #: Client-side tools, verbatim from the one-process design matrix.
@@ -88,7 +89,6 @@ CLIENT_TOOLS: Final[frozenset[str]] = frozenset(
         "scan",  # ast-grep binary over local files
         "codemod",
         "sql",  # local DSNs and .env discovery
-        "web_fetch",  # public web requests run on the user's machine; hosted workers use separate audited egress
     }
 )
 

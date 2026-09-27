@@ -117,8 +117,8 @@ def test_shipped_host_default_pins_explore_and_research_cheap(tmp_path: Path, mo
     workspace.mkdir()
     monkeypatch.setenv("LEMONCROW_ROOT", str(tmp_path / "global-root"))
 
-    assert resolve_explicit_host_model("claude", "explore", workspace_root=workspace) == "sonnet"
-    assert resolve_explicit_host_model("claude", "research", workspace_root=workspace) == "sonnet"
+    assert resolve_explicit_host_model("claude", "explore", workspace_root=workspace) == "haiku"
+    assert resolve_explicit_host_model("claude", "research", workspace_root=workspace) == "haiku"
     assert resolve_explicit_host_model("codex", "explore", workspace_root=workspace) == "gpt-5.4-mini"
     # Coding/judgment roles inherit the session model (no pin).
     assert resolve_explicit_host_model("claude", "code", workspace_root=workspace) is None

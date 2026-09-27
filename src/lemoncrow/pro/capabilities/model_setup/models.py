@@ -58,8 +58,6 @@ PROBE_STATUS_VALUES: tuple[str, ...] = ("ok", "unsupported", "unknown", "error")
 
 ModelTier = Literal["cheap", "high"]
 MODEL_TIER_VALUES: tuple[str, ...] = ("cheap", "high")
-EndpointLocus = Literal["local", "remote", "unknown"]
-ENDPOINT_LOCUS_VALUES: tuple[str, ...] = ("local", "remote", "unknown")
 
 
 @dataclass(frozen=True)
@@ -151,7 +149,6 @@ class CustomEndpoint:
     name: str
     base_url: str
     api_key_env: str | None = None
-    locus: EndpointLocus = "unknown"
     models: tuple[CustomModel, ...] = ()
 
     def model_ids(self) -> tuple[str, ...]:
@@ -164,7 +161,6 @@ class CustomEndpoint:
             "name": self.name,
             "base_url": self.base_url,
             "api_key_env": self.api_key_env,
-            "locus": self.locus,
             "models": [model.to_dict() for model in self.models],
             "model_ids": list(self.model_ids()),
         }
@@ -199,14 +195,12 @@ def split_custom_model_id(model: str) -> tuple[str, str] | None:
 __all__ = [
     "CUSTOM_PREFIX",
     "CUSTOM_PROVIDER",
-    "ENDPOINT_LOCUS_VALUES",
     "MODEL_TIER_VALUES",
     "PROBE_CHECK_NAME_VALUES",
     "PROBE_SCHEMA_VERSION",
     "PROBE_STATUS_VALUES",
     "CustomEndpoint",
     "CustomModel",
-    "EndpointLocus",
     "ModelTier",
     "ProbeCheck",
     "ProbeCheckName",

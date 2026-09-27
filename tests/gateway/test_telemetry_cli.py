@@ -12,8 +12,7 @@ from tests.helpers import init_store_at
 
 def _invoke(root: Path, *args: str, input: str | None = None) -> Result:
     runner = CliRunner()
-    argv = ["runtime", *args] if args and args[0] in ["telemetry"] else list(args)
-    return runner.invoke(cli, ["--root", str(root), *argv], input=input)
+    return runner.invoke(cli, ["--root", str(root), *args], input=input)
 
 
 def test_telemetry_status_writes_local_event_and_show_outputs_send_payloads(

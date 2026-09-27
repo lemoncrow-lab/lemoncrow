@@ -15,10 +15,6 @@ import {
   KIND_LABELS,
   KIND_ORDER,
   anchorAccent,
-  annotationRail,
-  annotationSeverity,
-  annotationSourceTone,
-  severityTone,
   commentsAt,
   fileComments,
   isAnchored,
@@ -137,19 +133,6 @@ describe("markers", () => {
     expect(marker).toEqual({ side: "additions", lineNumber: 10, metadata: { key: "additions:10" } });
   });
 
-  it("draws no marker for a finding below the finding threshold", () => {
-    const hidden = annotation({ id: "hidden", source: "ai_review", below_threshold: true });
-    expect(markerLines([hidden], "src/app.py", null)).toEqual([]);
-    // A surfaced comment on the same line keeps its marker; the card still lists both.
-    const shown = annotation({ id: "shown" });
-    expect(markerLines([hidden, shown], "src/app.py", null)).toHaveLength(1);
-    expect(commentsAt([hidden, shown], "src/app.py", "additions:10")).toHaveLength(2);
-    // Crossing the threshold changes the rendered markers, so the signature moves.
-    expect(markerSignature([hidden], "src/app.py", null)).not.toBe(
-      markerSignature([{ ...hidden, below_threshold: false }], "src/app.py", null),
-    );
-  });
-
   it("collapses two comments on one line into a single marker", () => {
     const markers = markerLines([annotation({ id: "a" }), annotation({ id: "b" })], "src/app.py", null);
     expect(markers).toHaveLength(1);
@@ -184,23 +167,6 @@ describe("markers", () => {
     ]);
     expect(commentsAt([ranged], "src/app.py", "additions:5")).toHaveLength(1);
     expect(commentsAt([ranged], "src/app.py", "additions:3")).toHaveLength(0);
-  });
-
-  it("draws a range whose last line the viewer hides under a line of that range it renders, keeping its own key", () => {
-    // The viewer renders lines 1-15 only.
-    const rendered = (_side: string, startLine: number, endLine: number) => (startLine <= 15 ? Math.min(endLine, 15) : 0);
-    const block = annotation({ id: "block", start_line: 4, end_line: 19 });
-    const tail = annotation({ id: "tail", start_line: 17, end_line: 19 });
-    expect(markerLines([block], "src/app.py", null, rendered)).toEqual([
-      { side: "additions", lineNumber: 15, metadata: { key: "additions:19" } },
-    ]);
-    // A card shared with a range that renders nothing never leaves that range.
-    expect(markerLines([block, tail], "src/app.py", null, rendered)).toEqual([
-      { side: "additions", lineNumber: 19, metadata: { key: "additions:19" } },
-    ]);
-    expect(markerLines([], "src/app.py", { path: "src/app.py", startLine: 4, endLine: 19, side: "additions" }, rendered)).toEqual([
-      { side: "additions", lineNumber: 15, metadata: { key: "additions:19" } },
-    ]);
   });
 
   it("does not add a second marker when the draft lands on an existing comment", () => {
@@ -315,35 +281,5 @@ describe("how a comment says it got to its line", () => {
     expect(orphan).not.toBe(
       anchorAccent(annotation({ anchor_method: "unique_text", anchor_exact: false })),
     );
-  });
-});
-
-
-describe("severity and kind carry state, sources only attribute", () => {
-  it("rails an AI finding by its severity and a human comment by its kind", () => {
-    const finding = (severity?: Annotation["severity"]) => annotation({ source: "ai_review", created_by_actor: "agent", severity });
-    expect(annotationRail(finding("p0"))).toBe("p0");
-    expect(annotationRail(finding("p1"))).toBe("p1");
-    expect(annotationRail(finding("p2"))).toBe("p2");
-    expect(annotationRail(finding())).toBe("neutral");
-    expect(annotationRail(annotation({ kind: "request_change" }))).toBe("p0");
-    expect(annotationRail(annotation({ kind: "suggestion" }))).toBe("p2");
-    expect(annotationRail(annotation({ kind: "comment" }))).toBe("neutral");
-  });
-
-  it("badges severity only on a root AI finding", () => {
-    expect(annotationSeverity(annotation({ source: "ai_review", severity: "p1" }))).toBe("p1");
-    expect(annotationSeverity(annotation({ source: "human", severity: "p1" }))).toBeNull();
-    expect(annotationSeverity(annotation({ source: "ai_review", severity: "p1", parent_id: "root" }))).toBeNull();
-    expect(severityTone("p0")).toBe("p0");
-    expect(severityTone("p2")).toBe("p2");
-  });
-
-  it("uses the violet attribution tone for AI and agents only", () => {
-    expect(annotationSourceTone(annotation({ source: "human" }))).toBe("neutral");
-    expect(annotationSourceTone(annotation({ source: "lemoncrow" }))).toBe("neutral");
-    expect(annotationSourceTone(annotation({ source: "ai_review", created_by_actor: "agent" }))).toBe("ai");
-    expect(annotationSourceTone(annotation({ source: "author", created_by_actor: "agent" }))).toBe("ai");
-    expect(annotationSourceTone(annotation({ source: "human", created_by_actor: "agent" }))).toBe("ai");
   });
 });

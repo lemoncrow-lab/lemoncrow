@@ -15,7 +15,6 @@ import {
   EmptyState,
   FieldLabel,
   Select,
-  SelectItem,
 } from "../components/WorkbenchUI";
 
 export default function Rubrics() {
@@ -54,17 +53,17 @@ export default function Rubrics() {
       : items.filter((r) => r.domain === domainFilter);
   }, [items, domainFilter]);
 
-  if (err) return <Alert tone="destructive" description={err} />;
+  if (err) return <Alert tone="danger" description={err} />;
   if (!items) return <EmptyState title="Loading rubrics…" className="p-6" />;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex items-center gap-3">
         {rubricId && (
           <Button
             onClick={() => navigate("/knowledge/rubrics")}
             size="xs"
-            icon={<ArrowLeft size={14} />}
+            icon={<ArrowLeft size={12} />}
           >
             All rubrics
           </Button>
@@ -83,18 +82,18 @@ export default function Rubrics() {
           <Select
             aria-label="Filter rubrics by domain"
             value={domainFilter}
-            onValueChange={setDomainFilter}
+            onChange={(e) => setDomainFilter(e.target.value)}
             uiSize="xs"
-            className="text-muted-foreground"
+            className="text-neutral-400"
           >
-            <SelectItem value="all">All domains</SelectItem>
+            <option value="all">All domains</option>
             {domains.map((d) => (
-              <SelectItem key={d} value={d}>
+              <option key={d} value={d}>
                 {d}
-              </SelectItem>
+              </option>
             ))}
           </Select>
-          <FieldLabel className="ml-auto text-muted-foreground">
+          <FieldLabel className="ml-auto text-neutral-400">
             {filtered.length} rubric{filtered.length !== 1 ? "s" : ""}
           </FieldLabel>
         </div>
@@ -119,15 +118,15 @@ export default function Rubrics() {
                       <div className="mb-1 flex flex-wrap items-center gap-2">
                         <ChevronRight
                           size={14}
-                          className={`text-muted-foreground transition-transform ${
+                          className={`text-neutral-400 transition-transform ${
                             isExpanded ? "rotate-90" : ""
                           }`}
                         />
-                        <h3 className="font-semibold text-foreground">
+                        <h3 className="font-mono font-bold text-neutral-200">
                           {r.id}
                         </h3>
                       </div>
-                      <p className="text-body text-muted-foreground">
+                      <p className="text-xs text-neutral-400">
                         {r.required_checks.length} check
                         {r.required_checks.length !== 1 ? "s" : ""}
                       </p>
@@ -138,9 +137,9 @@ export default function Rubrics() {
                     {/* ID */}
                     <div>
                       <FieldLabel className="mb-2">
-                        <ChevronRight size={14} className="inline mr-1" /> ID
+                        <ChevronRight size={10} className="inline mr-1" /> ID
                       </FieldLabel>
-                      <code className="text-caption bg-background px-2 py-1 text-muted-foreground font-mono border border-border block break-all">
+                      <code className="text-[10px] bg-neutral-950 px-2 py-1 text-neutral-400 font-mono border border-neutral-800 block break-all">
                         {r.id}
                       </code>
                     </div>
@@ -148,13 +147,13 @@ export default function Rubrics() {
                     {/* Timestamps */}
                     <div>
                       <FieldLabel className="mb-2">
-                        <ChevronRight size={14} className="inline mr-1" /> created
+                        <ChevronRight size={10} className="inline mr-1" /> created
                       </FieldLabel>
-                      <p className="text-body text-muted-foreground font-mono">
+                      <p className="text-xs text-neutral-400 font-mono">
                         {new Date(r.created_at).toLocaleString()}
                       </p>
                       {r.updated_at && (
-                        <p className="text-body text-muted-foreground font-mono mt-1">
+                        <p className="text-xs text-neutral-400 font-mono mt-1">
                           Updated: {new Date(r.updated_at).toLocaleString()}
                         </p>
                       )}
@@ -163,13 +162,13 @@ export default function Rubrics() {
                     {/* Required Checks */}
                     <div>
                       <FieldLabel className="mb-2">
-                        <ChevronRight size={14} className="inline mr-1" /> required checks
+                        <ChevronRight size={10} className="inline mr-1" /> required checks
                       </FieldLabel>
                       <ul className="space-y-1">
                         {r.required_checks.map((check, i) => (
                           <li
                             key={i}
-                            className="text-label text-subtle leading-relaxed bg-muted/40 px-2 py-1 border border-border flex items-start gap-2"
+                            className="text-[11px] text-neutral-300 leading-relaxed bg-neutral-900/40 px-2 py-1 border border-neutral-800 flex items-start gap-2"
                           >
                             <Check size={14} className="text-emerald-300 flex-shrink-0 mt-0.5" />
                             <span>{check}</span>
@@ -179,7 +178,7 @@ export default function Rubrics() {
                     </div>
 
                     {/* Triggers & Forbidden */}
-                    <div className="grid gap-3 sm:grid-cols-2 pt-2 border-t border-border">
+                    <div className="grid gap-3 sm:grid-cols-2 pt-2 border-t border-neutral-800">
                       {r.triggers && r.triggers.length > 0 && (
                         <div>
                           <FieldLabel className="mb-2">Triggers</FieldLabel>
@@ -187,7 +186,7 @@ export default function Rubrics() {
                             {r.triggers.map((t, j) => (
                               <span
                                 key={j}
-                                className="px-2 py-0.5 bg-cyan-900/30 text-cyan-300 font-mono text-caption border border-cyan-900/40"
+                                className="px-2 py-0.5 bg-blue-900/30 text-blue-300 font-mono text-[10px] border border-blue-900/40"
                               >
                                 {t}
                               </span>
@@ -205,9 +204,9 @@ export default function Rubrics() {
                               {r.forbidden_phrases.map((f, j) => (
                                 <li
                                   key={j}
-                                  className="text-label text-red-300 flex items-start gap-1"
+                                  className="text-[11px] text-red-300 flex items-start gap-1"
                                 >
-                                  <X size={14} className="flex-shrink-0 text-red-300 font-semibold" />
+                                  <X size={14} className="flex-shrink-0 text-red-300 font-bold" />
                                   <span>{f}</span>
                                 </li>
                               ))}
@@ -218,7 +217,7 @@ export default function Rubrics() {
 
                     {/* Related Blocks */}
                     {r.related_blocks && r.related_blocks.length > 0 && (
-                      <div className="pt-2 border-t border-border">
+                      <div className="pt-2 border-t border-neutral-800">
                         <FieldLabel className="mb-2">Related blocks</FieldLabel>
                         <div className="flex flex-wrap gap-1">
                           {r.related_blocks.map((b, j) => (
@@ -236,12 +235,12 @@ export default function Rubrics() {
                     )}
 
                     {/* Usage */}
-                    <div className="pt-2 border-t border-border">
+                    <div className="pt-2 border-t border-neutral-800">
                       <FieldLabel className="mb-2">Usage</FieldLabel>
-                      <code className="text-caption bg-background px-2 py-1 block text-subtle break-all font-mono border border-border mb-1">
+                      <code className="text-[10px] bg-neutral-950 px-2 py-1 block text-neutral-300 break-all font-mono border border-neutral-800 mb-1">
                         lc run-rubric {r.id} --json '{"{"}...{"}"}'
                       </code>
-                      <code className="text-caption bg-background px-2 py-1 block text-subtle break-all font-mono border border-border">
+                      <code className="text-[10px] bg-neutral-950 px-2 py-1 block text-neutral-300 break-all font-mono border border-neutral-800">
                         MCP: verify --rubric_id {r.id} --checks '{"{"}...{"}"}'
                       </code>
                     </div>

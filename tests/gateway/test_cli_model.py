@@ -84,7 +84,22 @@ def _ctx() -> click.Context:
 
 
 def _run(root: Path, *args: str, stdin: str | None = None) -> Result:
-    return CliRunner().invoke(cli, ["--root", str(root), "runtime", "model", *args], input=stdin)
+    return CliRunner().invoke(cli, ["--root", str(root), "model", *args], input=stdin)
+
+
+def test_model_registered_and_help_exits_zero() -> None:
+    ctx = _ctx()
+    assert "model" in set(cli.list_commands(ctx))
+    group = cli.get_command(ctx, "model")
+    assert isinstance(group, click.Group)
+
+    sub_ctx = click.Context(group, info_name="model")
+    assert {"add", "list", "probe", "remove"} <= set(group.list_commands(sub_ctx))
+
+    runner = CliRunner()
+    for args in (["model", "--help"], ["model", "add", "--help"], ["model", "list", "--help"]):
+        result = runner.invoke(cli, args)
+        assert result.exit_code == 0, f"`lc {' '.join(args)}` failed:\n{result.output}"
 
 
 def test_model_add_lists_discovered_models(tmp_path: Path) -> None:
@@ -103,7 +118,6 @@ def test_model_add_json_shape(tmp_path: Path) -> None:
     payload = json.loads(result.stdout)
     assert payload["name"] == "localhost-8000"
     assert payload["endpoint"] == _URL
-    assert payload["locus"] == "local"
     assert payload["models"] == _DISCOVERED
     assert payload["schema_version"] == 1
     assert payload["model_ids"][0] == "custom/localhost-8000/Qwen3-Coder-30B"
@@ -359,7 +373,7 @@ def test_a_large_discovery_list_is_not_probed_without_being_asked(tmp_path: Path
     # Registration still happened -- only the measurement was deferred.
     assert payload["models"] == _MANY
     assert "160 requests" in result.stderr
-    assert "lc runtime model probe" in result.stderr
+    assert "lc model probe" in result.stderr
 
 
 def test_declining_the_bulk_probe_still_registers_every_model(
@@ -419,21 +433,3 @@ def test_model_add_against_a_refused_connection_still_registers(
     assert result.exit_code == 0, result.output
     assert "tools=?" in result.output
     assert "not measured" in result.output
-
-
-def test_model_add_locus_override_is_persisted(tmp_path: Path) -> None:
-    result = _run(
-        tmp_path,
-        "add",
-        "http://gpu-box.lan:9000/v1",
-        "--name",
-        "gpu",
-        "--model",
-        "qwen",
-        "--locus",
-        "local",
-        "--no-probe",
-        "--json",
-    )
-    assert result.exit_code == 0, result.output
-    assert json.loads(result.stdout)["locus"] == "local"

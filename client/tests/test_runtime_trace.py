@@ -26,11 +26,11 @@ def test_every_call_gets_a_trace_and_server_calls_share_its_id(
     stub: StubServer, bootstrapped: RemoteSession, config: ClientConfig, state_dir: Path
 ) -> None:
     dispatcher = Dispatcher(config, bootstrapped)
-    remote = dispatcher.call("code_search", {"query": "alpha"})
+    remote = dispatcher.call("read", {"files": ["pkg/alpha.py"]})
     local = dispatcher.call("bash", {"command": "printf hi"})
     assert remote.trace_id.startswith("lt_") and local.trace_id.startswith("lt_")
     assert stub.state.tool_request_ids[-1] == remote.trace_id  # one id, client -> server
-    by_id = {r["trace_id"]: r for r in _records(config.runtime_state_dir)}
+    by_id = {r["trace_id"]: r for r in _records(state_dir)}
     assert by_id[remote.trace_id]["execution"]["site"] == "server"
     assert by_id[local.trace_id]["execution"]["site"] == "client"  # local tools are traced too
     assert by_id[local.trace_id]["writer"] == "client"
@@ -43,7 +43,7 @@ def test_hosted_clients_hash_arguments_and_bulk_content_is_never_stored(
     session = RemoteSession(config)
     assert session.bootstrap(deadline_s=10.0).ok
     Dispatcher(config, session).call("edit", {"edits": [{"path": "pkg/alpha.py", "old": "'alpha'", "new": "'SECRET'"}]})
-    text = json.dumps(_records(config.runtime_state_dir))
+    text = json.dumps(_records(state_dir))
     assert "SECRET" not in text and "pkg/alpha.py" not in text
 
 
@@ -59,7 +59,7 @@ def test_off_writes_nothing(stub: StubServer, worktree: Path, state_dir: Path, m
     session = RemoteSession(config)
     assert session.bootstrap(deadline_s=10.0).ok
     Dispatcher(config, session).call("bash", {"command": "true"})
-    assert not (config.runtime_state_dir / "traces").exists()
+    assert not (state_dir / "traces").exists()
 
 
 def test_writer_prunes_by_age_and_size(tmp_path: Path) -> None:
@@ -140,11 +140,11 @@ def test_pure_call_is_retried_transparently_after_the_server_returns(
 
     monkeypatch.setattr(RemoteSession, "_post_tool", flaky)
     monkeypatch.setattr("time.sleep", lambda _s: None)
-    outcome = dispatcher.call("code_search", {"query": "alpha"})
+    outcome = dispatcher.call("read", {"files": ["pkg/alpha.py"]})
     assert not outcome.is_error and attempts["n"] == 3
     events = [e for e in bootstrapped.state.recovery_events if e.kind == "reconnect_retry"]
     assert [e.outcome for e in events] == ["retrying", "recovered"]
-    record = next(r for r in _records(config.runtime_state_dir) if r["trace_id"] == outcome.trace_id)
+    record = next(r for r in _records(config.state_dir) if r["trace_id"] == outcome.trace_id)
     assert record["execution"]["recoveries"] == ["reconnect_retry:retrying", "reconnect_retry:recovered"]
 
 
@@ -164,7 +164,7 @@ def test_a_timeout_is_never_resent(
         )
 
     monkeypatch.setattr(RemoteSession, "_post_tool", timeout)
-    outcome = Dispatcher(config, bootstrapped).call("code_search", {"query": "alpha"})
+    outcome = Dispatcher(config, bootstrapped).call("read", {"files": ["pkg/alpha.py"]})
     assert outcome.is_error and attempts["n"] == 1
 
 

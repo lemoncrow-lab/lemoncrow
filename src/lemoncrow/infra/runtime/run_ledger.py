@@ -377,14 +377,6 @@ def _merge_with_persisted(snapshot: dict[str, Any], path: Path) -> dict[str, Any
     # until this process has fresh tracker state of its own.
     if not snapshot.get("cost") and isinstance(recorded.get("cost"), dict) and recorded["cost"]:
         snapshot["cost"] = recorded["cost"]
-    # Host hooks observe provider calls while this MCP ledger remains alive.
-    host_calls = [call for call in (recorded.get("cost") or {}).get("calls", []) if call.get("usage_source")]
-    if host_calls:
-        cost = dict(snapshot.get("cost") or {})
-        calls = [call for call in cost.get("calls", []) if not call.get("usage_source")] + host_calls
-        cost["calls"] = calls
-        cost["total_cost_usd"] = round(sum(float(call.get("cost_usd") or 0) for call in calls), 6)
-        snapshot["cost"] = cost
     memory_events: list[dict[str, Any]] = list(snapshot.get("events") or [])
     merged = _merge_persisted_events(memory_events, recorded.get("events"))
     if merged is memory_events:

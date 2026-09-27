@@ -6,7 +6,7 @@
 #
 # Codex statusline input is version-dependent. Newer command-backed builds may
 # pass JSON; some builds expose the native footer text. Both are parsed into the
-# same fields and rendered through `lc runtime savings --segment`, the same backend
+# same fields and rendered through `lc savings --segment`, the same backend
 # used by the Claude script.
 set -uo pipefail
 
@@ -137,7 +137,7 @@ export LEMONCROW_STATUSLINE_LIVE_OUT_TOK="${OUT_INT:-0}"
 export LEMONCROW_STATUSLINE_CTX_PCT="${PCT_INT:-0}"
 export LEMONCROW_STATUSLINE_CTX_TOK="${USED_INT:-0}"
 # Park the live window reading for the out-of-process frame builders (MCP
-# sidecar, `lc runtime savings --segment`): only this script sees real occupancy, and
+# sidecar, `lc savings --segment`): only this script sees real occupancy, and
 # the transcript carries cumulative tokens, a different quantity. Atomic rename
 # so a concurrent render never reads a torn file.
 _CTX_SID="${SESSION_ID:-${CODEX_SESSION_ID:-}}"
@@ -170,10 +170,10 @@ fi
 if [ -z "${DYNAMIC_SEG:-}" ]; then
   LEMONCROW_BIN="$(command -v lemoncrow 2>/dev/null || true)"
   if [ -n "$LEMONCROW_BIN" ]; then
-    DYNAMIC_SEG="$("$LEMONCROW_BIN" runtime savings --segment 2>/dev/null || true)"
+    DYNAMIC_SEG="$("$LEMONCROW_BIN" savings --segment 2>/dev/null || true)"
   fi
   if [ -z "${DYNAMIC_SEG:-}" ]; then
-    DYNAMIC_SEG="$(uv run --quiet lemoncrow runtime savings --segment 2>/dev/null || true)"
+    DYNAMIC_SEG="$(uv run --quiet lemoncrow savings --segment 2>/dev/null || true)"
   fi
   # Cache only with a real session id and real live usage -- never a shared,
   # unkeyed slot, never a stale zero-token segment. Atomic renames so a

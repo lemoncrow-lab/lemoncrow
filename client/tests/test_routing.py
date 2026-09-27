@@ -49,12 +49,11 @@ DESIGN_MATRIX: Mapping[str, Site] = {
     "rescue": Site.SERVER,
     "compact": Site.SERVER,
     "orient": Site.SERVER,
-    "web_fetch": Site.CLIENT,
+    "web_fetch": Site.SERVER,
     "statusline_segment": Site.SERVER,
     "review_rationale": Site.SERVER,
     "review_evidence": Site.SERVER,
     "review_feedback_addressed": Site.SERVER,
-    "review_guidance": Site.SERVER,
     "cache": Site.SERVER_ADMIN,
 }
 
@@ -107,7 +106,6 @@ def test_an_unrouted_tool_is_refused_by_name() -> None:
 
 LOCAL_INVOCATIONS: Mapping[str, Mapping[str, Any]] = {
     "bash": {"command": "printf routed"},
-    "web_fetch": {"url": "file:///refused-before-network"},
     "edit": {"edits": [{"path": "pkg/alpha.py", "old": "alpha", "new": "alpha2"}]},
     "grep": {"regex": "def "},
     "blame": {},
@@ -118,7 +116,7 @@ LOCAL_INVOCATIONS: Mapping[str, Mapping[str, Any]] = {
 }
 
 SERVER_INVOCATIONS: Mapping[str, Mapping[str, Any]] = {
-    name: ({"files": ["pkg/alpha.py"], "symbol": "alpha"} if name == "read" else {"query": "alpha"})
+    name: ({"files": ["pkg/alpha.py"]} if name == "read" else {"query": "alpha"})
     for name, route in ROUTES.items()
     if route.remote
 }

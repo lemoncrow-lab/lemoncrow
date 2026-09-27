@@ -47,12 +47,18 @@ def _write(tmp_path: Path) -> Path:
     return f
 
 
+def test_replay_help_exits_zero() -> None:
+    result = CliRunner().invoke(cli, ["session", "replay", "--help"])
+    assert result.exit_code == 0, result.output
+    assert "no model is re-run" in result.output.lower()
+    assert "--html" in result.output
+
+
 def test_replay_file_text(tmp_path: Path) -> None:
     f = _write(tmp_path)
     result = CliRunner().invoke(
         cli,
         [
-            "runtime",
             "session",
             "replay",
             "--file",
@@ -73,7 +79,7 @@ def test_replay_file_text(tmp_path: Path) -> None:
 
 def test_replay_file_json(tmp_path: Path) -> None:
     f = _write(tmp_path)
-    result = CliRunner().invoke(cli, ["runtime", "session", "replay", "--file", str(f), "--json", "--no-live"])
+    result = CliRunner().invoke(cli, ["session", "replay", "--file", str(f), "--json", "--no-live"])
     assert result.exit_code == 0, result.output
     data = json.loads(result.output)
     replay = data["replays"][0]
@@ -86,7 +92,7 @@ def test_replay_html_output(tmp_path: Path) -> None:
     f = _write(tmp_path)
     out = tmp_path / "replay.html"
     result = CliRunner().invoke(
-        cli, ["runtime", "session", "replay", "--file", str(f), "--html", str(out), "--no-live", "--no-open"]
+        cli, ["session", "replay", "--file", str(f), "--html", str(out), "--no-live", "--no-open"]
     )
     assert result.exit_code == 0, result.output
     assert out.exists()
@@ -120,7 +126,6 @@ def test_replay_file_autodetects_codex(tmp_path: Path) -> None:
     result = CliRunner().invoke(
         cli,
         [
-            "runtime",
             "session",
             "replay",
             "--file",
@@ -140,7 +145,7 @@ def test_replay_file_autodetects_codex(tmp_path: Path) -> None:
 def test_replay_file_unparseable_exits_1(tmp_path: Path) -> None:
     f = tmp_path / "junk.jsonl"
     f.write_text("this is not a transcript\nnope\n", encoding="utf-8")
-    result = CliRunner().invoke(cli, ["runtime", "session", "replay", "--file", str(f), "--no-live", "--no-open"])
+    result = CliRunner().invoke(cli, ["session", "replay", "--file", str(f), "--no-live", "--no-open"])
     assert result.exit_code == 1
     assert "could not parse" in result.output.lower()
 
@@ -152,7 +157,6 @@ def test_replay_file_explicit_host_bypasses_detection(tmp_path: Path) -> None:
     result = CliRunner().invoke(
         cli,
         [
-            "runtime",
             "session",
             "replay",
             "--file",
@@ -206,7 +210,6 @@ def test_replay_opencode_from_db(tmp_path: Path) -> None:
     result = CliRunner().invoke(
         cli,
         [
-            "runtime",
             "session",
             "replay",
             "--host",
@@ -227,15 +230,13 @@ def test_replay_opencode_from_db(tmp_path: Path) -> None:
 
 
 def test_replay_host_choices_cover_all_hosts() -> None:
-    result = CliRunner().invoke(cli, ["runtime", "session", "replay", "--help"])
+    result = CliRunner().invoke(cli, ["session", "replay", "--help"])
     assert result.exit_code == 0
     for host in ("claude", "codex", "opencode", "lemoncode", "copilot", "hermes", "cursor", "antigravity"):
         assert host in result.output
 
 
 def test_replay_missing_session_exits_1() -> None:
-    result = CliRunner().invoke(
-        cli, ["runtime", "session", "replay", "--session-id", "no-such-session-xyz", "--host", "claude"]
-    )
+    result = CliRunner().invoke(cli, ["session", "replay", "--session-id", "no-such-session-xyz", "--host", "claude"])
     assert result.exit_code == 1
     assert "no transcript found" in result.output.lower()

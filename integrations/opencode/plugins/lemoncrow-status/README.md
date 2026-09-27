@@ -1,6 +1,6 @@
 # lemoncrow-status
 
-Sidebar panel for OpenCode showing measured usage plus LemonCrow-priced cost and estimated savings for
+Sidebar panel for OpenCode showing what LemonCrow actually spent and saved on
 the current run: tokens in / cached / out, context size, cache efficiency,
 cost, savings, and tool + MCP call counts.
 

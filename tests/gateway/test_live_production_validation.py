@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import socket
@@ -9,6 +10,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from pathlib import Path
@@ -32,6 +34,12 @@ def _free_port() -> int:
         sock.bind(("127.0.0.1", 0))
         sock.listen(1)
         return int(sock.getsockname()[1])
+
+
+def _p95(samples: list[float]) -> float:
+    ordered = sorted(samples)
+    index = max(0, math.ceil(len(ordered) * 0.95) - 1)
+    return ordered[index]
 
 
 def _request_json(
@@ -154,6 +162,29 @@ def _prepare_install_source(tmp_path: Path) -> tuple[Path, str]:
         text=True,
     )
     return source, branch
+
+
+def _start_container(name: str, tag: str, root: Path, port: int) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            "docker",
+            "run",
+            "-d",
+            "--rm",
+            "--name",
+            name,
+            "-p",
+            f"{port}:8787",
+            "-e",
+            "LEMONCROW_ROOT=/app/.lemoncrow",
+            "-v",
+            f"{root}:/app/.lemoncrow",
+            tag,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
 
 def test_real_ollama_model_backed_paths() -> None:
@@ -327,7 +358,7 @@ def test_real_installer_runs_in_target_directory(tmp_path: Path) -> None:
     assert "Usage:" in help_result.stdout
 
     mcp_result = subprocess.run(
-        [str(bin_dir / "lemoncrow"), "runtime", "mcp"],
+        [str(bin_dir / "lemoncrow"), "mcp"],
         cwd=workspace,
         input="\n".join(
             [
@@ -352,3 +383,68 @@ def test_real_installer_runs_in_target_directory(tmp_path: Path) -> None:
     tools_list = next(response for response in responses if response.get("id") == 2)
     tool_names = {tool["name"] for tool in tools_list["result"]["tools"]}
     assert {"context", "sql", "trace"}.issubset(tool_names)
+
+
+def test_docker_deploy_load_latency_and_stability(tmp_path: Path) -> None:
+    root = tmp_path / ".lemoncrow"
+    build_sqlite_store_bundle(root).init()
+
+    tag = f"lemoncrow-api-test:{uuid.uuid4().hex[:8]}"
+    name = f"lemoncrow-api-test-{uuid.uuid4().hex[:8]}"
+    port = _free_port()
+    build = subprocess.run(
+        ["docker", "build", "-f", str(REPO_ROOT / "Dockerfile.api"), "-t", tag, str(REPO_ROOT)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert build.returncode == 0, build.stderr
+
+    try:
+        run = _start_container(name, tag, root, port)
+        assert run.returncode == 0, run.stderr
+        base_url = f"http://127.0.0.1:{port}"
+
+        deadline = time.time() + 60
+        healthy = False
+        while time.time() < deadline:
+            try:
+                status, payload = _request_json("GET", f"{base_url}/health", timeout=1.0)
+                if status == 200 and payload.get("status") == "ok":
+                    healthy = True
+                    break
+            except (urllib.error.URLError, TimeoutError):
+                pass
+            time.sleep(1)
+        assert healthy, "dockerized lemoncrow service never became healthy"
+
+        latencies: list[float] = []
+
+        def _reasoning(index: int) -> tuple[int, Any, float]:
+            started = time.perf_counter()
+            status, payload = _request_json(
+                "POST",
+                f"{base_url}/v1/reasoning/context",
+                {"task": f"docker-load-{index}", "domain": "coding"},
+                timeout=15.0,
+            )
+            return status, payload, time.perf_counter() - started
+
+        for wave in range(3):
+            with ThreadPoolExecutor(max_workers=6) as executor:
+                batch = list(executor.map(_reasoning, range(wave * 12, (wave + 1) * 12)))
+            assert all(status == 200 for status, _, _ in batch)
+            assert all("context" in payload for _, payload, _ in batch)
+            latencies.extend(duration for _, _, duration in batch)
+            status, payload = _request_json("GET", f"{base_url}/ready", timeout=2.0)
+            assert status == 200
+            assert payload["status"] in {"ok", "degraded"}
+            time.sleep(1)
+
+        status, payload = _request_json("GET", f"{base_url}/health", timeout=2.0)
+        assert status == 200
+        assert payload["status"] == "ok"
+        assert _p95(latencies) < 8.0
+    finally:
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True, text=True, check=False)
+        subprocess.run(["docker", "rmi", "-f", tag], capture_output=True, text=True, check=False)

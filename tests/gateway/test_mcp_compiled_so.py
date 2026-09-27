@@ -31,14 +31,12 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
-import importlib.util
 import json
 import os
 import re
 import shutil
 import subprocess
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 import pytest
@@ -175,8 +173,6 @@ def compiled_server(
             "--python",
             str(venv_python),
             f"{compiled_wheel.path}[mcp,smart,memory]",
-            # lemoncrow pins lemoncrow-client, which is not on a package index: install it from this checkout.
-            str(REPO_ROOT / "client"),
         ],
         capture_output=True,
         text=True,
@@ -187,12 +183,10 @@ def compiled_server(
     if not lemoncrow_bin.exists():
         pytest.skip("lemoncrow console script missing from venv after install")
 
-    # Confirm the installed package is actually compiled. mcp_server.py itself ships interpreted
-    # (hatch_build._SKIP_PATHS: @mcp_tool introspects its annotations); the tool modules it serves
-    # are the compiled ones, and mypyc puts them in one shared ``*__mypyc*.so``.
-    so_files = list(venv_dir.rglob("*__mypyc*.so"))
+    # Confirm the installed package is actually compiled (.so present, not .py).
+    so_files = list(venv_dir.rglob("mcp_server*.so"))
     if not so_files:
-        pytest.skip("installed wheel has no mypyc extension; not a compiled build")
+        pytest.skip("installed wheel has no mcp_server .so; not a compiled build")
 
     root = tmp_path_factory.mktemp("lemoncrow_root") / ".lemoncrow"
     root.mkdir(parents=True, exist_ok=True)
@@ -247,7 +241,7 @@ def _run_server(
     requests = [_INITIALIZE, *calls]
     payload = "\n".join(json.dumps(r) for r in requests) + "\n"
     proc = subprocess.run(
-        [server.lemoncrow_bin, "runtime", "mcp"],
+        [server.lemoncrow_bin, "mcp"],
         input=payload,
         text=True,
         capture_output=True,
@@ -380,8 +374,7 @@ def test_compiled_server_handshake_and_tools_list(compiled_server: _CompiledServ
         [{"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}],
     )
     assert 1 in responses, f"no initialize response; stderr:\n{proc.stderr[-1500:]}"
-    # The stdio entry point serves Runtime Lite (as test_mcp_cli_check records).
-    assert responses[1]["result"]["serverInfo"]["name"] == "lemoncrow-runtime-lite"
+    assert responses[1]["result"]["serverInfo"]["name"] == "lemoncrow"
     assert 2 in responses, f"no tools/list response; stderr:\n{proc.stderr[-1500:]}"
 
     names = {tool["name"] for tool in responses[2]["result"]["tools"]}
@@ -390,34 +383,61 @@ def test_compiled_server_handshake_and_tools_list(compiled_server: _CompiledServ
     assert not missing, f"compiled server missing LLM-visible tools: {sorted(missing)}"
 
 
-def test_compiled_tool_handles_stringified_args(compiled_server: _CompiledServer) -> None:
-    for tool in sorted(TOOLS):
-        'Every registered tool must survive fully-stringified arguments on the .so.\n\n    Regression guard for the mypyc strictness bug: stringified args pass under\n    lenient CPython (.py) but make the compiled .so raise a C-level TypeError\n    unless coerced first.  We assert (a) no mypyc type assertion on the\n    stringified call, and (b) no "typed works, stringified fails" divergence.\n'
-        native = _native_args(tool, compiled_server.workspace)
-        stringified = _stringify_args(native)
-        calls = [
-            {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": tool, "arguments": native}},
-            {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": tool, "arguments": stringified}},
-        ]
-        try:
-            responses, proc = _run_server(compiled_server, calls, timeout=120)
-        except subprocess.TimeoutExpired:
-            continue
-        assert 2 in responses, f"{tool}: no response to native call (server died?).\nstderr:\n{proc.stderr[-1500:]}"
-        assert (
-            3 in responses
-        ), f"{tool}: no response to stringified call (server died after native call).\nstderr:\n{proc.stderr[-1500:]}"
-        native_resp = responses[2]
-        str_resp = responses[3]
-        # A JSON-RPC error, or a tool result flagged isError whose text is mypyc's.
-        message = _failure_text(str_resp)
-        assert not _MYPYC_TYPE_ERROR.search(
-            message
-        ), f"{tool}: compiled server rejected stringified args with a mypyc type error -- args are not coerced before the .so handler: {message!r}\nnative_resp={native_resp}\nstringified_resp={str_resp}"
-        if "result" in native_resp and "error" in str_resp:
-            pytest.fail(
-                f"{tool}: native (typed) call succeeded but the stringified call failed -- the exact .py-works/.so-fails regression.\nnative_resp={native_resp}\nstringified_resp={str_resp}"
-            )
+@pytest.mark.parametrize("tool", sorted(TOOLS))
+def test_compiled_tool_handles_stringified_args(compiled_server: _CompiledServer, tool: str) -> None:
+    """Every registered tool must survive fully-stringified arguments on the .so.
+
+    Regression guard for the mypyc strictness bug: stringified args pass under
+    lenient CPython (.py) but make the compiled .so raise a C-level TypeError
+    unless coerced first.  We assert (a) no mypyc type assertion on the
+    stringified call, and (b) no "typed works, stringified fails" divergence.
+    """
+    native = _native_args(tool, compiled_server.workspace)
+    stringified = _stringify_args(native)
+    calls = [
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": tool, "arguments": native},
+        },
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {"name": tool, "arguments": stringified},
+        },
+    ]
+    try:
+        responses, proc = _run_server(compiled_server, calls, timeout=120)
+    except subprocess.TimeoutExpired:
+        # A few tools (agent/workflow) may attempt real execution; a hang is not
+        # a coercion failure, so don't turn it into a false red.
+        pytest.skip(f"{tool}: server did not return within timeout (likely real execution)")
+
+    assert 2 in responses, f"{tool}: no response to native call (server died?).\nstderr:\n{proc.stderr[-1500:]}"
+    assert (
+        3 in responses
+    ), f"{tool}: no response to stringified call (server died after native call).\nstderr:\n{proc.stderr[-1500:]}"
+    native_resp = responses[2]
+    str_resp = responses[3]
+
+    # (a) The stringified call must not trip a mypyc C-level type assertion.
+    if "error" in str_resp:
+        message = str(str_resp["error"].get("message", ""))
+        assert not _MYPYC_TYPE_ERROR.search(message), (
+            f"{tool}: compiled server rejected stringified args with a mypyc type "
+            f"error -- args are not coerced before the .so handler: {message!r}\n"
+            f"native_resp={native_resp}\nstringified_resp={str_resp}"
+        )
+
+    # (b) No .py-works/.so-fails divergence: typed result implies stringified result.
+    if "result" in native_resp and "error" in str_resp:
+        pytest.fail(
+            f"{tool}: native (typed) call succeeded but the stringified call failed "
+            f"-- the exact .py-works/.so-fails regression.\n"
+            f"native_resp={native_resp}\nstringified_resp={str_resp}"
+        )
 
 
 def _tools_call(rid: Any, name: str, arguments: Any) -> dict[str, Any]:
@@ -429,52 +449,13 @@ def _tools_call(rid: Any, name: str, arguments: Any) -> dict[str, Any]:
     }
 
 
-def _failure_text(response: dict[str, Any]) -> str:
-    """A JSON-RPC error's message, or the text of a tool result flagged ``isError`` (empty otherwise).
-
-    A handler's exception comes back either way: ``_handle`` turns a tool's ``TypeError`` into a
-    result with ``isError: true`` whose text is mypyc's message.
-    """
-    if "error" in response:
-        return str(response["error"].get("message", ""))
-    result = response.get("result") or {}
-    if isinstance(result, dict) and result.get("isError"):
-        return " ".join(str(item.get("text", "")) for item in result.get("content") or () if isinstance(item, dict))
-    return ""
-
-
 def _assert_not_mypyc_error(label: str, response: dict[str, Any]) -> None:
     """A response may be a result or a graceful app error -- never a mypyc crash."""
-    message = _failure_text(response)
-    assert not _MYPYC_TYPE_ERROR.search(
-        message
-    ), f"{label}: compiled server raised a mypyc C-level type assertion: {message!r}\nresponse={response}"
-
-
-def _candidate_slice() -> ModuleType:
-    """``scripts/compiled_candidate_slice.py``: the checks the release gate's ``candidate-compiled`` runs."""
-    spec = importlib.util.spec_from_file_location(
-        "_compiled_candidate_slice", REPO_ROOT / "scripts" / "compiled_candidate_slice.py"
-    )
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def test_compiled_registry_keeps_typed_schemas_and_coerces_a_stringified_integer(
-    compiled_server: _CompiledServer, tmp_path: Path
-) -> None:
-    """The ``@mcp_tool`` registry the compiled wheel builds: typed input schemas, and ``"20"`` -> 20.
-
-    ``lc runtime mcp`` serves Runtime Lite, so the stdio tests above never reach this registry. A mypyc
-    function keeps its parameter names but not its annotations: with the ``tools_*.py`` modules
-    compiled, every property of every schema was untyped and ``grep(after="20")`` came back
-    ``isError`` with ``int object expected; got str``. The same check runs in the release gate on
-    the installed candidate (``candidate-compiled``).
-    """
-    python = str(Path(compiled_server.lemoncrow_bin).with_name("python"))
-    assert _candidate_slice().check_registry(python, tmp_path, compiled_server.env) == []
+    if "error" in response:
+        message = str(response["error"].get("message", ""))
+        assert not _MYPYC_TYPE_ERROR.search(
+            message
+        ), f"{label}: compiled server raised a mypyc C-level type assertion: {message!r}\nresponse={response}"
 
 
 def test_compiled_server_accepts_arguments_as_json_string(
@@ -520,20 +501,20 @@ def test_compiled_server_missing_required_arg_is_graceful(
     """Missing a required arg must be a clean validation error, not a .so crash.
 
     ``codemod`` requires ``pattern``.  Omitting it should surface a graceful
-    JSON-RPC error or a tool result flagged ``isError`` (Runtime Lite's ``payload_invalid``),
-    never a mypyc type assertion or a dead server.
+    JSON-RPC error (Pydantic validation), never a mypyc type assertion or a
+    dead server.
     """
     responses, proc = _run_server(compiled_server, [_tools_call(2, "codemod", {})])
     assert 2 in responses, f"no response; stderr:\n{proc.stderr[-1500:]}"
     resp = responses[2]
-    assert _failure_text(resp), f"expected a validation error for missing 'pattern': {resp}"
+    assert "error" in resp, f"expected a validation error for missing 'pattern': {resp}"
     _assert_not_mypyc_error("codemod(missing-required)", resp)
 
 
 def test_compiled_server_unknown_tool_and_method_are_graceful(
     compiled_server: _CompiledServer,
 ) -> None:
-    """An unknown method is -32601, an unknown tool a graceful failure; the server stays responsive."""
+    """Unknown tool/method must return -32601 and leave the server responsive."""
     responses, proc = _run_server(
         compiled_server,
         [
@@ -547,7 +528,7 @@ def test_compiled_server_unknown_tool_and_method_are_graceful(
         responses
     ), f"missing responses {{2,3,4}} - {set(responses)}; stderr:\n{proc.stderr[-1500:]}"
     assert responses[2]["error"]["code"] == -32601, responses[2]
-    assert _failure_text(responses[3]), responses[3]
+    assert responses[3]["error"]["code"] == -32601, responses[3]
     assert "result" in responses[4], f"server unresponsive after bad calls: {responses[4]}"
 
 

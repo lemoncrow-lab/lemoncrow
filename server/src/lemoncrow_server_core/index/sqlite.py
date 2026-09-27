@@ -34,7 +34,6 @@ rather than of whichever query happens to be written next.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import sqlite3
@@ -44,14 +43,12 @@ import time
 import urllib.parse
 from collections import OrderedDict
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import AbstractContextManager, contextmanager, nullcontext, suppress
+from contextlib import contextmanager, suppress
 from pathlib import Path
-from types import MappingProxyType
 from typing import Any, Final
 
 from ..context import new_opaque_id
 from ..errors import AgentAction, ErrorCode, ServerError
-from ..read_budget import current_read_budget
 from .analysis import LexicalQuery, analyze, cosine, parse_query, score_weighted_match
 from .contracts import (
     REPOSITORY_GENERATION_ANALYZER_VERSION,
@@ -64,7 +61,6 @@ from .contracts import (
     ManifestEntry,
     RepoIdentityClaim,
     RepositoryGeneration,
-    SemanticUnit,
     SweepResult,
     SymbolDef,
     ViewContentReachability,
@@ -73,11 +69,10 @@ from .contracts import (
     repository_generation_id,
     sha256_hex,
 )
-from .layers import DEFAULT_INLINE_REBUILD_BUDGET, LayerSources, LinkLayer
+from .layers import DEFAULT_INLINE_REBUILD_BUDGET, LayerSources, LinkLayer, SemanticLayer
 from .links import LinkGraph
 from .manifest import manifest_root as canonical_manifest_root
 from .ops import IndexOpsMetrics
-from .semantic import create_semantic_index
 
 __all__ = ["SCHEMA_VERSION", "SqliteIndex", "build_sqlite_backend", "open_sqlite_index"]
 
@@ -99,36 +94,6 @@ SCHEMA_VERSION: Final[int] = 3
 _PARAM_CHUNK: Final[int] = 400
 #: Idle read-only connections kept per database (see ``_Db._borrow_reader``).
 _IDLE_READERS: Final[int] = 2
-#: Statements this process runs at once on read-only connections, across every
-#: database. SQLite serializes its allocator process-wide (MEMSTATUS is on in
-#: the shipped builds), so parallel statements contend instead of scaling:
-#: replaying 32 searches' SQL on 8 threads took 37 s against 15 s one after
-#: another, and 11.6 s with at most 2 at once. Separate processes scale.
-#: lc-debt: process-wide read cap; upgrade: search in worker processes, or an
-#: SQLite built with SQLITE_DEFAULT_MEMSTATUS=0.
-_CONCURRENT_READS: Final[int] = 3
-_READ_GATE: Final[threading.BoundedSemaphore] = threading.BoundedSemaphore(_CONCURRENT_READS)
-#: How long a write over the WAL budget waits for the reader pinning the WAL to
-#: finish before refusing. Reads are bounded (``read_budget``), so most finish
-#: well inside this; refusing at once turned every such overlap into an error.
-#: Never on an event loop thread: local stores run inline there, and a sleep
-#: would stall every request. Those refusals are retried by the client instead.
-_WAL_PIN_WAIT_S: Final[float] = 2.0
-
-
-def _on_event_loop() -> bool:
-    """Whether this thread is running an asyncio loop, where nothing may sleep."""
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return False
-    return True
-
-
-def _read_slot() -> AbstractContextManager[Any]:
-    """A turn under :data:`_READ_GATE`; an event loop never queues behind executor reads."""
-    return nullcontext() if _on_event_loop() else _READ_GATE
-
 
 _REPLAY_HISTORY: Final[int] = 64
 
@@ -150,7 +115,6 @@ _COUNTED: Final[tuple[tuple[str, str, str], ...]] = (
     ("analysis_terms", "analysis", "LENGTH({r}.term)"),
     ("analysis_grams", "analysis", "LENGTH({r}.gram)"),
     ("analysis_vectors", "analysis", "LENGTH({r}.vector)"),
-    ("analysis_semantic_units", "analysis", "{r}.payload_bytes"),
 )
 
 # Trigram ingest is the only extremely high-cardinality write path: a medium
@@ -285,23 +249,6 @@ CREATE TABLE IF NOT EXISTS analysis_vectors (
     digest TEXT NOT NULL,
     vector BLOB NOT NULL,
     PRIMARY KEY (org_id, digest)
-) WITHOUT ROWID;
-
--- Chunk vectors for an artifact analyzed without them. Uploads defer them
--- (``analyze_foreground``) and the semantic builder derives them from the
--- digest's bytes; kept here, a restart reads them instead of deriving them
--- again. Layer-1 data like the rows above: it follows its digest out on sweep.
--- ``units`` is JSON [unit_id, start_line, end_line, symbol, dims] per unit;
--- ``vectors`` their embeddings, packed float64 back to back.
-CREATE TABLE IF NOT EXISTS analysis_semantic_units (
-    org_id            TEXT    NOT NULL,
-    digest            TEXT    NOT NULL,
-    parser_profile    TEXT    NOT NULL,
-    embedding_version TEXT    NOT NULL,
-    units             TEXT    NOT NULL,
-    vectors           BLOB    NOT NULL,
-    payload_bytes     INTEGER NOT NULL,
-    PRIMARY KEY (org_id, digest, parser_profile, embedding_version)
 ) WITHOUT ROWID;
 
 -- Who actually handed the server these bytes, and for which repository. Never
@@ -471,16 +418,13 @@ CREATE INDEX IF NOT EXISTS ix_link_edges_src ON link_edges (view_id, src_path);
 CREATE INDEX IF NOT EXISTS ix_link_edges_dst ON link_edges (view_id, dst_path);
 
 CREATE TABLE IF NOT EXISTS link_graphs (
-    view_id      TEXT PRIMARY KEY,
-    org_id       TEXT NOT NULL,
-    payload      TEXT NOT NULL,
+    view_id TEXT PRIMARY KEY,
+    org_id  TEXT NOT NULL,
+    payload TEXT NOT NULL,
     -- A dirty View's graph is stored as ``delta`` over its generation graph
     -- ``base`` (see SqliteLinkGraphStore.save); empty for a full edge set.
-    base         TEXT NOT NULL DEFAULT '',
-    delta        TEXT NOT NULL DEFAULT '',
-    -- Durable cache identity. Payload excludes edges, and edge counts can stay
-    -- constant across a rewrite, so neither is sufficient to identify a graph.
-    edge_version INTEGER NOT NULL DEFAULT 0
+    base    TEXT NOT NULL DEFAULT '',
+    delta   TEXT NOT NULL DEFAULT ''
 );
 """ + _counter_schema()  # triggers name the tables above, so they come last
 
@@ -488,15 +432,8 @@ CREATE TABLE IF NOT EXISTS link_graphs (
 _EdgeRow = tuple[str, str, str, str, int]
 _EDGE_COLUMNS: Final[str] = "kind, src_path, dst_path, symbol, src_line"
 #: A dirty View's graph is kept as a delta over its generation graph while the
-#: delta is at most this many edges or 1/_DELTA_FRACTION of the graph, whichever
-#: is more. At a tenth, a worktree with a few hundred uncommitted files (~12% of
-#: a 168k-edge graph) stored every agent's View as a full copy, and each edit
-#: re-read and rewrote ~168k rows per View; a quarter keeps those as deltas.
+#: delta is at most this many edges or a tenth of the graph, whichever is more.
 _DELTA_MIN_EDGES: Final[int] = 2_000
-_DELTA_FRACTION: Final[int] = 4
-#: Full link graphs kept decoded per store (a few generations per repository).
-# lc-debt: count-bounded (~50 MB per 150k-edge graph); bound by edge total if many dirty Views churn.
-_FULL_GRAPH_CACHE: Final[int] = 4
 
 
 def _edge_rows(rows: Iterator[Any] | Sequence[Any]) -> set[_EdgeRow]:
@@ -542,39 +479,11 @@ def _unpack(raw: bytes) -> tuple[float, ...]:
     return struct.unpack(f"<{len(raw) // 8}d", raw)
 
 
-def _encode_semantic_units(units: Sequence[SemanticUnit]) -> tuple[str, bytes]:
-    meta = json.dumps(
-        [[unit.unit_id, unit.start_line, unit.end_line, unit.symbol, len(unit.embedding)] for unit in units],
-        separators=(",", ":"),
-        ensure_ascii=False,
-    )
-    return meta, b"".join(_pack(unit.embedding) for unit in units)
-
-
-def _decode_semantic_units(meta: str, vectors: bytes, embedding_version: str) -> tuple[SemanticUnit, ...]:
-    values = _unpack(vectors)
-    units: list[SemanticUnit] = []
-    offset = 0
-    for unit_id, start_line, end_line, symbol, dims in json.loads(meta):
-        units.append(
-            SemanticUnit(
-                unit_id=str(unit_id),
-                start_line=int(start_line),
-                end_line=int(end_line),
-                symbol=str(symbol),
-                embedding_version=embedding_version,
-                embedding=tuple(values[offset : offset + int(dims)]),
-            )
-        )
-        offset += int(dims)
-    return tuple(units)
-
-
 def _absolute(path: str) -> str:
     """Pin a filesystem database path before the process can change directory.
 
     Tool dispatch binds the working directory to the tenant's tree for the
-    duration of a call (hosted ``lemoncrow_server.registry_dispatch._workspace_binding``), because the
+    duration of a call (``registry_dispatch._workspace_binding``), because the
     public tools relativize their output against the process cwd. A durable
     index opened at a relative path would then follow that binding and land
     somewhere else, so the path is resolved once, here, at open time.
@@ -733,7 +642,7 @@ class _Db:
         with self.transaction() as conn:
             conn.execute("DELETE FROM manifest_path_search")
             conn.execute(
-                "INSERT INTO manifest_path_search (org_id, root, path) SELECT org_id, root, path FROM manifest_rows"
+                "INSERT INTO manifest_path_search (org_id, root, path) " "SELECT org_id, root, path FROM manifest_rows"
             )
             conn.execute(
                 "INSERT INTO storage_counters (org_id, kind, bytes) VALUES ('', ?, 0) "
@@ -849,8 +758,6 @@ class _Db:
         for column in ("base", "delta"):
             if self._has_table("link_graphs") and not self._has_column("link_graphs", column):
                 self._conn.execute(f"ALTER TABLE link_graphs ADD COLUMN {column} TEXT NOT NULL DEFAULT ''")
-        if self._has_table("link_graphs") and not self._has_column("link_graphs", "edge_version"):
-            self._conn.execute("ALTER TABLE link_graphs ADD COLUMN edge_version INTEGER NOT NULL DEFAULT 0")
         if self._has_table("manifest_chunks") and not self._has_column("manifest_chunks", "view_id"):
             self._conn.execute(
                 "DELETE FROM manifest_rows WHERE (org_id, root) IN "
@@ -933,17 +840,8 @@ class _Db:
         self._conn.execute("PRAGMA wal_checkpoint(PASSIVE)").fetchall()
         timeout = int(self._conn.execute("PRAGMA busy_timeout").fetchone()[0])
         self._conn.execute("PRAGMA busy_timeout=0")
-        deadline = time.monotonic() + (0.0 if _on_event_loop() else _WAL_PIN_WAIT_S)
-        delay = 0.05
         try:
-            while True:
-                busy = int(self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0])
-                remaining = deadline - time.monotonic()
-                if not busy or remaining <= 0:
-                    break
-                # Backpressure: wait for the pinning read to end, bounded.
-                time.sleep(min(delay, remaining))
-                delay = min(delay * 2, 0.4)
+            busy = int(self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()[0])
         finally:
             self._conn.execute(f"PRAGMA busy_timeout={timeout}")
         if busy:
@@ -983,66 +881,23 @@ class _Db:
         with suppress(sqlite3.Error):
             reader.close()
 
-    @contextmanager
-    def read_snapshot(self) -> Iterator[sqlite3.Connection]:
-        """One consistent SQLite snapshot across multiple related SELECTs.
-
-        WAL readers normally run each SELECT in its own implicit snapshot. That
-        is ideal for unrelated reads, but compound records such as a link-graph
-        payload plus its edge rows must not straddle a concurrent writer commit.
-        A durable store gets a short explicit read transaction on one pooled
-        reader; an in-memory store holds the writer lock for the same guarantee.
-        """
-
-        if self._reader_uri and self._owner != threading.get_ident():
-            with _read_slot():
-                reader = self._borrow_reader()
-                if reader is not None:
-                    try:
-                        reader.execute("BEGIN")
-                        yield reader
-                    finally:
-                        if reader.in_transaction:
-                            reader.execute("ROLLBACK")
-                        self._return_reader(reader)
-                    return
-        with self._lock:
-            yield self._conn
-
     def rows(self, sql: str, parameters: Sequence[Any] = ()) -> list[sqlite3.Row]:
-        if self._reader_uri and self._owner != threading.get_ident():
-            with _read_slot():
-                reader = self._borrow_reader()
-                if reader is not None:
-                    try:
-                        return self._read_rows(reader, sql, parameters)
-                    finally:
-                        self._return_reader(reader)
-        with self._lock:
-            return self._read_rows(self._conn, sql, parameters)
-
-    @staticmethod
-    def _read_rows(connection: sqlite3.Connection, sql: str, parameters: Sequence[Any]) -> list[sqlite3.Row]:
-        budget = current_read_budget()
-        if budget is not None:
-            budget.check()
-            connection.set_progress_handler(budget.interrupted, 1000)
-        try:
-            cursor = connection.execute(sql, tuple(parameters))
+        reader = self._borrow_reader()
+        if reader is not None:
             try:
-                result = cursor.fetchall()
-                if budget is not None:
-                    budget.check()
-                return result
+                cursor = reader.execute(sql, tuple(parameters))
+                try:
+                    return cursor.fetchall()
+                finally:
+                    cursor.close()
+            finally:
+                self._return_reader(reader)
+        with self._lock:
+            cursor = self._conn.execute(sql, tuple(parameters))
+            try:
+                return cursor.fetchall()
             finally:
                 cursor.close()
-        except sqlite3.OperationalError as exc:
-            if budget is not None and exc.sqlite_errorcode == sqlite3.SQLITE_INTERRUPT:
-                budget.check()
-            raise
-        finally:
-            if budget is not None:
-                connection.set_progress_handler(None, 0)
 
     def row(self, sql: str, parameters: Sequence[Any] = ()) -> sqlite3.Row | None:
         found = self.rows(sql, parameters)
@@ -1193,32 +1048,25 @@ class SqliteContentStore:
             conn.execute("DELETE FROM temp.gc_live")
         return self._db.scalar_int("SELECT COUNT(*) FROM blobs WHERE unreferenced_since IS NOT NULL")
 
-    def sweep_marked(self, before: float, *, limit: int | None = None, dry_run: bool = False) -> SweepResult:
+    def sweep_marked(self, before: float) -> SweepResult:
         dropped: dict[str, list[str]] = {}
         reclaimed: dict[str, int] = {}
-        batch_limit = None if limit is None else max(0, int(limit))
-        query = (
-            "SELECT org_id, digest, size FROM blobs "
-            "WHERE unreferenced_since IS NOT NULL AND unreferenced_since <= ? "
-            "ORDER BY org_id, digest"
-        )
-        params: tuple[object, ...] = (before,)
-        if batch_limit is not None:
-            query += " LIMIT ?"
-            params = (before, batch_limit)
         with self._db.transaction() as conn:
-            rows = self._db.rows(query, params)
+            rows = self._db.rows(
+                "SELECT org_id, digest, size FROM blobs "
+                "WHERE unreferenced_since IS NOT NULL AND unreferenced_since <= ?",
+                (before,),
+            )
             for row in rows:
                 org_id = str(row["org_id"])
                 dropped.setdefault(org_id, []).append(str(row["digest"]))
                 reclaimed[org_id] = reclaimed.get(org_id, 0) + int(row["size"])
-            if not dry_run:
-                for org_id, digests in dropped.items():
-                    for chunk in _chunks(digests):
-                        conn.execute(
-                            f"DELETE FROM blobs WHERE org_id = ? AND digest IN ({_placeholders(len(chunk))})",
-                            (org_id, *chunk),
-                        )
+            for org_id, digests in dropped.items():
+                for chunk in _chunks(digests):
+                    conn.execute(
+                        f"DELETE FROM blobs WHERE org_id = ? AND digest IN ({_placeholders(len(chunk))})",
+                        (org_id, *chunk),
+                    )
         return SweepResult(
             dropped={org_id: tuple(sorted(digests)) for org_id, digests in dropped.items()},
             bytes_reclaimed=reclaimed,
@@ -1230,7 +1078,7 @@ class SqliteContentStore:
 
 
 class SqliteContentProvenance:
-    """Durable exact opaque possession scopes."""
+    """Possession rows, durable. Every statement names ``org_id``."""
 
     __slots__ = ("_db",)
 
@@ -1238,7 +1086,9 @@ class SqliteContentProvenance:
         self._db = db
 
     def record(self, org_id: str, repo_id: str, subject: str, digests: Sequence[str]) -> int:
-        if not repo_id or not digests:
+        if not repo_id or not subject or not digests:
+            # An unattributed row would read exactly like the repository-wide
+            # scope, which is the one thing that must not be forgeable.
             return 0
         wanted = tuple(dict.fromkeys(digests))
         written = 0
@@ -1257,11 +1107,18 @@ class SqliteContentProvenance:
         found: set[str] = set()
         for chunk in _chunks(wanted):
             places = _placeholders(len(chunk))
-            rows = self._db.rows(
-                "SELECT digest FROM content_provenance "
-                f"WHERE org_id=? AND repo_id=? AND subject=? AND digest IN ({places})",
-                (org_id, repo_id, subject, *chunk),
-            )
+            if subject:
+                rows = self._db.rows(
+                    "SELECT digest FROM content_provenance "
+                    f"WHERE org_id=? AND repo_id=? AND subject=? AND digest IN ({places})",
+                    (org_id, repo_id, subject, *chunk),
+                )
+            else:
+                rows = self._db.rows(
+                    "SELECT DISTINCT digest FROM content_provenance INDEXED BY ix_provenance_repo "
+                    f"WHERE org_id=? AND repo_id=? AND digest IN ({places})",
+                    (org_id, repo_id, *chunk),
+                )
             found.update(str(row["digest"]) for row in rows)
         return frozenset(found)
 
@@ -1452,48 +1309,6 @@ class SqliteAnalysisStore:
     def count(self, org_id: str) -> int:
         return self._db.scalar_int("SELECT COUNT(*) FROM analysis WHERE org_id = ?", (org_id,))
 
-    def stored_semantic_units(
-        self, org_id: str, keys: Sequence[tuple[str, str]], embedding_version: str
-    ) -> dict[tuple[str, str], tuple[SemanticUnit, ...]]:
-        wanted = set(keys)
-        found: dict[tuple[str, str], tuple[SemanticUnit, ...]] = {}
-        for chunk in _chunks(tuple(dict.fromkeys(digest for digest, _profile in wanted))):
-            rows = self._db.rows(
-                "SELECT digest, parser_profile, units, vectors FROM analysis_semantic_units "
-                f"WHERE org_id = ? AND embedding_version = ? AND digest IN ({_placeholders(len(chunk))})",
-                (org_id, embedding_version, *chunk),
-            )
-            for row in rows:
-                key = (str(row["digest"]), str(row["parser_profile"]))
-                if key in wanted:
-                    found[key] = _decode_semantic_units(str(row["units"]), bytes(row["vectors"]), embedding_version)
-        return found
-
-    def store_semantic_units(
-        self,
-        org_id: str,
-        rows: Sequence[tuple[str, str, tuple[SemanticUnit, ...]]],
-        embedding_version: str,
-    ) -> None:
-        encoded = []
-        for digest, parser_profile, units in rows:
-            if any(unit.embedding_version != embedding_version for unit in units):
-                raise ValueError("semantic units must all carry the stored embedding version")
-            meta, vectors = _encode_semantic_units(units)
-            encoded.append((org_id, digest, parser_profile, embedding_version, meta, vectors, len(meta) + len(vectors)))
-        if not encoded:
-            return
-        with self._db.transaction() as conn:
-            # Only beside a live analysis row, in the sweep's own lock order: a
-            # row written after its digest was swept would never be swept.
-            conn.executemany(
-                "INSERT OR IGNORE INTO analysis_semantic_units "
-                "(org_id, digest, parser_profile, embedding_version, units, vectors, payload_bytes) "
-                "SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM analysis "
-                "WHERE org_id = ?1 AND digest = ?2 AND parser_profile = ?3)",
-                encoded,
-            )
-
     def storage_size(self, org_id: str, artifact: AnalysisArtifact) -> int:
         # Other profiles may already share terms, grams or vectors. Count them
         # all for admission, then reconcile the actual delta after the write.
@@ -1680,7 +1495,7 @@ class SqliteAnalysisStore:
                     found.setdefault(digest, set()).add(term)
             return found
 
-        found = {}
+        found: dict[str, set[str]] = {}
         for needle_chunk in _chunks(tuple(needles)):
             rows = self._db.rows(
                 f"SELECT digest, {column} AS value FROM {table} "
@@ -1897,7 +1712,7 @@ class SqliteAnalysisStore:
                 dropped += conn.execute(
                     f"DELETE FROM analysis WHERE org_id = ? AND digest IN ({places})", (org_id, *chunk)
                 ).rowcount
-                for table in ("analysis_defs", "analysis_vectors", "analysis_semantic_units"):
+                for table in ("analysis_defs", "analysis_vectors"):
                     conn.execute(f"DELETE FROM {table} WHERE org_id = ? AND digest IN ({places})", (org_id, *chunk))
         if dropped:
             self._clear_search_caches()
@@ -1922,16 +1737,13 @@ def _entry_of(row: sqlite3.Row) -> ManifestEntry:
 class SqliteViewStore:
     """Layer 2: roots shared across views, plus a revisioned per-view overlay."""
 
-    __slots__ = ("_clock", "_db", "_entry_count_cache", "_root_cache", "_root_cache_lock")
+    __slots__ = ("_clock", "_db", "_root_cache", "_root_cache_lock")
 
     def __init__(self, db: _Db, *, clock: Callable[[], float] = time.time) -> None:
         self._db = db
         self._clock = clock
         self._root_cache: OrderedDict[tuple[str, str], Mapping[str, ManifestEntry]] = OrderedDict()
         self._root_cache_lock = threading.Lock()
-        # Counts are immutable within a complete View revision. Repeated get()
-        # calls must not join a large deletion overlay on every candidate probe.
-        self._entry_count_cache: OrderedDict[tuple[str, str, str, str, int], int] = OrderedDict()
 
     def _now(self) -> float:
         return float(self._clock())
@@ -1974,30 +1786,25 @@ class SqliteViewStore:
             (str(view["view_id"]),),
         )
 
-    def _base_entries(self, view: sqlite3.Row) -> Mapping[str, ManifestEntry]:
+    def _effective(self, view: sqlite3.Row) -> dict[str, ManifestEntry]:
         org_id = str(view["org_id"])
         root = str(view["root"])
-        if not self._complete(org_id, root):
-            # A staged manifest is still mutable and belongs to this View.
-            return {str(row["path"]): _entry_of(row) for row in self._base(view)}
-        key = (org_id, root)
-        with self._root_cache_lock:
-            cached = self._root_cache.get(key)
-            if cached is not None:
-                self._root_cache.move_to_end(key)
-                return cached
-        cached = MappingProxyType({str(row["path"]): _entry_of(row) for row in self._base(view)})
-        # Do not retain rows from a manifest transaction that may roll back.
-        if self._db._owner != threading.get_ident():
+        if self._complete(org_id, root):
+            key = (org_id, root)
             with self._root_cache_lock:
-                self._root_cache[key] = cached
-                self._root_cache.move_to_end(key)
-                while len(self._root_cache) > 32:
-                    self._root_cache.popitem(last=False)
-        return cached
-
-    def _effective(self, view: sqlite3.Row) -> dict[str, ManifestEntry]:
-        merged = dict(self._base_entries(view))
+                cached = self._root_cache.get(key)
+                if cached is not None:
+                    self._root_cache.move_to_end(key)
+            if cached is None:
+                cached = {str(row["path"]): _entry_of(row) for row in self._base(view)}
+                with self._root_cache_lock:
+                    self._root_cache[key] = cached
+                    self._root_cache.move_to_end(key)
+                    while len(self._root_cache) > 32:
+                        self._root_cache.popitem(last=False)
+            merged = dict(cached)
+        else:
+            merged = {str(row["path"]): _entry_of(row) for row in self._base(view)}
         for row in self._db.rows(
             "SELECT path, content_digest, parser_profile, mode, size, tombstone FROM overlay WHERE view_id = ?",
             (str(view["view_id"]),),
@@ -2027,16 +1834,6 @@ class SqliteViewStore:
         org_id = str(view["org_id"])
         root = str(view["root"])
         if self._complete(org_id, root):
-            cache_key = (org_id, view_id, root, str(view["generation_id"]), int(view["revision"]))
-            # A rolled-back writer can reuse its tentative revision. Never
-            # remember an uncommitted count under that revision.
-            cacheable = self._db._owner != threading.get_ident()
-            if cacheable:
-                with self._root_cache_lock:
-                    cached_count = self._entry_count_cache.get(cache_key)
-                    if cached_count is not None:
-                        self._entry_count_cache.move_to_end(cache_key)
-                        return cached_count
             row = self._db.row(
                 "SELECT entry_count FROM repository_generations WHERE org_id=? AND generation_id=?",
                 (org_id, str(view["generation_id"])),
@@ -2060,25 +1857,6 @@ class SqliteViewStore:
                 """,
                 (org_id, root, view_id),
             )
-            count = base_count + (0 if delta is None else int(delta["delta"]))
-            if cacheable:
-                current = self._db.row(
-                    "SELECT root, generation_id, revision FROM views WHERE org_id=? AND view_id=?",
-                    (org_id, view_id),
-                )
-                # A writer may have committed between reading the View and its
-                # overlay delta. Such a count cannot be cached for the old View.
-                if current is not None and (
-                    str(current["root"]),
-                    str(current["generation_id"]),
-                    int(current["revision"]),
-                ) == (root, str(view["generation_id"]), int(view["revision"])):
-                    with self._root_cache_lock:
-                        self._entry_count_cache[cache_key] = count
-                        self._entry_count_cache.move_to_end(cache_key)
-                        while len(self._entry_count_cache) > 256:
-                            self._entry_count_cache.popitem(last=False)
-            return count
         else:
             row = self._db.row("SELECT COUNT(*) AS n FROM manifest_staging WHERE view_id=?", (view_id,))
             base_count = 0 if row is None else int(row["n"])
@@ -2267,7 +2045,7 @@ class SqliteViewStore:
 
     def generation_membership(self, org_id: str, view_id: str) -> Mapping[str, ManifestEntry]:
         view = self._require(view_id, org_id)
-        return self._base_entries(view)
+        return {str(row["path"]): _entry_of(row) for row in self._base(view)}
 
     def overlay(self, org_id: str, view_id: str) -> tuple[Mapping[str, ManifestEntry], frozenset[str]]:
         self._require(view_id, org_id)
@@ -2407,8 +2185,14 @@ class SqliteViewStore:
                 # acknowledged-revision check while reading somebody else's
                 # overlay. Idempotent, not an error, never a second bump.
                 return self._replayed_state(view, replay)
-            # Report stale revision before monotonic client sequence:
-            # both can be stale after another replica wins the row CAS.
+            last_seq = int(view["last_client_seq"])
+            if client_seq <= last_seq:
+                raise ServerError(
+                    ErrorCode.PAYLOAD_INVALID,
+                    "client_seq must increase monotonically within a view",
+                    details={"client_seq": client_seq, "last_client_seq": last_seq},
+                    action=AgentAction.FIX_REQUEST,
+                )
             committed = int(view["revision"])
             if expected_view_revision != committed:
                 raise ServerError(
@@ -2419,14 +2203,6 @@ class SqliteViewStore:
                         "committed_view_revision": committed,
                     },
                     action=AgentAction.REFRESH_VIEW_REVISION,
-                )
-            last_seq = int(view["last_client_seq"])
-            if client_seq <= last_seq:
-                raise ServerError(
-                    ErrorCode.PAYLOAD_INVALID,
-                    "client_seq must increase monotonically within a view",
-                    details={"client_seq": client_seq, "last_client_seq": last_seq},
-                    action=AgentAction.FIX_REQUEST,
                 )
             conn.executemany(
                 """
@@ -2452,21 +2228,6 @@ class SqliteViewStore:
                 """,
                 [(view_id, path) for path in removed_paths],
             )
-            if self._complete(org_id, str(view["root"])):
-                # Normalize only incoming paths, preserving delta-sized work.
-                conn.executemany(
-                    """DELETE FROM overlay WHERE view_id = ? AND path = ? AND tombstone = 0
-                    AND EXISTS (SELECT 1 FROM manifest_rows b WHERE b.org_id = ? AND b.root = ?
-                    AND b.path = overlay.path AND b.content_digest = overlay.content_digest
-                    AND b.parser_profile = overlay.parser_profile AND b.mode = overlay.mode AND b.size = overlay.size)""",
-                    [(view_id, entry.path, org_id, str(view["root"])) for entry in entries],
-                )
-                conn.executemany(
-                    """DELETE FROM overlay WHERE view_id = ? AND path = ? AND tombstone = 1
-                    AND NOT EXISTS (SELECT 1 FROM manifest_rows b WHERE b.org_id = ? AND b.root = ?
-                    AND b.path = overlay.path)""",
-                    [(view_id, path, org_id, str(view["root"])) for path in removed_paths],
-                )
             new_revision = committed + 1
             conn.execute(
                 "UPDATE views SET revision = ?, last_client_seq = ? WHERE view_id = ?",
@@ -2679,11 +2440,18 @@ class SqliteViewStore:
         )
         subject = str(view["content_subject"])
         repo_id = str(view["repo_id"])
-        provenance_sql = (
-            "SELECT 1 FROM content_provenance p "
-            "WHERE p.org_id=? AND p.repo_id=? AND p.subject=? AND p.digest=r.content_digest"
-        )
-        provenance_params: tuple[Any, ...] = (org_id, repo_id, subject)
+        if subject:
+            provenance_sql = (
+                "SELECT 1 FROM content_provenance p "
+                "WHERE p.org_id=? AND p.repo_id=? AND p.subject=? AND p.digest=r.content_digest"
+            )
+            provenance_params: tuple[Any, ...] = (org_id, repo_id, subject)
+        else:
+            provenance_sql = (
+                "SELECT 1 FROM content_provenance p INDEXED BY ix_provenance_repo "
+                "WHERE p.org_id=? AND p.repo_id=? AND p.digest=r.content_digest"
+            )
+            provenance_params = (org_id, repo_id)
         rows = self._db.rows(
             "WITH effective AS (" + effective_sql + "), required AS ("
             "SELECT content_digest, MIN(path) AS first_path, COUNT(*) AS path_count "
@@ -2934,152 +2702,80 @@ class SqliteLinkGraphStore:
     nothing and keeps the schema honest about which rows are a query surface.
     """
 
-    __slots__ = ("_db", "_full_graphs", "_full_lock")
+    __slots__ = ("_db",)
 
     def __init__(self, db: _Db) -> None:
         self._db = db
-        # Full (base-less) graphs are what every refresh of a dirty View reads
-        # back first: ~146k edges rebuilt into objects on each keystroke-sized
-        # revision. The durable edge_version is part of the key because payload
-        # excludes edges and an equal-cardinality rewrite can keep both payload
-        # and edge count unchanged.
-        self._full_graphs: OrderedDict[tuple[str, str], tuple[str, int, int, LinkGraph]] = OrderedDict()
-        self._full_lock = threading.Lock()
 
-    def _cached_full_graph(
-        self, org_id: str, view_id: str, payload: str, count: int, edge_version: int
-    ) -> LinkGraph | None:
-        key = (org_id, view_id)
-        with self._full_lock:
-            cached = self._full_graphs.get(key)
-            if cached is None or cached[2] != edge_version or cached[1] != count or cached[0] != payload:
-                return None
-            self._full_graphs.move_to_end(key)
-            return cached[3]
+    def _stored_edges(self, key: str) -> set[_EdgeRow]:
+        return _edge_rows(self._db.rows(f"SELECT {_EDGE_COLUMNS} FROM link_edges WHERE view_id = ?", (key,)))
 
-    def _remember_full_graph(
-        self, org_id: str, view_id: str, payload: str, count: int, edge_version: int, graph: LinkGraph
-    ) -> None:
-        key = (org_id, view_id)
-        with self._full_lock:
-            self._full_graphs[key] = (payload, count, edge_version, graph)
-            self._full_graphs.move_to_end(key)
-            while len(self._full_graphs) > _FULL_GRAPH_CACHE:
-                self._full_graphs.popitem(last=False)
-
-    def _stored_edges(self, key: str, connection: sqlite3.Connection | None = None) -> set[_EdgeRow]:
-        sql = f"SELECT {_EDGE_COLUMNS} FROM link_edges WHERE view_id = ?"
-        rows = self._db.rows(sql, (key,)) if connection is None else self._db._read_rows(connection, sql, (key,))
-        return _edge_rows(rows)
-
-    def _row_in_snapshot(
-        self, connection: sqlite3.Connection, sql: str, parameters: Sequence[Any] = ()
-    ) -> sqlite3.Row | None:
-        rows = self._db._read_rows(connection, sql, parameters)
-        return rows[0] if rows else None
-
-    def _composed(
-        self, view_id: str, base: str, delta: str, connection: sqlite3.Connection | None = None
-    ) -> set[_EdgeRow] | None:
+    def _composed(self, view_id: str, base: str, delta: str) -> set[_EdgeRow] | None:
         """This graph's edges, or ``None`` when the generation graph it extends is gone."""
         if not base:
-            return self._stored_edges(view_id, connection)
-        owner = (
-            self._db.row("SELECT 1 FROM link_graphs WHERE view_id = ?", (base,))
-            if connection is None
-            else self._row_in_snapshot(connection, "SELECT 1 FROM link_graphs WHERE view_id = ?", (base,))
-        )
-        if owner is None:
+            return self._stored_edges(view_id)
+        if self._db.row("SELECT 1 FROM link_graphs WHERE view_id = ?", (base,)) is None:
             return None
         added, removed = _decode_delta(delta)
-        return (self._stored_edges(base, connection) - removed) | added
+        return (self._stored_edges(base) - removed) | added
 
     def load(self, org_id: str, view_id: str, base: str = "", base_graph: LinkGraph | None = None) -> LinkGraph | None:
         """The stored graph; one extending *base* is composed over *base_graph* when given.
 
         A caller that already holds the generation graph saves re-reading and
-        converting every one of its edges (~146k for a busy repository). The
-        payload, delta and edge rows are read from one SQLite snapshot so a
-        concurrent refresh can never splice two graph revisions together.
+        converting every one of its edges (~146k for a busy repository).
         """
-        with self._db.read_snapshot() as connection:
-            row = self._row_in_snapshot(
-                connection,
-                "SELECT payload, base, delta, edge_version, CASE WHEN base = '' THEN "
-                "(SELECT count(*) FROM link_edges e WHERE e.view_id = g.view_id) ELSE 0 END AS edge_count "
-                "FROM link_graphs g WHERE view_id = ? AND org_id = ?",
-                (view_id, org_id),
-            )
-            if row is None:
+        row = self._db.row(
+            "SELECT payload, base, delta FROM link_graphs WHERE view_id = ? AND org_id = ?", (view_id, org_id)
+        )
+        if row is None:
+            return None
+        stored_base = str(row["base"])
+        if stored_base and stored_base == base and base_graph is not None:
+            added, removed = _decode_delta(str(row["delta"]))
+            edges = (base_graph.edges - {_as_edge(edge) for edge in removed}) | {_as_edge(edge) for edge in added}
+        else:
+            composed = self._composed(view_id, stored_base, str(row["delta"]))
+            if composed is None:
+                # Rebuild from the current generation graph rather than advance
+                # a graph missing most of its edges.
                 return None
-            payload = str(row["payload"])
-            stored_base = str(row["base"])
-            edge_version = int(row["edge_version"])
-            if not stored_base:
-                count = int(row["edge_count"])
-                cached = self._cached_full_graph(org_id, view_id, payload, count, edge_version)
-                if cached is not None:
-                    return cached
-                stored = self._stored_edges(view_id, connection)
-                edges = frozenset(_as_edge(edge) for edge in stored)
-            elif stored_base == base and base_graph is not None:
-                added, removed = _decode_delta(str(row["delta"]))
-                edges = (base_graph.edges - {_as_edge(edge) for edge in removed}) | {_as_edge(edge) for edge in added}
-                count = 0
-            else:
-                composed = self._composed(view_id, stored_base, str(row["delta"]), connection)
-                if composed is None:
-                    # Rebuild from the current generation graph rather than advance
-                    # a graph missing most of its edges.
-                    return None
-                edges = frozenset(_as_edge(edge) for edge in composed)
-                count = 0
-        graph = LinkGraph.from_json(json.loads(payload), edges)
-        if not stored_base:
-            self._remember_full_graph(org_id, view_id, payload, count, edge_version, graph)
-        return graph
+            edges = frozenset(_as_edge(edge) for edge in composed)
+        return LinkGraph.from_json(json.loads(str(row["payload"])), edges)
 
     def edges(self, view_id: str) -> tuple[Edge, ...]:
-        with self._db.read_snapshot() as connection:
-            row = self._row_in_snapshot(connection, "SELECT base, delta FROM link_graphs WHERE view_id = ?", (view_id,))
-            edges = (
-                self._composed(view_id, str(row["base"]), str(row["delta"]), connection)
-                if row is not None
-                else self._stored_edges(view_id, connection)
-            )
+        row = self._db.row("SELECT base, delta FROM link_graphs WHERE view_id = ?", (view_id,))
+        edges = (
+            self._composed(view_id, str(row["base"]), str(row["delta"]))
+            if row is not None
+            else self._stored_edges(view_id)
+        )
         return tuple(sorted(_as_edge(edge) for edge in edges or ()))
 
     def edges_for_paths(self, org_id: str, view_id: str, paths: Sequence[str]) -> tuple[Edge, ...]:
         wanted = tuple(dict.fromkeys(paths))
         if not wanted:
             return ()
-        with self._db.read_snapshot() as connection:
-            owner = self._row_in_snapshot(
-                connection, "SELECT org_id, base, delta FROM link_graphs WHERE view_id = ?", (view_id,)
-            )
-            if owner is None or str(owner["org_id"]) != org_id:
-                return ()
-            base = str(owner["base"])
-            if (
-                base
-                and self._row_in_snapshot(connection, "SELECT 1 FROM link_graphs WHERE view_id = ?", (base,)) is None
-            ):
-                return ()
-            found: set[_EdgeRow] = set()
-            for chunk in _chunks(wanted):
-                places = _placeholders(len(chunk))
-                for column in ("src_path", "dst_path"):
-                    found |= _edge_rows(
-                        self._db._read_rows(
-                            connection,
-                            f"SELECT {_EDGE_COLUMNS} FROM link_edges WHERE view_id = ? AND {column} IN ({places})",
-                            (base or view_id, *chunk),
-                        )
+        owner = self._db.row("SELECT org_id, base, delta FROM link_graphs WHERE view_id = ?", (view_id,))
+        if owner is None or str(owner["org_id"]) != org_id:
+            return ()
+        base = str(owner["base"])
+        if base and self._db.row("SELECT 1 FROM link_graphs WHERE view_id = ?", (base,)) is None:
+            return ()
+        found: set[_EdgeRow] = set()
+        for chunk in _chunks(wanted):
+            places = _placeholders(len(chunk))
+            for column in ("src_path", "dst_path"):
+                found |= _edge_rows(
+                    self._db.rows(
+                        f"SELECT {_EDGE_COLUMNS} FROM link_edges WHERE view_id = ? AND {column} IN ({places})",
+                        (base or view_id, *chunk),
                     )
-            if base:
-                added, removed = _decode_delta(str(owner["delta"]))
-                asked = set(wanted)
-                found = (found - removed) | {edge for edge in added if edge[1] in asked or edge[2] in asked}
+                )
+        if base:
+            added, removed = _decode_delta(str(owner["delta"]))
+            asked = set(wanted)
+            found = (found - removed) | {edge for edge in added if edge[1] in asked or edge[2] in asked}
         return tuple(sorted(_as_edge(edge) for edge in found))
 
     def save(
@@ -3116,7 +2812,7 @@ class SqliteLinkGraphStore:
                     )
                     wanted = {_edge_row(edge) for edge in graph.edges}
                     over_base, under_base = wanted - base_edges, base_edges - wanted
-                if len(over_base) + len(under_base) <= max(_DELTA_MIN_EDGES, len(graph.edges) // _DELTA_FRACTION):
+                if len(over_base) + len(under_base) <= max(_DELTA_MIN_EDGES, len(graph.edges) // 10):
                     delta = _encode_delta(over_base, under_base)
             if delta:
                 conn.execute("DELETE FROM link_edges WHERE view_id = ?", (view_id,))
@@ -3130,7 +2826,6 @@ class SqliteLinkGraphStore:
                     conn.execute(f"SELECT {_EDGE_COLUMNS} FROM link_edges WHERE view_id = ?", (view_id,)).fetchall()
                 )
                 removed = stored - wanted
-                self._rebase_dependents(conn, org_id, view_id, stored, wanted - stored, removed)
                 if len(removed) * 2 > len(stored):
                     conn.execute("DELETE FROM link_edges WHERE view_id = ?", (view_id,))
                     added = wanted
@@ -3147,70 +2842,11 @@ class SqliteLinkGraphStore:
                 )
             conn.execute(
                 """
-                INSERT INTO link_graphs (view_id, org_id, payload, base, delta, edge_version)
-                VALUES (?, ?, ?, ?, ?, 1)
+                INSERT INTO link_graphs (view_id, org_id, payload, base, delta) VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT (view_id) DO UPDATE SET org_id = excluded.org_id, payload = excluded.payload,
-                    base = excluded.base, delta = excluded.delta, edge_version = link_graphs.edge_version + 1
+                    base = excluded.base, delta = excluded.delta
                 """,
                 (view_id, org_id, payload, base, delta),
-            )
-            version_row = conn.execute("SELECT edge_version FROM link_graphs WHERE view_id = ?", (view_id,)).fetchone()
-            edge_version = 0 if version_row is None else int(version_row[0])
-        # A dirty View stored whole is loaded back on its next revision: keep
-        # what was just written so that read is not a full decode.
-        with self._full_lock:
-            if delta:
-                self._full_graphs.pop((org_id, view_id), None)
-            else:
-                self._full_graphs[(org_id, view_id)] = (payload, len(graph.edges), edge_version, graph)
-                self._full_graphs.move_to_end((org_id, view_id))
-                while len(self._full_graphs) > _FULL_GRAPH_CACHE:
-                    self._full_graphs.popitem(last=False)
-
-    @staticmethod
-    def _rebase_dependents(
-        conn: Any,
-        org_id: str,
-        base: str,
-        stored: set[_EdgeRow],
-        base_added: set[_EdgeRow],
-        base_removed: set[_EdgeRow],
-    ) -> None:
-        """Carry the deltas stored over *base* onto its new edge set.
-
-        A generation graph grows when more of its content becomes addressable.
-        A dirty View's delta was taken against the old edges: composed over the
-        new ones it would gain edges for files it deleted, while its own
-        revision (and so its READY status) stayed put. Rebasing needs only the
-        base's own difference, since a delta's ``added`` never overlaps the old
-        base and its ``removed`` lies within it.
-        """
-        if not base_added and not base_removed:
-            return
-        dependents = conn.execute(
-            "SELECT view_id, delta FROM link_graphs WHERE base = ? AND org_id = ?", (base, org_id)
-        ).fetchall()
-        for dependent in dependents:
-            view_id, delta = str(dependent[0]), str(dependent[1])
-            added, removed = _decode_delta(delta)
-            rebased_added = (base_removed - removed) | (added - base_added)
-            rebased_removed = (removed - base_removed) | (base_added - added)
-            size = len(stored) - len(removed) + len(added)
-            if len(rebased_added) + len(rebased_removed) <= max(_DELTA_MIN_EDGES, size // _DELTA_FRACTION):
-                conn.execute(
-                    "UPDATE link_graphs SET delta = ?, edge_version = edge_version + 1 WHERE view_id = ?",
-                    (_encode_delta(rebased_added, rebased_removed), view_id),
-                )
-                continue
-            # Drifted too far from the new base to stay a delta: keep it whole.
-            conn.execute("DELETE FROM link_edges WHERE view_id = ?", (view_id,))
-            conn.executemany(
-                f"INSERT OR IGNORE INTO link_edges (view_id, {_EDGE_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?)",
-                [(view_id, *row) for row in (stored - removed) | added],
-            )
-            conn.execute(
-                "UPDATE link_graphs SET base = '', delta = '', edge_version = edge_version + 1 WHERE view_id = ?",
-                (view_id,),
             )
 
     def drop(self, org_id: str, view_id: str) -> None:
@@ -3239,10 +2875,6 @@ class SqliteRepoIdentityService:
 
     def __init__(self, db: _Db) -> None:
         self._db = db
-
-    def lookup_repo_id(self, org_id: str, claim: RepoIdentityClaim) -> str | None:
-        row = self._db.row("SELECT repo_id FROM repos WHERE org_id = ? AND claim_key = ?", (org_id, claim.key()))
-        return None if row is None else str(row["repo_id"])
 
     def canonical_repo_id(self, org_id: str, claim: RepoIdentityClaim) -> str:
         key = claim.key()
@@ -3316,7 +2948,7 @@ class SqliteIndex:
             SqliteLinkGraphStore(self._db),
             inline_rebuild_budget=inline_rebuild_budget,
         )
-        self._semantic = create_semantic_index(sources, inline_rebuild_budget=inline_rebuild_budget)
+        self._semantic = SemanticLayer(sources, inline_rebuild_budget=inline_rebuild_budget)
         self.backend = IndexBackend(
             content=self._content,
             analysis=self._analysis,

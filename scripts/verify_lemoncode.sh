@@ -55,14 +55,14 @@ if "lemoncode" not in str(command):
 print(f"LemonCrow MCP entry: {entry}")
 EOF
 
-echo "--- checking lemoncode can list tools (via lc runtime mcp stdio) ---"
+echo "--- checking lemoncode can list tools (via lc mcp stdio) ---"
 # The response is captured into a variable and handed to python via the
 # environment: piping it into `python3 - <<'EOF'` would make the heredoc, not
 # the MCP output, the process stdin.
 MCP_RESPONSE="$(printf '%s\n' \
     '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"verify","version":"1"},"capabilities":{}}}' \
     '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
-    | lc runtime mcp 2>/dev/null)"
+    | lc mcp 2>/dev/null)"
 LEMONCROW_MCP_RESPONSE="$MCP_RESPONSE" python3 - <<'EOF'
 import json, os, sys
 

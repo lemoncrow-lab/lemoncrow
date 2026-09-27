@@ -72,12 +72,11 @@ MANIFEST_FORMAT: Final[str] = "lemoncrow-manifest/1"
 _ROW_SEPARATOR: Final[str] = "\x00"
 _DEFAULT_CHUNK_ROWS: Final[int] = 2_000
 
-#: Never walked. These are LemonCrow/Git/host-agent runtime state, not
-#: repository source. In particular, ``.lc-worktrees`` and ``.claude`` may each
-#: contain complete nested checkouts; indexing them would duplicate the corpus
-#: and poison ranking for the parent workspace even when the repository did not
-#: add an explicit ignore rule.
-_NEVER_WALK: Final[frozenset[str]] = frozenset({".git", ".claude", ".lc-worktrees", ".lemoncrow"})
+#: Never walked. These are LemonCrow/Git runtime state, not repository source.
+#: In particular, ``.lc-worktrees`` may contain many complete nested checkouts;
+#: indexing them would duplicate the corpus and poison ranking for the parent
+#: workspace even when the repository did not add an explicit ignore rule.
+_NEVER_WALK: Final[frozenset[str]] = frozenset({".git", ".lc-worktrees", ".lemoncrow"})
 
 #: The one committed file under ``.lemoncrow/`` that is repository source:
 #: server-side Review reads surface providers and runtimes from the captured

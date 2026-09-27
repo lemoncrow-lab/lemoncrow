@@ -1,5 +1,4 @@
 import { render, screen, fireEvent } from "@testing-library/react";
-import { NO_LOCAL_RUNTIME_CAPABILITIES, RuntimeCapabilitiesProvider } from "../../lib/RuntimeCapabilities";
 import { SessionExplorerDetail } from "./SessionDetail";
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -37,8 +36,6 @@ describe("SessionExplorerDetail", () => {
         vendor: "Anthropic",
         started_model: "claude-sonnet-4-6",
         cost_status: "estimated",
-        usage_measurement_source: "host_transcript",
-        actual_cost_source: "priced",
         agent_settings: {},
         skills: [],
         telemetry: {},
@@ -102,10 +99,6 @@ describe("SessionExplorerDetail", () => {
     expect(
       screen.queryByText("Estimated from trace tokens")
     ).not.toBeInTheDocument();
-    expect(screen.getByText("Priced Cost")).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText("Toggle Detailed Metrics"));
-    expect(screen.getByText("Host transcript measured")).toBeInTheDocument();
-    expect(screen.getByText("Priced from measured usage")).toBeInTheDocument();
   });
 
   it("reattaches savings to the tool call whose window it falls in, skipping a stale earlier row", async () => {
@@ -288,7 +281,7 @@ describe("SessionExplorerDetail", () => {
     expect(timeLabel.nextElementSibling?.textContent).toBe("0s");
 
     // cache_read_cost_usd is cost paid for cache reads, not savings.
-    fireEvent.click(screen.getByRole("button", { name: "Toggle Detailed Metrics" }));
+    fireEvent.click(screen.getByTitle("Toggle Detailed Metrics"));
     expect(await screen.findByText("Cache Read Cost")).toBeInTheDocument();
     expect(screen.queryByText("Cache Savings")).not.toBeInTheDocument();
   });
@@ -365,45 +358,8 @@ describe("SessionExplorerDetail", () => {
     expect(writeText).toHaveBeenCalledWith(longId);
     expect(await screen.findByText("Copied")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Toggle Detailed Metrics" }));
+    fireEvent.click(screen.getByTitle("Toggle Detailed Metrics"));
     expect(await screen.findByText("0.80")).toBeInTheDocument();
     expect(await screen.findByText("0.60")).toBeInTheDocument();
-  });
-
-  it("links the raw session artifact only where the files are local", async () => {
-    const report = {
-      session_id: "sess-raw", started_at: "2026-05-16T00:00:00Z", ended_at: "2026-05-16T00:05:00Z",
-      duration_seconds: 300, active_duration_seconds: 240, vendor: "Anthropic", started_model: "claude-sonnet-4-6",
-      cost_status: "estimated", usage_measurement_source: "host_transcript", actual_cost_source: "priced",
-      agent_settings: {}, skills: [], telemetry: {}, raw_artifact_ids: ["art-1"], total_turns: 1, total_cost_usd: 0.1,
-      total_lemoncrow_savings_usd: 0, label: null, models_used: {}, input_tokens: 1, output_tokens: 1,
-      cached_input_tokens: 0, tool_call_count: 0, input_token_cost_usd: 0, cache_write_cost_usd: 0,
-      cache_read_cost_usd: 0, output_token_cost_usd: 0, cache_write_tokens: 0, cache_read_tokens: 0,
-      routing_downtiered_turns: 0, routing_savings_usd: 0, compact_events: 0, compact_savings_estimate_usd: 0,
-      top_tools_by_cost: [],
-    };
-    vi.spyOn(globalThis, "fetch").mockImplementation((input: RequestInfo | URL) =>
-      Promise.resolve(String(input).includes("/api/v1/sessions/sess-raw") ? jsonResponse(report) : new Response("not found", { status: 404 })));
-
-    const { unmount } = render(<SessionExplorerDetail sessionId="sess-raw" />);
-    expect(await screen.findByRole("link", { name: /Raw Link/ })).toHaveAttribute("href", "/api/raw-artifacts/art-1/content");
-    unmount();
-
-    render(
-      <RuntimeCapabilitiesProvider value={NO_LOCAL_RUNTIME_CAPABILITIES}>
-        <SessionExplorerDetail sessionId="sess-raw" />
-      </RuntimeCapabilitiesProvider>
-    );
-    expect(await screen.findByText("Execution Detail")).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /Raw Link/ })).toBeNull();
-  });
-
-  it("says the run is unavailable when no report, trace or ledger loads", async () => {
-    mockFetch({});
-
-    render(<SessionExplorerDetail sessionId="missing-run" />);
-
-    expect(await screen.findByText("This run is not available.")).toBeInTheDocument();
-    expect(screen.queryByText("Execution Detail")).not.toBeInTheDocument();
   });
 });

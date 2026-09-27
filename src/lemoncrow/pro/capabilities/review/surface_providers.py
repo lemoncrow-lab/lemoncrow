@@ -24,7 +24,6 @@ _IGNORED_DIRS = frozenset(
     {
         ".git",
         ".jj",
-        ".claude",
         ".lc-worktrees",
         ".lemoncrow",
         "node_modules",
@@ -121,7 +120,7 @@ class WebSurfaceProvider:
 
             changed_paths.extend(
                 path
-                for path in frozen_submodule_changed_paths(context.store_root, context.revision, store=context.store)
+                for path in frozen_submodule_changed_paths(context.store_root, context.revision)
                 if path not in changed_paths
             )
             # A clean commit-range submodule bump appears in the parent packet

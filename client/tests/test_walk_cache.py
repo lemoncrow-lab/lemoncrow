@@ -40,7 +40,6 @@ from pathlib import Path
 from random import Random
 
 import pytest
-from lemoncrow_client.git_sync import committed_base
 from lemoncrow_client.manifest import WalkResult, chunk_manifest, manifest_root, restore_cached_worktree, walk_worktree
 from lemoncrow_client.session import persist_walk_cache, workspace_state_fingerprint
 from lemoncrow_client.walkcache import (
@@ -579,36 +578,6 @@ def test_a_checkout_is_served_from_the_blob_map_rather_than_re_hashed(tmp_path: 
         f"only {back.digests.reused_by_blob} of {files} came from the blob map "
         f"({back.digests.hashed} were re-hashed)"
     )
-
-
-def test_a_new_linked_worktree_reuses_the_parent_blob_digest_map(tmp_path: Path) -> None:
-    """Hosted worktree bootstrap should be metadata-only for unchanged Git blobs."""
-
-    rng = Random(79)
-    root = tmp_path / "worktree"
-    linked = tmp_path / "linked-worktree"
-    state_dir = tmp_path / "home"
-    state_dir.mkdir()
-    files = MINIMUM_INDEX_MISSES * 4
-    build(root, rng, files=files)
-    shutil.rmtree(root / ".git")
-    assert run_git(root, "init", "--initial-branch=main").returncode == 0
-    assert run_git(root, "add", "-A").returncode == 0
-    assert run_git(root, "commit", "-m", "initial").returncode == 0
-    parent_cache = load_walk_cache(state_dir, root)
-    parent_cache.begin()
-    parent_base = committed_base(root, parent_cache, max_files=files * 2)
-    assert parent_base.hashed == files + 1  # source files plus the tracked .gitignore
-    persist_walk_cache(parent_cache, state_dir)
-
-    assert run_git(root, "worktree", "add", "-b", "feature", str(linked)).returncode == 0
-    cache = load_walk_cache(state_dir, linked)
-    assert cache.by_path == {}, "path stat proofs must never cross worktrees"
-    assert cache.by_blob, "the linked checkout should import the repository-safe blob digest map"
-
-    linked_base = committed_base(linked, cache, max_files=files * 2)
-    assert linked_base.entries == parent_base.entries
-    assert linked_base.hashed == 0, "Hosted child bootstrap re-read Git blobs already proved by its parent checkout"
 
 
 @pytest.mark.skipif(GIT is None, reason="git is not on PATH")

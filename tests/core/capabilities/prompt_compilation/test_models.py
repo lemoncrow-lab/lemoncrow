@@ -1,4 +1,4 @@
-"""Contract tests for prompt_compilation.models."""
+"""Tests for prompt_compilation.models (P0)."""
 
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ def _block(
     metadata: Mapping[str, Any] | None = None,
     stability_override_reason: str | None = None,
 ) -> PromptBlock:
+    """Build a minimal valid PromptBlock with overrideable defaults."""
     return PromptBlock(
         id=id,
         kind=kind,
@@ -38,49 +39,101 @@ def _block(
     )
 
 
-def test_default_stability_contract() -> None:
-    assert all(kind in DEFAULT_STABILITY for kind in BlockKind)
-    assert {
-        BlockKind.TOOL_SCHEMA: Stability.STATIC,
-        BlockKind.REPO_SUMMARY: Stability.SESSION,
-        BlockKind.PLAYBOOK: Stability.BRANCH,
-        BlockKind.USER_TASK: Stability.TURN,
-        BlockKind.SCRATCHPAD: Stability.VOLATILE,
-    }.items() <= DEFAULT_STABILITY.items()
+class TestDefaultStabilityPerKind:
+    def test_every_kind_has_a_default(self) -> None:
+        for kind in BlockKind:
+            assert kind in DEFAULT_STABILITY, f"{kind} missing from DEFAULT_STABILITY"
+
+    def test_known_mappings(self) -> None:
+        assert DEFAULT_STABILITY[BlockKind.TOOL_SCHEMA] == Stability.STATIC
+        assert DEFAULT_STABILITY[BlockKind.REPO_SUMMARY] == Stability.SESSION
+        assert DEFAULT_STABILITY[BlockKind.PLAYBOOK] == Stability.BRANCH
+        assert DEFAULT_STABILITY[BlockKind.USER_TASK] == Stability.TURN
+        assert DEFAULT_STABILITY[BlockKind.SCRATCHPAD] == Stability.VOLATILE
 
 
-def test_stability_override_contract() -> None:
-    with pytest.raises(ValueError, match="stability_override_reason"):
-        _block(kind=BlockKind.SYSTEM, stability=Stability.SESSION)
-    overridden = _block(
-        kind=BlockKind.SYSTEM, stability=Stability.SESSION, stability_override_reason="test suite override"
-    )
-    assert overridden.stability == Stability.SESSION
-    assert _block(kind=BlockKind.SYSTEM, stability=Stability.STATIC).stability_override_reason is None
+class TestOverrideRequiresReason:
+    def test_override_without_reason_raises(self) -> None:
+        with pytest.raises(ValueError, match="stability_override_reason"):
+            _block(
+                kind=BlockKind.SYSTEM,
+                stability=Stability.SESSION,  # overrides STATIC default
+            )
+
+    def test_override_with_reason_succeeds(self) -> None:
+        b = _block(
+            kind=BlockKind.SYSTEM,
+            stability=Stability.SESSION,
+            stability_override_reason="test suite override",
+        )
+        assert b.stability == Stability.SESSION
+
+    def test_no_override_no_reason_needed(self) -> None:
+        b = _block(kind=BlockKind.SYSTEM, stability=Stability.STATIC)
+        assert b.stability_override_reason is None
 
 
-def test_version_hash_contract() -> None:
-    assert _block(content="hello world").version_hash == sha256(b"hello world").hexdigest()
-    assert _block(content="hello world").version_hash != _block(content="hello world!").version_hash
-    assert _block(content="stable content").version_hash == _block(content="stable content").version_hash
+class TestVersionHashStableAcrossProcesses:
+    KNOWN_HASH = sha256(b"hello world").hexdigest()
+
+    def test_hash_matches_known_sha256(self) -> None:
+        b = _block(content="hello world")
+        assert b.version_hash == self.KNOWN_HASH
+
+    def test_hash_differs_for_different_content(self) -> None:
+        b1 = _block(content="hello world")
+        b2 = _block(content="hello world!")
+        assert b1.version_hash != b2.version_hash
+
+    def test_hash_same_for_same_content(self) -> None:
+        b1 = _block(content="stable content")
+        b2 = _block(content="stable content")
+        assert b1.version_hash == b2.version_hash
 
 
-def test_cacheability_contract() -> None:
-    assert _block(kind=BlockKind.USER_TASK, stability=Stability.TURN, cacheable=True).cacheable is False
-    assert _block(kind=BlockKind.SCRATCHPAD, stability=Stability.VOLATILE, cacheable=True).cacheable is False
-    assert _block(kind=BlockKind.SYSTEM, stability=Stability.STATIC, cacheable=True).cacheable is True
+class TestVolatileForcesUncacheable:
+    def test_turn_block_not_cacheable(self) -> None:
+        b = _block(kind=BlockKind.USER_TASK, stability=Stability.TURN, cacheable=True)
+        assert b.cacheable is False
+
+    def test_volatile_block_not_cacheable(self) -> None:
+        b = _block(
+            kind=BlockKind.SCRATCHPAD,
+            stability=Stability.VOLATILE,
+            cacheable=True,
+        )
+        assert b.cacheable is False
+
+    def test_static_block_remains_cacheable(self) -> None:
+        b = _block(kind=BlockKind.SYSTEM, stability=Stability.STATIC, cacheable=True)
+        assert b.cacheable is True
 
 
-def test_id_and_content_validation_contract() -> None:
-    for value in ["tools/v1", "sys.core", "block:42", "a-b_c"]:
-        assert _block(id=value).id == value
-    with pytest.raises(ValueError, match="invalid"):
-        _block(id="UPPER_CASE")
-    with pytest.raises(ValueError, match="content"):
-        _block(content="")
+class TestIdValidation:
+    def test_valid_ids_accepted(self) -> None:
+        for id_ in ["tools/v1", "sys.core", "block:42", "a-b_c"]:
+            b = _block(id=id_)
+            assert b.id == id_
+
+    def test_invalid_id_raises(self) -> None:
+        with pytest.raises(ValueError, match="invalid"):
+            _block(id="UPPER_CASE")
 
 
-def test_counterexample_marker_contract() -> None:
-    marked = _block(kind=BlockKind.TOOL_RESULT, stability=Stability.TURN, metadata={COUNTEREXAMPLE_METADATA_KEY: True})
-    assert marked.is_counterexample is True
-    assert _block().is_counterexample is False
+class TestEmptyContent:
+    def test_empty_content_raises(self) -> None:
+        with pytest.raises(ValueError, match="content"):
+            _block(content="")
+
+
+class TestCounterexampleMarker:
+    def test_counterexample_metadata_sets_property(self) -> None:
+        block = _block(
+            kind=BlockKind.TOOL_RESULT,
+            stability=Stability.TURN,
+            metadata={COUNTEREXAMPLE_METADATA_KEY: True},
+        )
+        assert block.is_counterexample is True
+
+    def test_regular_block_is_not_counterexample(self) -> None:
+        assert _block().is_counterexample is False

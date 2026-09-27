@@ -143,6 +143,12 @@ def test_non_bash_tool_is_skipped(tmp_path: Path) -> None:
     assert proc.stdout == ""
 
 
+def test_malformed_stdin_exits_zero_with_no_output(tmp_path: Path) -> None:
+    proc = _run({}, tmp_path, stdin_text="not json at all {{{")
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == ""
+
+
 def test_string_tool_response_fails_open(tmp_path: Path) -> None:
     payload = {"tool_name": "Bash", "tool_input": {"command": "ls"}, "tool_response": "X" * 50_000}
     proc = _run(payload, tmp_path)

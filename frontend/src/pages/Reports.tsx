@@ -30,7 +30,7 @@ export default function Reports() {
         );
         setErr(null);
       })
-      .catch((error) => setErr(error instanceof Error ? error.message : String(error)));
+      .catch((error) => setErr(String(error)));
   }, []);
 
   const selected = useMemo(
@@ -53,7 +53,7 @@ export default function Reports() {
 
   return (
     <div className="space-y-4">
-      {err && <Alert tone="destructive" description={err} />}
+      {err && <Alert tone="danger" description={err} />}
 
       {list === null && !err && (
         <EmptyState title="Loading benchmark reports…" />
@@ -61,12 +61,12 @@ export default function Reports() {
 
       {list !== null && list.length === 0 && (
         <EmptyState
-          icon={<FileText size={20} />}
+          icon={<FileText size={28} />}
           title="No benchmark reports yet"
           description={
             <>
               Benchmark runs written under{" "}
-              <code className="text-muted-foreground">reports/benchmark/</code> appear
+              <code className="text-brand-400">reports/benchmark/</code> appear
               here automatically.
             </>
           }
@@ -80,22 +80,22 @@ export default function Reports() {
               <Button
                 key={report.id}
                 onClick={() => setSelectedId(report.id)}
-                variant={selectedId === report.id ? "solid" : "ghost"}
+                variant={selectedId === report.id ? "accent" : "ghost"}
                 className="h-auto w-full justify-start px-3 py-2 text-left normal-case tracking-normal"
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="truncate font-semibold text-foreground">
+                    <span className="truncate font-semibold text-neutral-200">
                       {report.suite}
                     </span>
-                    <span className="text-caption text-muted-foreground">
+                    <span className="text-[10px] text-neutral-600">
                       {report.project_label}
                     </span>
                   </div>
-                  <div className="mt-0.5 truncate font-mono text-caption text-muted-foreground">
+                  <div className="mt-0.5 truncate font-mono text-[10px] text-neutral-500">
                     {report.run_id}
                   </div>
-                  <div className="mt-0.5 text-caption text-muted-foreground">
+                  <div className="mt-0.5 text-[10px] text-neutral-600">
                     {fmtDate(report.generated_at)}
                   </div>
                 </div>
@@ -104,27 +104,27 @@ export default function Reports() {
           </nav>
 
           <Card className="min-w-0 p-4">
-            {contentErr && <Alert tone="destructive" description={contentErr} />}
+            {contentErr && <Alert tone="danger" description={contentErr} />}
             {content === null && !contentErr && (
-              <div className="text-body text-muted-foreground">
+              <div className="text-xs text-neutral-500">
                 Loading benchmark report…
               </div>
             )}
             {content && (
               <>
-                <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-border pb-3">
-                  <Chip tone="neutral">{content.suite}</Chip>
-                  <span className="font-mono text-caption text-muted-foreground">
+                <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-neutral-800 pb-3">
+                  <Chip tone="purple">{content.suite}</Chip>
+                  <span className="font-mono text-[10px] text-neutral-500">
                     {content.run_id}
                   </span>
-                  <span className="text-caption text-muted-foreground">
+                  <span className="text-[10px] text-neutral-600">
                     {content.project_label}
                   </span>
-                  <span className="ml-auto text-caption text-muted-foreground">
+                  <span className="ml-auto text-[10px] text-neutral-600">
                     {content.files.length} artifacts
                   </span>
                 </div>
-                <article className="prose prose-invert prose-sm max-w-none prose-headings:text-foreground prose-p:text-muted-foreground prose-strong:text-foreground prose-code:text-subtle prose-a:text-muted-foreground prose-table:text-subtle prose-th:text-subtle prose-td:text-muted-foreground">
+                <article className="prose prose-invert prose-sm max-w-none prose-headings:text-neutral-200 prose-p:text-neutral-400 prose-strong:text-neutral-200 prose-code:text-brand-300 prose-a:text-brand-400 prose-table:text-neutral-300 prose-th:text-neutral-300 prose-td:text-neutral-400">
                   <ReactMarkdown>{content.markdown}</ReactMarkdown>
                 </article>
               </>

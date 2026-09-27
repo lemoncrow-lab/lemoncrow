@@ -1,97 +1,104 @@
-# OpenCode integration
+# Installing LemonCrow into opencode
 
-LemonCrow integrates with **OpenCode V1 and V2** while OpenCode keeps its own model, provider account, and normal UI. V2 changes the plugin and MCP configuration API; the installer selects a compatible plugin by `opencode --version` without rewriting unrelated model/provider settings.
+**Support level**: MCP + OpenAI-compatible provider + workspace agent profile + prompt-time nudge plugin
 
-V2 uses `mcp.servers.lc` and `permissions` in `opencode.json`, a native `setup(ctx)` plugin, and the `@opencode/plugin/tui` sidebar registered in global `cli.json`. V1 and LemonCode keep their legacy adapter. Manual V2 settings are in `integrations/opencode/opencode.lemoncrow-v2.template.json` (replace `<WORKSPACE_ROOT>`). The installed OpenCode version (not the presence of a config file) chooses the variant.
+---
 
-## Try it in the current repository
-
-```bash
-lc with opencode
-```
-
-## Keep LemonCrow enabled
+## Quick Install
 
 ```bash
-lc rt enable opencode
+make install
 ```
 
-Check or remove the integration:
+By default this installs opencode user/global config. For a project-local install:
 
 ```bash
-lc rt status --host opencode
-lc rt disable opencode
+bash scripts/install_opencode.sh --workspace /path/to/workspace
 ```
 
-## Source-checkout install
+One-command run (auto-start service, install config, launch opencode):
 
 ```bash
-bash scripts/install_opencode.sh
-# To inspect the planned variant without touching disk:
-bash scripts/install_opencode.sh --dry-run
-# For an alternate OpenCode binary (including early opencode2 betas):
-OPENCODE_BIN=opencode2 bash scripts/install_opencode.sh
+bash scripts/run_opencode_with_lemoncrow.sh --workspace /path/to/workspace
 ```
 
-For one workspace:
+---
 
-```bash
-bash scripts/install_opencode.sh --workspace /path/to/repo
+## What Gets Installed
+
+| Artifact          | Global install                                | `--workspace DIR` install                        |
+| ----------------- | --------------------------------------------- | ------------------------------------------------ |
+| MCP server config | `~/.config/opencode/opencode.json`            | `<workspace>/opencode.json`                      |
+| Agent profile     | `~/.config/opencode/agents/code.md`           | `<workspace>/.opencode/agents/lemoncrow.code.md`   |
+| Nudge plugin      | `~/.config/opencode/plugins/lemoncrow-nudge.js` | `<workspace>/.opencode/plugins/lemoncrow-nudge.js` |
+
+The installer merges:
+
+1. `mcp.lemoncrow` for `lc mcp`
+2. `provider.lemoncrow` for OpenAI-compatible chat completions (`http://127.0.0.1:8787/v1`; override with `LEMONCROW_GATEWAY_URL`)
+3. A local `chat.message` plugin that injects LemonCrow guidance before a user prompt is sent
+
+MCP entry:
+
+```json
+&#123;
+  "mcp": &#123;
+    "lc": &#123;
+      "type": "local",
+      "command": ["lc mcp", "--host", "opencode"],
+      "environment": {
+        "LEMONCROW_WORKSPACE_ROOT": "<workspace>"
+      }
+    &#125;
+  &#125;
+&#125;
 ```
-
-The development installer can write:
-
-- the OpenCode tool-connection config;
-- a LemonCrow agent profile;
-- a version-specific prompt guidance plugin (OpenCode 2 uses session/tool hooks);
-- a V2 CLI sidebar showing LemonCrow's recorded usage when a snapshot is available (global install only; OpenCode V2 has no project-local CLI settings);
-- workspace-specific LemonCrow settings.
-
-Restart OpenCode after installation or plugin changes.
 
 ## Verify
 
 ```bash
-lc rt status --host opencode
-lc rt status
+make verify
 ```
 
-From a source checkout:
+Manual smoke command:
 
 ```bash
-make verify
-# Also test the native MCP handshake and required tool names:
-bash scripts/verify_opencode.sh
+bash scripts/run_opencode_with_lemoncrow.sh --dry-run --workspace /path/to/workspace
 ```
 
-## Implementation/debug files
+## Expected Behavior
 
-OpenCode stores its external-tool configuration in `opencode.json` under an `mcp` key. That is OpenCode's protocol/config format; users should think of the result as the LemonCrow integration, not as a separate server they need to manage.
-
-Global and workspace paths commonly include:
-
-```text
-~/.config/opencode/opencode.json
-~/.config/opencode/plugins/lemoncrow-nudge.js
-<workspace>/opencode.json
-<workspace>/.opencode/plugins/lemoncrow-nudge-v2.js # OpenCode V2 only
-~/.config/opencode/cli.json                    # V2 terminal plugin list
-~/.config/opencode/lemoncrow-status-v2/         # V2 sidebar plugin
-```
+- opencode connects to the local LemonCrow HTTP service via the MCP stdio wrapper
+- Workspace LemonCrow agent profile is installed at `.opencode/agents/lemoncrow.code.md`
+- The code agent defaults to `opencode/big-pickle`, keeping free-tier requests inside OpenCode's native provider transport
+- Native OpenCode tools remain available because Console rejects free-tier requests when every native tool is disabled; agent instructions still prefer LemonCrow tools
+- The installer sets `default_agent` to `code` even when the config already exists
+- The local plugin adds context-window and multi-file-edit nudges to submitted prompts when applicable
+- opencode loads local plugins at startup; restart it after installation or plugin changes
+- opencode does not expose a Codex-style `/hooks` status screen
+- With `LEMONCROW_DEV_MODE=1`, opencode can actively use `context`, `route`, `rescue`, `verify`, `memory`, `read`, `edit`, `sql`, `search`, `compact`, `bash`, and the `lemoncrow_code_*` helpers
+- `trace` remains the stable observable recording surface
 
 ## Troubleshooting
 
-| Problem | Check |
-| --- | --- |
-| LemonCrow tools do not appear | Restart OpenCode, then run `lc rt status --host opencode` |
-| Prompt guidance does not appear | Check the LemonCrow plugin file and restart OpenCode |
-| Workspace config is ignored | Confirm you launched OpenCode from the intended workspace |
+| Problem                  | Fix                                                                                              |
+| ------------------------ | ------------------------------------------------------------------------------------------------ |
+| MCP tools not showing    | Restart opencode after install                                                                   |
+| Prompt nudge not showing | Restart opencode and check `~/.config/opencode/plugins/lemoncrow-nudge.js` or `.opencode/plugins/` |
+| Config not found         | Global: check `~/.config/opencode/opencode.json`; workspace: check `opencode.json`               |
 
-## OpenCode 2 compatibility notes
+## MCP Tools and Dev Mode
 
-- Supported OpenCode 2 plugin hooks: `session.hook("prompt")`, `session.hook("context")` for output token limits and queued nudges, `tool.hook("execute.after")`, and the subscribed `session.idle` event. Verify-before-done calls the documented `ctx.session.prompt` API; errors leave advice queued instead of corrupting the host session.
-- V2 CLI integration registers a `sidebar.content` slot. It shows the exported LemonCrow usage snapshot when `LEMONCROW_STATUS_FILE` is present, and a nonblocking placeholder otherwise. The sidebar does not invent savings when no measurement is available.
-- Session recall imports both V1 `session/message/part` and V2 `session_v2/session_message` SQLite families when present; it reads but never migrates or alters OpenCode's database. Some V2 event-projection shapes may need additional adapters as the upstream format evolves.
-- The `lc with opencode` one-shot launcher uses V2's native `mcp.servers` overlay when it detects OpenCode major version 2. It does not persistently install the sidebar or prompt plugin. Use `scripts/install_opencode.sh` for the full persistent integration.
-- **OpenCode is not installed in the CI/source environment by default:** unit tests use a fake CLI and synthetic V2 sessions. Before claiming full upstream qualification, run the installer, `bash scripts/verify_opencode.sh`, and the plugin/CLI smoke checklist against a real installed V2 binary. No LemonCrow server needs to be started.
-- To uninstall the workspace bridge, use `bash scripts/uninstall_opencode.sh --workspace /path/to/repo`; uninstall the global bridge separately to remove the global V2 status panel registration.
+With `LEMONCROW_DEV_MODE=1`, the active LemonCrow MCP surface for opencode includes
+`context`, `route`, `rescue`, `trace`, `verify`, `memory`, `read`, `edit`,
+`sql`, `search`, `compact`, `bash`, and the `code` helpers.
+
+Without developer mode, `trace` remains the most reliable active surface and
+some other tools may still appear as passive compatibility stubs.
+
+## Uninstall
+
+```bash
+bash scripts/uninstall_opencode.sh
+bash scripts/uninstall_opencode.sh --workspace /path/to/workspace
+```

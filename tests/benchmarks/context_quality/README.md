@@ -18,22 +18,17 @@ Benchmarks are NOT in the normal pytest suite (they are `@pytest.mark.slow`).
 Run them explicitly:
 
 ```bash
-uv run pytest tests/benchmarks/context_quality/M3_verification.py -v -m slow
+uv run pytest tests/benchmarks/context_quality/M1_lineage.py -v -m slow
 ```
-
-M1 (lineage) and M4 (scoped pull) evaluate the private code-intelligence
-engine, so they live in `tests/private/benchmarks/context_quality/` (not
-published; run with the enterprise runtime on the path, e.g.
-`PYTHONPATH=enterprise/runtime/src uv run pytest tests/private/benchmarks/context_quality/M1_lineage.py -v -m slow`).
 
 ## Benchmark Targets
 
 | Milestone | File | Target | Status |
 |-----------|------|--------|--------|
-| M1 — Context Lineage | `M1_lineage.py` (private) | ≥7/10 | real engine eval (skips until commit_chunks populated) |
+| M1 — Context Lineage | `M1_lineage.py` | ≥7/10 | real engine eval (skips until commit_chunks populated) |
 | M2 — Routing Replay | `M2_routing.py` | ≥10% estimated input-cost reduction on 50 recorded session traces | **implemented — recorded trace replay** |
 | M3 — Counterexample Loop | `M3_verification.py` | ≥0.90 error-detection rate | **implemented — 1.00 (6/6)** |
-| M4 — Scoped Pull Context | `M4_scoped.py` (private) | precision ≥0.6 recall ≥0.85 | **implemented — 0.75 / 1.00** |
+| M4 — Scoped Pull Context | `M4_scoped.py` | precision ≥0.6 recall ≥0.85 | **implemented — 0.75 / 1.00** |
 | M5 — Autopilot Choreography | `M5_autopilot.py` | bounded injection + dedup + correctness | **implemented — pass** |
 
 **Notes on M2/M3/M5 scope.** M2 now replays recorded `model_recommendation`
@@ -64,7 +59,7 @@ Exact SHA match is preferred; keyword fallback handles SHA abbreviation differen
 1. Find a real commit in the target repo that fixes a concrete, named bug.
 2. Formulate a natural-language query that a developer would ask about that bug.
 3. Add an entry to the `QUERIES` list with `sha`, `query`, and `keywords` fields.
-4. Run `PYTHONPATH=enterprise/runtime/src uv run pytest tests/private/benchmarks/context_quality/M1_lineage.py -v -m slow` and verify ≥7/10 pass.
+4. Run `uv run pytest M1_lineage.py -v -m slow` and verify ≥7/10 pass.
 
 ## CI Integration
 

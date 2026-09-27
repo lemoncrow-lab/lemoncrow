@@ -17,9 +17,7 @@ from lemoncrow.pro.capabilities.review.browser_checks import (
     scenario_applicability,
     validate_browser_target,
 )
-from lemoncrow.pro.capabilities.review.readiness import verification_gate
-from lemoncrow.pro.capabilities.review.review_plan import _link
-from lemoncrow.pro.capabilities.review.session_models import ReviewEvidence, ReviewEvidenceSource, ReviewRevision
+from lemoncrow.pro.capabilities.review.session_models import ReviewEvidence, ReviewRevision
 
 _POLICY = """version: 1
 browser_checks:
@@ -60,9 +58,7 @@ def _policy() -> BrowserPolicy:
     return policy
 
 
-def _stored(
-    record: dict[str, Any], *, identifier: str, created_at: str, source: ReviewEvidenceSource = "ci"
-) -> tuple[ReviewEvidence, dict[str, Any]]:
+def _stored(record: dict[str, Any], *, identifier: str, created_at: str) -> tuple[ReviewEvidence, dict[str, Any]]:
     item = ReviewEvidence(
         id=identifier,
         review_id="r-review",
@@ -72,7 +68,7 @@ def _stored(
         artifact_path=f"artifacts/{identifier}.json",
         content_hash=f"digest-{identifier}",
         mime_type=BROWSER_CHECK_MEDIA_TYPE,
-        source=source,
+        source="ci",
         source_ref=browser_source_ref(record),
         verification_status=str(record["status"]) if record["side"] == "new" else "",
         detail="summary",
@@ -143,30 +139,6 @@ def test_deterministic_checks_decide_the_verdict_not_the_reporter() -> None:
     assert not_run["status"] == "NOT_RUN"
 
 
-def test_a_runner_that_did_not_finish_never_passes_on_defaulted_completion() -> None:
-    for runner_status, verdict in [
-        ("skipped", "NOT_RUN"),
-        ("NOT_RUN", "NOT_RUN"),
-        ("timedOut", "FAIL"),
-        ("TIMED_OUT", "FAIL"),
-        ("interrupted", "FAIL"),
-        ("cancelled", "UNKNOWN"),
-    ]:
-        body = {
-            "scenario": "checkout",
-            "route": "/checkout",
-            "viewport": {"width": 1280, "height": 800},
-            "status": runner_status,
-            "navigation": {"status": 200},
-            "assertions": [{"name": "total visible", "status": "PASS"}],
-            "console": [],
-        }
-        record = normalize_browser_run(
-            body, policy=_policy(), snapshot=_revision("rr-one", 1), resolve_artifact=_no_artifacts
-        )
-        assert record["status"] == verdict
-
-
 def test_playwright_json_result_maps_to_inspectable_checks() -> None:
     snapshot = _revision("rr-one", 1)
     passed = _run(
@@ -186,27 +158,33 @@ def test_playwright_json_result_maps_to_inspectable_checks() -> None:
     assert skipped["status"] == "UNKNOWN" or skipped["status"] == "NOT_RUN"
 
 
-def test_untrusted_browser_targets_are_refused() -> None:
-    for target in [
+@pytest.mark.parametrize(
+    "target",
+    [
         "http://169.254.169.254/latest/meta-data",
         "https://evil.example.test/checkout",
         "file:///etc/passwd",
         "javascript:alert(1)",
         "http://user:secret@127.0.0.1:4173/",
         "https://pr.example.test/",
-    ]:
-        with pytest.raises(ValueError):
-            validate_browser_target(target, _policy().trusted_origins)
+    ],
+)
+def test_untrusted_browser_targets_are_refused(target: str) -> None:
+    with pytest.raises(ValueError):
+        validate_browser_target(target, _policy().trusted_origins)
 
 
-def test_loopback_and_configured_preview_targets_are_accepted() -> None:
-    for target in [
+@pytest.mark.parametrize(
+    "target",
+    [
         "http://127.0.0.1:4173/checkout",
         "http://localhost:3000/checkout",
         "https://preview.example.test/checkout",
         "https://42.pr.example.test/checkout",
-    ]:
-        assert validate_browser_target(target, _policy().trusted_origins) == target
+    ],
+)
+def test_loopback_and_configured_preview_targets_are_accepted(target: str) -> None:
+    assert validate_browser_target(target, _policy().trusted_origins) == target
 
 
 def test_route_and_artifact_identity_are_enforced() -> None:
@@ -408,94 +386,3 @@ def test_a_required_scenario_needs_a_current_result_at_every_configured_viewport
     stale = [(row["name"], row["status"]) for row in checks if row["state"] == "stale"]
     assert stale == [("Checkout regression · 390x844", "FAIL")]
     assert summary["pass"] == 1 and summary["not_run"] == 1
-
-
-_SHARED_TITLE_POLICY = """version: 1
-browser_checks:
-  scenarios:
-    - id: checkout
-      title: Checkout regression
-      route: /checkout
-      paths: ["web/src/checkout/*"]
-      required: true
-      viewports: ["1280x800"]
-    - id: checkout-legacy
-      title: Checkout regression
-      route: /legacy/checkout
-      paths: ["web/src/checkout/*"]
-      required: true
-      viewports: ["1280x800"]
-"""
-
-
-def test_browser_rows_are_keyed_by_scenario_and_attestation_never_by_title() -> None:
-    policy = parse_browser_policy(_SHARED_TITLE_POLICY, source="base Snapshot .lemoncrow/review.yaml")
-    assert policy.error == ""
-    snapshot = _revision("rr-one", 1)
-
-    def run(scenario: str, route: str, status: str) -> dict[str, Any]:
-        body: dict[str, Any] = {
-            "scenario": scenario,
-            "route": route,
-            "viewport": {"width": 1280, "height": 800},
-            "provider": "playwright",
-            "completed": True,
-            "navigation": {"status": 200},
-            "assertions": [{"name": "total visible", "status": status, "expected": "$10", "actual": "$10"}],
-            "console": [],
-        }
-        return normalize_browser_run(body, policy=policy, snapshot=snapshot, resolve_artifact=_no_artifacts)
-
-    def project(rows: list[tuple[ReviewEvidence, dict[str, Any]]]) -> list[dict[str, Any]]:
-        records = {item.id: record for item, record in rows}
-        checks, _ = build_browser_projection(
-            evidence=[item for item, _ in rows],
-            revision=snapshot,
-            revisions=(snapshot,),
-            policy=policy,
-            changed_paths=("web/src/checkout/Cart.tsx",),
-            web_routes=(),
-            read_record=lambda item: records.get(item.id),
-        )
-        return [row for row in checks if row["state"] == "current"]
-
-    ci_pass = _stored(
-        run("checkout", "/checkout", "PASS"), identifier="ev-ci-a", created_at="2026-09-25T00:01:10+00:00"
-    )
-    ci_fail = _stored(
-        run("checkout-legacy", "/legacy/checkout", "FAIL"), identifier="ev-ci-b", created_at="2026-09-25T00:01:20+00:00"
-    )
-    # The newest run: a human looked at the legacy page and said it passes.
-    human_pass = _stored(
-        run("checkout-legacy", "/legacy/checkout", "PASS"),
-        identifier="ev-human-b",
-        created_at="2026-09-25T00:01:30+00:00",
-        source="human",
-    )
-    current = project([ci_pass, ci_fail, human_pass])
-
-    # Same title, three distinct typed rows; no status is merged across them.
-    assert {row["name"] for row in current} == {"Checkout regression · 1280x800"}
-    by_key = {row["check_key"]: row for row in current}
-    assert len(by_key) == len(current) == 3
-    assert {key: (row["status"], row["required"], row["authority"]) for key, row in by_key.items()} == {
-        "browser|reported|checkout|1280x800": ("PASS", True, "reported"),
-        "browser|reported|checkout-legacy|1280x800": ("FAIL", True, "reported"),
-        "browser|human_observation|checkout-legacy|1280x800": ("PASS", False, "human"),
-    }
-    assert by_key["browser|human_observation|checkout-legacy|1280x800"]["attestation_class"] == "human_observation"
-    assert {row["stable_key"] for row in current} == {"checkout", "checkout-legacy"}
-    # The newer human PASS neither supersedes nor unblocks the CI FAIL.
-    gate = verification_gate({"checks": current})
-    assert [row["check_key"] for row in gate["failed_browser"]] == ["browser|reported|checkout-legacy|1280x800"]
-    # Evidence links keep the two same-titled scenarios apart.
-    assert len({_link(row, "inferred", "").key for row in current}) == 3
-
-    # A human PASS alone never fills the required slot: it stays owed.
-    current = project([ci_pass, human_pass])
-    owed = [row for row in current if row["status"] == "NOT_RUN"]
-    assert [(row["check_key"], row["required"]) for row in owed] == [
-        ("browser|reported|checkout-legacy|1280x800", True)
-    ]
-    gate = verification_gate({"checks": current})
-    assert [row["check_key"] for row in gate["open_browser"]] == ["browser|reported|checkout-legacy|1280x800"]

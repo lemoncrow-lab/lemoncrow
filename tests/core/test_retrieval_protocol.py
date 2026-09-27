@@ -1,24 +1,15 @@
-"""Domain-neutral Retriever protocol: conformance + injection seam.
-
-The code vertical (``CodeContextEngine``) is private; its conformance tests
-live in ``tests/private/core/test_retrieval_protocol.py``.
-"""
+"""Domain-neutral Retriever protocol: conformance + injection seam."""
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from lemoncrow.core.capabilities import code_intelligence_provider as seam
-from lemoncrow.core.capabilities.code_intelligence_provider import (
-    PRO_ENGINE_UNAVAILABLE_MESSAGE,
-    ProEngineUnavailable,
-)
 from lemoncrow.core.capabilities.retrieval import Retriever, default_retriever_factory
 from lemoncrow.core.runtime.engine import LemonCrowRuntimeCore
+from lemoncrow.pro.capabilities.code_context import CodeContextEngine, CodeRetriever
 
 
 class FakeRetriever:
@@ -44,19 +35,39 @@ class FakeRetriever:
         return {"matches": [], "query": query}
 
 
+def test_code_context_engine_conforms_to_retriever(tmp_path: Path) -> None:
+    (tmp_path / "a.py").write_text("def f():\n    return 1\n")
+    engine = CodeContextEngine(tmp_path, autosync_enabled=False)
+    assert isinstance(engine, Retriever)
+    assert engine.source_id == engine.repo_id
+    assert CodeRetriever is CodeContextEngine
+
+
+def test_engine_retrieve_delegates_to_tool_explore(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    engine = CodeContextEngine(tmp_path, autosync_enabled=False)
+    captured: dict[str, Any] = {}
+
+    def fake_explore(query: str, **kwargs: Any) -> dict[str, Any]:
+        captured["query"] = query
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(engine, "tool_explore", fake_explore)
+    result = engine.retrieve("find the thing", budget_tokens=512, max_items=3, seeds=["a.py"])
+    assert result == {"ok": True}
+    assert captured["query"] == "find the thing"
+    assert captured["budget_tokens"] == 512
+    assert captured["max_files"] == 3
+    assert captured["seed_files"] == ["a.py"]
+
+
 def test_fake_retriever_conforms() -> None:
     assert isinstance(FakeRetriever(), Retriever)
 
 
-def test_default_retriever_factory_requires_the_private_provider(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def _missing() -> Any:
-        raise ProEngineUnavailable(PRO_ENGINE_UNAVAILABLE_MESSAGE)
-
-    monkeypatch.setattr(seam, "_private_provider", _missing)
-    with pytest.raises(ProEngineUnavailable, match=re.escape("Private code intelligence is not installed/available.")):
-        default_retriever_factory(tmp_path)
+def test_default_retriever_factory_is_code_vertical(tmp_path: Path) -> None:
+    retriever = default_retriever_factory(tmp_path)
+    assert isinstance(retriever, CodeContextEngine)
 
 
 def test_runtime_core_accepts_injected_retriever_factory(tmp_path: Path) -> None:
@@ -68,22 +79,6 @@ def test_runtime_core_accepts_injected_retriever_factory(tmp_path: Path) -> None
 def test_runtime_core_defaults_to_code_retriever(tmp_path: Path) -> None:
     core = LemonCrowRuntimeCore(tmp_path / "store")
     assert core.retriever_factory is default_retriever_factory
-
-
-def test_get_context_keys_default_bootstrap_by_workspace_id_without_the_engine(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from lemoncrow.core.capabilities.code_context_contract import workspace_repo_id
-
-    def _missing() -> Any:
-        raise ProEngineUnavailable(PRO_ENGINE_UNAVAILABLE_MESSAGE)
-
-    monkeypatch.setattr(seam, "_private_provider", _missing)
-    monkeypatch.setattr("lemoncrow.core.runtime.engine.resolve_workspace_root", lambda root: tmp_path)
-    core = LemonCrowRuntimeCore(tmp_path / "store")
-    payload = core.get_context(task="summarize the auth module", agent_id="tester", recall=False)
-    assert isinstance(payload, dict)
-    assert payload["bootstrap"]["repo_id"] == workspace_repo_id(tmp_path)
 
 
 def test_get_context_uses_injected_retriever_for_bootstrap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

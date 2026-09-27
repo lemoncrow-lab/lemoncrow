@@ -1,658 +1,643 @@
 #!/usr/bin/env bash
-# install.sh — the public LemonCrow installer. It never prompts.
+# install.sh — Standalone LemonCrow production bootstrap.
+# Downloads a pre-compiled LemonCrow binary for your platform from the
+# latest GitHub release, installs LemonCrow-managed files under ~/.lemoncrow/,
+# and then installs LemonCrow into each detected agent host (Claude, Copilot,
+# Cursor, Codex, etc.).
 #
-#   curl -fsSL https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download/install.sh | bash
+# Default mode is LOCAL: the extracted distribution includes the loopback
+# LemonCrow server wheel. Hosted installs use scripts/hosted.sh and never enter
+# this full-distribution installer; `install.sh --hosted` remains a compatibility
+# redirect to that thin path.
 #
-# With no options it installs Local Review (`lc`, `lcr` and a loopback Review
-# service): no account and no sign-in. Hosted Review is opt-in with --hosted.
-# Runtime is fetched the first time `lc rt enable <host>` needs it.
-# Flags are non-interactive overrides: --product review|runtime|both,
-# --local|--hosted (alias --cloud), --url, --port, --agent, --dry-run. It
-# delegates to the small auditable per-product installers (hosted.sh,
-# runtime.sh, local_review.sh, local_runtime.sh) and never enables a
-# coding-agent host unless --agent is given.
+# From this repository:
+#   make prod                         # local loopback server
+#   make hosted HOSTED_URL=https://…  # hosted server
 #
-# Helper trust: a published copy carries the SHA-256 of every helper script and
-# product archive of its own release (stamped by scripts/pin_release_installer.sh)
-# and refuses anything else. A source checkout uses its sibling scripts. A piped
-# copy never reads helpers from the current directory.
+# For a development/source install use scripts/local.sh.
 #
-# Compatibility: LEMONCROW_ENGINE_INSTALL=1 (sent by older full-engine
-# `lc update` clients) delegates to engine_install.sh, the legacy full local
-# engine bootstrap, with the original arguments.
-#
-#   LEMONCROW_RELEASE_TAG       Release tag to install from (default: latest)
-#   LEMONCROW_RELEASE_BASE_URL  Override the release asset base (file:// or http://),
-#                               e.g. to rehearse against locally staged assets
-#   LEMONCROW_PRODUCT           Same as --product
-#   LEMONCROW_DEPLOYMENT        Same as --local/--hosted (local|hosted|cloud)
-#   LEMONCROW_RUNTIME_AGENT     Same as --agent
-#   LEMONCROW_HOSTED_URL        Same as --url
-#   LEMONCROW_LOCAL_SERVER_PORT Same as --port
-#   LEMONCROW_DRY_RUN           If set to 1, same as --dry-run
+#   LEMONCROW_INSTALL_DIR     Target directory (default: ~/.lemoncrow/install)
+#   LEMONCROW_BIN_DIR         Binary directory (default: ~/.lemoncrow/bin)
+#   LEMONCROW_RELEASE_TAG     Release tag to install (default: latest)
+#   LEMONCROW_RELEASE_TAG     Release tag to install (default: latest)
+#   LEMONCROW_DRY_RUN         If set to 1, print planned actions and exit
+#   LEMONCROW_VERBOSE         If set to 1, show verbose output
+#   LEMONCROW_NON_INTERACTIVE If set to 1, skip all prompts (auto-install all hosts)
+#   LEMONCROW_NO_PATH         If set to 1, skip adding to PATH
+#   LEMONCROW_NO_ALIAS        If set to 1, do not write the `lcr` shell alias
+#   LEMONCROW_INSTALL_MODE    local (default) | hosted
+#   LEMONCROW_HOSTED_URL      Hosted server URL when mode=hosted
+#   LEMONCROW_NO_HOSTS        If set to 1, skip ALL post-extract setup (bundle.sh): host
+#                           integrations AND dependency installs (uv/node/jj/rtk) are
+#                           skipped — download & extract only
+#   LEMONCROW_INSTALL_RTK     1 = install rtk without prompting, 0 = never offer
+#                           (default: prompt during interactive setup when cargo exists;
+#                           handled by bundle.sh / lib/common.sh, propagated via env)
+#   LEMONCROW_RTK_TAG         rtk release tag to install (default: pinned in
+#                           lib/common.sh; empty = unpinned default-branch HEAD)
+#   LEMONCROW_KB_EXTRACT      If set to 1, run knowledge extraction during setup (opt-in)
+#   LEMONCROW_KB_HOST         Extraction backend: auto | claude | codex | ollama
+#   LEMONCROW_KB_MODEL        Model id for extraction (required for ollama)
+#   LEMONCROW_KB_MAX_SPEND    Hard USD cap per extraction run (auto/claude)
+#   LEMONCROW_RECALL_INDEX    SessionStart background recall indexer: on by default (set to 0 to disable)
+#   LEMONCROW_RECALL_EMBEDDER Recall embedder: local | openai (codex) | ollama (Claude has no embeddings API)
+#   LEMONCROW_RECALL_EMBED_MODEL  Embed model id (e.g. an ollama model name)
 
 set -euo pipefail
 
-# Keep this formatter self-contained: release helpers also run without a checkout.
-lc_ui_printf() (
-    lc_ui_style=$1
-    shift
-    # Nested installers leave the summary to their caller; warnings stay visible.
-    if [ "${LEMONCROW_INSTALL_NESTED:-0}" = 1 ] &&
-        [ "${LEMONCROW_VERBOSE:-0}" != 1 ] && [ "${DRY_RUN:-0}" != 1 ]; then
-        case "$lc_ui_style" in
-            '1;31'|'1;33'|progress) ;;
-            *) return 0 ;;
-        esac
-    fi
-    lc_ui_force=${FORCE_COLOR:-${CLICOLOR_FORCE:-0}}
-    if [ -z "${NO_COLOR:-}" ] && [ "${FORCE_COLOR:-}" != 0 ] &&
-        { [ "$lc_ui_force" != 0 ] || { [ -t 1 ] && [ "${TERM:-}" != dumb ]; }; }; then
-        lc_ui_format=$1
-        shift
-        case "$lc_ui_format" in
-            '\n'*) printf '\033[2m│\033[0m\n'; lc_ui_format=${lc_ui_format#??} ;;
-        esac
-        # Rail, marker and text occupy the same columns in every message.
-        case "$lc_ui_format" in '  '*) lc_ui_format=${lc_ui_format#  } ;; esac
-        # Section diamonds replace the rail; child rows keep the rail.
-        if [ "$lc_ui_style" != '1;36' ]; then
-            printf '\033[2m│\033[0m  '
-        fi
-        case "$lc_ui_style" in
-            '1;36')
-                case "$lc_ui_format" in '◆ '*) lc_ui_format=${lc_ui_format#◆ } ;; esac
-                printf '\033[38;2;155;117;217m◆  '
-                printf "$lc_ui_format" "$@"
-                lc_ui_status=$?
-                printf '\033[0m'
-                exit "$lc_ui_status"
-                ;;
-            '1;31')
-                printf '\033[1;31m✗\033[0m  ' ;;
-            '1;33')
-                printf '\033[33m⚠\033[0m  ' ;;
-            '1;32')
-                case "$lc_ui_format" in '✓ '*) lc_ui_format=${lc_ui_format#✓ } ;; esac
-                printf '\033[32m✓\033[0m  ' ;;
-            progress) printf '\033[2m◇\033[0m  ' ;;
-            command)
-                printf '   %s \033[38;2;155;117;217m%s\033[0m%s\n' "$lc_ui_format" "$1" "${2:-}"
-                exit $?
-                ;;
-            *) printf '   ' ;;
-        esac
-        printf "$lc_ui_format" "$@"
-    else
-        if [ "$lc_ui_style" = command ]; then
-            printf '%s %s%s\n' "$1" "$2" "${3:-}"
-        else
-            printf "$@"
-        fi
-    fi
-)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
-# Installed Python environments must not import an inherited source checkout.
-unset PYTHONPATH
+# ---- paths & detection ------------------------------------------------------
+OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+ARCH="$(uname -m)"
+case "$ARCH" in
+    amd64) ARCH="x86_64" ;;
+    arm64) ARCH="arm64" ;;
+    aarch64) ARCH="aarch64" ;;
+esac
+BINARY_SUFFIX="${OS}-${ARCH}"
 
-# Sibling helpers are trusted only beside a real script file. A piped copy
-# (`curl … | bash`) has none and must never fall back to the current directory.
-if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LEMONCROW_INSTALL_DIR="${LEMONCROW_INSTALL_DIR:-${HOME}/.lemoncrow/install}"
+LEMONCROW_BIN_DIR="${LEMONCROW_BIN_DIR:-${HOME}/.lemoncrow/bin}"
+LEMONCROW_RELEASE_TAG="${LEMONCROW_RELEASE_TAG:-latest}"
+LEMONCROW_DRY_RUN="${LEMONCROW_DRY_RUN:-0}"
+LEMONCROW_VERBOSE="${LEMONCROW_VERBOSE:-0}"
+LEMONCROW_NON_INTERACTIVE="${LEMONCROW_NON_INTERACTIVE:-0}"
+LEMONCROW_NO_PATH="${LEMONCROW_NO_PATH:-0}"
+LEMONCROW_NO_HOSTS="${LEMONCROW_NO_HOSTS:-0}"
+LEMONCROW_ALLOW_UNVERIFIED="${LEMONCROW_ALLOW_UNVERIFIED:-0}"
+LEMONCROW_LOCAL="${LEMONCROW_LOCAL:-0}"
+LEMONCROW_INSTALL_MODE="${LEMONCROW_INSTALL_MODE:-local}"
+export LEMONCROW_INSTALL_MODE
+# Default source for --local: the bundle/ directory produced by 'make build',
+# which lives one level up from this script (i.e. <repo>/bundle/).
+LEMONCROW_LOCAL_SRC="${LEMONCROW_LOCAL_SRC:-${SCRIPT_DIR}/../bundle}"
+
+# Handle arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --local) LEMONCROW_LOCAL=1; shift ;;
+        --hosted) LEMONCROW_INSTALL_MODE=hosted; export LEMONCROW_INSTALL_MODE; shift ;;
+        *) shift ;;
+    esac
+done
+case "$LEMONCROW_INSTALL_MODE" in
+    local|hosted) ;;
+    *) fail "LEMONCROW_INSTALL_MODE must be 'local' or 'hosted', got: $LEMONCROW_INSTALL_MODE" ;;
+esac
+
+if [[ "$LEMONCROW_RELEASE_TAG" == "latest" ]]; then
+    RELEASE_BASE_URL="https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download"
 else
-    SCRIPT_DIR=""
+    RELEASE_BASE_URL="https://github.com/lemoncrow-lab/lemoncrow/releases/download/${LEMONCROW_RELEASE_TAG}"
 fi
 
-# Release pins, stamped into the published copy by scripts/pin_release_installer.sh:
-# the release tag and name=sha256 for every helper script and product archive.
-# A source checkout leaves both empty.
-_PUBLIC_PINNED_TAG=""
-_PUBLIC_PINNED_SHA256S=""
-_PUBLIC_PINS_ACTIVE=0
+# Hosted mode has its own architecture-neutral, client-only installer. Keep this
+# redirect so older automation using `install.sh --hosted` becomes thinner
+# rather than silently provisioning the legacy full runtime.
+if [[ "$LEMONCROW_INSTALL_MODE" == "hosted" ]]; then
+    hosted_installer="$SCRIPT_DIR/hosted.sh"
+    hosted_tmp=""
+    if [[ ! -f "$hosted_installer" ]]; then
+        hosted_tmp="$(mktemp -t lemoncrow-hosted-bootstrap.XXXXXX)"
+        if command -v curl >/dev/null 2>&1; then
+            curl -fLsS --retry 3 --retry-delay 2 --connect-timeout 15 "$RELEASE_BASE_URL/hosted.sh" -o "$hosted_tmp"
+        elif command -v wget >/dev/null 2>&1; then
+            wget -qO "$hosted_tmp" "$RELEASE_BASE_URL/hosted.sh"
+        else
+            echo "install.sh: curl or wget is required to fetch hosted.sh" >&2
+            exit 1
+        fi
+        hosted_installer="$hosted_tmp"
+        trap 'rm -f "${hosted_tmp:-}"' EXIT
+    fi
+    if [[ "$LEMONCROW_LOCAL" == "1" ]]; then
+        exec bash "$hosted_installer" --from-build "${SCRIPT_DIR}/../dist/lemoncrow-hosted-client.tar.gz"
+    fi
+    exec bash "$hosted_installer"
+fi
 
+ASSET_NAME="lemoncrow-distribution-${BINARY_SUFFIX}.tar.gz"
+RELEASE_URL="${RELEASE_BASE_URL}/${ASSET_NAME}"
 
-# ---- public product installer ------------------------------------------------
-_public_install_usage() {
-    cat <<'USAGE'
-LemonCrow installer
+# ---- colour + helpers -------------------------------------------------------
+# NOTE: info/warn/error/fail/need_cmd intentionally duplicate scripts/lib/common.sh.
+# install.sh runs BEFORE the distribution archive is downloaded and extracted, so
+# lib/common.sh does not exist on disk yet and cannot be sourced here. Do not
+# "deduplicate" these helpers into common.sh.
+if [[ -t 2 ]]; then
+    _CP=$'\033[38;5;141m'   # brand purple
+    _CD=$'\033[2m'          # dim
+    _CB=$'\033[1m'          # bold
+    _CG=$'\033[32m'         # green
+    _CY=$'\033[33m'         # yellow
+    _CR=$'\033[31m'         # red
+    _C0=$'\033[0m'          # reset
+else
+    _CP='' _CD='' _CB='' _CG='' _CY='' _CR='' _C0=''
+fi
 
-Usage:
-  install.sh [--product review|runtime|both] [--local|--hosted] [OPTIONS]
+info()    { printf "  ${_CP}◇${_C0}  %s\n" "$*"; }
+warn()    { printf "  ${_CY}⚠${_C0}  %s\n" "$*" >&2; }
+error()   { printf "  ${_CR}✗${_C0}  %s\n" "$*" >&2; }
+fail()    { error "$*"; exit 1; }
+verbose() { [[ "$LEMONCROW_VERBOSE" == "1" ]] && info "$*" || true; }
 
-Products:
-  review    Review code changes with Reader, evidence, comments, and Review Ask
-  runtime   Use LemonCrow code intelligence and tools inside coding agents
-  both      Install Review and Runtime together
-
-Deployment:
-  --local   Review uses a loopback service; Runtime uses serverless Local Lite.
-            No account or sign-in. (default)
-  --hosted  Use Hosted LemonCrow at api.lemoncrow.com; needs an invited account
-            and `lc auth login`. --cloud is an alias.
-
-Options:
-  --agent NAME   Enable Runtime for claude, codex, opencode, or auto after install
-  --url URL      Hosted server URL (default https://api.lemoncrow.com; implies --hosted
-                 unless it is a loopback address)
-  --port PORT    Local Review server port (default 7420)
-  --dry-run      Show the resolved install plan without changing anything
-  --preview      Preview progress, verification, and next steps without changes
-  --non-interactive  Accepted for compatibility; the installer never prompts
-  -h, --help     Show this help
-
-Examples:
-  install.sh --product review
-  install.sh --product runtime --agent codex
-  install.sh --product both
-  install.sh --hosted
-
-With no options, install.sh asks nothing and installs Local Review (lc, lcr and
-a loopback Review service); re-running it keeps an existing Hosted Review
-install hosted. Runtime is fetched on first `lc rt enable <host>`. Runtime never modifies a coding-agent host unless --agent is
-provided or you later run `lc rt enable <host>`.
-USAGE
+# _bar <current> <total> [width=40]
+_bar() {
+    local cur=$1 tot=$2 w=${3:-40}
+    (( tot <= 0 )) && tot=1
+    local f=$(( cur * w / tot ))
+    (( f > w )) && f=$w
+    local e=$(( w - f ))
+    local i s='' b=''
+    for (( i=0; i<f; i++ )); do s+='█'; done
+    for (( i=0; i<e; i++ )); do b+='░'; done
+    printf "${_CP}%s${_CD}%s${_C0}" "$s" "$b"
 }
 
-_public_release_base_url() {
-    local tag="${LEMONCROW_RELEASE_TAG:-latest}"
-    if [[ -n "${LEMONCROW_RELEASE_BASE_URL:-}" ]]; then
-        printf '%s\n' "${LEMONCROW_RELEASE_BASE_URL%/}"
-    elif [[ "$tag" == "latest" ]]; then
-        printf '%s\n' "https://github.com/lemoncrow-lab/lemoncrow/releases/latest/download"
+# _hum <bytes>  — human-readable size
+_hum() {
+    local b=$1
+    if   (( b >= 1073741824 )); then printf '%d.%dG' $(( b/1073741824 )) $(( (b%1073741824)*10/1073741824 ))
+    elif (( b >= 1048576    )); then printf '%d.%dM' $(( b/1048576    )) $(( (b%1048576)*10/1048576     ))
+    elif (( b >= 1024       )); then printf '%d.%dK' $(( b/1024       )) $(( (b%1024)*10/1024           ))
+    else printf '%dB' "$b"; fi
+}
+
+# _fsize <file>  — portable file size
+_fsize() { stat -c%s "$1" 2>/dev/null || stat -f%z "$1" 2>/dev/null || echo 0; }
+
+# _dl_progress <url> <dest>  — download with live progress bar
+_dl_progress() {
+    local url=$1 dest=$2
+    # Probe Content-Length (non-fatal)
+    local total=0
+    if command -v curl >/dev/null 2>&1; then
+        total=$(curl -fsIL --max-time 5 "$url" 2>/dev/null \
+            | tr -d '\r' | awk 'tolower($1)=="content-length:" {print $2}' | tail -1)
+    fi
+    total=${total:-0}
+
+    # Always download silently
+    curl -fLs --retry 3 --retry-delay 2 --connect-timeout 15 "$url" > "$dest" &
+    local pid=$!
+
+    if [[ -t 2 && "$total" -gt 0 ]]; then
+        local cur=0 prev=0 t0=$SECONDS
+        while kill -0 "$pid" 2>/dev/null; do
+            cur=$(_fsize "$dest")
+            local pct=$(( cur * 100 / total ))
+            (( pct > 100 )) && pct=100
+            local speed=''
+            local dt=$(( SECONDS - t0 ))
+            if (( dt > 0 )); then
+                speed="  $(_hum $(( cur / dt )))/s"
+            fi
+            printf "\r     $(_bar "$cur" "$total")  %3d%%  $(_hum "$cur") / $(_hum "$total")%s" \
+                "$pct" "$speed" >&2
+            sleep 0.12
+        done
+        wait "$pid"; local rc=$?
+        printf "\r     $(_bar "$total" "$total")  100%%  $(_hum "$total") ${_CG}✓${_C0}\n" >&2
+        return $rc
     else
-        printf '%s\n' "https://github.com/lemoncrow-lab/lemoncrow/releases/download/${tag}"
+        wait "$pid"
     fi
 }
 
-_public_sha256() {
-    if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}'
-    elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'
-    else lc_ui_printf '1;31' '%s\n' "install.sh: sha256sum or shasum is required" >&2; return 1
+# _extract_progress <archive> <dest>  — extract with live file-count progress bar
+_extract_progress() {
+    local arc=$1 dest=$2
+    if [[ ! -t 2 ]]; then
+        tar -xzf "$arc" -C "$dest"
+        return $?
     fi
+    local total
+    # Listing is best-effort (a truncated archive fails here): it only sizes the
+    # progress bar. Extraction status is captured separately below.
+    total=$(tar -tzf "$arc" 2>/dev/null | wc -l | tr -d ' ' || true)
+    (( total <= 0 )) && total=1
+    local n=0
+    # `done < <(tar ...)` throws away tar's exit status — the loop returns the
+    # status of the last `read`, so a truncated archive used to "extract
+    # successfully" and the install carried on with a half-written tree.
+    # Route tar's real status through a file the loop cannot swallow.
+    local rc_file rc
+    rc_file="$(mktemp -t lemoncrow-extract-rc.XXXXXX)"
+    while IFS= read -r _; do
+        (( n++ )) || true
+        local pct=$(( n * 100 / total ))
+        (( pct > 100 )) && pct=100
+        printf "\r     $(_bar "$n" "$total")  %3d%%" "$pct" >&2
+    done < <(tar -xvzf "$arc" -C "$dest" 2>&1; printf '%s' "$?" >"$rc_file")
+    rc="$(cat "$rc_file" 2>/dev/null || true)"
+    rm -f "$rc_file"
+    if [[ "$rc" != "0" ]]; then
+        printf "\n" >&2
+        return "${rc:-1}"
+    fi
+    printf "\r     $(_bar "$total" "$total")  100%% ${_CG}✓${_C0}\n" >&2
 }
 
-_public_pinned_sha256() {
-    local entry
-    local -a pins
-    read -r -a pins <<<"$_PUBLIC_PINNED_SHA256S"
-    for entry in "${pins[@]}"; do
-        if [[ "${entry%%=*}" == "$1" ]]; then printf '%s\n' "${entry#*=}"; return 0; fi
-    done
-    return 1
+need_cmd() {
+    command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
 }
 
-# Pins apply to the release they were stamped for. Nested helpers inherit that
-# tag (so `latest` cannot move mid-install) and the archive pins, which replace
-# the same-origin checksum sidecars.
-_public_resolve_pins() {
-    unset LEMONCROW_RELEASE_PINS
-    local requested="${LEMONCROW_RELEASE_TAG:-latest}"
-    if [[ -n "$_PUBLIC_PINNED_SHA256S" ]]; then
-        if [[ -z "$_PUBLIC_PINNED_TAG" || "$requested" == latest || "$requested" == "$_PUBLIC_PINNED_TAG" ]]; then
-            _PUBLIC_PINS_ACTIVE=1
-            [[ -z "$_PUBLIC_PINNED_TAG" ]] || export LEMONCROW_RELEASE_TAG="$_PUBLIC_PINNED_TAG"
-            export LEMONCROW_RELEASE_PINS="$_PUBLIC_PINNED_SHA256S"
+# verify_checksum <archive> <url>
+# Verifies <archive> against a published <url>.sha256 sidecar. Fails closed:
+# if the checksum cannot be fetched or does not match, the install aborts
+# unless LEMONCROW_ALLOW_UNVERIFIED=1 is set to explicitly opt out.
+verify_checksum() {
+    local archive="$1" url="$2"
+    local expected
+    if ! expected="$("${DOWNLOAD_CMD[@]}" "${url}.sha256" 2>/dev/null)"; then
+        expected=""
+    fi
+    # Accept both `<hash>  file` and `SHA256 (file) = <hash>` formats.
+    # `|| true`: no sidecar means grep matches nothing, and under `set -o
+    # pipefail` that killed the whole install here instead of falling through to
+    # the "no published checksum" branch two lines below.
+    expected="$(printf '%s' "$expected" | grep -oE '[0-9a-fA-F]{64}' | head -1 | tr 'A-F' 'a-f' || true)"
+    if [[ -z "$expected" ]]; then
+        if [[ "$LEMONCROW_ALLOW_UNVERIFIED" == "1" ]]; then
+            warn "No published checksum at ${url}.sha256 — proceeding unverified (LEMONCROW_ALLOW_UNVERIFIED=1)."
             return 0
         fi
-        lc_ui_printf '1;33' '%s\n' "install.sh: this installer pins release $_PUBLIC_PINNED_TAG; $requested is verified only by its own release checksums" >&2
-    elif [[ -z "$SCRIPT_DIR" ]]; then
-        # An unreleased piped copy has nothing to verify downloads against.
-        if [[ -z "${LEMONCROW_RELEASE_BASE_URL:-}" && "$requested" == latest ]]; then
-            lc_ui_printf '1;31' '%s\n' "install.sh: this copy is not a published release and carries no release pins, so it will not download helpers." \
-                "  Use the published installer: curl -fsSL https://lemoncrow.com/install.sh | bash" \
-                "  or run it from a source checkout: bash scripts/install.sh" >&2
-            return 1
-        fi
-        lc_ui_printf '1;33' '%s\n' "install.sh: unpinned copy; helpers from $(_public_release_base_url) are verified only by their release checksums" >&2
+        fail "No valid checksum published at ${url}.sha256. Refusing an unverified install; set LEMONCROW_ALLOW_UNVERIFIED=1 only for an explicit development override."
     fi
-    return 0
-}
-
-_public_download() {
-    # _public_download URL TARGET [URL TARGET ...]: one curl call reuses the connection.
-    local -a curl_args=()
-    if command -v curl >/dev/null 2>&1; then
-        while (( $# >= 2 )); do curl_args+=("$1" -o "$2"); shift 2; done
-        curl -fLsS --retry 3 --retry-delay 2 --connect-timeout 15 "${curl_args[@]}"
-    elif command -v wget >/dev/null 2>&1; then
-        while (( $# >= 2 )); do wget -qO "$2" "$1" || return 1; shift 2; done
+    local actual
+    if command -v sha256sum >/dev/null 2>&1; then
+        actual="$(sha256sum "$archive" | awk '{print $1}')"
+    elif command -v shasum >/dev/null 2>&1; then
+        actual="$(shasum -a 256 "$archive" | awk '{print $1}')"
     else
-        lc_ui_printf '1;31' '%s\n' "install.sh: curl or wget is required to download installer helpers" >&2
-        return 1
+        fail "Cannot verify checksum: neither sha256sum nor shasum is available."
+    fi
+    if [[ "$actual" != "$expected" ]]; then
+        fail "Checksum mismatch for ${archive}: expected ${expected}, got ${actual}. Aborting."
+    fi
+    verbose "Checksum verified: ${actual}"
+}
+
+run() {
+    if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
+        echo "  [dry-run] $*"
+    else
+        "$@"
     fi
 }
 
-_PUBLIC_HELPER_DIR_OWNED=0
-_public_prepare_helpers() {
-    if [[ -z "${LEMONCROW_INSTALL_HELPER_DIR:-}" ]]; then
-        LEMONCROW_INSTALL_HELPER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/lemoncrow-install.XXXXXX")" || return 1
-        _PUBLIC_HELPER_DIR_OWNED=1
-        export LEMONCROW_INSTALL_HELPER_DIR
-    fi
-    _public_resolve_pins || return 1
-    [[ "$_PUBLIC_PINS_ACTIVE" == 1 ]] || return 0
-    # Pinned: materialize every pinned helper script beside the ones we run, so
-    # nested helpers find verified siblings instead of fetching their own.
-    local entry name base
-    local -a pins downloads=()
-    base="$(_public_release_base_url)"
-    read -r -a pins <<<"$_PUBLIC_PINNED_SHA256S"
-    for entry in "${pins[@]}"; do
-        name="${entry%%=*}"
-        [[ "$name" == *.sh && ! -s "$LEMONCROW_INSTALL_HELPER_DIR/$name" ]] || continue
-        if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/$name" ]]; then
-            cp "$SCRIPT_DIR/$name" "$LEMONCROW_INSTALL_HELPER_DIR/$name" || return 1
-        else
-            downloads+=("$base/$name" "$LEMONCROW_INSTALL_HELPER_DIR/$name")
+# ---- ~/.local/bin link hygiene -----------------------------------------------
+# A dangling symlink is invisible to `-e`, so the "don't clobber anything"
+# guards below used to skip exactly the victims of GH #41: the broken
+# ~/.local/bin/lemoncrow left behind by a no-op install was never replaced.
+# These helpers only ever act on a link that resolves NOWHERE *and* points into
+# the LemonCrow-managed tree; a real file, or a link that resolves elsewhere, is
+# always left untouched.
+_is_dangling_lemoncrow_link() {
+    local link="$1" target
+    [[ -L "$link" ]] || return 1        # not a symlink (or nothing there)
+    [[ -e "$link" ]] && return 1        # symlink still resolves — keep it
+    target="$(readlink "$link" 2>/dev/null || true)"
+    [[ "$target" == "${LEMONCROW_BIN_DIR%/}/"* || "$target" == "${HOME%/}/.lemoncrow/"* ]]
+}
+
+# True when <link> may be (re)created: the slot is empty, or holds a dangling
+# LemonCrow link.
+_local_bin_slot_writable() {
+    local link="$1"
+    [[ -e "$link" || -L "$link" ]] || return 0
+    _is_dangling_lemoncrow_link "$link"
+}
+
+# Clear the broken LemonCrow links an aborted install would otherwise leave on
+# PATH — a dangling `lemoncrow` breaks every host config that shells out to it.
+_prune_dangling_local_links() {
+    local name
+    for name in lemoncrow lc; do
+        if _is_dangling_lemoncrow_link "${HOME}/.local/bin/${name}"; then
+            rm -f "${HOME}/.local/bin/${name}" 2>/dev/null || true
+            warn "Removed broken symlink ${HOME}/.local/bin/${name} left by an earlier install."
         fi
-    done
-    if (( ${#downloads[@]} )); then
-        lc_ui_printf progress 'Fetching installer helpers...\n'
-        _public_download "${downloads[@]}" || {
-            lc_ui_printf '1;31' '%s\n' "install.sh: could not download installer helpers from $base" >&2; return 1;
-        }
-    fi
-    for entry in "${pins[@]}"; do
-        name="${entry%%=*}"
-        [[ "$name" == *.sh ]] || continue
-        _public_verify_helper "$LEMONCROW_INSTALL_HELPER_DIR/$name" || return 1
-        chmod +x "$LEMONCROW_INSTALL_HELPER_DIR/$name"
     done
 }
 
-_public_verify_helper() {
-    local path="$1" name="${1##*/}" expected actual
-    expected="$(_public_pinned_sha256 "$name")" || {
-        lc_ui_printf '1;31' '%s\n' "install.sh: $name is not pinned by this release; refusing to run it" >&2; return 1;
-    }
-    actual="$(_public_sha256 "$path")" || return 1
-    [[ "$actual" == "$expected" ]] || {
-        lc_ui_printf '1;31' '%s\n' "install.sh: $name does not match the SHA-256 pinned in this installer; refusing to run it" >&2; return 1;
-    }
+# fail(), but first clear those broken links so a failed install never leaves
+# ~/.local/bin poisoned (GH #41).
+_fail_install() { _prune_dangling_local_links; fail "$@"; }
+
+# ---- platform check ----------------------------------------------------------
+case "$OS" in
+    linux|darwin) ;;
+    *) fail "Unsupported OS: $OS. LemonCrow supports Linux and macOS." ;;
+esac
+
+case "$ARCH" in
+    x86_64|aarch64|arm64) ;;
+    *) fail "Unsupported architecture: $ARCH" ;;
+esac
+
+# ---- prerequisites (bash + curl/wget) ----------------------------------------
+need_cmd bash
+need_cmd tar
+
+if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+    fail "Either curl or wget is required to download the LemonCrow binary."
+fi
+# DOWNLOAD_CMD used only for checksum sidecar fetch (small, no progress needed)
+if command -v curl >/dev/null 2>&1; then
+    DOWNLOAD_CMD=(curl -fLs --retry 3 --retry-delay 2 --connect-timeout 15)
+else
+    DOWNLOAD_CMD=(wget -qO-)
+fi
+
+# ---- single-installer lock ---------------------------------------------------
+# Two installers on one machine share $LEMONCROW_INSTALL_DIR as mutable state:
+# `make prod` (local bundle), the published curl installer, `lc update`, and the
+# controller's auto-update all clean and repopulate that tree. Whichever starts
+# second overwrites the first one's tree *while it is running*, so the first
+# installs the other's wheel and delegates to the other's host scripts (the
+# "Unknown option: --lemoncode" failure). Serialize instead: later installers
+# wait rather than clobber. Held for this whole script, bundle.sh included.
+_acquire_install_lock() {
+    [[ "${LEMONCROW_INSTALL_LOCK_HELD:-0}" == "1" ]] && return 0
+    command -v flock >/dev/null 2>&1 || return 0
+    mkdir -p "$(dirname "$LEMONCROW_INSTALL_DIR")" 2>/dev/null || true
+    # `exec 9>file 2>/dev/null` makes BOTH redirections permanent: stderr stayed
+    # pointed at /dev/null for the rest of the install, so every warn()/fail()
+    # message after this line was silently discarded (the "no output, exit 0"
+    # half of GH #41). Scope the suppression to a group so only fd 9 survives.
+    { exec 9>"${LEMONCROW_INSTALL_DIR%/}.lock"; } 2>/dev/null || return 0
+    if ! flock -n 9 2>/dev/null; then
+        info "Another LemonCrow installer is running — waiting for it to finish…"
+        flock 9 || return 0
+    fi
+    export LEMONCROW_INSTALL_LOCK_HELD=1
 }
-_public_cleanup() {
-    if [[ "$_PUBLIC_HELPER_DIR_OWNED" == "1" ]]; then
-        rm -rf "$LEMONCROW_INSTALL_HELPER_DIR"
-    fi
+_acquire_install_lock
+
+# ---- install-tree fingerprint ------------------------------------------------
+# Record who wrote this tree. bundle.sh re-checks it before installing the wheel
+# and before installing hosts, so a tree swapped out mid-run names the process
+# that did it instead of surfacing as a confusing error from an older script
+# ("Unknown option: --lemoncode").
+_write_install_stamp() {
+    # Exported so bundle.sh/lib/common.sh can restore this tree if another
+    # installer overwrites it mid-run — the on-disk stamp is what gets clobbered.
+    export LEMONCROW_INSTALL_SOURCE="${1:-unknown}"
+    printf 'pid=%s ppid=%s written=%s source=%s\n' \
+        "$$" "${PPID:-0}" "$(date -Iseconds 2>/dev/null || date)" "${1:-unknown}" \
+        >"${LEMONCROW_INSTALL_DIR}/.lemoncrow-install-stamp" 2>/dev/null || true
 }
-trap _public_cleanup EXIT
-
-_public_fetch_helper() {
-    local name="$1" target
-    [[ -n "${LEMONCROW_INSTALL_HELPER_DIR:-}" ]] || {
-        lc_ui_printf '1;31' '%s\n' "install.sh: helper directory was not initialized" >&2; return 1;
-    }
-    target="$LEMONCROW_INSTALL_HELPER_DIR/$name"
-    if [[ "$_PUBLIC_PINS_ACTIVE" == 1 ]]; then
-        # _public_prepare_helpers already placed and verified it; check again
-        # right before use.
-        _public_verify_helper "$target" || return 1
-        printf '%s\n' "$target"
-        return 0
-    fi
-    if [[ -n "$SCRIPT_DIR" && -f "$SCRIPT_DIR/$name" ]]; then
-        printf '%s\n' "$SCRIPT_DIR/$name"
-        return 0
-    fi
-    if [[ ! -s "$target" ]]; then
-        _public_download "$(_public_release_base_url)/$name" "$target" || return 1
-        chmod +x "$target"
-    fi
-    printf '%s\n' "$target"
-}
-
-
-# Persist activation separately from command hints. A sandbox never changes the
-# default shell profile; it can be selected by sourcing its activation file.
-_public_configure_shell() {
-    local install_home="$1" bin_dir="$2" python
-    if [[ -x "$install_home/review/client/bin/python" ]]; then
-        python="$install_home/review/client/bin/python"
-    elif [[ -x "$install_home/runtime/client/bin/python" ]]; then
-        python="$install_home/runtime/client/bin/python"
-    else
-        python="$(command -v python3)" || return 1
-    fi
-    "$python" - "$install_home" "$bin_dir" <<'PY_SHELL'
-import os
-import re
-import shlex
-import sys
-from pathlib import Path
-
-install_home, bin_dir = map(Path, sys.argv[1:3])
-install_home.mkdir(parents=True, exist_ok=True)
-activation = install_home / "shell-env.sh"
-activation.write_text(
-    "# LemonCrow installation environment\n"
-    + f"export LEMONCROW_HOME={shlex.quote(str(install_home))}\n"
-    + f"export LEMONCROW_BIN_DIR={shlex.quote(str(bin_dir))}\n"
-    + f'case "$PATH" in {shlex.quote(str(bin_dir))}|{shlex.quote(str(bin_dir))}:*) ;;\n'
-    + f'    *) export PATH={shlex.quote(str(bin_dir))}:"$PATH" ;;\n'
-    + "esac\n"
-    + "unset LEMONCROW_URL PYTHONPATH\n",
-    encoding="utf-8",
-)
-if install_home.resolve() != (Path.home() / ".lemoncrow").resolve():
-    raise SystemExit(0)
-shell = Path(os.environ.get("SHELL", "")).name
-if shell == "zsh":
-    profiles = [Path(os.environ.get("ZDOTDIR") or str(Path.home())) / ".zshrc"]
-elif shell == "bash":
-    login = next((Path.home() / name for name in (".bash_profile", ".bash_login", ".profile")
-                  if (Path.home() / name).exists()), Path.home() / ".profile")
-    profiles = [Path.home() / ".bashrc", login]
-else:
-    # Other shells can use the explicit activation hint without changing their rc.
-    raise SystemExit(0)
-start, end = "# >>> lemoncrow path setup >>>", "# <<< lemoncrow path setup <<<"
-block = f"{start}\n. {shlex.quote(str(activation))}\n{end}\n"
-for profile in profiles:
-    text = profile.read_text(encoding="utf-8") if profile.exists() else ""
-    if (start in text) != (end in text):
-        raise RuntimeError(f"incomplete LemonCrow block in {profile}; leaving it unchanged")
-    updated = re.sub(r"(?m)^" + re.escape(start) + r"\n.*?^" + re.escape(end) + r"\n?",
-                     "", text, flags=re.DOTALL)
-    profile.parent.mkdir(parents=True, exist_ok=True)
-    profile.write_text(updated.rstrip("\n") + ("\n\n" if updated else "") + block, encoding="utf-8")
-PY_SHELL
-}
-
-# Shared by a real install and --preview. Preview renders checks without running them.
-# The caller owns product/deployment and the resolved home/bin values.
-_public_verify_install() {
-    lc_ui_printf '1;36' '\n◆ Verify installation\n'
-    local exe helper elapsed=0 timeout="${LEMONCROW_LOCAL_SERVER_START_TIMEOUT:-120}"
-    local -a checks=(lc)
-    [[ "$product" == runtime ]] || checks+=(lcr)
-    for exe in "${checks[@]}"; do
-        lc_ui_printf progress 'Checking %s...\n' "$exe"
-        [[ "$preview" == 1 ]] && continue
-        if [[ ! -x "$bin_hint/$exe" ]]; then
-            lc_ui_printf '1;31' 'Installed command is missing: %s\n' "$exe" >&2; return 1
-        fi
-        if [[ "$exe" == lc ]]; then
-            LEMONCROW_HOME="$home_hint" LEMONCROW_NO_LAZY_INSTALL=1 "$bin_hint/$exe" --version >/dev/null || {
-                lc_ui_printf '1;31' 'lc verification failed\n' >&2; return 1;
-            }
-        else
-            LEMONCROW_HOME="$home_hint" LEMONCROW_NO_LAZY_INSTALL=1 "$bin_hint/$exe" --help >/dev/null || {
-                lc_ui_printf '1;31' 'lcr verification failed\n' >&2; return 1;
-            }
+_clean_managed_install_tree() {
+    # The distribution is extracted as a directory tree, not as a versioned
+    # package directory. Remove managed top-level payloads first so files deleted
+    # from a release cannot linger across installs.
+    mkdir -p "$LEMONCROW_INSTALL_DIR"
+    local path
+    for path in \
+        "$LEMONCROW_INSTALL_DIR/bin" \
+        "$LEMONCROW_INSTALL_DIR/constraints.txt" \
+        "$LEMONCROW_INSTALL_DIR/constraints.resolved.txt" \
+        "$LEMONCROW_INSTALL_DIR/deploy" \
+        "$LEMONCROW_INSTALL_DIR/frontend" \
+        "$LEMONCROW_INSTALL_DIR/integrations" \
+        "$LEMONCROW_INSTALL_DIR/scripts" \
+        "$LEMONCROW_INSTALL_DIR/vendor" \
+        "$LEMONCROW_INSTALL_DIR/server"
+    do
+        if [[ -e "$path" || -L "$path" ]]; then
+            rm -rf -- "$path"
         fi
     done
-    if [[ "$product" != review ]]; then
-        lc_ui_printf progress 'Checking Runtime client...\n'
-        if [[ "$preview" != 1 ]]; then
-            exe="$home_hint/runtime/client/bin/lemoncrow-client"
-            [[ -x "$exe" ]] && LEMONCROW_HOME="$home_hint" LEMONCROW_NO_LAZY_INSTALL=1 "$exe" --version >/dev/null || {
-                lc_ui_printf '1;31' 'Runtime client verification failed\n' >&2; return 1;
-            }
-        fi
-    fi
-    if [[ "$product" != runtime && "$deployment" == local ]]; then
-        lc_ui_printf progress 'Checking local Review server on port %s...\n' "$port"
-        if [[ "$preview" != 1 ]]; then
-            helper="$home_hint/install/scripts/local_server.sh"
-            if [[ ! -f "$helper" ]]; then
-                lc_ui_printf '1;31' 'Local server lifecycle helper is missing\n' >&2; return 1
-            fi
-            until LEMONCROW_HOME="$home_hint" LEMONCROW_LOCAL_SERVER_PORT="$port" bash "$helper" status >/dev/null 2>&1; do
-                if [[ "$elapsed" -ge "$timeout" ]]; then
-                    lc_ui_printf '1;31' 'Review server did not remain healthy on port %s after %s seconds\n' "$port" "$timeout" >&2
-                    LEMONCROW_HOME="$home_hint" LEMONCROW_LOCAL_SERVER_PORT="$port" bash "$helper" diagnose || true
-                    return 1
-                fi
-                if (( elapsed % 10 == 0 )); then lc_ui_printf progress 'Waiting for Review server: %s of %s seconds\n' "$elapsed" "$timeout"; fi
-                sleep 1; elapsed=$((elapsed + 1))
-            done
-        fi
-    elif [[ "$product" != runtime ]]; then
-        lc_ui_printf progress 'Checking hosted Review configuration...\n'
-        if [[ "$preview" != 1 ]] && ! grep -qx "LEMONCROW_INSTALL_MODE=hosted" "$home_hint/review/env"; then
-            lc_ui_printf '1;31' 'Hosted Review configuration verification failed\n' >&2; return 1
-        fi
-    fi
-    if [[ "$preview" == 1 ]]; then
-        lc_ui_printf '36' 'Verification steps previewed; no checks were run.\n'
-    else
-        lc_ui_printf '1;32' '✓ Installation verified\n'
-    fi
 }
 
-_public_show_summary() {
-    local product_label
-    case "$deployment:$product" in
-        local:review) product_label="Local Review" ;;
-        cloud:review) product_label="Hosted Review" ;;
-        local:runtime) product_label="Runtime Lite" ;;
-        cloud:runtime) product_label="Hosted Runtime" ;;
-        local:both) product_label="Local Review and Runtime Lite" ;;
-        cloud:both) product_label="Hosted Review and Runtime" ;;
-    esac
-    if [[ "$preview" == 1 ]]; then
-        lc_ui_printf '1;36' '\n◆ Expected result: %s (not installed)\n' "$product_label"
-    else
-        lc_ui_printf '1;32' '\n✓ %s ready\n' "$product_label"
+# ---- download & extract ------------------------------------------------------
+if [[ "$LEMONCROW_LOCAL" == "1" ]]; then
+    LOCAL_SRC_ABS="$(cd "${LEMONCROW_LOCAL_SRC}" 2>/dev/null && pwd)" \
+        || fail "Local bundle not found at '${LEMONCROW_LOCAL_SRC}'. Run 'make build' first."
+    [[ -f "${LOCAL_SRC_ABS}/frontend/index.html" ]] \
+        || fail "Local bundle is missing frontend/index.html. Run 'make build' again before installing."
+    local_review_chunk="$(find "${LOCAL_SRC_ABS}/frontend/assets" -maxdepth 1 -name 'ReviewReader-*.js' -print -quit 2>/dev/null || true)"
+    [[ -n "$local_review_chunk" ]] \
+        || fail "Local bundle is missing the Review Reader frontend chunk. Run 'make build' again before installing."
+    mkdir -p "${LEMONCROW_INSTALL_DIR}"
+    INSTALL_DIR_ABS="$(cd "${LEMONCROW_INSTALL_DIR}" && pwd)"
+    if [[ "${LOCAL_SRC_ABS}" != "${INSTALL_DIR_ABS}" ]]; then
+        _clean_managed_install_tree
+        cp -r "${LOCAL_SRC_ABS}/." "${INSTALL_DIR_ABS}/"
+        cmp -s "${LOCAL_SRC_ABS}/frontend/index.html" "${INSTALL_DIR_ABS}/frontend/index.html" \
+            || fail "Installed frontend does not match the local production bundle. Refusing a mixed-version install."
     fi
-    if [[ "$product" == review || "$product" == both ]]; then
-        if [[ "$deployment" == local ]]; then
-            lc_ui_printf '36' '  Review endpoint: http://127.0.0.1:%s\n' "$port"
-        else
-            lc_ui_printf '36' '  Review endpoint: %s\n' "$cloud_url"
-        fi
-    fi
-    if [[ "$preview" != 1 && "${home_hint%/}" == "$HOME/.lemoncrow" && "${SHELL:-}" =~ (^|/)(bash|zsh)$ ]]; then
-        lc_ui_printf '36' '  Shell profile configured; new terminals are ready.\n'
-    fi
-    if [[ "$preview" == 1 ]]; then
-        lc_ui_printf '1;36' '\nAfter a real installation:\n'
-    else
-        lc_ui_printf '1;36' '\nNext:\n'
-    fi
-    lc_ui_printf '36' '  Activate in this terminal: source %q/shell-env.sh\n' "$home_hint"
-    if [[ "$deployment" == cloud ]]; then
-        lc_ui_printf command '  Sign in:' 'lc auth login' '   # Hosted needs an invited account'
-    fi
-    if [[ "$product" == review || "$product" == both ]]; then
-        lc_ui_printf command '  Open Review:' 'lcr'
-        if [[ "$deployment" == local ]]; then
-            lc_ui_printf command '  AI review of your change:' 'lc review --ai' '   # first: export ANTHROPIC_API_KEY=sk-ant-...  or add --agent claude'
-        fi
-    fi
-    if [[ "$product" != review ]]; then
-        lc_ui_printf command '  Check Runtime:' 'lc rt status'
-    fi
-    if [[ -z "$agent" || "$deployment" == local ]]; then
-        lc_ui_printf '1;36' '\nOptional:\n'
-    fi
-    if [[ -z "$agent" ]]; then
-        lc_ui_printf command '  Enable Runtime for an agent:' 'lc runtime enable codex' '   # or claude / opencode / auto'
-    fi
-    if [[ "$deployment" == local ]]; then
-        lc_ui_printf command '  Use Hosted LemonCrow instead:' 'curl -fsSL https://lemoncrow.com/install.sh | bash -s -- --hosted' '   # invited account'
-    fi
-    lc_ui_printf '36' '\nTroubleshooting: lc status · https://docs.lemoncrow.com/setup/troubleshooting\n'
-}
+    _write_install_stamp "local:${LOCAL_SRC_ABS}"
+elif [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
+    echo "  [dry-run] ${DOWNLOAD_CMD[*]} $RELEASE_URL > /tmp/${ASSET_NAME}"
+    echo "  [dry-run] tar -xzf /tmp/${ASSET_NAME} -C $LEMONCROW_INSTALL_DIR"
+    echo "  [dry-run] Binaries would be installed to: $LEMONCROW_BIN_DIR"
+    echo ""
+    exit 0
+else
+    mkdir -p "$LEMONCROW_BIN_DIR"
+    TMP_ARCHIVE="$(mktemp -t lemoncrow-binaries.XXXXXX.tar.gz)"
+    trap 'rm -f "$TMP_ARCHIVE"' EXIT
 
-# Print the URL of an existing hosted Review/Runtime install under HOME; fail if none.
-_public_recorded_hosted_url() {
-    local env_file line mode url
-    for env_file in "$1/review/env" "$1/runtime/env"; do
-        [[ -f "$env_file" ]] || continue
-        mode="" url=""
-        while IFS= read -r line || [[ -n "$line" ]]; do
-            case "$line" in
-                LEMONCROW_INSTALL_MODE=*) mode="${line#*=}" ;;
-                LEMONCROW_URL=*) url="${line#*=}" ;;
-            esac
-        done <"$env_file"
-        # The first recorded product decides; a local Review is never overridden.
-        [[ "$mode" == hosted ]] || return 1
-        printf '%s\n' "${url:-https://api.lemoncrow.com}"
-        return 0
+    verbose "Downloading from: $RELEASE_URL"
+    printf "  ${_CP}◇${_C0}  ${_CB}Downloading${_C0} LemonCrow %s  ${_CD}(%s)${_C0}\n" \
+        "${LEMONCROW_RELEASE_TAG}" "${BINARY_SUFFIX}" >&2
+    if ! _dl_progress "$RELEASE_URL" "$TMP_ARCHIVE"; then
+        fail "Could not download ${ASSET_NAME}. The release may not include this platform asset yet: ${RELEASE_URL}"
+    fi
+
+    if [[ ! -s "$TMP_ARCHIVE" ]]; then
+        fail "Downloaded archive is empty: ${RELEASE_URL}"
+    fi
+
+    verify_checksum "$TMP_ARCHIVE" "$RELEASE_URL"
+    _clean_managed_install_tree
+
+    printf "  ${_CP}◇${_C0}  ${_CB}Extracting${_C0}\n" >&2
+    _extract_progress "$TMP_ARCHIVE" "$LEMONCROW_INSTALL_DIR" \
+        || _fail_install "Could not extract ${ASSET_NAME} — the download is corrupt or truncated: ${RELEASE_URL}"
+    _write_install_stamp "release:${RELEASE_URL}"
+
+    info "Distribution extracted to: ${LEMONCROW_INSTALL_DIR}"
+fi
+
+# ---- run full setup via bundle.sh (installs wheel + host integrations) ------
+# ---- run full setup via bundle.sh (installs wheel + optional host integrations) ----
+# The wheel installation is mandatory. --no-hosts only suppresses host integration
+# setup inside bundle.sh; it must never skip installing LemonCrow itself.
+export PATH="${LEMONCROW_BIN_DIR}:${PATH}"
+BUNDLE_SH="${LEMONCROW_INSTALL_DIR}/scripts/bundle.sh"
+# bundle.sh records the bin dir it actually installed into here: it may re-point
+# LEMONCROW_BIN_DIR to `uv tool dir --bin`, and that change never reaches this
+# (parent) process. Drop any stale value first so we cannot read a previous
+# install's answer.
+BIN_DIR_RECORD="${LEMONCROW_INSTALL_DIR%/}/.lemoncrow-bin-dir"
+rm -f "$BIN_DIR_RECORD" 2>/dev/null || true
+if [[ -f "$BUNDLE_SH" ]]; then
+    SETUP_ARGS=()
+    [[ "$LEMONCROW_DRY_RUN" == "1" ]] && SETUP_ARGS+=(--dry-run)
+    [[ "$LEMONCROW_NON_INTERACTIVE" == "1" ]] && SETUP_ARGS+=(--non-interactive)
+    [[ "$LEMONCROW_NO_HOSTS" == "1" ]] && SETUP_ARGS+=(--no-hosts)
+    # When piped from curl, bash reads install.sh from stdin (a pipe), so
+    # bundle.sh inherits that pipe as fd 0. Give interactive setup a real TTY
+    # when one is available; otherwise keep stdin as-is for CI/containers.
+    # `: </dev/tty 2>/dev/null` is not silent: bash reports the failed
+    # shell-level redirection before 2>/dev/null can apply, so every non-tty
+    # install leaked "/dev/tty: No such device or address" to stderr. Wrapping
+    # the whole redirection in a group makes the suppression stick (same fix as
+    # the flock `exec 9>` line above).
+    if [[ ! -t 0 ]] && { : </dev/tty; } 2>/dev/null; then
+        LEMONCROW_INSTALL_DIR="$LEMONCROW_INSTALL_DIR" \
+        LEMONCROW_BIN_DIR="$LEMONCROW_BIN_DIR" \
+        bash "$BUNDLE_SH" "${SETUP_ARGS[@]+${SETUP_ARGS[@]}}" </dev/tty \
+            || _fail_install "LemonCrow setup failed while installing the bundled wheel."
+    else
+        LEMONCROW_INSTALL_DIR="$LEMONCROW_INSTALL_DIR" \
+        LEMONCROW_BIN_DIR="$LEMONCROW_BIN_DIR" \
+        bash "$BUNDLE_SH" "${SETUP_ARGS[@]+${SETUP_ARGS[@]}}" \
+            || _fail_install "LemonCrow setup failed while installing the bundled wheel."
+    fi
+else
+    _fail_install "bundle.sh not found at ${BUNDLE_SH} — the distribution archive is incomplete."
+fi
+
+# ---- assert the bundle actually installed something --------------------------
+# bundle.sh exiting 0 is not proof of an install: a distribution missing its
+# wheel used to return 0 and leave an empty bin/ (GH #41). Resolve the bin dir
+# the child really used — recorded value first, then this process's (possibly
+# stale) value, then uv's tool bin dir — and require the binary to be there.
+_resolve_installed_bin_dir() {
+    local recorded candidate
+    recorded="$(cat "$BIN_DIR_RECORD" 2>/dev/null || true)"
+    for candidate in "$recorded" "$LEMONCROW_BIN_DIR" "$(uv tool dir --bin 2>/dev/null || true)"; do
+        if [[ -n "$candidate" && -x "${candidate}/lemoncrow" ]]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
     done
     return 1
 }
-
-_public_install() {
-    local product="${LEMONCROW_PRODUCT:-}"
-    local deployment="${LEMONCROW_DEPLOYMENT:-}"
-    local agent="${LEMONCROW_RUNTIME_AGENT:-}"
-    local cloud_url="${LEMONCROW_HOSTED_URL:-${LEMONCROW_URL:-}}"
-    local port="${LEMONCROW_LOCAL_SERVER_PORT:-7420}"
-    local dry_run="${LEMONCROW_DRY_RUN:-0}" preview=0
-    local non_interactive="${LEMONCROW_NON_INTERACTIVE:-0}"
-    local explicit_deployment=0
-    local -a args=("$@")
-    local i=0 arg
-
-    while (( i < ${#args[@]} )); do
-        arg="${args[$i]}"
-        case "$arg" in
-            --product)
-                (( i + 1 < ${#args[@]} )) || { lc_ui_printf '1;31' '%s\n' "install.sh: --product needs a value" >&2; return 2; }
-                product="${args[$((i+1))]}"; i=$((i+2));;
-            --product=*) product="${arg#--product=}"; i=$((i+1));;
-            --cloud|--hosted) deployment="cloud"; explicit_deployment=1; i=$((i+1));;
-            --local) deployment="local"; explicit_deployment=1; i=$((i+1));;
-            --agent)
-                (( i + 1 < ${#args[@]} )) || { lc_ui_printf '1;31' '%s\n' "install.sh: --agent needs a value" >&2; return 2; }
-                agent="${args[$((i+1))]}"; i=$((i+2));;
-            --agent=*) agent="${arg#--agent=}"; i=$((i+1));;
-            --url)
-                (( i + 1 < ${#args[@]} )) || { lc_ui_printf '1;31' '%s\n' "install.sh: --url needs a value" >&2; return 2; }
-                cloud_url="${args[$((i+1))]}"; i=$((i+2));;
-            --url=*) cloud_url="${arg#--url=}"; i=$((i+1));;
-            --port)
-                (( i + 1 < ${#args[@]} )) || { lc_ui_printf '1;31' '%s\n' "install.sh: --port needs a value" >&2; return 2; }
-                port="${args[$((i+1))]}"; i=$((i+2));;
-            --port=*) port="${arg#--port=}"; i=$((i+1));;
-            --preview) preview=1; i=$((i+1));;
-            --dry-run) dry_run=1; i=$((i+1));;
-            --non-interactive) non_interactive=1; i=$((i+1));;
-            -h|--help|help) _public_install_usage; return 0;;
-            *) lc_ui_printf '1;31' '%s\n' "install.sh: unknown option: $arg" >&2; _public_install_usage >&2; return 2;;
-        esac
-    done
-
-    case "$product" in review|runtime|both|"") ;; *) lc_ui_printf '1;31' '%s\n' "install.sh: --product must be review, runtime, or both" >&2; return 2;; esac
-    case "$deployment" in cloud|hosted) deployment="cloud";; local|"") ;; *) lc_ui_printf '1;31' '%s\n' "install.sh: deployment must be local or hosted" >&2; return 2;; esac
-    case "$agent" in ""|auto|claude|codex|opencode) ;; *) lc_ui_printf '1;31' '%s\n' "install.sh: --agent must be claude, codex, opencode, or auto" >&2; return 2;; esac
-
-    # No prompts: bare install is Local Review (no account). Runtime is fetched
-    # the first time `lc rt enable <host>` needs it. Hosted is opt-in: --hosted,
-    # a non-loopback --url, or an existing hosted install being re-run.
-    [[ -z "$product" ]] && product="review"
-    local home_hint="${LEMONCROW_HOME:-$HOME/.lemoncrow}"
-    local bin_hint="${LEMONCROW_BIN_DIR:-$home_hint/bin}"
-    if [[ -z "$deployment" && -z "$cloud_url" ]]; then
-        cloud_url="$(_public_recorded_hosted_url "$home_hint")" && deployment="cloud" \
-            && lc_ui_printf '36' 'Keeping the existing Hosted install at %s (use --local to switch).\n' "$cloud_url"
-    fi
-    if [[ -z "$deployment" ]]; then
-        case "$cloud_url" in
-            ""|http://localhost|http://localhost/*|http://localhost:*|http://127.0.0.1|http://127.0.0.1/*|http://127.0.0.1:*|http://\[::1\]|http://\[::1\]/*|http://\[::1\]:*) deployment="local";;
-            *) deployment="cloud";;
-        esac
-    fi
-    [[ -n "$cloud_url" ]] || cloud_url="https://api.lemoncrow.com"
-
-    if [[ -n "$agent" && "$product" == "review" ]]; then
-        lc_ui_printf '1;31' '%s\n' "install.sh: --agent requires Runtime; choose --product runtime or --product both" >&2
-        return 2
-    fi
-    if [[ "$deployment" == "local" && ( "$product" == "review" || "$product" == "both" ) ]]; then
-        [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] && (( port <= 65535 )) || { lc_ui_printf '1;31' '%s\n' "install.sh: invalid --port: $port" >&2; return 2; }
-    fi
-
-    if [[ "$preview" == 1 ]]; then
-        lc_ui_printf '36' 'Preview only: no downloads, installation, or shell changes.\n'
-        lc_ui_printf '1;36' '\n◆ LemonCrow install\n'
-        if [[ "$deployment" == local && "$product" != runtime ]]; then
-            lc_ui_printf progress 'Installing Review engine...\n'
-            lc_ui_printf progress 'Installing engine dependencies...\n'
-        fi
-        if [[ "$product" != runtime ]]; then
-            lc_ui_printf progress 'Installing Review client...\n'
-        fi
-        if [[ "$product" != review ]]; then
-            lc_ui_printf progress 'Installing Runtime client...\n'
-        fi
-        if [[ "$deployment" == local && "$product" != runtime ]]; then
-            lc_ui_printf progress 'Starting local Review server...\n'
-        fi
-        _public_verify_install || return $?
-        lc_ui_printf progress 'Configuring shell activation...\n'
-        _public_show_summary
-        return 0
-    fi
-    lc_ui_printf '1;36' '\n◆ LemonCrow install\n'
-    if [[ "${LEMONCROW_VERBOSE:-0}" == 1 || "$dry_run" == 1 ]]; then
-        lc_ui_printf '36' '  Products:   %s\n' "$product"
-        lc_ui_printf '36' '  Deployment: %s\n' "$deployment"
-    fi
-    if [[ "${LEMONCROW_VERBOSE:-0}" == 1 || "$dry_run" == 1 ]]; then
-        if [[ "$deployment" == local && "$product" != review ]]; then
-            lc_ui_printf '36' '  Runtime:    Local Lite (no server/daemon)\n'
-        fi
-        if [[ "$product" != review ]]; then
-            lc_ui_printf '36' '  Agent:      %s\n' "${agent:-not enabled}"
-        fi
-    fi
-
-    _public_prepare_helpers || return 1
-    local review_helper runtime_helper
-    local -a review_args runtime_args
-    if [[ "$deployment" == "cloud" ]]; then
-        # LEMONCROW_DEPLOYMENT=cloud keeps a loopback --url hosted (a local
-        # enterprise server) instead of the helpers' loopback-means-local default.
-        if [[ "$product" == "review" || "$product" == "both" ]]; then
-            lc_ui_printf progress 'Installing Review client...\n'
-            review_helper="$(_public_fetch_helper hosted.sh)" || return 1
-            review_args=(--url "$cloud_url")
-            [[ "$dry_run" == "1" ]] && review_args+=(--dry-run)
-            LEMONCROW_INSTALL_NESTED=1 LEMONCROW_DEPLOYMENT=cloud bash "$review_helper" "${review_args[@]}" || return $?
-        fi
-        if [[ "$product" == "runtime" || "$product" == "both" ]]; then
-            lc_ui_printf progress 'Installing Runtime client...\n'
-            runtime_helper="$(_public_fetch_helper runtime.sh)" || return 1
-            runtime_args=(--url "$cloud_url")
-            [[ -n "$agent" ]] && runtime_args+=(--agent "$agent")
-            [[ "$dry_run" == "1" ]] && runtime_args+=(--dry-run)
-            LEMONCROW_INSTALL_NESTED=1 LEMONCROW_DEPLOYMENT=cloud bash "$runtime_helper" "${runtime_args[@]}" || return $?
+# An executable file is not a working install: a wheel built for another
+# interpreter, a half-written venv or a missing dependency all leave a binary
+# that is `-x` but dies on first run. Run it once and require success, so the
+# success banner is never printed over a broken CLI (GH #41).
+LEMONCROW_INSTALLED_VERSION=""
+if [[ "$LEMONCROW_DRY_RUN" != "1" ]]; then
+    if RESOLVED_BIN_DIR="$(_resolve_installed_bin_dir)"; then
+        LEMONCROW_BIN_DIR="$RESOLVED_BIN_DIR"
+        export LEMONCROW_BIN_DIR
+        export PATH="${LEMONCROW_BIN_DIR}:${PATH}"
+        verbose "LemonCrow binary installed at ${LEMONCROW_BIN_DIR}/lemoncrow"
+        version_err="$(mktemp 2>/dev/null || echo /tmp/lemoncrow-version.$$)"
+        if LEMONCROW_INSTALLED_VERSION="$("${LEMONCROW_BIN_DIR}/lemoncrow" --version 2>"$version_err")"; then
+            rm -f "$version_err"
+        else
+            version_detail="$(tail -3 "$version_err" 2>/dev/null || true)"
+            rm -f "$version_err"
+            _fail_install "LemonCrow installed at ${LEMONCROW_BIN_DIR}/lemoncrow but it does not run (\`lemoncrow --version\` failed)${version_detail:+: ${version_detail}}"
         fi
     else
-        if [[ "$product" == "review" || "$product" == "both" ]]; then
-            review_helper="$(_public_fetch_helper local_review.sh)" || return 1
-            review_args=(--port "$port")
-            [[ "$dry_run" == "1" ]] && review_args+=(--dry-run)
-            LEMONCROW_INSTALL_NESTED=1 bash "$review_helper" "${review_args[@]}" || return $?
-        fi
-        if [[ "$product" == "runtime" || "$product" == "both" ]]; then
-            lc_ui_printf progress 'Installing Runtime Lite...\n'
-            runtime_helper="$(_public_fetch_helper local_runtime.sh)" || return 1
-            runtime_args=()
-            [[ -n "$agent" ]] && runtime_args+=(--agent "$agent")
-            [[ "$dry_run" == "1" ]] && runtime_args+=(--dry-run)
-            LEMONCROW_INSTALL_NESTED=1 bash "$runtime_helper" "${runtime_args[@]}" || return $?
-        fi
+        _fail_install "LemonCrow setup reported success but installed no lemoncrow binary (looked in ${LEMONCROW_BIN_DIR} and the uv tool bin dir). The distribution archive is incomplete — re-run the installer."
+    fi
+fi
+# ---- PATH persistence --------------------------------------------------------
+if [[ "$LEMONCROW_NO_PATH" != "1" ]]; then
+    case "$(basename "${SHELL:-bash}")" in
+        zsh)  PROFILE="${ZDOTDIR:-$HOME}/.zshrc" ;;
+        bash) PROFILE="$HOME/.bashrc" ;;
+        fish) PROFILE="$HOME/.config/fish/config.fish" ;;
+        *)    PROFILE="$HOME/.profile" ;;
+    esac
+
+    if ! echo ":$PATH:" | grep -q ":${LEMONCROW_BIN_DIR}:"; then
+        export PATH="${LEMONCROW_BIN_DIR}:${PATH}"
+        info "Added ${LEMONCROW_BIN_DIR} to PATH for this session"
     fi
 
-    [[ "$dry_run" == "1" ]] && return 0
-    _public_verify_install || return $?
-    lc_ui_printf progress 'Configuring shell activation...\n'
-    _public_configure_shell "$home_hint" "$bin_hint" || return $?
-    _public_show_summary
-}
+    # Symlink into ~/.local/bin so non-login shells (opencode MCP spawns) find
+    # lemoncrow. The short `lc` alias gets the same treatment -- MCP host
+    # configs (e.g. Claude Code's mcpServers) invoke
+    # the bare `lc` command. Only link a binary that is really there, and only
+    # into a slot that is empty or holds a dangling LemonCrow link (the GH #41
+    # leftover): never over a real file or a link that resolves elsewhere.
+    # `-x`, not `-e`: a non-executable leftover in BIN_DIR is not a binary, and
+    # linking it into ~/.local/bin only puts "Permission denied" on PATH.
+    LOCAL_BIN="${HOME}/.local/bin"
+    for short_bin in lemoncrow lc; do
+        if [[ -x "${LEMONCROW_BIN_DIR}/${short_bin}" ]] && _local_bin_slot_writable "$LOCAL_BIN/${short_bin}"; then
+            mkdir -p "$LOCAL_BIN" 2>/dev/null || true
+            ln -sfn "${LEMONCROW_BIN_DIR}/${short_bin}" "$LOCAL_BIN/${short_bin}"
+            info "Symlinked ${short_bin} -> ${LOCAL_BIN}/${short_bin}"
+        fi
+    done
+    # `lcr` -> `lc review`, the command people run many times a day. It goes
+    # inside the sentinel block so `uninstall.sh` takes it away again, and it is
+    # appended on its own when an earlier install already wrote the PATH line.
+    _alias_line() {
+        case "$PROFILE" in
+            *config.fish) echo "alias lcr 'lc review'" ;;
+            *)            echo "alias lcr='lc review'" ;;
+        esac
+    }
 
-# Older full-engine clients use this shim with the original arguments.
-if [[ "${LEMONCROW_ENGINE_INSTALL:-0}" == "1" ]]; then
-    _public_prepare_helpers || exit 1
-    _engine_installer="$(_public_fetch_helper engine_install.sh)" \
-        || { lc_ui_printf '1;31' '%s\n' "install.sh: could not obtain engine_install.sh from $(_public_release_base_url)" >&2; exit 1; }
-    bash "$_engine_installer" "$@"
-    exit $?
+    if [[ -f "$PROFILE" ]] && ! grep -q "lemoncrow.*PATH" "$PROFILE" 2>/dev/null; then
+        {
+            echo ""
+            echo "# >>> lemoncrow >>>"
+            echo "export PATH=\"${LEMONCROW_BIN_DIR}:\$PATH\""
+            [[ "${LEMONCROW_NO_ALIAS:-0}" != "1" ]] && _alias_line
+            echo "# <<< lemoncrow <<<"
+        } >> "$PROFILE"
+        info "Added to PATH in ${PROFILE/#$HOME/~}"
+    elif [[ -f "$PROFILE" && "${LEMONCROW_NO_ALIAS:-0}" != "1" ]] \
+        && ! grep -q "alias lcr" "$PROFILE" 2>/dev/null; then
+        {
+            echo ""
+            echo "# >>> lemoncrow >>>"
+            _alias_line
+            echo "# <<< lemoncrow <<<"
+        } >> "$PROFILE"
+    fi
+    if [[ "${LEMONCROW_NO_ALIAS:-0}" != "1" ]] && grep -q "alias lcr" "$PROFILE" 2>/dev/null; then
+        info "\`lcr\` runs \`lc review\` (LEMONCROW_NO_ALIAS=1 to skip)"
+    fi
 fi
 
-_public_install "$@"
+# ---- done --------------------------------------------------------------------
+echo ""
+cli="lemoncrow"
+[[ -x "${LEMONCROW_BIN_DIR}/lc" ]] && cli="lc"
+# Report readiness for the binary THIS run installed. `command -v lc` used to
+# satisfy this test with any foreign/older lc on PATH, so an install that put
+# nothing in place still printed the success banner. The version was also
+# captured with `|| echo ''`, which swallowed a binary that could not run at
+# all — so this reuses the version proven above rather than re-running and
+# ignoring failure.
+if [[ -n "$LEMONCROW_INSTALLED_VERSION" ]]; then
+    # `lemoncrow --version` prints "lemoncrow, version 0.7.4": show the number
+    # alone, not the CLI's own name a second time.
+    version_label="${LEMONCROW_INSTALLED_VERSION%%$'\n'*}"
+    version_label="${version_label##* }"
+    echo "  Version:      ${version_label}"
+    if [[ "$LEMONCROW_INSTALL_MODE" == "local" ]]; then
+        echo "  Frontend:     http://127.0.0.1:${LEMONCROW_LOCAL_SERVER_PORT:-7420}"
+    fi
+    echo "  Quick start:  ${cli} --help"
+    if [[ "$LEMONCROW_INSTALL_MODE" == "local" || "$LEMONCROW_INSTALL_MODE" == "hosted" ]]; then
+        echo "  Connection:   ${cli} mcp check"
+    else
+        echo "  Init runtime: ${cli} init"
+    fi
+    echo "  Docs:         https://docs.lemoncrow.com"
+    echo "  Github:       https://github.com/lemoncrow-lab/lemoncrow"
+else
+    info "LemonCrow installed to ${LEMONCROW_BIN_DIR}"
+    echo ""
+    echo "  Restart your shell or run:"
+    echo "    export PATH=\"${LEMONCROW_BIN_DIR}:\$PATH\""
+    echo "    ${cli} --help"
+fi
+echo ""

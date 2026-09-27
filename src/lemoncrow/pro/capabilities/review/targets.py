@@ -18,23 +18,11 @@ second approval state.
 
 from __future__ import annotations
 
-import ast
-import contextlib
-import functools
-import hashlib
 import re
-import time
-from collections.abc import Collection, Iterator, Mapping, Sequence
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from collections.abc import Collection, Mapping, Sequence
+from dataclasses import dataclass
+from typing import Any, Literal, cast
 
-from lemoncrow.pro.capabilities.review.review_priority import (
-    QueueReason,
-    TargetPriority,
-    assign_review_priority,
-    priority_payload,
-)
 from lemoncrow.pro.capabilities.review.session_models import (
     Annotation,
     FrontierEntry,
@@ -42,12 +30,8 @@ from lemoncrow.pro.capabilities.review.session_models import (
     ReviewEvidence,
     ReviewUnit,
 )
-from lemoncrow.pro.capabilities.review.units import module_data_name
 
-if TYPE_CHECKING:
-    from lemoncrow.pro.capabilities.review.routine import RoutineProof
-
-TargetKind = Literal["symbol", "hunk", "file", "dependency", "document_section"]
+TargetKind = Literal["symbol", "hunk", "file", "dependency"]
 TargetSide = Literal["old", "new"]
 AttentionLevel = Literal["high", "normal", "mechanical"]
 TargetOrder = Literal["recommended", "file"]
@@ -134,10 +118,6 @@ class ReviewTarget:
     fingerprint_method: str
     verification: TargetVerification = TargetVerification()
     annotation_counts: TargetAnnotationCounts = TargetAnnotationCounts()
-    structural_level: AttentionLevel = "normal"
-    """Generated/vendor classification before the queue rewrote ``attention_level``."""
-    priority: TargetPriority = field(default_factory=TargetPriority)
-    """Canonical queue placement; see :mod:`review_priority`."""
 
 
 @dataclass(frozen=True)
@@ -163,16 +143,6 @@ class ReviewOutlineItem:
     mechanical: int
     attention_rank: int
     reasons: tuple[str, ...]
-    section: str = "unreviewed"
-    """``review_first`` | ``unreviewed`` | ``mechanical`` | ``done``, from the
-    file's first outstanding queue entry."""
-    position: int = 0
-    next_target_id: str = ""
-    next_reason: str = ""
-    next_reason_code: str = ""
-    review_first: int = 0
-    understand: int = 0
-    routine: int = 0
 
 
 @dataclass(frozen=True)
@@ -416,28 +386,34 @@ def _frontier_state(entry: FrontierEntry | None) -> tuple[MarkState, bool, str]:
     if entry is None:
         return "unreviewed", False, ""
     state = entry.state
-    # Either judgment covers only the content it was made on (spec §7: content
-    # changed since judgment is re-review). A changed needs-changes area -- the
-    # author's fix -- reopens for the human; the durable mark itself is never
-    # withdrawn, so reverting the content restores it.
-    if entry.changed_since_mark and state in ("reviewed", "needs_changes"):
+    if entry.changed_since_mark and state == "reviewed":
         state = "changed_since_review"
     return state, entry.changed_since_mark, entry.reviewed_revision_id
 
 
-def reason_is_informative(reason: str) -> bool:
-    """Whether one ranker reason is worth *showing* as context for a row.
+def reason_is_promoting(reason: str, *, kind: str = "file") -> bool:
+    """Whether one ranking reason is a finding rather than a description.
 
-    No reason string decides a tier: the canonical queue in
-    :mod:`review_priority` promotes only on sourced records (spec §7). This
-    predicate only filters what the outline prints beside a file.
+    Attention is only worth anything if it discriminates *within the list it is
+    ranking*. Some reasons are carried by every row of their kind and so argue
+    for nothing: the churn line on every ranked file, the skim note on every
+    generated/vendor file, and the change verb ``units._symbol_reasons`` stamps
+    on every symbol unit. Promoting on those puts the entire review in "needs
+    attention" and leaves bulk completion with nothing it is allowed to sweep.
 
-    Some reasons are carried by every row of their kind and so say nothing: the
-    churn line on every ranked file, the skim note on every generated/vendor
-    file, and the change verb ``units._symbol_reasons`` stamps on every symbol
-    unit. "``N`` known callers" describes topology, not a consequence or a
-    review question (spec §2 defect 1), and ``units._symbol_reasons`` copies a
-    file's count onto every symbol of that file, so it never qualifies.
+    "``N`` known callers" is the one reason whose answer depends on *kind*, and
+    it cannot be decided from the string. ``ordering.rank_files`` writes it for
+    a file, where it does separate this file from the others; then
+    ``units._symbol_reasons`` copies the file's whole reason list onto every
+    symbol unit of that file and adds the symbol's own count in the same words.
+    Inside one file, therefore, every symbol and hunk target carries it and it
+    separates nothing -- which is exactly how bulk completion came to have
+    nothing to sweep on any repo whose call index resolves. A count of zero
+    says the index found nothing pointing at the row and is never a finding.
+
+    ``api.group_for`` and :func:`_attention_level` decide the same question for
+    the two panes of the same reader, so they ask it here rather than keeping a
+    copy each.
     """
 
     text = reason.strip()
@@ -445,14 +421,20 @@ def reason_is_informative(reason: str) -> bool:
         return False
     if text in _DESCRIPTIVE_REASONS:
         return False
-    return _CALLER_COUNT_REASON.match(text) is None
+    callers = _CALLER_COUNT_REASON.match(text)
+    if callers is not None:
+        return kind == "file" and _as_int(callers.group(1)) > 0
+    return True
 
 
-def _attention_level(unit: ReviewUnit) -> AttentionLevel:
-    """Structural level only; the canonical queue decides ``high``."""
-
+def _attention_level(unit: ReviewUnit, entry: FrontierEntry | None) -> AttentionLevel:
+    state, changed, _ = _frontier_state(entry)
+    if state in ("changed_since_review", "needs_changes") or changed:
+        return "high"
     if unit.attention_group in ("generated", "vendor"):
         return "mechanical"
+    if any(reason_is_promoting(reason, kind=unit.kind) for reason in unit.reasons):
+        return "high"
     return "normal"
 
 
@@ -506,7 +488,6 @@ def target_has_unresolved_request_change(
     return any(
         item.kind == "request_change"
         and item.state in ("open", "orphaned")
-        and item.author_response != "addressed"
         and _annotation_belongs_to_target(
             target.unit_key,
             target.path,
@@ -554,12 +535,7 @@ def paths_with_unattributed_request_change(
     keys_by_path = target_keys_by_path(targets)
     out: set[str] = set()
     for item in annotations:
-        if (
-            item.parent_id
-            or item.kind != "request_change"
-            or item.state not in ("open", "orphaned")
-            or item.author_response == "addressed"
-        ):
+        if item.parent_id or item.kind != "request_change" or item.state not in ("open", "orphaned"):
             continue
         owners = by_path.get(item.anchor.path)
         if not owners:
@@ -623,14 +599,10 @@ def _annotation_counts(
     already belongs to a sibling target by name.
     """
 
-    # Only human feedback is review work (spec §7; ``ReviewClosure`` counts the
-    # same way). Author rationale, AI-review hints and LemonCrow notes explain
-    # or suggest; counting them would turn preparation into fake open threads.
     roots = [
         item
         for item in annotations
-        if item.source == "human"
-        and _annotation_belongs_to_target(
+        if _annotation_belongs_to_target(
             unit.unit_key,
             unit.path,
             spans,
@@ -663,10 +635,10 @@ def _target(
     return ReviewTarget(
         target_id=f"target:{unit.unit_key}",
         unit_key=unit.unit_key,
-        kind=unit.kind if unit.kind in ("symbol", "hunk", "file", "dependency", "document_section") else "file",
+        kind=unit.kind if unit.kind in ("symbol", "hunk", "file", "dependency") else "file",
         path=unit.path,
-        label=f"{unit.path}::Module declarations" if unit.kind == "document_section" else _unit_label(unit),
-        symbol="" if unit.kind == "document_section" else unit.symbol,
+        label=_unit_label(unit),
+        symbol=unit.symbol,
         start_line=unit.start_line,
         end_line=unit.end_line,
         hunk_ordinals=tuple(sorted({span.hunk_ordinal for span in ordered_spans if span.hunk_ordinal >= 0})),
@@ -675,8 +647,7 @@ def _target(
         changed_since_mark=changed,
         reviewed_revision_id=reviewed_revision_id,
         attention_rank=unit.attention_rank,
-        attention_level=_attention_level(unit),
-        structural_level=_attention_level(unit),
+        attention_level=_attention_level(unit, entry),
         reasons=unit.reasons or ("no ranking signal fired -- review in normal order",),
         additions=_span_size(ordered_spans, "new") if additions is None else additions,
         deletions=_span_size(ordered_spans, "old") if deletions is None else deletions,
@@ -689,13 +660,13 @@ def _target(
 def _trustworthy_symbols(units: Sequence[ReviewUnit]) -> tuple[ReviewUnit, ...]:
     counts: dict[tuple[str, str], int] = {}
     for unit in units:
-        if unit.kind in ("symbol", "document_section") and unit.symbol:
+        if unit.kind == "symbol" and unit.symbol:
             key = (unit.path, unit.symbol)
             counts[key] = counts.get(key, 0) + 1
     return tuple(
         unit
         for unit in units
-        if unit.kind in ("symbol", "document_section")
+        if unit.kind == "symbol"
         and unit.symbol
         and unit.start_line > 0
         and unit.end_line >= unit.start_line
@@ -840,31 +811,24 @@ def _review_worthy_symbols(
 ) -> tuple[ReviewUnit, ...]:
     """Keep semantic definitions; coalesce index-useful local bindings.
 
-    Structural definitions and stable module declaration groups remain targets.
-    Short data bindings fold into their group or hunk even when the index finds
-    callers; substantial module values and callable bindings stay independent.
+    Structural definitions always remain targets. At module scope, a cohesive
+    multi-line value may also be a sensible review target. Inside a function or
+    class, however, a long computed value is still implementation detail: only
+    function-valued bindings (callbacks/components) or variables with real
+    external usage evidence become independent judgments.
     """
 
     trustworthy = _trustworthy_symbols(units)
+    if not metadata:
+        return trustworthy
 
     structural: list[ReviewUnit] = []
     variables: list[ReviewUnit] = []
+    kinds: dict[str, str] = {}
     for unit in trustworthy:
-        if unit.kind == "document_section":
-            structural.append(unit)
-            continue
-        grouped_data = unit.kind == "symbol" and any(
-            group.kind == "document_section" and _strictly_contains(group, unit) for group in trustworthy
-        )
-        if grouped_data:
-            variables.append(unit)
-            continue
         meta = metadata.get((unit.symbol, unit.start_line))
         if meta is None:
             declaration = source_lines.get(unit.start_line, "")
-            if module_data_name(declaration) is not None:
-                variables.append(unit)
-                continue
             semantic_parent = any(
                 _strictly_contains(parent, unit) and metadata.get((parent.symbol, parent.start_line)) is not None
                 for parent in trustworthy
@@ -884,30 +848,38 @@ def _review_worthy_symbols(
             structural.append(unit)
             continue
         kind = str(meta.get("kind") or "").lower()
-        if kind in _VARIABLE_LIKE_KINDS or module_data_name(source_lines.get(unit.start_line, "")) is not None:
+        kinds[unit.unit_key] = kind
+        if kind in _VARIABLE_LIKE_KINDS:
             variables.append(unit)
         else:
             structural.append(unit)
 
     kept_variables: list[ReviewUnit] = []
     for unit in variables:
+        meta = metadata.get((unit.symbol, unit.start_line)) or {}
         width = unit.end_line - unit.start_line + 1
+        caller_count = _as_int(meta.get("caller_count"), -1)
+        externally_significant = caller_count > 0 or meta.get("centrality_rank") is not None
         nested_in_structure = any(_strictly_contains(parent, unit) for parent in structural)
         declaration = source_lines.get(unit.start_line, "")
         callable_binding = _function_valued_binding(declaration) if declaration else False
         locally_scoped = bool(declaration and declaration[:1].isspace())
 
-        if locally_scoped or nested_in_structure:
-            if callable_binding:
-                kept_variables.append(unit)
-            elif not declaration and width >= _MIN_COHESIVE_VARIABLE_LINES:
-                # An unseen declaration may be substantial; keep its own target.
+        if locally_scoped:
+            if callable_binding or externally_significant:
                 kept_variables.append(unit)
             continue
 
-        # Usage raises attention, not the number of human judgments needed for
-        # a run of short data declarations.
-        if callable_binding or width >= _MIN_COHESIVE_VARIABLE_LINES:
+        if nested_in_structure:
+            if callable_binding or externally_significant:
+                kept_variables.append(unit)
+            elif not declaration and width >= _MIN_COHESIVE_VARIABLE_LINES:
+                # The declaration line was outside the captured patch. Preserve
+                # the conservative target rather than guessing its initializer.
+                kept_variables.append(unit)
+            continue
+
+        if callable_binding or externally_significant or width >= _MIN_COHESIVE_VARIABLE_LINES:
             kept_variables.append(unit)
 
     # If one function-valued binding encloses another variable candidate, keep
@@ -942,14 +914,11 @@ def derive_review_targets(
     *,
     annotations: Sequence[Annotation] = (),
     evidence: Sequence[ReviewEvidence] = (),
-    routine_proofs: Mapping[str, RoutineProof] | None = None,
-    question_reasons: Mapping[str, Sequence[QueueReason]] | None = None,
 ) -> tuple[ReviewTarget, ...]:
     """Derive the current revision's non-overlapping reader targets.
 
     No rows are persisted. The same units + packet + frontier always produce
-    the same targets and order-independent progress denominator. Routine
-    needs a ``routine_proofs`` entry; callers that pass none get no Routine.
+    the same targets and order-independent progress denominator.
     """
 
     data = _packet_mapping(packet)
@@ -1101,19 +1070,6 @@ def derive_review_targets(
                     # deletion has no surviving changed line to prove ownership;
                     # its join point may merely be the following symbol.
                     removal_owner = concrete[0]
-                    if removal_owner.kind == "document_section":
-                        # A surviving group cannot vouch for a deleted member
-                        # missing from its current content fingerprint.
-                        current_names = {
-                            name
-                            for line in range(removal_owner.start_line, removal_owner.end_line + 1)
-                            if (name := module_data_name(source_lines.get(line, ""))) is not None
-                        }
-                        deleted_names = {
-                            name for text in block.old_text if (name := module_data_name(text)) is not None
-                        }
-                        if not deleted_names.issubset(current_names):
-                            removal_owner = None
 
                 if removal_owner is None:
                     assign_hunk(ordinal, "old", block.old_lines)
@@ -1215,152 +1171,36 @@ def derive_review_targets(
             )
         )
 
-    keys_by_path = target_keys_by_path(targets)
-    requested = frozenset(
-        target.target_id
-        for target in targets
-        if target_has_unresolved_request_change(
-            target,
-            annotations_by_path.get(target.path, ()),
-            path_target_keys=keys_by_path.get(target.path, frozenset()),
-        )
-    )
-    return assign_review_priority(
-        targets,
-        request_change_target_ids=requested,
-        unattributed_request_change_paths=paths_with_unattributed_request_change(targets, annotations),
-        routine_proofs=routine_proofs,
-        question_reasons=question_reasons,
+    return order_review_targets(targets, order="recommended")
+
+
+def _recommended_key(target: ReviewTarget) -> tuple[int, int, int, int, str, int, str]:
+    state_order = {
+        "changed_since_review": 0,
+        "needs_changes": 1,
+        "unknown": 2,
+        "unreviewed": 3,
+        "reviewed": 5,
+    }
+    level_order = {"high": 0, "normal": 1, "mechanical": 2}
+    rank = target.attention_rank
+    return (
+        state_order.get(target.state, 4),
+        level_order[target.attention_level],
+        1 if rank == 0 else 0,
+        rank,
+        target.path,
+        target.start_line,
+        target.unit_key,
     )
 
 
 def order_review_targets(
     targets: Sequence[ReviewTarget], *, order: TargetOrder = "recommended"
 ) -> tuple[ReviewTarget, ...]:
-    """``recommended`` is the canonical queue order; ``file`` is source order."""
-
     if order == "file":
         return tuple(sorted(targets, key=lambda target: (target.path, target.start_line, target.kind, target.unit_key)))
-    return tuple(
-        sorted(
-            targets,
-            key=lambda target: (target.priority.position, target.path, target.start_line, target.unit_key),
-        )
-    )
-
-
-# Modules whose functions compute stored derivations (targets, progress,
-# frontiers, Snapshot history numbers). Their Review-package imports are
-# followed from the source, so a helper moved elsewhere stays covered.
-_DERIVATION_ROOTS = ("targets", "revisions")
-_REVIEW_PACKAGE = "lemoncrow.pro.capabilities.review"
-# Compute a request may spend refreshing results that older code derived.
-DERIVED_REFRESH_BUDGET_S = 1.0
-
-
-def _derivation_sources() -> list[Path]:
-    """The derivation modules plus every Review module they import, from their import statements."""
-
-    package = Path(__file__).resolve().parent
-
-    def source(module: str) -> Path | None:
-        relative = Path(*module.split("."))
-        for candidate in (package / relative.with_suffix(".py"), package / relative / "__init__.py"):
-            if candidate.is_file():
-                return candidate
-        return None
-
-    found: dict[str, Path] = {}
-    todo = list(_DERIVATION_ROOTS)
-    while todo:
-        module = todo.pop()
-        path = None if module in found else source(module)
-        if path is None:
-            continue
-        found[module] = path
-        try:
-            tree = ast.parse(path.read_bytes())
-        except (OSError, SyntaxError, ValueError):
-            continue
-        parent = module.split(".")[: -1 if path.name != "__init__.py" else None]
-        for node in ast.walk(tree):
-            names: list[str] = []
-            if isinstance(node, ast.Import):
-                names = [alias.name for alias in node.names]
-            elif isinstance(node, ast.ImportFrom):
-                if node.level:
-                    base = parent[: len(parent) - (node.level - 1)] if node.level > 1 else parent
-                    absolute = ".".join([_REVIEW_PACKAGE, *base, *([node.module] if node.module else [])])
-                else:
-                    absolute = node.module or ""
-                names = [absolute, *(f"{absolute}.{alias.name}" for alias in node.names)]
-            todo.extend(name[len(_REVIEW_PACKAGE) + 1 :] for name in names if name.startswith(f"{_REVIEW_PACKAGE}."))
-    return sorted(found.values())
-
-
-@functools.cache
-def derivation_code_stamp() -> str:
-    """Identity of the Review code that derives targets, frontiers, progress and history.
-
-    Stored derivations (``ReviewStore.derived_results``) include it in their
-    stamp. It hashes only the deriving modules and what they import: hashing
-    the whole package made every edit to the API, capture or preview code
-    re-derive every stored result -- minutes of CPU for a long Review.
-    """
-
-    package = Path(__file__).resolve().parent
-    digest = hashlib.sha256()
-    for source in _derivation_sources():
-        digest.update(str(source.relative_to(package)).encode("utf-8"))
-        try:
-            digest.update(source.read_bytes())
-        except OSError:
-            digest.update(b"<unreadable>")
-    return digest.hexdigest()
-
-
-def derivation_stamp(*inputs: object) -> str:
-    """Stamp of a stored derivation: its exact inputs, then the code that derived it."""
-
-    inputs_digest = hashlib.sha256(repr(inputs).encode("utf-8", "surrogatepass")).hexdigest()
-    return f"{inputs_digest}:{derivation_code_stamp()}"
-
-
-class DerivedRefresh:
-    """Decides, per stored result, whether to serve it or derive it again.
-
-    A result stamped with the current inputs and code is served. One with other
-    inputs, or none at all, is always derived. One whose inputs match but whose
-    code differs (or whose stamp predates the inputs/code split) is derived
-    again while this request has budget left, newest first, and served as
-    stored after that; later requests refresh the rest. Without this, one
-    code change re-derived a whole long Review in a single request and
-    starved every other Reader request of CPU.
-    """
-
-    def __init__(self, budget_s: float | None = None) -> None:
-        # Any positive budget refreshes at least one row per request, so
-        # repeated reads always converge.
-        self.budget_s = DERIVED_REFRESH_BUDGET_S if budget_s is None else budget_s
-        self.spent_s = 0.0
-
-    def serve(self, stored_stamp: str | None, stamp: str) -> bool:
-        if stored_stamp is None:
-            return False
-        if stored_stamp == stamp:
-            return True
-        if self.spent_s < self.budget_s:
-            return False
-        stored_inputs, separator, _code = stored_stamp.partition(":")
-        return not separator or stored_inputs == stamp.partition(":")[0]
-
-    @contextlib.contextmanager
-    def deriving(self) -> Iterator[None]:
-        started = time.monotonic()
-        try:
-            yield
-        finally:
-            self.spent_s += time.monotonic() - started
+    return tuple(sorted(targets, key=_recommended_key))
 
 
 def review_progress(targets: Sequence[ReviewTarget]) -> ReviewProgress:
@@ -1375,20 +1215,9 @@ def review_progress(targets: Sequence[ReviewTarget]) -> ReviewProgress:
     )
 
 
-_OUTLINE_SECTION = {"review_first": "review_first", "understand": "unreviewed", "routine": "mechanical"}
-
-
 def build_review_outline(targets: Sequence[ReviewTarget]) -> tuple[ReviewOutlineItem, ...]:
-    """One row per file, in canonical file order.
-
-    A file's place is its earliest queue entry (spec §4.6). Outstanding tiers
-    sort before done work, so first appearance in queue order *is* the file
-    order; nothing here re-ranks. A mixed file shows its first unfinished
-    item, not one permanent risk label.
-    """
-
     by_path: dict[str, list[ReviewTarget]] = {}
-    for target in sorted(targets, key=lambda item: item.priority.position):
+    for target in targets:
         by_path.setdefault(target.path, []).append(target)
     rows: list[ReviewOutlineItem] = []
     for path, path_targets in by_path.items():
@@ -1396,11 +1225,11 @@ def build_review_outline(targets: Sequence[ReviewTarget]) -> tuple[ReviewOutline
         reasons: list[str] = []
         for target in path_targets:
             for reason in target.reasons:
-                if reason_is_informative(reason) and reason not in reasons:
+                # The outline is an attention surface, not a dump of ranking
+                # descriptors. Churn, generic symbol-change labels and copied
+                # caller counts must not manufacture a "Needs attention" file.
+                if reason_is_promoting(reason, kind=target.kind) and reason not in reasons:
                     reasons.append(reason)
-        outstanding = [target for target in path_targets if target.priority.outstanding]
-        first = outstanding[0] if outstanding else None
-        first_reason = first.priority.reasons[0] if first is not None and first.priority.reasons else None
         rows.append(
             ReviewOutlineItem(
                 path=path,
@@ -1413,17 +1242,18 @@ def build_review_outline(targets: Sequence[ReviewTarget]) -> tuple[ReviewOutline
                 mechanical=sum(target.attention_level == "mechanical" for target in path_targets),
                 attention_rank=min(ranks) if ranks else 0,
                 reasons=tuple(reasons),
-                section=_OUTLINE_SECTION.get(first.priority.attention, "unreviewed") if first is not None else "done",
-                position=path_targets[0].priority.position,
-                next_target_id=first.target_id if first is not None else "",
-                next_reason=first_reason.detail if first_reason is not None else "",
-                next_reason_code=first_reason.code if first_reason is not None else "",
-                review_first=sum(target.priority.attention == "review_first" for target in outstanding),
-                understand=sum(target.priority.attention == "understand" for target in outstanding),
-                routine=sum(target.priority.attention == "routine" for target in outstanding),
             )
         )
-    return tuple(rows)
+    return tuple(
+        sorted(
+            rows,
+            key=lambda row: (
+                1 if row.attention_rank == 0 else 0,
+                row.attention_rank,
+                row.path,
+            ),
+        )
+    )
 
 
 def revision_target_delta(
@@ -1449,9 +1279,6 @@ def revision_target_delta(
         elif before.state == "reviewed" and target.state == "reviewed":
             preserved.append(target)
         elif before.state == "reviewed" and target.state != "reviewed":
-            reopened.append(target)
-        elif before.state == "needs_changes" and target.state == "changed_since_review":
-            # The requested change arrived: that judgment reopens for re-review.
             reopened.append(target)
 
         has_unresolved_thread = (
@@ -1542,18 +1369,7 @@ def target_payload(target: ReviewTarget) -> dict[str, Any]:
             "orphaned": target.annotation_counts.orphaned,
             "addressed_needs_rereview": target.annotation_counts.addressed_needs_rereview,
         },
-        "priority": priority_payload(target.priority),
     }
-
-
-def priorities_payload(targets: Sequence[ReviewTarget]) -> dict[str, dict[str, Any]]:
-    """Every target's current queue placement, keyed by target id.
-
-    A judgment moves positions of targets it did not touch; a reply carrying
-    only the judged target would leave the client's queue stale.
-    """
-
-    return {target.target_id: priority_payload(target.priority) for target in targets}
 
 
 def progress_payload(progress: ReviewProgress) -> dict[str, int]:
@@ -1580,14 +1396,6 @@ def outline_payload(item: ReviewOutlineItem) -> dict[str, Any]:
         "mechanical": item.mechanical,
         "attention_rank": item.attention_rank,
         "reasons": list(item.reasons),
-        "section": item.section,
-        "position": item.position,
-        "next_target_id": item.next_target_id,
-        "next_reason": item.next_reason,
-        "next_reason_code": item.next_reason_code,
-        "review_first": item.review_first,
-        "understand": item.understand,
-        "routine": item.routine,
     }
 
 
@@ -1606,9 +1414,8 @@ __all__ = [
     "order_review_targets",
     "outline_payload",
     "paths_with_unattributed_request_change",
-    "priorities_payload",
     "progress_payload",
-    "reason_is_informative",
+    "reason_is_promoting",
     "review_progress",
     "revision_delta_payload",
     "revision_target_delta",

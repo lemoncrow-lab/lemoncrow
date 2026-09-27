@@ -145,11 +145,11 @@ function View(props: { api: TuiPluginApi }) {
           </text>
         </Show>
         <text fg={theme().textMuted}>
-          ~{money.format(snapshot()?.cost_usd ?? 0)} priced
+          {money.format(snapshot()?.cost_usd ?? 0)} spent
         </text>
         <Show when={(snapshot()?.saved_usd ?? 0) > 0}>
           <text fg={theme().success}>
-            est. {money.format(snapshot()?.saved_usd ?? 0)} saved
+            {money.format(snapshot()?.saved_usd ?? 0)} saved
           </text>
         </Show>
         <Show when={(snapshot()?.tool_call_total ?? 0) > 0}>

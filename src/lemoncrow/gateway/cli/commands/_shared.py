@@ -35,7 +35,7 @@ def _load_store(root: Path) -> Any:
 
     db_path = getattr(store, "db_path", None)
     if db_path is not None and not Path(db_path).exists():
-        raise click.ClickException(f"No LemonCrow store at {root}. Run `lc rt init` first.")
+        raise click.ClickException(f"No LemonCrow store at {root}. Run `lc init` first.")
     return store
 
 
@@ -56,11 +56,11 @@ def _emit(data: Any, *, as_json: bool) -> None:
 
 
 def require_pro(feature: str, label: str) -> None:
-    """Compatibility no-op for public/local call sites.
+    """No-op: the open-source runtime ships every feature unlocked, locally.
 
-    Private Hosted/Enterprise Runtime is separated by package, protocol and
-    command boundaries rather than by a local license check in this helper.
-    Runtime Lite itself remains account-free.
+    Retained so the ~dozen call sites keep a stable signature. Nothing is gated;
+    no account or network check is performed. See
+    docs/maintenance-mode-transition.md.
     """
     return None
 
@@ -100,7 +100,7 @@ def _smart_state_path(root: Path) -> Path:
 def _load_smart_state(root: Path) -> dict[str, Any]:
     p = _smart_state_path(root)
     if not p.exists():
-        return {"savings": {"calls_avoided": 0, "tokens_saved": 0}}
+        return {"mode": "shadow", "cache": {}, "savings": {"calls_avoided": 0, "tokens_saved": 0}}
     data: dict[str, Any] = json.loads(p.read_text(encoding="utf-8"))
     return data
 

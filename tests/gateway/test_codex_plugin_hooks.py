@@ -63,46 +63,6 @@ def _run_statusline(
     )
 
 
-def test_codex_stop_and_subagent_stop_capture_completed_role_comments(tmp_path: Path) -> None:
-    from lemoncrow.core.foundation.paths import session_dir
-
-    root = tmp_path / "store"
-    transcript = tmp_path / "rollout.jsonl"
-    transcript.write_text(
-        json.dumps(
-            {
-                "type": "response_item",
-                "payload": {
-                    "type": "message",
-                    "role": "assistant",
-                    "phase": "final_answer",
-                    "id": "review-message",
-                    "content": [{"type": "output_text", "text": "Independent review complete."}],
-                },
-            }
-        )
-        + "\n"
-    )
-    payload = {
-        "hook_event_name": "Stop",
-        "session_id": "main",
-        "cwd": str(tmp_path),
-        "transcript_path": str(transcript),
-        "agent_role": "review",
-    }
-    _run_hook("stop.py", root, payload)
-    _run_hook("stop.py", root, payload)
-    run = json.loads((session_dir(root, "codex", "main") / "run.json").read_text())
-    comments = [event["payload"] for event in run["events"] if event["payload"].get("completed")]
-    assert len(comments) == 1 and comments[0]["agent_role"] == "review"
-    payload.update(hook_event_name="SubagentStop", agent_id="child", agent_type="lemoncrow:plan")
-    payload.pop("agent_role")
-    _run_hook("subagent.py", root, payload)
-    run = json.loads((session_dir(root, "codex", "child") / "run.json").read_text())
-    comments = [event["payload"] for event in run["events"] if event["payload"].get("completed")]
-    assert comments[0]["agent_role"] == "plan" and comments[0]["parent_session_id"] == "main"
-
-
 def test_codex_statusline_renders_native_footer_in_claude_format(tmp_path: Path) -> None:
     native = "gpt-5.5 xhigh · ~/Projects/leanchain/lemoncrow · 1.11M used · 19.4M in · 61.1K out"
 
@@ -112,26 +72,24 @@ def test_codex_statusline_renders_native_footer_in_claude_format(tmp_path: Path)
 
 
 def test_codex_statusline_recovers_session_from_workspace_state(tmp_path: Path) -> None:
-    from lemoncrow.core.foundation.paths import resolve_workspace_store_dir, session_dir
+    from lemoncrow.core.foundation.paths import session_dir, workspace_key
 
     root = tmp_path / ".lemoncrow"
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    state_dir = resolve_workspace_store_dir(workspace_root=workspace)
+    state_dir = root / "workspaces" / workspace_key(workspace)
     state_dir.mkdir(parents=True)
     (state_dir / "session_state.json").write_text(json.dumps({"session_id": "codex-1"}), encoding="utf-8")
     sidecar = session_dir(root, "codex", "codex-1") / "savings.jsonl"
     sidecar.parent.mkdir(parents=True)
     sidecar.write_text(
-        json.dumps({"tool": "code_search", "tokens": 12_000, "model": "codex-savings-test-model"}) + "\n",
+        json.dumps({"tool": "code_search", "tokens": 12_000, "model": "gpt-5.6-terra"}) + "\n",
         encoding="utf-8",
     )
-    # Pin subprocess pricing so the recovered-savings assertion is deterministic.
-    (root / "pricing.yaml").write_text("overrides:\n  codex-savings-test-model:\n    input: 2.5\n    output: 10.0\n")
 
     result = _run_statusline(
         root,
-        "codex-savings-test-model high · ~/workspace · 1.11M used · 19.4M in · 61.1K out",
+        "gpt-5.6-terra high · ~/workspace · 1.11M used · 19.4M in · 61.1K out",
         env_extra={"CODEX_WORKSPACE_ROOT": str(workspace)},
     )
 
@@ -388,15 +346,13 @@ def test_codex_stop_hook_emits_session_summary(tmp_path: Path) -> None:
     output = json.loads(result.stdout)
     assert set(output) == {"systemMessage"}
     message = output["systemMessage"]
-    assert "lc session complete." not in message
-    assert "token breakdown:" not in message
+    assert "lc session complete." in message
     assert "0 LLM turns · 1 prompt turn · 1 tool call (hooks)" in message
-    assert "priced cost: ~$" in message
+    assert "est. cost: ~$" in message
     # Routing/carry/output are all 0 in this fixture -- suppressed like
     # Claude Code's stop hook (component omitted at exactly $0), instead of
     # Codex's old always-show-at-$0.0000 behavior.
-    assert "est. LC savings: $0.00(I:500)" in message
-    assert "2 calls avoided" in message
+    assert "savings: $0.00 · 500 tokens saved · 2 calls avoided" in message
     assert "routing $0.00" not in message
     assert "carry $0.00" not in message
     assert "tools: mcp__lc__edit×1" in message
@@ -436,9 +392,6 @@ def test_codex_tool_summary_merges_lemoncrow_mcp_aliases(tmp_path: Path) -> None
     assert " · bash×26" not in message
     assert " · read×23" not in message
     assert " · code_search×15" not in message
-    from lemoncrow.core.foundation.paths import session_dir
-
-    assert (session_dir(root, "codex", "c-tools") / "savings.jsonl").exists()
 
 
 def test_codex_stop_hook_reads_status_style_token_fields(tmp_path: Path) -> None:
@@ -468,8 +421,8 @@ def test_codex_stop_hook_reads_status_style_token_fields(tmp_path: Path) -> None
     )
 
     message = result["systemMessage"]
-    assert "(I:19.5M C:2.5M O:61.1k)" in message
-    assert "priced cost: ~$20.46" in message
+    assert "tokens: 19.5M input (19.4M new + 100.0k cW) / 2.5M cR / 61.1k out  (22.1M total)" in message
+    assert "est. cost: ~$20.46" in message
 
 
 def test_codex_stop_hook_has_no_account_login_dynamic_status(tmp_path: Path) -> None:
@@ -510,8 +463,8 @@ def test_codex_stop_hook_uses_native_statusline_snapshot_without_session_id(tmp_
     )
 
     message = result["systemMessage"]
-    assert "(I:19.4M C:0 O:61.1k)" in message
-    assert "priced cost: ~$20.01" in message
+    assert "tokens: 19.4M input (19.4M new + 0 cW) / 0 cR / 61.1k out  (19.5M total)" in message
+    assert "est. cost: ~$20.01" in message
 
 
 def test_codex_stop_hook_recovers_usage_from_local_codex_transcript(
@@ -618,7 +571,7 @@ def test_codex_stop_hook_recovers_usage_from_local_codex_transcript(
         root,
         {
             "hook_event_name": "UserPromptSubmit",
-            "session_id": "session-abc",
+            "session_id": "lemoncrow-session",
             "turn_id": "human-prompt-1",
         },
     )
@@ -626,21 +579,24 @@ def test_codex_stop_hook_recovers_usage_from_local_codex_transcript(
         root,
         {
             "hook_event_name": "PostToolUse",
-            "session_id": "session-abc",
+            "session_id": "lemoncrow-session",
             "tool_name": "Bash",
         },
     )
 
     result = plugin_runtime.build_codex_stop_output(
         root,
-        {"hook_event_name": "Stop", "session_id": "session-abc", "cwd": str(workspace)},
+        {"hook_event_name": "Stop", "session_id": "lemoncrow-session", "cwd": str(workspace)},
     )
 
     message = result["systemMessage"]
     assert "2 LLM turns · 2 tool calls (transcript)" in message
-    assert "(I:500 C:800 O:70)" in message
-    assert "token breakdown:" not in message
-    assert "priced cost: ~$0.00" in message
+    assert "tokens: 500 input (500 new + 0 cW) / 800 cR / 70 out  (1.4k total)" in message
+    assert (
+        "token breakdown: new input 500 · cache read 800 · cache write 0 · output 70 (40 reasoning, 30 visible)"
+        in message
+    )
+    assert "est. cost: ~$0.00" in message
     assert "tools: apply_patch×1 · exec_command×1" in message
 
 
@@ -669,64 +625,9 @@ def test_codex_session_start_is_quiet_and_records_session(tmp_path: Path) -> Non
     assert state["model"] == "gpt-5.6-terra"
 
 
-def test_codex_session_end_closes_run_once_and_marks_workspace_idle(tmp_path: Path) -> None:
-    from lemoncrow.core.foundation.paths import session_dir
-
-    root = tmp_path / ".lemoncrow"
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    transcript = tmp_path / "rollout.jsonl"
-    transcript.write_text(
-        json.dumps(
-            {
-                "type": "response_item",
-                "payload": {
-                    "type": "message",
-                    "role": "assistant",
-                    "phase": "final_answer",
-                    "id": "final",
-                    "content": [{"type": "output_text", "text": "Completed demo implementation."}],
-                },
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    _run_hook(
-        "update_notification.py",
-        root,
-        {"hook_event_name": "SessionStart", "session_id": "c-end", "cwd": str(workspace), "model": "gpt-test"},
-    )
-    payload = {
-        "hook_event_name": "SessionEnd",
-        "session_id": "c-end",
-        "cwd": str(workspace),
-        "transcript_path": str(transcript),
-    }
-    assert _run_hook("session_end.py", root, payload).stdout == ""
-    first = json.loads((session_dir(root, "codex", "c-end") / "run.json").read_text(encoding="utf-8"))
-    first_updated = first["updated_at"]
-    assert first["status"] == "completed"
-    comments = [event["payload"] for event in first["events"] if event.get("payload", {}).get("completed")]
-    assert [item["message"] for item in comments] == ["Completed demo implementation."]
-
-    assert _run_hook("session_end.py", root, payload).stdout == ""
-    second = json.loads((session_dir(root, "codex", "c-end") / "run.json").read_text(encoding="utf-8"))
-    assert second["updated_at"] == first_updated
-    comments = [event["payload"] for event in second["events"] if event.get("payload", {}).get("completed")]
-    assert len(comments) == 1
-
-    state_files = list((root / "workspaces").glob("*/session_state.json"))
-    state = json.loads(state_files[0].read_text(encoding="utf-8"))
-    assert state["session_id"] == "c-end"
-    assert state["activity"] == "idle"
-    assert state["ended"] is True
-
-
 def test_codex_hooks_manifest_wires_reporter_and_update() -> None:
     data = json.loads((HOOKS / "hooks.json").read_text(encoding="utf-8"))
     assert "SessionStart" in data["hooks"]
-    assert "SessionEnd" in data["hooks"]
     assert "UserPromptSubmit" in data["hooks"]
     assert "PreToolUse" in data["hooks"]
     assert "PostToolUse" in data["hooks"]
@@ -735,7 +636,6 @@ def test_codex_hooks_manifest_wires_reporter_and_update() -> None:
     assert "Stop" in data["hooks"]
     rendered = json.dumps(data)
     assert "update_notification.py" in rendered
-    assert "session_end.py" in rendered
     assert "user_prompt.py" in rendered
     assert "pre_tool_use.py" in rendered
     assert "savings_reporter.py" in rendered

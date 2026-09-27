@@ -6,7 +6,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from lemoncrow_server_core.index import compact
 from lemoncrow_server_core.index.analysis import analyze
 from lemoncrow_server_core.index.contracts import AnalysisArtifact, sha256_hex
 from lemoncrow_server_core.index.sqlite import SqliteIndex, open_sqlite_index
@@ -15,16 +14,10 @@ from lemoncrow_server_core.wiring import build_backend
 CAP = 1024**2
 
 
-@pytest.mark.parametrize("json_each", [False, True])
 @pytest.mark.parametrize("match_any", [False, True])
 @pytest.mark.parametrize("grams", [False, True])
 @pytest.mark.parametrize("substring", [False, True])
-def test_compact_search_matches_legacy_randomized(
-    match_any: bool, grams: bool, substring: bool, json_each: bool, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # Both posting reads: restricted to the candidates in SQL, and the
-    # repository-wide read an SQLite build without json_each falls back to.
-    monkeypatch.setattr(compact, "_JSON_EACH", json_each)
+def test_compact_search_matches_legacy_randomized(match_any: bool, grams: bool, substring: bool) -> None:
     rng = random.Random(74129)
     words = ["alpha", "beta", "gamma", "hello_world", "return", "class", "cache", "λambda", "café", "東京"]
     indexes = [SqliteIndex(content_size_cap=CAP, compact=compact) for compact in (False, True)]

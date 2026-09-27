@@ -21,8 +21,6 @@ from typing import Any
 
 import click
 
-from lemoncrow.core.foundation.managed_host import resolve_managed_host_binary
-
 _RELEASE_API = "https://api.github.com/repos/lemoncrow-lab/lemoncode/releases/latest"
 _CHECK_INTERVAL_SECONDS = 6 * 60 * 60
 
@@ -68,11 +66,31 @@ def _is_executable(path: Path) -> bool:
     return path.is_file() and os.access(path, os.X_OK)
 
 
-def resolve_host_binary(store_root: Path) -> str | None:
+def _source_binary() -> Path | None:
     try:
-        return resolve_managed_host_binary(store_root)
-    except ValueError as exc:
-        raise click.ClickException(str(exc)) from exc
+        os_name, arch = _platform_parts()
+    except click.ClickException:
+        return None
+    repository = Path(__file__).resolve().parents[4]
+    candidate = repository / "lemoncode" / "packages" / "opencode" / "dist"
+    candidate = candidate / f"lemoncode-{os_name}-{arch}" / "bin" / "lemoncode"
+    return candidate if _is_executable(candidate) else None
+
+
+def resolve_host_binary(store_root: Path) -> str | None:
+    override = os.environ.get("LEMONCODE_HOST_BIN", "").strip()
+    if override:
+        candidate = Path(override).expanduser()
+        if not _is_executable(candidate):
+            raise click.ClickException(f"LEMONCODE_HOST_BIN is not executable: {candidate}")
+        return str(candidate.resolve())
+    installed = host_binary_path(store_root)
+    if _is_executable(installed):
+        return str(installed)
+    source = _source_binary()
+    if source is not None:
+        return str(source)
+    return shutil.which("lemoncode-host")
 
 
 def _read_metadata(store_root: Path) -> dict[str, Any]:

@@ -97,7 +97,7 @@ describe("Memory page", () => {
     render(<Memory />);
 
     // Default tab is "Cross-vendor" — switch to the Lessons (knowledge blocks) tab
-    const knowledgeTab = await screen.findByRole("radio", {
+    const knowledgeTab = await screen.findByRole("button", {
       name: /Lessons/i,
     });
     await userEvent.click(knowledgeTab);

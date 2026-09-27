@@ -4,13 +4,16 @@ Phase 11B owns these contracts; Phase 11C implements them for real. They encode
 the decisions the plan settles, in a form a later implementation cannot quietly
 reverse:
 
-* **Layer 1 is content-keyed inside an opaque storage partition.** Every
-  :class:`ContentStore` and :class:`AnalysisStore` method receives that
-  partition identifier before a digest.
-* **Holding bytes is not the same as being allowed to address them.**
-  :class:`ContentProvenance` records which repository/content scope actually
-  demonstrated possession of a blob. A manifest declaration alone never
-  grants access to bytes.
+* **Layer 1 is content-keyed and org-scoped.** Every :class:`ContentStore` and
+  :class:`AnalysisStore` method takes ``org_id`` first. There is no method that
+  answers a question about content without naming an organization, so there is
+  no cross-tenant "do you have this digest?" oracle to expose.
+* **Holding bytes is not the same as being allowed to address them.** Layer 1
+  stays org-scoped and deduplicating; :class:`ContentProvenance` is the boundary
+  above it, recording which repository scope actually *demonstrated* possession
+  of a blob. A view addresses a digest through its own repository scope only --
+  see :mod:`.boundary` -- so naming a digest in a manifest never, by itself,
+  makes the bytes readable.
 * **Path identity is not in Layer 1.** ``ContentStore`` never sees a path;
   ``AnalysisStore`` is keyed ``(org_id, digest, parser_profile_version)``.
   Paths appear first in :class:`ManifestEntry`, which is Layer 2.
@@ -589,13 +592,20 @@ class ViewState:
     #: rows were never verified would let one view silently inherit another
     #: manifest's file set.
     manifest_complete: bool = False
-    #: Opaque content-provenance scope fixed by the server composition when the
-    #: View opens. The storage engine treats every value, including empty, as
-    #: an exact key; it assigns no sharing or authorization meaning to it.
-    #: Server-side only; never serialized to clients.
+    #: Whose demonstrated possession this view may address content through,
+    #: inside :attr:`repo_id`. Empty means the repository scope as a whole --
+    #: any engineer's demonstration counts -- which is what a binding naming
+    #: the repository as a sharing unit earns. A named subject means only that
+    #: engineer's own, which is what every other principal gets, so a blob a
+    #: colleague uploaded reads exactly like one nobody has ever held.
+    #:
+    #: Deliberately not on the wire. It is a server-side fact about the opener,
+    #: and echoing it would tell a client which of its colleagues share a
+    #: repository with it.
     content_subject: str = ""
-    #: Opaque subject that opened this View. Ownership remains separate from
-    #: content reach. Server-side only; never serialized to clients.
+    #: The subject that opened this view. Separate from ``content_subject``:
+    #: repository sharing may widen content reach while ownership remains with
+    #: one opener. Server-side only; never serialized to clients.
     owner_subject: str = ""
 
     def to_wire(self) -> dict[str, Any]:
@@ -668,9 +678,6 @@ class IndexLayerState(StrEnum):
     COLD = "cold"
     BUILDING = "building"
     READY = "ready"
-    #: No implementation is installed for this layer (the semantic layer of a
-    #: public-only server). Never becomes ready; answers are flagged, not failed.
-    UNAVAILABLE = "unavailable"
 
 
 @dataclass(frozen=True, slots=True)
@@ -739,12 +746,14 @@ class ContentStore(Protocol):
         shredder.
         """
 
-    def sweep_marked(self, before: float, *, limit: int | None = None, dry_run: bool = False) -> SweepResult:
-        # Delete blobs marked unreferenced at or before before. limit bounds one
-        # maintenance batch; dry_run reports the exact eligible batch without
-        # deleting or clearing marks. Implementations preserve reference and
-        # generation fencing.
-        ...
+    def sweep_marked(self, before: float) -> SweepResult:
+        """Delete blobs marked unreferenced at or before ``before``.
+
+        Reports the dropped digests *and* the bytes reclaimed, per
+        organization. Both in one answer because the size of a blob is only
+        knowable while it still exists: a caller that deleted first and
+        measured afterwards would always report zero.
+        """
 
 
 class AnalysisStore(Protocol):
@@ -789,24 +798,6 @@ class AnalysisStore(Protocol):
 
     def count(self, org_id: str) -> int: ...
 
-    def stored_semantic_units(
-        self, org_id: str, keys: Sequence[tuple[str, str]], embedding_version: str
-    ) -> Mapping[tuple[str, str], tuple[SemanticUnit, ...]]:
-        """Chunk vectors derived after the fact, by ``(digest, parser_profile)``; absent keys are omitted."""
-
-    def store_semantic_units(
-        self,
-        org_id: str,
-        rows: Sequence[tuple[str, str, tuple[SemanticUnit, ...]]],
-        embedding_version: str,
-    ) -> None:
-        """Keep derived chunk vectors beside an artifact stored without them.
-
-        Write-once like the artifact: a key that is already stored keeps its
-        units, and a key with no analysis artifact is ignored, so nothing
-        outlives the digest's sweep.
-        """
-
     def lexical_matches(
         self,
         org_id: str,
@@ -847,24 +838,27 @@ class AnalysisStore(Protocol):
     def nearest(
         self, org_id: str, digests: Sequence[str], vector: Sequence[float], limit: int
     ) -> tuple[tuple[str, float], ...]:
-        """Digest/cosine pairs, best first, over the Layer-1 embedding rows.
-
-        A neutral storage primitive: exact scoring of caller-chosen digests
-        against the stored per-blob vector. Public query code never calls it;
-        the private semantic layer uses it for its not-ready fallback.
-        """
+        """Digest/cosine pairs, best first, over the Layer-1 embedding rows."""
 
     def sweep(self, org_id: str, digests: Sequence[str]) -> int:
         """Drop derived rows for ``digests``. Called only by blob GC."""
 
 
 class ContentProvenance(Protocol):
-    """Record which exact repository/content scope supplied a blob.
+    """Which repository scope, and which engineer, actually supplied a blob.
 
-    A row is written only after the server receives bytes and verifies their
-    digest. Naming a digest in a manifest writes nothing here. ``subject`` is
-    intentionally an opaque scope key despite the historical parameter name;
-    the storage implementation does not interpret empty or named values.
+    Layer 1 keeps its ``(org_id, sha256(content))`` key and keeps deduplicating
+    inside an organization; this is the boundary *above* it. A row is written
+    only where the server has had the bytes in its hand and hashed them -- an
+    upload, or a read off a proven same-host worktree -- so naming a digest in a
+    manifest writes nothing here. That is the whole mechanism by which
+    declaration stops being possession.
+
+    The key is ``(org_id, repo_id, subject)`` rather than ``(org_id, repo_id)``
+    because ``repo_id`` is derived from a claim the *client* makes at view open,
+    and a root-commit fingerprint is no harder to learn than a digest. Attribution
+    to the engineer who demonstrated possession is what stops an attacker
+    re-claiming a colleague's repository identity and inheriting their content.
     """
 
     def record(self, org_id: str, repo_id: str, subject: str, digests: Sequence[str]) -> int:
@@ -875,10 +869,12 @@ class ContentProvenance(Protocol):
         """
 
     def held(self, org_id: str, repo_id: str, subject: str, digests: Sequence[str]) -> frozenset[str]:
-        """Of ``digests``, those this exact opaque scope demonstrated.
+        """Of ``digests``, those this scope has demonstrated possession of.
 
-        Empty and named scope values are ordinary exact keys. A digest held in
-        one scope is not visible through another.
+        An empty ``subject`` asks about the repository as a whole; a named one
+        asks only about that engineer. Either way a digest with no row reads as
+        absent, and reads identically whether the organization holds the bytes
+        under some other scope or has never seen them at all.
         """
 
     def forget(self, org_id: str, digests: Sequence[str]) -> int:
@@ -907,9 +903,11 @@ class ViewStore(Protocol):
     ) -> ViewOpenResult:
         """Open a view bound to one repository and one content scope.
 
-        ``content_subject`` is :attr:`ViewState.content_subject`. Its meaning is
-        chosen by the composition layer; this store persists it as an exact
-        opaque provenance key.
+        ``content_subject`` is :attr:`ViewState.content_subject`. The default is
+        the repository scope as a whole, which is *not* "unrestricted": it still
+        requires that somebody demonstrated possession in this repository. The
+        composition layer passes the opener's subject whenever no binding names
+        the repository as a sharing unit.
         """
 
     def get(self, org_id: str, view_id: str) -> ViewState:
@@ -960,9 +958,7 @@ class ViewStore(Protocol):
 
         Otherwise the overlay is applied and the revision advances by exactly
         one. ``entries`` clear any tombstone at their path; ``removed_paths``
-        tombstone it. An entry identical to its base row clears its overlay;
-        deleting a path absent from the base clears its addition. Revision *N*
-        therefore reflects exactly the overlays
+        tombstone it. Revision *N* therefore reflects exactly the overlays
         committed up to *N* -- not fewer, not more.
         """
 
@@ -1039,7 +1035,6 @@ class IndexLayer(Protocol):
         budget: int | None = None,
         wait: bool = False,
         cancel: Callable[[], bool] | None = None,
-        defer_cold: bool = False,
     ) -> IndexLayerStatus:
         """Bring the layer up to the view's committed revision, within budget.
 
@@ -1089,38 +1084,25 @@ class LinkIndex(IndexLayer, Protocol):
 
 
 class SemanticIndex(IndexLayer, Protocol):
-    """Semantic retrieval for one View: the port only.
+    """Generation + overlay ANN semantic retrieval."""
 
-    The implementation -- unit derivation, embeddings, ANN and scoring -- is
-    private; :mod:`.semantic` resolves it or supplies an explicitly
-    ``UNAVAILABLE`` layer. Queries are text: how text becomes vectors is the
-    implementation's business, not the caller's.
-    """
-
-    def search(self, org_id: str, view_id: str, query: str, limit: int) -> SemanticSearchResult:
-        """Best units for *query* in the View; call only while the layer is ready."""
-
-    def scan(
-        self, org_id: str, view_id: str, digests: Sequence[str], query: str, limit: int
-    ) -> tuple[tuple[str, float], ...]:
-        """Not-ready fallback: digest/score pairs over caller-authorized *digests*."""
+    def nearest(
+        self,
+        org_id: str,
+        view_id: str,
+        vector: Sequence[float],
+        limit: int,
+    ) -> SemanticSearchResult: ...
 
     def export_generation(self, org_id: str, view_id: str) -> Mapping[str, Any] | None: ...
 
     def restore_generation(self, org_id: str, view_id: str, payload: Mapping[str, Any]) -> bool: ...
-
-    def release_idle(self) -> None:
-        """Drop in-memory state no live View reads; maintenance calls it off the request path."""
 
 
 class RepoIdentityService(Protocol):
     """Issues the canonical, org-scoped ``repo_id``."""
 
     def canonical_repo_id(self, org_id: str, claim: RepoIdentityClaim) -> str: ...
-
-    def lookup_repo_id(self, org_id: str, claim: RepoIdentityClaim) -> str | None:
-        """Read existing tenant-scoped identity only; never mint a new repository."""
-        ...
 
 
 def _ready_noop() -> None:
@@ -1150,13 +1132,9 @@ class IndexBackend:
     #: Shared low-cardinality scale telemetry. Repository leaves share one
     #: instance so measurements describe the server rather than one shard.
     ops: Any | None = None
-    #: Optional deferred-index executor queue. Repository leaves share the local
-    #: catalogue-backed store and preserve exact generation/View semantics.
+    #: Optional deferred-index queue. Repository leaves share the local durable
+    #: catalogue-backed store; hosted distributed jobs are introduced later.
     deferred_jobs: Any | None = None
-    #: Optional hosted durable control-plane queue. This is deliberately separate
-    #: from deferred_jobs: hosted capacity classes schedule work, while the index
-    #: executor continues to use the existing IndexBackend algorithms.
-    durable_jobs: Any | None = None
     #: True only when the authoritative ports may perform network I/O. HTTP
     #: handlers use this to move direct lifecycle calls onto the bounded worker
     #: executor while memory/SQLite stay inline with zero extra thread hop.
@@ -1180,11 +1158,6 @@ class IndexBackend:
     #: unset; hosted composition may hydrate/publish rebuildable bundles.
     warm_generation: Callable[[str, str], bool] | None = None
     publish_generation: Callable[[str, str], bool] | None = None
-    #: Optional hosted durable indexing scheduler. It receives org/view/layer
-    #: only; the hosted composition resolves exact repository-generation state
-    #: from its authoritative ViewStore before admitting a job. Core/local
-    #: backends leave this unset and keep their existing deferred worker.
-    schedule_index: Callable[[str, str, str], bool] | None = None
     #: Hosted object stores may persist rebuildable generation artifacts outside
     #: the relational/content catalogues. Tenant deletion invokes this hook so
     #: derived bytes cannot outlive the tenant merely because they are rebuildable.

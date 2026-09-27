@@ -49,13 +49,6 @@ export function renderedDiffLine(
     const rows = [...root.querySelectorAll<HTMLElement>(`[data-line="${lineNumber}"]`)];
     if (rows.length === 0) continue;
     const preferred = rows.find((row) => {
-      // A split diff numbers each column on its own side: the deletions
-      // column's context row N is old line N, not new line N. Only the
-      // requested side's column can hold the line.
-      const column = row.closest("[data-code]");
-      if (column?.hasAttribute("data-additions") || column?.hasAttribute("data-deletions")) {
-        return column.hasAttribute(side === "additions" ? "data-additions" : "data-deletions");
-      }
       const lineType = row.getAttribute("data-line-type") ?? "";
       if (side === "additions") return !lineType.includes("deletion");
       return !lineType.includes("addition");
@@ -65,207 +58,12 @@ export function renderedDiffLine(
   return null;
 }
 
-const REVIEW_FOLD_HIDDEN = "lcReviewFoldHidden";
-const REVIEW_FOLD_PREVIOUS_DISPLAY = "lcReviewFoldPreviousDisplay";
-const REVIEW_FOLD_SHRUNK = "lcReviewFoldShrunk";
-const REVIEW_FOLD_PREVIOUS_STYLE = "lcReviewFoldPreviousStyle";
-
-function diffRoots(container: HTMLElement): ParentNode[] {
-  const hosts = container.matches("diffs-container")
-    ? [container]
-    : [...container.querySelectorAll<HTMLElement>("diffs-container")];
-  return hosts.map((host) => host.shadowRoot ?? host);
-}
-
-function restoreFoldedRows(container: HTMLElement): void {
-  for (const root of diffRoots(container)) {
-    for (const row of root.querySelectorAll<HTMLElement>("[data-lc-review-fold-hidden]")) {
-      row.style.display = row.dataset[REVIEW_FOLD_PREVIOUS_DISPLAY] ?? "";
-      delete row.dataset[REVIEW_FOLD_HIDDEN];
-      delete row.dataset[REVIEW_FOLD_PREVIOUS_DISPLAY];
-    }
-    for (const buffer of root.querySelectorAll<HTMLElement>("[data-lc-review-fold-shrunk]")) {
-      buffer.setAttribute("style", buffer.dataset[REVIEW_FOLD_PREVIOUS_STYLE] ?? "");
-      delete buffer.dataset[REVIEW_FOLD_SHRUNK];
-      delete buffer.dataset[REVIEW_FOLD_PREVIOUS_STYLE];
-    }
-  }
-}
-
-/** A diff row hidden because its review area is folded: it has no position of its own. */
-export function isFoldHiddenRow(row: HTMLElement): boolean {
-  return row.hasAttribute("data-lc-review-fold-hidden");
-}
-
-function hideFoldedRow(row: HTMLElement): void {
-  row.dataset[REVIEW_FOLD_PREVIOUS_DISPLAY] = row.style.display;
-  row.dataset[REVIEW_FOLD_HIDDEN] = "true";
-  row.style.display = "none";
-}
-
-type FoldColumn = "deletions" | "additions" | "unified";
-
-/** The old/new line numbers a rendered row shows (a context row carries both). */
-function rowLines(row: HTMLElement, column: FoldColumn): { old?: number; new?: number } | null {
-  const line = Number.parseInt(row.dataset.line ?? "", 10);
-  if (!Number.isFinite(line) || line < 1) return null;
-  const type = row.getAttribute("data-line-type") ?? "";
-  if (type.includes("deletion")) return { old: line };
-  if (type.includes("addition")) return { new: line };
-  const parsedAlt = Number.parseInt(row.dataset.altLine ?? "", 10);
-  const alt = Number.isFinite(parsedAlt) && parsedAlt > 0 ? parsedAlt : undefined;
-  // Each column numbers a context row on its own side; the other side is the alt line.
-  return column === "deletions" ? { old: line, new: alt } : { new: line, old: alt };
-}
-
-/** The children of a Pierre gutter/content column with the grid rows each one occupies. */
-function gridSlots(part: Element): { element: HTMLElement; start: number; span: number }[] {
-  let start = 0;
-  return [...part.children].map((child) => {
-    const element = child as HTMLElement;
-    const span = Math.max(1, Number.parseInt(element.dataset.bufferSize ?? "1", 10) || 1);
-    const slot = { element, start, span };
-    start += span;
-    return slot;
-  });
-}
-
-/**
- * Pierre lays each code column out as a grid: a gutter (line numbers) and the
- * content share its rows, and in a split diff the deletions and additions
- * columns stay in step because every row exists in both (a side with no line
- * there holds a buffer). Folding therefore removes whole grid rows -- the
- * content row, its line number and the other column's row or buffer -- never a
- * content row on its own, which shifted the numbers against the code and one
- * column against the other.
- */
-function foldGridRows(
-  root: ParentNode,
-  owned: (lines: { old?: number; new?: number }, targets: readonly ReviewTarget[]) => boolean,
-  folded: readonly ReviewTarget[],
-  expanded: readonly ReviewTarget[],
-): boolean {
-  const columns = [...root.querySelectorAll<HTMLElement>("[data-code]")]
-    .map((code) => ({
-      code,
-      content: code.querySelector<HTMLElement>(":scope > [data-content]"),
-      gutter: code.querySelector<HTMLElement>(":scope > [data-gutter]"),
-    }))
-    .filter((column): column is { code: HTMLElement; content: HTMLElement; gutter: HTMLElement | null } => column.content !== null);
-  if (columns.length === 0) return false;
-
-  const linesByRow = new Map<number, { old?: number; new?: number }[]>();
-  for (const { code, content } of columns) {
-    const column: FoldColumn = code.hasAttribute("data-deletions") ? "deletions" : code.hasAttribute("data-additions") ? "additions" : "unified";
-    for (const slot of gridSlots(content)) {
-      if (!slot.element.hasAttribute("data-line")) continue;
-      const lines = rowLines(slot.element, column);
-      if (!lines) continue;
-      const row = linesByRow.get(slot.start) ?? [];
-      row.push(lines);
-      linesByRow.set(slot.start, row);
-    }
-  }
-  const hiddenRows = new Set<number>();
-  for (const [row, lines] of linesByRow) {
-    if (!lines.some((line) => owned(line, folded))) continue;
-    if (lines.some((line) => owned(line, expanded))) continue;
-    hiddenRows.add(row);
-  }
-  if (hiddenRows.size === 0) return true;
-
-  for (const { content, gutter } of columns) {
-    for (const part of gutter ? [content, gutter] : [content]) {
-      for (const { element, start, span } of gridSlots(part)) {
-        let hidden = 0;
-        for (let row = start; row < start + span; row += 1) if (hiddenRows.has(row)) hidden += 1;
-        if (hidden === 0) continue;
-        if (hidden >= span) {
-          hideFoldedRow(element);
-          continue;
-        }
-        // A buffer spanning folded and open rows keeps only the open ones.
-        element.dataset[REVIEW_FOLD_PREVIOUS_STYLE] = element.getAttribute("style") ?? "";
-        element.dataset[REVIEW_FOLD_SHRUNK] = "true";
-        element.style.gridRow = `span ${span - hidden}`;
-        element.style.minHeight = `calc(${span - hidden} * 1lh)`;
-      }
-    }
-  }
-  return true;
-}
-
-function rowMatchesSide(row: HTMLElement, side: "old" | "new"): boolean {
-  const lineType = row.getAttribute("data-line-type") ?? "";
-  if (side === "old") return !lineType.includes("addition");
-  return !lineType.includes("deletion");
-}
-
-function targetOwnsLine(target: ReviewTarget, side: "old" | "new", line: number): boolean {
-  if (target.spans.some((span) => span.side === side && span.start_line <= line && span.end_line >= line)) return true;
-  // Symbol targets own the rendered body on the new side, not only the changed
-  // lines inside it. Folding the whole body is what removes already-reviewed
-  // code from the reviewer's working set instead of leaving most of it behind.
-  return side === "new"
-    && (target.kind === "symbol" || target.kind === "document_section")
-    && target.start_line > 0
-    && target.start_line <= line
-    && target.end_line >= line;
-}
-
-/**
- * Visually fold judged review targets without changing their review state.
- *
- * Pierre owns the diff rows, so target folding is a reversible DOM decoration:
- * every pass first restores rows hidden by the previous pass, then hides only
- * rows that belong exclusively to folded targets. If an unresolved target
- * overlaps the same line, that line stays visible.
- */
-export function decorateReviewTargetFolds(
-  container: HTMLElement,
-  path: string,
-  targets: readonly ReviewTarget[],
-  foldedTargetIds: ReadonlySet<string>,
-  phase: "mount" | "update" | "unmount",
-): void {
-  restoreFoldedRows(container);
-  if (phase === "unmount" || foldedTargetIds.size === 0) return;
-
-  const pathTargets = targets.filter((target) => target.path === path);
-  const folded = pathTargets.filter((target) => (
-    foldedTargetIds.has(target.target_id)
-    && targetHasContinuousScope(target, pathTargets)
-  ));
-  if (folded.length === 0) return;
-  const expanded = pathTargets.filter((target) => !foldedTargetIds.has(target.target_id));
-  const owned = (lines: { old?: number; new?: number }, owners: readonly ReviewTarget[]) => owners.some((target) => (
-    (lines.old !== undefined && targetOwnsLine(target, "old", lines.old))
-    || (lines.new !== undefined && targetOwnsLine(target, "new", lines.new))
-  ));
-
-  for (const root of diffRoots(container)) {
-    if (foldGridRows(root, owned, folded, expanded)) continue;
-    for (const row of root.querySelectorAll<HTMLElement>("[data-line]")) {
-      const line = Number.parseInt(row.dataset.line ?? "", 10);
-      if (!Number.isFinite(line) || line < 1) continue;
-      const sides = (["old", "new"] as const).filter((side) => rowMatchesSide(row, side));
-      const hiddenByFold = sides.some((side) => folded.some((target) => targetOwnsLine(target, side, line)));
-      if (!hiddenByFold) continue;
-      const neededByExpandedTarget = sides.some((side) => expanded.some((target) => targetOwnsLine(target, side, line)));
-      if (neededByExpandedTarget) continue;
-
-      hideFoldedRow(row);
-    }
-  }
-}
-
 export function decorateReviewScopeBoxes(
   container: HTMLElement,
   path: string,
   targets: readonly ReviewTarget[],
   phase: "mount" | "update" | "unmount",
-  /** Kept for the call sites; the overlay now reads theme tokens, so it follows the theme on its own. */
-  _chromeTheme: Theme,
+  chromeTheme: Theme,
   diffStyle: DiffStyle,
   activeTargetId = "",
 ): void {
@@ -288,12 +86,22 @@ export function decorateReviewScopeBoxes(
     || getComputedStyle(container).lineHeight;
   const lineHeight = Number.parseFloat(lineHeightValue) || 21;
 
-  // The scope edge reads the state tokens (added ok, deleted P0, modified P2), so it follows the theme.
   const edgeFor = (target: ReviewTarget) => {
     const tone = reviewScopeTone(target);
     const active = target.target_id === activeTargetId;
-    const token = tone === "added" ? "--ok-solid" : tone === "deleted" ? "--p0-solid" : "--p2-solid";
-    return `rgb(var(${token}) / ${active ? 0.6 : 0.28})`;
+    if (tone === "added") {
+      return chromeTheme === "dark"
+        ? (active ? "rgba(74, 222, 128, 0.62)" : "rgba(74, 222, 128, 0.28)")
+        : (active ? "rgba(22, 163, 74, 0.58)" : "rgba(22, 163, 74, 0.28)");
+    }
+    if (tone === "deleted") {
+      return chromeTheme === "dark"
+        ? (active ? "rgba(251, 113, 133, 0.64)" : "rgba(251, 113, 133, 0.30)")
+        : (active ? "rgba(225, 29, 72, 0.58)" : "rgba(225, 29, 72, 0.28)");
+    }
+    return chromeTheme === "dark"
+      ? (active ? "rgba(56, 189, 248, 0.58)" : "rgba(56, 189, 248, 0.22)")
+      : (active ? "rgba(2, 132, 199, 0.54)" : "rgba(2, 132, 199, 0.22)");
   };
 
   const scopeRange = (target: ReviewTarget, side?: "old" | "new") => {
@@ -302,7 +110,7 @@ export function decorateReviewScopeBoxes(
     const spanStart = Math.min(...spans.map((span) => span.start_line));
     const spanEnd = Math.max(...spans.map((span) => span.end_line));
     const tone = reviewScopeTone(target);
-    const blockLevel = target.kind === "symbol" || target.kind === "document_section" || target.kind === "hunk";
+    const blockLevel = target.kind === "symbol" || target.kind === "hunk";
     const targetEndApplies = blockLevel
       && target.end_line >= spanStart
       && (
@@ -374,18 +182,14 @@ export function decorateReviewScopeBoxes(
       left: `${left}px`,
       width: `${Math.max(1, right - left)}px`,
       height: `${bottom - top}px`,
-      // The actionable annotation header lives in Pierre's annotation lane,
-      // which has different horizontal geometry from the code rows. Do not draw
-      // top/bottom edges that try to visually join those two unrelated boxes.
-      // Side rails communicate scope cleanly without producing offset corners.
-      borderTop: "0 solid transparent",
+      borderTop: `1px solid ${edge}`,
       borderLeft: leftEdge ? `${active ? 2 : 1}px solid ${edge}` : "0 solid transparent",
       borderRight: rightEdge ? `1px solid ${edge}` : "0 solid transparent",
-      borderBottom: "0 solid transparent",
-      borderRadius: "0",
-      background: active
-        ? "rgb(var(--foreground) / 0.03)"
-        : "transparent",
+      borderBottom: `1px solid ${edge}`,
+      borderTopLeftRadius: leftEdge ? "6px" : "0",
+      borderTopRightRadius: rightEdge ? "6px" : "0",
+      borderBottomLeftRadius: leftEdge ? "6px" : "0",
+      borderBottomRightRadius: rightEdge ? "6px" : "0",
       boxSizing: "border-box",
     });
     wrapper.appendChild(overlay);

@@ -1,12 +1,12 @@
-"""``lc rt model`` -- bring your own model: register OpenAI-compatible endpoints.
+"""``lc model`` -- bring your own model: register OpenAI-compatible endpoints.
 
 A self-hosted vLLM box, an Ollama daemon, LM Studio, or a corporate gateway is
 reachable in one command: LemonCrow asks the endpoint what it serves, writes
 the answer into ``providers.json`` (mode 0600, merge-preserving), and from then
 on the models route under ``custom/<endpoint>/<model>`` like any other vendor.
 
-Registration then asks the endpoint what it can do (``lc runtime model probe``, and
-``lc runtime model add`` unless ``--no-probe``), because the capability flags decide
+Registration then asks the endpoint what it can do (``lc model probe``, and
+``lc model add`` unless ``--no-probe``), because the capability flags decide
 routing and only the server can answer them truthfully. Everything that could
 not be measured prints as ``?`` and is stored as null -- never as "no".
 
@@ -32,10 +32,10 @@ if TYPE_CHECKING:  # `from __future__ import annotations` keeps this off the run
 
 # Printed whenever anything came back unmeasured. "?" has to be readable as a
 # gap in our knowledge, never as a capability the endpoint lacks.
-_UNKNOWN_FOOTER = "? = not measured, not unsupported. Re-run `lc runtime model probe ID` once the endpoint answers."
+_UNKNOWN_FOOTER = "? = not measured, not unsupported. Re-run `lc model probe ID` once the endpoint answers."
 
 # A corporate gateway or an OpenRouter-style proxy can advertise hundreds of
-# models, and `lc runtime model add` registers all of them. Probing that many unasked
+# models, and `lc model add` registers all of them. Probing that many unasked
 # is a multi-hour command, so past this count the user is asked first.
 _PROBE_WITHOUT_ASKING = 8
 
@@ -43,7 +43,7 @@ _PROBE_WITHOUT_ASKING = 8
 _REQUESTS_PER_PROBE = 4
 
 
-@click.group("model", short_help="Register and probe your own OpenAI-compatible model.")
+@click.group("model")
 def model_group() -> None:
     """Bring your own model: register and probe OpenAI-compatible endpoints."""
 
@@ -66,12 +66,6 @@ def model_group() -> None:
     help="Routing tier to register the models under.",
 )
 @click.option("--context-window", type=int, default=None, help="Override the reported context limit.")
-@click.option(
-    "--locus",
-    type=click.Choice(["local", "remote", "unknown"]),
-    default=None,
-    help="Execution locus. Default: local for loopback endpoints, unknown otherwise.",
-)
 @click.option("--no-probe", is_flag=True, help="Register without running the capability probe.")
 @click.option("--probe-vision", is_flag=True, help="Also probe vision (sends a tiny inline test image).")
 @click.option(
@@ -92,7 +86,6 @@ def model_add_cmd(
     model_filter: tuple[str, ...],
     tier: str,
     context_window: int | None,
-    locus: str | None,
     no_probe: bool,
     probe_vision: bool,
     timeout: float,
@@ -114,7 +107,6 @@ def model_add_cmd(
             models=list(model_filter) or None,
             tier="high" if tier == "high" else "cheap",
             context_window=context_window,
-            locus=locus,  # type: ignore[arg-type]
             timeout=timeout,
         )
     except ValueError as exc:
@@ -147,7 +139,6 @@ def model_add_cmd(
             "name": registered.name,
             "endpoint": registered.base_url,
             "api_key_env": registered.api_key_env,
-            "locus": registered.locus,
             "models": [model.raw_id for model in registered.models],
             "model_ids": list(registered.model_ids()),
             "config_path": str(_config_path(root)),
@@ -166,7 +157,7 @@ def model_add_cmd(
     if registered.api_key_env:
         lines.append(f"key read at request time from ${registered.api_key_env}")
     if not probed:
-        lines.append("not probed. `lc runtime model probe ID` measures what each model actually supports.")
+        lines.append("not probed. `lc model probe ID` measures what each model actually supports.")
     elif any(not probe.ok for probe in probes):
         lines.append(_UNKNOWN_FOOTER)
     _emit("\n".join(lines), as_json=False)
@@ -197,7 +188,7 @@ def model_list_cmd(ctx: click.Context, as_json: bool) -> None:
 
     if not endpoints:
         _emit(
-            "no custom endpoints registered.\n  lc runtime model add http://localhost:8000/v1 --api-key-env MY_GATEWAY_KEY",
+            "no custom endpoints registered.\n  lc model add http://localhost:8000/v1 --api-key-env MY_GATEWAY_KEY",
             as_json=False,
         )
         return
@@ -222,17 +213,17 @@ def model_probe_cmd(ctx: click.Context, model_id: str, probe_vision: bool, timeo
     if parts is None:
         raise click.ClickException(
             f"{model_id!r} is not a registered model id -- expected custom/<endpoint>/<model>. "
-            "`lc runtime model list` prints the registered ids."
+            "`lc model list` prints the registered ids."
         )
     endpoint_name, raw_id = parts
     endpoint = get_endpoint(root, endpoint_name)
     if endpoint is None:
         raise click.ClickException(
-            f"no endpoint named {endpoint_name!r} is registered. Register it first: `lc runtime model add URL`."
+            f"no endpoint named {endpoint_name!r} is registered. Register it first: `lc model add URL`."
         )
     if raw_id not in {model.raw_id for model in endpoint.models}:
         raise click.ClickException(
-            f"{raw_id!r} is not registered under {endpoint_name!r}. `lc runtime model list` prints what is."
+            f"{raw_id!r} is not registered under {endpoint_name!r}. `lc model list` prints what is."
         )
 
     result = probe_model(
@@ -276,7 +267,7 @@ def model_remove_cmd(ctx: click.Context, name: str, force: bool) -> None:
 
 
 def _root(ctx: click.Context) -> Path:
-    """The store root. ``lc runtime model --help`` must work without a seeded context."""
+    """The store root. ``lc model --help`` must work without a seeded context."""
 
     from lemoncrow.core.foundation.paths import default_store_root
 
@@ -335,10 +326,10 @@ def _confirm_bulk_probe(endpoint: CustomEndpoint) -> bool:
         # stderr, so `--json` on stdout stays machine-parseable.
         click.echo(
             # Not "re-run with --model": the endpoint is registered by the time
-            # this prints, and a second `lc runtime model add` for the same URL is
-            # refused as a duplicate name. `lc runtime model probe` is the way back in.
+            # this prints, and a second `lc model add` for the same URL is
+            # refused as a duplicate name. `lc model probe` is the way back in.
             f"{cost}. Nothing is attached to answer a prompt, so they were registered without probing. "
-            "Run `lc runtime model probe ID` for the ones you need.",
+            "Run `lc model probe ID` for the ones you need.",
             err=True,
         )
         return False

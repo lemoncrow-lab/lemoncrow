@@ -18,7 +18,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.pro.capabilities.review.contracts import SideEffectFact
 from lemoncrow.pro.capabilities.review.session_models import ReviewEvidence, ReviewUnit
 from lemoncrow.pro.capabilities.review.supply_chain import (
     inspect_sbom,
@@ -1282,126 +1281,11 @@ def _dependency_row(
     }
 
 
-# --------------------------------------------------------------------------- #
-# Static side-effect inventory: dependencies and install scripts (Phase 9R item 9)
-# --------------------------------------------------------------------------- #
-
-# Lifecycle hooks a package manager runs on install (``prepare`` also runs when
-# the package is installed from git).
-_NPM_INSTALL_HOOKS = ("preinstall", "install", "postinstall", "prepare", "preprepare", "postprepare")
-# Files whose code a build/install step executes.
-_INSTALL_SCRIPT_BASENAMES = {
-    "setup.py": "pypi",
-    "build.rs": "cargo",
-    "binding.gyp": "npm",
-    "extconf.rb": "gem",
-}
-
-
-def _short_digest(value: object) -> str:
-    return hashlib.sha256(_canonical(value).encode("utf-8")).hexdigest()[:16]
-
-
-def dependency_side_effects(path: str, text: str) -> tuple[SideEffectFact, ...]:
-    """Declared dependencies and install-time code of one manifest or build file.
-
-    A dependency's identity is ``<ecosystem>:<normalized name>``: a package new
-    to this manifest but already declared elsewhere in the repository is not a
-    new external dependency of the system. Version and requirement moves stay
-    with the semantic dependency review; an install script's ``value`` is the
-    digest of exactly what runs, so an edited hook is a changed side effect.
-    Unparseable input states nothing (the caller reports it as degraded).
-    """
-
-    normalized = path.replace("\\", "/")
-    filename = normalized.rsplit("/", 1)[-1]
-    facts: list[SideEffectFact] = []
-    ecosystem_script = _INSTALL_SCRIPT_BASENAMES.get(filename)
-    if ecosystem_script is not None:
-        facts.append(
-            SideEffectFact(
-                "install_script",
-                f"{ecosystem_script}:{normalized}",
-                normalized,
-                0,
-                value=_short_digest(text),
-                detail=f"{filename} runs during build/install",
-            )
-        )
-    info = supported_path(normalized)
-    if info is None or info.lockfile:
-        return tuple(facts)
-    try:
-        declared = parse_manifest(info.ecosystem, text)
-    except (ValueError, TypeError, tomllib.TOMLDecodeError):
-        return tuple(facts)
-    for key, dependency in sorted(declared.items()):
-        facts.append(
-            SideEffectFact(
-                "dependency",
-                f"{info.ecosystem}:{key}",
-                normalized,
-                0,
-                detail=f"{dependency.scope} {dependency.requirement}".strip()[:200],
-            )
-        )
-    try:
-        doc: Any = json.loads(text) if info.ecosystem == "npm" else tomllib.loads(text)
-    except (ValueError, tomllib.TOMLDecodeError):
-        return tuple(facts)
-    if not isinstance(doc, Mapping):
-        return tuple(facts)
-    if info.ecosystem == "npm":
-        scripts = doc.get("scripts")
-        for hook in _NPM_INSTALL_HOOKS:
-            script = scripts.get(hook) if isinstance(scripts, Mapping) else None
-            if isinstance(script, str) and script.strip():
-                facts.append(
-                    SideEffectFact(
-                        "install_script",
-                        f"npm:{normalized}:{hook}",
-                        normalized,
-                        0,
-                        value=_short_digest(script),
-                        detail=f"{hook}: {script.strip()[:160]}",
-                    )
-                )
-    elif info.ecosystem == "pypi":
-        build_system = doc.get("build-system")
-        if isinstance(build_system, Mapping):
-            facts.append(
-                SideEffectFact(
-                    "install_script",
-                    f"pypi:{normalized}:build-system",
-                    normalized,
-                    0,
-                    value=_short_digest(build_system),
-                    detail=f"build backend {build_system.get('build-backend') or '(default)'}",
-                )
-            )
-    elif info.ecosystem == "cargo":
-        package = doc.get("package")
-        build = package.get("build") if isinstance(package, Mapping) else None
-        if isinstance(build, str) and build:
-            facts.append(
-                SideEffectFact(
-                    "install_script",
-                    f"cargo:{normalized}:build",
-                    normalized,
-                    0,
-                    value=_short_digest(build),
-                    detail=f"build script {build}",
-                )
-            )
-    return tuple(facts)
-
-
 __all__ = [
     "DeclaredDependency",
     "DependencyComponent",
     "build_dependency_review",
     "dependency_capture_gaps",
-    "dependency_side_effects",
     "derive_dependency_units",
     "parse_lock",
     "parse_manifest",

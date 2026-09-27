@@ -3,7 +3,7 @@
 A comparative benchmark is only useful if the protocol is fixed before results
 are observed. This module validates a small JSON contract against the current
 CodeBench catalog and prompt bytes, fingerprints it, and renders the exact
-`lc rt benchmark codebench` commands that a later paid run would execute.
+`lc benchmark codebench` commands that a later paid run would execute.
 
 Validation never clones competitors, starts a model, or mutates a workspace.
 """

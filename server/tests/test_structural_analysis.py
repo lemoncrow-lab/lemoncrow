@@ -89,30 +89,3 @@ def test_generated_typescript_export_default_does_not_stall_import_analysis() ->
 
     assert {item.module for item in artifact.imports} == {"./codec", "./helper"}
     assert elapsed < 5.0
-
-
-@pytest.mark.parametrize(
-    ("path", "profile", "source", "expected"),
-    [
-        (
-            "kernel/sys.c",
-            "c-3",
-            b"struct task { int child_irq_domain_ops; };\nstatic int new_user(int x) { return helper(x); }\n",
-            {"task", "child_irq_domain_ops", "new_user"},
-        ),
-        ("include/task.h", "c-3", b"struct task { int child_irq_domain_ops; };\n", {"task", "child_irq_domain_ops"}),
-        ("src/task.cpp", "cpp-3", b"class Task { public: int run() { return helper(); } };\n", {"Task", "run"}),
-    ],
-)
-def test_c_family_profiles_extract_functions_and_fields(path, profile, source, expected):
-    from lemoncrow_client.manifest import profile_for_path as client_profile
-    from lemoncrow_server_core.index.analysis import resolve_profile
-
-    assert profile_for_path(path) == client_profile(path) == profile
-    artifact = analyze(sha256_hex(source), profile, source)
-    assert expected <= {item.name for item in artifact.definitions}
-    # Units are derived by the private semantic engine, never by public Layer 1.
-    assert artifact.semantic_units == ()
-    assert resolve_profile(profile).semantic_units
-    for definition in artifact.definitions:
-        assert source[definition.start : definition.end].decode() == definition.name

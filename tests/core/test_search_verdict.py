@@ -1,4 +1,4 @@
-"""Contract tests for the pure search-verdict state machine."""
+"""Unit tests for the pure search-verdict core (Phase 1 keystone)."""
 
 from __future__ import annotations
 
@@ -14,105 +14,156 @@ from lemoncrow.pro.capabilities.code_context.search_verdict import (
 )
 
 
-def test_verdict_contract() -> None:
-    cases = [
-        (dict(hit_count=3, query="timezone conversion"), "found"),
-        (dict(hit_count=1, query="foo", channels=ChannelHealth(semantic=False, zoekt=False)), "found"),
-        (dict(hit_count=0, query="foo", channels=ChannelHealth(semantic=None, zoekt=None)), "missed"),
-        (dict(hit_count=0, query="render template tag"), "missed"),
-        (
-            dict(
-                hit_count=0,
-                query="timezone offset handling",
-                prior_empties=(normalize_query("timezone convert backend"),),
-            ),
-            "absent",
-        ),
-        (
-            dict(
-                hit_count=0,
-                query="timezone offset handling",
-                prior_empties=(normalize_query("database migration squash"),),
-            ),
-            "missed",
-        ),
-        (dict(hit_count=0, query="timezone convert", prior_empties=(normalize_query("timezone convert"),)), "missed"),
-        (
-            dict(
-                hit_count=0,
-                query="timezone convert backend",
-                prior_empties=(normalize_query("timezone convert backend utc"),),
-            ),
-            "missed",
-        ),
-        (
-            dict(hit_count=0, query="alpha gamma delta", prior_empties=(normalize_query("alpha beta"),), threshold=3),
-            "missed",
-        ),
-    ]
-    for kwargs, expected in cases:
-        result = compute_verdict(**kwargs)
-        assert result.verdict == expected, kwargs
-        if expected in {"found", "missed", "absent"}:
-            assert result.next == ""
-    assert compute_verdict(hit_count=3, query="timezone conversion").as_payload() == {"verdict": "found"}
+def test_found_when_hits_present() -> None:
+    res = compute_verdict(hit_count=3, query="timezone conversion")
+    assert res.verdict == "found"
+    assert res.next == ""
+    assert res.as_payload() == {"verdict": "found"}
 
 
-def test_dark_channel_contract() -> None:
-    for channels, label in [
+def test_found_short_circuits_even_with_dark_channel() -> None:
+    # A hit is a hit regardless of channel health.
+    res = compute_verdict(hit_count=1, query="foo", channels=ChannelHealth(semantic=False, zoekt=False))
+    assert res.verdict == "found"
+
+
+@pytest.mark.parametrize(
+    "channels,expected_label",
+    [
         (ChannelHealth(semantic=False), "semantic"),
         (ChannelHealth(zoekt=False), "zoekt"),
         (ChannelHealth(semantic=False, zoekt=False), "semantic + zoekt"),
-    ]:
-        result = compute_verdict(hit_count=0, query="foo bar", channels=channels)
-        assert result.verdict == "dark" and label in result.next and result.as_payload()["next"]
+    ],
+)
+def test_dark_when_empty_and_wanted_channel_off(channels: ChannelHealth, expected_label: str) -> None:
+    res = compute_verdict(hit_count=0, query="foo bar", channels=channels)
+    assert res.verdict == "dark"
+    assert expected_label in res.next
+    assert res.as_payload()["next"]
 
 
-def test_threshold_and_normalization_contract(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_channel_none_is_not_dark() -> None:
+    # None = not applicable to this query/mode -> empty is honest, not dark.
+    res = compute_verdict(hit_count=0, query="foo", channels=ChannelHealth(semantic=None, zoekt=None))
+    assert res.verdict == "missed"
+
+
+def test_first_empty_is_missed_not_absent() -> None:
+    res = compute_verdict(hit_count=0, query="render template tag")
+    assert res.verdict == "missed"
+    assert res.next == ""  # plain empty, no reformulate nudge
+
+
+def test_second_distinct_same_area_empty_is_absent() -> None:
+    prior = (normalize_query("timezone convert backend"),)
+    res = compute_verdict(hit_count=0, query="timezone offset handling", prior_empties=prior)
+    assert res.verdict == "absent"
+    assert res.next == ""  # plain empty, no broaden-scope nudge
+
+
+def test_second_empty_different_area_stays_missed() -> None:
+    prior = (normalize_query("database migration squash"),)
+    res = compute_verdict(hit_count=0, query="timezone offset handling", prior_empties=prior)
+    assert res.verdict == "missed"
+
+
+def test_exact_rerun_does_not_escalate_to_absent() -> None:
+    # Re-running the identical empty query is not a reformulation.
+    q = "timezone convert"
+    res = compute_verdict(hit_count=0, query=q, prior_empties=(normalize_query(q),))
+    assert res.verdict == "missed"
+
+
+def test_near_identical_rerun_does_not_escalate() -> None:
+    # High token overlap (Jaccard >= cap) counts as a re-run, not a new phrasing.
+    prior = (normalize_query("timezone convert backend utc"),)
+    res = compute_verdict(hit_count=0, query="timezone convert backend", prior_empties=prior)
+    assert res.verdict == "missed"
+
+
+def test_threshold_override_param() -> None:
+    prior = (normalize_query("alpha beta"),)
+    # threshold=3 needs two prior distinct same-area empties; one is not enough.
+    res = compute_verdict(hit_count=0, query="alpha gamma delta", prior_empties=prior, threshold=3)
+    assert res.verdict == "missed"
+
+
+def test_threshold_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LEMONCROW_SEARCH_REFORMULATION_THRESHOLD", "4")
+    assert reformulation_threshold() == 4
+    monkeypatch.setenv("LEMONCROW_SEARCH_REFORMULATION_THRESHOLD", "garbage")
+    assert reformulation_threshold() == 2
+    monkeypatch.setenv("LEMONCROW_SEARCH_REFORMULATION_THRESHOLD", "0")
+    assert reformulation_threshold() == 2
+
+
+def test_normalize_query_is_token_set() -> None:
     assert normalize_query("Foo, bar FOO!") == frozenset({"foo", "bar"})
     assert normalize_query("") == frozenset()
-    for value, expected in [("4", 4), ("garbage", 2), ("0", 2)]:
-        monkeypatch.setenv("LEMONCROW_SEARCH_REFORMULATION_THRESHOLD", value)
-        assert reformulation_threshold() == expected
-    for value, expected in [("3", 3), ("junk", 6)]:
-        monkeypatch.setenv("LEMONCROW_SEARCH_BREAKER_THRESHOLD", value)
-        assert breaker_threshold() == expected
 
 
-def test_search_history_contract() -> None:
-    history = SearchHistory()
-    history.record("alpha beta", found=False)
-    history.record("gamma delta", found=True)
-    history.record("   ", found=False)
-    assert history.prior_empties() == (normalize_query("alpha beta"),)
+class TestSearchHistory:
+    def test_records_only_empties(self) -> None:
+        h = SearchHistory()
+        h.record("alpha beta", found=False)
+        h.record("gamma delta", found=True)
+        assert h.prior_empties() == (normalize_query("alpha beta"),)
 
-    history = SearchHistory()
-    history.record("timezone convert backend", found=False)
-    history.record("database migration", found=False)
-    history.record("timezone offset utc", found=True)
-    assert history.prior_empties() == (normalize_query("database migration"),)
+    def test_blank_query_ignored(self) -> None:
+        h = SearchHistory()
+        h.record("   ", found=False)
+        assert h.prior_empties() == ()
 
-    bounded = SearchHistory()
-    for i in range(50):
-        bounded.record(f"unique-term-{i}", found=False)
-    assert len(bounded.prior_empties()) <= 24
+    def test_found_prunes_same_area_streak(self) -> None:
+        h = SearchHistory()
+        h.record("timezone convert backend", found=False)
+        h.record("database migration", found=False)
+        # A hit in the timezone area clears that streak, leaving the unrelated one.
+        h.record("timezone offset utc", found=True)
+        assert h.prior_empties() == (normalize_query("database migration"),)
 
+    def test_window_is_bounded(self) -> None:
+        h = SearchHistory()
+        for i in range(50):
+            h.record(f"unique-term-{i}", found=False)
+        assert len(h.prior_empties()) <= 24
 
-def test_search_breaker_contract() -> None:
-    history = SearchHistory()
-    for i in range(6):
-        history.record(f"miss-term-{i}", found=False)
-    assert history.unproductive_streak == 6
-    assert history.breaker_tripped(threshold=6) is True
-    assert history.breaker_tripped(threshold=10) is False
-    assert history.breaker_tripped(threshold=0) is False
-    history.record("hit here", found=True)
-    assert history.unproductive_streak == 0 and not history.breaker_tripped(threshold=2)
+    def test_breaker_counts_consecutive_unproductive(self) -> None:
+        h = SearchHistory()
+        for i in range(6):
+            h.record(f"miss-term-{i}", found=False)
+        assert h.unproductive_streak == 6
+        assert h.breaker_tripped(threshold=6) is True
+        assert h.breaker_tripped(threshold=10) is False
 
+    def test_found_resets_breaker_streak(self) -> None:
+        h = SearchHistory()
+        h.record("miss one", found=False)
+        h.record("miss two", found=False)
+        assert h.unproductive_streak == 2
+        h.record("hit here", found=True)
+        assert h.unproductive_streak == 0
+        assert h.breaker_tripped(threshold=2) is False
 
-def test_history_drives_absent_across_calls() -> None:
-    history = SearchHistory()
-    first = compute_verdict(hit_count=0, query="timezone convert backend", prior_empties=history.prior_empties())
-    history.record("timezone convert backend", found=False)
-    second = compute_verdict(hit_count=0, query="timezone offset handling", prior_empties=history.prior_empties())
-    assert (first.verdict, second.verdict) == ("missed", "absent")
+    def test_breaker_disabled_when_threshold_non_positive(self) -> None:
+        h = SearchHistory()
+        for _ in range(20):
+            h.record("miss", found=False)
+        assert h.breaker_tripped(threshold=0) is False
+
+    def test_breaker_threshold_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LEMONCROW_SEARCH_BREAKER_THRESHOLD", "3")
+        assert breaker_threshold() == 3
+        monkeypatch.setenv("LEMONCROW_SEARCH_BREAKER_THRESHOLD", "junk")
+        assert breaker_threshold() == 6
+
+    def test_drives_absent_across_calls(self) -> None:
+        h = SearchHistory()
+        q1 = "timezone convert backend"
+        v1 = compute_verdict(hit_count=0, query=q1, prior_empties=h.prior_empties())
+        h.record(q1, found=False)
+        assert v1.verdict == "missed"
+
+        q2 = "timezone offset handling"
+        v2 = compute_verdict(hit_count=0, query=q2, prior_empties=h.prior_empties())
+        assert v2.verdict == "absent"

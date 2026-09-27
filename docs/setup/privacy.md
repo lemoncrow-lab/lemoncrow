@@ -1,146 +1,58 @@
 # Privacy & network behavior
 
-Local Runtime repository intelligence and tool execution run on the developer machine. Using the Runtime plugin with Claude Code, Codex, OpenCode, or Cursor does not require a LemonCrow account and does not upload repository source to LemonCrow.
-
-Your local coding agent can still make its normal model-provider requests when using Runtime Lite integrations such as `lc with`. Those provider calls are not LemonCrow telemetry. `lc code` is different: it is the Hosted LemonCrow-owned agent and follows the network/data boundary of that Hosted deployment.
-
-Review, Hosted Runtime, Enterprise Runtime, and self-hosted/shared-service deployments have different network boundaries. This page calls those out separately rather than treating every LemonCrow product as one local server.
-
-The installed `lc` client (Review and Runtime Lite) and the Local Review server it installs send no product telemetry: `lc audit` prints `"product_telemetry": false`, and there is no switch to turn off. The anonymous aggregate telemetry described under [Telemetry](#telemetry) belongs to the full LemonCrow engine you run from a source checkout (`uv run lc ...`). It is on by default there and contains no source code or prompts. Turn it off with `uv run lc rt telemetry remote off`, `DO_NOT_TRACK=1`, or `LEMONCROW_TELEMETRY=off`.
+LemonCrow's public/local runtime runs on your machine and works fully offline
+after install: indexing, search, edits, memory, and local Review do not require
+a LemonCrow account or commercial license. The one LemonCrow-bound request made
+by default is an anonymous telemetry rollup — counts, durations, and dollar
+estimates, never code or prompts. Turn it off with `lc telemetry remote off`, or
+set `DO_NOT_TRACK=1` or `LEMONCROW_TELEMETRY=off`.
 
 ## What runs locally
 
-For the local Runtime path, repository indexing, code search, reads, edits, shell/tool execution, and generated repository state stay on the machine. Runtime Lite does not require a resident LemonCrow daemon or listening Runtime port.
+Everything core: initialization, indexing a repository, code search and graph
+queries, context assembly, memory, the MCP server, host integrations, reports,
+and status. None of these require an account, and none of them send your source
+code, prompts, or file paths anywhere. The only LemonCrow-bound traffic is the
+aggregate telemetry rollup described below.
 
-The local repository index lives under `.lemoncrow/workspace/` inside the Git worktree.
-
-## Which actions make network requests
+## Which commands make network requests
 
 | Command / action | Destination | When |
 |---|---|---|
-| Existing-agent model calls | The provider/account already used by Claude Code, Codex, OpenCode, Cursor, etc. | According to that host's normal behavior |
-| `lc auth login` | The configured hosted LemonCrow/Authward deployment | Only when you sign in |
-| Hosted / Enterprise Runtime | The deployment you explicitly selected | Only when you use that managed path |
-| `lc update` | The release installer on GitHub Releases for `lemoncrow-lab/lemoncrow` | Only when you run it |
-| Optional dependency/host bootstrap | Upstream project releases used by an enabled feature or managed frontend | When you install/update that component |
-| Daily update check (full engine) | GitHub Releases API for `lemoncrow-lab/lemoncrow` | Only when enabled in settings |
-| Remote telemetry (full engine only) | The configured telemetry destination | On by default in a source checkout; disable with `uv run lc rt telemetry remote off`. The installed client sends none |
-| Make a wish (Review menu) | `lemoncrow.com` | Only when you explicitly press **Send wish** |
+| `lc update` | GitHub Releases API for `lemoncrow-lab/lemoncrow` | Only when you run it |
+| Model / embedding calls | The provider **you** configured (Anthropic, OpenAI, Ollama, …) | Only when a capability calls your configured model, using your API key |
+| Optional dependency bootstrap | Upstream project releases (e.g. ast-grep, Hugging Face models) | Only for optional features you enable; checksum-verified where applicable |
+| Startup auto-update | GitHub (`origin`) | **Opt-in only**: set `LEMONCROW_AUTO_UPDATE=1` |
+| Daily update check | GitHub Releases API for `lemoncrow-lab/lemoncrow` (one anonymous GET, no LemonCrow data) | **Opt-in only**: the interactive installer offers Auto-update, Notify only, or Don't check automatically (the default); or use `lc settings set cli.update_check true`. Off for non-interactive installs |
+| Remote telemetry | `lemoncrow.com` rollup endpoint — see below | **On by default**; opt out with `lc telemetry remote off` |
 
-Provider traffic is separate from LemonCrow telemetry.
+User-configured model-provider calls are the product's core function and are
+**not** LemonCrow telemetry.
 
 ## Telemetry
 
-This section applies to the full LemonCrow engine run from a source checkout
-(`uv run lc ...`). The installed `lc` client and the Local Review server send no
-product telemetry, and `lc rt telemetry` in the installed client only says
-that. In a source checkout, the commands below are `uv run lc ...`.
+Anonymous remote telemetry is **ON by default**. Turn it off with `lc telemetry
+remote off`, or set `DO_NOT_TRACK=1` or `LEMONCROW_TELEMETRY=off`.
 
-In the full engine, anonymous remote telemetry is **ON by default**, and the first
-command you run says so, once, on standard error (also when it is piped):
-`Telemetry is on: LemonCrow sends anonymous counts and timings, never code, prompts or file paths. Turn it off: lc rt telemetry remote off (or DO_NOT_TRACK=1).`
-Turn it off with `lc rt telemetry remote off`, or set `DO_NOT_TRACK=1` or
-`LEMONCROW_TELEMETRY=off`; while it is off, that line is not printed. The
-[GitHub Action](github-action.md) sets `DO_NOT_TRACK=1` on the step that runs `lc`.
-
-- **Inspect** what is collected locally: `lc rt telemetry show`
-- **See status:** `lc rt telemetry status --json`
-- **Turn off** anonymous remote telemetry: `lc rt telemetry remote off`
-- **Turn it back on:** `lc rt telemetry remote on`
+- **Inspect** what is collected locally: `lc telemetry show`
+- **See status:** `lc telemetry status --json`
+- **Turn off** anonymous remote telemetry: `lc telemetry remote off`
+- **Turn it back on:** `lc telemetry remote on`
 - **Global kill switch:** set `DO_NOT_TRACK=1` or `LEMONCROW_TELEMETRY=off` in
   your environment; remote telemetry is then never emitted regardless of config.
 
-Two kinds of anonymous rollup are sent, and both are deliberately minimal:
-
-- **Savings rollup** — aggregate counts, bucketed durations, and dollar
-  estimates, plus a SHA-256 install key, a SHA-256 session key, the LemonCrow
-  version, the host source, the retrieval domain, and a timestamp. The exact
-  payload is `_payload` in `src/lemoncrow/core/service/telemetry/public_rollup.py`.
-  It goes out once per elapsed UTC day and, for agent sessions the periodic
-  session import picks up (Claude Code, Codex, OpenCode and the other importable
-  hosts), once per session: only the session's token total, tool-call count,
-  turn count, duration and host name, under the same hashed keys, and never its
-  prompt, title, paths or raw id. Sessions older than 48 hours, and sessions the
-  savings ledger already covers in the daily rollup, are skipped, and at most 20
-  go out per import run. A session is resent only if its counts changed.
-- **Event counts** — once per elapsed UTC day, how many times each product
-  event happened, grouped by low-cardinality labels only: the event name, the
-  command or MCP tool name, the agent host, the outcome (`ok`, an exception
-  class name, or an error code), and a duration bucket; plus the same SHA-256
-  install key, the LemonCrow version, and the day. Individual events, session
-  ids, and repository ids are never sent. The exact rows are built by
-  `row_labels` in `src/lemoncrow/core/service/telemetry/event_rollup.py`. Days
-  that elapse while telemetry is off are skipped, never sent later.
+What is sent has not changed, and the payload is deliberately minimal: aggregate
+counts, bucketed durations, and dollar estimates, plus a SHA-256 install key, a
+SHA-256 session key, the LemonCrow version, the host source, the retrieval
+domain, and a timestamp. The exact payload is `_payload` in
+`src/lemoncrow/core/service/telemetry/public_rollup.py`.
 
 It contains **no** source code, **no** prompts, **no** file or repository paths,
 **no** symbol names, and **no** account lookup. Command arguments are scrubbed
 before emission. There is no crash reporting.
 
 Once you turn telemetry off, **nothing leaves the machine** except the update
-check you run yourself (`lc update`), and a wish you explicitly send with
-**Make a wish** (below).
-
-### Wishes ("Make a wish")
-
-The Review action menu's **Make a wish** dialog sends what you typed to
-`lemoncrow.com` when you press **Send wish**. A wish is **not telemetry** and
-deliberately ignores the telemetry switch: it is a single, labelled action you
-took, not an aggregate about you, and gating it would discard the one thing you
-asked to send. Nothing is sent until you press the button, and nothing is sent
-from the Review, Code, or any other surface on its own.
-
-What is sent: the message, the contact email **only if you typed one**, the
-surface (`review`), and the LemonCrow version. Never code, paths, review
-contents, install or account identifiers. The browser never contacts
-lemoncrow.com directly — the local server sends it (`submit_feedback` in
-`src/lemoncrow/core/service/feedback.py`), and the sink is
-`POST https://lemoncrow.com/api/feedback`, a LemonCrow-operated service whose
-implementation is not part of this repository; it keeps each wish for 180 days. If
-the send fails, nothing is stored locally: the dialog keeps your text and
-offers an email instead.
-
-### Where telemetry goes
-
-Local events and the local UI (**Settings → Telemetry**) never leave the machine.
-Only the two rollups go to the **destination**, which you pick in that page
-or with `lc rt telemetry destination`:
-
-| Destination | Sends to |
-|---|---|
-| `auto` (default) | your LemonCrow server when it is hosted (`LEMONCROW_URL` is not loopback), otherwise `lemoncrow.com` |
-| `off` | nothing; local only |
-| `lemoncrow` | `https://lemoncrow.com` |
-| `server` | the LemonCrow server this install uses, with the token it already presents to that server |
-| `custom <url>` | any HTTPS host, with an optional `--token`, that serves `/api/telemetry/rollup` and `/api/telemetry/events` |
-
-```bash
-lc rt telemetry destination                         # show the effective destination
-lc rt telemetry destination custom https://telemetry.corp.example --token "$TOKEN"
-lc rt telemetry destination off
-```
-
-The per-event PostHog export is LemonCrow's own service, so it runs only when the
-destination is `lemoncrow`. Per-session usage reports are part of the savings
-rollup and follow the destination, the opt-outs and the administrator policy
-like the daily one: with a `server` or `custom` destination they go to that
-host, never to `lemoncrow.com`.
-
-**Administrators** can fix the destination for every user of a machine with a
-policy file at `/etc/lemoncrow/telemetry.toml` (macOS:
-`/Library/Application Support/LemonCrow/telemetry.toml`; Windows:
-`%ProgramData%\LemonCrow\telemetry.toml`):
-
-```toml
-[telemetry]
-destination = "custom"          # off | lemoncrow | server | custom
-endpoint = "https://telemetry.corp.example"
-token = "..."                   # optional bearer token
-```
-
-Under a policy, the UI and CLI show the destination as managed and refuse
-changes, and the development URL overrides are ignored. A policy file that is
-unreadable or invalid locks telemetry **off**. `DO_NOT_TRACK=1` and
-`LEMONCROW_TELEMETRY=off` still turn remote telemetry off.
+check you run yourself (`lc update`).
 
 ## Local installation identifier
 
@@ -152,7 +64,7 @@ can be de-duplicated. It is:
   hostname, username, or disk serial.
 - Only ever transmitted as a SHA-256 hash, and not at all once you turn remote
   telemetry off.
-- Resettable at any time: `lc rt telemetry reset-id`.
+- Resettable at any time: `lc telemetry reset-id`.
 
 ## Commit attribution
 
@@ -160,19 +72,27 @@ LemonCrow can add a `Co-Authored-By: lemoncrow+<model>` trailer (just `lemoncrow
 when the model is unknown) to commits made through a LemonCrow-backed agent.
 It carries no session id. This is **off by default**. Opt in at install time with
 `LEMONCROW_ATTRIBUTION=1`, which installs a workspace-local
-`.git/hooks/prepare-commit-msg` hook. `lc uninstall` (or, for the full engine, `scripts/uninstall.sh`) removes the hook (and
+`.git/hooks/prepare-commit-msg` hook. `scripts/uninstall.sh` removes the hook (and
 the block it appended to any pre-existing hook).
 
 ## Local identity versus hosted identity
 
-Local Runtime plugin use does not require a LemonCrow account. Generated repository intelligence stays local, and the external coding agent continues using its own provider identity.
+Local mode uses a machine credential stored under `LEMONCROW_HOME` and a
+separate Review-only browser capability. Neither requires a LemonCrow account.
+The local server binds to loopback and is not a supported remote-exposure
+surface. Standard reverse-proxy forwarding headers disable local browser trust;
+a raw TCP tunnel can be indistinguishable from true loopback traffic, so do not
+forward port `7420` to other machines.
 
-A deliberately configured local Review/shared service can use a machine credential plus a Review browser capability. If that service binds only to loopback, do not forward its loopback port to other machines as though it were a hardened remote deployment.
-
-Hosted mode is separate. When `LEMONCROW_URL` points at a hosted LemonCrow server, `lc auth login` performs device authorization against that deployment. Hosted credentials are stored separately from local machine/service credentials: in hosted mode the client ignores the local `~/.lemoncrow/token` file (`$LEMONCROW_HOME/token`) and never sends a local machine token to a hosted origin. To supply an operator-provided credential instead of signing in, set `LEMONCROW_TOKEN_FILE` to its path or `LEMONCROW_TOKEN` to its value. Remote browser Review uses the hosted authorization flow. Signing in does not become a prerequisite for local Runtime use and does not silently change an existing local integration into hosted execution.
+Hosted mode is separate. When `LEMONCROW_URL` points at a hosted LemonCrow
+server, `lc auth login` discovers the server's Authward issuer and performs RFC
+8628 device authorization directly with Authward. Authward access/refresh
+credentials are stored separately from the local machine credential. Remote
+browser Review uses Authward authorization-code + PKCE through the hosted BFF.
+Signing in to hosted LemonCrow does not become a prerequisite for local use.
 
 ## Removal
 
-See the README's *Removal* section. Use `lc uninstall all`
-(full engine: `scripts/uninstall.sh --purge`) to remove all LemonCrow-managed local state,
+See the README's *Removal* section and `scripts/uninstall.sh`. Use
+`scripts/uninstall.sh --purge` to remove all LemonCrow-managed local state,
 including the telemetry identifier and config.
