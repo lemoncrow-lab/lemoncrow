@@ -543,15 +543,8 @@ def current_break_glass(deps: LandingDeps, session: Any, revision: Any) -> Mappi
 
 
 def publish_status(deps: LandingDeps, session: Any, revision: Any, readiness: Mapping[str, Any]) -> dict[str, Any]:
-    """Exact blocking reasons on the reviewed head (and the merge result, when one is built).
+    """Exact blocking reasons on the reviewed head (and the merge result, when one is built)."""
 
-    Only where the repository or organization asked for it (``landing.merge_status.enabled``): the status is
-    advisory, and a ``pending`` one on a pull request nobody can finish would only block a merge.
-    """
-
-    policy = landing_policy(deps.extension(session, revision), deps.review_config(revision))
-    if not policy.merge_status_enabled:
-        return {"head": {"status": "disabled"}}
     standing = aa.approval_wire(
         aa.auto_approval_relationship(deps.store, session.id), latest_tree_fingerprint=str(revision.tree_fingerprint)
     )

@@ -394,7 +394,7 @@ function FileLoadRetry({ path, onRetry }: { path: string; onRetry(path: string):
         aria-label={`Retry loading ${path}`}
         className="h-7"
       >
-        <RotateCw size={14} aria-hidden="true" className={state === "retrying" ? "animate-spin motion-reduce:animate-none" : ""} />
+        <RotateCw size={11} aria-hidden="true" className={state === "retrying" ? "animate-spin motion-reduce:animate-none" : ""} />
         {state === "retrying" ? "Retrying…" : "Retry"}
       </UiButton>
     </div>
@@ -427,7 +427,7 @@ function RuntimeValidationControl({
   const tone = status === "PASS"
     ? "text-emerald-300"
     : status === "FAIL" || status === "FAILED"
-      ? "text-red-300"
+      ? "text-rose-300"
       : status
         ? "text-amber-300"
         : "text-muted-foreground";
@@ -741,7 +741,7 @@ function ReviewTargetEndActions({
         onClick={() => onMark("reviewed", true)}
         className="h-6 w-6 hover:text-emerald-300"
       >
-        <CheckCircle2 size={14} aria-hidden="true" />
+        <CheckCircle2 size={12} aria-hidden="true" />
       </UiButton>
       <UiButton
         variant="ghost"
@@ -751,9 +751,9 @@ function ReviewTargetEndActions({
         tooltip={lock || "Needs changes"}
         disabled={busy}
         onClick={() => onMark("needs_changes")}
-        className="h-6 w-6 hover:text-red-300"
+        className="h-6 w-6 hover:text-rose-300"
       >
-        <X size={14} aria-hidden="true" />
+        <X size={12} aria-hidden="true" />
       </UiButton>
       <UiButton
         variant="ghost"
@@ -763,9 +763,9 @@ function ReviewTargetEndActions({
         tooltip={lock || "Add comment"}
         disabled={busy}
         onClick={onComment}
-        className="h-6 w-6 hover:text-cyan-300"
+        className="h-6 w-6 hover:text-sky-300"
       >
-        <MessageSquareText size={14} aria-hidden="true" />
+        <MessageSquareText size={12} aria-hidden="true" />
       </UiButton>
       {onAsk && (
         <UiButton
@@ -776,9 +776,9 @@ function ReviewTargetEndActions({
           tooltip={lock || "Ask about this code"}
           disabled={busy}
           onClick={onAsk}
-          className="h-6 w-6 hover:text-foreground"
+          className="h-6 w-6 hover:text-violet-300"
         >
-          <Sparkles size={14} aria-hidden="true" />
+          <Sparkles size={11} aria-hidden="true" />
         </UiButton>
       )}
       <UiButton
@@ -790,7 +790,7 @@ function ReviewTargetEndActions({
         onClick={onContext}
         className="h-6 w-6"
       >
-        <PanelRight size={14} aria-hidden="true" />
+        <PanelRight size={11} aria-hidden="true" />
       </UiButton>
     </div>
   );
@@ -875,7 +875,7 @@ function markContextLoad(node: HTMLElement, state: ContextLoadState | undefined)
     status.textContent = state === "loading" ? "Loading context…" : "Couldn't load context · click to retry";
     status.style.marginLeft = "0.75rem";
     status.style.opacity = state === "loading" ? "0.75" : "1";
-    if (state === "error") status.style.color = "rgb(var(--p0))";
+    if (state === "error") status.style.color = "#f43f5e";
     label.after(status);
     if (state === "loading") separator.setAttribute("aria-busy", "true");
   }
@@ -2794,7 +2794,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
       return (
         <div className="flex items-center gap-2 pr-2 font-mono text-caption text-muted-foreground">
           {additions > 0 && <span className="text-emerald-400">+{additions}</span>}
-          {deletions > 0 && <span className="text-red-400">-{deletions}</span>}
+          {deletions > 0 && <span className="text-rose-400">-{deletions}</span>}
           <UiButton
             variant="ghost"
             size="icon"
@@ -2804,7 +2804,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
             tooltip={isPathCollapsed(path) ? "Expand file" : "Collapse file"}
             className="h-6 w-6"
           >
-            {isPathCollapsed(path) ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+            {isPathCollapsed(path) ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
           </UiButton>
         </div>
       );
@@ -2845,10 +2845,10 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
         {file.targetCount > 0 && (
           <span className={allJudged
             ? needsChangesCount > 0
-              ? "font-medium text-red-300/85"
+              ? "font-medium text-rose-300/85"
               : "font-medium text-emerald-300"
             : reviewedCount > 0 || needsChangesCount > 0
-              ? "text-muted-foreground"
+              ? "text-neutral-400"
               : ""}
           >
             {allJudged
@@ -2882,7 +2882,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
               />
             ) : (
               <span
-                className="max-w-48 truncate rounded border border-border bg-muted px-1.5 py-0.5 text-caption text-muted-foreground"
+                className="max-w-48 truncate rounded border border-violet-950 bg-violet-950/20 px-1.5 py-0.5 text-caption text-violet-300/80"
                 title={selectedLinked?.title || selectedLinked?.locator || "Linked preview"}
               >
                 {selectedLinked?.kind === "storybook.story" ? "Storybook" : selectedLinked?.kind === "web.route" ? "Web" : "Preview"}
@@ -2895,14 +2895,14 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
                 aria-label={`Source for ${path}`}
                 aria-pressed={fileSurfaceMode === "source"}
                 onClick={() => setFileSurfaceView(path, "source")}
-                className={`px-2 py-0.5 ${fileSurfaceMode === "source" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                className={`px-2 py-0.5 ${fileSurfaceMode === "source" ? "bg-neutral-800 text-foreground" : "text-muted-foreground hover:text-neutral-50"}`}
               >Source</UiButton>
               <UiButton unstyled
                 type="button"
                 aria-label={`Preview ${path}`}
                 aria-pressed={fileSurfaceMode === "preview"}
                 onClick={() => setFileSurfaceView(path, "preview")}
-                className={`px-2 py-0.5 ${fileSurfaceMode === "preview" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                className={`px-2 py-0.5 ${fileSurfaceMode === "preview" ? "bg-neutral-800 text-foreground" : "text-muted-foreground hover:text-neutral-50"}`}
               >Preview</UiButton>
               {linkedComparable && (
                 <UiButton unstyled
@@ -2910,7 +2910,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
                   aria-label={`Compare preview ${path}`}
                   aria-pressed={fileSurfaceMode === "compare"}
                   onClick={() => setFileSurfaceView(path, "compare")}
-                  className={`px-2 py-0.5 ${fileSurfaceMode === "compare" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                  className={`px-2 py-0.5 ${fileSurfaceMode === "compare" ? "bg-neutral-800 text-foreground" : "text-muted-foreground hover:text-neutral-50"}`}
                 >Compare</UiButton>
               )}
             </span>
@@ -2927,9 +2927,9 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
                 tooltip={`${mode[0]?.toUpperCase()}${mode.slice(1)} · ${index + 1}`}
                 onClick={() => setMarkdownView(path, mode)}
                 className={`px-2 py-0.5 capitalize ${
- markdownMode === mode
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:text-foreground"
+                  markdownMode === mode
+                    ? "bg-neutral-800 text-foreground"
+                    : "text-muted-foreground hover:text-neutral-50"
                 }`}
               >
                 {mode} <span className="ml-1 text-caption text-muted-foreground">{index + 1}</span>
@@ -2945,9 +2945,9 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
             aria-label={`Markdown preview theme: ${markdownPreviewTheme === "auto" ? `Auto · ${resolvedMarkdownTheme}` : markdownPreviewTheme}. Switch to ${nextMarkdownTheme}`}
             tooltip={`Markdown preview theme: ${markdownPreviewTheme === "auto" ? `Auto · ${resolvedMarkdownTheme}` : markdownPreviewTheme}`}
             onClick={() => cycleMarkdownPreviewTheme(path)}
-            className="h-6 w-7 rounded border border-border text-muted-foreground hover:bg-muted"
+            className="h-6 w-7 rounded border border-border text-violet-200 hover:bg-muted"
           >
-            <MarkdownThemeIcon size={14} />
+            <MarkdownThemeIcon size={12} strokeWidth={1.7} />
           </UiButton>
         )}
         {(unreviewedInFile > 0 || Boolean(details[path]?.patch) || Boolean(onOpenInCode)) && (
@@ -2961,7 +2961,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
                 tooltip="File actions"
                 className="h-6 w-6"
               >
-                <EllipsisVertical size={14} />
+                <EllipsisVertical size={13} />
               </UiButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -2974,7 +2974,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
                   aria-label={`Open ${path} in Code`}
                   title="Open the working tree's current file in Code, labelled as the current index."
                 >
-                  <Code2 size={14} className="shrink-0 text-muted-foreground" />
+                  <Code2 size={12} className="shrink-0 text-muted-foreground" />
                   <span>Open in Code</span>
                 </DropdownMenuItem>
               )}
@@ -2987,7 +2987,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
                   aria-label={`Download patch for ${path}`}
                   title="Download this frozen file patch; apply it with git apply."
                 >
-                  <Download size={14} className="shrink-0 text-muted-foreground" />
+                  <Download size={12} className="shrink-0 text-muted-foreground" />
                   <span>Download file patch</span>
                   <span className="ml-auto font-mono text-micro text-muted-foreground">git apply</span>
                 </DropdownMenuItem>
@@ -3003,7 +3003,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
                     ? "Some review areas are hidden. Show the whole file before bulk-marking."
                     : "Marks eligible remaining review areas as reviewed. Anything needing individual attention is skipped."}
                 >
-                  <CheckCircle2 size={14} className="shrink-0 text-emerald-500/80" />
+                  <CheckCircle2 size={12} className="shrink-0 text-emerald-500/80" />
                   <span>Mark safe items reviewed</span>
                 </DropdownMenuItem>
               )}
@@ -3019,7 +3019,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
           tooltip={isPathCollapsed(path) ? "Expand file" : "Collapse file"}
           className="h-6 w-6"
         >
-          {isPathCollapsed(path) ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+          {isPathCollapsed(path) ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
         </UiButton>
       </div>
     );
@@ -3640,7 +3640,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
         data-collapsed="true"
       >
         {comparisonMode ? (
-          <div className="inline-flex min-w-0 flex-1 items-center gap-2 truncate font-mono text-body text-foreground">
+          <div className="inline-flex min-w-0 flex-1 items-center gap-2 truncate font-mono text-body text-neutral-200">
             <FileTypeIcon path={path} />
             <span className="truncate" title={path}>{path}</span>
           </div>
@@ -3650,11 +3650,11 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
             onClick={() => openDedicatedReviewItem({ kind: "file", path })}
             aria-label={`Open ${path} in dedicated tab`}
             tooltip="Open file in dedicated tab"
-            className="inline-flex min-w-0 flex-1 cursor-pointer items-center gap-2 truncate text-left font-mono text-body text-foreground underline-offset-2 hover:text-foreground hover:underline"
+            className="inline-flex min-w-0 flex-1 cursor-pointer items-center gap-2 truncate text-left font-mono text-body text-neutral-200 underline-offset-2 hover:text-neutral-50 hover:underline"
           >
             <FileTypeIcon path={path} />
             <span className="truncate" title={path}>{path}</span>
-            <ExternalLink size={14} className="shrink-0 text-muted-foreground" />
+            <ExternalLink size={11} className="shrink-0 text-muted-foreground" />
           </UiButton>
         )}
         {headerControls(path)}
@@ -3680,7 +3680,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
 
     return (
       <section
-        className="border-b border-border bg-background"
+        className="border-b border-neutral-900 bg-background"
         data-testid={`markdown-stream:${path}`}
         onMouseEnter={() => {
           activeMarkdownPathRef.current = path;
@@ -3700,11 +3700,11 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
             onClick={() => openDedicatedReviewItem({ kind: "file", path })}
             aria-label={`Open ${path} in dedicated tab`}
             tooltip="Open file in dedicated tab"
-            className="inline-flex min-w-0 flex-1 cursor-pointer items-center gap-2 truncate text-left font-mono text-body text-foreground underline-offset-2 hover:text-foreground hover:underline"
+            className="inline-flex min-w-0 flex-1 cursor-pointer items-center gap-2 truncate text-left font-mono text-body text-neutral-200 underline-offset-2 hover:text-neutral-50 hover:underline"
           >
             <FileTypeIcon path={path} />
             <span className="truncate" title={path}>{path}</span>
-            <ExternalLink size={14} className="shrink-0 text-muted-foreground" />
+            <ExternalLink size={11} className="shrink-0 text-muted-foreground" />
           </UiButton>
           {headerControls(path)}
         </div>
@@ -3736,7 +3736,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
           }}
         />
         {(targetRows.length > 0 || shownComments.length > 0 || composing) && (
-          <div className="space-y-1 border-t border-border bg-background px-3 py-3">
+          <div className="space-y-1 border-t border-neutral-900 bg-background px-3 py-3">
             {targetRows.map((target) => (
               <ReviewTargetHeader
                 key={target.target_id}
@@ -3844,7 +3844,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
 
     return (
       <section
-        className="border-b border-border bg-background"
+        className="border-b border-neutral-900 bg-background"
         data-testid={`csv-stream:${path}`}
         onMouseEnter={() => {
           activeMarkdownPathRef.current = path;
@@ -3864,11 +3864,11 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
             onClick={() => openDedicatedReviewItem({ kind: "file", path })}
             aria-label={`Open ${path} in dedicated tab`}
             tooltip="Open file in dedicated tab"
-            className="inline-flex min-w-0 flex-1 cursor-pointer items-center gap-2 truncate text-left font-mono text-body text-foreground underline-offset-2 hover:text-foreground hover:underline"
+            className="inline-flex min-w-0 flex-1 cursor-pointer items-center gap-2 truncate text-left font-mono text-body text-neutral-200 underline-offset-2 hover:text-neutral-50 hover:underline"
           >
             <FileTypeIcon path={path} />
             <span className="truncate" title={path}>{path}</span>
-            <ExternalLink size={14} className="shrink-0 text-muted-foreground" />
+            <ExternalLink size={11} className="shrink-0 text-muted-foreground" />
           </UiButton>
           {headerControls(path)}
         </div>
@@ -3890,7 +3890,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
 
     return (
       <section
-        className="border-b border-border bg-background"
+        className="border-b border-neutral-900 bg-background"
         data-testid={`media-stream:${path}`}
         onMouseEnter={() => {
           activeMarkdownPathRef.current = path;
@@ -3910,11 +3910,11 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
             onClick={() => openDedicatedReviewItem({ kind: "file", path })}
             aria-label={`Open ${path} in dedicated tab`}
             tooltip="Open file in dedicated tab"
-            className="inline-flex min-w-0 flex-1 cursor-pointer items-center gap-2 truncate text-left font-mono text-body text-foreground underline-offset-2 hover:text-foreground hover:underline"
+            className="inline-flex min-w-0 flex-1 cursor-pointer items-center gap-2 truncate text-left font-mono text-body text-neutral-200 underline-offset-2 hover:text-neutral-50 hover:underline"
           >
             <FileTypeIcon path={path} />
             <span className="truncate" title={path}>{path}</span>
-            <ExternalLink size={14} className="shrink-0 text-muted-foreground" />
+            <ExternalLink size={11} className="shrink-0 text-muted-foreground" />
           </UiButton>
           {headerControls(path)}
         </div>
@@ -3937,7 +3937,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
     const validationTarget = firstTargetId ? targetsById.get(firstTargetId) : undefined;
     return (
       <section
-        className="border-b border-cyan-950/60 bg-background"
+        className="border-b border-sky-950/60 bg-background"
         data-testid={`web-surface:${surfaceKey}`}
         data-review-target-id={firstTargetId}
         data-review-surface-key={surfaceKey}
@@ -4012,7 +4012,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
       : unavailableRunner
         ? "text-amber-400/80"
         : run?.error || run?.new?.status === "failed"
-          ? "text-red-400/80"
+          ? "text-rose-400/80"
           : run?.new?.status === "passed"
             ? "text-emerald-400/80"
             : "text-muted-foreground";
@@ -4037,9 +4037,9 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
             onClick={() => openDedicatedReviewItem({ kind: "surface", provider: item.surface.provider, id: item.surface.id })}
             aria-label={`Open API surface ${item.surface.title || item.surface.id} in dedicated tab`}
             tooltip="Open API surface in dedicated tab"
-            className="review-surface-kind inline-flex shrink-0 items-center gap-1 text-meta font-medium uppercase tracking-tag text-cyan-400/70 hover:text-cyan-300"
+            className="review-surface-kind inline-flex shrink-0 items-center gap-1 text-caption font-medium uppercase tracking-[0.14em] text-cyan-400/70 hover:text-cyan-300"
           >
-            API <span className="normal-case tracking-normal text-cyan-300/90">· {configuredSurfaceName(item.surface)}</span> <ExternalLink size={14} />
+            API <span className="normal-case tracking-normal text-cyan-300/90">· {configuredSurfaceName(item.surface)}</span> <ExternalLink size={10} />
           </UiButton>
           <div className="review-surface-title min-w-0">
             {apiSurfaceOptions.length > 1 ? (
@@ -4079,7 +4079,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
                   aria-pressed={item.mode === mode}
                   tooltip={`${mode[0]?.toUpperCase()}${mode.slice(1)} · ${index + 1}`}
                   onClick={() => setSurfaceModes((current) => ({ ...current, [surfaceKey]: mode }))}
-                  className={`px-2 py-0.5 text-meta capitalize ${item.mode === mode ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                  className={`px-2 py-0.5 text-caption capitalize ${item.mode === mode ? "bg-neutral-800 text-foreground" : "text-muted-foreground hover:text-neutral-50"}`}
                 >
                   {mode} <span className="ml-1 text-caption text-muted-foreground">{index + 1}</span>
                 </UiButton>
@@ -4144,13 +4144,13 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
       : unavailableRunner
         ? "text-amber-400/80"
         : run?.error || run?.new?.status === "failed"
-          ? "text-red-400/80"
+          ? "text-rose-400/80"
           : run?.new?.status === "passed"
             ? "text-emerald-400/80"
             : "text-muted-foreground";
     return (
       <section
-        className="border-b border-border bg-background"
+        className="border-b border-violet-950/60 bg-background"
         data-testid={`service-surface:${surfaceKey}`}
         data-review-target-id={firstTargetId}
         data-review-surface-key={surfaceKey}
@@ -4169,9 +4169,9 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
             onClick={() => openDedicatedReviewItem({ kind: "surface", provider: item.surface.provider, id: item.surface.id })}
             aria-label={`Open runtime surface ${item.surface.title || item.surface.id} in dedicated tab`}
             tooltip="Open runtime surface in dedicated tab"
-            className="review-surface-kind inline-flex shrink-0 items-center gap-1 text-meta font-medium uppercase tracking-tag text-muted-foreground hover:text-foreground"
+            className="review-surface-kind inline-flex shrink-0 items-center gap-1 text-caption font-medium uppercase tracking-[0.14em] text-violet-400/75 hover:text-violet-300"
           >
-            <Boxes size={14} /> {runtimeLabel} <span className="normal-case tracking-normal text-muted-foreground">· {configuredSurfaceName(item.surface)}</span> <ExternalLink size={14} />
+            <Boxes size={12} /> {runtimeLabel} <span className="normal-case tracking-normal text-violet-300/90">· {configuredSurfaceName(item.surface)}</span> <ExternalLink size={10} />
           </UiButton>
           <span className="review-surface-title min-w-0 truncate font-mono text-body text-foreground">{serviceLabel}</span>
           <span className={`review-surface-status shrink-0 text-caption ${statusTone}`}>{statusLabel}</span>
@@ -4185,7 +4185,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
                 aria-pressed={item.mode === mode}
                 tooltip={`${mode[0]?.toUpperCase()}${mode.slice(1)} · ${index + 1}`}
                 onClick={() => setSurfaceModes((current) => ({ ...current, [surfaceKey]: mode }))}
-                className={`px-2 py-0.5 text-meta capitalize ${item.mode === mode ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                className={`px-2 py-0.5 text-caption capitalize ${item.mode === mode ? "bg-neutral-800 text-foreground" : "text-muted-foreground hover:text-neutral-50"}`}
               >
                 {mode} <span className="ml-1 text-caption text-muted-foreground">{index + 1}</span>
               </UiButton>
@@ -4250,7 +4250,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
     const statusTone = descriptor?.status === "unavailable" || unavailableRunner
       ? "text-amber-400/80"
       : run?.error || run?.new?.status === "failed"
-        ? "text-red-400/80"
+        ? "text-rose-400/80"
         : running
           ? "text-amber-400/70"
           : run?.new?.status === "passed"
@@ -4278,9 +4278,9 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
             onClick={() => openDedicatedReviewItem({ kind: "surface", provider: surface.provider, id: surface.id })}
             aria-label={`Open ${kindLabel} surface ${title} in dedicated tab`}
             tooltip="Open surface in dedicated tab"
-            className="review-surface-kind inline-flex shrink-0 items-center gap-1 text-meta font-medium uppercase tracking-tag text-emerald-400/75 hover:text-emerald-300"
+            className="review-surface-kind inline-flex shrink-0 items-center gap-1 text-caption font-medium uppercase tracking-[0.14em] text-emerald-400/75 hover:text-emerald-300"
           >
-            <Puzzle size={14} /> {kindLabel} <span className="normal-case tracking-normal text-emerald-300/90">· {surface.provider}</span> <ExternalLink size={14} />
+            <Puzzle size={12} /> {kindLabel} <span className="normal-case tracking-normal text-emerald-300/90">· {surface.provider}</span> <ExternalLink size={10} />
           </UiButton>
           <div className="review-surface-title min-w-0">
             {item.options.length > 1 ? (
@@ -4315,7 +4315,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
                   aria-pressed={item.mode === mode}
                   tooltip={`${mode[0]?.toUpperCase()}${mode.slice(1)}`}
                   onClick={() => setSurfaceModes((current) => ({ ...current, [surfaceKey]: mode }))}
-                  className={`px-2 py-0.5 text-meta capitalize ${item.mode === mode ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                  className={`px-2 py-0.5 text-caption capitalize ${item.mode === mode ? "bg-neutral-800 text-foreground" : "text-muted-foreground hover:text-neutral-50"}`}
                 >
                   {mode}
                 </UiButton>
@@ -4371,11 +4371,11 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
           onClick={() => openDedicatedReviewItem({ kind: "file", path })}
           aria-label={`Open ${path} in dedicated tab`}
           tooltip="Open file in dedicated tab"
-          className="inline-flex min-w-0 flex-1 cursor-pointer items-center gap-2 truncate text-left font-mono text-body text-foreground underline-offset-2 hover:text-foreground hover:underline"
+          className="inline-flex min-w-0 flex-1 cursor-pointer items-center gap-2 truncate text-left font-mono text-body text-neutral-200 underline-offset-2 hover:text-neutral-50 hover:underline"
         >
           <FileTypeIcon path={path} />
           <span className="truncate" title={path}>{path}</span>
-          <ExternalLink size={14} className="shrink-0 text-muted-foreground" />
+          <ExternalLink size={11} className="shrink-0 text-muted-foreground" />
         </UiButton>
         {headerControls(path)}
       </div>
@@ -4389,7 +4389,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
       const linkedRoutes = webRouteOptions.filter((option) => linkedKeys.has(option.surfaceKey));
       return (
         <section
-          className="border-b border-cyan-950/60 bg-background"
+          className="border-b border-sky-950/60 bg-background"
           data-testid={`linked-surface:${path}`}
           data-review-surface-key={surfaceKey}
           onMouseEnter={activate}
@@ -4517,9 +4517,9 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
                 }}
                 aria-label={`Open ${item.id} in dedicated tab`}
                 tooltip="Open file in dedicated tab"
-                className="ml-1 inline-flex items-center text-muted-foreground hover:text-foreground"
+                className="ml-1 inline-flex items-center text-muted-foreground hover:text-neutral-50"
               >
-                <ExternalLink size={14} />
+                <ExternalLink size={10} />
               </UiButton>
             )}
             renderHeaderMetadata={() => headerControls(item.id)}
@@ -4562,9 +4562,9 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
               }}
               aria-label={`Open ${item.id} in dedicated tab`}
               tooltip="Open file in dedicated tab"
-              className="ml-1 inline-flex items-center text-muted-foreground hover:text-foreground"
+              className="ml-1 inline-flex items-center text-muted-foreground hover:text-neutral-50"
             >
-              <ExternalLink size={14} />
+              <ExternalLink size={10} />
             </UiButton>
           )}
           renderHeaderMetadata={() => headerControls(item.id)}
@@ -4694,14 +4694,14 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
   const pageNavigation = pagination && (
     <nav aria-label="Review pages" className="flex min-w-0 items-center justify-center gap-2 border-t border-border px-3 py-2 text-caption">
       {pagination.page > 1 && (
-        <UiButton size="compact" className="shrink-0 text-meta" disabled={pagination.blocked} tooltip={pagination.blocked ? "Save or cancel your comment first" : ""}
+        <UiButton size="compact" className="shrink-0 text-caption" disabled={pagination.blocked} tooltip={pagination.blocked ? "Save or cancel your comment first" : ""}
           onClick={() => pagination.onChange(pagination.page - 1)}>Previous page</UiButton>
       )}
       <span className="min-w-0 truncate text-muted-foreground tabular-nums">
         Page {pagination.page} of {pagination.pageCount} · {pagination.changedLines.toLocaleString()} changed lines
       </span>
       {pagination.page < pagination.pageCount && remainingFileCount === 0 && pendingVisibleFileCount === 0 && (
-        <UiButton size="compact" className="shrink-0 text-meta" disabled={pagination.blocked} tooltip={pagination.blocked ? "Save or cancel your comment first" : ""}
+        <UiButton size="compact" className="shrink-0 text-caption" disabled={pagination.blocked} tooltip={pagination.blocked ? "Save or cancel your comment first" : ""}
           onClick={() => pagination.onChange(pagination.page + 1)}>Next page</UiButton>
       )}
     </nav>
@@ -4711,7 +4711,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
     <div className="flex justify-end px-3 py-1">
       <UiButton
         size="compact"
-        className="text-meta"
+        className="text-caption"
         disabled={pagination?.blocked}
         tooltip={pagination?.blocked ? "Save or cancel your comment first" : "Open review previews on page 1"}
         onClick={onOpenPreviews}
@@ -4820,7 +4820,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
         {/* Reveal prepared files as this footer approaches the viewport. The
             button also supports keyboard users and browsers without observers. */}
         {!dedicatedItem && (pendingVisibleFileCount > 0 || remainingFileCount > 0) ? (
-          <div ref={loadMoreRef} data-testid="review-load-more" className="flex items-center justify-center gap-3 border-t border-border py-5">
+          <div ref={loadMoreRef} data-testid="review-load-more" className="flex items-center justify-center gap-3 border-t border-neutral-900 py-5">
             {pendingVisibleFileCount > 0 ? (
               <span role="status" aria-live="polite" className="text-caption text-muted-foreground">
                 Preparing {pendingVisibleFileCount} selected file{pendingVisibleFileCount === 1 ? "" : "s"}…
@@ -4829,7 +4829,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
               <UiButton
                 type="button"
                 onClick={() => onLoadMore(false)}
-                className="px-3 py-1.5 text-meta"
+                className="px-3 py-1.5 text-caption"
               >
                 Show {readyHiddenFileCount} ready file{readyHiddenFileCount === 1 ? "" : "s"} · {remainingFileCount} remaining
               </UiButton>
@@ -4885,7 +4885,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
             role="menu"
             aria-label={`Actions for selected lines ${selectionAction.draft.startLine}–${selectionAction.draft.endLine}`}
             data-testid="review-selection-actions"
-            className="fixed z-20 flex min-h-7 w-max max-w-[calc(100vw-16px)] flex-wrap items-center gap-0.5 rounded-md border border-border bg-popover p-px text-popover-foreground shadow-float transition-[opacity,transform] duration-100 motion-reduce:transition-none"
+            className="fixed z-20 flex min-h-7 w-max max-w-[calc(100vw-16px)] flex-wrap items-center gap-0.5 rounded-md border border-border bg-popover p-px text-popover-foreground shadow-md transition-[opacity,transform] duration-100 motion-reduce:transition-none"
             style={{
               left,
               top,
@@ -4903,7 +4903,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
               onClick={openDraft}
               className="h-6 gap-1 px-1.5 text-label font-medium text-foreground hover:bg-accent"
             >
-              <MessageSquareText size={14} aria-hidden="true" />
+              <MessageSquareText size={13} aria-hidden="true" />
               Comment
               <kbd aria-hidden="true" className="ml-1 font-mono text-micro text-muted-foreground">C</kbd>
             </UiButton>
@@ -4918,15 +4918,15 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
                 setLineSelection(selected.path, null);
                 onAskSelection?.(selected.draft);
               }}
-              className="h-6 gap-1 px-1.5 text-label text-muted-foreground hover:bg-muted"
+              className="h-6 gap-1 px-1.5 text-label text-violet-300 hover:bg-violet-950/45"
             >
-              <Sparkles size={14} aria-hidden="true" />
+              <Sparkles size={13} aria-hidden="true" />
               Ask AI
-              <kbd aria-hidden="true" className="ml-1 font-mono text-micro text-muted-foreground">A</kbd>
+              <kbd aria-hidden="true" className="ml-1 font-mono text-micro text-violet-500/70">A</kbd>
             </UiButton>
             {selectedTarget && (
               <>
-                <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-border" />
+                <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-neutral-700" />
                 <UiButton
                   variant="ghost"
                   size="icon"
@@ -4939,7 +4939,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
                   onClick={() => finishTargetAction("reviewed")}
                   className="h-6 w-6 text-emerald-300 hover:bg-emerald-950/45 disabled:opacity-40"
                 >
-                  <CheckCircle2 size={14} aria-hidden="true" />
+                  <CheckCircle2 size={13} aria-hidden="true" />
                 </UiButton>
                 <UiButton
                   variant="ghost"
@@ -4951,9 +4951,9 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
                   tooltip="Mark review area needs changes · X"
                   disabled={busy}
                   onClick={() => finishTargetAction("needs_changes")}
-                  className="h-6 w-6 text-red-300 hover:bg-red-950/45 disabled:opacity-40"
+                  className="h-6 w-6 text-rose-300 hover:bg-rose-950/45 disabled:opacity-40"
                 >
-                  <X size={14} aria-hidden="true" />
+                  <X size={13} aria-hidden="true" />
                 </UiButton>
               </>
             )}
@@ -4970,7 +4970,7 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
                 }}
                 className="h-6 gap-1 px-1.5 text-label text-foreground hover:bg-accent"
               >
-                <Pencil size={14} aria-hidden="true" />
+                <Pencil size={13} aria-hidden="true" />
                 Suggest edit
                 <kbd aria-hidden="true" className="ml-1 font-mono text-micro text-muted-foreground">S</kbd>
               </UiButton>
@@ -4986,11 +4986,11 @@ const ReviewStream = forwardRef<ReviewStreamHandle, ReviewStreamProps>(function 
                   setSelectionAction(null);
                   onEditSource(selected.draft);
                 }}
-                className="h-6 gap-1 px-1.5 text-label text-cyan-300 hover:bg-cyan-950/45"
+                className="h-6 gap-1 px-1.5 text-label text-sky-300 hover:bg-sky-950/45"
               >
-                <FilePenLine size={14} aria-hidden="true" />
+                <FilePenLine size={13} aria-hidden="true" />
                 Edit source
-                <kbd aria-hidden="true" className="ml-1 font-mono text-micro text-cyan-500/70">E</kbd>
+                <kbd aria-hidden="true" className="ml-1 font-mono text-micro text-sky-500/70">E</kbd>
               </UiButton>
             )}
           </div>

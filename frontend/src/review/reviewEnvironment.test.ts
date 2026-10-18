@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { fallbackReviewEnvironment, parseReviewEnvironment, unavailableFeaturesNotice } from "./reviewEnvironment";
+import { fallbackReviewEnvironment, parseReviewEnvironment } from "./reviewEnvironment";
 
 describe("Review environment discovery", () => {
   it("projects explicit local capabilities", () => {
@@ -43,14 +43,6 @@ describe("Review environment discovery", () => {
     expect(environment.review.capture).toBe(true);
     expect(environment.review.evidence_upload).toBe(false);
     expect(environment.unsupported).toEqual(["Ask"]);
-  });
-
-  it("says in plain words what is unavailable and why", () => {
-    expect(unavailableFeaturesNotice(["Ask"])).toEqual({
-      label: "Ask is not available",
-      detail: "Ask needs an AI model, and none is set up for this workspace yet. The rest of the Review works without it.",
-    });
-    expect(unavailableFeaturesNotice(["Ask", "Other"]).label).toBe("Ask, Other are not available");
   });
 
   it("names nothing when the server does not say a feature is off", () => {

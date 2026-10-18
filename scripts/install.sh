@@ -456,9 +456,6 @@ _public_show_summary() {
     fi
     if [[ "$product" == review || "$product" == both ]]; then
         lc_ui_printf command '  Open Review:' 'lcr'
-        if [[ "$deployment" == local ]]; then
-            lc_ui_printf command '  AI review of your change:' 'lc review --ai' '   # first: export ANTHROPIC_API_KEY=sk-ant-...  or add --agent claude'
-        fi
     fi
     if [[ "$product" != review ]]; then
         lc_ui_printf command '  Check Runtime:' 'lc rt status'

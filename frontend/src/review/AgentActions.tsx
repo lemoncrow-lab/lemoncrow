@@ -51,7 +51,7 @@ export function AgentActionList({ rows, limit = 8 }: { rows: AgentActionRow[]; l
     <ul className="space-y-1" data-testid="agent-actions">
       {rows.slice(0, limit).map((row, index) => (
         <li key={row.id || `${row.at}-${index}`} className="flex min-w-0 items-baseline gap-2 text-caption">
-          <span className="min-w-0 flex-1 truncate text-subtle" title={row.detail || row.summary}>{row.summary}</span>
+          <span className="min-w-0 flex-1 truncate text-neutral-300" title={row.detail || row.summary}>{row.summary}</span>
           <ApprovalBadge approval={row.approval} />
           <span className="shrink-0 text-muted-foreground">
             {hostLabel(row.host)}
@@ -74,7 +74,7 @@ const STATUS_TEXT: Record<string, string> = {
 const STATUS_TONE: Record<string, string> = {
   pending: "text-amber-300",
   approved: "text-emerald-300",
-  denied: "text-red-300",
+  denied: "text-rose-300",
   expired: "text-muted-foreground",
 };
 
@@ -126,13 +126,13 @@ export function AgentApprovalList({
               <span className={`shrink-0 font-medium ${STATUS_TONE[approval.status] ?? "text-muted-foreground"}`}>
                 {STATUS_TEXT[approval.status] ?? approval.status}
               </span>
-              <span className="min-w-0 flex-1 truncate text-subtle">{approval.risk_label || approval.risk_class}</span>
+              <span className="min-w-0 flex-1 truncate text-neutral-300">{approval.risk_label || approval.risk_class}</span>
               <span className="shrink-0 text-muted-foreground">
                 {hostLabel(approval.host)}
                 {approval.requested_at ? ` · ${shortTime(approval.requested_at)}` : ""}
               </span>
             </div>
-            <pre className="mt-0.5 max-h-24 overflow-auto whitespace-pre-wrap break-all rounded border border-border/70 px-1.5 py-1 font-mono text-micro text-subtle">
+            <pre className="mt-0.5 max-h-24 overflow-auto whitespace-pre-wrap break-all rounded border border-border/70 px-1.5 py-1 font-mono text-micro text-neutral-300">
               {approval.action}
             </pre>
             <div className="mt-0.5 flex items-center gap-2 text-muted-foreground">
@@ -166,7 +166,7 @@ export function AgentApprovalList({
       {approvals.length > limit && (
         <p className="text-caption text-muted-foreground">{`${approvals.length - limit} more`}</p>
       )}
-      {error && <p role="alert" className="text-caption text-red-300">{error}</p>}
+      {error && <p role="alert" className="text-caption text-rose-300">{error}</p>}
     </div>
   );
 }
@@ -221,7 +221,7 @@ export function AgentApprovalPanel({
   const pending = approvals.filter((item) => item.status === "pending").length;
   return (
     <section className="rounded-md border border-amber-900/50 px-2.5 py-2" aria-label={title} data-testid="agent-approval-panel">
-      <div className="mb-1 text-caption font-semibold text-subtle">
+      <div className="mb-1 text-caption font-semibold text-neutral-300">
         {pending > 0 ? `${title} · ${pending}` : "Agent action approvals"}
       </div>
       <AgentApprovalList approvals={approvals} onDecide={readOnly ? undefined : decide} />

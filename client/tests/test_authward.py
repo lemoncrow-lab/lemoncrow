@@ -246,55 +246,6 @@ def test_authward_refresh_keeps_refresh_token_when_provider_does_not_rotate_it()
 
 
 @pytest.mark.parametrize(
-    ("oauth_error", "http_status", "expected_code", "retryable"),
-    [
-        ("invalid_grant", 400, ErrorCode.UNAUTHENTICATED, False),
-        ("invalid_client", 401, ErrorCode.NOT_CONFIGURED, False),
-        ("authorization_pending", 400, ErrorCode.UNAUTHENTICATED, True),
-        ("slow_down", 429, ErrorCode.UNAUTHENTICATED, True),
-        ("expired_token", 400, ErrorCode.UNAUTHENTICATED, False),
-        ("access_denied", 403, ErrorCode.FORBIDDEN, False),
-    ],
-)
-def test_device_polling_oauth_error_field_not_http_status(
-    oauth_error: str,
-    http_status: int,
-    expected_code: ErrorCode,
-    retryable: bool,
-) -> None:
-    server = FakeTransport("https://api.lemoncrow.com", [_server_discovery()])
-    auth = FakeTransport("https://auth.example", [_oidc_discovery(), Response(http_status, {"error": oauth_error})])
-    client = discover_authward(
-        server,
-        timeout_s=5,
-        transport_factory=lambda _url, *, timeout_s: auth,  # type: ignore[arg-type]
-    )
-    with pytest.raises(ClientError) as caught:
-        client.poll_device("device-code")
-    assert caught.value.code == expected_code
-    assert caught.value.server_code == oauth_error
-    assert caught.value.retryable is retryable
-    assert len(auth.calls) == 2
-
-
-@pytest.mark.parametrize(("oauth_error", "status"), [("invalid_grant", 400), ("invalid_client", 400)])
-def test_cli_refresh_does_not_retry_terminal_oauth_errors(oauth_error: str, status: int) -> None:
-    server = FakeTransport("https://api.lemoncrow.com", [_server_discovery()])
-    auth = FakeTransport("https://auth.example", [_oidc_discovery(), Response(status, {"error": oauth_error})])
-    client = discover_authward(
-        server,
-        timeout_s=5,
-        transport_factory=lambda _url, *, timeout_s: auth,  # type: ignore[arg-type]
-    )
-    with pytest.raises(ClientError) as caught:
-        client.refresh("refresh-token")
-    assert caught.value.server_code == oauth_error
-    assert caught.value.retryable is False
-    assert len(auth.calls) == 2
-    assert ("session has ended" in caught.value.message) == (oauth_error == "invalid_grant")
-
-
-@pytest.mark.parametrize(
     ("product", "scope"),
     [("review", "lemoncrow:review"), ("runtime", "lemoncrow:runtime")],
 )

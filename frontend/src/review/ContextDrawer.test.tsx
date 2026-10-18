@@ -855,10 +855,10 @@ describe("ContextDrawer", () => {
 
     const zone = screen.getByText("Drop screenshot, video, trace.zip, or document").closest("label") as HTMLElement;
     fireEvent.dragEnter(zone, { dataTransfer: { files: [shot], types: ["Files"] } });
-    expect(zone.className).toContain("border-cyan-600");
+    expect(zone.className).toContain("border-sky-600");
     fireEvent.drop(zone, { dataTransfer: { files: [shot], types: ["Files"] } });
     expect(onUploadEvidence).toHaveBeenLastCalledWith([shot]);
-    expect(zone.className).not.toContain("border-cyan-600");
+    expect(zone.className).not.toContain("border-sky-600");
 
     // A drop that carries no files uploads nothing.
     fireEvent.drop(zone, { dataTransfer: { files: [], types: ["text/plain"] } });

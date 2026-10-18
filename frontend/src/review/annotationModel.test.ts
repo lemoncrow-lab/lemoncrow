@@ -15,10 +15,6 @@ import {
   KIND_LABELS,
   KIND_ORDER,
   anchorAccent,
-  annotationRail,
-  annotationSeverity,
-  annotationSourceTone,
-  severityTone,
   commentsAt,
   fileComments,
   isAnchored,
@@ -315,35 +311,5 @@ describe("how a comment says it got to its line", () => {
     expect(orphan).not.toBe(
       anchorAccent(annotation({ anchor_method: "unique_text", anchor_exact: false })),
     );
-  });
-});
-
-
-describe("severity and kind carry state, sources only attribute", () => {
-  it("rails an AI finding by its severity and a human comment by its kind", () => {
-    const finding = (severity?: Annotation["severity"]) => annotation({ source: "ai_review", created_by_actor: "agent", severity });
-    expect(annotationRail(finding("p0"))).toBe("p0");
-    expect(annotationRail(finding("p1"))).toBe("p1");
-    expect(annotationRail(finding("p2"))).toBe("p2");
-    expect(annotationRail(finding())).toBe("neutral");
-    expect(annotationRail(annotation({ kind: "request_change" }))).toBe("p0");
-    expect(annotationRail(annotation({ kind: "suggestion" }))).toBe("p2");
-    expect(annotationRail(annotation({ kind: "comment" }))).toBe("neutral");
-  });
-
-  it("badges severity only on a root AI finding", () => {
-    expect(annotationSeverity(annotation({ source: "ai_review", severity: "p1" }))).toBe("p1");
-    expect(annotationSeverity(annotation({ source: "human", severity: "p1" }))).toBeNull();
-    expect(annotationSeverity(annotation({ source: "ai_review", severity: "p1", parent_id: "root" }))).toBeNull();
-    expect(severityTone("p0")).toBe("p0");
-    expect(severityTone("p2")).toBe("p2");
-  });
-
-  it("uses the violet attribution tone for AI and agents only", () => {
-    expect(annotationSourceTone(annotation({ source: "human" }))).toBe("neutral");
-    expect(annotationSourceTone(annotation({ source: "lemoncrow" }))).toBe("neutral");
-    expect(annotationSourceTone(annotation({ source: "ai_review", created_by_actor: "agent" }))).toBe("ai");
-    expect(annotationSourceTone(annotation({ source: "author", created_by_actor: "agent" }))).toBe("ai");
-    expect(annotationSourceTone(annotation({ source: "human", created_by_actor: "agent" }))).toBe("ai");
   });
 });

@@ -27,7 +27,6 @@ def await_capture(
     job_path = f"{path}/jobs/{quote(job_id, safe='')}"
     deadline = time.monotonic() + _CAPTURE_JOB_DEADLINE_S
     failures = 0
-    polls = 0
     while True:
         if time.monotonic() > deadline:
             raise ClientError(
@@ -36,17 +35,7 @@ def await_capture(
                 details={"timed_out": True},
                 action=AgentAction.RETRY_LATER,
             )
-        suggested = float(answer.get("poll_after_s") or 1.0)
-        # Local captures request a fast first result; after consecutive pending
-        # responses, back off to at most one poll/s. Honor older servers which
-        # explicitly request >=1s without multiplying their delays.
-        delay = (
-            min(max(suggested * (1.5 ** min(polls, 8)), 0.05), 1.0)
-            if suggested < 1.0
-            else min(max(suggested, 0.25), 5.0)
-        )
-        time.sleep(delay)
-        polls += 1
+        time.sleep(min(max(float(answer.get("poll_after_s") or 1.0), 0.25), 5.0))
         try:
             response = transport.get(job_path, headers=auth(), timeout_s=request_timeout_s)
             # A completed async failure is itself an HTTP 200 job-status

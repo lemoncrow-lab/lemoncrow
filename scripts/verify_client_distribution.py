@@ -129,18 +129,14 @@ if sys.argv[1:3] == ["mcp", "add"]:
         path.write_text(json.dumps({"mcp" if array else "mcpServers": {"lc": entry}, "custom": "keep"}))
     codex = home / ".codex/config.toml"
     codex.parent.mkdir()
-    codex.write_text(
-        f'[mcp_servers.lc]\ncommand={json.dumps(str(legacy))}\nargs=["runtime","lite-mcp","--host","codex"]\nenabled=false\n'
-    )
+    codex.write_text('[mcp_servers.lc]\ncommand="lc"\nargs=["runtime","lite-mcp","--host","codex"]\nenabled=false\n')
     runtime_python = str(state / "runtime/client/bin/python")
     run(runtime_python, "-c", "from lemoncrow_client.pi_integration import install; install()")
     pi = home / ".pi/agent/lemoncrow/lite.mjs"
     source = pi.read_text()
     source = re.sub(
         r"^const installedInvocation = .*;$",
-        "const installedInvocation = "
-        + json.dumps({"command": str(legacy), "args": ["runtime", "lite-mcp", "--host", "pi"]})
-        + ";",
+        'const installedInvocation = {"command":"/old/lc","args":["runtime","lite-mcp","--host","pi"]};',
         source,
         count=1,
         flags=re.M,
@@ -170,31 +166,7 @@ if sys.argv[1:3] == ["mcp", "add"]:
     assert invocation["command"] == expected
     probe([invocation["command"], *invocation["args"]])
     probe([str(state / "bin/lc"), "runtime", "lite-mcp", "--host", "claude"])
-
-    # Changing only LEMONCROW_HOME must not repoint the caller's host settings.
-    # Keep HOME/config paths unchanged to reproduce developer test installations.
-    protected = [
-        home / ".claude.json",
-        home / ".cursor/mcp.json",
-        codex,
-        pi,
-        home / ".pi/agent/settings.json",
-        home / ".config/opencode/opencode.json",
-        home / ".config/lemoncode/opencode.jsonc",
-    ]
-    snapshots = {path: path.read_bytes() for path in protected}
-    original_env = env.copy()
-    isolated = root / "oss-test/home"
-    try:
-        env.update(LEMONCROW_HOME=str(isolated), LEMONCROW_BIN_DIR=str(isolated / "bin"))
-        install("runtime")
-    finally:
-        env.clear()
-        env.update(original_env)
-    assert all(
-        path.read_bytes() == content for path, content in snapshots.items()
-    ), "isolated install modified user host settings"
-    print(f"{root.name}: clean install, lazy enable, upgrade, six host connections and isolated-install safety passed")
+    print(f"{root.name}: clean install, lazy enable, upgrade and six host connections passed")
 
 
 if __name__ == "__main__":

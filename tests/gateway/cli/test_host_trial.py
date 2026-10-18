@@ -6,23 +6,13 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
-from lemoncrow_client import host_install, host_trial
+from lemoncrow_client import host_trial
 
 from lemoncrow.gateway.cli import cli
 
 
 def _which(name: str) -> str | None:
     return f"/opt/bin/{name}" if name in {"claude", "codex", "opencode", "lc"} else None
-
-
-@pytest.fixture(autouse=True)
-def _isolate_installed_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep trial fallback tests independent of the installed Runtime client."""
-    monkeypatch.setattr(
-        host_install,
-        "_client_mcp_command",
-        lambda host: ("/nonexistent/lemoncrow-runtime-client", ["runtime", "lite-mcp", "--host", host]),
-    )
 
 
 def test_claude_trial_uses_ephemeral_mcp_and_preserves_host_args(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -66,35 +56,6 @@ def test_opencode_trial_adds_mcp_overlay_without_dropping_existing_overlay(monke
     assert config["theme"] == "system"
     assert "other" in config["mcp"]
     assert config["mcp"]["lc"]["command"] == ["/opt/bin/lc", "runtime", "lite-mcp", "--host", "opencode"]
-
-
-def test_opencode_v2_trial_uses_native_servers_config(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(host_trial.shutil, "which", _which)
-    monkeypatch.setattr(host_trial.sys, "argv", ["python"])
-    monkeypatch.setenv(
-        "OPENCODE_CONFIG_CONTENT", '{"mcp":{"old":{"type":"remote","url":"x"},"servers":{"other":{"type":"local"}}}}'
-    )
-    monkeypatch.setattr(
-        host_trial,
-        "_runtime_mcp_invocation",
-        lambda _host: ("/opt/bin/lc", ["runtime", "lite-mcp", "--host", "opencode"]),
-    )
-    original = host_trial.subprocess.run
-
-    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        if command[-1] == "--version":
-            return subprocess.CompletedProcess(command, 0, stdout="2.0.0\n", stderr="")
-        return original(command, **kwargs)
-
-    monkeypatch.setattr(host_trial.subprocess, "run", fake_run)
-    command, env = host_trial.build_trial_launch("opencode", ["run", "hello"])
-    config = json.loads(env["OPENCODE_CONFIG_CONTENT"])
-    assert command == ["/opt/bin/opencode", "run", "hello"]
-    assert "old" in config["mcp"]
-    assert "other" in config["mcp"]["servers"]
-    assert config["mcp"]["servers"]["lc"]["command"][:2] == ["/opt/bin/lc", "runtime"]
-    assert config["mcp"]["servers"]["lc"]["codemode"] is False
-    assert "lc" not in config["mcp"]
 
 
 def test_trial_command_executes_foreground_child_without_host_registration(monkeypatch: pytest.MonkeyPatch) -> None:

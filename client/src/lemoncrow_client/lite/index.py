@@ -1163,20 +1163,10 @@ class LiteIndex:
                     cold=False,
                     elapsed_s=time.monotonic() - started,
                 )
-            # On a genuinely empty database, there are no stale rows to find,
-            # compare or delete. Avoid six redundant SQLite round trips per
-            # file (30k statements for a 5k-file cold index). Check every
-            # durable table under the writer lock so a partially restored DB
-            # still takes the conservative incremental path.
-            empty_cold = cold and all(
-                connection.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchone() is None
-                for table in ("files", "symbols", "imports", "file_fts")
-            )
-            # Incremental scans still track seen paths in a bounded-size
-            # SQLite temporary table, not a Python set.
-            if not empty_cold:
-                connection.execute("DROP TABLE IF EXISTS temp.lite_seen")
-                connection.execute("CREATE TEMP TABLE lite_seen(path TEXT PRIMARY KEY) WITHOUT ROWID")
+            # Keep scan membership on SQLite temp storage, not in a Python set.
+            # This is the key bounded-memory property for million-file repos.
+            connection.execute("DROP TABLE IF EXISTS temp.lite_seen")
+            connection.execute("CREATE TEMP TABLE lite_seen(path TEXT PRIMARY KEY) WITHOUT ROWID")
 
             for relpath in _iter_git_paths(self.repo_root):
                 walked += 1
@@ -1190,29 +1180,26 @@ class LiteIndex:
                     continue
 
                 files_seen += 1
-                if not empty_cold:
-                    connection.execute(
-                        "INSERT OR IGNORE INTO lite_seen(path) VALUES(?)",
-                        (relpath,),
-                    )
+                connection.execute(
+                    "INSERT OR IGNORE INTO lite_seen(path) VALUES(?)",
+                    (relpath,),
+                )
                 identity = _stat_identity(info)
-                if not empty_cold and not force:
-                    previous = connection.execute(
-                        "SELECT identity FROM files WHERE path=?",
-                        (relpath,),
-                    ).fetchone()
-                    if previous is not None and str(previous["identity"]) == identity:
-                        continue
+                previous = connection.execute(
+                    "SELECT identity FROM files WHERE path=?",
+                    (relpath,),
+                ).fetchone()
+                if not force and previous is not None and str(previous["identity"]) == identity:
+                    continue
 
                 text, digest = _index_payload(
                     absolute,
                     identity=identity,
                     size=int(info.st_size),
                 )
-                if not empty_cold:
-                    connection.execute("DELETE FROM file_fts WHERE path=?", (relpath,))
-                    connection.execute("DELETE FROM symbols WHERE path=?", (relpath,))
-                    connection.execute("DELETE FROM imports WHERE path=?", (relpath,))
+                connection.execute("DELETE FROM file_fts WHERE path=?", (relpath,))
+                connection.execute("DELETE FROM symbols WHERE path=?", (relpath,))
+                connection.execute("DELETE FROM imports WHERE path=?", (relpath,))
                 text_indexed = 0
                 if text is not None:
                     connection.execute(
@@ -1244,22 +1231,21 @@ class LiteIndex:
 
             reporter.emit("scan", walked, max(total, walked), changed, now=True)
             reporter.emit("prune", walked, max(total, walked), changed, now=True)
-            if not empty_cold:
-                connection.execute("DROP TABLE IF EXISTS temp.lite_deleted")
-                connection.execute("CREATE TEMP TABLE lite_deleted(path TEXT PRIMARY KEY) WITHOUT ROWID")
-                connection.execute("""
-                    INSERT INTO lite_deleted(path)
-                    SELECT files.path
-                    FROM files
-                    LEFT JOIN lite_seen ON lite_seen.path=files.path
-                    WHERE lite_seen.path IS NULL
-                    """)
-                deleted = int(connection.execute("SELECT COUNT(*) FROM lite_deleted").fetchone()[0])
-                if deleted:
-                    connection.execute("DELETE FROM file_fts WHERE path IN (SELECT path FROM lite_deleted)")
-                    connection.execute("DELETE FROM symbols WHERE path IN (SELECT path FROM lite_deleted)")
-                    connection.execute("DELETE FROM imports WHERE path IN (SELECT path FROM lite_deleted)")
-                    connection.execute("DELETE FROM files WHERE path IN (SELECT path FROM lite_deleted)")
+            connection.execute("DROP TABLE IF EXISTS temp.lite_deleted")
+            connection.execute("CREATE TEMP TABLE lite_deleted(path TEXT PRIMARY KEY) WITHOUT ROWID")
+            connection.execute("""
+                INSERT INTO lite_deleted(path)
+                SELECT files.path
+                FROM files
+                LEFT JOIN lite_seen ON lite_seen.path=files.path
+                WHERE lite_seen.path IS NULL
+                """)
+            deleted = int(connection.execute("SELECT COUNT(*) FROM lite_deleted").fetchone()[0])
+            if deleted:
+                connection.execute("DELETE FROM file_fts WHERE path IN (SELECT path FROM lite_deleted)")
+                connection.execute("DELETE FROM symbols WHERE path IN (SELECT path FROM lite_deleted)")
+                connection.execute("DELETE FROM imports WHERE path IN (SELECT path FROM lite_deleted)")
+                connection.execute("DELETE FROM files WHERE path IN (SELECT path FROM lite_deleted)")
 
             if changed or deleted or cold:
                 generation += 1

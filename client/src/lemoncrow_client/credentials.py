@@ -272,16 +272,7 @@ class RefreshingHttpTransport(HttpTransport):
                 HttpTransport(self.url, timeout_s=self._timeout_s),
                 timeout_s=self._timeout_s if timeout_s is None else timeout_s,
             )
-            try:
-                access, refresh = authward.refresh(self._refresh_token)
-            except ClientError as exc:
-                if exc.server_code == "invalid_grant":
-                    clear_managed_credentials(self._state_dir)
-                    if self._legacy_state_dir is not None:
-                        clear_managed_credentials(self._legacy_state_dir)
-                    self._access_token = ""
-                    self._refresh_token = ""
-                raise
+            access, refresh = authward.refresh(self._refresh_token)
             access = _validate_token(access, "access token")
             refresh = _validate_token(refresh, "refresh token")
             write_managed_credentials(self._state_dir, access_token=access, refresh_token=refresh)

@@ -83,7 +83,7 @@ describe("ServiceReviewPreview", () => {
     // Before stays in the first column even though only the After side ran.
     expect(before.parentElement?.firstElementChild).toBe(before);
     expect(before.parentElement?.lastElementChild).toBe(after);
-    expect(within(after).getByText("failed").className).toContain("text-red-300");
+    expect(within(after).getByText("failed").className).toContain("text-rose-300");
     expect(within(after).getByText("api exited 1")).toBeTruthy();
 
     await userEvent.click(screen.getByRole("button", { name: "Run compare" }));

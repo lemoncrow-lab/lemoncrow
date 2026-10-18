@@ -10,7 +10,6 @@ import {
   ProductCapabilitiesProvider,
   REVIEW_ONLY_PRODUCT_CAPABILITIES,
 } from "../lib/RuntimeCapabilities";
-import { LOCAL_BROWSER_RECONNECT_MESSAGE } from "./localBrowser";
 import ReviewReader from "./ReviewReader";
 import { readReviewBacktrail, writeReviewBacktrail } from "./reviewBacktrail";
 import { commentDraftKey } from "./reviewDraftPersistence";
@@ -1422,19 +1421,17 @@ describe("ReviewReader Brief", () => {
     expect(await screen.findByTestId("review-brief")).toBeInTheDocument();
   });
 
-  it("names a feature the server declares off, and why, instead of silently hiding it", async () => {
+  it("names a feature the server declares off instead of silently hiding it", async () => {
     environment.unsupported = ["Ask"];
     render(<ReviewReader />);
     expect(await screen.findByTestId("reader-stream-mock")).toBeInTheDocument();
-    expect((await screen.findAllByText("Ask is not available")).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Ask needs an AI model, and none is set up for this workspace yet/)).toBeInTheDocument();
-    expect(screen.queryByText(/does not support/i)).toBeNull(); // "server" is internal wording
+    expect((await screen.findAllByText(/does not support Ask/)).length).toBeGreaterThan(0);
   });
 
-  it("says nothing about unavailable features when the server supports them all", async () => {
+  it("says nothing about unsupported features when the server supports them all", async () => {
     render(<ReviewReader />);
     expect(await screen.findByTestId("reader-stream-mock")).toBeInTheDocument();
-    expect(screen.queryByText(/is not available|does not support/)).toBeNull();
+    expect(screen.queryByText(/does not support/)).toBeNull();
   });
 
   it("keeps Code as the only persistent Review category when Brief capability is off", async () => {
@@ -2084,22 +2081,6 @@ describe("ReviewReader R22 shell", () => {
 
     expect(await screen.findByText("30 streamed targets")).toBeTruthy();
     expect(api.fetchOverview).toHaveBeenCalledTimes(2);
-  });
-
-  it("a browser the terminal never connected is told to run lc review, not to ask an administrator", async () => {
-    api.fetchOverview.mockRejectedValueOnce(
-      Object.assign(new Error(LOCAL_BROWSER_RECONNECT_MESSAGE), { status: 401 }),
-    );
-
-    render(<ReviewReader />);
-
-    expect(await screen.findByText("This browser isn't connected to your local review")).toBeTruthy();
-    expect(screen.getByText("lc review --open")).toBeTruthy();
-    expect(screen.queryByText(/administrator/)).toBeNull();
-    expect(screen.queryByText("You no longer have access to this review")).toBeNull();
-    // Connecting from the terminal, then retrying, opens the review.
-    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
-    expect(await screen.findByText("30 streamed targets")).toBeTruthy();
   });
 
   it("a 403 on load says access was lost and offers All reviews instead of a Retry that cannot work", async () => {
@@ -3933,7 +3914,7 @@ it("says which file is opening and lets only the latest navigation scroll", asyn
     expect(within(brief).getByText("First behavior")).toBeTruthy();
     expect(within(brief).getByText("Sessions report invalid tokens.")).toBeTruthy();
 
-    await userEvent.click(within(brief).getByRole("button", { name: "Open next review target" }));
+    await userEvent.click(within(brief).getByRole("button", { name: "Open code" }));
     await waitFor(() => expect(screen.queryByTestId("review-brief")).toBeNull());
     await waitFor(() => expect(stream.scrollToTarget.mock.calls.at(-1)?.[0].target_id).toBe("target-3"));
   });
@@ -4497,7 +4478,7 @@ it("says which file is opening and lets only the latest navigation scroll", asyn
     expect(await screen.findByText("30 streamed targets")).toBeTruthy();
     const action = await screen.findByRole("button", { name: /Activity: 1 contributor in Snapshot 0 · agents working now · 1 newer file/ });
     await userEvent.click(action);
-    expect(await screen.findByRole("dialog", { name: "Activity" }, { timeout: 5000 })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "Activity" })).toBeTruthy();
   });
 
   it("refetches only Development when its live cursor advances", async () => {
@@ -6115,7 +6096,7 @@ it("says which file is opening and lets only the latest navigation scroll", asyn
     const bar = await screen.findByTestId("review-proposals");
     expect(bar).toHaveTextContent("1 ready");
     expect(bar).toHaveTextContent("1 awaiting update");
-    expect(bar.className).toContain("border-cyan-900/45");
+    expect(bar.className).toContain("border-sky-900/45");
     expect(bar).not.toHaveTextContent("need attention");
     expect(bar).not.toHaveTextContent("from older Snapshot");
   });
@@ -7313,13 +7294,11 @@ describe("ReviewReader 8F in-Review backtrail and residual presentation", () => 
     expect(within(card).getByText("2 components · 1 relationship changed (1 added)")).toBeTruthy();
     expect(within(card).getByText("auth now depends on routes")).toBeTruthy();
     expect(within(card).getByTestId("brief-architecture-exactness")).toHaveTextContent("Snapshot-exact · base ↔ Snapshot");
-    // Decision first: the card stays visible on material movement, below what needs a decision and what is proven,
-    // so its late load never moves them.
+    // §5.1 item 2: directly after "What changed".
     const sections = [...brief.querySelectorAll("section[aria-label]")].map((section) => section.getAttribute("aria-label"));
-    expect(sections[0]).toBe("Change summary");
-    expect(sections.indexOf("Architecture delta")).toBeGreaterThan(sections.indexOf("What is proven"));
-    // The Brief body adds no second filled CTA: the view's one primary action lives in the header.
-    expect([...brief.querySelectorAll("button.bg-primary, button.bg-brand")].map((button) => button.textContent)).toEqual([]);
+    expect(sections.slice(0, 2)).toEqual(["Change summary", "Architecture delta"]);
+    // Still one primary CTA in the Brief: the summary's own.
+    expect([...brief.querySelectorAll("button.bg-primary")].map((button) => button.textContent)).toEqual(["Open code"]);
     expect(within(card).getByRole("button", { name: "Open architecture view" }).className).not.toContain("bg-primary");
 
     briefScrollRoot().scrollTop = 240;

@@ -2665,12 +2665,6 @@ export interface Annotation {
    * "N below threshold" disclosure; counts and readiness still include it.
    */
   below_threshold?: boolean;
-  /**
-   * P0/P1/P2 of an AI finding, from the server's one severity rule (`criticality.severity_for`, the same
-   * function the pull request bot uses). Present only on AI findings that have severity evidence; a human
-   * comment never carries it (it keeps its `kind`) and an older server omits it. Never guess it client-side.
-   */
-  severity?: "p0" | "p1" | "p2";
   created_at: string;
   updated_at: string;
   anchor_method: string;
@@ -2836,8 +2830,6 @@ export interface ReviewProjectContextResponse {
 }
 
 export interface ReviewProjectContextSelection {
-  history?: "decisions" | "checks";
-  terms?: string[];
   paths?: string[];
   components?: string[];
   edges?: string[];
@@ -3445,23 +3437,7 @@ export interface ReviewAiAssurance {
   fresh_rerun: ReviewAiFreshRerunPreview;
 }
 
-/** What a person with no AI model set up is told: the same words and next steps as `lc review --ai` prints. */
-export interface ReviewAiSetupHelp {
-  headline: string;
-  steps: Array<{ lead: string; command: string; note: string }>;
-  docs_url: string;
-}
-
 export interface ReviewAiReviewStatus {
-  /**
-   * Whether this deployment can run AI review at all. `false` (hosted without an executor) hides every control
-   * that would start one; absent means available, as every server before this field behaved.
-   */
-  available?: boolean;
-  /** The one sentence to show when `available` is false. */
-  unavailable_reason?: string;
-  /** The technical cause, for operators. */
-  unavailable_detail?: string;
   status: "none" | "skipped_unnecessary" | "pending" | "ready" | "failed" | "cancelled";
   effort: "auto" | "quick" | "thorough" | "deep";
   candidates: number;
@@ -3469,8 +3445,6 @@ export interface ReviewAiReviewStatus {
   provider?: string;
   model?: string;
   error?: string;
-  /** Set when this server runs AI review itself and no model is set up yet (the local Reader); `error` is then its headline. */
-  setup_help?: ReviewAiSetupHelp;
   budget: { calls_used: number; max_calls: number };
   skipped_by_budget?: number;
   /** Backend-derived Auto eligibility for this exact latest Snapshot. */
@@ -3581,54 +3555,7 @@ export interface ReviewTourProjection {
   synthesis?: ReviewSynthesisStatus;
 }
 
-/** Existing, immutable evidence over exact captured Snapshots; not a calibrated score. */
-export interface ReviewEvaluationTimeline {
-  schema_version: number;
-  selected_revision_id: string;
-  limitations: string[];
-  current: ReviewEvaluationSnapshot | null;
-  snapshots: ReviewEvaluationSnapshot[];
-}
-
-export interface ReviewEvaluationSnapshot {
-  revision_id: string;
-  snapshot_number: number;
-  head_sha: string;
-  state: "observed" | "failed" | "unverified";
-  configuration_comparable: boolean;
-  reason: string;
-  counts: { pass: number; fail: number; not_run: number; unknown: number };
-  receipts: {
-    id: string;
-    title: string;
-    status: string;
-    trust: "typed_observation" | "reported_only";
-    raw_attempt: boolean;
-    /** Earlier retry retained for audit, excluded from current Snapshot counts and comparisons. */
-    superseded_by_newer_result?: boolean;
-    exit_code: number | null;
-    executor_class: string;
-    /** An independently dispatched worker/sandbox, not an author-machine attestation. */
-    independent_execution?: boolean;
-    /** Validated, missing, or rejected signed execution metadata. */
-    execution_provenance?: "validated" | "not_recorded" | "rejected";
-    /** Stable execution identity, not the unique attempt ID (which is evidence_id). */
-    execution_identity?: string;
-    environment_fingerprint: string;
-    recipe_digest?: string;
-    stage_outcomes?: { stage: "fetch" | "build" | "run"; status: string; exit_code: number | null }[];
-    artifact_roles?: string[];
-    unverified_integrations?: number;
-    artifact_digest: string;
-    evidence_id: string;
-  }[];
-  receipts_omitted: number;
-  comparable_results?: { scenario: string; from: "PASS" | "FAIL"; to: "PASS" | "FAIL"; change: "regression" | "recovered" | "unchanged"; evidence_ids: string[] }[];
-}
-
 export interface ReviewProjection {
-  /** Snapshot-bound evidence history. Scores withheld if evaluator configuration is unknown. */
-  evaluation_timeline?: ReviewEvaluationTimeline;
   /** Short Snapshot summary; supporting items remain available in review details. */
   summary?: {
     paragraphs: string[];

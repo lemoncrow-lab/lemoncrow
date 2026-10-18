@@ -5,12 +5,10 @@
 Agents produce diffs faster than anyone can read them. `lc review` is the gate
 between "the agent says it's done" and "you decide it's safe": it answers what
 changed, what that change touches *outside* the diff, which agent session wrote
-it, and what evidence exists that it was tested. By default no model is called,
-nothing is summarized or paraphrased, and anything it cannot establish is
-printed as `unknown` instead of guessed. When you configure a model route,
-[Auto AI review](#ai-review) adds findings on top: hints with their evidence,
-bounded by a hard call cap, never an approval. The verdict is always yours — the
-tool never prints `APPROVED`.
+it, and what evidence exists that it was tested. No model is called, nothing is
+summarized or paraphrased, and anything it cannot establish is printed as
+`unknown` instead of guessed. The verdict is always yours — the tool never
+prints `APPROVED`.
 
 Two other pages cover the rest of the ground:
 
@@ -179,42 +177,6 @@ also offered in the Reader after you finish, and from the review menu.
 
 No token is stored and no LemonCrow account is involved. Publishing runs only on
 the local server, which acts as you.
-
-## AI review
-
-Deterministic review needs no model. Auto AI review runs only when a model route
-is configured (an API key, or a local agent CLI). The Reader asks about the changes that
-carry a risk signal; the terminal and pull request reviews (`lc review --ai`, the
-GitHub Action) ask about every changed piece of code worth a look and show the
-model the diff. Formatting-only and comment-only changes, documentation and
-generated files cost zero calls. All of them are bounded questions, under a hard
-cap of 20 model calls per review, and every finding cites the exact source it
-rests on. Findings
-are AI hints, never review state: they cannot mark anything reviewed, approve or
-request changes.
-
-In the Reader, AI findings attach to the Snapshot they were produced for. From a
-terminal or CI, with no browser and no server:
-
-```bash
-lc review --pr 123 --ai                      # run it on your own model route; print the findings
-lc review --pr 123 --ai --depth thorough     # auto (follows review.effort), thorough or deep
-lc review --pr 123 --publish-bot --dry-run   # the exact comments the bot would post
-```
-
-`--publish-bot` posts those findings to the pull request as a bot (one summary
-comment plus inline comments, event `COMMENT` only) and runs only in GitHub
-Actions; the [GitHub Action](../setup/github-action.md) is its supported form.
-It is separate from `--publish`, which posts *your* judgment as you and still
-refuses every AI annotation.
-
-Rules and context come from the trusted base only: `.lemoncrow/review.yaml`,
-then the rules files `import.rules_files` lists, then `AGENTS.md` and
-`CLAUDE.md` as context. An imported rule is advisory unless `import.critical`
-names it. `lc review config --effective` prints the merged result with the file
-each rule came from, and `lc review config --dry-run --pr 123` shows which rules
-would apply to that pull request. See
-[Importing review rules](../setup/importing-review-rules.md).
 
 ## The browser workspace
 

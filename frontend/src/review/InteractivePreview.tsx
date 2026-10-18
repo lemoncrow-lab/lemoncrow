@@ -4,8 +4,8 @@ import { Button as UiButton } from "../components/ui/button";
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
-  SheetLede,
   SheetTitle,
 } from "../components/ui/sheet";
 import {
@@ -75,30 +75,28 @@ function SideBySide({
         className="h-[85dvh]"
         data-testid="interactive-preview-frame"
       >
-        <SheetHeader>
+        <SheetHeader className="flex-row items-center gap-3">
           <SheetTitle>Interactive preview</SheetTitle>
-          <div className="flex shrink-0 items-center gap-3">
-            <span
-              className="font-mono text-caption text-muted-foreground"
-              data-testid="interactive-preview-remaining"
-            >
-              {ended ? "Time limit reached" : `${clock(left)} left`}
-            </span>
-            <UiButton
-              type="button"
-              size="compact"
-              variant="outline"
-              disabled={stopping}
-              onClick={onStop}
-            >
-              Stop preview
-            </UiButton>
-          </div>
+          <SheetDescription className="min-w-0 flex-1 truncate">
+            Base and head side by side · a human observation, recorded as
+            evidence, never a check result
+          </SheetDescription>
+          <span
+            className="font-mono text-caption text-muted-foreground"
+            data-testid="interactive-preview-remaining"
+          >
+            {ended ? "Time limit reached" : `${clock(left)} left`}
+          </span>
+          <UiButton
+            type="button"
+            size="compact"
+            variant="outline"
+            disabled={stopping}
+            onClick={onStop}
+          >
+            Stop preview
+          </UiButton>
         </SheetHeader>
-        <SheetLede className="truncate">
-          Base and head side by side · a human observation, recorded as
-          evidence, never a check result
-        </SheetLede>
         {live.session.limited_by_budget && (
           <div className="px-4 text-micro text-amber-300/80">
             Limited by budget: the time limit was shortened to fit the remaining
@@ -121,7 +119,7 @@ function SideBySide({
               key={side}
               className="flex min-h-0 flex-col rounded-md border border-border/70"
             >
-              <figcaption className="border-b border-border/60 px-2 py-1 text-caption text-subtle">
+              <figcaption className="border-b border-border/60 px-2 py-1 text-caption text-neutral-300">
                 {label}
               </figcaption>
               {ended || !live.urls[side] ? (
@@ -262,7 +260,7 @@ export default function InteractivePreviewPanel({
       data-testid={`interactive-preview-${openedFrom}`}
     >
       <div className="flex items-center gap-2">
-        <span className="font-medium text-foreground">
+        <span className="font-medium text-neutral-200">
           Interactive preview
         </span>
         <span className="flex-1" />
@@ -324,7 +322,7 @@ export default function InteractivePreviewPanel({
         </div>
       )}
       {message && (
-        <div className="mt-0.5 text-micro text-subtle" role="status">
+        <div className="mt-0.5 text-micro text-neutral-300" role="status">
           {message}
         </div>
       )}

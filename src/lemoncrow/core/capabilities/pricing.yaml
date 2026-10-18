@@ -247,40 +247,16 @@ overrides:
     thinking: 10.00
     context_window: 1000000
 
-  # Claude Sonnet 5.5 — verified against platform.claude.com/docs/en/about-claude/pricing
-  # (Oct 26, 2026): $2/$10, 5m write $2.50, 1h write $4.00, and cache hits at 0.05x the
-  # base input price = $0.10 (Sonnet 5, above, is $0.20; Opus 5.5 shares the 0.05x rule).
+  # Claude Sonnet 5.5 — Anthropic pricing page (Sep 2026): $2/$10, cache read
+  # $0.20, 5m write $2.50, 1h write $4.00.
   claude-sonnet-5-5:
     input: 2.00
     output: 10.00
-    cache_read: 0.10
+    cache_read: 0.20
     cache_write: 2.50
     cache_write_1h: 4.00
     thinking: 10.00
     context_window: 1000000
-
-  # Claude Haiku 5.5 — verified against platform.claude.com/docs/en/about-claude/pricing
-  # (Oct 26, 2026). Unlike the models above it is priced by prompt length, each request
-  # on its own: up to 100,000 prompt tokens $0.10/$0.50, 5m write $0.125, 1h write $0.20,
-  # cache hit $0.01; over 100,000 (cache reads and writes count toward the length)
-  # $0.50/$2.50, 5m write $0.625, 1h write $1.00, cache hit $0.05. Without this entry the
-  # id fell through to the nearest-sibling match (Haiku 4.5, $1/$5, ten times too much) and
-  # the review's cost lookup, which accepts only an exact entry, treated it as unpriced.
-  # The 1h write at the higher card is derived by pricing.py from the 5m write ratio (5x).
-  claude-haiku-5-5:
-    input: 0.10
-    output: 0.50
-    cache_read: 0.01
-    cache_write: 0.125
-    cache_write_1h: 0.20
-    thinking: 0.50
-    context_window: 1000000
-    long_context:
-      threshold: 100000
-      input: 0.50
-      output: 2.50
-      cache_read: 0.05
-      cache_write: 0.625
 
   # Nous Research Hermes 4 (hermes-agent CLI is BYOK; OpenRouter market
   # rates, Jul 2026). No published cache discount -- cache reads/writes

@@ -375,170 +375,14 @@ describe("ReviewBrief", () => {
     expect(screen.getByText("AI summary · intent inferred")).toBeInTheDocument();
   });
 
-  it("orders sections decision first: decisions, attention, proof, then where to read next", () => {
+  it("orders sections as the spec's handoff and omits nothing that has content", () => {
     renderBrief(projection());
     const headings = screen.getAllByRole("heading", { level: 3 }).map((node) => node.textContent);
-    expect(headings).toEqual(["Human decisions · 1", "Review first · 1", "What is proven", "Understand · 1", "Routine · 1 change collapsed", "Reviewed · 1"]);
+    expect(headings).toEqual(["Human decisions · 1", "Review first · 1", "Understand · 1", "Routine · 1 change collapsed", "Reviewed · 1"]);
     expect(screen.getByText("Reviews now remain with their branch.")).toBeInTheDocument();
     expect(screen.getByText(/2 changed targets have no author explanation/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open files" })).toBeInTheDocument();
     expect(screen.getByText(/All code: 4 files, 4 targets/)).toBeInTheDocument();
-  });
-
-  it("surfaces P0/P1 findings early without calling them proven defects", () => {
-    const base = projection();
-    const origin = { layer: "trusted_base_repository", source: "snapshot", commit: "abc" };
-    const triage: NonNullable<ReviewProjection["triage"]> = {
-      version: 1, review_id: "r1", revision_id: "rev-1", priority: "high", computed_priority: "high",
-      criticality: "high", severity_summary: { p0: 1, p1: 2, p2: 0, suggestion: 0, unrated: 0, stale: 0, below_threshold: 0, highest: "p0" },
-      finding_threshold: { value: "medium", label: "Medium+", origin }, evidence_state: "missing",
-      review_state: "not_reviewed", evidence_label: "No run", release_urgency: "unknown",
-      dependency_changes: 0, required_failures: 0, override: null, explanation: [],
-      hidden_finding_ids: [], policy_state: "final", policy_errors: [], computed: true,
-    };
-    renderBrief({ ...base, triage });
-    const glance = screen.getByTestId("brief-glance");
-    expect(within(glance).getByTestId("brief-findings-glance")).toHaveTextContent("1 P0 · 2 P1");
-    expect(within(glance).getByTestId("brief-findings-glance")).toHaveTextContent("not automatically a verified defect");
-  });
-
-  it("exposes a rejected execution record even when no exit code was recorded", async () => {
-    const base = projection();
-    const row = {
-      id: "rejected", title: "Critical check", status: "UNVERIFIED", trust: "reported_only" as const,
-      raw_attempt: true, exit_code: null, executor_class: "unverified", environment_fingerprint: "",
-      artifact_digest: "", evidence_id: "rejected", execution_provenance: "rejected" as const,
-    };
-    renderBrief({
-      ...base,
-      evaluation_timeline: {
-        schema_version: 1, selected_revision_id: "rev1", limitations: [],
-        current: {
-          revision_id: "rev1", snapshot_number: 1, head_sha: "", state: "unverified",
-          configuration_comparable: false, reason: "No valid execution evidence",
-          counts: { pass: 0, fail: 0, not_run: 0, unknown: 0 }, receipts: [row], receipts_omitted: 0,
-        },
-        snapshots: [{ revision_id: "rev1", snapshot_number: 1, head_sha: "", state: "unverified",
-          configuration_comparable: false, reason: "No valid execution evidence",
-          counts: { pass: 0, fail: 0, not_run: 0, unknown: 0 }, receipts: [row], receipts_omitted: 0 }],
-      },
-    });
-    const history = screen.getByTestId("brief-evaluation-history");
-    await userEvent.click(within(history).getByText("Evaluation history · 1 Snapshot"));
-    await userEvent.click(within(history).getByText("Execution receipts"));
-    expect(within(history).getByText(/Critical check · exit not recorded/)).toBeInTheDocument();
-    expect(within(history).getByText("Execution record rejected; not verified")).toBeInTheDocument();
-    expect(within(history).getByText("No verified results")).toBeInTheDocument();
-  });
-
-  it("shows real Snapshot evaluation regression, raw receipt and an explicit no-score limit", async () => {
-    const base = projection();
-    renderBrief({
-      ...base,
-      evaluation_timeline: {
-        schema_version: 1, selected_revision_id: "rev-2",
-        limitations: ["No calibrated score"],
-        current: {
-          revision_id: "rev-2", snapshot_number: 2, head_sha: "", state: "failed", configuration_comparable: true,
-          reason: "1 evaluator(s) have matching recorded configurations",
-          counts: { pass: 0, fail: 1, not_run: 0, unknown: 0 },
-          receipts: [{ id: "r2", title: "Critical tests", status: "FAIL", trust: "typed_observation", raw_attempt: false,
-            exit_code: 7, executor_class: "author_machine", environment_fingerprint: "env2", artifact_digest: "sha2", evidence_id: "r2" }],
-          receipts_omitted: 0,
-          comparable_results: [{ scenario: "critical-tests", from: "PASS", to: "FAIL", change: "regression", evidence_ids: ["r1", "r2"] }],
-        },
-        snapshots: [
-          {
-            revision_id: "rev-2", snapshot_number: 2, head_sha: "", state: "failed", configuration_comparable: true,
-            reason: "Matching evaluator", counts: { pass: 0, fail: 1, not_run: 0, unknown: 0 },
-            receipts: [{ id: "r2", title: "Critical tests", status: "FAIL", trust: "typed_observation", raw_attempt: false,
-              exit_code: 7, executor_class: "author_machine", environment_fingerprint: "envfp:sha256:0123456789", artifact_digest: "sha2", evidence_id: "r2",
-              execution_provenance: "validated", execution_identity: "session-identity", recipe_digest: "recipe-digest",
-              stage_outcomes: [{ stage: "run", status: "failed", exit_code: 7 }], artifact_roles: ["trace"], unverified_integrations: 2 },
-              { id: "older", title: "Critical tests", status: "PASS", trust: "typed_observation", raw_attempt: false,
-                exit_code: 0, executor_class: "author_machine", environment_fingerprint: "", artifact_digest: "sha-old", evidence_id: "older",
-                superseded_by_newer_result: true }],
-            receipts_omitted: 0,
-            comparable_results: [{ scenario: "critical-tests", from: "PASS", to: "FAIL", change: "regression", evidence_ids: ["r1", "r2"] }],
-          },
-          {
-            revision_id: "rev-1", snapshot_number: 1, head_sha: "", state: "observed", configuration_comparable: false,
-            reason: "No history comparison", counts: { pass: 1, fail: 0, not_run: 0, unknown: 0 },
-            receipts: [], receipts_omitted: 0,
-          },
-        ],
-      },
-    });
-    const history = screen.getByTestId("brief-evaluation-history");
-    expect(history).not.toHaveAttribute("open");
-    await userEvent.click(within(history).getByText("Evaluation history · 2 Snapshots"));
-    expect(within(history).getByText("Regression · critical-tests · PASS → FAIL")).toBeInTheDocument();
-    expect(within(history).getByText(/no confidence score is calculated/i)).toBeInTheDocument();
-    await userEvent.click(within(history).getByText("Execution receipts"));
-    expect(within(history).getByText(/Critical tests · exit 7 · author_machine/i)).toBeInTheDocument();
-    const receipt = within(history).getByTestId("receipt-provenance-r2");
-    expect(within(history).getAllByText(/author machine \(self-attested\); not independent verification/i)).toHaveLength(2);
-    expect(within(history).getByText("Superseded by a newer check result; not counted in this Snapshot.")).toBeInTheDocument();
-    expect(receipt).toHaveTextContent("Execution record validated");
-    expect(receipt).toHaveTextContent("run: failed");
-    expect(receipt).toHaveTextContent("artifacts: trace");
-    expect(receipt).toHaveTextContent("2 integration scope(s) not verified");
-    expect(receipt).not.toHaveTextContent("session-identity");
-  });
-
-  it("puts the question, Snapshot-proof verdict and next-reading action ahead of detailed behavior", () => {
-    const value = projection({
-      summary: {
-        paragraphs: ["Checkout and API contract changed.", "A second description that belongs below the fold."],
-        origin: "author",
-        scope: "4 files · 4 changed targets",
-        verification: "No current verification results recorded.",
-        attention: "1 open decision",
-        additional_explanations: 0,
-      },
-      questions: [{
-        id: "q:structural:contract", reason: "structural_decision_question",
-        title: "Confirm API compatibility", detail: "Check consumers before shipping.",
-        item_ids: [], target_ids: ["t-resolve"], actions: ["open_implementation"], tier: 3,
-        origin: "lemoncrow",
-      }],
-    });
-    renderBrief(value, { checkCounts: { pass: 0, fail: 0, not_run: 0, unknown: 0 } });
-    const brief = screen.getByTestId("review-brief");
-    const glance = within(brief).getByTestId("brief-glance");
-    expect(within(glance).getByRole("button", { name: "Open Confirm API compatibility code" })).toBeVisible();
-    expect(within(glance).getByRole("region", { name: "Verification at a glance" })).toHaveTextContent(
-      "No checks recorded for this Snapshot. Nothing here is verified by a recorded run.",
-    );
-    expect(within(glance).getByRole("region", { name: "Read next" })).toHaveTextContent("Review first");
-    const regions = [...brief.querySelectorAll('section[aria-label]')].map((node) => node.getAttribute("aria-label"));
-    expect(regions.indexOf("Needs your attention")).toBeLessThan(regions.findIndex((label) => label?.startsWith("Human decisions")));
-    expect(regions.indexOf("Verification at a glance")).toBeLessThan(regions.indexOf("What is proven"));
-    expect(regions.indexOf("Read next")).toBeLessThan(regions.indexOf("What is proven"));
-    expect(within(glance).getByText("A second description that belongs below the fold.")).not.toBeVisible();
-    expect(within(glance).getByText("More change context")).toBeInTheDocument();
-    expect(within(glance).queryByText(/confidence score/i)).toBeNull();
-  });
-
-  it("opens the relevant Snapshot code directly from a generated change question", async () => {
-    const base = projection();
-    const question = {
-      id: "q:structural:migration",
-      reason: "structural_decision_question",
-      title: "Confirm migration rollout",
-      detail: "A database migration file changed. This is a review question, not a verified defect.",
-      item_ids: [],
-      target_ids: ["t-resolve"],
-      actions: ["open_implementation"],
-      tier: 3,
-      origin: "lemoncrow" as const,
-    };
-    const handlers = renderBrief({ ...base, questions: [question] });
-    const glance = screen.getByRole("region", { name: "Needs your attention" });
-    expect(within(glance).getByText("Confirm migration rollout")).toBeInTheDocument();
-    await userEvent.click(within(glance).getByRole("button", { name: "Open Confirm migration rollout code" }));
-    expect(handlers.onOpenTarget).toHaveBeenCalledWith("t-resolve");
-    expect(screen.getAllByRole("heading", { level: 3 }).map((element) => element.textContent)).toContain("Review first · 2");
   });
 
   it("renders captured author output through normal Brief intent and Understand items", async () => {
@@ -670,52 +514,7 @@ describe("ReviewBrief", () => {
     expect(within(card).queryByText(/no author explanation/i)).toBeNull();
   });
 
-  it("says how much to read first, counting each changed line once", () => {
-    renderBrief(projection());
-    // Each fixture target changes one line: one to read first, one to understand, one routine, of four.
-    expect(screen.getByTestId("brief-reading-plan")).toHaveTextContent(
-      "Review first: 1 of 4 changed lines (25%) · Understand: 1 line · Routine: 1 line, collapsed",
-    );
-    expect(within(screen.getByRole("region", { name: "Review first · 1" })).getByText("1 line")).toBeInTheDocument();
-    expect(within(screen.getByRole("region", { name: "Understand · 1" })).getByText("1 line")).toBeInTheDocument();
-  });
-
-  it("puts human decisions above behavior changes and keeps architecture below the reading list", async () => {
-    renderBrief(
-      projection({
-        behavior: {
-          contract_version: 1,
-          revision_id: "rev-1",
-          total: 0,
-          progress: { total: 0, reviewed: 0, unreviewed: 0, changed_since_review: 0, needs_changes: 0, unknown: 0, critical: 0, outstanding: 0 },
-          targets: [],
-          unchanged: 0,
-          execution_ran: false,
-          coverage: null,
-          checklist: null,
-          narrative: { mode: "deterministic", statements: [], deterministic: [], synthesis: { status: "none" } },
-          degraded: [],
-          producers: [],
-          agent_actions: [{ category: "network", summary: "Called api.example.com", host: "claude", session_id: "s1", at: "2026-10-27T10:00:00Z" }],
-        },
-      }),
-      {
-        targets: Array.from({ length: 500 }, (_, index) => ({ ...TARGETS[0], target_id: `large-${index}`, unit_key: `large-${index}` })),
-        loadArchitectureDelta: vi.fn().mockResolvedValue(null),
-        onOpenArchitecture: vi.fn(),
-      },
-    );
-    const order = [...screen.getByTestId("review-brief").querySelectorAll("section[aria-label]")]
-      .map((node) => node.getAttribute("aria-label") ?? "");
-    const at = (label: string) => order.findIndex((name) => name.startsWith(label));
-    expect(at("Human decisions")).toBeLessThan(at("Behavior changes"));
-    expect(at("Review first")).toBeLessThan(at("What is proven"));
-    expect(at("What is proven")).toBeLessThan(at("Behavior changes"));
-    expect(at("Behavior changes")).toBeLessThan(at("Understand"));
-    expect(at("Reviewed")).toBeLessThan(at("Architecture delta"));
-  });
-
-  it("keeps a tiny change small and says plainly that nothing was verified", () => {
+  it("keeps a tiny change small: no empty ceremony", () => {
     renderBrief(projection({
       plan: { schema_version: 1, input_digest: "x", intents: [], limitations: [] },
       questions: [],
@@ -727,11 +526,8 @@ describe("ReviewBrief", () => {
       queue: ["t-prune"],
     }));
     const headings = screen.getAllByRole("heading", { level: 3 }).map((node) => node.textContent);
-    expect(headings).toEqual(["What is proven", "Understand · 1"]);
+    expect(headings).toEqual(["Understand · 1"]);
     expect(screen.getByText("No open decisions")).toBeInTheDocument();
-    expect(screen.getByTestId("brief-proof-counts")).toHaveTextContent(
-      "No checks recorded for this Snapshot. Nothing here is verified by a recorded run.",
-    );
     expect(screen.getByText(/All code: 1 file, 1 target/)).toBeInTheDocument();
   });
 
@@ -1232,101 +1028,6 @@ describe("ReviewBrief AI review", () => {
     expect(onRunAiReview).toHaveBeenCalledWith("thorough");
   });
 
-  it("says once that AI review is not enabled and offers no run, count or provider error", async () => {
-    const onRunAiReview = vi.fn();
-    renderBrief(
-      projection({
-        ai_review: {
-          available: false,
-          unavailable_reason: "AI review on hosted isn't enabled for this workspace yet",
-          unavailable_detail: "hosted durable Review Intelligence queue is not configured",
-          status: "none",
-          effort: "auto",
-          candidates: 1,
-          findings: 0,
-          error: "Review Intelligence provider is disabled; configure a provider or select a local/subscription driver",
-          budget: { calls_used: 0, max_calls: 20 },
-        },
-      }),
-      { onRunAiReview },
-    );
-    const ai = screen.getByTestId("brief-ai-review");
-    expect(ai).toHaveTextContent("AI review on hosted isn't enabled for this workspace yet");
-    expect(ai).not.toHaveTextContent(/provider is disabled|calls used|AI Review ·/i);
-    expect(screen.queryByRole("button", { name: "Run deeper review" })).toBeNull();
-    expect(screen.queryByText("Run details")).toBeNull();
-    expect(screen.getAllByText(/isn't enabled for this workspace yet/i)).toHaveLength(1);
-  });
-
-  it("tells a person with no AI model set up what to type, in the words `lc review --ai` uses", () => {
-    renderBrief(
-      projection({
-        ai_review: {
-          available: true,
-          status: "failed",
-          effort: "auto",
-          candidates: 1,
-          findings: 0,
-          error: "No AI model is set up.",
-          setup_help: {
-            headline: "No AI model is set up.",
-            steps: [
-              { lead: "Set a key:", command: "export ANTHROPIC_API_KEY=sk-ant-...", note: "(or OPENAI_API_KEY=sk-...)" },
-              {
-                lead: "Or use an agent you are signed in to:",
-                command: "lc review --ai --agent claude",
-                note: "(also codex, opencode)",
-              },
-            ],
-            docs_url: "https://docs.lemoncrow.com/setup/ai-review",
-          },
-          budget: { calls_used: 0, max_calls: 20 },
-        },
-      }),
-    );
-    const ai = screen.getByTestId("brief-ai-review");
-    expect(ai).toHaveTextContent("AI Review · Not set up");
-    const help = screen.getByTestId("ai-setup-help");
-    expect(help).toHaveTextContent("No AI model is set up.");
-    expect(help).toHaveTextContent("Set a key: export ANTHROPIC_API_KEY=sk-ant-... (or OPENAI_API_KEY=sk-...)");
-    expect(help).toHaveTextContent("Or use an agent you are signed in to: lc review --ai --agent claude (also codex, opencode)");
-    expect(help).toHaveTextContent("Details: docs.lemoncrow.com/setup/ai-review");
-    expect(screen.getByRole("link", { name: "docs.lemoncrow.com/setup/ai-review" })).toHaveAttribute(
-      "href",
-      "https://docs.lemoncrow.com/setup/ai-review",
-    );
-    // Said once, and never in the operator's words.
-    expect(ai).not.toHaveTextContent(/provider is disabled|InternalLLMError|Unavailable/);
-    expect(screen.getAllByText(/No AI model is set up/)).toHaveLength(1);
-  });
-
-  it("does not repeat it as a second AI-unavailable line about explanations", () => {
-    renderBrief(
-      projection({
-        ai_review: {
-          available: false,
-          unavailable_reason: "AI review on hosted isn't enabled for this workspace yet",
-          status: "none",
-          effort: "auto",
-          candidates: 0,
-          findings: 0,
-          budget: { calls_used: 0, max_calls: 20 },
-        },
-        synthesis: {
-          status: "disabled",
-          model: "",
-          error: "AI explanations are disabled",
-          candidates: 0,
-          rejected_count: 0,
-          unsynthesized: 0,
-        },
-      }),
-    );
-    expect(screen.getByTestId("brief-ai-review")).toHaveTextContent("AI review on hosted isn't enabled for this workspace yet");
-    expect(screen.queryByText(/AI explanations are unavailable/)).toBeNull();
-    expect(screen.queryByTestId("brief-synthesis")).toBeNull();
-  });
-
   it.each([
     ["repository_model_ceiling", "at this repository's limit"],
     ["organization_model_budget", "waiting for your organization's share"],
@@ -1812,63 +1513,16 @@ describe("ReviewBrief AI review", () => {
       />,
     );
 
-    const proof = screen.getByTestId("brief-proof");
-    expect(within(proof).getByTestId("brief-proof-counts")).toHaveTextContent("1 of 3 checks passed.");
-    expect(proof).toHaveTextContent("2 did not run or have no result, which is not a pass.");
-    expect(proof).toHaveTextContent("Human review: 2 of 4 changed targets marked reviewed");
-    expect(proof).toHaveTextContent("AI review: complete, no confirmed findings · 3 of 4 targets eligible · not a test result");
-    expect(proof).toHaveTextContent("1 target was not sent to the AI reviewer by policy.");
-  });
-
-  it("lists the Snapshot's recorded checks failures first, and what nothing verified", async () => {
-    const handlers = renderBrief(projection(), {
-      checkCounts: { pass: 1, fail: 1, not_run: 1, unknown: 0 },
-      checks: [
-        { name: "uv run pytest tests/review -q", status: "PASS", detail: "", source: "agent" },
-        { name: "browser:checkout", status: "NOT_RUN", detail: "No browser was available.", source: "ci" },
-        {
-          name: "make typecheck",
-          status: "FAIL",
-          detail: "3 errors in src/review/session.py",
-          source: "ci",
-          execution: {
-            executor_class: "customer_worker",
-            location: "worker-1",
-            image_digest: "",
-            network: "none",
-            statement: "",
-            not_verified: [{ name: "Stripe webhook", reason: "no sandbox credentials" }],
-          },
-        },
-      ],
-    });
-    const proof = screen.getByTestId("brief-proof");
-    expect(within(proof).getByTestId("brief-proof-counts")).toHaveTextContent("1 check failed on this Snapshot · 1 passed · 1 without a result.");
-    const names = [...within(proof).getByTestId("brief-proof-checks").querySelectorAll(".font-mono")].map((node) => node.textContent);
-    expect(names).toEqual(["make typecheck", "uv run pytest tests/review -q", "browser:checkout"]);
-    expect(within(proof).getByText("3 errors in src/review/session.py")).toBeInTheDocument();
-    expect(within(proof).getByText("Not verified · Stripe webhook: no sandbox credentials")).toBeInTheDocument();
-    // A claim sits beside its evidence; opening it goes to that evidence.
-    const claim = within(proof).getByTestId("brief-proof-claim-claim:branch-identity");
-    expect(within(claim).getByText("Partial evidence")).toBeInTheDocument();
-    expect(within(claim).getByText(/Not covered: legacy migration/)).toBeInTheDocument();
-    await userEvent.click(within(claim).getByRole("button", { name: "Each branch resolves its own review." }));
-    expect(handlers.onInspectEvidence).toHaveBeenCalledWith("t-resolve");
-  });
-
-  it("lists a contradicted or unproven claim before a supported one", () => {
-    const [base] = projection().claims;
-    renderBrief(projection({
-      claims: [
-        { ...base, id: "claim:ok", statement: "Supported claim", summary: "author_cited", summary_text: "Author cites these recorded checks", limitations: [] },
-        { ...base, id: "claim:none", statement: "Unproven claim", evidence: [], summary: "none", summary_text: "No linked evidence", result_line: "", limitations: [] },
-        { ...base, id: "claim:bad", statement: "Contradicted claim", summary: "contradictory", summary_text: "Contradictory evidence", limitations: [] },
-      ],
-    }));
-    const order = [...within(screen.getByTestId("brief-proof-claims")).getAllByTestId(/^brief-proof-claim-/)]
-      .map((node) => node.getAttribute("data-testid"));
-    expect(order).toEqual(["brief-proof-claim-claim:bad", "brief-proof-claim-claim:none", "brief-proof-claim-claim:ok"]);
-    expect(within(screen.getByTestId("brief-proof-claim-claim:none")).getByText("No linked evidence")).toBeInTheDocument();
+    await userEvent.click(screen.getByText("What was checked"));
+    const checked = screen.getByTestId("what-was-checked");
+    expect(checked).toHaveTextContent("Deterministic Review: 4 exact Snapshot targets");
+    expect(checked).toHaveTextContent("AI Review: Complete · 3/4 eligible targets");
+    expect(checked).toHaveTextContent("Reviewer inspection: 2/4 targets reviewed");
+    expect(checked).toHaveTextContent("NOT_RUN 1");
+    expect(checked).toHaveTextContent("UNKNOWN 1");
+    expect(checked).toHaveTextContent("NOT_RUN means the verification did not run; it is not a pass.");
+    expect(checked).toHaveTextContent("UNKNOWN means the verification result is unavailable; it is not a pass.");
+    expect(checked).toHaveTextContent("1 target was not sent to the model by policy.");
   });
 
   it("only exposes explicit stop for a live durable AI job and never as approval", async () => {

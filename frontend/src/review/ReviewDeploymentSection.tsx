@@ -16,9 +16,9 @@ import {
 
 const STATE_TONE: Record<DeploymentOutcomeState, string> = {
   deployed: "text-emerald-300",
-  deploying: "text-cyan-300",
-  failed: "text-red-300",
-  rolled_back: "text-red-300",
+  deploying: "text-sky-300",
+  failed: "text-rose-300",
+  rolled_back: "text-rose-300",
   superseded: "text-muted-foreground",
   unknown: "text-amber-300",
 };
@@ -71,7 +71,7 @@ export default function ReviewDeploymentSection({ reviewId }: { reviewId: string
     <section className="mt-5" aria-labelledby="review-deployment-status">
       <div id="review-deployment-status" className="review-kicker mb-1">Deployments</div>
       {view.status_line ? (
-        <div className="text-label leading-5 text-foreground" data-testid="deployment-status-line">{view.status_line}</div>
+        <div className="text-label leading-5 text-neutral-200" data-testid="deployment-status-line">{view.status_line}</div>
       ) : (
         <div className="text-caption leading-4 text-muted-foreground">
           No deployment of {view.merged?.sha.slice(0, 12)} observed yet.
@@ -81,7 +81,7 @@ export default function ReviewDeploymentSection({ reviewId }: { reviewId: string
         <ul className="mt-1.5 space-y-1" aria-label="Deployment environments">
           {environments.map((environment) => (
             <li key={environment.key} className="text-caption leading-4">
-              <span className={STATE_TONE[environment.state] ?? "text-subtle"}>{sentenceCase(environment.label)}</span>
+              <span className={STATE_TONE[environment.state] ?? "text-neutral-300"}>{sentenceCase(environment.label)}</span>
               <span className="text-muted-foreground"> · {why(environment)}</span>
               {environment.production && <span className="text-muted-foreground"> · production</span>}
             </li>

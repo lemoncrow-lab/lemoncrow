@@ -105,7 +105,6 @@ class _Provider:
 _POLICY = {
     "auto_approve": {"enabled": True, "max_criticality": "high"},
     "break_glass": {"responders": ["alice"], "follow_up_hours": 48},
-    "merge_status": {"enabled": True},
 }
 
 
@@ -260,44 +259,6 @@ def test_an_eligible_change_is_auto_approved_once_signed_and_its_status_publishe
     assert all(set(row) == {"id", "owner", "state", "action"} for row in body["blocking_reasons"])
     record = landing.get(f"/api/reviews/{landing.review_id}/record").json()
     assert record["decision"]["kind"] == "landing" and record["decision"]["outcome"] == "auto_approved"
-
-
-def test_no_commit_status_is_published_unless_the_repository_asked_for_one(workspace: Workspace) -> None:
-    """The status is opt-in: a pending status nothing resolves must never appear on its own."""
-
-    policy: dict[str, Any] = json.loads(json.dumps(_POLICY))
-    del policy["merge_status"]
-    provider = _Provider()
-    landing = _landed(workspace, provider, policy=policy)
-
-    result = _evaluate(landing)
-
-    assert result["outcome"] == "approved", _gates(result)
-    assert provider.statuses == []
-    assert result["scm_status"] == {"head": {"status": "disabled"}}
-    assert LandingPolicy().merge_status_enabled is False
-
-
-def test_the_status_is_published_when_a_layer_enables_it_and_none_disables_it() -> None:
-    from lemoncrow.pro.capabilities.review.landing_policy import merge_landing_policies, parse_landing_section
-
-    on = parse_landing_section({"merge_status": {"enabled": True}}, layer="operator", source="org")
-    off = parse_landing_section(
-        {"merge_status": {"enabled": False}}, layer="trusted_base", source=".lemoncrow/review.yaml"
-    )
-    silent = parse_landing_section({"auto_approve": {"enabled": False}}, layer="operator", source="org")
-
-    assert merge_landing_policies([silent]).merge_status_enabled is False
-    assert merge_landing_policies([on]).merge_status_enabled is True
-    assert merge_landing_policies([silent, on]).merge_status_enabled is True
-    # The repository (trusted base) may also ask for it; the safer value wins when layers disagree.
-    assert merge_landing_policies([on, off]).merge_status_enabled is False
-    repo_on = parse_landing_section({"merge_status": {"enabled": True}}, layer="trusted_base", source="repo")
-    assert merge_landing_policies([repo_on]).merge_status_enabled is True
-    assert merge_landing_policies([on]).to_wire()["merge_status"] == {"enabled": True}
-
-    invalid = parse_landing_section({"merge_status": {"enabled": "yes"}}, layer="operator", source="org")
-    assert invalid.errors and merge_landing_policies([invalid]).merge_status_enabled is False
 
 
 @pytest.mark.parametrize(

@@ -5,7 +5,6 @@ import FileTypeIcon from "../components/FileTypeIcon";
 import FileContentViewer, { fileNeedsText, fileRenderKind } from "../components/code/FileContentViewer";
 import type { ChangedLines } from "../components/code/ReadOnlyCodeViewer";
 import { Button as UiButton } from "../components/ui/button";
-import { EmptyState } from "../components/ui/empty-state";
 import { Input as UiInput } from "../components/ui/input";
 import {
   api,
@@ -171,12 +170,13 @@ export default function CodeSourceView({
   if (!selectedNode) {
     return (
       <main className="flex min-h-[560px] min-w-0 items-center justify-center bg-surface-code p-4 xl:min-h-0">
-        <EmptyState
-          frame={false}
-          icon={<FileCode2 aria-hidden="true" />}
-          title="Open a file or symbol"
-          description="Browse the repository on the left or use the search above. Symbol selections open the full file and highlight the exact range."
-        />
+        <div className="max-w-xl text-center">
+          <FileCode2 size={28} className="mx-auto text-cyan-300" />
+          <h2 className="mt-4 text-base font-semibold text-foreground">Open a file or symbol</h2>
+          <p className="mt-2 text-sm leading-6 text-neutral-400">
+            Browse the repository on the left or use the search above. Symbol selections open the full file and highlight the exact range.
+          </p>
+        </div>
       </main>
     );
   }
@@ -185,11 +185,11 @@ export default function CodeSourceView({
     <main className="flex min-h-[560px] min-w-0 flex-col bg-surface-code xl:min-h-0">
       <div className="flex h-9 shrink-0 items-center gap-1.5 overflow-x-auto whitespace-nowrap border-b border-border bg-background/75 px-3">
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
-          <FileTypeIcon path={selectedNode.path} />
+          <FileTypeIcon path={selectedNode.path} size={13} />
           <div className="flex min-w-0 items-center gap-1 text-caption text-muted-foreground">
             {selectedNode.path.split("/").map((part, index, parts) => (
               <span key={`${part}-${index}`} className="flex min-w-0 items-center gap-1">
-                <span className={index === parts.length - 1 ? "truncate text-subtle" : "truncate"}>{part}</span>
+                <span className={index === parts.length - 1 ? "truncate text-neutral-300" : "truncate"}>{part}</span>
                 {index < parts.length - 1 && <span>/</span>}
               </span>
             ))}
@@ -203,12 +203,12 @@ export default function CodeSourceView({
             aria-label={copied === "path" ? "Path copied" : "Copy file path"}
             tooltip={copied === "path" ? "Copied" : "Copy file path"}
           >
-            {copied === "path" ? <Check size={14} /> : <Copy size={14} />}
+            {copied === "path" ? <Check size={12} /> : <Copy size={12} />}
           </UiButton>
           {selectedNode.node_type !== "file" && (
             <>
               <span className="shrink-0 text-muted-foreground">·</span>
-              <span className="max-w-64 truncate text-caption font-medium text-subtle">{selectedNode.qualified_name || selectedNode.label}</span>
+              <span className="max-w-64 truncate text-caption font-medium text-neutral-300">{selectedNode.qualified_name || selectedNode.label}</span>
             </>
           )}
           {change && (
@@ -227,18 +227,18 @@ export default function CodeSourceView({
               type="button"
               onClick={() => setViewerMode("preview")}
               aria-pressed={viewerMode === "preview"}
-              className={`inline-flex h-full items-center gap-1 px-2 text-meta ${viewerMode === "preview" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              className={`inline-flex h-full items-center gap-1 px-2 text-caption ${viewerMode === "preview" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-neutral-200"}`}
             >
-              <Eye size={14} /> Preview
+              <Eye size={10} /> Preview
             </UiButton>
             <UiButton
               unstyled
               type="button"
               onClick={() => setViewerMode("source")}
               aria-pressed={viewerMode === "source"}
-              className={`inline-flex h-full items-center gap-1 border-l border-border px-2 text-meta ${viewerMode === "source" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              className={`inline-flex h-full items-center gap-1 border-l border-border px-2 text-caption ${viewerMode === "source" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-neutral-200"}`}
             >
-              <FileCode2 size={14} /> Source
+              <FileCode2 size={10} /> Source
             </UiButton>
           </div>
         )}
@@ -259,9 +259,9 @@ export default function CodeSourceView({
             onChange={(event) => setLineInput(event.target.value)}
             placeholder="Line"
             aria-label="Go to line"
-            className="w-14 bg-transparent px-2 text-meta tabular-nums text-subtle outline-none placeholder:text-muted-foreground"
+            className="w-14 bg-transparent px-2 text-caption tabular-nums text-neutral-300 outline-none placeholder:text-muted-foreground"
           />
-          <UiButton unstyled type="submit" aria-label="Open source line" className="border-l border-border px-2 text-meta text-muted-foreground hover:text-foreground">
+          <UiButton unstyled type="submit" aria-label="Open source line" className="border-l border-border px-2 text-caption text-muted-foreground hover:text-foreground">
             Go
           </UiButton>
         </form>
@@ -282,18 +282,18 @@ export default function CodeSourceView({
             variant="outline"
             className="shrink-0"
           >
-            {editorOpening ? <Loader2 size={14} className="animate-spin" /> : <ArrowUpRight size={14} />}
+            {editorOpening ? <Loader2 size={10} className="animate-spin" /> : <ArrowUpRight size={10} />}
             {editorOpening ? "Opening…" : "Open in editor"}
           </UiButton>
         )}
         {textSelection && onAskSelection && (
           <UiButton type="button" onClick={() => onAskSelection([textSelection.start, textSelection.end], textSelection.text)} size="xs" variant="outline" className="shrink-0">
-            <Sparkles size={14} /> Ask selection
+            <Sparkles size={10} /> Ask selection
           </UiButton>
         )}
         {selectedRange && (
           <UiButton type="button" onClick={() => void copy("ref")} title={displayRange(selectedRange)} size="xs" variant="ghost" className="shrink-0">
-            {copied === "ref" ? <Check size={14} /> : <Copy size={14} />}
+            {copied === "ref" ? <Check size={10} /> : <Copy size={10} />}
             {selectedRange[0] === selectedRange[1] ? "Line" : "Range"}
           </UiButton>
         )}
@@ -301,13 +301,13 @@ export default function CodeSourceView({
       {editorError && <div className="border-b border-red-900/50 bg-red-950/20 px-4 py-1.5 text-caption text-red-300/80">{editorError}</div>}
       <div className="relative min-h-0 flex-1 overflow-hidden" aria-label="Source viewer">
         {sourceLoading && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-background/70 text-body text-muted-foreground backdrop-blur-[1px]">
+          <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-background/70 text-xs text-muted-foreground backdrop-blur-[1px]">
             <Loader2 size={14} className="animate-spin" />
             Reading {selectedNode.path.split("/").pop()}…
           </div>
         )}
         {sourceError ? (
-          <div className="m-4 rounded-lg border border-red-900/60 bg-red-950/20 p-4 text-body text-red-200">
+          <div className="m-4 rounded-lg border border-red-900/60 bg-red-950/20 p-4 text-xs text-red-200">
             <div className="font-medium">Could not open {selectedNode.path}</div>
             <div className="mt-1 text-red-300/70">{sourceError}</div>
           </div>
@@ -325,7 +325,7 @@ export default function CodeSourceView({
           />
         )}
         {!sourceLoading && !sourceError && source === null && fileNeedsText(renderKind, viewerMode) && (
-          <div className="flex min-h-[520px] items-center justify-center text-body text-muted-foreground">Source is unavailable.</div>
+          <div className="flex min-h-[520px] items-center justify-center text-xs text-muted-foreground">Source is unavailable.</div>
         )}
       </div>
     </main>
