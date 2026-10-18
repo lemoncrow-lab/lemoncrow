@@ -2,8 +2,8 @@
   "acceptance": null,
   "decision": "passed",
   "kind": "review_eval_gate_baseline",
-  "previous_snapshot_digest": "1c4066fad7ed7ff05b04888852ae808825bfd95c40cb01cda9929d51a8f92f47",
-  "recorded_at": "2026-10-26T02:06:06+00:00",
+  "previous_snapshot_digest": "fee3c323e07e4c1cb4e9a59e1827b1e7ca466838f32799407da6af737ee34043",
+  "recorded_at": "2026-10-13T13:08:48+00:00",
   "snapshot": {
     "corpus": {
       "id": "builtin-public",
@@ -17,7 +17,7 @@
         },
         "digest": "a1a403c9baa0dcf3b31a9eddd09a5e7cfcdc164a8c199d1050c7a620d9da2275"
       },
-      "digest": "7e3133d05d6caa0095f8dedef872ce47f2a76cc252d24717f744d34c2eb5e223",
+      "digest": "6988a544f72ff3a3d9c2341b08ecf7df3c8c18ce4cf8c34981bd676b9366259e",
       "fixtures": {
         "detail": {
           "fixtures": "e9b0862fcb630acb9ec29b58f5f8d8773c3b088703af1f6046563347b9af4445"
@@ -1062,59 +1062,59 @@
           "candidate_markers": {
             "api_compatibility": [
               "(?:^|(?<=/))api/",
-              "(?<![A-Za-z0-9])api(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])route(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])endpoint(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])protocol(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])public[^A-Za-z0-9]+contract(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])client(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])wire(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])serialization(?:e?s)?(?![A-Za-z0-9])"
+              "\\ api\\ ",
+              "(?<![A-Za-z0-9_])route(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])endpoint(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])protocol(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])public\\ contract(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])client(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])wire(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])serialization(?![A-Za-z0-9_])"
             ],
             "concurrency_state": [
-              "(?<![A-Za-z0-9])async(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])concurrent(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])lock(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])mutex(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])queue(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])worker(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])state[^A-Za-z0-9]+machine(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])atomic(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])race(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])transaction(?:e?s)?(?![A-Za-z0-9])"
+              "(?<![A-Za-z0-9_])async(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])concurrent(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])lock(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])mutex(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])queue(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])worker(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])state\\ machine(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])atomic(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])race(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])transaction(?![A-Za-z0-9_])"
             ],
             "performance": [
-              "(?<![A-Za-z0-9])index(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])cache(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])pagination(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])batch(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])quer(?:y|ies)(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])hot[^A-Za-z0-9]+path(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])n\\+1(?![A-Za-z0-9])"
+              "(?<![A-Za-z0-9_])index(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])cache(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])pagination(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])batch(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])query(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])hot\\ path(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])n\\+1(?![A-Za-z0-9_])"
             ],
             "persistence_migration": [
-              "(?<![A-Za-z0-9])migration(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])schema(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])database(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])sqlite(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])postgres(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])storage(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])store(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])persist(?:e?s)?(?![A-Za-z0-9])",
-              "\\.sql(?![A-Za-z0-9])"
+              "(?<![A-Za-z0-9])migrations?(?![A-Za-z0-9])",
+              "(?<![A-Za-z0-9_])schema(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])database(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])sqlite(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])postgres(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])storage(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])store(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])persist(?![A-Za-z0-9_])",
+              "\\.sql(?![A-Za-z0-9_])"
             ],
             "security": [
-              "(?<![A-Za-z0-9])auth(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])oauth(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])oidc(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])permission(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])rbac(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])trust(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])token(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])secret(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])credential(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])crypto(?:e?s)?(?![A-Za-z0-9])",
-              "(?<![A-Za-z0-9])security(?:e?s)?(?![A-Za-z0-9])"
+              "(?<![A-Za-z0-9_])auth(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])oauth(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])oidc(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])permission(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])rbac(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])trust(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])token(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])secret(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])credential(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])crypto(?![A-Za-z0-9_])",
+              "(?<![A-Za-z0-9_])security(?![A-Za-z0-9_])"
             ]
           },
           "observed_systems": [
@@ -1133,7 +1133,7 @@
             "hypothesis_generation": "6f9207535f4867fadd30acee8ba9032d909e93f7bbecdd7ff2714e70b580d6f7"
           }
         },
-        "digest": "863e6ce39aa611899e773f403b2042629cf2a6e81d32e226b5eebe8d805a9796"
+        "digest": "5ae7d07f75b68e8d2ecf7f06aa3386ac72fd4fdd5bc217ea0bf64b2a7ae87924"
       },
       "replay": {
         "detail": {
@@ -1497,8 +1497,8 @@
         "noise_rate": 0.125
       }
     },
-    "snapshot_digest": "1512f148145536555fd3670fff4bd0aef989e80f2640bd2bd785a816dcefef70"
+    "snapshot_digest": "1c4066fad7ed7ff05b04888852ae808825bfd95c40cb01cda9929d51a8f92f47"
   },
-  "snapshot_digest": "1512f148145536555fd3670fff4bd0aef989e80f2640bd2bd785a816dcefef70",
+  "snapshot_digest": "1c4066fad7ed7ff05b04888852ae808825bfd95c40cb01cda9929d51a8f92f47",
   "version": 1
 }

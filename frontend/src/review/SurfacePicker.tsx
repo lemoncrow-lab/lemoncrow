@@ -108,7 +108,7 @@ export default function SurfacePicker({
           type="button"
           aria-label={ariaLabel}
           tooltip={`${selected.label} · search and select`}
-          className="flex max-w-72 items-center gap-1.5 rounded border border-border bg-background px-2 py-1 font-mono text-meta text-subtle hover:bg-muted/60"
+          className="flex max-w-72 items-center gap-1.5 rounded border border-neutral-700 bg-background px-2 py-1 font-mono text-caption text-neutral-300 hover:bg-muted/60"
         >
           <span className="truncate">{selected.label}</span>
           <span className="text-caption text-muted-foreground">⌄</span>
@@ -124,7 +124,7 @@ export default function SurfacePicker({
         className="w-[min(34rem,80vw)] overflow-hidden p-0"
       >
         <div className="flex items-center gap-2 border-b border-border px-2.5 py-2">
-          <Search size={14} className="shrink-0 text-muted-foreground" />
+          <Search size={12} className="shrink-0 text-muted-foreground" />
           <UiInput unstyled
             ref={inputRef}
             type="search"
@@ -143,7 +143,7 @@ export default function SurfacePicker({
               persistQuery(storageKey, next);
             }}
             onKeyDown={onFilterKeyDown}
-            className="min-w-0 flex-1 bg-transparent font-mono text-meta text-foreground outline-none placeholder:text-muted-foreground"
+            className="min-w-0 flex-1 bg-transparent font-mono text-caption text-neutral-200 outline-none placeholder:text-muted-foreground"
           />
           <span className="shrink-0 font-mono text-caption text-muted-foreground">{filtered.length}/{options.length}</span>
         </div>
@@ -162,10 +162,10 @@ export default function SurfacePicker({
                 onClick={() => choose(option.value)}
                 className={cn(
                   "flex w-full items-start gap-3 rounded-md px-2 py-1.5 text-left",
-                  index === highlighted ? "bg-accent" : active && "bg-accent"
+                  index === highlighted ? "bg-accent" : active && "bg-violet-500/10"
                 )}
               >
-                <span className={`min-w-0 flex-1 truncate font-mono text-caption ${active ? "text-muted-foreground" : "text-subtle"}`}>{option.label}</span>
+                <span className={`min-w-0 flex-1 truncate font-mono text-caption ${active ? "text-violet-200" : "text-neutral-300"}`}>{option.label}</span>
                 {option.detail && <span className="max-w-48 shrink-0 truncate font-mono text-caption text-muted-foreground">{option.detail}</span>}
               </UiButton>
             );

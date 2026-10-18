@@ -3,8 +3,6 @@ from __future__ import annotations
 import ast
 import functools
 import re
-import subprocess
-import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -81,32 +79,6 @@ def test_review_engine_frontend_bundle_refresh(tmp_path: Path) -> None:
     env["LEMONCROW_REVIEW_ENGINE_FRONTEND_DIR"] = "custom"
     run()
     assert (tmp_path / "calls").read_text().splitlines() == ["run build", "run build"]
-
-
-def _stylesheet_check(tmp_path: Path, css: str | None) -> subprocess.CompletedProcess[str]:
-    """Run the builder's own stylesheet check over a bundle whose ``assets/`` holds *css* (no file when ``None``)."""
-
-    text = BUILDER.read_text()
-    block = text.split("python3 - \"$WORK/frontend\" <<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
-    bundle = tmp_path / "frontend"
-    (bundle / "assets").mkdir(parents=True)
-    if css is not None:
-        (bundle / "assets" / "index-abc123.css").write_text(css, encoding="utf-8")
-    return subprocess.run(
-        [sys.executable, "-c", block, str(bundle)], capture_output=True, text=True, check=False, cwd=tmp_path
-    )
-
-
-def test_review_engine_refuses_an_unstyled_frontend_bundle(tmp_path: Path) -> None:
-    """The v0.8.0 Reader was unstyled: PostCSS never ran, so the stylesheet kept its ``@tailwind`` directives."""
-
-    real = ".a{color:red}\n" * 4000  # about 56 KB, as a Tailwind-processed bundle is
-    assert _stylesheet_check(tmp_path / "ok", real).returncode == 0
-    raw = _stylesheet_check(tmp_path / "raw", "@tailwind base;@tailwind utilities;" + real)
-    assert raw.returncode != 0 and "@tailwind" in raw.stderr
-    small = _stylesheet_check(tmp_path / "small", ".a{color:red}")
-    assert small.returncode != 0 and "unstyled" in small.stderr
-    assert _stylesheet_check(tmp_path / "none", None).returncode != 0
 
 
 def test_review_engine_distribution_contract() -> None:

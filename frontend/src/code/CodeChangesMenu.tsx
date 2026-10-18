@@ -44,15 +44,15 @@ export default function CodeChangesMenu({
       <PopoverTrigger asChild>
         <UiButton type="button" size="xs" variant="outline">
           {reviewBusy ? (
-            <Loader2 size={14} className="animate-spin" />
+            <Loader2 size={11} className="animate-spin" />
           ) : (
-            <GitPullRequest size={14} />
+            <GitPullRequest size={11} />
           )}
           Changes{" "}
           <span className="tabular-nums text-muted-foreground">
             {changes ? total : "…"}
           </span>
-          <ChevronDown size={14} />
+          <ChevronDown size={11} />
         </UiButton>
       </PopoverTrigger>
       <PopoverContent
@@ -75,13 +75,13 @@ export default function CodeChangesMenu({
                   className="rounded-md border border-border/80 p-2"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="inline-grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-p2 px-1 text-micro font-semibold text-background">
+                    <span className="inline-grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-cyan-400 px-1 text-micro font-bold text-neutral-950">
                       {marks.get(session.id)}
                     </span>
                     <UiButton
                       unstyled
                       type="button"
-                      className="min-w-0 flex-1 truncate text-left text-foreground hover:text-foreground"
+                      className="min-w-0 flex-1 truncate text-left text-neutral-200 hover:text-neutral-50"
                       onClick={() => {
                         onFilter(session.id);
                         setOpen(false);
@@ -121,7 +121,7 @@ export default function CodeChangesMenu({
                     <UiButton
                       unstyled
                       type="button"
-                      className="min-w-0 flex-1 truncate text-left text-subtle hover:text-foreground"
+                      className="min-w-0 flex-1 truncate text-left text-neutral-300 hover:text-neutral-50"
                       onClick={() => {
                         onFilter("unattributed");
                         setOpen(false);

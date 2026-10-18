@@ -149,36 +149,36 @@ export default function ReviewCompareReader() {
   };
 
   return (
-    <div className="flex h-screen min-h-0 flex-col bg-background text-foreground">
+    <div className="flex h-screen min-h-0 flex-col bg-background text-neutral-200">
       <header className="shrink-0 border-b border-border bg-background/95 px-3 py-2">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <UiButton variant="ghost" size="icon" type="button" onClick={goBack} className="h-8 w-8" aria-label="Back" tooltip="Back">
             <ArrowLeft size={14} aria-hidden="true" />
           </UiButton>
-          <GitCompareArrows size={16} className="shrink-0 text-cyan-300" aria-hidden="true" />
-          <span className="shrink-0 text-label font-semibold text-foreground">Compare</span>
+          <GitCompareArrows size={15} className="shrink-0 text-sky-300" aria-hidden="true" />
+          <span className="shrink-0 text-label font-semibold text-neutral-200">Compare</span>
           <UiInput
             uiSize="xs"
             aria-label="Compare from source"
             value={fromInput}
             onChange={(event) => setFromInput(event.currentTarget.value)}
             onKeyDown={(event) => { if (event.key === "Enter") runCompare(); }}
-            className="min-w-[180px] flex-1 font-mono text-meta"
+            className="min-w-[180px] flex-1 font-mono text-caption"
             placeholder="git/HEAD~1 or rr/<revision-id>"
             spellCheck={false}
           />
-          <ArrowRight size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />
+          <ArrowRight size={13} className="shrink-0 text-muted-foreground" aria-hidden="true" />
           <UiInput
             uiSize="xs"
             aria-label="Compare to source"
             value={toInput}
             onChange={(event) => setToInput(event.currentTarget.value)}
             onKeyDown={(event) => { if (event.key === "Enter") runCompare(); }}
-            className="min-w-[180px] flex-1 font-mono text-meta"
+            className="min-w-[180px] flex-1 font-mono text-caption"
             placeholder="git/HEAD, worktree, index, rr/<revision-id>"
             spellCheck={false}
           />
-          <UiButton variant="solid" type="button" onClick={runCompare} className="h-8 px-3">Compare</UiButton>
+          <UiButton variant="default" type="button" onClick={runCompare} className="h-8 px-3">Compare</UiButton>
           <ToggleGroup
             variant="segment"
             aria-label="Diff layout"
@@ -193,17 +193,17 @@ export default function ReviewCompareReader() {
         </div>
         {comparison && (
           <div className="mt-1.5 flex items-center gap-2 pl-10 text-caption text-muted-foreground">
-            <span className="font-mono text-muted-foreground">{comparison.from.label}</span>
-            <ArrowRight size={14} aria-hidden="true" />
-            <span className="font-mono text-subtle">{comparison.to.label}</span>
-            <span className="ml-auto">{comparison.summary.files} files · <span className="text-emerald-400">+{comparison.summary.additions}</span> <span className="text-red-400">-{comparison.summary.deletions}</span></span>
+            <span className="font-mono text-neutral-400">{comparison.from.label}</span>
+            <ArrowRight size={10} aria-hidden="true" />
+            <span className="font-mono text-neutral-300">{comparison.to.label}</span>
+            <span className="ml-auto">{comparison.summary.files} files · <span className="text-emerald-400">+{comparison.summary.additions}</span> <span className="text-rose-400">-{comparison.summary.deletions}</span></span>
           </div>
         )}
       </header>
 
       {loading && <div className="px-4 py-3 text-label text-muted-foreground" role="status">Comparing sources…</div>}
       {error && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-red-900/50 bg-red-950/15 px-4 py-3 text-label text-red-300" role="alert">
+        <div className="flex flex-wrap items-center gap-2 border-b border-rose-900/50 bg-rose-950/15 px-4 py-3 text-label text-rose-300" role="alert">
           <span className="min-w-0 flex-1 break-words">{error}</span>
           {routePair.from && routePair.to && (
             <UiButton type="button" onClick={() => setAttempt((value) => value + 1)} className="h-7">Retry</UiButton>

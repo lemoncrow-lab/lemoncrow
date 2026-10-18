@@ -99,59 +99,6 @@ def opencode_usage_calls(session_id: str, db_path: Path, *, host: str = "opencod
     if not db_path.is_file():
         return []
     with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
-        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        if {"session_v2", "session_message"} <= tables and conn.execute(
-            "SELECT 1 FROM session_v2 WHERE id = ?", (session_id,)
-        ).fetchone():
-            rows_v2 = conn.execute(
-                "SELECT id, time_created, type, data FROM session_message WHERE session_id = ? ORDER BY seq",
-                (session_id,),
-            )
-            calls_v2: list[dict[str, Any]] = []
-            for source_id, timestamp, role, raw_message in rows_v2:
-                try:
-                    data = json.loads(raw_message or "{}")
-                    if not isinstance(data, dict):
-                        continue
-                    raw_info = data.get("info")
-                    info = raw_info if isinstance(raw_info, dict) else data
-                    if info.get("role", role) != "assistant":
-                        continue
-                    usage = info.get("usage")
-                    tokens = info.get("tokens") or (usage.get("tokens") if isinstance(usage, dict) else None)
-                    if not isinstance(tokens, dict):
-                        continue
-                    raw_cache = tokens.get("cache")
-                    cache = raw_cache if isinstance(raw_cache, dict) else {}
-                    model = info.get("model")
-                    model_id = info.get("modelID") or (model.get("id") if isinstance(model, dict) else None) or ""
-                    provider = (
-                        info.get("providerID") or (model.get("providerID") if isinstance(model, dict) else None) or ""
-                    )
-                    call = {
-                        "source_id": source_id,
-                        "operation": host + ".step_finish",
-                        "model": f"{provider}/{model_id}" if provider else str(model_id),
-                        "at": datetime.fromtimestamp(float(timestamp) / 1000, tz=UTC).isoformat(),
-                        "input_tokens": int(tokens.get("input") or 0),
-                        "output_tokens": int(tokens.get("output") or 0),
-                        "cache_read_tokens": int(cache.get("read") or 0),
-                        "cache_write_tokens": int(cache.get("write") or 0),
-                        "thinking_tokens": int(tokens.get("reasoning") or 0),
-                    }
-                    cost = info.get("cost")
-                    if isinstance(cost, (int, float)):
-                        call["cost_usd"] = float(cost)
-                    if any(
-                        call[key] > 0
-                        for key in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens")
-                    ):
-                        calls_v2.append(call)
-                except (ValueError, TypeError, OverflowError, json.JSONDecodeError):
-                    continue
-            return calls_v2
-        if "part" not in tables or "message" not in tables:
-            return []
         rows = conn.execute(
             """SELECT p.id, p.time_created, p.data, m.data
                FROM part p JOIN message m ON p.message_id = m.id

@@ -61,16 +61,6 @@ def test_paired_quality_and_token_cost_stay_within_budget(tmp_path: Path) -> Non
     assert report["current"]["fresh_input_tokens"] == 6750
 
 
-def test_release_evidence_is_bound_to_the_exact_candidate_commit(tmp_path: Path) -> None:
-    before, after = _write(tmp_path, _run("baseline"), _run("current"))
-    assert evaluate(before, after, expected_current_commit="b" * 40)["status"] == "pass"
-    report = evaluate(before, after, expected_current_commit="c" * 40)
-    assert report["status"] == "fail"
-    assert any("release commit" in item for item in report["reason"])
-    with pytest.raises(CreditGateError, match="40-character"):
-        evaluate(before, after, expected_current_commit="main")
-
-
 def test_fails_on_fresh_token_regression_even_if_cost_is_flat(tmp_path: Path) -> None:
     paths = _write(tmp_path, _run("baseline"), _run("current", fresh=1750))
     report = evaluate(*paths)

@@ -16,9 +16,7 @@ protocol.py
 recovery.py
 review.py
 review_base.py
-review_engine.py
 review_session.py
 state.py
 transport.py
-uninstall.py
 workspace_paths.py

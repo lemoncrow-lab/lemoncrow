@@ -17,8 +17,8 @@ export default function LeverBar({ label, value, maxValue }: LeverBarProps) {
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between text-body">
-        <span className="font-mono uppercase tracking-wide text-subtle">
+      <div className="flex items-center justify-between text-xs">
+        <span className="font-mono uppercase tracking-wide text-neutral-300">
           {toTitle(label)}
         </span>
         <span className="font-mono text-emerald-300">

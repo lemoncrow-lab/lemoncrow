@@ -187,43 +187,10 @@ export interface CheckProposal {
   annotation_id: string;
 }
 
-export interface CheckRecommendation {
-  entry_id: string;
-  recipe_id: string;
-  title: string;
-  reason: string;
-  run_plan_status: string;
-  previous_verdict: string;
-  prior_snapshot_verdict: string;
-  required: boolean;
-  can_run_now: boolean;
-  manual_authorization_required: boolean;
-  selection_mode: "impact" | "all" | "none";
-  selected_tests_sample: string[];
-  selected_test_count: number;
-  coverage: "known" | "unknown" | "not_applicable";
-  executor: string;
-  recipe_digest: string;
-}
-
-export interface ObservedTestRegression {
-  recipe_id: string;
-  subject: string;
-  test_path: string;
-  differential_evidence_id: string;
-  executor_class: string;
-  independent_execution: boolean;
-  scope: "exact_snapshot_base_vs_head";
-  observation: "passed_on_base_failed_on_head";
-  limitation: string;
-}
-
 export interface CheckRecipesProjection {
   revision_id: string;
   historical: boolean;
   run_plan_digest: string;
-  recommended_checks?: { schema_version: number; previous_revision_id?: string; recommendations: CheckRecommendation[]; omitted: number; policy: string };
-  observed_regressions?: { schema_version: number; rows: ObservedTestRegression[]; omitted: number };
   recipes: CheckRecipe[];
   policy: { discover: boolean; reruns: number; quarantine: Array<{ test: string; recipe: string; reason: string }>; adequacy: boolean; autofix: boolean };
   errors: string[];
@@ -236,7 +203,6 @@ export interface CheckRecipesProjection {
   verdicts: CheckVerdictRow[];
   claims: CheckClaim[];
   proposals: CheckProposal[];
-  approved_autofix_ids?: string[];
 }
 
 export interface CheckRunResponse {
@@ -257,7 +223,7 @@ export interface CheckRunResponse {
 
 export type CheckRequestBody =
   | { kind: "proof"; recipe_id: string; subject?: string; path?: string; body?: string }
-  | { kind: "autofix"; proposal_id: string; approved: true; body?: string };
+  | { kind: "autofix"; proposal_id: string; body?: string };
 
 function base(reviewId: string): string {
   return `/api/reviews/${encodeURIComponent(reviewId)}/check-recipes`;
@@ -269,10 +235,10 @@ export function fetchCheckRecipes(reviewId: string, revisionId = ""): Promise<Ch
 }
 
 /** Execute one planned check entry on one exact Snapshot; `pick` adds it to the plan first. */
-export function postCheckRecipesRun(reviewId: string, revisionId: string, entry: string, pick = false, reverifyFromRevisionId = ""): Promise<CheckRunResponse> {
+export function postCheckRecipesRun(reviewId: string, revisionId: string, entry: string, pick = false): Promise<CheckRunResponse> {
   return requestBrowserJson<CheckRunResponse>(`${base(reviewId)}/run`, {
     method: "POST",
-    body: JSON.stringify({ revision_id: revisionId, entry, pick, ...(reverifyFromRevisionId ? { reverify_from_revision_id: reverifyFromRevisionId } : {}) }),
+    body: JSON.stringify({ revision_id: revisionId, entry, pick }),
   });
 }
 

@@ -66,50 +66,12 @@ def _find_usage(obj: Any, depth: int = 0) -> dict[str, Any] | None:
 
 
 def _opencode_probe(session_id: str, db_path: Path | None = None) -> tuple[int, str]:
-    override = os.environ.get("OPENCODE_DB")
-    data_dir = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "opencode"
-    override_path = Path(override).expanduser() if override and override != ":memory:" else None
-    path = db_path or (
-        override_path
-        if override_path and override_path.is_absolute()
-        else data_dir / override_path if override_path else data_dir / "opencode.db"
-    )
+    path = db_path or (Path.home() / ".local/share/opencode/opencode.db")
     if not path.exists():
         return 0, ""
     try:
         conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
         try:
-            names = {item[0] for item in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            if "session_v2" in names and "session_message" in names:
-                row_v2 = conn.execute(
-                    "SELECT type, data FROM session_message WHERE session_id = ? ORDER BY seq DESC LIMIT 32",
-                    (session_id,),
-                ).fetchall()
-                for value in row_v2:
-                    try:
-                        data = json.loads(value[1] or "{}")
-                        if not isinstance(data, dict):
-                            continue
-                        raw_info = data.get("info")
-                        info = raw_info if isinstance(raw_info, dict) else data
-                        if info.get("role", value[0]) != "assistant":
-                            continue
-                        usage = info.get("usage")
-                        tokens = info.get("tokens") or (usage.get("tokens") if isinstance(usage, dict) else None) or {}
-                        cache = tokens.get("cache") or {}
-                        used = int(tokens.get("input", 0) or 0) + int(cache.get("read", 0) or 0)
-                        model = info.get("model") or {}
-                        model_id = info.get("modelID") or (model.get("id") if isinstance(model, dict) else "") or ""
-                        provider = (
-                            info.get("providerID") or (model.get("providerID") if isinstance(model, dict) else "") or ""
-                        )
-                        if used:
-                            return used, f"{provider}/{model_id}" if provider and model_id else str(model_id)
-                    except (TypeError, ValueError, json.JSONDecodeError):
-                        continue
-                return 0, ""
-            if "part" not in names:
-                return 0, ""
             row = conn.execute(
                 """
                 SELECT p.data, m.data

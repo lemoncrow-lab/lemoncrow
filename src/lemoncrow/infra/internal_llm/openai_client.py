@@ -15,14 +15,13 @@ LEMONCROW_OPENAI_MODEL           model name; defaults to "gpt-4o-mini"
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 import threading
 from collections.abc import Callable
 from typing import Any
 
-from lemoncrow.infra.internal_llm.exceptions import OpenAIClientUnavailable, refusal_from_exception
+from lemoncrow.infra.internal_llm.exceptions import OpenAIClientUnavailable
 from lemoncrow.infra.internal_llm.result import InternalLLMChatResult
 
 
@@ -119,20 +118,8 @@ def chat_with_result(
     timeout: float | None = None,
 ) -> InternalLLMChatResult:
     """Call an OpenAI-compatible chat endpoint and return content plus usage metadata."""
-    chosen_model = model or _resolve_model()
-    if importlib.util.find_spec("openai") is None:
-        # The installed Review engine ships no SDK: OPENAI_API_KEY alone must be enough for `lc review --ai`.
-        from lemoncrow.infra.internal_llm import direct_http
-
-        return direct_http.openai_chat_with_result(
-            messages,
-            model=chosen_model,
-            json_schema=json_schema,
-            cache_metadata=cache_metadata,
-            max_tokens=max_tokens,
-            timeout=timeout,
-        )
     client = _resolve_client()
+    chosen_model = model or _resolve_model()
     try:
         kwargs: dict[str, Any] = {"model": chosen_model, "messages": messages}
         if json_schema is not None:
@@ -146,9 +133,7 @@ def chat_with_result(
             kwargs["extra_body"] = {"prompt_cache_key": prompt_cache_key}
         response = client.chat.completions.create(**kwargs)
     except Exception as exc:
-        raise OpenAIClientUnavailable(
-            refusal_from_exception("OpenAI", exc) or f"OpenAI-compatible API unavailable: {exc}"
-        ) from exc
+        raise OpenAIClientUnavailable(f"OpenAI-compatible API unavailable: {exc}") from exc
     content = str(response.choices[0].message.content or "")
     parsed_json: dict[str, Any] | None = None
     if json_schema is not None:

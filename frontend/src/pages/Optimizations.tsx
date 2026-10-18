@@ -146,9 +146,9 @@ function Hint({ text }: { text: string }) {
       <span
         tabIndex={0}
         aria-label={text}
-        className="inline-flex h-5 w-5 cursor-help items-center justify-center border border-border text-muted-foreground"
+        className="inline-flex h-5 w-5 cursor-help items-center justify-center border border-neutral-700 text-neutral-400"
       >
-        <HelpCircle size={14} />
+        <HelpCircle size={12} />
       </span>
     </Tip>
   );
@@ -176,11 +176,11 @@ export function CandidateSummaryCard({
     <article className="rounded-lg border border-border/70 bg-background/60 p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-caption font-mono uppercase tracking-tag text-muted-foreground">
+          <div className="text-caption font-mono uppercase tracking-[0.22em] text-neutral-400">
             {label}
           </div>
           <div className="mt-2 flex items-center gap-2">
-            <h2 className="text-lead font-semibold text-foreground">
+            <h2 className="text-xl font-semibold text-foreground">
               {candidate.policy.name}
             </h2>
             <Hint text={note} />
@@ -196,10 +196,10 @@ export function CandidateSummaryCard({
           </div>
         </div>
         <div className="text-right">
-          <div className="text-h3 font-semibold text-foreground">
+          <div className="text-2xl font-semibold text-foreground">
             {fmtUsd(candidate.weekly_cost_usd)}
           </div>
-          <div className="mt-1 text-body text-muted-foreground">weekly</div>
+          <div className="mt-1 text-xs text-neutral-400">weekly</div>
         </div>
       </div>
 
@@ -238,15 +238,15 @@ export function CandidateSummaryCard({
 
       <div className="mt-5 grid gap-4 xl:grid-cols-2">
         <div className="rounded-lg border border-border/70 bg-background/60 p-4">
-          <div className="text-caption font-mono uppercase tracking-widest text-muted-foreground">
+          <div className="text-caption font-mono uppercase tracking-widest text-neutral-400">
             Routing
           </div>
-          <div className="mt-3 grid gap-2 text-heading text-subtle">
+          <div className="mt-3 grid gap-2 text-sm text-neutral-300">
             <div>Simple: {candidate.policy.routing.simple}</div>
             <div>Medium: {candidate.policy.routing.medium}</div>
             <div>Hard: {candidate.policy.routing.hard}</div>
             <div
-              className="text-muted-foreground"
+              className="text-neutral-400"
               title={candidate.policy.routing.escalate_on.join(", ")}
             >
               Escalation triggers
@@ -257,10 +257,10 @@ export function CandidateSummaryCard({
           className="rounded-lg border border-border/70 bg-background/60 p-4"
           title={`Preserve: ${candidate.policy.compaction.preserve.join(", ")}`}
         >
-          <div className="text-caption font-mono uppercase tracking-widest text-muted-foreground">
+          <div className="text-caption font-mono uppercase tracking-widest text-neutral-400">
             Compaction
           </div>
-          <div className="mt-3 grid gap-2 text-heading text-subtle">
+          <div className="mt-3 grid gap-2 text-sm text-neutral-300">
             <div>
               Trigger:{" "}
               {fmtPercent(
@@ -318,25 +318,25 @@ export function CandidateOptions({
               className={cx(
                 "rounded-lg border p-4 text-left transition-colors",
                 selected
-                  ? "border-border bg-accent/70"
+                  ? "border-border bg-neutral-800/70"
                   : "border-border bg-background/60 hover:bg-muted/40"
               )}
             >
               <div className="flex flex-wrap items-center gap-2">
-                <div className="text-heading font-semibold text-foreground">
+                <div className="text-sm font-semibold text-foreground">
                   {candidate.policy.name}
                 </div>
                 {isCurrent && <Chip tone="neutral">Current</Chip>}
                 {isRecommended && <Chip tone="warning">Recommended</Chip>}
               </div>
-              <div className="mt-2 text-body uppercase tracking-widest text-muted-foreground">
+              <div className="mt-2 text-xs uppercase tracking-widest text-neutral-400">
                 {fmtPolicyLabel(candidate.policy.preset)}
               </div>
-              <div className="mt-4 text-h3 font-semibold text-foreground">
+              <div className="mt-4 text-2xl font-semibold text-foreground">
                 {fmtUsd(candidate.weekly_cost_usd)}
               </div>
-              <div className="mt-1 text-body text-muted-foreground">per week</div>
-              <div className="mt-4 space-y-2 text-heading text-subtle">
+              <div className="mt-1 text-xs text-neutral-400">per week</div>
+              <div className="mt-4 space-y-2 text-sm text-neutral-300">
                 <div>Quality {fmtPercent(candidate.estimated_quality)}</div>
                 <div>Latency {candidate.latency_mult.toFixed(2)}x</div>
                 <div>Escalation {fmtPercent(candidate.escalation_rate)}</div>
@@ -395,10 +395,10 @@ function CandidateDetail({
           className="mt-5 rounded-lg border border-border/70 bg-background/60 p-4"
           title={`Preserve: ${candidate.policy.compaction.preserve.join(", ")}`}
         >
-          <div className="text-caption font-mono uppercase tracking-widest text-muted-foreground">
+          <div className="text-caption font-mono uppercase tracking-widest text-neutral-400">
             Policy details
           </div>
-          <div className="mt-3 grid gap-2 text-heading text-subtle">
+          <div className="mt-3 grid gap-2 text-sm text-neutral-300">
             <div>
               Routing mode: {fmtPolicyLabel(candidate.policy.routing.policy)}
             </div>
@@ -425,15 +425,15 @@ function CandidateDetail({
             }
           />
           <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-left text-heading">
+            <table className="w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-border text-caption uppercase tracking-widest text-muted-foreground">
+                <tr className="border-b border-border text-caption uppercase tracking-widest text-neutral-400">
                   <th className="py-3 pr-4">Compaction type</th>
                   <th className="py-3 pr-4">Enabled</th>
                   <th className="py-3 text-right">Weekly savings</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border">
+              <tbody className="divide-y divide-neutral-900">
                 {compactionRows.map(([key, value]) => {
                   const enabled =
                     key === "prompt_cache_reorder"
@@ -445,7 +445,7 @@ function CandidateDetail({
                           : candidate.policy.compaction.lossy_summary;
                   return (
                     <tr key={key}>
-                      <td className="py-3 pr-4 text-foreground">
+                      <td className="py-3 pr-4 text-neutral-200">
                         {COMPACTION_LABELS[key] ?? fmtPolicyLabel(key)}
                       </td>
                       <td className="py-3 pr-4">
@@ -453,7 +453,7 @@ function CandidateDetail({
                           {enabled ? "On" : "Off"}
                         </Chip>
                       </td>
-                      <td className="py-3 text-right font-mono text-subtle">
+                      <td className="py-3 text-right font-mono text-neutral-300">
                         {fmtUsd(value)}
                       </td>
                     </tr>
@@ -474,7 +474,7 @@ function CandidateDetail({
           />
           <div className="mt-4 grid gap-3 md:grid-cols-3">
             {routingRows.length === 0 ? (
-              <div className="rounded-lg border border-border/70 bg-background/60 p-4 text-heading text-muted-foreground md:col-span-3">
+              <div className="rounded-lg border border-border/70 bg-background/60 p-4 text-sm text-neutral-400 md:col-span-3">
                 No routing distribution was available for this option.
               </div>
             ) : (
@@ -483,13 +483,13 @@ function CandidateDetail({
                   key={tier}
                   className="rounded-lg border border-border/70 bg-background/60 p-4"
                 >
-                  <div className="text-caption font-mono uppercase tracking-widest text-muted-foreground">
+                  <div className="text-caption font-mono uppercase tracking-widest text-neutral-400">
                     {tier}
                   </div>
-                  <div className="mt-2 text-lead font-semibold text-foreground">
+                  <div className="mt-2 text-xl font-semibold text-foreground">
                     {fmtPercent(share)}
                   </div>
-                  <div className="mt-2 text-body text-muted-foreground">of turns</div>
+                  <div className="mt-2 text-xs text-neutral-400">of turns</div>
                 </div>
               ))
             )}
@@ -516,7 +516,7 @@ function SessionsBehindRecommendation({
       />
 
       {evidence.length === 0 ? (
-        <section className="rounded-lg border border-border/70 bg-background/60 p-4 text-heading text-muted-foreground">
+        <section className="rounded-lg border border-border/70 bg-background/60 p-4 text-sm text-neutral-400">
           No concrete session examples were available in this window.
         </section>
       ) : (
@@ -537,10 +537,10 @@ function SessionsBehindRecommendation({
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="text-heading font-semibold text-foreground">
+                  <div className="text-sm font-semibold text-foreground">
                     {session.recommendationTitle}
                   </div>
-                  <div className="mt-1 font-mono text-body text-muted-foreground">
+                  <div className="mt-1 font-mono text-xs text-neutral-400">
                     {session.trace_id}
                   </div>
                 </div>
@@ -572,21 +572,21 @@ function SessionsBehindRecommendation({
                 />
               </div>
 
-              <div className="mt-4 space-y-1 text-heading text-subtle">
+              <div className="mt-4 space-y-1 text-sm text-neutral-300">
                 <div>
                   {session.project || session.host || "session"}
                   {typeof session.input_output_ratio === "number"
                     ? ` • ${session.input_output_ratio.toFixed(1)}:1 input/output`
                     : ""}
                 </div>
-                <div className="text-body text-muted-foreground">
+                <div className="text-xs text-neutral-400">
                   Hover for details
                 </div>
               </div>
 
               <Link
                 to={`/runs?trace=${encodeURIComponent(session.trace_id)}`}
-                className="mt-4 inline-flex border border-border px-3 py-1.5 text-meta font-mono uppercase tracking-widest text-subtle transition hover:text-amber-300"
+                className="mt-4 inline-flex border border-neutral-700 px-3 py-1.5 text-caption font-mono uppercase tracking-widest text-neutral-300 transition hover:text-amber-300"
               >
                 Open in Sessions
               </Link>
@@ -714,7 +714,7 @@ function PolicySandbox({
               }
             />
             <div className="space-y-3">
-              <label className="text-caption font-mono uppercase tracking-widest text-muted-foreground">
+              <label className="text-caption font-mono uppercase tracking-widest text-neutral-400">
                 Confidence required
               </label>
               <ToggleGroup
@@ -738,7 +738,7 @@ function PolicySandbox({
           </div>
 
           <div className="space-y-4">
-            <div className="text-caption font-mono uppercase tracking-widest text-muted-foreground">
+            <div className="text-caption font-mono uppercase tracking-widest text-neutral-400">
               Compaction features
             </div>
             <div className="grid gap-4">
@@ -793,9 +793,9 @@ function OptimizationHistory({
         }
       />
       <div className="overflow-x-auto border border-border bg-background/60">
-        <table className="w-full text-left text-heading">
+        <table className="w-full text-left text-sm">
           <thead>
-            <tr className="border-b border-border text-caption uppercase tracking-widest text-muted-foreground">
+            <tr className="border-b border-border text-caption uppercase tracking-widest text-neutral-400">
               <th className="px-5 py-3">Date</th>
               <th className="px-5 py-3">Confidence</th>
               <th className="px-5 py-3">Sessions</th>
@@ -803,10 +803,10 @@ function OptimizationHistory({
               <th className="px-5 py-3 text-right">Potential savings</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-border">
+          <tbody className="divide-y divide-neutral-900">
             {history.slice(0, 10).map((item, idx) => (
               <tr key={idx} className="hover:bg-muted/45">
-                <td className="px-5 py-3 text-muted-foreground">
+                <td className="px-5 py-3 text-neutral-400">
                   {new Date(item.recorded_at).toLocaleDateString()}
                 </td>
                 <td className="px-5 py-3">
@@ -814,7 +814,7 @@ function OptimizationHistory({
                     {fmtPolicyLabel(item.confidence)}
                   </Chip>
                 </td>
-                <td className="px-5 py-3 text-subtle">
+                <td className="px-5 py-3 text-neutral-300">
                   {item.sessions_analysed.toLocaleString()}
                 </td>
                 <td className="px-5 py-3">
@@ -883,31 +883,31 @@ function OptimizationComparison({
 
       <div className="grid gap-4 xl:grid-cols-2">
         <article className="rounded-lg border border-border/70 bg-background/60 p-4">
-          <div className="text-caption font-mono uppercase tracking-widest text-muted-foreground">
+          <div className="text-caption font-mono uppercase tracking-widest text-neutral-400">
             Baseline (Before)
           </div>
           <div className="mt-4 grid grid-cols-2 gap-4">
             <div>
-              <div className="text-body text-muted-foreground">Traces</div>
-              <div className="text-lead font-semibold text-foreground">
+              <div className="text-xs text-neutral-400">Traces</div>
+              <div className="text-xl font-semibold text-foreground">
                 {impact.before.trace_count}
               </div>
             </div>
             <div>
-              <div className="text-body text-muted-foreground">Avg Cost</div>
-              <div className="text-lead font-semibold text-foreground">
+              <div className="text-xs text-neutral-400">Avg Cost</div>
+              <div className="text-xl font-semibold text-foreground">
                 {fmtUsd(impact.before.avg_cost_usd)}
               </div>
             </div>
             <div>
-              <div className="text-body text-muted-foreground">Avg Tokens</div>
-              <div className="text-lead font-semibold text-foreground">
+              <div className="text-xs text-neutral-400">Avg Tokens</div>
+              <div className="text-xl font-semibold text-foreground">
                 {fmtTok(impact.before.avg_tokens)}
               </div>
             </div>
             <div>
-              <div className="text-body text-muted-foreground">Cache leverage</div>
-              <div className="text-lead font-semibold text-foreground">
+              <div className="text-xs text-neutral-400">Cache leverage</div>
+              <div className="text-xl font-semibold text-foreground">
                 {fmtPercent(impact.before.avg_cache_leverage)}
               </div>
             </div>
@@ -915,31 +915,31 @@ function OptimizationComparison({
         </article>
 
         <article className="rounded-lg border border-border/70 bg-background/60 p-4">
-          <div className="text-caption font-mono uppercase tracking-widest text-muted-foreground">
+          <div className="text-caption font-mono uppercase tracking-widest text-neutral-400">
             Current / Shadow (After)
           </div>
           <div className="mt-4 grid grid-cols-2 gap-4">
             <div>
-              <div className="text-body text-muted-foreground">Traces</div>
-              <div className="text-lead font-semibold text-foreground">
+              <div className="text-xs text-neutral-400">Traces</div>
+              <div className="text-xl font-semibold text-foreground">
                 {impact.after.trace_count}
               </div>
             </div>
             <div>
-              <div className="text-body text-muted-foreground">Avg Cost</div>
-              <div className="text-lead font-semibold text-foreground">
+              <div className="text-xs text-neutral-400">Avg Cost</div>
+              <div className="text-xl font-semibold text-foreground">
                 {fmtUsd(impact.after.avg_cost_usd)}
               </div>
             </div>
             <div>
-              <div className="text-body text-muted-foreground">Avg Tokens</div>
-              <div className="text-lead font-semibold text-foreground">
+              <div className="text-xs text-neutral-400">Avg Tokens</div>
+              <div className="text-xl font-semibold text-foreground">
                 {fmtTok(impact.after.avg_tokens)}
               </div>
             </div>
             <div>
-              <div className="text-body text-muted-foreground">Cache leverage</div>
-              <div className="text-lead font-semibold text-foreground">
+              <div className="text-xs text-neutral-400">Cache leverage</div>
+              <div className="text-xl font-semibold text-foreground">
                 {fmtPercent(impact.after.avg_cache_leverage)}
               </div>
             </div>
@@ -1066,10 +1066,10 @@ function SupportingEvidence({
                   key={bucket}
                   className="rounded-md border border-border/70 bg-background/60 p-3"
                 >
-                  <div className="text-caption font-mono uppercase tracking-widest text-muted-foreground">
+                  <div className="text-caption font-mono uppercase tracking-widest text-neutral-400">
                     {bucket}
                   </div>
-                  <div className="mt-2 text-lead font-semibold text-foreground">
+                  <div className="mt-2 text-xl font-semibold text-foreground">
                     {count.toLocaleString()}
                   </div>
                 </div>
@@ -1087,10 +1087,10 @@ function SupportingEvidence({
                 className="rounded-md border border-border/70 bg-background/60 p-3"
                 title={`${fmtTok(item.tokens_saved)} saved across ${item.session_count.toLocaleString()} sessions`}
               >
-                <div className="text-heading font-semibold text-foreground">
+                <div className="text-sm font-semibold text-foreground">
                   {item.title}
                 </div>
-                <div className="mt-2 text-body text-muted-foreground">
+                <div className="mt-2 text-xs text-neutral-400">
                   {fmtUsd(item.cost_saved_usd)}
                 </div>
               </div>
@@ -1334,18 +1334,18 @@ export default function Optimizations() {
                 className={cx(
                   "rounded-lg border p-4 text-left transition-colors",
                   selected
-                    ? "border-border bg-accent/70"
+                    ? "border-border bg-neutral-800/70"
                     : "border-border bg-background/60 hover:bg-muted/40"
                 )}
               >
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="text-heading font-semibold text-foreground">
+                  <div className="text-sm font-semibold text-foreground">
                     {candidate.policy.name}
                   </div>
                   {isCurrent && <Chip tone="neutral">Current</Chip>}
                   {isRecommended && <Chip tone="warning">Recommended</Chip>}
                 </div>
-                <div className="mt-2 text-body uppercase tracking-widest text-muted-foreground">
+                <div className="mt-2 text-xs uppercase tracking-widest text-neutral-400">
                   {fmtPolicyLabel(candidate.policy.preset)}
                 </div>
                 {(() => {
@@ -1364,39 +1364,39 @@ export default function Optimizations() {
                     <>
                       <div
                         className={cx(
-                          "mt-4 text-h3 font-semibold",
+                          "mt-4 text-2xl font-semibold",
                           isSaving ? "text-emerald-300" : "text-foreground"
                         )}
                       >
                         {isSaving ? "+" : ""}
                         {fmtUsd(Math.max(0, totalSaved))}
                       </div>
-                      <div className="mt-1 text-body text-muted-foreground">
+                      <div className="mt-1 text-xs text-neutral-400">
                         savings / week
                       </div>
                       {hasBreakdown && (
-                        <div className="mt-3 space-y-1 border-t border-border pt-3 text-body">
-                          <div className="flex justify-between text-muted-foreground">
+                        <div className="mt-3 space-y-1 border-t border-border pt-3 text-xs">
+                          <div className="flex justify-between text-neutral-400">
                             <span>Read</span>
-                            <span className="font-mono text-subtle">
+                            <span className="font-mono text-neutral-300">
                               {fmtSignedUsd(candidate.read_saved_usd ?? 0)}
                             </span>
                           </div>
-                          <div className="flex justify-between text-muted-foreground">
+                          <div className="flex justify-between text-neutral-400">
                             <span>Carry</span>
-                            <span className="font-mono text-subtle">
+                            <span className="font-mono text-neutral-300">
                               {fmtSignedUsd(candidate.carry_saved_usd ?? 0)}
                             </span>
                           </div>
-                          <div className="flex justify-between text-muted-foreground">
+                          <div className="flex justify-between text-neutral-400">
                             <span>Output</span>
-                            <span className="font-mono text-subtle">
+                            <span className="font-mono text-neutral-300">
                               {fmtSignedUsd(candidate.output_saved_usd ?? 0)}
                             </span>
                           </div>
-                          <div className="flex justify-between text-muted-foreground">
+                          <div className="flex justify-between text-neutral-400">
                             <span>Routing</span>
-                            <span className="font-mono text-subtle">
+                            <span className="font-mono text-neutral-300">
                               {fmtSignedUsd(candidate.routing_saved_usd ?? 0)}
                             </span>
                           </div>
@@ -1405,7 +1405,7 @@ export default function Optimizations() {
                     </>
                   );
                 })()}
-                <div className="mt-4 space-y-2 text-heading text-subtle">
+                <div className="mt-4 space-y-2 text-sm text-neutral-300">
                   <div>Quality {fmtPercent(candidate.estimated_quality)}</div>
                   <div>Latency {candidate.latency_mult.toFixed(2)}x</div>
                   <div>Escalation {fmtPercent(candidate.escalation_rate)}</div>
@@ -1420,23 +1420,23 @@ export default function Optimizations() {
             className={cx(
               "rounded-lg border p-4 text-left transition-colors",
               showSandbox
-                ? "border-border bg-accent/70"
+                ? "border-border bg-neutral-800/70"
                 : "border-border bg-background/60 hover:bg-muted/40"
             )}
           >
-            <div className="text-heading font-semibold text-foreground">
+            <div className="text-sm font-semibold text-foreground">
               Advanced
             </div>
-            <div className="mt-2 text-body uppercase tracking-widest text-muted-foreground">
+            <div className="mt-2 text-xs uppercase tracking-widest text-neutral-400">
               Custom Tuning
             </div>
-            <div className="mt-4 text-h3 font-semibold text-foreground">
+            <div className="mt-4 text-2xl font-semibold text-foreground">
               Sandbox
             </div>
-            <div className="mt-1 text-body text-muted-foreground">
+            <div className="mt-1 text-xs text-neutral-400">
               Interactive tuning
             </div>
-            <div className="mt-4 space-y-2 text-heading text-subtle italic">
+            <div className="mt-4 space-y-2 text-sm text-neutral-300 italic">
               Adjust quality floors, compaction triggers, and routing.
             </div>
           </UiButton>

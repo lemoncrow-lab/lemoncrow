@@ -61,12 +61,12 @@ export default function Reports() {
 
       {list !== null && list.length === 0 && (
         <EmptyState
-          icon={<FileText size={20} />}
+          icon={<FileText size={28} />}
           title="No benchmark reports yet"
           description={
             <>
               Benchmark runs written under{" "}
-              <code className="text-muted-foreground">reports/benchmark/</code> appear
+              <code className="text-brand-400">reports/benchmark/</code> appear
               here automatically.
             </>
           }
@@ -80,12 +80,12 @@ export default function Reports() {
               <Button
                 key={report.id}
                 onClick={() => setSelectedId(report.id)}
-                variant={selectedId === report.id ? "solid" : "ghost"}
+                variant={selectedId === report.id ? "default" : "ghost"}
                 className="h-auto w-full justify-start px-3 py-2 text-left normal-case tracking-normal"
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="truncate font-semibold text-foreground">
+                    <span className="truncate font-semibold text-neutral-200">
                       {report.suite}
                     </span>
                     <span className="text-caption text-muted-foreground">
@@ -106,7 +106,7 @@ export default function Reports() {
           <Card className="min-w-0 p-4">
             {contentErr && <Alert tone="destructive" description={contentErr} />}
             {content === null && !contentErr && (
-              <div className="text-body text-muted-foreground">
+              <div className="text-xs text-muted-foreground">
                 Loading benchmark report…
               </div>
             )}
@@ -124,7 +124,7 @@ export default function Reports() {
                     {content.files.length} artifacts
                   </span>
                 </div>
-                <article className="prose prose-invert prose-sm max-w-none prose-headings:text-foreground prose-p:text-muted-foreground prose-strong:text-foreground prose-code:text-subtle prose-a:text-muted-foreground prose-table:text-subtle prose-th:text-subtle prose-td:text-muted-foreground">
+                <article className="prose prose-invert prose-sm max-w-none prose-headings:text-neutral-200 prose-p:text-neutral-400 prose-strong:text-neutral-200 prose-code:text-brand-300 prose-a:text-brand-400 prose-table:text-neutral-300 prose-th:text-neutral-300 prose-td:text-neutral-400">
                   <ReactMarkdown>{content.markdown}</ReactMarkdown>
                 </article>
               </>

@@ -41,7 +41,7 @@ const ASPECT_LABEL: Record<string, string> = {
 
 const CHANGE_TONE: Record<string, string> = {
   added: "text-amber-300",
-  removed: "text-cyan-300",
+  removed: "text-sky-300",
   changed: "text-amber-300",
 };
 
@@ -60,7 +60,7 @@ function SideEffectCard({ result }: { result: SideEffectResult }) {
   return (
     <div className="border-t border-border/60 py-2 first:border-t-0" data-testid={`side-effects-${result.recipe.id}`}>
       <div className="flex items-baseline gap-2">
-        <span className="min-w-0 flex-1 truncate text-label text-foreground">{title}</span>
+        <span className="min-w-0 flex-1 truncate text-label text-neutral-200">{title}</span>
         <span className="text-micro text-muted-foreground">
           {result.diff.comparable ? `${result.diff.changes.length} difference(s)` : "not comparable"}
         </span>
@@ -87,7 +87,7 @@ function SideEffectCard({ result }: { result: SideEffectResult }) {
         {result.diff.changes.map((change) => (
           <div key={`${change.category}:${change.identity}`} className="flex items-baseline gap-2 text-micro" data-testid="side-effect-change">
             <span className="shrink-0 text-muted-foreground">{CATEGORY_LABEL[change.category] ?? change.category}</span>
-            <span className="min-w-0 flex-1 truncate font-mono text-subtle" title={(change.head ?? change.base)?.detail ?? change.identity}>
+            <span className="min-w-0 flex-1 truncate font-mono text-neutral-300" title={(change.head ?? change.base)?.detail ?? change.identity}>
               {change.identity}
             </span>
             <span className={`shrink-0 ${CHANGE_TONE[change.change] ?? "text-muted-foreground"}`}>{changeText(change)}</span>
@@ -110,7 +110,7 @@ function RenderCard({
   return (
     <div className="border-t border-border/60 py-2 first:border-t-0" data-testid={`render-${result.entry}`}>
       <div className="flex items-baseline gap-2">
-        <span className="min-w-0 flex-1 truncate text-label text-foreground">{ENTRY_LABEL[result.entry] ?? result.entry}</span>
+        <span className="min-w-0 flex-1 truncate text-label text-neutral-200">{ENTRY_LABEL[result.entry] ?? result.entry}</span>
         <span className="text-micro text-muted-foreground">
           {result.comparable ? `${result.pages.length} page(s) differ` : "not comparable"}
         </span>
@@ -134,7 +134,7 @@ function RenderCard({
       <div className="mt-1 space-y-1">
         {result.pages.map((page) => (
           <div key={page.cell.id} className="text-micro" data-testid="render-page">
-            <span className="font-mono text-subtle">{page.cell.id}</span>{" "}
+            <span className="font-mono text-neutral-300">{page.cell.id}</span>{" "}
             <span className="text-amber-300">
               {Object.keys(page.changes)
                 .map((aspect) => ASPECT_LABEL[aspect] ?? aspect)
@@ -266,7 +266,7 @@ export default function RuntimeObservationPanel({
         <div>
           {snapshot.entries.map((entry) => (
             <div key={entry.id} className="flex items-baseline gap-2 py-0.5 text-micro" data-testid={`observation-entry-${entry.id}`}>
-              <span className="min-w-0 flex-1 truncate text-subtle" title={entry.reason}>
+              <span className="min-w-0 flex-1 truncate text-neutral-300" title={entry.reason}>
                 {ENTRY_LABEL[entry.id] ?? entry.id}
               </span>
               <span className="text-muted-foreground" title={entry.reason}>
@@ -289,7 +289,7 @@ export default function RuntimeObservationPanel({
           </div>
         )}
         {message && (
-          <div className="text-micro text-subtle" role="status">
+          <div className="text-micro text-neutral-300" role="status">
             {message}
           </div>
         )}

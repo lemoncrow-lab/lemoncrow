@@ -197,8 +197,7 @@ for s in scripts/install_hosts.sh scripts/install_agents.sh \
           scripts/uninstall_codex.sh scripts/uninstall_copilot.sh \
           scripts/uninstall_cursor.sh scripts/uninstall_hermes.sh \
           scripts/uninstall_pi.sh scripts/uninstall_lemoncode.sh scripts/uninstall_opencode.sh \
-          scripts/build_host_skills.sh scripts/sync_agent_context.py \
-           scripts/opencode_v2_config.py; do
+          scripts/build_host_skills.sh scripts/sync_agent_context.py; do
     # Not `[[ -f ]] && cp`: a silent skip here is how a script goes missing from
     # the tarball unnoticed (the public mirror omitted five of these once).
     [[ -f "$s" ]] || { echo "✗ $s is missing from this tree — cannot bundle it" >&2; exit 1; }

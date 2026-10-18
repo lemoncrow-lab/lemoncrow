@@ -136,7 +136,7 @@ export default function ReviewPremergeChecks({
 
   return (
     <div className="mt-4" aria-labelledby="premerge-checks-heading">
-      <div id="premerge-checks-heading" className="mb-1 text-caption font-semibold text-subtle">
+      <div id="premerge-checks-heading" className="mb-1 text-caption font-semibold text-neutral-300">
         Pre-merge checks
       </div>
       <div className="mb-2 text-caption leading-4 text-muted-foreground">
@@ -158,12 +158,12 @@ export default function ReviewPremergeChecks({
             <div key={intent.ref} className="rounded-md border border-border/70 bg-muted/20 px-3 py-2">
               <div className="flex items-center justify-between gap-3 text-caption">
                 {webHref(intent.bound.url) ? (
-                  <a href={webHref(intent.bound.url)} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-1 text-subtle hover:text-foreground">
+                  <a href={webHref(intent.bound.url)} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-1 text-neutral-300 hover:text-neutral-50">
                     <span className="truncate">{intent.bound.title || intent.ref}</span>
-                    <ExternalLink size={14} className="shrink-0" />
+                    <ExternalLink size={10} className="shrink-0" />
                   </a>
                 ) : (
-                  <span className="min-w-0 truncate text-subtle">{intent.bound.title || intent.ref}</span>
+                  <span className="min-w-0 truncate text-neutral-300">{intent.bound.title || intent.ref}</span>
                 )}
                 <span className="shrink-0 font-mono text-muted-foreground">
                   {intent.kind}
@@ -190,16 +190,16 @@ export default function ReviewPremergeChecks({
 
       {trial.length > 0 && (
         <div className="mb-2">
-          <div className="text-caption font-medium text-subtle">Warning-mode trial</div>
+          <div className="text-caption font-medium text-neutral-300">Warning-mode trial</div>
           <div className="mb-1 text-caption leading-4 text-muted-foreground">{premerge.trial.summary}</div>
-          <div className="divide-y divide-border border-y border-border">
+          <div className="divide-y divide-neutral-900 border-y border-neutral-900">
             {trial.map((check) => (
               <div key={check.id} className="flex gap-2.5 py-2">
-                <CircleDot size={14} className="mt-0.5 shrink-0 text-cyan-300" />
+                <CircleDot size={11} className="mt-0.5 shrink-0 text-sky-300" />
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-x-2">
-                    <span className="text-caption font-medium text-subtle">{check.title}</span>
-                    <Badge tone="secondary" className="text-cyan-300">would block if enforced</Badge>
+                    <span className="text-caption font-medium text-neutral-300">{check.title}</span>
+                    <Badge tone="secondary" className="text-sky-300">would block if enforced</Badge>
                     <span className="font-mono text-caption text-muted-foreground">{check.status}</span>
                   </div>
                   <div className="mt-0.5 text-caption leading-4 text-muted-foreground">{check.detail}</div>
@@ -228,9 +228,9 @@ export default function ReviewPremergeChecks({
 
       {waived.map((check) => check.waiver && (
         <div key={check.id} className="mb-1.5 flex gap-2.5 text-caption leading-4">
-          <CircleDot size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
+          <CircleDot size={11} className="mt-0.5 shrink-0 text-neutral-400" />
           <div className="min-w-0 text-muted-foreground">
-            <span className="text-subtle">{check.title}</span> ({check.status}) waived by {check.waiver.actor} until{" "}
+            <span className="text-neutral-300">{check.title}</span> ({check.status}) waived by {check.waiver.actor} until{" "}
             {instant(check.waiver.expires_at)} · {check.waiver.scope === "review" ? "same-path Snapshots" : "this Snapshot"} · policy{" "}
             <span className="font-mono">{check.waiver.policy_generation_short}</span>: {check.waiver.reason}
           </div>
@@ -238,7 +238,7 @@ export default function ReviewPremergeChecks({
       ))}
       {lapsed.map((check) => (
         <div key={check.id} className="mb-1.5 flex gap-2.5 text-caption leading-4 text-amber-300">
-          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <AlertTriangle size={12} className="mt-0.5 shrink-0" />
           <span>{check.title}: {check.waiver_note}</span>
         </div>
       ))}
@@ -274,7 +274,7 @@ export default function ReviewPremergeChecks({
         </div>
       )}
 
-      {actions?.error && <div className="mt-2 text-caption text-red-300" role="alert">{actions.error}</div>}
+      {actions?.error && <div className="mt-2 text-caption text-rose-300" role="alert">{actions.error}</div>}
     </div>
   );
 }
