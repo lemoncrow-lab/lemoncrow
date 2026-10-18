@@ -243,18 +243,18 @@ function VirtualOutlineRows({
             tooltip={[row.path, page ? `Page ${page}` : "", reason].filter(Boolean).join(" · ")}
             className={[
               "review-outline-file flex w-full items-center gap-1.5 rounded-md border border-transparent px-2 text-left transition-colors",
-              active ? "border-border bg-muted " : "hover:bg-muted/45",
+              active ? "border-border bg-muted/85 shadow-sm" : "hover:bg-muted/45",
               complete ? "opacity-60" : "",
             ].join(" ")}
             style={{ height: VIRTUAL_ROW_HEIGHT, marginBottom: VIRTUAL_ROW_GAP }}
           >
-            <FileTypeIcon path={row.path} />
-            <span className="min-w-0 flex-1 truncate text-label text-subtle" title={row.path}>{filename}</span>
+            <FileTypeIcon path={row.path} size={13} />
+            <span className="min-w-0 flex-1 truncate text-label text-neutral-300" title={row.path}>{filename}</span>
             {directory !== "./" && (
               <span className="max-w-[42%] truncate font-mono text-micro text-muted-foreground" title={directory}>{directory}</span>
             )}
             {page && <span className="shrink-0 text-caption tabular-nums text-muted-foreground" aria-label={`Page ${page}`}>p. {page}</span>}
-            <span className={complete ? "shrink-0 font-mono text-label text-emerald-400" : "shrink-0 font-mono text-label text-muted-foreground"}>
+            <span className={complete ? "shrink-0 font-mono text-label text-emerald-400" : "shrink-0 font-mono text-label text-neutral-400"}>
               {searching ? (
                 <><span aria-hidden="true">{matchCount}</span><span className="sr-only">{matchCount} match{matchCount === 1 ? "" : "es"}</span></>
               ) : `${row.reviewed}/${row.target_count}`}
@@ -322,7 +322,7 @@ export default function ReviewOutline({
   const nextHeading = nextAttention?.attention === "review_first" ? "Review first" : "Next";
   const nextHeadingClass = nextAttention?.attention === "review_first"
     ? "text-label font-semibold text-amber-300"
-    : "text-label font-semibold text-subtle";
+    : "text-label font-semibold text-neutral-300";
 
   if (collapsed) {
     return (
@@ -330,7 +330,7 @@ export default function ReviewOutline({
         <UiButton variant="ghost" size="icon" type="button" aria-label="Open review outline" onClick={onToggleCollapsed}>
           <ChevronRight size={14} />
         </UiButton>
-        <span className="mt-4 [writing-mode:vertical-rl] text-caption font-semibold uppercase tracking-tag text-muted-foreground">
+        <span className="mt-4 [writing-mode:vertical-rl] text-caption font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           Files
         </span>
       </aside>
@@ -341,11 +341,11 @@ export default function ReviewOutline({
     <aside className="review-outline relative" style={{ "--outline-width": `min(${outlineWidth}px, 45vw)` } as CSSProperties} aria-label="Review outline">
       <PanelResizeHandle label="Resize review outline" onResize={setOutlineWidth} className="hidden min-[640px]:flex" />
       <div className="flex h-10 items-center gap-1.5 border-b border-border/70 px-2">
-        <span className="text-heading font-semibold text-foreground">Files</span>
+        <span className="text-heading font-semibold text-neutral-200">Files</span>
         <span className="flex-1" />
         <span className="font-mono text-caption text-muted-foreground">{rows.length}</span>
         <UiButton variant="ghost" size="icon" type="button" aria-label="Collapse review outline" onClick={onToggleCollapsed}>
-          <ChevronLeft size={14} />
+          <ChevronLeft size={13} />
         </UiButton>
       </div>
 
@@ -361,8 +361,8 @@ export default function ReviewOutline({
               className="block w-full rounded px-1.5 py-1 text-left hover:bg-muted disabled:cursor-default"
               tooltip={currentCohort.path ? `${currentCohort.label} · ${currentCohort.path}` : currentCohort.label}
             >
-              <span className="block font-mono text-tag uppercase text-muted-foreground">Current concern</span>
-              <span className="block truncate text-label text-subtle">{currentCohort.label}</span>
+              <span className="block text-micro font-semibold uppercase tracking-wide text-muted-foreground">Current concern</span>
+              <span className="block truncate text-caption text-neutral-300">{currentCohort.label}</span>
             </UiButton>
           )}
           {showActions && (
@@ -373,12 +373,12 @@ export default function ReviewOutline({
                   type="button"
                   onClick={() => onReviewAction?.(action.id)}
                   className={(action.tier ?? 1) <= 1
-                    ? "block w-full rounded-md border border-red-500/40 bg-red-500/10 px-1.5 py-1 text-left hover:bg-red-500/15"
+                    ? "block w-full rounded-md border border-rose-500/40 bg-rose-500/10 px-1.5 py-1 text-left hover:bg-rose-500/15"
                     : "block w-full rounded-md border border-amber-500/30 bg-amber-500/10 px-1.5 py-1 text-left hover:bg-amber-500/15"}
                   aria-label={`${action.title}: ${action.detail}`}
                 >
-                  <span className={(action.tier ?? 1) <= 1 ? "block text-label font-semibold text-red-300" : "block text-label font-semibold text-amber-300"}>{action.title}</span>
-                  <span className="block text-caption leading-4 text-muted-foreground">{action.detail}</span>
+                  <span className={(action.tier ?? 1) <= 1 ? "block text-label font-semibold text-rose-300" : "block text-label font-semibold text-amber-300"}>{action.title}</span>
+                  <span className="block text-caption leading-4 text-neutral-400">{action.detail}</span>
                 </UiButton>
               ))}
             </div>
@@ -390,11 +390,11 @@ export default function ReviewOutline({
               <div className="flex min-w-0 items-center gap-1 px-1.5 pt-1">
                 <span className={nextHeadingClass}>{nextHeading}</span>
                 {attentionCount > 0 && (
-                  <span className="font-mono text-caption text-muted-foreground">
+                  <span className="font-mono text-caption text-neutral-400">
                     {Math.max(1, attentionPosition)}/{attentionCount}
                   </span>
                 )}
-                <span className="min-w-0 flex-1 truncate text-right font-mono text-caption text-muted-foreground">
+                <span className="min-w-0 flex-1 truncate text-right font-mono text-caption text-neutral-400">
                   {nextAttention.path.split("/").pop() ?? nextAttention.path}
                 </span>
                 {attentionCount > 1 && onNavigateAttention && (
@@ -407,7 +407,7 @@ export default function ReviewOutline({
                       onClick={() => onNavigateAttention(-1)}
                       className="h-6 w-6 border-0"
                     >
-                      <ChevronUp size={14} />
+                      <ChevronUp size={10} />
                     </UiButton>
                     <UiButton
                       variant="ghost"
@@ -417,7 +417,7 @@ export default function ReviewOutline({
                       onClick={() => onNavigateAttention(1)}
                       className="h-6 w-6 border-0"
                     >
-                      <ChevronDown size={14} />
+                      <ChevronDown size={10} />
                     </UiButton>
                   </>
                 )}
@@ -431,7 +431,7 @@ export default function ReviewOutline({
                 <span className="block truncate font-mono text-micro leading-3 text-muted-foreground">
                   {parentDirectory(nextAttention.path)}
                 </span>
-                <span className="block text-label leading-4 text-muted-foreground">{nextAttention.reason}</span>
+                <span className="block text-label leading-4 text-neutral-400">{nextAttention.reason}</span>
               </UiButton>
                 </div>
               </TooltipTrigger>
@@ -451,7 +451,7 @@ export default function ReviewOutline({
       <div className="border-b border-border/70 p-1.5">
         <div className="flex items-center gap-1">
         <div className="relative flex min-w-0 flex-1 items-center">
-          <Search size={14} className="pointer-events-none absolute left-2.5 text-muted-foreground" />
+          <Search size={13} className="pointer-events-none absolute left-2.5 text-muted-foreground" />
           <UiInput
             uiSize="xs"
             ref={searchInputRef}
@@ -480,7 +480,7 @@ export default function ReviewOutline({
               onClick={onDismissSearch}
               className="absolute right-0.5 h-7 w-7 border-0"
             >
-              <X size={14} />
+              <X size={12} />
             </UiButton>
           )}
         </div>
@@ -494,9 +494,9 @@ export default function ReviewOutline({
                 disabled={orderDisabled}
                 aria-label={`Review order: ${ORDER_LABEL[order]}`}
                 title={`Review order: ${ORDER_LABEL[order]}`}
-                className={fileOrder ? "h-7 w-7 shrink-0 border-0 text-cyan-300" : "h-7 w-7 shrink-0 border-0"}
+                className={fileOrder ? "h-7 w-7 shrink-0 border-0 text-sky-300" : "h-7 w-7 shrink-0 border-0"}
               >
-                <ArrowDownWideNarrow size={14} />
+                <ArrowDownWideNarrow size={13} />
               </UiButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -534,7 +534,7 @@ export default function ReviewOutline({
               onClick={() => onNavigateMatch(-1)}
               className="h-6 w-6 border-0"
             >
-              <ChevronUp size={14} />
+              <ChevronUp size={12} />
             </UiButton>
             <UiButton
               variant="ghost"
@@ -545,7 +545,7 @@ export default function ReviewOutline({
               onClick={() => onNavigateMatch(1)}
               className="h-6 w-6 border-0"
             >
-              <ChevronDown size={14} />
+              <ChevronDown size={12} />
             </UiButton>
           </div>
         )}
@@ -571,7 +571,7 @@ export default function ReviewOutline({
                         return next;
                       });
                     }}
-                    className="rounded px-1.5 py-1 text-label text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+                    className="rounded px-1.5 py-1 text-caption text-neutral-400 hover:bg-muted/55 hover:text-neutral-100"
                   >
                     {section.label} · {section.rows.length}
                   </UiButton>
@@ -610,11 +610,11 @@ export default function ReviewOutline({
                       return next;
                     });
                   }}
-                  className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-label font-medium text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+                  className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-caption font-medium text-neutral-400 transition-colors hover:bg-muted/55 hover:text-neutral-50"
                 >
-                  {closed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                  {closed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
                   <span className="flex-1">{section.label}</span>
-                  <span className="font-mono font-normal text-muted-foreground">{section.rows.length}</span>
+                  <span className="font-mono font-normal text-neutral-400">{section.rows.length}</span>
                 </UiButton>
                 )}
                 {!closed && (
@@ -654,14 +654,14 @@ export default function ReviewOutline({
                                 className={[
                                   "review-outline-file block w-full rounded-md border border-transparent px-2 py-1.5 text-left transition-colors",
                                   active
-                                    ? "border-border bg-muted "
+                                    ? "border-border bg-muted/85 shadow-sm"
                                     : "hover:bg-muted/45",
                                   complete ? "opacity-60" : "",
                                 ].join(" ")}
                               >
                                 <div className="flex items-center gap-1.5 text-label">
-                                  <FileTypeIcon path={row.path} />
-                                  <span className={[active ? "font-medium text-foreground" : "text-subtle", "truncate", group.rows.length === 1 && group.directory !== "./" ? "max-w-[70%] shrink-0" : "min-w-0 flex-1"].join(" ")} title={row.path}>
+                                  <FileTypeIcon path={row.path} size={13} />
+                                  <span className={[active ? "font-medium text-foreground" : "text-neutral-300", "truncate", group.rows.length === 1 && group.directory !== "./" ? "max-w-[70%] shrink-0" : "min-w-0 flex-1"].join(" ")} title={row.path}>
                                     {filename}
                                   </span>
                                   {group.rows.length === 1 && group.directory !== "./" && (
@@ -679,7 +679,7 @@ export default function ReviewOutline({
                                       p. {pageByPath.get(row.path)}
                                     </span>
                                   )}
-                                  <span className={complete ? "shrink-0 font-mono text-label text-emerald-400" : "shrink-0 font-mono text-label text-muted-foreground"}>
+                                  <span className={complete ? "shrink-0 font-mono text-label text-emerald-400" : "shrink-0 font-mono text-label text-neutral-400"}>
                                     {searching ? (
                                       <>
                                         <span aria-hidden="true">{matchCount}</span>
@@ -689,7 +689,7 @@ export default function ReviewOutline({
                                   </span>
                                 </div>
                                 {showReason && (
-                                  <div className="mt-0.5 pl-[20px] text-caption leading-4 text-muted-foreground" title={reason}>
+                                  <div className="mt-0.5 pl-[20px] text-caption leading-4 text-neutral-400" title={reason}>
                                     {reason}
                                   </div>
                                 )}

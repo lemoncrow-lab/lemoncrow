@@ -37,13 +37,7 @@ class CanonicalGitKnowledge:
     """
 
     def __init__(
-        self,
-        root: Path,
-        repository: RepositoryIdentity,
-        canonical_ref: str,
-        *,
-        max_paths: int = 1000,
-        include_document_bodies: bool = True,
+        self, root: Path, repository: RepositoryIdentity, canonical_ref: str, *, max_paths: int = 1000
     ) -> None:
         if not 1 <= max_paths <= 1000:
             raise ValueError("Project Knowledge path bound must be between 1 and 1000")
@@ -54,7 +48,6 @@ class CanonicalGitKnowledge:
         self.repository = repository
         self.ref = CanonicalRefIdentity(repository, canonical_ref)
         self.max_paths = max_paths
-        self.include_document_bodies = include_document_bodies
 
     def _generation(self, commit: Any) -> RepositoryGeneration:
         tree_digest = hashlib.sha256(str(commit.tree_id).encode("ascii")).hexdigest()
@@ -115,7 +108,7 @@ class CanonicalGitKnowledge:
                     source_paths=(path,),
                 )
             )
-            if not self.include_document_bodies or Path(path).suffix.lower() not in {".md", ".rst", ".txt"}:
+            if Path(path).suffix.lower() not in {".md", ".rst", ".txt"}:
                 continue
             blob = cast(pygit2.Blob, self.git[entry.id])
             if blob.size > 65536:
@@ -169,175 +162,6 @@ class CanonicalGitKnowledge:
         if governance.errors or governance.base_state == "provisional":
             raise ValueError("canonical content policy is invalid or unavailable")
         return governance.content_access
-
-    def bootstrap_metadata_baseline(self, knowledge: ProjectKnowledgeStore) -> dict[str, Any]:
-        """Record a canonical generation without walking entire monorepo trees.
-
-        An operator calls this *before* accepting new merges. It creates no
-        source assertions and no synthetic Review facts; future provider
-        observations add changed-path facts against this exact commit. Never
-        rebuilds or overwrites already-ingested historical generations.
-        """
-        commit = self._canonical()
-        generation = self._generation(commit)
-        stored = knowledge.current_generation(self.repository)
-        if stored:
-            if stored != generation.id:
-                raise ValueError("canonical Project Knowledge already started at a different commit")
-            return {"applied": False, "kind": "unchanged", "generation": generation.to_wire()}
-        observed_at = datetime.fromtimestamp(commit.commit_time, UTC).isoformat()
-        projection = build_baseline_projection(generation, facts=(), observed_at=observed_at)
-        if self._canonical().id != commit.id:
-            raise ValueError("canonical branch moved while bootstrapping the baseline")
-        return {
-            "applied": knowledge.apply(projection),
-            "kind": "baseline",
-            "coverage": "canonical_metadata_only",
-            "generation": generation.to_wire(),
-        }
-
-    def previous_stored_commit(self, knowledge: ProjectKnowledgeStore, *, max_commits: int = 4096) -> str:
-        """Find the exact persisted canonical generation in a bounded commit graph.
-
-        The existing store holds a generation digest, not a caller-authored SHA.
-        A provider mirror may have advanced since its last observation. Search
-        immutable reachable objects and require the *same* generation identity;
-        do not guess HEAD^, fall back to the Review base, or silently rebuild.
-        """
-        stored = knowledge.current_generation(self.repository)
-        if not stored:
-            raise ValueError("canonical Project Knowledge baseline is not initialized")
-        head = self._canonical()
-        # pygit2 exports a runtime int constant; some installed stubs declare
-        # a separate SortMode enum. The runtime constant is the correct mode.
-        for count, commit in enumerate(self.git.walk(head.id, pygit2.GIT_SORT_TOPOLOGICAL)):  # type: ignore[arg-type]
-            if count >= max_commits:
-                raise ValueError("stored canonical generation is beyond bounded history; reconcile explicitly")
-            if self._generation(commit).id == stored:
-                return str(commit.id)
-        raise ValueError("stored canonical generation is not reachable from the configured branch")
-
-    def sync_landed_review(
-        self,
-        knowledge: ProjectKnowledgeStore,
-        review_store: Any,
-        review_id: str,
-        revision_id: str,
-        *,
-        merge: Any,
-        previous_revision: str,
-        counted_evidence: Any,
-        provider_merge_result_sha: str = "",
-    ) -> dict[str, Any]:
-        """Persist one provider-observed Review and immutable canonical delta together.
-
-        This entry point is for a trusted provider observer, not a public CLI
-        argument or generic webhook payload. The caller must have obtained
-        `merge` via `post_merge_actions.observed_merge`. The Git adapter checks
-        actual canonical ancestry; the landed Review adapter checks the exact
-        provider-subject/landing and persisted Snapshot provenance.
-        """
-        from lemoncrow.pro.capabilities.review.landed_review_knowledge import build_landed_review_knowledge
-
-        if not previous_revision:
-            raise ValueError("landed review requires an explicit previous immutable canonical revision")
-        original = self._immutable_commit(previous_revision)
-        commit = self._canonical()
-        before = self._generation(original)
-        current = self._generation(commit)
-        stored = knowledge.current_generation(self.repository)
-        if stored == current.id:
-            event = knowledge.evolution_events(self.repository, (current.id,)).get(current.id, {})
-            refs = set(event.get("source_refs", ()))
-            identity = f"merge:{merge.provider}:{merge.ref}"
-            # A replay is safe only for *the same* landing, Review and exact
-            # Snapshot. Another tenant/Review cannot claim somebody else's
-            # canonical generation by recycling a provider merge reference.
-            if event.get("kind") == "merged_change" and {
-                identity,
-                f"review:{review_id}",
-                f"revision:{revision_id}",
-            }.issubset(refs):
-                return {"applied": False, "kind": "unchanged", "generation": current.to_wire()}
-            raise ValueError("canonical generation already advanced without this Review history")
-        if stored != before.id:
-            raise ValueError("previous revision does not match stored canonical generation")
-        if commit.id == original.id or not self.git.descendant_of(commit.id, original.id):
-            raise ValueError("canonical ref did not advance to a descendant Git commit")
-        # A provider-identified immutable reviewed head must be included in the
-        # landed canonical history, not merely present in some unrelated branch.
-        reviewed_head = str(merge.reviewed_head or "")
-        if reviewed_head:
-            reviewed_commit = self._immutable_commit(reviewed_head)
-            if commit.id == reviewed_commit.id:
-                # A fast-forward is attributable only when the reviewed
-                # Snapshot started at the *stored* canonical generation. If
-                # another PR was already in the history between Snapshot base
-                # and that generation, the resulting delta could claim work
-                # never reviewed in this Change.
-                snapshot = review_store.get_revision(revision_id)
-                if snapshot is None or str(getattr(snapshot, "base_sha", "")) != str(original.id):
-                    raise ValueError(
-                        "canonical merge window is ambiguous; fast-forward Snapshot base differs from stored generation"
-                    )
-            else:
-                # Normal merge: the first parent is our stored generation,
-                # the second is exactly the reviewed PR head.
-                parents = tuple(str(parent.id) for parent in commit.parents)
-                exact_merge = parents == (str(original.id), str(reviewed_commit.id))
-                if not exact_merge:
-                    # GitHub squash (or a one-commit rebase) rewrites the SHA.
-                    # Trust this alternative ONLY when the already-persisted
-                    # provider PR merge result names the exact canonical tip,
-                    # its single parent is our prior generation, and the
-                    # resulting tree is identical to the reviewed Snapshot.
-                    # Multi-commit/interleaved histories still fail closed.
-                    snapshot = review_store.get_revision(revision_id)
-                    proven_single_rewrite = (
-                        provider_merge_result_sha == str(commit.id)
-                        and parents == (str(original.id),)
-                        and snapshot is not None
-                        and str(getattr(snapshot, "base_sha", "")) == str(original.id)
-                        and commit.tree_id == reviewed_commit.tree_id
-                    )
-                    if not proven_single_rewrite:
-                        raise ValueError(
-                            "canonical merge window is ambiguous; cannot attribute later commits to this Review"
-                        )
-        changed: set[str] = set()
-        for delta in self.git.diff(original.tree, commit.tree).deltas:
-            changed.update((delta.old_file.path, delta.new_file.path))
-            if len(changed) > self.max_paths:
-                raise ValueError("Project Knowledge affected path bound exceeded")
-        source_facts, degraded = self._facts(commit, sorted(changed))
-        retire = tuple(
-            KnowledgeKey(KnowledgeSubject("path", path), kind)
-            for path in sorted(changed)
-            for kind in ("inventory", "documentation")
-        )
-        projection = build_landed_review_knowledge(
-            review_store,
-            review_id,
-            revision_id,
-            before,
-            current,
-            proof=CanonicalAdvanceProof("provider_observed", self.ref.name, descendant=True),
-            merge=merge,
-            counted_evidence=counted_evidence,
-            source_facts=source_facts,
-            retire=retire,
-        )
-        if self._canonical().id != commit.id:
-            raise ValueError("canonical ref changed while preparing landed history; retry")
-        applied = knowledge.apply(projection)
-        return {
-            "applied": applied,
-            "kind": projection.event.kind,
-            "generation": current.to_wire(),
-            "entries": len(projection.entries),
-            "degraded_reasons": list(degraded),
-            "coverage": "canonical_source_and_verified_review_history",
-        }
 
     def sync(
         self, store: ProjectKnowledgeStore, *, previous_revision: str = "", rebuild: bool = False

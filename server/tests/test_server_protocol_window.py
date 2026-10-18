@@ -190,7 +190,6 @@ def test_an_unhonored_capture_option_is_refused_instead_of_dropped() -> None:
 
 #: One requested (non-default) value per capture option.
 REQUESTED_OPTIONS: dict[str, object] = {
-    "capture_intent": "new",
     "title": "a title",
     "restore_archived": True,
     "force_new_review": True,

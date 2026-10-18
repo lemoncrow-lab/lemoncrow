@@ -1,6 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
 
-import { Badge } from "../components/ui/badge";
 import { Button as UiButton } from "../components/ui/button";
 import { Input as UiInput } from "../components/ui/input";
 
@@ -14,7 +13,6 @@ import { LARGE_REVIEW_TARGET_THRESHOLD } from "./reviewSurfaceModel";
 import { DependencyReviewSummary, dependencyReviewRelevant } from "./ReviewFileSemantics";
 import ReviewTriageLine from "./ReviewTriageLine";
 import type {
-  EvidenceRow,
   ReviewAiIndependence,
   ReviewAiReviewRunResult,
   ReviewArchitectureDelta,
@@ -28,21 +26,15 @@ import type {
   ReviewProjectionDecision,
   ReviewProjectionItem,
   ReviewProjectionQuestion,
-  ReviewEvaluationTimeline,
   ReviewProjectContext,
   ReviewTarget,
 } from "./types";
 
 /**
- * The Brief (spec §4.1): a concise handoff, decision first. After the change
- * summary it answers, in order: what needs attention, what is verified and
- * where to read first. Full decisions, source details, behavior evidence and
- * check receipts remain below, along with Understand, Routine and Reviewed.
- * Architecture, history and the AI,
- * policy and inventory details follow. Sections are filters over the
- * server's one queue; nothing here ranks. Decision cards offer only the
- * actions the server lists for the decision's derived state (spec §5);
- * without that state they stay read-only.
+ * The Brief (spec §4.1): a concise handoff rendered in the server's canonical
+ * order. Sections are filters over one queue; nothing here ranks. Decision
+ * cards offer only the actions the server lists for the decision's derived
+ * state (spec §5); without that state they stay read-only.
  */
 
 const SECTION_LIMIT = 5;
@@ -86,20 +78,14 @@ export interface ReviewBriefProps {
   /** Opens the Map's Architecture Δ at a node, keeping the Brief on the backtrail. */
   onOpenArchitecture?: (nodeId: string) => void;
   /** PK2: reads landed project history for this Change (a plain GET); absent without Project Knowledge. */
-  loadProjectContext?: (term?: string, history?: "" | "decisions" | "checks", force?: boolean) => Promise<ReviewProjectContext | null>;
+  loadProjectContext?: () => Promise<ReviewProjectContext | null>;
   /** Interactive side-by-side preview entry, shown inside Behavior changes (renders nothing without a previewable app). */
   interactivePreview?: ReactNode;
   /** Live approval requests for risky agent actions (P12-AGENT); renders nothing until an agent asks. */
   agentApprovals?: ReactNode;
   /** P15-OBS: production problems and Revert / Fix forward links after the merge (renders nothing otherwise). */
   productionOutcomes?: ReactNode;
-  /** Recorded checks on this exact Snapshot, as Review Status lists them; absent on a historical Snapshot. */
-  checks?: readonly EvidenceRow[];
-  /** Snapshot-wide check counts; without them the proof card counts the checks linked to claims. */
-  checkCounts?: CheckCounts | null;
 }
-
-type CheckCounts = { pass: number; fail: number; not_run: number; unknown: number };
 
 function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : pluralForm}`;
@@ -110,15 +96,15 @@ function targetLabel(target: ReviewTarget | undefined, fallback: string): string
   return target.symbol ? `${target.path} · ${target.symbol}` : target.path;
 }
 
-/** A Brief section is one Hunk: hairline frame, mono `@@ TITLE @@` header strip, rows inside. */
 function Section({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
   return (
-    <section className="hunk" aria-label={title}>
-      <div className="hunk-head">
-        <h3 className="hunk-label">{title}</h3>
+    <section className="border-t border-border/70 py-3" aria-label={title}>
+      <div className="mb-2 flex items-center gap-2">
+        <h3 className="text-caption font-semibold uppercase tracking-wide text-neutral-400">{title}</h3>
+        <span className="flex-1" />
         {action}
       </div>
-      <div className="flex flex-col gap-2 p-3">{children}</div>
+      <div className="flex flex-col gap-2">{children}</div>
     </section>
   );
 }
@@ -155,7 +141,7 @@ function TargetLinks({
           <UiButton
             unstyled
             type="button"
-            className="break-all text-left font-mono text-meta text-cyan-300/90 hover:text-cyan-200 hover:underline"
+            className="break-all text-left font-mono text-caption text-sky-300/90 hover:text-sky-200 hover:underline"
             onClick={() => onOpenTarget(id)}
           >
             {targetLabel(byId.get(id), id)}
@@ -168,10 +154,10 @@ function TargetLinks({
 
 function EvidenceSummary({ claim }: { claim: ReviewProjectionClaim }) {
   const tone = claim.summary === "contradictory"
-    ? "text-red-300"
+    ? "text-rose-300"
     : claim.summary === "none" || claim.summary === "partial" || claim.summary === "inferred_failing"
       ? "text-amber-300/90"
-      : "text-subtle";
+      : "text-neutral-300";
   return (
     <div className="flex flex-wrap items-baseline gap-x-2 text-caption">
       <span className={tone}>{claim.summary_text}</span>
@@ -180,7 +166,7 @@ function EvidenceSummary({ claim }: { claim: ReviewProjectionClaim }) {
   );
 }
 
-function QuestionRow({ question, onOpenTarget }: { question: ReviewProjectionQuestion; onOpenTarget: (targetId: string) => void }) {
+function QuestionRow({ question }: { question: ReviewProjectionQuestion }) {
   return (
     <div className="rounded border border-amber-900/50 bg-amber-950/15 px-2 py-1.5 text-caption">
       <div className="flex items-start gap-2">
@@ -189,12 +175,7 @@ function QuestionRow({ question, onOpenTarget }: { question: ReviewProjectionQue
           <span className="shrink-0 rounded border border-border/70 px-1 text-micro uppercase tracking-wide text-muted-foreground">AI question</span>
         )}
       </div>
-      <div className="text-subtle">{question.detail}</div>
-      {question.target_ids.length > 0 && (
-        <UiButton variant="ghost" size="compact" type="button" className="mt-1" onClick={() => onOpenTarget(question.target_ids[0])}>
-          Open relevant code
-        </UiButton>
-      )}
+      <div className="text-neutral-300">{question.detail}</div>
     </div>
   );
 }
@@ -239,8 +220,6 @@ function SynthesisLine({
 }) {
   const synthesis = projection.synthesis;
   if (!synthesis) return null;
-  // The AI line already says, once, that AI is not enabled here: do not repeat it as "explanations are unavailable".
-  if (projection.ai_review?.available === false && synthesis.status === "disabled" && !error) return null;
   const missing = projection.coverage.unsynthesized_target_ids?.length ?? 0;
   const excluded = synthesis.excluded_by_policy ?? [];
   const pending = busy || synthesis.status === "pending";
@@ -361,14 +340,6 @@ function AiReviewLine({
   // One action id per opened confirmation: a double submit replays, it never spends twice.
   const [freshActionId, setFreshActionId] = useState("");
   if (!review) return null;
-  if (review.available === false) {
-    // No executor here (hosted without a durable queue): no run button, no "0/20 calls", no provider error. One line.
-    return (
-      <p data-testid="brief-ai-review" className="text-caption leading-5 text-muted-foreground" title={review.unavailable_detail || undefined}>
-        {review.unavailable_reason || "AI review on hosted isn't enabled for this workspace yet"}
-      </p>
-    );
-  }
   const assurance = review.assurance;
   const independence = assurance?.independence;
   const identity = assurance?.identity ?? null;
@@ -384,7 +355,6 @@ function AiReviewLine({
   const excluded = runCoverage?.excluded_by_policy ?? statusCoverage?.excluded_by_policy ?? [];
   const humanTargets = runCoverage?.human_deterministic_targets ?? statusCoverage?.human_deterministic_targets ?? 0;
   const checkedTargets = runCoverage?.ai_checked_targets ?? statusCoverage?.ai_context_eligible_targets ?? 0;
-  const setup = review.setup_help;
   const unavailable = error || review.error || runResult?.provider_errors?.[0] || "";
   const execution = review.execution;
   const trace = execution?.trace;
@@ -410,11 +380,9 @@ function AiReviewLine({
           ? "Not needed"
           : review.status === "ready"
             ? "Complete"
-            : setup
-              ? "Not set up"
-              : review.status === "failed" || review.status === "cancelled" || unavailable
-                ? "Unavailable"
-                : "Not run";
+            : review.status === "failed" || review.status === "cancelled" || unavailable
+              ? "Unavailable"
+              : "Not run";
   const sourceLocus = modelDataLocus === "customer_local"
     ? "Source/context stays customer-local for the model route."
     : modelDataLocus === "external"
@@ -445,9 +413,9 @@ function AiReviewLine({
   return (
     <div className="space-y-2" data-testid="brief-ai-review">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone="neutral" className="text-foreground">AI Review · {statusLabel}</Badge>
+        <span className="font-medium text-neutral-300">AI Review · {statusLabel}</span>
         {waitReason && (
-          <span data-testid="ai-wait-reason" className="rounded-full border border-border px-2 text-muted-foreground">
+          <span data-testid="ai-wait-reason" className="rounded-full border border-neutral-700 px-2 text-neutral-400">
             {waitReason}
           </span>
         )}
@@ -464,10 +432,9 @@ function AiReviewLine({
           </span>
         )}
         {!busy && unavailable && (
-          <span className="inline-flex flex-wrap items-center gap-x-1.5 text-meta text-muted-foreground">
-            {/* The provider's own message, without its exception class name; the Review itself is unaffected. */}
-            {!setup && <span title={unavailable}>{unavailable.replace(/^[A-Za-z]+Error:\s*/, "")}</span>}
-            <span>{setup ? "Deterministic Review remains available" : "· deterministic Review remains available"}</span>
+          <span className="inline-flex flex-wrap gap-x-1 text-amber-300/90">
+            <span>{unavailable}</span>
+            <span>· deterministic Review remains available</span>
           </span>
         )}
         {!busy && !stopping && cancellable && onCancelAiReview && (
@@ -482,29 +449,6 @@ function AiReviewLine({
         )}
       </div>
 
-      {!busy && setup && (
-        <div data-testid="ai-setup-help" className="space-y-1 text-caption leading-5 text-muted-foreground">
-          <p>
-            <span className="text-foreground">{setup.headline}</span> AI review runs from your terminal.
-          </p>
-          <ul className="space-y-0.5">
-            {setup.steps.map((step) => (
-              <li key={step.command}>
-                {step.lead}{" "}
-                <code className="rounded bg-muted/70 px-1.5 py-0.5 text-caption text-subtle">{step.command}</code>{" "}
-                {step.note}
-              </li>
-            ))}
-          </ul>
-          <p>
-            Details:{" "}
-            <a className="underline underline-offset-2" href={setup.docs_url} target="_blank" rel="noreferrer noopener">
-              {setup.docs_url.replace(/^https?:\/\//, "")}
-            </a>
-          </p>
-        </div>
-      )}
-
       {runResult?.depth_request && runResult.depth_request.state !== "honored" && runResult.depth_request.reason && (
         <div className="text-caption text-amber-300/90" data-testid="ai-depth-request">
           Requested {runResult.depth_request.requested}: {runResult.depth_request.reason}
@@ -513,14 +457,14 @@ function AiReviewLine({
 
       {confirmEffort && (
         <div role="group" aria-label="Confirm deeper review" className="rounded-md border border-amber-900/45 bg-amber-950/10 p-2.5 text-caption">
-          <div className="font-medium text-foreground">Confirm deeper review</div>
+          <div className="font-medium text-neutral-200">Confirm deeper review</div>
           <div className="mt-1 grid gap-0.5 text-muted-foreground">
-            <div>Depth: <span className="capitalize text-subtle">{confirmEffort}</span></div>
-            <div>AI usage: <span className="text-subtle">{budget.calls_used}/{budget.max_calls} calls used</span></div>
+            <div>Depth: <span className="capitalize text-neutral-300">{confirmEffort}</span></div>
+            <div>AI usage: <span className="text-neutral-300">{budget.calls_used}/{budget.max_calls} calls used</span></div>
             <div>{modelDataText(modelDataLocus)}</div>
           </div>
           <div className="mt-2 flex gap-1.5">
-            <UiButton variant="outline" size="compact" type="button" onClick={() => void runDeeper()}>
+            <UiButton variant="default" size="compact" type="button" onClick={() => void runDeeper()}>
               Run {confirmEffort} review
             </UiButton>
             <UiButton variant="ghost" size="compact" type="button" onClick={() => setConfirmEffort(null)}>Cancel</UiButton>
@@ -528,24 +472,24 @@ function AiReviewLine({
         </div>
       )}
 
-      <details className="text-meta text-muted-foreground" data-testid="ai-run-details">
+      <details className="text-caption text-muted-foreground" data-testid="ai-run-details">
         <summary className="cursor-pointer">Run details</summary>
         <div className="mt-1 grid gap-0.5 pl-2">
-          <div>Effective depth: <span className="capitalize text-subtle">{effectiveEffort}</span></div>
-          <div>Budget: <span className="text-subtle">{budget.calls_used}/{budget.max_calls} model calls</span></div>
-          <div>Execution locus: <span className="text-subtle">{executionLocus || "not reported"}</span></div>
-          <div>Model data locus: <span className="text-subtle">{modelDataLocus || "not reported"}</span></div>
-          <div>Metering owner: <span className="text-subtle">{meteringLabel}</span></div>
-          {provider && <div>Provider: <span className="text-subtle">{provider}</span></div>}
+          <div>Effective depth: <span className="capitalize text-neutral-300">{effectiveEffort}</span></div>
+          <div>Budget: <span className="text-neutral-300">{budget.calls_used}/{budget.max_calls} model calls</span></div>
+          <div>Execution locus: <span className="text-neutral-300">{executionLocus || "not reported"}</span></div>
+          <div>Model data locus: <span className="text-neutral-300">{modelDataLocus || "not reported"}</span></div>
+          <div>Metering owner: <span className="text-neutral-300">{meteringLabel}</span></div>
+          {provider && <div>Provider: <span className="text-neutral-300">{provider}</span></div>}
           {identity ? (
             <>
               <div data-testid="ai-requested-model">
                 Requested model:{" "}
-                <span className="text-subtle">{identity.requested_model || "provider default (unreported)"}</span>
+                <span className="text-neutral-300">{identity.requested_model || "provider default (unreported)"}</span>
               </div>
               <div data-testid="ai-observed-model">
                 Observed model:{" "}
-                <span className="text-subtle">
+                <span className="text-neutral-300">
                   {identity.source === "observed" || identity.source === "unverified"
                     ? identity.label
                     : "not reported by the provider"}
@@ -553,12 +497,12 @@ function AiReviewLine({
               </div>
             </>
           ) : (
-            model && <div>Model: <span className="text-subtle">{model}</span></div>
+            model && <div>Model: <span className="text-neutral-300">{model}</span></div>
           )}
           {independence && (
             <div data-testid="ai-independence">
               Independence:{" "}
-              <span className="text-subtle">{INDEPENDENCE_TEXT[independence.status] ?? independence.status}</span>
+              <span className="text-neutral-300">{INDEPENDENCE_TEXT[independence.status] ?? independence.status}</span>
               {independence.author && <span> · author {independence.author.label}</span>}
               {independence.reason && <div className="pl-2">{independence.reason}</div>}
             </div>
@@ -566,7 +510,7 @@ function AiReviewLine({
           {independence && independence.policy.mode !== "off" && (
             <div data-testid="ai-independence-policy">
               Independent reviewer policy:{" "}
-              <span className="text-subtle">
+              <span className="text-neutral-300">
                 {REQUIREMENT_TEXT[independence.requirement] ?? independence.requirement}
               </span>
               <span> · from {independence.policy.origin.source || independence.policy.origin.layer}</span>
@@ -575,17 +519,17 @@ function AiReviewLine({
           {(ranFresh || (freshExecution?.fresh_reruns ?? 0) > 0) && (
             <div data-testid="ai-execution-mode">
               Execution:{" "}
-              <span className="text-subtle">
+              <span className="text-neutral-300">
                 {ranFresh ? "fresh re-run" : "executed"}
                 {(freshExecution?.fresh_reruns ?? 0) > 0 && ` · ${plural(freshExecution!.fresh_reruns, "explicit fresh re-run")} on this Snapshot`}
               </span>
             </div>
           )}
-          {runResult && runResult.cache_reuse > 0 && <div>Cache reuse: <span className="text-subtle">{runResult.cache_reuse}</span></div>}
+          {runResult && runResult.cache_reuse > 0 && <div>Cache reuse: <span className="text-neutral-300">{runResult.cache_reuse}</span></div>}
           {(runResult?.rule_checks?.length ?? 0) > 0 && (
             <div data-testid="ai-rule-checks">
               Rule checks:{" "}
-              <span className="text-subtle">
+              <span className="text-neutral-300">
                 {Object.entries(
                   runResult!.rule_checks!.reduce<Record<string, number>>((counts, row) => {
                     counts[row.state] = (counts[row.state] ?? 0) + 1;
@@ -597,13 +541,13 @@ function AiReviewLine({
               </span>
             </div>
           )}
-          {execution?.cache_status && <div>Cache: <span className="text-subtle">{execution.cache_status}</span></div>}
-          {trace?.provider_calls != null && <div>Provider calls: <span className="text-subtle">{trace.provider_calls}</span></div>}
-          {trace?.provider_cost != null && <div>Provider cost: <span className="text-subtle">{trace.provider_cost} {trace.currency || ""}</span></div>}
-          {excluded.length > 0 && <div>Content exclusions: <span className="text-subtle">{excluded.length}</span></div>}
-          {(trace?.tools?.length ?? 0) > 0 && <div>Tools: <span className="text-subtle">{trace!.tools!.join(", ")}</span></div>}
-          {(trace?.external_domains?.length ?? 0) > 0 && <div>External domains: <span className="text-subtle">{trace!.external_domains!.join(", ")}</span></div>}
-          {(trace?.evidence_refs?.length ?? 0) > 0 && <div>Evidence consulted: <span className="text-subtle">{trace!.evidence_refs!.length}</span></div>}
+          {execution?.cache_status && <div>Cache: <span className="text-neutral-300">{execution.cache_status}</span></div>}
+          {trace?.provider_calls != null && <div>Provider calls: <span className="text-neutral-300">{trace.provider_calls}</span></div>}
+          {trace?.provider_cost != null && <div>Provider cost: <span className="text-neutral-300">{trace.provider_cost} {trace.currency || ""}</span></div>}
+          {excluded.length > 0 && <div>Content exclusions: <span className="text-neutral-300">{excluded.length}</span></div>}
+          {(trace?.tools?.length ?? 0) > 0 && <div>Tools: <span className="text-neutral-300">{trace!.tools!.join(", ")}</span></div>}
+          {(trace?.external_domains?.length ?? 0) > 0 && <div>External domains: <span className="text-neutral-300">{trace!.external_domains!.join(", ")}</span></div>}
+          {(trace?.evidence_refs?.length ?? 0) > 0 && <div>Evidence consulted: <span className="text-neutral-300">{trace!.evidence_refs!.length}</span></div>}
           <div>{sourceLocus}</div>
           {onRerunFresh && freshPreview && !busy && !freshActionId && (
             freshPreview.available ? (
@@ -626,14 +570,14 @@ function AiReviewLine({
               aria-label="Confirm fresh re-run"
               className="mt-1 rounded-md border border-amber-900/45 bg-amber-950/10 p-2.5"
             >
-              <div className="font-medium text-foreground">Confirm fresh re-run</div>
+              <div className="font-medium text-neutral-200">Confirm fresh re-run</div>
               <div className="mt-1 grid gap-0.5">
                 <div>Runs AI review again on this unchanged Snapshot; cached results are not reused.</div>
-                <div>Depth: <span className="capitalize text-subtle">{freshPreview.effort || "not planned"}</span></div>
-                <div>Estimated AI calls: <span className="text-subtle">{freshPreview.estimated_model_calls}</span></div>
+                <div>Depth: <span className="capitalize text-neutral-300">{freshPreview.effort || "not planned"}</span></div>
+                <div>Estimated AI calls: <span className="text-neutral-300">{freshPreview.estimated_model_calls}</span></div>
                 <div>
                   AI usage:{" "}
-                  <span className="text-subtle">
+                  <span className="text-neutral-300">
                     {freshPreview.budget.calls_used}/{freshPreview.budget.max_calls} calls used · {freshPreview.budget.remaining} remaining
                   </span>
                 </div>
@@ -645,7 +589,7 @@ function AiReviewLine({
                 <div>{modelDataText(freshPreview.model_data_locus)}</div>
               </div>
               <div className="mt-2 flex gap-1.5">
-                <UiButton variant="outline" size="compact" type="button" onClick={() => void rerunFresh()}>
+                <UiButton variant="default" size="compact" type="button" onClick={() => void rerunFresh()}>
                   Re-run fresh now
                 </UiButton>
                 <UiButton variant="ghost" size="compact" type="button" onClick={() => setFreshActionId("")}>
@@ -658,7 +602,7 @@ function AiReviewLine({
       </details>
 
       {excluded.length > 0 && (
-        <details className="text-meta text-muted-foreground">
+        <details className="text-caption text-muted-foreground">
           <summary className="cursor-pointer">What AI could not inspect</summary>
           <div className="mt-1 space-y-0.5 pl-2">
             {excluded.slice(0, 12).map((row) => (
@@ -672,300 +616,62 @@ function AiReviewLine({
   );
 }
 
-/** Problems first: a contradicted or failing claim, then an unproven one, then partial support. */
-const CLAIM_ORDER: Record<ReviewProjectionClaim["summary"], number> = {
-  contradictory: 0,
-  inferred_failing: 1,
-  none: 2,
-  partial: 3,
-  inferred: 4,
-  author_cited: 5,
-  observed: 6,
-};
-
-/** Failures first, then what ran and passed, then what ran without a recorded result. */
-const CHECK_ORDER: Record<string, number> = { FAIL: 0, PASS: 1, UNKNOWN: 2, NOT_RUN: 3 };
-
-const CHECK_TEXT: Record<string, { label: string; tone: string }> = {
-  PASS: { label: "passed", tone: "text-emerald-300/90" },
-  FAIL: { label: "failed", tone: "text-red-300" },
-  NOT_RUN: { label: "did not run", tone: "text-amber-300/90" },
-  UNKNOWN: { label: "no result recorded", tone: "text-amber-300/90" },
-};
-
-/** Who recorded a check, in words; empty for the server's "none" and bare "evidence" placeholders. */
-function checkSource(source: string): string {
-  if (source.startsWith("session:")) return "the agent session";
-  const known: Record<string, string> = {
-    none: "",
-    evidence: "",
-    agent: "the agent",
-    human: "a person",
-    external: "an external check",
-    run_ledger: "the run ledger",
-  };
-  return known[source] ?? source;
-}
-
-/** The one-sentence answer to "is this proven?"; never reads a check that did not run as a pass. */
-function proofVerdict(counts: CheckCounts): { text: string; tone: string } {
-  const total = counts.pass + counts.fail + counts.not_run + counts.unknown;
-  const unsettled = counts.not_run + counts.unknown;
-  if (total === 0) return { text: "No checks recorded for this Snapshot. Nothing here is verified by a recorded run.", tone: "text-amber-300/90" };
-  if (counts.fail > 0) {
-    return {
-      text: `${plural(counts.fail, "check")} failed on this Snapshot` + (counts.pass > 0 ? ` · ${counts.pass} passed` : "") + (unsettled > 0 ? ` · ${unsettled} without a result` : "") + ".",
-      tone: "text-red-300",
-    };
-  }
-  if (counts.pass === 0) return { text: "No check passed on this Snapshot. Nothing here is proven by a recorded run.", tone: "text-amber-300/90" };
-  if (unsettled === 0) return { text: counts.pass === 1 ? "The one recorded check passed." : `All ${counts.pass} recorded checks passed.`, tone: "text-emerald-300/90" };
-  return {
-    text: `${counts.pass} of ${plural(total, "check")} passed. ${unsettled} did not run or ${unsettled === 1 ? "has" : "have"} no result, which is not a pass.`,
-    tone: "text-amber-300/90",
-  };
-}
-
-function countStatuses(statuses: Iterable<string>): CheckCounts {
-  const counts: CheckCounts = { pass: 0, fail: 0, not_run: 0, unknown: 0 };
-  for (const status of statuses) {
-    if (status === "PASS") counts.pass += 1;
-    else if (status === "FAIL") counts.fail += 1;
-    else if (status === "NOT_RUN") counts.not_run += 1;
-    else counts.unknown += 1;
-  }
-  return counts;
-}
-
-/** One result per check linked to a claim on this Snapshot; the worst result wins when two claims cite it. */
-function linkedStatuses(claims: readonly ReviewProjectionClaim[]): string[] {
-  const worst = new Map<string, string>();
-  for (const claim of claims) {
-    for (const link of claim.evidence) {
-      if (link.state !== "current") continue;
-      const seen = worst.get(link.key);
-      if (seen === undefined || (CHECK_ORDER[link.status] ?? 2) < (CHECK_ORDER[seen] ?? 2)) worst.set(link.key, link.status);
-    }
-  }
-  return [...worst.values()];
-}
-
-/**
- * The proof card: what ran on this Snapshot and what it showed, each claim
- * beside its evidence, and what nothing verified. A check that did not run
- * or has no known result is never shown as a pass, and an AI review with no
- * findings is never shown as a test result.
- */
-function ProofCard({
+function WhatWasChecked({
   projection,
   targets,
-  checks,
-  checkCounts,
-  onInspectEvidence,
 }: {
   projection: ReviewProjection;
   targets: readonly ReviewTarget[];
-  checks?: readonly EvidenceRow[];
-  checkCounts?: CheckCounts | null;
-  onInspectEvidence: (targetId: string | null) => void;
 }) {
-  const counts = checkCounts
-    ?? countStatuses(checks && checks.length > 0 ? checks.map((row) => row.status) : linkedStatuses(projection.claims));
-  const verdict = proofVerdict(counts);
-  // A check with nothing to show beyond "did not run" reads as one gap line, not a row of its own.
-  const bare = (row: EvidenceRow) => (row.status === "NOT_RUN" || row.status === "UNKNOWN") && !row.detail.trim();
-  const rows = [...(checks ?? [])]
-    .filter((row) => !bare(row))
-    .sort((left, right) => (CHECK_ORDER[left.status] ?? 2) - (CHECK_ORDER[right.status] ?? 2));
-  const notRun = (checks ?? []).filter((row) => bare(row) && row.status === "NOT_RUN").map((row) => row.name);
-  const noResult = (checks ?? []).filter((row) => bare(row) && row.status === "UNKNOWN").map((row) => row.name);
-  const sources = [...new Set(rows.map((row) => checkSource(row.source)).filter(Boolean))];
-  const claims = [...projection.claims].sort((left, right) => CLAIM_ORDER[left.summary] - CLAIM_ORDER[right.summary]);
-  const notVerified = [...new Set(
-    (checks ?? []).flatMap((row) => row.execution?.not_verified ?? []).map((item) => `${item.name}: ${item.reason}`),
-  )];
-  const execution = projection.behavior?.coverage ?? null;
   const ai = projection.ai_review;
-  const aiShown = Boolean(ai && ai.available !== false && ai.findings === 0);
-  const aiCompleted = ai?.status === "ready";
-  const aiStatus = aiCompleted
-    ? "complete, no confirmed findings"
-    : ai?.status === "skipped_unnecessary"
-      ? "not needed"
-      : ai?.status === "pending"
-        ? "running"
-        : "did not run";
-  const eligible = ai?.coverage?.ai_context_eligible_targets ?? 0;
-  const human = ai?.coverage?.human_deterministic_targets ?? targets.length;
+  const execution = projection.behavior?.coverage ?? null;
+  const aiShown = Boolean(ai && ai.findings === 0);
+  if (!aiShown && !execution) return null;
+  const evidence = projection.claims.flatMap((claim) => claim.evidence);
+  const byStatus = evidence.reduce<Record<string, number>>((counts, row) => {
+    const key = row.status || "UNKNOWN";
+    counts[key] = (counts[key] ?? 0) + 1;
+    return counts;
+  }, {});
   const exclusions = (aiShown && ai?.coverage?.excluded_by_policy) || [];
   const reviewed = targets.filter((target) => target.state === "reviewed").length;
+  const aiStatus = ai?.status === "ready"
+    ? "Complete"
+    : ai?.status === "skipped_unnecessary"
+      ? "Not needed"
+      : ai?.status === "pending"
+        ? "Running"
+        : ai?.status === "failed" || ai?.status === "cancelled"
+          ? "Unavailable"
+          : "Not run";
+  const eligible = ai?.coverage?.ai_context_eligible_targets ?? 0;
+  const human = ai?.coverage?.human_deterministic_targets ?? targets.length;
+  const targetLabel = targets.length === 1 ? "target" : "targets";
+  const exclusionLabel = exclusions.length === 1 ? "target" : "targets";
+  const checkSummary = Object.entries(byStatus)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([status, count]) => status + " " + count)
+    .join(" · ");
 
   return (
-    <div className="flex flex-col gap-2.5 text-caption" data-testid="brief-proof">
-      <p className={`text-ui ${verdict.tone}`} data-testid="brief-proof-counts">{verdict.text}</p>
-
-      {rows.length > 0 && (
-        <div className="flex flex-col gap-1.5" data-testid="brief-proof-checks">
-          <Limited
-            rows={rows}
-            render={(row) => (
-              <div key={`${row.name}:${row.source}:${row.status}:${row.scope ?? ""}`} className="flex min-w-0 flex-col">
-                <div className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="break-all font-mono text-subtle">{row.name}</span>
-                  <span className={CHECK_TEXT[row.status]?.tone ?? "text-amber-300/90"}>{CHECK_TEXT[row.status]?.label ?? row.status}</span>
-                  {sources.length > 1 && checkSource(row.source) && <span className="text-muted-foreground">{`· ${checkSource(row.source)}`}</span>}
-                </div>
-                {row.detail && <span className="break-all text-muted-foreground">{row.detail}</span>}
-              </div>
-            )}
-          />
-          {sources.length === 1 && <div className="text-micro text-muted-foreground">{`Recorded by ${sources[0]}`}</div>}
-        </div>
-      )}
-
-      {claims.length > 0 && (
-        <div className="flex flex-col gap-1.5" data-testid="brief-proof-claims">
-          <div className="text-micro uppercase tracking-wide text-muted-foreground">{`Claims · ${claims.length}`}</div>
-          <Limited
-            rows={claims}
-            render={(claim) => (
-              <div key={claim.id} data-testid={`brief-proof-claim-${claim.id}`} className="flex flex-col gap-0.5">
-                <UiButton
-                  unstyled
-                  type="button"
-                  className="text-left text-label text-foreground hover:underline"
-                  onClick={() => onInspectEvidence(claim.target_ids[0] ?? null)}
-                >
-                  {claim.statement || claim.id}
-                </UiButton>
-                <EvidenceSummary claim={claim} />
-                {claim.limitations.map((text) => <div key={text} className="text-amber-300/80">{text}</div>)}
-              </div>
-            )}
-          />
-        </div>
-      )}
-
-      {(execution || notVerified.length > 0 || notRun.length > 0 || noResult.length > 0) && (
-        <div className="flex flex-col gap-0.5 text-muted-foreground" data-testid="brief-proof-gaps">
-          {notRun.length > 0 && <div className="text-amber-300/90">{`Did not run · ${notRun.join(", ")}`}</div>}
-          {noResult.length > 0 && <div className="text-amber-300/90">{`No result recorded · ${noResult.join(", ")}`}</div>}
-          {notVerified.map((line) => <div key={line} className="text-amber-300/90">{`Not verified · ${line}`}</div>)}
-          <ExecutionCoverageLine coverage={execution} />
-        </div>
-      )}
-
-      <div className="flex flex-col gap-0.5 text-muted-foreground" data-testid="brief-proof-coverage">
-        <div>{`Human review: ${reviewed} of ${plural(targets.length, "changed target")} marked reviewed`}</div>
-        {aiShown && (
-          // Only a finished review with no findings can be misread as a pass; the rest just say where it stands.
-          <div>{`AI review: ${aiStatus}` + (aiCompleted ? (human > 0 && eligible > 0 ? ` · ${eligible} of ${human} targets eligible` : "") + " · not a test result" : "")}</div>
-        )}
+    <details data-testid="what-was-checked" className="rounded border border-border/70 px-2.5 py-2">
+      <summary className="cursor-pointer select-none font-medium text-neutral-300">What was checked</summary>
+      <div className="mt-2 space-y-1 text-caption text-muted-foreground">
+        <div>Deterministic Review: <span className="text-neutral-300">{targets.length + " exact Snapshot " + targetLabel}</span></div>
+        {aiShown && <div>AI Review: <span className="text-neutral-300">{aiStatus}</span>{human > 0 ? " · " + eligible + "/" + human + " eligible targets" : ""}</div>}
+        <div>Reviewer inspection: <span className="text-neutral-300">{reviewed + "/" + targets.length + " targets reviewed"}</span></div>
+        <div>Recorded checks: {checkSummary || "none attached to the current claims."}</div>
+        <ExecutionCoverageLine coverage={execution} />
         {exclusions.length > 0 && (
           <div className="text-amber-300/90">
-            {`${plural(exclusions.length, "target")} ${exclusions.length === 1 ? "was" : "were"} not sent to the AI reviewer by policy.`}
+            {"AI exclusions: " + exclusions.length + " " + exclusionLabel + " " + (exclusions.length === 1 ? "was" : "were") + " not sent to the model by policy."}
           </div>
         )}
-      </div>
-    </div>
-  );
-}
-
-/** Entire-style revision context, derived from existing evidence; never a fake score. */
-function EvaluationHistory({ timeline }: { timeline?: ReviewEvaluationTimeline }) {
-  if (!timeline || timeline.snapshots.length === 0) return null;
-  const current = timeline.current;
-  return (
-    <details data-testid="brief-evaluation-history" className="rounded-md border border-border/80 px-3 py-2 text-caption">
-      <summary className="cursor-pointer font-medium text-foreground">
-        {`Evaluation history · ${timeline.snapshots.length} ${timeline.snapshots.length === 1 ? "Snapshot" : "Snapshots"}`}
-        {current && <span className="ml-2 text-muted-foreground">{current.state === "unverified" ? "not verified" : current.state === "failed" ? "checks failed" : "recorded results"}</span>}
-      </summary>
-      <p className="mt-2 text-muted-foreground">Recorded results only. Different evaluator configurations are not comparable; no confidence score is calculated.</p>
-      <div className="mt-2 flex flex-col gap-1.5">
-        {timeline.snapshots.map((snapshot) => (
-          <div key={snapshot.revision_id} className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 pt-1.5" data-testid={`brief-evaluation-snapshot-${snapshot.snapshot_number}`}>
-            <span className="font-medium text-foreground">{`Snapshot ${snapshot.snapshot_number}`}</span>
-            <span className={snapshot.counts.fail > 0 ? "text-red-300" : snapshot.counts.pass > 0 ? "text-subtle" : "text-amber-300/90"}>
-              {snapshot.counts.fail > 0 ? `${snapshot.counts.fail} failed` : snapshot.counts.pass > 0 ? `${snapshot.counts.pass} recorded passes` : "No verified results"}
-            </span>
-            {(snapshot.comparable_results ?? []).filter((result) => result.change !== "unchanged").map((result) => (
-              <span key={`${result.scenario}:${result.from}:${result.to}`} className={`basis-full text-caption ${result.change === "regression" ? "text-red-300" : "text-subtle"}`}>
-                {`${result.change === "regression" ? "Regression" : "Recovered"} · ${result.scenario} · ${result.from} → ${result.to}`}
-              </span>
-            ))}
-            <span className="basis-full text-micro text-muted-foreground">{snapshot.reason}</span>
-            {snapshot.receipts.some((receipt) => receipt.exit_code !== null || receipt.execution_provenance === "rejected") && (
-              <details className="basis-full text-meta text-muted-foreground">
-                <summary className="cursor-pointer">Execution receipts</summary>
-                {snapshot.receipts.filter((receipt) => receipt.exit_code !== null || receipt.execution_provenance === "rejected").slice(0, 5).map((receipt) => (
-                  <div key={receipt.id} className="mt-1 break-words">
-                    <div>{receipt.title} · {receipt.exit_code === null ? "exit not recorded" : `exit ${receipt.exit_code}`} · {receipt.executor_class} · {receipt.raw_attempt ? "raw attempt, not a check verdict" : receipt.status}</div>
-                    {receipt.superseded_by_newer_result && <div className="text-micro text-muted-foreground">Superseded by a newer check result; not counted in this Snapshot.</div>}
-                    {receipt.executor_class === "author_machine" && <div className="text-micro text-muted-foreground">Author machine (self-attested); not independent verification.</div>}
-                    <div className="text-micro text-muted-foreground" data-testid={`receipt-provenance-${receipt.id}`}>
-                      {receipt.execution_provenance === "validated"
-                        ? `Execution record validated${receipt.environment_fingerprint ? ` · environment ${receipt.environment_fingerprint.slice(0, 17)}…` : ""}`
-                        : receipt.execution_provenance === "rejected"
-                          ? "Execution record rejected; not verified"
-                          : "No structured execution record available"}
-                      {(receipt.stage_outcomes?.length ?? 0) > 0 && ` · ${receipt.stage_outcomes!.map((stage) => `${stage.stage}: ${stage.status}`).join(", ")}`}
-                      {(receipt.artifact_roles?.length ?? 0) > 0 && ` · artifacts: ${receipt.artifact_roles!.join(", ")}`}
-                      {(receipt.unverified_integrations ?? 0) > 0 && ` · ${receipt.unverified_integrations} integration scope(s) not verified`}
-                    </div>
-                  </div>
-                ))}
-              </details>
-            )}
-          </div>
-        ))}
+        {byStatus.NOT_RUN && <div>NOT_RUN means the verification did not run; it is not a pass.</div>}
+        {byStatus.UNKNOWN && <div>UNKNOWN means the verification result is unavailable; it is not a pass.</div>}
       </div>
     </details>
   );
-}
-
-/** Changed lines per reading tier, each target counted once in the first tier that lists it. */
-function tierLineCounts(
-  tiers: readonly (readonly ReviewProjectionItem[])[],
-  byId: ReadonlyMap<string, ReviewTarget>,
-): number[] {
-  const counted = new Set<string>();
-  return tiers.map((items) => {
-    let lines = 0;
-    for (const item of items) {
-      for (const id of item.primary_target_ids) {
-        if (counted.has(id)) continue;
-        counted.add(id);
-        const target = byId.get(id);
-        if (target) lines += target.additions + target.deletions;
-      }
-    }
-    return lines;
-  });
-}
-
-/** How much there is to read, and how much of it comes first; empty when nothing is classified. */
-function readingPlanText(first: number, understand: number, routine: number, changed: number): string {
-  const total = Math.max(changed, first + understand + routine);
-  if (total <= 0 || first + understand === 0) return "";
-  const share = Math.min(100, Math.max(1, Math.round((first / total) * 100)));
-  if (first === 0) {
-    return [
-      "Nothing flagged to review first",
-      `Understand: ${understand} of ${plural(total, "changed line")}`,
-      routine > 0 ? `Routine: ${plural(routine, "line")}, collapsed` : "",
-    ].filter(Boolean).join(" · ");
-  }
-  return [
-    `Review first: ${first} of ${plural(total, "changed line")} (${share}%)`,
-    understand > 0 ? `Understand: ${plural(understand, "line")}` : "",
-    routine > 0 ? `Routine: ${plural(routine, "line")}, collapsed` : "",
-  ].filter(Boolean).join(" · ");
-}
-
-function LinesTag({ lines }: { lines: number }) {
-  if (lines <= 0) return null;
-  return <span className="shrink-0 text-muted-foreground">{plural(lines, "line")}</span>;
 }
 
 function PolicyLine({ projection }: { projection: ReviewProjection }) {
@@ -1040,7 +746,7 @@ function ItemCard({
           type="button"
           aria-expanded={expanded}
           onClick={onToggle}
-          className="min-w-0 flex-1 text-left text-label font-medium text-foreground hover:text-foreground"
+          className="min-w-0 flex-1 text-left text-label font-medium text-neutral-100 hover:text-neutral-50"
         >
           {item.title}
         </UiButton>
@@ -1049,15 +755,15 @@ function ItemCard({
         </span>
       </div>
       {item.stale && <div className="text-caption text-amber-300/90">Written for earlier content</div>}
-      {item.internal_only && <div className="mt-1 text-caption text-subtle">{INTERNAL_ONLY_TEXT}</div>}
+      {item.internal_only && <div className="mt-1 text-caption text-neutral-300">{INTERNAL_ONLY_TEXT}</div>}
       {detailLevel !== "compact" && (item.before || item.after) && (
-        <div className="mt-1 text-caption text-subtle">
+        <div className="mt-1 text-caption text-neutral-300">
           {item.before && <span className="text-muted-foreground">Before: {item.before} </span>}
           {item.after && <span>After: {item.after}</span>}
         </div>
       )}
       {detailLevel !== "compact" && (item.kind !== "behavior" || !first) && item.rationale && (
-        <div className={`mt-1 text-caption ${item.rationale_origin === "inferred" ? "text-subtle" : "text-muted-foreground"}`}>{item.rationale}</div>
+        <div className={`mt-1 text-caption ${item.rationale_origin === "inferred" ? "text-neutral-300" : "text-muted-foreground"}`}>{item.rationale}</div>
       )}
       {detailLevel !== "compact" && (item.limitations ?? []).map((text) => <div key={text} className="text-micro text-muted-foreground">{text}</div>)}
       {item.kind === "area" || item.kind === "other" ? (
@@ -1066,13 +772,13 @@ function ItemCard({
         </div>
       ) : null}
       {claims.map((claim) => <EvidenceSummary key={claim.id} claim={claim} />)}
-      {questions.length > 0 && <div className="mt-1.5 flex flex-col gap-1">{questions.map((question) => <QuestionRow key={question.id} question={question} onOpenTarget={onOpenTarget} />)}</div>}
+      {questions.length > 0 && <div className="mt-1.5 flex flex-col gap-1">{questions.map((question) => <QuestionRow key={question.id} question={question} />)}</div>}
       {(expanded || detailLevel === "detailed") && (
         <div className="mt-2 flex flex-col gap-2 border-t border-border/60 pt-2 text-caption">
           {item.rationale && item.kind === "behavior" && first && (
             <div>
               <span className="text-muted-foreground">Why · {item.source_label}: </span>
-              <span className="text-subtle">{item.rationale}</span>
+              <span className="text-neutral-300">{item.rationale}</span>
             </div>
           )}
           {claims.map((claim) => (
@@ -1081,8 +787,8 @@ function ItemCard({
                 <ul className="flex flex-col gap-0.5">
                   {claim.evidence.map((link) => (
                     <li key={`${link.key}:${link.state}:${link.snapshot_number ?? ""}`} className="flex flex-wrap gap-x-2">
-                      <span className="font-mono text-subtle">{link.title}</span>
-                      <span className={link.status === "FAIL" ? "text-red-300" : "text-muted-foreground"}>{link.status}</span>
+                      <span className="font-mono text-neutral-300">{link.title}</span>
+                      <span className={link.status === "FAIL" ? "text-rose-300" : "text-neutral-400"}>{link.status}</span>
                       {link.snapshot_number !== null && <span className="text-muted-foreground">Snapshot {link.snapshot_number}{link.state === "stale" ? " (earlier)" : ""}</span>}
                       {link.observed_at && <span className="text-muted-foreground">{`Ran ${ranAt(link.observed_at)}`}</span>}
                       {link.source && <span className="text-muted-foreground">{`Recorded by ${link.source}`}</span>}
@@ -1125,7 +831,7 @@ function ItemCard({
               {onAsk && <UiButton variant="outline" size="compact" type="button" onClick={() => onAsk(first)}>Ask</UiButton>}
             </>
           )}
-          <UiButton variant={reviewFirst ? "outline" : "ghost"} size="compact" type="button" onClick={() => onOpenTarget(first)}>
+          <UiButton variant={reviewFirst ? "default" : "ghost"} size="compact" type="button" onClick={() => onOpenTarget(first)}>
             Open code
           </UiButton>
         </div>
@@ -1156,18 +862,18 @@ function statusLine(decision: ReviewProjectionDecision): { text: string; tone: s
   if (state.disposition === "change_requested") {
     return state.navigable && state.reason
       ? { text: "Requested change resolved; decide again", tone: "text-amber-300" }
-      : { text: "Change requested", tone: "text-red-300" };
+      : { text: "Change requested", tone: "text-rose-300" };
   }
   if (state.disposition === "deferred") {
     const base = triggerText(state.trigger);
     const text = state.latest_reason ? `${base} · ${state.latest_reason}` : base;
-    return { text: state.trigger_fired ? `${text} · due now` : text, tone: "text-muted-foreground" };
+    return { text: state.trigger_fired ? `${text} · due now` : text, tone: "text-neutral-400" };
   }
   const accepted = `Accepted · ${optionLabel(decision, state.accepted_option)}`;
   if (state.validity === "implementation_changed_since_acceptance") {
     return { text: "Code changed since acceptance", tone: "text-amber-300" };
   }
-  if (state.validity === "needs_reconsideration") return { text: "Needs reconsideration", tone: "text-red-300" };
+  if (state.validity === "needs_reconsideration") return { text: "Needs reconsideration", tone: "text-rose-300" };
   if (state.validity === "unverified") return { text: `${accepted} · unverified`, tone: "text-amber-300/90" };
   return { text: accepted, tone: "text-emerald-300/90" };
 }
@@ -1219,7 +925,7 @@ function DecisionCard({
   return (
     <article data-testid={`brief-decision-${decision.key}`} className="rounded-md border border-border/80 px-2.5 py-2">
       <div className="flex items-start gap-2">
-        <div className="min-w-0 flex-1 text-label font-medium text-foreground">{decision.question || decision.key}</div>
+        <div className="min-w-0 flex-1 text-label font-medium text-neutral-100">{decision.question || decision.key}</div>
         {!decision.state && (
           <span className="shrink-0 rounded border border-border/70 px-1 text-micro uppercase tracking-wide text-muted-foreground">
             Proposed by the author · read-only
@@ -1228,7 +934,7 @@ function DecisionCard({
       </div>
       {status && <div className={`text-caption ${status.tone}`}>{status.text}</div>}
       {decision.state && decision.state.changed_inputs.length > 0 && (
-        <ul className="mt-0.5 list-disc pl-4 text-caption text-muted-foreground">
+        <ul className="mt-0.5 list-disc pl-4 text-caption text-neutral-400">
           {decision.state.changed_inputs.map((line) => <li key={line}>{line}</li>)}
         </ul>
       )}
@@ -1237,7 +943,7 @@ function DecisionCard({
       ))}
       {decision.stale && <div className="text-caption text-amber-300/90">Written for earlier content</div>}
       {decision.conflict && decision.positions && decision.positions.length > 0 && (
-        <ul className="mt-1 flex flex-col gap-0.5 text-caption text-subtle">
+        <ul className="mt-1 flex flex-col gap-0.5 text-caption text-neutral-300">
           {decision.positions.map((position) => (
             <li key={position.producer}>{`${position.producer} chose ${optionLabel(decision, position.selected_option)}`}</li>
           ))}
@@ -1256,7 +962,7 @@ function DecisionCard({
             label: (
               <span className="flex items-center gap-1.5">
                 <span>{option.label}</span>
-                {option.key === decision.selected_option && <span className="text-cyan-300/90">author's choice</span>}
+                {option.key === decision.selected_option && <span className="text-sky-300/90">author's choice</span>}
               </span>
             ),
           }))}
@@ -1264,9 +970,9 @@ function DecisionCard({
       ) : (
         <ul className="mt-1 flex flex-col gap-0.5 text-caption">
           {decision.options.map((option) => (
-            <li key={option.key} className={option.key === decision.selected_option ? "text-foreground" : "text-muted-foreground"}>
+            <li key={option.key} className={option.key === decision.selected_option ? "text-neutral-100" : "text-muted-foreground"}>
               <span>{option.label}</span>
-              {option.key === decision.selected_option && <span className="ml-2 text-cyan-300/90">author's choice</span>}
+              {option.key === decision.selected_option && <span className="ml-2 text-sky-300/90">author's choice</span>}
             </li>
           ))}
         </ul>
@@ -1274,7 +980,7 @@ function DecisionCard({
       {decision.reason_human_required && (
         <div className="mt-1 text-caption">
           <span className="text-muted-foreground">Why a human decides: </span>
-          <span className="text-subtle">{decision.reason_human_required}</span>
+          <span className="text-neutral-300">{decision.reason_human_required}</span>
         </div>
       )}
       <div className="mt-1.5">
@@ -1283,13 +989,13 @@ function DecisionCard({
       {actionable && (
         <div className="mt-1.5 flex flex-wrap gap-1.5">
           {actions.has("reconfirm") && (
-            <UiButton variant="outline" size="compact" type="button" disabled={busy} onClick={() => void run({ action: "reconfirm" })}>
+            <UiButton variant="default" size="compact" type="button" disabled={busy} onClick={() => void run({ action: "reconfirm" })}>
               Reconfirm
             </UiButton>
           )}
           {actions.has("accept") && (
             <UiButton
-              variant="outline"
+              variant={actions.has("reconfirm") ? "outline" : "default"}
               size="compact"
               type="button"
               disabled={busy || !chosen}
@@ -1321,7 +1027,7 @@ function DecisionCard({
       {form === "request_change" && (
         <div className="mt-1.5 flex flex-col gap-1">
           <UiTextarea uiSize="xs" aria-label="Requested change" rows={3} value={text} onChange={(event) => setText(event.target.value)} />
-          <UiButton variant="outline" size="compact" type="button" className="self-start" disabled={busy || !text.trim()} onClick={() => void run({ action: "request_change", feedback_body: text.trim() })}>
+          <UiButton variant="default" size="compact" type="button" className="self-start" disabled={busy || !text.trim()} onClick={() => void run({ action: "request_change", feedback_body: text.trim() })}>
             Send request
           </UiButton>
         </div>
@@ -1336,12 +1042,12 @@ function DecisionCard({
               <SelectItem key={key} value={`check_available:${key}`}>{`When ${key} has a result`}</SelectItem>
             ))}
           </Select>
-          <UiButton variant="outline" size="compact" type="button" className="self-start" disabled={busy || !text.trim()} onClick={() => void run({ action: "defer", reason: text.trim(), trigger })}>
+          <UiButton variant="default" size="compact" type="button" className="self-start" disabled={busy || !text.trim()} onClick={() => void run({ action: "defer", reason: text.trim(), trigger })}>
             Defer decision
           </UiButton>
         </div>
       )}
-      {failure && <div role="alert" className="mt-1 text-caption text-red-300">{failure}</div>}
+      {failure && <div role="alert" className="mt-1 text-caption text-rose-300">{failure}</div>}
     </article>
   );
 }
@@ -1373,8 +1079,6 @@ export default function ReviewBrief({
   interactivePreview,
   agentApprovals,
   productionOutcomes,
-  checks,
-  checkCounts,
 }: ReviewBriefProps) {
   const [expandedId, setExpandedId] = useState("");
   const [detailLevel, setDetailLevelState] = useState<ReviewDetail>(() => {
@@ -1452,30 +1156,6 @@ export default function ReviewBrief({
     : targets;
   const reviewedCode = codeTargets.filter((target) => target.state === "reviewed").length;
   const collapsedSupport = projection.material?.files.filter((file) => file.collapsed_default) ?? [];
-  const [reviewFirstLines, understandLines, routineLines] = tierLineCounts([reviewFirst, understand, routine], byId);
-  const readingPlan = readingPlanText(
-    reviewFirstLines,
-    understandLines,
-    routineLines,
-    codeTargets.reduce((sum, target) => sum + target.additions + target.deletions, 0),
-  );
-  const readingPlanLine = readingPlan && (
-    <p className="text-meta text-muted-foreground" data-testid="brief-reading-plan">{readingPlan}</p>
-  );
-  // The first viewport uses the SAME snapshot-bound check statuses as ProofCard;
-  // this is an orientation sentence, never an independent evidence assertion.
-  const snapshotCounts = checkCounts
-    ?? countStatuses(checks && checks.length > 0 ? checks.map((row) => row.status) : linkedStatuses(projection.claims));
-  const snapshotProof = proofVerdict(snapshotCounts);
-  const glanceQuestions = projection.questions
-    .filter((question) => question.target_ids.some((id) => byId.has(id)))
-    .sort((a, b) => a.tier - b.tier)
-    .slice(0, 3);
-  const firstReadTarget = reviewFirst.flatMap((item) => item.primary_target_ids).find((id) => byId.has(id))
-    ?? understand.flatMap((item) => item.primary_target_ids).find((id) => byId.has(id));
-  const headlineCount = reviewFirst.length + orphanQuestions.length;
-  const findingSummary = projection.triage?.severity_summary;
-  const flaggedFindings = findingSummary ? findingSummary.p0 + findingSummary.p1 + findingSummary.p2 : 0;
   const decisionCard = (decision: ReviewProjectionDecision) => (
     <DecisionCard key={decision.key} decision={decision} byId={byId} onOpenTarget={onOpenTarget} onAsk={onAsk} onDecision={onDecision} />
   );
@@ -1498,138 +1178,89 @@ export default function ReviewBrief({
 
   return (
     <div
-      className="mx-auto flex w-full max-w-5xl flex-col gap-3 px-3 py-3 sm:px-5 sm:py-4 outline-none"
+      className="mx-auto flex w-full max-w-3xl flex-col px-4 py-4 outline-none"
       data-testid="review-brief"
       data-review-view-root="brief"
       tabIndex={-1}
     >
-      {/* One useful first screen: the actual attention queue, Snapshot proof, and next reading action. */}
-      <div className="hunk" data-testid="brief-glance">
-        <div className="hunk-head">
-          <span className="hunk-label">{projection.snapshot_number !== null ? `Snapshot ${projection.snapshot_number}` : "Change"}</span>
-          {projection.historical && <Badge>Historical</Badge>}
-        </div>
-        <div className="flex flex-col gap-3 p-3 sm:p-4">
-          <section aria-label="Change summary" className="flex flex-col gap-1.5">
-            {projection.summary ? (
-              <>
-                <p className="text-title font-semibold leading-snug text-foreground">
-                  {projection.summary.statements?.[0]?.text || projection.summary.paragraphs[0] || "Change summary unavailable"}
-                </p>
-                <div className="flex flex-wrap gap-x-2 text-caption text-muted-foreground">
-                  <span>{projection.summary.origin === "inferred" ? "AI summary · intent inferred" : projection.summary.origin === "mixed" ? "Author context and AI explanations" : projection.summary.origin === "author" ? "From author context" : "From the changed files"}</span>
-                  {projection.summary.scope && <span>{projection.summary.scope}</span>}
-                </div>
-                {((projection.summary.statements?.length ?? 0) > 1 || (!projection.summary.statements?.length && projection.summary.paragraphs.length > 1)) && (
-                  <details className="text-caption text-muted-foreground" data-testid="brief-more-summary">
-                    <summary className="cursor-pointer">More change context</summary>
-                    <div className="mt-1 space-y-1 pl-2">
-                      {projection.summary.statements?.length
-                        ? projection.summary.statements.slice(1).map((statement, i) => <p key={`${i}:${statement.text}`}>{statement.text}</p>)
-                        : projection.summary.paragraphs.slice(1).map((paragraph, i) => <p key={`${i}:${paragraph}`}>{paragraph}</p>)}
+      <header className="flex flex-col gap-1 pb-3">
+        {!projection.summary && projection.plan.intents.map((intent) => (
+          <div key={intent.producer}>
+            <p className="text-body text-neutral-100">{intent.intent}</p>
+            {intent.origin === "captured" && (
+              <p className="text-micro text-muted-foreground">{`Captured plan · ${intent.producer}`}</p>
+            )}
+          </div>
+        ))}
+        {!projection.summary && openDecisions.length === 0 && <p className="text-caption text-muted-foreground">No open decisions</p>}
+        {progress && progress.total > 0 && (
+          <p className="flex gap-3 text-caption text-muted-foreground">
+            <span>{`Decisions: ${progress.settled} of ${progress.total} settled`}</span>
+            <span>{`Code: ${reviewedCode} of ${codeTargets.length} reviewed${scopeFocused ? " in your request" : ""}`}</span>
+          </p>
+        )}
+        {projection.snapshot_number !== null && (
+          <p className="text-caption text-muted-foreground">Snapshot {projection.snapshot_number}{projection.historical ? " · historical" : ""}</p>
+        )}
+        {deltaLine(projection) && <p className="text-caption text-amber-200/90">{deltaLine(projection)}</p>}
+      </header>
+
+      {projection.summary && (
+        <section aria-label="Change summary" className="flex flex-col gap-3 pb-4">
+          {projection.summary.statements?.length
+            ? projection.summary.statements.map((statement) => (
+                <div key={statement.text}>
+                  <p className="max-w-prose text-body leading-relaxed text-foreground">{statement.text}</p>
+                  {statement.origin === "inferred" && statement.target_ids.length > 0 && (
+                    <div className="mt-0.5 text-micro text-muted-foreground">
+                      {"AI statement · " + statement.target_ids.length + " exact target" + (statement.target_ids.length === 1 ? "" : "s")}
                     </div>
-                  </details>
-                )}
-              </>
-            ) : (
-              <>
-                {projection.plan.intents.map((intent) => (
-                  <div key={intent.producer}>
-                    <p className="text-ui text-foreground">{intent.intent}</p>
-                    {intent.origin === "captured" && <p className="text-micro text-muted-foreground">{`Captured plan · ${intent.producer}`}</p>}
-                  </div>
-                ))}
-                {projection.plan.intents.length === 0 && <p className="text-title font-semibold text-foreground">Review this change</p>}
-                {openDecisions.length === 0 && <p className="text-caption text-muted-foreground">No open decisions</p>}
-              </>
-            )}
-            {deltaLine(projection) && <p className="text-meta text-p1">{deltaLine(projection)}</p>}
-            {progress && progress.total > 0 && (
-              <div className="flex flex-wrap gap-x-3 text-caption text-muted-foreground">
-                <span>{`Decisions: ${progress.settled} of ${progress.total} settled`}</span>
-                <span>{`Code: ${reviewedCode} of ${codeTargets.length} reviewed${scopeFocused ? " in your request" : ""}`}</span>
-              </div>
-            )}
-            <p className="text-meta text-muted-foreground" data-testid="review-change-size">
-              {projection.material?.total_changed_lines
-                ? `${projection.material.implementation_changed_lines} implementation lines · ${projection.material.total_changed_lines} total changed lines`
-                : `${coverage.file_count} files · ${codeTargets.length} changed targets`}
+                  )}
+                </div>
+              ))
+            : projection.summary.paragraphs.map((paragraph) => (
+                <p key={paragraph} className="max-w-prose text-body leading-relaxed text-foreground">{paragraph}</p>
+              ))}
+          <p className="text-caption text-muted-foreground">
+            {projection.summary.origin === "inferred" ? "AI summary · intent inferred" : projection.summary.origin === "mixed" ? "Author context and AI explanations" : projection.summary.origin === "author" ? "From author context" : "From the changed files"}
+          </p>
+          <p className="text-caption text-neutral-300">{projection.summary.verification}</p>
+          {projection.summary.attention && <p className="text-caption text-amber-200">{projection.summary.attention}</p>}
+          <p className="text-caption text-muted-foreground">{projection.summary.scope}</p>
+          {projection.material && projection.material.total_changed_lines > 0 && (
+            <p className="text-caption text-muted-foreground" data-testid="review-change-size">
+              {projection.material.implementation_changed_lines === projection.material.total_changed_lines
+                ? `${projection.material.total_changed_lines} changed implementation lines`
+                : `${projection.material.implementation_changed_lines} implementation lines · ${projection.material.total_changed_lines} total changed lines`}
             </p>
-          </section>
-
-          {(glanceQuestions.length > 0 || firstReadTarget || openDecisions.length > 0 || requiredChecks.length > 0) && (
-            <section aria-label="Needs your attention" className="border-t border-border/70 pt-2.5" data-testid="brief-attention-glance">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="text-label font-semibold text-foreground">Needs your attention</h2>
-                {headlineCount > 0 && <span className="text-meta text-muted-foreground">{headlineCount} review-first items</span>}
-              </div>
-              {flaggedFindings > 0 && findingSummary && (
-                <p data-testid="brief-findings-glance" className="mt-1 text-caption text-amber-300/90">
-                  {`Flagged findings: ${[
-                    findingSummary.p0 > 0 ? `${findingSummary.p0} P0` : "",
-                    findingSummary.p1 > 0 ? `${findingSummary.p1} P1` : "",
-                    findingSummary.p2 > 0 ? `${findingSummary.p2} P2` : "",
-                  ].filter(Boolean).join(" · ")}. Review the evidence; a finding is not automatically a verified defect.`}
-                </p>
-              )}
-              {requiredChecks.length > 0 && <p className="mt-1 text-caption text-red-300">{plural(requiredChecks.length, "required check")} needs attention below</p>}
-              {openDecisions.length > 0 && <p className="mt-1 text-caption text-amber-300/90">{plural(openDecisions.length, "human decision")} to resolve below</p>}
-              <div className="mt-1.5 divide-y divide-border/60">
-                {glanceQuestions.map((question) => {
-                  const id = question.target_ids.find((targetId) => byId.has(targetId));
-                  const target = id ? byId.get(id) : undefined;
-                  if (!id) return null;
-                  return (
-                    <UiButton unstyled key={question.id} type="button"
-                      className="flex w-full min-w-0 items-center justify-between gap-3 py-2 text-left hover:text-foreground"
-                      onClick={() => onOpenTarget(id)} aria-label={`Open ${question.title} code`}>
-                      <span className="flex min-w-0 flex-col gap-0.5">
-                        <span className="text-label font-medium text-foreground">{question.title}</span>
-                        <span className="truncate font-mono text-meta text-muted-foreground">{question.origin === "ai" ? "AI question · " : ""}{target?.path || "Review target"}</span>
-                      </span>
-                      <span aria-hidden="true" className="shrink-0 text-muted-foreground">›</span>
-                    </UiButton>
-                  );
-                })}
-                {glanceQuestions.length === 0 && firstReadTarget && (
-                  <UiButton unstyled type="button" className="flex w-full items-center justify-between gap-3 py-2 text-left"
-                    onClick={() => onOpenTarget(firstReadTarget)} aria-label="Open next review target">
-                    <span className="truncate text-label text-foreground">{targetLabel(byId.get(firstReadTarget), firstReadTarget)}</span>
-                    <span aria-hidden="true">›</span>
-                  </UiButton>
-                )}
-              </div>
-            </section>
           )}
+          <div className="flex flex-wrap gap-1.5">
+            {onOpenTour && (projection.tour?.step_count ?? 0) > 0 && <UiButton variant="default" size="compact" onClick={onOpenTour}>Start guided review</UiButton>}
+            <UiButton variant={onOpenTour && (projection.tour?.step_count ?? 0) > 0 ? "outline" : "default"} size="compact" onClick={onOpenFiles}>Open code</UiButton>
+          </div>
+        </section>
+      )}
 
-          <section aria-label="Verification at a glance" className="border-t border-border/70 pt-2.5" data-testid="brief-proof-glance">
-            <h2 className="text-label font-semibold text-foreground">What is proven?</h2>
-            <p className={`mt-1 text-caption ${snapshotProof.tone}`}>{snapshotProof.text}</p>
-            <UiButton unstyled type="button" className="mt-1 text-caption text-muted-foreground underline-offset-2 hover:underline" onClick={() => onInspectEvidence(null)}>View evidence</UiButton>
-          </section>
+      {/* §5.1 item 2: large changes defer Map projection until explicit interest so it cannot compete with first-useful paint. */}
+      {loadArchitectureDelta && onOpenArchitecture && (
+        <BriefArchitectureDelta
+          load={loadArchitectureDelta}
+          onOpen={onOpenArchitecture}
+          eager={targets.length <= LARGE_REVIEW_TARGET_THRESHOLD}
+        />
+      )}
 
-          <section aria-label="Read next" className="flex flex-wrap items-center justify-between gap-2 border-t border-border/70 pt-2.5" data-testid="brief-read-next">
-            <div className="min-w-0 flex-1">
-              <h2 className="text-label font-semibold text-foreground">Read next</h2>
-              {readingPlanLine || <p className="text-caption text-muted-foreground">Open the complete changed code to review.</p>}
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {onOpenTour && (projection.tour?.step_count ?? 0) > 0 && <UiButton variant="outline" size="compact" onClick={onOpenTour}>Start guided review</UiButton>}
-              <UiButton variant="outline" size="compact" onClick={onOpenFiles}>Open code</UiButton>
-            </div>
-          </section>
-        </div>
-      </div>
+      {/* PK2: landed history, shown only when Project Knowledge has something relevant. */}
+      {loadProjectContext && <BriefProjectContext load={loadProjectContext} />}
 
-      {!projection.historical && productionOutcomes && <div className="empty:hidden">{productionOutcomes}</div>}
+      {!projection.historical && productionOutcomes && <div className="border-t border-border/70 py-3 empty:hidden">{productionOutcomes}</div>}
 
-      {/* 2. What needs your decision. */}
       {requiredChecks.length > 0 && (
         <Section title={`Required checks · ${requiredChecks.length}`}>
           {requiredChecks.map((action) => (
-            <div key={action.id} className="rounded-md border border-red-900/60 bg-red-950/20 px-2.5 py-2 text-caption">
-              <div className="font-medium text-red-200">{action.title}</div>
-              <div className="text-subtle">{action.detail}</div>
+            <div key={action.id} className="rounded-md border border-rose-900/60 bg-rose-950/20 px-2.5 py-2 text-caption">
+              <div className="font-medium text-rose-200">{action.title}</div>
+              <div className="text-neutral-300">{action.detail}</div>
               <UiButton variant="outline" size="compact" type="button" className="mt-1.5" onClick={() => onInspectEvidence(null)}>
                 Inspect evidence
               </UiButton>
@@ -1638,7 +1269,20 @@ export default function ReviewBrief({
         </Section>
       )}
 
-      {!projection.historical && agentApprovals && <div className="empty:hidden">{agentApprovals}</div>}
+      {!projection.historical && agentApprovals && <div className="border-t border-border/70 py-3 empty:hidden">{agentApprovals}</div>}
+
+      {behavior && (
+        <Section title={behavior.total > 0 ? `Behavior changes · ${behavior.total}` : "Behavior changes"}>
+          <BehaviorChanges
+            behavior={behavior}
+            revisionId={projection.revision_id}
+            onLoadTarget={projection.historical ? undefined : onLoadBehaviorTarget}
+            onJudge={projection.historical ? undefined : onJudgeBehavior}
+            onNarrate={projection.historical ? undefined : onNarrateBehavior}
+          />
+          {!projection.historical && interactivePreview}
+        </Section>
+      )}
 
       {activeDecisions.length > 0 && (
         <Section title={`Human decisions · ${activeDecisions.length}`}>
@@ -1653,48 +1297,14 @@ export default function ReviewBrief({
       )}
 
       {reviewFirst.length + orphanQuestions.length > 0 && (
-        <Section title={`Review first · ${reviewFirst.length + orphanQuestions.length}`} action={<LinesTag lines={reviewFirstLines} />}>
-          {orphanQuestions.map((question) => <QuestionRow key={question.id} question={question} onOpenTarget={onOpenTarget} />)}
+        <Section title={`Review first · ${reviewFirst.length + orphanQuestions.length}`}>
+          {orphanQuestions.map((question) => <QuestionRow key={question.id} question={question} />)}
           <Limited rows={reviewFirst} render={card} />
         </Section>
       )}
 
-      {/* 4. What is proven. */}
-      <Section
-        title="What is proven"
-        action={(
-          // Spec §8: the full inventory stays one explicit step away, never the default.
-          <UiButton variant="ghost" size="compact" type="button" onClick={() => onInspectEvidence(null)}>All evidence</UiButton>
-        )}
-      >
-        <ProofCard
-          projection={projection}
-          targets={targets}
-          checks={checks}
-          checkCounts={checkCounts}
-          onInspectEvidence={onInspectEvidence}
-        />
-      </Section>
-
-      {/* 3. What deserves attention: the behavior that changed, then the code to read first. */}
-      {behavior && (
-        <Section title={behavior.total > 0 ? `Behavior changes · ${behavior.total}` : "Behavior changes"}>
-          <BehaviorChanges
-            behavior={behavior}
-            revisionId={projection.revision_id}
-            onLoadTarget={projection.historical ? undefined : onLoadBehaviorTarget}
-            onJudge={projection.historical ? undefined : onJudgeBehavior}
-            onNarrate={projection.historical ? undefined : onNarrateBehavior}
-          />
-          {!projection.historical && interactivePreview}
-        </Section>
-      )}
-
-      <EvaluationHistory timeline={projection.evaluation_timeline} />
-
-      {/* 5. Where to read next; everything else stays one step away. */}
       {understand.length > 0 && (
-        <Section title={`Understand · ${understand.length}`} action={<LinesTag lines={understandLines} />}>
+        <Section title={`Understand · ${understand.length}`}>
           <Limited rows={understand} render={card} />
         </Section>
       )}
@@ -1756,32 +1366,15 @@ export default function ReviewBrief({
         </Section>
       )}
 
-      {/* 6. Context and details: architecture, history, AI, policy and the full inventory. */}
-      {/* §5.1 item 2: large changes defer Map projection until explicit interest so it cannot compete with first-useful paint. */}
-      {loadArchitectureDelta && onOpenArchitecture && (
-        <BriefArchitectureDelta
-          load={loadArchitectureDelta}
-          onOpen={onOpenArchitecture}
-          eager={targets.length <= LARGE_REVIEW_TARGET_THRESHOLD}
-        />
-      )}
-
-      {/* PK2: landed history, shown only when Project Knowledge has something relevant. */}
-      {loadProjectContext && <BriefProjectContext load={loadProjectContext} />}
-
       {withdrawnDecisions.length > 0 && (
         <Section title={`Withdrawn by the author · ${withdrawnDecisions.length}`}>
           <Limited rows={withdrawnDecisions} render={decisionCard} />
         </Section>
       )}
 
-      <footer className="hunk text-meta text-muted-foreground">
-        <div className="hunk-head">
-          <span className="hunk-label">Details</span>
-        </div>
-        <div className="flex flex-col gap-2 p-3">
-        <details data-testid="review-detail-options" className="rounded-md border border-border px-2 py-1">
-          <summary className="cursor-pointer select-none text-muted-foreground">
+      <footer className="flex flex-col gap-1 border-t border-border/70 pt-3 text-caption text-muted-foreground">
+        <details data-testid="review-detail-options" className="rounded border border-border/70 px-2 py-1">
+          <summary className="cursor-pointer select-none text-neutral-400">
             View options · {detailLevel === "compact" ? "Compact" : detailLevel === "detailed" ? "Detailed" : "Standard"}
           </summary>
           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -1803,8 +1396,8 @@ export default function ReviewBrief({
           </div>
         </details>
         {collapsedSupport.length > 0 && (
-          <details data-testid="supporting-material" className="rounded-md border border-border px-2 py-1">
-            <summary className="cursor-pointer select-none text-muted-foreground">
+          <details data-testid="supporting-material" className="rounded border border-border/70 px-2 py-1">
+            <summary className="cursor-pointer select-none text-neutral-400">
               Supporting material · {plural(collapsedSupport.length, "file")}
             </summary>
             <div className="mt-1 space-y-0.5">
@@ -1867,6 +1460,7 @@ export default function ReviewBrief({
             }
           } : undefined}
         />
+        <WhatWasChecked projection={projection} targets={targets} />
         <PolicyLine projection={projection} />
         <ReviewTriageLine triage={projection.triage} />
         <SynthesisLine
@@ -1888,7 +1482,8 @@ export default function ReviewBrief({
         <div className="flex items-center gap-2">
           <span>All code: {plural(coverage.file_count, "file")}, {plural(coverage.target_count, "target")}</span>
           <UiButton variant="outline" size="compact" type="button" onClick={onOpenFiles}>Open files</UiButton>
-        </div>
+          {/* Spec §8: the full inventory stays one explicit step away, never the default. */}
+          <UiButton variant="ghost" size="compact" type="button" onClick={() => onInspectEvidence(null)}>All evidence</UiButton>
         </div>
       </footer>
     </div>

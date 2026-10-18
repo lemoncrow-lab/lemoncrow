@@ -133,7 +133,7 @@ function ChangeSetLabel({ reviewId, links, landing }: { reviewId: string; links:
   const label = unavailable ? "Change set unavailable" : `Change set · ${CHANGE_SET_STATE[state ?? ""] ?? state ?? "blocked"}`;
   return (
     <span
-      className="review-reader-source-context ml-2 max-w-[220px] truncate border-l border-border pl-2 font-medium text-p1"
+      className="review-reader-source-context ml-2 max-w-[220px] truncate border-l border-border pl-2 font-medium text-amber-300/80"
       title={summary?.title ?? "The change set could not be loaded; its readiness fails closed."}
       aria-label={"Change set: " + label}
       data-testid="review-change-set"
@@ -207,12 +207,12 @@ export default function ReviewIdentityBar({
           {authorship && (authorship.prefix || authorship.label) && (
             <span>
               {authorship.prefix && <span className="review-reader-author">{authorship.prefix} </span>}
-              <span className="review-reader-author font-medium text-subtle">{authorship.label}</span>
+              <span className="review-reader-author font-medium text-neutral-400">{authorship.label}</span>
             </span>
           )}
           {stack && overview.change?.stack && stackNeedsHeaderAttention(overview.change.stack) && (
             <span
-              className="review-reader-source-context ml-2 max-w-[260px] truncate border-l border-border pl-2 font-medium text-p1"
+              className="review-reader-source-context ml-2 max-w-[260px] truncate border-l border-border pl-2 font-medium text-amber-300/80"
               title={stack.title}
               aria-label={"Stack needs attention: " + stack.label}
               data-testid="review-stack-layer"
@@ -238,7 +238,7 @@ export default function ReviewIdentityBar({
                 href={webHref(workItem.url)}
                 target="_blank"
                 rel="noreferrer"
-                className="review-reader-source-context ml-2 max-w-[180px] truncate border-l border-border pl-2 font-medium text-muted-foreground hover:text-foreground hover:underline"
+                className="review-reader-source-context ml-2 max-w-[180px] truncate border-l border-border pl-2 font-medium text-muted-foreground hover:text-neutral-300 hover:underline"
                 title={workItem.title || workItem.external_id}
                 aria-label={`Open associated work item ${workItemLabel}`}
               >
@@ -285,8 +285,8 @@ export default function ReviewIdentityBar({
             : "Snapshot history and compare"
         }
       >
-        <Clock3 size={14} />
-        <span className="font-mono text-label">{revisionShortLabel(overview.revision)}</span>
+        <Clock3 size={12} />
+        <span className="font-mono text-caption">{revisionShortLabel(overview.revision)}</span>
       </UiButton>
     </div>
   );

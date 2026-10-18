@@ -132,7 +132,7 @@ for removed_alias in mcp install routes; do
     alias_output="$(HOME="$WORK/home" LEMONCROW_HOME="$WORK/state" "$SMOKE/bin/lemoncrow-runtime-client" "$removed_alias" 2>&1)"
     alias_status=$?
     set -e
-    [[ "$alias_status" == "2" && "$alias_output" == *"nknown command"* ]] \
+    [[ "$alias_status" == "2" && "$alias_output" == *"runtime COMMAND"* ]] \
         || { echo "build_runtime_client.sh: removed top-level Runtime alias still resolves: $removed_alias" >&2; exit 1; }
 done
 

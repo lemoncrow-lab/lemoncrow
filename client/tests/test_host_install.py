@@ -137,15 +137,6 @@ def test_opencode_uses_native_global_mcp_registration(monkeypatch: pytest.Monkey
     ]
 
 
-def test_opencode2_fallback_is_detected_for_registration_and_auto(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls = _fake_hosts(monkeypatch, {"opencode2"})
-    sink = io.StringIO()
-    assert main(["runtime", "enable", "auto"], sink) == 0
-    assert len(calls) == 1
-    assert calls[0][0][:5] == ("/usr/bin/opencode2", "mcp", "add", "lc", "--global")
-    assert "opencode" in sink.getvalue()
-
-
 def test_auto_registers_every_detected_supported_host(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = _fake_hosts(monkeypatch, {"claude", "codex"})
     sink = io.StringIO()

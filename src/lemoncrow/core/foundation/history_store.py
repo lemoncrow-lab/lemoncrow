@@ -429,19 +429,6 @@ class HistoryStore(SqliteTableStore):
                 (session_id, synced_at, payload_hash),
             )
 
-    def synced_payload_hashes(self, session_ids: list[str]) -> dict[str, str]:
-        """``{session_id: payload_hash}`` for those of *session_ids* already marked synced."""
-        hashes: dict[str, str] = {}
-        with self._transaction() as conn:
-            for start in range(0, len(session_ids), 500):
-                chunk = session_ids[start : start + 500]
-                marks = ",".join("?" * len(chunk))
-                rows = conn.execute(
-                    f"SELECT session_id, payload_hash FROM sync_status WHERE session_id IN ({marks})", chunk
-                ).fetchall()
-                hashes.update((row[0], row[1]) for row in rows)
-        return hashes
-
     def list_traces(
         self,
         *,

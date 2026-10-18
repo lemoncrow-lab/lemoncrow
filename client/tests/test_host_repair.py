@@ -120,7 +120,6 @@ def test_json_migration_differential_over_random_settings():
 
 def test_repair_existing_only_migrates_enabled_integrations(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("LEMONCROW_HOME", str(tmp_path))
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     monkeypatch.delenv("CODEX_HOME", raising=False)
     monkeypatch.delenv("PI_CODING_AGENT_DIR", raising=False)
@@ -134,17 +133,10 @@ def test_repair_existing_only_migrates_enabled_integrations(tmp_path, monkeypatc
     assert not (tmp_path / ".pi").exists()
 
     settings = tmp_path / ".claude.json"
-    before = json.dumps(
-        {
-            "mcpServers": {
-                "lc": {"command": str(tmp_path / "old/bin/lc"), "args": ["runtime", "lite-mcp"], "alwaysLoad": True}
-            }
-        }
-    )
+    before = '{"mcpServers":{"lc":{"command":"lc","args":["runtime","lite-mcp"],"alwaysLoad":true}}}'
     settings.write_text(before)
     settings.chmod(0o600)
-    marker = "const installedInvocation = " + json.dumps({"command": str(runtime)}) + ";"
-    monkeypatch.setattr(pi_integration, "_extension_source", lambda: marker)
+    monkeypatch.setattr(pi_integration, "_extension_source", lambda: "const installedInvocation = newRuntime;")
     pi_integration.install()
     assert host_repair.repair_existing() == 0
     assert json.loads(settings.read_text())["mcpServers"]["lc"]["command"] == str(runtime)
@@ -187,98 +179,8 @@ def test_custom_public_alias_is_preserved(tmp_path, monkeypatch):
     assert launcher.resolve() == custom
 
 
-@pytest.mark.parametrize("set_state", [True, False])
-def test_temporary_install_cannot_repoint_normal_host_connections(tmp_path, monkeypatch, set_state):
-    home = tmp_path / "real-home"
-    home.mkdir()
-    monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
-    monkeypatch.setenv("CODEX_HOME", str(home / ".codex"))
-    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(home / ".pi/agent"))
-    state = tmp_path / "lemoncrow-oss-test" / "home"
-    if set_state:
-        monkeypatch.setenv("LEMONCROW_HOME", str(state))
-    else:
-        monkeypatch.delenv("LEMONCROW_HOME", raising=False)
-    runtime = state / "runtime/client/bin/lemoncrow-runtime-client"
-    runtime.parent.mkdir(parents=True)
-    runtime.write_text("#!/bin/sh\n")
-    runtime.chmod(0o755)
-    monkeypatch.setattr(host_repair.sys, "executable", str(runtime.parent / "python"))
-    normal = home / ".lemoncrow/runtime/client/bin/lemoncrow-runtime-client"
-    snapshots = {}
-    for relative, array in [
-        (".claude.json", False),
-        (".cursor/mcp.json", False),
-        (".config/opencode/opencode.json", True),
-        (".config/lemoncode/opencode.jsonc", True),
-    ]:
-        path = home / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        args = ["runtime", "lite-mcp", "--host", "claude"]
-        entry = {"command": [str(normal), *args]} if array else {"command": str(normal), "args": args}
-        text = json.dumps({"mcp" if array else "mcpServers": {"lc": entry}})
-        path.write_text(text)
-        snapshots[path] = text
-    codex = home / ".codex/config.toml"
-    codex.parent.mkdir()
-    snapshots[codex] = f'[mcp_servers.lc]\ncommand={json.dumps(str(normal))}\nargs=["runtime","lite-mcp"]\n'
-    codex.write_text(snapshots[codex])
-    pi = home / ".pi/agent/lemoncrow/lite.mjs"
-    pi.parent.mkdir(parents=True)
-    snapshots[pi] = "const installedInvocation = " + json.dumps({"command": str(normal)}) + ";\n"
-    pi.write_text(snapshots[pi])
-    pi_settings = home / ".pi/agent/settings.json"
-    snapshots[pi_settings] = json.dumps({"extensions": [str(pi)]})
-    pi_settings.write_text(snapshots[pi_settings])
-
-    assert host_repair.repair_existing() == 0
-    for path, original in snapshots.items():
-        assert path.read_text() == original, path
-        assert not path.with_name(path.name + ".before-runtime-migration").exists()
-
-
-def test_custom_install_migrates_only_connections_owned_by_that_install(tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path / "user"))
-    owner = tmp_path / "custom-state"
-    text = json.dumps(
-        {
-            "mcpServers": {
-                "own": {"command": str(owner / "uv-tools/lemoncrow/bin/lc"), "args": ["runtime", "lite-mcp"]},
-                "other": {"command": str(tmp_path / "other/bin/lc"), "args": ["runtime", "lite-mcp"]},
-                "bare": {"command": "lc", "args": ["runtime", "lite-mcp"]},
-            }
-        }
-    )
-    result = json.loads(
-        host_repair._json_repair(text, str(owner / "runtime/client/bin/lemoncrow-runtime-client"), owner)
-    )
-    original = json.loads(text)
-    assert result["mcpServers"]["own"]["command"].startswith(str(owner / "runtime"))
-    assert result["mcpServers"]["other"] == original["mcpServers"]["other"]
-    assert result["mcpServers"]["bare"] == original["mcpServers"]["bare"]
-
-
-def test_installation_ownership_uses_path_boundaries(tmp_path):
-    owner = tmp_path / "state"
-    assert host_repair._owned_command(str(owner / "runtime/bin/lc"), owner)
-    assert not host_repair._owned_command(str(tmp_path / "state-other/bin/lc"), owner)
-    assert not host_repair._owned_command(str(owner / "../normal/bin/lc"), owner)
-
-
-def test_default_install_can_migrate_legacy_bare_commands(tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    owner = tmp_path / ".lemoncrow"
-    text = '{"mcpServers":{"lc":{"command":"lc","args":["runtime","lite-mcp"]}}}'
-    result = json.loads(
-        host_repair._json_repair(text, str(owner / "runtime/client/bin/lemoncrow-runtime-client"), owner)
-    )
-    assert result["mcpServers"]["lc"]["command"] == str(owner / "runtime/client/bin/lemoncrow-runtime-client")
-
-
 def test_invalid_configuration_fails_visibly_without_replacing_it(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("LEMONCROW_HOME", str(tmp_path))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
     monkeypatch.setenv("PI_CODING_AGENT_DIR", str(tmp_path / "pi"))

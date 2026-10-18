@@ -8,7 +8,7 @@
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/lemoncrow-upgrade.XXXXXX")"
 release_drill_cleanup() {
   local status=$?
-  local server_log="$LEMONCROW_HOME/server/server.log"
+  local server_log="$HOME/.lemoncrow/server/server.log"
   if ((status != 0)) && [[ -s "$server_log" ]]; then
     echo "--- candidate local server log (last 120 lines) ---" >&2
     tail -n 120 "$server_log" >&2 || true
@@ -25,13 +25,6 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 export HOME="$WORK/home"
-# A developer shell may export LEMONCROW_HOME pointing at a live installation.
-# HOME isolation alone is not sufficient: force *all* local-server state to this drill.
-export LEMONCROW_HOME="$HOME/.lemoncrow"
-unset LEMONCROW_TOOL_DIR LEMONCROW_LOCAL_SERVER_DIR LEMONCROW_FRONTEND_DIR \
-  LEMONCROW_LOCAL_TOKEN_FILE LEMONCROW_REVIEW_ENGINE_PYTHON \
-  LEMONCROW_RUNTIME_ENGINE_PYTHON LEMONCROW_SERVER_PYTHON \
-  LEMONCROW_LOCAL_SERVER_TARGET_PRODUCT LEMONCROW_LOCAL_SERVER_PRODUCTS
 export LEMONCROW_INSTALL_DIR="$WORK/install"
 export LEMONCROW_BIN_DIR="$WORK/bin"
 export LEMONCROW_NON_INTERACTIVE=1
@@ -50,7 +43,7 @@ export XDG_CONFIG_HOME="$WORK/xdg/config"
 export XDG_CACHE_HOME="$WORK/xdg/cache"
 export XDG_DATA_HOME="$WORK/xdg/data"
 export XDG_STATE_HOME="$WORK/xdg/state"
-mkdir -p "$HOME" "$LEMONCROW_HOME" "$LEMONCROW_BIN_DIR" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME"
+mkdir -p "$HOME" "$LEMONCROW_BIN_DIR" "$XDG_CONFIG_HOME" "$XDG_CACHE_HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME"
 # An isolated HOME does not isolate the host's service managers: `systemctl --user` reaches the
 # login's real user manager, so an installer's restart restarted the developer's own
 # lemoncrow-local-server.service. Without the session bus and runtime directory nothing can find

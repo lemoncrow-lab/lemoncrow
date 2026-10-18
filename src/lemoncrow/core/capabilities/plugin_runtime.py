@@ -227,7 +227,7 @@ def write_plugin_setting(root: str | Path, key: str, value: bool) -> dict[str, b
         raise ValueError(f"unknown plugin setting: {key}")
     settings = load_plugin_settings(root)
     settings[key] = bool(value)
-    _write_json(plugin_settings_path(root), settings, mode=0o600)  # it can hold API keys
+    _write_json(plugin_settings_path(root), settings)
     return settings
 
 
@@ -535,7 +535,7 @@ def set_recall_settings(
     if not isinstance(settings, dict):
         settings = {}
     updated = apply_recall_settings(settings, auto_index=auto_index, embedder=embedder, embed_model=embed_model)
-    _write_json(path, updated, mode=0o600)  # the file can hold API keys
+    _write_json(path, updated)
     return updated
 
 
@@ -1858,9 +1858,7 @@ def _opencode_visible_reply_blocks(session_id: str, *, host: str = "opencode") -
 
             db_path = default_lemoncode_db_path()
         else:
-            from lemoncrow.core.capabilities.session_replay import _opencode_db_path
-
-            db_path = _opencode_db_path() or Path.home() / ".local/share/opencode/opencode.db"
+            db_path = Path.home() / ".local/share/opencode/opencode.db"
         if not db_path.exists():
             return []
         serialized = serialize_opencode_session(session_id, db_path, source=host_name)
@@ -2090,9 +2088,7 @@ def build_opencode_stop_output(root: str | Path, payload: dict[str, Any], *, hos
 
         usage_db = default_lemoncode_db_path()
     else:
-        from lemoncrow.core.capabilities.session_replay import _opencode_db_path
-
-        usage_db = _opencode_db_path() or Path.home() / ".local/share/opencode/opencode.db"
+        usage_db = Path.home() / ".local/share/opencode/opencode.db"
     with suppress(OSError, ValueError, sqlite3.Error):
         usage_calls = opencode_usage_calls(session_id, usage_db, host=host_name)
         persist_host_usage(

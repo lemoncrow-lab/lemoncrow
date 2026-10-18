@@ -22,20 +22,9 @@ than treating missing measurements as $0 or green. The threshold does not
 claim 30% savings; the gate prevents unapproved regressions.
 
 A second release component, `runtime-credit-tests`, checks failure modes and
-the Runtime Lite compatibility guards without making model calls. The gate
-requires real coding-agent usage from **both** Runtime Lite builds; a provider
-CLI connection probe or fabricated usage is not qualified task evidence.
+the Runtime Lite compatibility guards without making model calls.
 
 ## Obtaining evidence
-
-`make runtime-credit-evidence OUT=<new directory outside the checkout>` does
-all of the steps below on the prepared release commit: it runs
-`scripts/runtime_credit_harness.py` (five pinned bug-fix tasks, each a fresh
-`claude -p` session on `claude-haiku-5-5` whose only MCP server is that
-build's `runtime lite-mcp`, checked by fixed assertions) against the last
-release tag (`BASE=` overrides it) and `HEAD`, runs the gate on the two
-manifests, and prints the two variables to export. It spends real model
-usage, about $0.10.
 
 1. Pin a repository fixture, task instructions, acceptance tests, tool policy,
    and model. Use independent verification with recorded output/artifacts.
@@ -52,11 +41,6 @@ usage, about $0.10.
    Store the two evidence manifests outside tracked source files at
    `evals/runtime-credit/baseline.json` and
    `evals/runtime-credit/current.json`.
-   The release gate runs a detached clean checkout; **give it absolute paths**
-   to these untracked manifests with `LEMONCROW_RELEASE_RUNTIME_CREDIT_BASELINE`
-   and `LEMONCROW_RELEASE_RUNTIME_CREDIT_CURRENT`. Their contents must be genuine
-   and the gate validates them against the **exact release commit SHA**; never
-   copy fabricated fixtures into the checkout.
 5. Run:
 
    ```bash
@@ -66,9 +50,8 @@ usage, about $0.10.
        --out reports/runtime-credit.json
    ```
 
-   A full `make release-gate` also invokes the check, reading the two
-   absolute paths supplied by those environment variables. Missing paths or
-   measurements block release qualification before expensive suites start.
+   A full `make release-gate` also invokes the check; a missing result
+   blocks release qualification.
 
 Each manifest must have:
 
