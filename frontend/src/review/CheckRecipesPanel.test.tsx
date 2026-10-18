@@ -12,16 +12,6 @@ const api = vi.hoisted(() => ({
 }));
 
 vi.mock("./checkRecipesApi", () => api);
-const evidenceApi = vi.hoisted(() => ({ fetchReviewEvidence: vi.fn() }));
-vi.mock("./reviewApi", async (importOriginal) => ({
-  ...await importOriginal<typeof import("./reviewApi")>(),
-  fetchReviewEvidence: evidenceApi.fetchReviewEvidence,
-}));
-const actionApi = vi.hoisted(() => ({ fetchReviewActions: vi.fn() }));
-vi.mock("./reviewActionsApi", async (importOriginal) => ({
-  ...await importOriginal<typeof import("./reviewActionsApi")>(),
-  fetchReviewActions: actionApi.fetchReviewActions,
-}));
 
 function unit(subject: string, klass: CheckUnit["class"], base: string, head: string, options: Partial<CheckUnit> = {}): CheckUnit {
   return { subject, class: klass, base, head, base_attempts: [], head_attempts: [], quarantine: "", file: "", ...options };
@@ -134,75 +124,9 @@ const RECIPES = [{ id: "unit" }, { id: "fmt" }] as CheckRecipesProjection["recip
 
 describe("CheckRecipesPanel", () => {
   beforeEach(() => {
-    evidenceApi.fetchReviewEvidence.mockReset();
-    actionApi.fetchReviewActions.mockReset();
-    actionApi.fetchReviewActions.mockResolvedValue({ revision_id: "revision-2", actions: [], catalog: [], fix_all_limit: 20 });
     api.fetchCheckRecipes.mockReset();
     api.postCheckRecipesRun.mockReset();
     api.postCheckRequest.mockReset();
-  });
-
-  it("shows only evidence-linked comparable test regressions as observations, not confirmed bugs", async () => {
-    api.fetchCheckRecipes.mockResolvedValue(projection({
-      recipes: RECIPES,
-      observed_regressions: { schema_version: 1, rows: [{
-        recipe_id: "unit", subject: "tests.test_calc::test_mul", test_path: "tests/test_calc.py",
-        differential_evidence_id: "evidence-1", executor_class: "author_machine", independent_execution: false,
-        scope: "exact_snapshot_base_vs_head", observation: "passed_on_base_failed_on_head",
-        limitation: "An observed test regression, not a confirmed code defect.",
-      }], omitted: 0 },
-    }));
-    render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
-    const failures = await screen.findByTestId("check-observed-regressions");
-    expect(failures).toHaveTextContent("Observed test regressions · 1");
-    expect(failures).toHaveTextContent("tests.test_calc::test_mul");
-    expect(failures).toHaveTextContent("not automatically a confirmed code defect");
-    expect(failures).toHaveTextContent("author machine observed");
-  });
-
-  it("opens only authenticated evidence from the exact Review and Snapshot", async () => {
-    api.fetchCheckRecipes.mockResolvedValue(projection({
-      observed_regressions: { schema_version: 1, rows: [{
-        recipe_id: "unit", subject: "tests.test_calc::test_mul", test_path: "tests/test_calc.py",
-        differential_evidence_id: "evidence-1", executor_class: "author_machine", independent_execution: false,
-        scope: "exact_snapshot_base_vs_head", observation: "passed_on_base_failed_on_head",
-        limitation: "An observed test regression, not a confirmed code defect.",
-      }], omitted: 0 },
-    }));
-    evidenceApi.fetchReviewEvidence.mockResolvedValue({ revision_id: "revision-2", evidence: [{
-      id: "evidence-1", review_id: "review-1", revision_id: "revision-2", revision_number: 2,
-      status: "current", title: "Stored differential", kind: "test_report", source: "lemoncrow",
-      path: "tests/test_calc.py", url: "", content_url: "/api/evidence/evidence-1/content", created_at: "2026-10-27T00:00:00Z",
-      content_hash: "abc", mime_type: "application/json", bytes: 100, source_ref: "check", verification_status: "FAIL", detail: ""
-    }] });
-    render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
-    const button = await screen.findByRole("button", { name: "Inspect evidence for tests.test_calc::test_mul" });
-    expect(evidenceApi.fetchReviewEvidence).not.toHaveBeenCalled();
-    await userEvent.click(button);
-    const detail = await screen.findByTestId("regression-evidence-detail");
-    expect(detail).toHaveTextContent("Stored differential");
-    expect(detail).toHaveTextContent("Snapshot 2");
-    expect(evidenceApi.fetchReviewEvidence).toHaveBeenCalledWith("review-1", "revision-2");
-    await userEvent.click(screen.getByRole("button", { name: "Inspect evidence for tests.test_calc::test_mul" }));
-    expect(screen.queryByTestId("regression-evidence-detail")).toBeNull();
-  });
-
-  it("does not show wrong-Snapshot or wrong-Review evidence as current proof", async () => {
-    api.fetchCheckRecipes.mockResolvedValue(projection({
-      observed_regressions: { schema_version: 1, rows: [{
-        recipe_id: "unit", subject: "test:checkout", test_path: "test_checkout.py", differential_evidence_id: "evidence-1",
-        executor_class: "author_machine", independent_execution: false,
-        scope: "exact_snapshot_base_vs_head", observation: "passed_on_base_failed_on_head",
-        limitation: "Observed, not confirmed",
-      }], omitted: 0 },
-    }));
-    evidenceApi.fetchReviewEvidence.mockResolvedValue({ revision_id: "revision-2", evidence: [{
-      id: "evidence-1", review_id: "review-1", revision_id: "revision-1", status: "stale", title: "Old proof"
-    }] });
-    render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
-    await userEvent.click(await screen.findByRole("button", { name: "Inspect evidence for test:checkout" }));
-    expect(await screen.findByText(/exact Snapshot evidence is unavailable/)).toBeInTheDocument();
-    expect(screen.queryByText("Old proof")).toBeNull();
   });
 
   it("raises only the deltas and counts pre-existing and quarantined results", async () => {
@@ -370,21 +294,6 @@ describe("CheckRecipesPanel", () => {
     expect(within(card).queryByTestId("check-economy")).not.toBeInTheDocument();
   });
 
-  it("renders persisted reviewer approval as sent, without a second action", async () => {
-    api.fetchCheckRecipes.mockResolvedValue(
-      projection({
-        recipes: RECIPES,
-        results: [differential({ autofix: { status: "proposed", proposal_ids: ["proposal-1"], reason: "format fix" } })],
-        approved_autofix_ids: ["proposal-1"],
-      }),
-    );
-    render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
-    const autofix = await screen.findByTestId("check-autofix");
-    expect(autofix).toHaveTextContent("Approved · ready for agent");
-    expect(within(autofix).queryByRole("button", { name: "Approve fix" })).toBeNull();
-    expect(api.postCheckRequest).not.toHaveBeenCalled();
-  });
-
   it("sends autofix proposals and proof requests to the agent as feedback", async () => {
     api.fetchCheckRecipes.mockResolvedValue(
       projection({
@@ -397,8 +306,8 @@ describe("CheckRecipesPanel", () => {
 
     const autofix = await screen.findByTestId("check-autofix");
     expect(autofix).toHaveTextContent("1 file reformatted");
-    await userEvent.click(within(autofix).getByRole("button", { name: "Approve fix" }));
-    expect(api.postCheckRequest).toHaveBeenCalledWith("review-1", "revision-2", { kind: "autofix", proposal_id: "proposal-1", approved: true });
+    await userEvent.click(within(autofix).getByRole("button", { name: "Send to agent" }));
+    expect(api.postCheckRequest).toHaveBeenCalledWith("review-1", "revision-2", { kind: "autofix", proposal_id: "proposal-1" });
 
     await userEvent.click(within(screen.getByTestId("check-adequacy")).getByRole("button", { name: "Request proof" }));
     expect(api.postCheckRequest).toHaveBeenLastCalledWith("review-1", "revision-2", {
@@ -434,134 +343,5 @@ describe("CheckRecipesPanel", () => {
     api.fetchCheckRecipes.mockRejectedValueOnce(new Error("boom"));
     render(<CheckRecipesPanel reviewId="review-1" />);
     expect(await screen.findByText("Check recipes unavailable: boom")).toBeInTheDocument();
-  });
-});
-
-describe("trusted check recommendations", () => {
-  const proposed = {
-    entry_id: "checks.test", recipe_id: "unit", title: "Checkout unit tests",
-    reason: "Planner selected impacted tests (1 recorded)", run_plan_status: "run",
-    previous_verdict: "", prior_snapshot_verdict: "", required: false, can_run_now: true, manual_authorization_required: true,
-    selection_mode: "impact" as const, selected_tests_sample: ["tests/test_checkout.py"],
-    selected_test_count: 1, coverage: "known" as const, executor: "local", recipe_digest: "sha256:123",
-  };
-
-  beforeEach(() => {
-    actionApi.fetchReviewActions.mockReset();
-    actionApi.fetchReviewActions.mockResolvedValue({ revision_id: "revision-2", actions: [], catalog: [], fix_all_limit: 20 });
-    api.fetchCheckRecipes.mockReset();
-    api.postCheckRecipesRun.mockReset();
-  });
-
-  it("links a genuinely attributed correction to a pending formatter recheck without running anything", async () => {
-    const format = {
-      ...proposed, entry_id: "checks.recipe:fmt", recipe_id: "fmt", title: "Formatter",
-      previous_verdict: "", prior_snapshot_verdict: "FAIL",
-      reason: "Previous Snapshot had FAIL; this Snapshot has no corresponding check result",
-      selection_mode: "all" as const, selected_test_count: 0, selected_tests_sample: [],
-      coverage: "not_applicable" as const,
-    };
-    api.fetchCheckRecipes.mockResolvedValue(projection({
-      recommended_checks: { schema_version: 1, previous_revision_id: "revision-1", recommendations: [format], omitted: 0, policy: "Manual only" },
-    }));
-    actionApi.fetchReviewActions.mockResolvedValue({
-      revision_id: "revision-2", catalog: [], fix_all_limit: 20,
-      actions: [{ kind: "fix", status: "snapshot_recorded", result_certainty: "exact",
-        source_revision_id: "revision-1", resulting_revision_id: "revision-2",
-        subjects: [{ kind: "approved_autofix", title: "Approved formatter correction · fmt" }] }],
-    });
-    api.postCheckRecipesRun.mockResolvedValue({ entry_id: "checks.recipe:fmt", revision_id: "revision-2", verdicts: { "checks.recipe:fmt": "PASS" }, executions: 1, reused: 0 });
-    render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
-    const notice = await screen.findByTestId("agent-correction-recheck");
-    expect(notice).toHaveTextContent("Agent correction captured · fresh verification pending");
-    expect(notice).toHaveTextContent("Approved formatter correction · fmt");
-    expect(api.postCheckRecipesRun).not.toHaveBeenCalled();
-    await userEvent.click(within(await screen.findByTestId("check-recommendations")).getByRole("button", { name: "Reverify fresh" }));
-    expect(api.postCheckRecipesRun).toHaveBeenCalledWith("review-1", "revision-2", "checks.recipe:fmt", false, "revision-1");
-  });
-
-  it("does not attribute correction when provenance is missing, unverifiable or from another Snapshot", async () => {
-    api.fetchCheckRecipes.mockResolvedValue(projection({
-      recommended_checks: { schema_version: 1, previous_revision_id: "revision-1", recommendations: [{ ...proposed, prior_snapshot_verdict: "FAIL" }], omitted: 0, policy: "Manual only" },
-    }));
-    actionApi.fetchReviewActions.mockResolvedValue({
-      revision_id: "revision-2", catalog: [], fix_all_limit: 20,
-      actions: [{ kind: "fix", status: "snapshot_recorded", result_certainty: "unattributed",
-        source_revision_id: "revision-1", resulting_revision_id: "revision-2",
-        subjects: [{ kind: "approved_autofix", title: "Unattributed" }] }],
-    });
-    const mounted = render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
-    await screen.findByTestId("check-recommendations");
-    await waitFor(() => expect(actionApi.fetchReviewActions).toHaveBeenCalled());
-    expect(screen.queryByTestId("agent-correction-recheck")).toBeNull();
-    mounted.unmount();
-    actionApi.fetchReviewActions.mockRejectedValue(new Error("no auth"));
-    render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
-    await screen.findByTestId("check-recommendations");
-    expect(screen.queryByTestId("agent-correction-recheck")).toBeNull();
-    expect(api.postCheckRecipesRun).not.toHaveBeenCalled();
-  });
-
-  it("offers one explicit user action for a trusted planned check", async () => {
-    api.fetchCheckRecipes.mockResolvedValue(projection({
-      recipes: RECIPES,
-      recommended_checks: { schema_version: 1, recommendations: [proposed], omitted: 0, policy: "Manual only" },
-    }));
-    api.postCheckRecipesRun.mockResolvedValue({
-      entry_id: "checks.test", revision_id: "revision-2", verdicts: { "checks.test": "PASS" },
-      executions: 1, reused: 0, notes: [], executor_class: "author_machine", run_on: "local",
-    });
-    render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
-    const suggestions = await screen.findByTestId("check-recommendations");
-    expect(suggestions).toHaveTextContent("Suggested verification");
-    expect(suggestions).toHaveTextContent("tests/test_checkout.py");
-    expect(api.postCheckRecipesRun).not.toHaveBeenCalled();
-    await userEvent.click(within(suggestions).getByRole("button", { name: "Run check" }));
-    expect(api.postCheckRecipesRun).toHaveBeenCalledWith("review-1", "revision-2", "checks.test", false);
-  });
-
-  it("re-verifies a previous Snapshot failure with an explicit fresh, source-bound run", async () => {
-    api.fetchCheckRecipes.mockResolvedValue(projection({
-      recipes: RECIPES,
-      recommended_checks: {
-        schema_version: 1, previous_revision_id: "revision-1",
-        recommendations: [{
-          ...proposed, previous_verdict: "", prior_snapshot_verdict: "FAIL",
-          reason: "Previous Snapshot had FAIL; this Snapshot has no corresponding check result",
-        }], omitted: 0, policy: "Manual only",
-      },
-    }));
-    api.postCheckRecipesRun.mockResolvedValue({
-      entry_id: "checks.test", revision_id: "revision-2", verdicts: { "checks.test": "PASS" },
-      executions: 1, reused: 0, notes: [], executor_class: "author_machine", run_on: "local",
-    });
-    render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
-    const suggestions = await screen.findByTestId("check-recommendations");
-    expect(suggestions).toHaveTextContent("Previous Snapshot had FAIL");
-    expect(api.postCheckRecipesRun).not.toHaveBeenCalled();
-    await userEvent.click(within(suggestions).getByRole("button", { name: "Reverify fresh" }));
-    expect(api.postCheckRecipesRun).toHaveBeenCalledWith(
-      "review-1", "revision-2", "checks.test", false, "revision-1",
-    );
-  });
-
-  it("does not execute a recommendation blocked by the effective plan or in a historical Review", async () => {
-    api.fetchCheckRecipes.mockResolvedValue(projection({
-      recipes: RECIPES,
-      recommended_checks: {
-        schema_version: 1,
-        recommendations: [{ ...proposed, can_run_now: false, run_plan_status: "not_available", previous_verdict: "FAIL", reason: "Previous execution FAIL; inspect before retrying" }],
-        omitted: 0, policy: "Manual only",
-      },
-    }));
-    const mounted = render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" />);
-    const suggestions = await screen.findByTestId("check-recommendations");
-    expect(suggestions).toHaveTextContent("Previous execution FAIL");
-    expect(within(suggestions).queryByRole("button", { name: "Run check" })).toBeNull();
-    mounted.unmount();
-    render(<CheckRecipesPanel reviewId="review-1" revisionId="revision-2" readOnly />);
-    const readOnlySuggestions = await screen.findByTestId("check-recommendations");
-    expect(within(readOnlySuggestions).queryByRole("button", { name: "Run check" })).toBeNull();
-    expect(api.postCheckRecipesRun).not.toHaveBeenCalled();
   });
 });

@@ -840,9 +840,7 @@ class LocalServerApp(CoreServerRoutes):
                 return 201, await self._in_worker(self._review_capture_sync, principal, repo_id, assembled, report)
 
             job_id = self.review_capture_jobs.submit(owner, run, progress=progress)
-            # A small capture often finishes in <250ms. Do not impose a fixed
-            # one-second delay before the first readiness check.
-            return json_response({"job_id": job_id, "state": "running", "poll_after_s": 0.1}, status=202)
+            return json_response({"job_id": job_id, "state": "running", "poll_after_s": 1.0}, status=202)
         captured = await self._in_worker(self._review_capture_sync, principal, repo_id, assembled)
         return json_response(captured, status=201)
 
@@ -852,9 +850,7 @@ class LocalServerApp(CoreServerRoutes):
         job_id = validate_opaque_id(request.match_info["job_id"], "job_id")
         state, status, payload = self.review_capture_jobs.get((principal.org_id, principal.subject, repo_id), job_id)
         if state == "running":
-            return json_response(
-                {"job_id": job_id, "state": "running", "poll_after_s": 0.25, "progress": dict(payload)}
-            )
+            return json_response({"job_id": job_id, "state": "running", "poll_after_s": 1.0, "progress": dict(payload)})
         if state == "done":
             return json_response({"job_id": job_id, "state": "done", "result": payload})
         return json_response({"job_id": job_id, "state": "failed", "error": payload, "status": status})
@@ -1849,8 +1845,6 @@ class LocalServerApp(CoreServerRoutes):
                 app.add_routes(
                     [
                         web.get("/home", ui),
-                        web.get("/activity", ui),
-                        web.get("/activity/{tail:.*}", ui),
                         web.get("/runs", ui),
                         web.get("/runs/{tail:.*}", ui),
                         web.get("/code", ui),

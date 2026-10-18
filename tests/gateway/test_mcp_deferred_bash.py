@@ -10,9 +10,7 @@ touch real stdout.
 from __future__ import annotations
 
 import json
-import os
 import shlex
-import signal
 import sys
 import threading
 import time
@@ -425,7 +423,6 @@ def test_mailman_style_self_daemonizing_process_via_mcp_tool(bash_env: Path, tmp
     commands run after it. Exercised through the real MCP tool (not just
     bash_exec directly) since that's the actual path the agent hits."""
     daemon_script = tmp_path / "daemonize.py"
-    daemon_pid = tmp_path / "daemon.pid"
     daemon_script.write_text(
         "import os, sys, time\n"
         "if os.fork() > 0:\n"
@@ -433,7 +430,6 @@ def test_mailman_style_self_daemonizing_process_via_mcp_tool(bash_env: Path, tmp
         "os.setsid()\n"
         "if os.fork() > 0:\n"
         "    sys.exit(0)\n"
-        f"open({str(daemon_pid)!r}, 'w').write(str(os.getpid()))\n"
         # A real daemon (mailman's included) redirects its fds away from
         # whatever piped it here before settling in -- otherwise the pipe this
         # ran through (here: `| head -5`) never sees EOF. Skipping this step
@@ -462,11 +458,6 @@ def test_mailman_style_self_daemonizing_process_via_mcp_tool(bash_env: Path, tmp
         elapsed = time.monotonic() - start
     finally:
         mcp_server._deferral_context.active = False
-        if daemon_pid.exists():
-            try:
-                os.kill(int(daemon_pid.read_text(encoding="utf-8")), signal.SIGTERM)
-            except (ProcessLookupError, ValueError):
-                pass
 
     assert elapsed < 10.0  # did not hang past the bound
     assert "mailman-style-ok" in str(result.get("stdout"))

@@ -30,12 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final, Literal, cast
 
-from lemoncrow.pro.capabilities.review.ai_review import (
-    DEDUPE_SCHEMA,
-    HYPOTHESIS_SCHEMA,
-    INVESTIGATION_SCHEMA,
-    PR_INVESTIGATION_SCHEMA,
-)
+from lemoncrow.pro.capabilities.review.ai_review import DEDUPE_SCHEMA, HYPOTHESIS_SCHEMA, INVESTIGATION_SCHEMA
 from lemoncrow.pro.capabilities.review.evaluation.corpus import EvalCase, canonical_json, digest
 from lemoncrow.pro.capabilities.review.intelligence_runtime import ModelCallUsage, StructuredExecution
 
@@ -57,7 +52,6 @@ def schema_digest(schema: Mapping[str, Any]) -> str:
 STAGE_BY_SCHEMA: Final[Mapping[str, Stage]] = {
     schema_digest(HYPOTHESIS_SCHEMA): "hypothesis_generation",
     schema_digest(INVESTIGATION_SCHEMA): "finding_investigation",
-    schema_digest(PR_INVESTIGATION_SCHEMA): "finding_investigation",
     schema_digest(DEDUPE_SCHEMA): "finding_dedupe",
 }
 #: Which catalog entry a stage's model call is spent on (per-entry cost attribution).

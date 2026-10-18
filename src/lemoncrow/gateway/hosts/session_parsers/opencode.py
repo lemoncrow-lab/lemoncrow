@@ -9,7 +9,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import sqlite3
 import time
 from dataclasses import replace
@@ -68,16 +67,7 @@ def _is_file_write_tool(name: str) -> bool:
 
 def find_opencode_sessions(db_path: Path | None = None) -> list[dict[str, Any]]:
     if db_path is None:
-        override = os.environ.get("OPENCODE_DB")
-        if override and override != ":memory:":
-            supplied = Path(override).expanduser()
-            db_path = (
-                supplied
-                if supplied.is_absolute()
-                else Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "opencode" / supplied
-            )
-        else:
-            db_path = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "opencode/opencode.db"
+        db_path = Path.home() / ".local/share/opencode/opencode.db"
 
     if not db_path.exists():
         return []
@@ -87,28 +77,7 @@ def find_opencode_sessions(db_path: Path | None = None) -> list[dict[str, Any]]:
         conn = sqlite3.connect(uri, uri=True)
         conn.row_factory = sqlite3.Row
         try:
-            names = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            out: list[dict[str, Any]] = []
-            # V2 writes session_v2/session_message, not V1 session/message/part.
-            # Read V2 first and keep legacy sessions for users who upgrade.
-            for table, version in (("session_v2", 2), ("session", 1)):
-                if table not in names:
-                    continue
-                for row in conn.execute(f"SELECT * FROM {table} ORDER BY time_created DESC"):
-                    item = dict(row)
-                    item["_lemoncrow_schema"] = version
-                    out.append(item)
-            # V2 takes precedence if an ID is present in both schemas.
-            seen: set[str] = set()
-            unique: list[dict[str, Any]] = []
-            for row in out:
-                key = str(row["id"])
-                if key not in seen:
-                    unique.append(row)
-                    seen.add(key)
-            return sorted(
-                unique, key=lambda item: item.get("time_updated") or item.get("time_created") or 0, reverse=True
-            )
+            return [dict(row) for row in conn.execute("SELECT * FROM session ORDER BY time_created DESC").fetchall()]
         finally:
             conn.close()
     except sqlite3.Error:
@@ -158,76 +127,8 @@ def serialize_opencode_session_capped(session_id: str, db_path: Path, *, source:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
 
-        names = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        if "session_v2" in names and conn.execute("SELECT 1 FROM session_v2 WHERE id = ?", (session_id,)).fetchone():
-            if "session_message" not in names:
-                raise sqlite3.DatabaseError("OpenCode V2 session_message table is absent")
-            rows_v2 = conn.execute(
-                "SELECT * FROM session_message WHERE session_id = ? ORDER BY seq, time_created",
-                (session_id,),
-            )
-            for row in rows_v2:
-                try:
-                    data = json.loads(row["data"] or "{}")
-                except (TypeError, json.JSONDecodeError):
-                    data = {}
-                if not isinstance(data, dict):
-                    data = {"content": str(data)}
-                # Store the exact V2 projection for audit/replay, with a
-                # normalized message+part projection understood by V1 parsers.
-                add({"_type": "v2_message", "id": row["id"], "timestamp": row["time_created"], "data": data})
-                role = str(data.get("role") or (row["type"] if row["type"] in ("user", "assistant") else ""))
-                raw_info = data.get("info")
-                info = raw_info if isinstance(raw_info, dict) else data
-                if role in ("user", "assistant"):
-                    add(
-                        {
-                            "_type": "message",
-                            "id": row["id"],
-                            "timestamp": row["time_created"],
-                            "data": {"role": role, **info},
-                        }
-                    )
-                parts = data.get("parts") or data.get("content") or data.get("text")
-                if not parts and data.get("type") in ("tool", "reasoning", "step-finish"):
-                    parts = [data]
-                if isinstance(parts, str) and parts.strip():
-                    parts = [{"type": "text", "text": parts}]
-                if isinstance(parts, list):
-                    for i, part in enumerate(parts):
-                        if isinstance(part, dict):
-                            add(
-                                {
-                                    "_type": "part",
-                                    "id": f"{row['id']}:part:{i}",
-                                    "timestamp": row["time_created"],
-                                    "role": role,
-                                    "data": part,
-                                }
-                            )
-                if role == "assistant":
-                    usage = info.get("usage")
-                    tokens = info.get("tokens") or (usage.get("tokens") if isinstance(usage, dict) else None) or {}
-                    if tokens:
-                        add(
-                            {
-                                "_type": "part",
-                                "id": f"{row['id']}:usage",
-                                "timestamp": row["time_created"],
-                                "role": role,
-                                "data": {"type": "step-finish", "tokens": tokens},
-                            }
-                        )
-            conn.close()
-            result = truncate_serialized_session("\n".join(lines), source=source, session_id=session_id)
-            return replace(
-                result,
-                sha256_original=hasher.hexdigest(),
-                byte_count_original=original_bytes,
-                truncated=result.truncated or record_truncated,
-            )
-
-        # V1: Interleave messages and parts by time_created.
+        # Interleave messages and parts by time_created
+        # We use a UNION to get a combined stream of events
         sql = """
             SELECT 'message' as etype, id, data, time_created, NULL as role
             FROM message
@@ -300,12 +201,7 @@ class OpenCodeImporter:
         self.store = store
 
     def _default_db_path(self) -> Path:
-        override = os.environ.get("OPENCODE_DB")
-        root = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "opencode"
-        if override and override != ":memory:":
-            path = Path(override).expanduser()
-            return path if path.is_absolute() else root / path
-        return root / "opencode.db"
+        return Path.home() / ".local/share/opencode/opencode.db"
 
     def import_all(self, db_path: Path | None = None, *, force: bool = False, limit: int | None = None) -> list[str]:
         resolved_db_path = db_path or self._default_db_path()
@@ -463,11 +359,7 @@ class OpenCodeImporter:
             if etype == "message":
                 if data.get("role") == "assistant":
                     mid = data.get("modelID") or data.get("model")
-                    if isinstance(mid, dict):
-                        mid = mid.get("id") or mid.get("modelID")
-                    pid = data.get("providerID") or (
-                        (data.get("model") or {}).get("providerID") if isinstance(data.get("model"), dict) else None
-                    )
+                    pid = data.get("providerID")
                     if mid:
                         model_seen = f"{pid}/{mid}" if pid else str(mid)
 

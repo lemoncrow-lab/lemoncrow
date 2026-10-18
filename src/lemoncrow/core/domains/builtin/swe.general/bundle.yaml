@@ -4,7 +4,7 @@ description: >
   General-purpose reasoning blocks, rubrics, and prompts for software
   engineering workflows. Improves plan quality and failure recovery
   across code generation, debugging, and refactoring tasks.
-author: LemonCrow
+author: Beseam
 
 playbooks: []
 

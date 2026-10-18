@@ -99,7 +99,6 @@ SubjectKind = Literal[
     "behavior_target",
     "check",
     "proposal",
-    "approved_autofix",
     "change",
     "production_outcome",
     "unknown",
@@ -164,7 +163,7 @@ _TITLE_LIMIT: Final[int] = 160
 
 _FIX_SUBJECTS: Final[frozenset[str]] = frozenset({"ai_finding", "deterministic_finding", "behavior_target"})
 KIND_SUBJECTS: Final[Mapping[str, frozenset[str]]] = {
-    "fix": _FIX_SUBJECTS | {"approved_autofix"},
+    "fix": _FIX_SUBJECTS,
     "fix_all": _FIX_SUBJECTS,
     "fix_ci_failure": frozenset({"check"}),
     "update_tests": frozenset({"ai_finding", "deterministic_finding", "behavior_target", "change"}),
@@ -211,7 +210,7 @@ KIND_DIRECTIVES: Final[Mapping[str, str]] = {
         "behavior to make a test pass."
     ),
     "resolve_merge_conflicts": (
-        "Resolve the merge conflicts between this Change and its target branch, preserving the intent of both sides."
+        "Resolve the merge conflicts between this Change and its target branch, preserving the intent " "of both sides."
     ),
     "revert": (
         "This Change is already merged and production showed the problems described below. Open a new Change "

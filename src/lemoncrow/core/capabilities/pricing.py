@@ -449,40 +449,6 @@ class ModelPricing:
             8,
         )
 
-    def call_cost_usd(
-        self,
-        *,
-        prompt_tokens: int,
-        output_tokens: int,
-        cache_read_tokens: int = 0,
-        cache_write_tokens: int = 0,
-    ) -> float:
-        """One request's cost from the counts a model route reports for it.
-
-        ``prompt_tokens`` is the whole prompt, the cached part included (the OpenAI and LiteLLM ``prompt_tokens``);
-        ``cache_read_tokens`` and ``cache_write_tokens`` are the parts of it read from or written to the cache, and are
-        billed at their own rates, not again as input. A model with a long-context tier bills the whole request at the
-        premium rates once its prompt passes the threshold (:meth:`request_cost_usd`), cached tokens counted toward
-        that length. A cache rate the table leaves at zero is no discount, not a free token: those tokens bill as
-        plain input.
-        """
-
-        read, written = max(cache_read_tokens, 0), max(cache_write_tokens, 0)
-        prompt = max(prompt_tokens, read + written)
-        fresh = prompt - read - written
-        if self.cache_read <= 0:
-            fresh, read = fresh + read, 0
-        if self.cache_write <= 0:
-            fresh, written = fresh + written, 0
-        threshold = self.long_context_threshold()
-        return self.request_cost_usd(
-            input_tokens=fresh,
-            output_tokens=max(output_tokens, 0),
-            cache_read_tokens=read,
-            cache_write_tokens=written,
-            long_context=threshold > 0 and prompt > threshold,
-        )
-
     def tokens_to_usd(
         self,
         tokens: int,
@@ -850,14 +816,6 @@ def get_model_pricing(model_id: str) -> ModelPricing:
             _pricing_memo.clear()
         _pricing_memo[model_id] = pricing
     return pricing
-
-
-def exact_model_pricing(model_id: str) -> ModelPricing | None:
-    """The table's own entry for *model_id*, or ``None``: an unlisted id is never priced as its nearest sibling."""
-    if not model_id:
-        return None
-    pricing = get_model_pricing(model_id)
-    return pricing if pricing.known and not pricing.approximate else None
 
 
 def _resolve_model_pricing(model_id: str, table: dict[str, dict[str, float | tuple[PricingTier, ...]]]) -> ModelPricing:

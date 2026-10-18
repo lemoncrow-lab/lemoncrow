@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ArrowRight, Code2, Sparkles, X } from "lucide-react";
 
-import { Badge } from "../components/ui/badge";
 import { Button as UiButton } from "../components/ui/button";
 import type { ReviewSynthesisStatus, ReviewTarget, ReviewTourProjection } from "./types";
 
@@ -160,10 +159,10 @@ export default function ReviewTour({
     <div className="mx-auto flex w-full max-w-3xl flex-col px-4 py-4" data-testid="review-tour" data-guided-cohort={step.semantic_key}>
       <header className="mb-4 flex flex-wrap items-center gap-2 border-b border-border/70 pb-3">
         <div className="min-w-0 flex-1">
-          <div className="text-ui font-semibold text-foreground">
+          <div className="text-caption font-medium text-neutral-200">
             {"Guided review · step " + (boundedIndex + 1) + "/" + tour.steps.length}
           </div>
-          <div className="text-meta text-muted-foreground">{statusText(tour.synthesis)}</div>
+          <div className="text-micro text-muted-foreground">{statusText(tour.synthesis)}</div>
         </div>
         <UiButton variant="ghost" size="compact" type="button" onClick={onBackToBrief}>
           <ArrowLeft className="size-3.5" aria-hidden="true" />
@@ -178,53 +177,45 @@ export default function ReviewTour({
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-title font-semibold text-foreground">{step.title}</h2>
-            {step.change_type !== "current" && <Badge>{step.change_type}</Badge>}
-            {step.stale && <Badge tone="p1">stale reference</Badge>}
+            {step.change_type !== "current" && <span className="rounded border border-border/80 px-1.5 py-0.5 text-micro uppercase tracking-wide text-muted-foreground">{step.change_type}</span>}
+            {step.stale && <span className="rounded border border-amber-800/60 px-1.5 py-0.5 text-micro uppercase tracking-wide text-amber-300">stale reference</span>}
           </div>
-          <p className="mt-1 max-w-prose text-body leading-relaxed text-foreground">{step.why}</p>
-          {step.why_origin === "inferred" && <p className="mt-1 text-caption text-muted-foreground">AI wording · exact targets retained</p>}
+          <p className="mt-1 max-w-prose text-body leading-relaxed text-neutral-200">{step.why}</p>
+          {step.why_origin === "inferred" && <p className="mt-1 text-micro text-muted-foreground">AI wording · exact targets retained</p>}
         </div>
 
         {step.decision_refs.length > 0 && (
-          <div className="text-meta text-p1">{"Human decision: " + step.decision_refs.join(", ")}</div>
+          <div className="text-caption text-amber-200">{"Human decision: " + step.decision_refs.join(", ")}</div>
         )}
         {step.evidence_refs.length > 0 && (
-          <div className="rounded-md border border-border px-2.5 py-2">
-            <div className="mb-1 font-mono text-tag uppercase text-muted-foreground">Evidence</div>
+          <div className="rounded-md border border-border/80 px-2.5 py-2">
+            <div className="mb-1 text-micro font-semibold uppercase tracking-wide text-muted-foreground">Evidence</div>
             {step.evidence_refs.map((evidence) => (
               <div key={evidence.claim_id + ":" + evidence.key + ":" + evidence.state} className="flex flex-wrap gap-x-2 text-caption">
-                <span className="font-mono text-subtle">{evidence.title || evidence.key}</span>
-                <span className={evidence.status === "FAIL" ? "text-p0" : "text-muted-foreground"}>{evidence.status}</span>
-                {evidence.state === "stale" && <span className="text-p1">earlier Snapshot</span>}
+                <span className="font-mono text-neutral-300">{evidence.title || evidence.key}</span>
+                <span className={evidence.status === "FAIL" ? "text-rose-300" : "text-neutral-400"}>{evidence.status}</span>
+                {evidence.state === "stale" && <span className="text-amber-300">earlier Snapshot</span>}
               </div>
             ))}
           </div>
         )}
 
-        {(currentTargets.length > 0 || step.stale_target_ids.length > 0) && (
-          <div className="hunk">
-            <div className="hunk-head">
-              <span className="hunk-label">Targets · {currentTargets.length + step.stale_target_ids.length}</span>
-            </div>
-            <div className="max-h-[min(50vh,28rem)] overflow-y-auto">
-              {currentTargets.map((target) => (
-                <UiButton
-                  key={target.target_id}
-                  unstyled
-                  type="button"
-                  className="flex min-h-8 w-full items-center gap-2 border-b border-border px-3 text-left font-mono text-label text-foreground transition-colors duration-fast last:border-b-0 hover:bg-accent/40"
-                  onClick={() => onOpenTarget(target.target_id)}
-                >
-                  <span className="min-w-0 flex-1 truncate">{target.symbol ? target.path + " · " + target.symbol : target.path}</span>
-                  <ArrowRight className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                </UiButton>
-              ))}
-              {step.stale_target_ids.map((targetId) => (
-                <div key={targetId} className="min-h-8 border-b border-border px-3 py-1.5 font-mono text-label text-p1 last:border-b-0">{targetId + " · no longer maps to a current target"}</div>
-              ))}
-            </div>
-          </div>
-        )}
+        <div className="flex flex-col gap-1">
+          {currentTargets.map((target) => (
+            <UiButton
+              key={target.target_id}
+              unstyled
+              type="button"
+              className="self-start break-all text-left font-mono text-caption text-sky-300/90 hover:text-sky-200 hover:underline"
+              onClick={() => onOpenTarget(target.target_id)}
+            >
+              {target.symbol ? target.path + " · " + target.symbol : target.path}
+            </UiButton>
+          ))}
+          {step.stale_target_ids.map((targetId) => (
+            <div key={targetId} className="font-mono text-caption text-amber-300/80">{targetId + " · no longer maps to a current target"}</div>
+          ))}
+        </div>
 
         <div className="flex flex-wrap items-center gap-1.5 border-t border-border/70 pt-3">
           <UiButton variant="ghost" size="compact" type="button" disabled={boundedIndex === 0} onClick={() => moveTo(boundedIndex - 1)}>
@@ -237,7 +228,7 @@ export default function ReviewTour({
           </UiButton>
           <span className="flex-1" />
           {step.implementation?.target_id && (
-            <UiButton variant="outline" size="compact" type="button" onClick={() => onOpenTarget(step.implementation!.target_id)}>
+            <UiButton variant="default" size="compact" type="button" onClick={() => onOpenTarget(step.implementation!.target_id)}>
               <Code2 className="size-3.5" aria-hidden="true" />
               Open code
             </UiButton>
@@ -252,7 +243,7 @@ export default function ReviewTour({
             </UiButton>
           )}
         </div>
-        {failure && <div role="alert" className="text-meta text-p0">{failure}</div>}
+        {failure && <div role="alert" className="text-caption text-rose-300">{failure}</div>}
       </article>
 
       <footer className="mt-6 border-t border-border/70 pt-3 text-caption text-muted-foreground">

@@ -13,9 +13,9 @@ import {
 } from "./staticFindingsApi";
 
 const SEVERITY_TONE: Record<string, string> = {
-  p0: "text-red-300",
+  p0: "text-rose-300",
   p1: "text-amber-300",
-  p2: "text-cyan-300",
+  p2: "text-sky-300",
   suggestion: "text-muted-foreground",
 };
 
@@ -56,14 +56,14 @@ function FindingRow({
         <span className={`text-caption ${SEVERITY_TONE[finding.severity] ?? "text-muted-foreground"}`}>
           {finding.severity_label}
         </span>
-        <span className="min-w-0 flex-1 truncate font-mono text-micro text-foreground" title={finding.rule_id}>
+        <span className="min-w-0 flex-1 truncate font-mono text-micro text-neutral-200" title={finding.rule_id}>
           {finding.tool} · {finding.rule_id || "(no rule id)"}
         </span>
         <span className="font-mono text-micro text-muted-foreground">{lines(finding)}</span>
       </div>
       {/* Producer text is data: rendered as text, never as markup. */}
       {finding.message && (
-        <div className="whitespace-pre-wrap break-words text-micro leading-relaxed text-subtle">
+        <div className="whitespace-pre-wrap break-words text-micro leading-relaxed text-neutral-300">
           {finding.message}
           {finding.message_truncated && <span className="text-muted-foreground"> … (cut)</span>}
         </div>
@@ -131,7 +131,7 @@ function ChainRow({ chain }: { chain: StaticFindingChain }) {
     <div className="border-t border-border/60 py-1.5 first:border-t-0" data-testid={`static-chain-${chain.id}`}>
       <div className="flex items-baseline gap-2">
         <span className={`text-caption ${SEVERITY_TONE[chain.severity] ?? "text-muted-foreground"}`}>{chain.severity_label}</span>
-        <span className="min-w-0 flex-1 truncate text-label text-foreground">{chain.title}</span>
+        <span className="min-w-0 flex-1 truncate text-label text-neutral-200">{chain.title}</span>
         <span className="text-micro text-muted-foreground">
           {chain.members.length} findings · {chain.edges.length} links
         </span>
@@ -140,7 +140,7 @@ function ChainRow({ chain }: { chain: StaticFindingChain }) {
         {chain.members.map((member) => `${member.tool} ${member.rule_id} L${member.start_line}`).join(" → ")}
       </div>
       <details>
-        <summary className="cursor-pointer text-meta text-muted-foreground">Why this chain</summary>
+        <summary className="cursor-pointer text-micro text-muted-foreground">Why this chain</summary>
         <ul className="mt-1 space-y-0.5">
           {chain.explanation.map((line) => (
             <li key={line} className="text-micro leading-relaxed text-muted-foreground">
@@ -254,17 +254,17 @@ export default function StaticFindingsPanel({
           <div>
             {surfaced.map(row)}
             {below.length > 0 && (
-              <details data-testid="static-findings-below-threshold" className="py-1 text-meta text-muted-foreground">
+              <details data-testid="static-findings-below-threshold" className="py-1 text-caption text-muted-foreground">
                 <summary className="cursor-pointer select-none">{below.length} below threshold</summary>
                 {below.map(row)}
               </details>
             )}
           </div>
         )}
-        {actionError && <div className="text-micro text-red-300">{actionError}</div>}
+        {actionError && <div className="text-micro text-rose-300">{actionError}</div>}
         {stale.length > 0 && (
           <details data-testid="static-findings-stale">
-            <summary className="cursor-pointer text-meta uppercase tracking-wider text-muted-foreground">
+            <summary className="cursor-pointer text-micro uppercase tracking-wider text-muted-foreground">
               Earlier Snapshots · {stale.length}
             </summary>
             {stale.map((finding) => (

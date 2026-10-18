@@ -29,24 +29,24 @@ function ResultPane({ label, result }: { label: string; result?: ReviewSurfaceRu
   const tone = result.status === "passed"
     ? "text-emerald-300"
     : result.status === "failed"
-      ? "text-red-300"
+      ? "text-rose-300"
       : "text-amber-300";
   const services = Array.isArray(result.data?.services) ? result.data.services.map(String) : [];
   return (
     <div className="min-h-28 border border-border bg-background">
       <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-caption">
-        <span className="font-mono uppercase tracking-tag text-muted-foreground">{label}</span>
+        <span className="font-mono uppercase tracking-[0.12em] text-muted-foreground">{label}</span>
         <span className={tone}>{result.status}</span>
         <span className="ml-auto font-mono text-muted-foreground">{result.duration_ms} ms</span>
       </div>
-      <div className="px-3 py-2 text-caption text-muted-foreground">{result.summary}</div>
+      <div className="px-3 py-2 text-caption text-neutral-400">{result.summary}</div>
       {services.length > 0 && (
-        <div className="border-t border-border px-3 py-2 font-mono text-caption text-muted-foreground">
+        <div className="border-t border-neutral-900 px-3 py-2 font-mono text-caption text-muted-foreground">
           {services.join(" · ")}
         </div>
       )}
       {result.output && (
-        <pre className="max-h-52 overflow-auto whitespace-pre-wrap border-t border-border p-3 font-mono text-caption leading-4 text-muted-foreground">
+        <pre className="max-h-52 overflow-auto whitespace-pre-wrap border-t border-neutral-900 p-3 font-mono text-caption leading-4 text-neutral-400">
           {result.output}
         </pre>
       )}
@@ -74,9 +74,9 @@ export default function ServiceReviewPreview({
       onFocusCapture={onActivate}
       data-active={active ? "true" : "false"}
     >
-      <div className="review-service-preview-heading mb-3 flex items-center gap-3 border-b border-border pb-2.5">
+      <div className="review-service-preview-heading mb-3 flex items-center gap-3 border-b border-neutral-900 pb-2.5">
         <div className="min-w-0 flex-1">
-          <div className="font-mono text-label text-foreground">{serviceName(surface)}</div>
+          <div className="font-mono text-label text-neutral-200">{serviceName(surface)}</div>
           <div className="mt-1 text-caption text-muted-foreground">
             {surface.runtime ? `runtime ${surface.runtime}` : "no runtime bound"}{run?.new?.runner || run?.old?.runner ? ` · ${runner}` : ""}
           </div>
@@ -100,7 +100,7 @@ export default function ServiceReviewPreview({
       {run?.error && (
         <div className={`review-surface-run-message mb-3 border px-3 py-2 text-caption ${unavailableRunner
           ? "border-amber-900/55 bg-amber-950/10 text-amber-300"
-          : "border-red-950 bg-red-950/10 text-red-300"}`}>
+          : "border-rose-950 bg-rose-950/10 text-rose-300"}`}>
           {unavailableRunner ? unavailableRunnerMessage() : run.error}
         </div>
       )}

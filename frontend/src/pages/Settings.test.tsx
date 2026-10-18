@@ -124,7 +124,7 @@ describe("Settings AI & background", () => {
       method: "PUT",
       body: JSON.stringify({ settings: saved.preferences }),
     }));
-    expect(await screen.findByText(/AI settings saved/)).toBeInTheDocument();
+    expect(await screen.findByText(/Saved to this machine/)).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Provider" })).toHaveAttribute("data-value", "claude");
     expect(screen.getByTestId("intelligence-edit-source")).not.toHaveTextContent("Read-only here");
   });

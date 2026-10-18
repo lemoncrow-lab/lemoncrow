@@ -10,36 +10,33 @@ import {
 import { cn } from "../../lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./tooltip";
 
-/**
- * One recipe, named variants. `brand` (lemon) is the single primary action of a view: use it at most
- * once per screen. `solid` is the ink button for a strong but secondary action; `outline` is the
- * standard control; `ghost` and `link` are quiet. Sizes keep the dense control heights (28/32px).
- */
 export const buttonVariants = cva(
-  "inline-flex shrink-0 select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-md border font-semibold transition-colors duration-fast active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 pointer-coarse:min-h-11",
+  "inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border bg-transparent font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 aria-disabled:cursor-not-allowed aria-disabled:opacity-40 pointer-coarse:min-h-11",
   {
     variants: {
       variant: {
-        /** The one primary call to action of a view. */
-        brand: "border-brand-border bg-brand text-brand-foreground hover:bg-brand-hover",
-        /** Ink fill: a strong secondary action (never two next to each other). */
-        solid: "border-primary bg-primary text-primary-foreground hover:bg-primary/90",
-        /** @deprecated The old filled primary, kept as an alias of `solid` because the hosted app still passes it. The UI guard rejects it in this tree. */
-        default: "border-primary bg-primary text-primary-foreground hover:bg-primary/90",
-        /** Standard bordered control (the default). */
-        outline: "border-input bg-transparent text-foreground hover:bg-accent",
-        /** Quiet control that gains a surface on hover (icon and row actions). */
-        ghost: "border-transparent bg-transparent font-medium text-subtle hover:bg-accent hover:text-foreground",
-        link: "h-auto border-transparent p-0 font-medium text-foreground underline decoration-foreground/40 underline-offset-4 hover:decoration-foreground",
-        destructive: "border-p0-line bg-p0-bg text-p0 hover:bg-p0-bg/70",
-        warning: "border-p1-line bg-p1-bg text-p1 hover:bg-p1-bg/70",
-        success: "border-ok-line bg-ok-bg text-ok hover:bg-ok-bg/70",
+        /** Primary call to action (Review toolbar primary). */
+        default:
+          "border-neutral-200 bg-primary font-semibold text-primary-foreground hover:bg-neutral-200",
+        /** Standard bordered control (Review toolbar button). */
+        outline:
+          "border-border/80 bg-secondary/55 text-secondary-foreground hover:bg-accent/80 hover:text-accent-foreground",
+        /** Quiet control that gains a surface on hover (Review icon / compact actions). */
+        ghost:
+          "border-transparent text-neutral-400 hover:bg-accent/50 hover:text-accent-foreground",
+        link: "border-transparent text-neutral-400 hover:text-neutral-300",
+        destructive:
+          "border-red-700 text-destructive-foreground hover:bg-destructive/10 hover:text-red-100",
+        warning:
+          "border-warning/60 text-warning-foreground hover:bg-warning/10 hover:text-amber-100",
+        success:
+          "border-emerald-700 text-success-foreground hover:bg-success/10 hover:text-emerald-100",
       },
       size: {
-        xs: "h-7 px-2 text-meta",
-        sm: "h-8 px-3 text-meta",
+        xs: "h-7 px-2 text-caption",
+        sm: "h-8 px-2.5 text-label",
         /** Inline row action (Review compact action). */
-        compact: "h-7 gap-1 px-1.5 text-meta",
+        compact: "h-7 gap-1 px-1.5 text-label",
         icon: "h-7 w-7 p-0 pointer-coarse:min-w-11",
       },
     },

@@ -187,8 +187,8 @@ def test_one_failing_host_rolls_back_and_does_not_abort_the_others(
     )
     synced: list[str] = []
     monkeypatch.setattr(
-        "lemoncrow.core.service.session_import.report_imported_sessions",
-        lambda root, trace_ids, *, store: synced.extend(trace_ids),
+        "lemoncrow.core.service.sync.sync_usage",
+        lambda root, *, session_ids: synced.extend(session_ids),
     )
     root = _initialised_root(tmp_path)
     counts = import_agent_sessions(root)

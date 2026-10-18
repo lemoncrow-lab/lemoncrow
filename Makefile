@@ -13,7 +13,6 @@ TEST_PRINT_TIME ?= 0
 # ~2 points below the first nightly run's reported total.
 COV_FAIL_UNDER ?= 66
 FORCE_ARG := $(if $(f),--force,)
-RELEASE_IMPACT_ARG = $(if $(filter 1,$(RELEASE_FULL)),,--changed-since-last-release)
 # Messages choose color at recipe execution time, so redirected logs stay plain.
 _log = sh "$(CURDIR)/scripts/lib/terminal.sh" $(1) "$(2)"
 .PHONY: help uninstall build review-client-build review-engine-build runtime-client-build build-lemoncode-host build-host-skills sync-agent-context mirror release release-preflight release-prepare release-prepared release-version-check release-qualify release-stage \
@@ -21,7 +20,7 @@ _log = sh "$(CURDIR)/scripts/lib/terminal.sh" $(1) "$(2)"
 	hosted-dev hosted-prod hosted-up hosted-down hosted-status hosted-reset hosted-ui hosted-ui-build hosted-test review-hosted-test-full \
 	_rehearse-install _verify-hosted-artifact _verify-hosted-e2e \
 	review-demo review-demo-diff review-demo-plugin review-e2e perf-slo perf-slo-product perf-product \
-	docs-check status-index benchmark-publish \
+	docs-check status-index \
 	test test-fast test-cov test-full gate-g gate-k release-gate lint format-check format typecheck verify pre-commit \
 	proof-cost-quality import clean \
 	_ensure_hooks
@@ -73,19 +72,10 @@ _sandbox_status = if [ -x "$(1)/bin/lc" ]; then LEMONCROW_HOME="$(1)" LEMONCROW_
 oss-dev: ## Real install.sh --local on staged assets into the OSS sandbox (OSS_HOME, port 7428); reuses fresh artifacts
 	@$(MAKE) --no-print-directory _rehearse-install FAST=1 REHEARSE_HOME="$(OSS_HOME)" REHEARSE_PORT="$(OSS_PORT)" REHEARSE_ARGS="--product review --local"
 
-oss-prod: ## Full rebuild, install Review + Runtime Lite into the live home (port 7420), refresh persistent MCP
+oss-prod: ## Full rebuild, then real install.sh --local into the live home (port 7420)
 	@$(call _log,step,OSS production installation)
 	@$(call _log,info,Installation home: $$HOME/.lemoncrow)
-	@$(MAKE) --no-print-directory _rehearse-install FAST= REHEARSE_HOME="$$HOME/.lemoncrow" REHEARSE_BIN="$$HOME/.lemoncrow/bin" REHEARSE_PORT="$(LIVE_PORT)" REHEARSE_ARGS="--product both --local"
-	@if command -v systemctl >/dev/null 2>&1 && systemctl --user cat lemoncrow-mcp-gateway.service >/dev/null 2>&1; then \
-		$(call _log,step,Restart persistent Runtime MCP gateway); \
-		systemctl --user restart lemoncrow-mcp-gateway.service && \
-		systemctl --user is-active --quiet lemoncrow-mcp-gateway.service || { \
-			$(call _log,error,Runtime MCP gateway failed to restart) >&2; exit 1; \
-		}; \
-	else \
-		$(call _log,info,No persistent Runtime MCP gateway configured; Runtime Lite installed); \
-	fi
+	@$(MAKE) --no-print-directory _rehearse-install FAST= REHEARSE_HOME="$$HOME/.lemoncrow" REHEARSE_BIN="$$HOME/.lemoncrow/bin" REHEARSE_PORT="$(LIVE_PORT)" REHEARSE_ARGS="--product review --local"
 
 oss-up: ## Start the OSS sandbox Review server (port 7428)
 	@$(call _log,step,Start OSS sandbox server)
@@ -218,18 +208,7 @@ release-prepare: release-preflight ## Version and commit the release, not pushed
 	git commit -m "chore(release): $$TAG"; \
 	echo "✓ Prepared $$TAG at $$(git rev-parse --short HEAD) (not pushed); next: make release-qualify tag=$$TAG"
 
-# Real model usage (about $0.10): five verified tasks on the last release's Runtime Lite and on HEAD.
-runtime-credit-evidence: ## Record runtime-credit evidence for the release gate: OUT=<new dir outside the checkout> [BASE=<last tag>]
-	@test -n "$(OUT)" || { echo "OUT=<new directory outside the checkout> is required" >&2; exit 2; }
-	uv run python scripts/runtime_credit_harness.py --baseline "$(or $(BASE),$$(git describe --tags --abbrev=0 --match 'v*' --exclude '*-rc*' HEAD^))" --current HEAD --out "$(OUT)"
-	uv run python -m scripts.runtime_credit_gate --baseline "$(OUT)/baseline.json" --current "$(OUT)/current.json" --out "$(OUT)/verdict.json"
-	@echo "export LEMONCROW_RELEASE_RUNTIME_CREDIT_BASELINE=$(abspath $(OUT))/baseline.json LEMONCROW_RELEASE_RUNTIME_CREDIT_CURRENT=$(abspath $(OUT))/current.json"
-
-release-qualify: release-prepared release-version-check ## Impact-selected release qualification since last published tag (RELEASE_FULL=1 for exhaustive); stamp only on passing evidence
-	@# Catch missing prerequisites before spending hours on the release gate.
-	@# Default: run only impacted tests/checks since the latest published release.
-	@# RELEASE_FULL=1 restores exhaustive 52-component qualification for audits.
-	bash scripts/release_canary_env.sh uv run --locked --extra postgres python -m scripts.release_gate --preflight --tag "$(tag)" $(RELEASE_IMPACT_ARG)
+release-qualify: release-prepared release-version-check ## Qualify the prepared release commit for tag=vX.Y.Z: agent CLIs, the full release gate (clean checkout, fresh services, versioned candidate) and a stamped release record
 	@# Real agent CLIs and accounts live on the releasing machine, outside the gate's clean checkout.
 	bash scripts/verify_agent_clis.sh
 	@# Rehearse the OSS installer here; the release gate also runs the hosted-test suite
@@ -238,7 +217,7 @@ release-qualify: release-prepared release-version-check ## Impact-selected relea
 	@# G11-RELEASE: suites, gates, drills and the versioned candidate upgrade all run inside the gate;
 	@# the release record below is stamped only from its releasable report for this commit and tag.
 	@# The whole root suite runs only with the person's opt-in on this command: LEMONCROW_FULL_SUITE=1.
-	@bash scripts/release_canary_env.sh $(MAKE) --no-print-directory release-gate RELEASE_GATE_ARGS="--tag $(tag) $(RELEASE_IMPACT_ARG) $(RELEASE_GATE_ARGS)"
+	@$(MAKE) --no-print-directory release-gate RELEASE_GATE_ARGS="--tag $(tag) $(RELEASE_GATE_ARGS)"
 	uv run python -m scripts.release_record stamp --report "$(RELEASE_REPORT)" --tag "$(tag)"
 
 release: release-prepared ## Push, mirror and tag the exact commit release-qualify qualified: make release tag=vX.Y.Z [f=1] [SKIP_MIRROR=1]
@@ -287,7 +266,7 @@ release: release-prepared ## Push, mirror and tag the exact commit release-quali
 _stale = $(if $(FAST),$(shell [ -f $(1) ] && [ -z "$$(find $(2) scripts/build_*.sh server/review-engine-files.txt -type f -newer $(1) -not -path '*/node_modules/*' -not -path '*/__pycache__/*' -print -quit 2>/dev/null)" ] && echo fresh),)
 
 release-stage: ## Stage release assets (scripts/stage_release.sh) in RELEASE_STAGE; FAST=1 reuses fresh artifacts
-	@$(if $(call _stale,dist/lemoncrow-review-engine.tar.gz,src client/src server/src frontend/src $(wildcard design)),$(call _log,info,fast: review engine fresh),$(MAKE) --no-print-directory review-engine-build)
+	@$(if $(call _stale,dist/lemoncrow-review-engine.tar.gz,src client/src server/src frontend/src),$(call _log,info,fast: review engine fresh),$(MAKE) --no-print-directory review-engine-build)
 	@$(if $(call _stale,dist/lemoncrow-review-client.tar.gz,src client/src),$(call _log,info,fast: review client fresh),$(MAKE) --no-print-directory review-client-build)
 	@$(if $(call _stale,dist/lemoncrow-runtime-client.tar.gz,src client/src),$(call _log,info,fast: runtime client fresh),$(MAKE) --no-print-directory runtime-client-build)
 	@bash scripts/stage_release.sh "$(RELEASE_STAGE)"
@@ -306,18 +285,10 @@ oss-test: ## Install both products from freshly staged assets into a temp home (
 	@$(MAKE) --no-print-directory release-stage
 	@set -eu; \
 		tmp="$$(mktemp -d "$${TMPDIR:-/tmp}/lemoncrow-oss-test.XXXXXX")"; \
-		test_state="$$tmp/state"; \
-		export HOME="$$tmp/user"; \
-		export XDG_CONFIG_HOME="$$tmp/xdg/config" XDG_CACHE_HOME="$$tmp/xdg/cache"; \
-		export XDG_DATA_HOME="$$tmp/xdg/data" XDG_STATE_HOME="$$tmp/xdg/state"; \
-		export CLAUDE_CONFIG_DIR="$$HOME/.claude" CODEX_HOME="$$HOME/.codex" PI_CODING_AGENT_DIR="$$HOME/.pi/agent"; \
-		unset PYTHONPATH PYTHONHOME LEMONCROW_RUNTIME_INSTALL_ROOT LEMONCROW_REVIEW_INSTALL_ROOT LEMONCROW_HOSTED_INSTALL_ROOT LEMONCROW_REVIEW_ENGINE_ROOT; \
-		: "the user systemd manager never reads a unit under the temporary HOME, so run the server unsupervised"; \
-		export LEMONCROW_LOCAL_SERVER_SUPERVISOR=none; \
-		mkdir -p "$$HOME"; \
-		cleanup() { LEMONCROW_HOME="$$test_state" LEMONCROW_LOCAL_SERVER_PORT="$(OSS_TEST_PORT)" bash "$$test_state/install/scripts/local_server.sh" stop >/dev/null 2>&1 || true; rm -rf "$$tmp"; }; \
+		home="$$tmp/home"; \
+		cleanup() { LEMONCROW_HOME="$$home" LEMONCROW_LOCAL_SERVER_PORT="$(OSS_TEST_PORT)" bash "$$home/install/scripts/local_server.sh" stop >/dev/null 2>&1 || true; rm -rf "$$tmp"; }; \
 		trap cleanup EXIT INT TERM; \
-		LEMONCROW_RELEASE_BASE_URL="file://$(abspath $(RELEASE_STAGE))" LEMONCROW_HOME="$$test_state" LEMONCROW_BIN_DIR="$$test_state/bin" LEMONCROW_LOCAL_SERVER_PORT="$(OSS_TEST_PORT)" \
+		LEMONCROW_RELEASE_BASE_URL="file://$(abspath $(RELEASE_STAGE))" LEMONCROW_HOME="$$home" LEMONCROW_BIN_DIR="$$home/bin" LEMONCROW_LOCAL_SERVER_PORT="$(OSS_TEST_PORT)" \
 			bash "$(RELEASE_STAGE)/install.sh" --product both --local; \
 		echo "✓ OSS install test passed (product both, port $(OSS_TEST_PORT))"
 
@@ -345,9 +316,7 @@ _verify-hosted-artifact:
 	@set -eu; \
 		tmp="$$(mktemp -d "$${TMPDIR:-/tmp}/lemoncrow-hosted-smoke.XXXXXX")"; \
 		trap 'rm -rf "$$tmp"' EXIT INT TERM; \
-		export HOME="$$tmp/home" LEMONCROW_HOME="$$tmp/state"; \
-		export XDG_CONFIG_HOME="$$tmp/xdg/config" XDG_CACHE_HOME="$$tmp/xdg/cache"; \
-		export XDG_DATA_HOME="$$tmp/xdg/data" XDG_STATE_HOME="$$tmp/xdg/state"; \
+		LEMONCROW_HOME="$$tmp/home" \
 		LEMONCROW_BIN_DIR="$$tmp/bin" \
 		LEMONCROW_REVIEW_INSTALL_ROOT="$$tmp/review-client" \
 		LEMONCROW_HOSTED_URL=http://127.0.0.1:7420 \
@@ -456,20 +425,7 @@ sync-agent-context: ## Regenerate host instruction surfaces from integrations/ag
 	uv run python scripts/sync_agent_context.py
 
 docs-check: ## Run docs and repo-governance checks
-	uv run pytest tests/gateway/test_docs.py tests/gateway/test_generated_agent_contexts.py tests/gateway/test_code_review_benchmark.py $(wildcard tests/gateway/test_status_index.py) -q
-
-# The code-review benchmark table: README section and the landing site's data copy, rendered from
-# evals/review/published/code_review_benchmark.json. Nothing renders until a LemonCrow run is published there.
-#   make benchmark-publish                         # render the README (and ../landing, if that checkout exists)
-#   make benchmark-publish RUN=report.json         # first merge a finished run (its benchmark_summary) into the JSON
-#   make benchmark-publish RUN=r.json RESCORED=ID  # the run scored another tool's own comments (optional row)
-#   make benchmark-publish LANDING=/path/to/landing
-LANDING ?= ../landing
-benchmark-publish: ## Render the code-review benchmark table into the README and the landing site (RUN=, RESCORED=, LANDING=)
-	@uv run python scripts/render_code_review_benchmark.py \
-		$(if $(RUN),--from-run "$(RUN)") $(if $(RESCORED),--rescored "$(RESCORED)") \
-		$(if $(wildcard $(LANDING)/src/data),--landing "$(LANDING)")
-	@$(if $(wildcard $(LANDING)/src/data),:,echo "landing checkout not found at $(LANDING) (set LANDING=...): only the README was rendered")
+	uv run pytest tests/gateway/test_docs.py tests/gateway/test_generated_agent_contexts.py $(wildcard tests/gateway/test_status_index.py) -q
 
 status-index: ## Render docs/status/README.md from docs/status/capabilities.toml (private checkout only)
 	uv run python scripts/render_status_index.py

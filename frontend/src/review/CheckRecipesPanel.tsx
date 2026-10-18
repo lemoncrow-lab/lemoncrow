@@ -1,11 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Button as UiButton } from "../components/ui/button";
-import { ArtifactCard, PanelCard } from "./ContextSections";
-import ReviewFixSheet from "./ReviewFixSheet";
-import { fetchReviewEvidence } from "./reviewApi";
-import type { ReviewEvidence } from "./types";
-import { fetchReviewActions, type ReviewActionListing, type ReviewActionRequest } from "./reviewActionsApi";
+import { PanelCard } from "./ContextSections";
 import {
   fetchCheckRecipes,
   postCheckRecipesRun,
@@ -34,19 +30,19 @@ const CLASS_LABEL: Record<string, string> = {
 };
 
 const CLASS_TONE: Record<string, string> = {
-  introduced_failure: "text-red-300",
+  introduced_failure: "text-rose-300",
   flaky: "text-amber-300",
   not_comparable: "text-amber-300",
   not_run: "text-amber-300",
   removed: "text-amber-300",
   newly_skipped: "text-amber-300",
   fixed: "text-emerald-300",
-  new: "text-cyan-300",
+  new: "text-sky-300",
 };
 
 const VERDICT_TONE: Record<string, string> = {
   PASS: "text-emerald-300",
-  FAIL: "text-red-300",
+  FAIL: "text-rose-300",
   UNKNOWN: "text-amber-300",
   NOT_RUN: "text-amber-300",
 };
@@ -116,7 +112,7 @@ function UnitRow({
   return (
     <div className="flex items-baseline gap-2 text-micro" data-testid={`check-unit-${unit.subject || "recipe"}`}>
       <span className={`shrink-0 ${CLASS_TONE[unit.class] ?? "text-muted-foreground"}`}>{CLASS_LABEL[unit.class] ?? unit.class}</span>
-      <span className="min-w-0 flex-1 truncate font-mono text-subtle" title={unit.subject || recipeTitle}>
+      <span className="min-w-0 flex-1 truncate font-mono text-neutral-300" title={unit.subject || recipeTitle}>
         {unit.subject || `${recipeTitle} (whole recipe)`}
       </span>
       <span className="shrink-0 font-mono text-muted-foreground">{marks(unit)}</span>
@@ -150,15 +146,11 @@ function DifferentialCard({
   editable,
   onProof,
   onSendAutofix,
-  approvedAutofixIds,
-  onFixWithAgent,
 }: {
   result: CheckDifferential;
   editable: boolean;
-  approvedAutofixIds: ReadonlySet<string>;
   onProof: (result: CheckDifferential, subject: string, file: string) => void;
   onSendAutofix: (proposalId: string) => void;
-  onFixWithAgent: (proposalId: string) => void;
 }) {
   const title = result.recipe.title || result.recipe.id;
   const quiet = QUIET_CLASSES.map((klass) => [klass, result.counts[klass] ?? 0] as const).filter(([, count]) => count > 0);
@@ -169,7 +161,7 @@ function DifferentialCard({
   return (
     <div className="border-t border-border/60 py-2 first:border-t-0" data-testid={`check-result-${result.recipe.id}`}>
       <div className="flex items-baseline gap-2">
-        <span className="min-w-0 flex-1 truncate text-label text-foreground" title={result.recipe.command.join(" ")}>
+        <span className="min-w-0 flex-1 truncate text-label text-neutral-200" title={result.recipe.command.join(" ")}>
           {title}
         </span>
         <span className={`text-caption ${VERDICT_TONE[result.head_verdict] ?? "text-muted-foreground"}`}>
@@ -211,7 +203,7 @@ function DifferentialCard({
       {flagged.map((row) => (
         <div key={row.test} className="mt-1 flex items-baseline gap-2 text-micro" data-testid="check-adequacy">
           <span className="shrink-0 text-amber-300">Doesn't demonstrate the change</span>
-          <span className="min-w-0 flex-1 truncate font-mono text-subtle" title={row.reason}>{row.test}</span>
+          <span className="min-w-0 flex-1 truncate font-mono text-neutral-300" title={row.reason}>{row.test}</span>
           {proof && (
             <UiButton type="button" size="xs" variant="ghost" onClick={() => onProof(result, row.test, row.file)}>
               Request proof
@@ -221,7 +213,7 @@ function DifferentialCard({
       ))}
       {result.claims.map((row) => (
         <div key={row.claim.key} className="mt-1 text-micro" data-testid="check-claim">
-          <span className={row.verdict === "contradicted" ? "text-red-300" : row.verdict === "confirmed" ? "text-emerald-300" : "text-muted-foreground"}>
+          <span className={row.verdict === "contradicted" ? "text-rose-300" : row.verdict === "confirmed" ? "text-emerald-300" : "text-muted-foreground"}>
             Claim {CLAIM_LABEL[row.verdict]?.toLowerCase() ?? row.verdict}
           </span>{" "}
           <span className="text-muted-foreground">
@@ -233,18 +225,12 @@ function DifferentialCard({
       {result.autofix.status && (
         <div className="mt-1 text-micro text-muted-foreground" data-testid="check-autofix">
           Autofix: {result.autofix.reason ?? result.autofix.status}
-          {(result.autofix.proposal_ids ?? []).map((id) => (
-            approvedAutofixIds.has(id)
-              ? <span key={id} className="ml-2 text-foreground">Approved · ready for agent
-                  {editable && <UiButton type="button" size="xs" variant="outline" className="ml-2"
-                    onClick={() => onFixWithAgent(id)}>Fix with agent</UiButton>}
-                </span>
-              : editable ? (
-                <UiButton key={id} type="button" size="xs" variant="outline" className="ml-2" onClick={() => onSendAutofix(id)}>
-                  Approve fix
-                </UiButton>
-              ) : null
-          ))}
+          {editable &&
+            (result.autofix.proposal_ids ?? []).map((id) => (
+              <UiButton key={id} type="button" size="xs" variant="outline" className="ml-2" onClick={() => onSendAutofix(id)}>
+                Send to agent
+              </UiButton>
+            ))}
         </div>
       )}
     </div>
@@ -295,17 +281,7 @@ export default function CheckRecipesPanel({
   const [data, setData] = useState<CheckRecipesProjection | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [fixAutofixId, setFixAutofixId] = useState("");
-  const autofixRequest = useMemo<ReviewActionRequest | null>(
-    () => fixAutofixId ? { kind: "fix", subject_ids: [fixAutofixId] } : null,
-    [fixAutofixId],
-  );
   const [message, setMessage] = useState("");
-  const [actionListing, setActionListing] = useState<ReviewActionListing | null>(null);
-  const proofSequence = useRef(0);
-  const [openedProof, setOpenedProof] = useState<{
-    id: string; pending: boolean; artifact: ReviewEvidence | null; error: string;
-  } | null>(null);
 
   const load = useCallback(
     () =>
@@ -330,52 +306,6 @@ export default function CheckRecipesPanel({
     };
   }, [reviewId, revisionId]);
 
-  useEffect(() => {
-    proofSequence.current += 1;
-    setOpenedProof(null);
-  }, [reviewId, revisionId, data?.revision_id]);
-
-  const inspectProof = async (id: string, currentRevisionId: string) => {
-    if (openedProof?.id === id && !openedProof.pending) {
-      setOpenedProof(null);
-      return;
-    }
-    const sequence = ++proofSequence.current;
-    setOpenedProof({ id, pending: true, artifact: null, error: "" });
-    try {
-      const response = await fetchReviewEvidence(reviewId, currentRevisionId);
-      if (sequence !== proofSequence.current) return;
-      const artifact = response.revision_id === currentRevisionId
-        ? response.evidence.find((item) => item.id === id
-          && item.review_id === reviewId && item.revision_id === currentRevisionId && item.status === "current")
-        : undefined;
-      setOpenedProof({
-        id, pending: false, artifact: artifact ?? null,
-        error: artifact ? "" : "The exact Snapshot evidence is unavailable; no proof has been opened.",
-      });
-    } catch {
-      if (sequence === proofSequence.current) {
-        setOpenedProof({ id, pending: false, artifact: null, error: "Authenticated evidence could not be loaded." });
-      }
-    }
-  };
-
-  // This is a read-only join with the existing correction action ledger. The
-  // action GET reconciles attributed Snapshots, but never runs checks or agents.
-  // A failure leaves ordinary check suggestions available without claiming a
-  // correction was attributed.
-  useEffect(() => {
-    let active = true;
-    setActionListing(null);
-    if (!reviewId || !revisionId || readOnly) return () => { active = false; };
-    // Promise boundary also catches a synchronous failure from an unavailable
-    // action adapter; evidence and check inspection must remain usable.
-    void Promise.resolve().then(() => fetchReviewActions(reviewId))
-      .then((value) => { if (active) setActionListing(value && Array.isArray(value.actions) ? value : null); })
-      .catch(() => { if (active) setActionListing(null); });
-    return () => { active = false; };
-  }, [reviewId, revisionId, readOnly]);
-
   if (error) {
     return (
       <PanelCard title="Check recipes">
@@ -394,18 +324,6 @@ export default function CheckRecipesPanel({
   const snapshot = data;
   const editable = !readOnly && !snapshot.historical;
   const entries = snapshot.entries.filter((row) => row.recipes.length > 0);
-  const preceding = snapshot.recommended_checks?.previous_revision_id;
-  const pendingRechecks = (snapshot.recommended_checks?.recommendations ?? []).filter(
-    (item) => !item.previous_verdict && ["FAIL", "UNKNOWN"].includes(item.prior_snapshot_verdict),
-  );
-  const attributedCorrection = !snapshot.historical && preceding && actionListing?.revision_id === snapshot.revision_id
-    ? actionListing.actions.find((action) => action.kind === "fix"
-      && action.status === "snapshot_recorded"
-      && action.result_certainty === "exact"
-      && action.source_revision_id === preceding
-      && action.resulting_revision_id === snapshot.revision_id
-      && action.subjects.some((subject) => subject.kind === "approved_autofix"))
-    : null;
 
   async function act(work: () => Promise<string>) {
     setBusy(true);
@@ -420,11 +338,9 @@ export default function CheckRecipesPanel({
     }
   }
 
-  function run(entry: string, pick: boolean, reverifyFromRevisionId = "") {
+  function run(entry: string, pick: boolean) {
     void act(async () => {
-      const response = reverifyFromRevisionId
-        ? await postCheckRecipesRun(reviewId, snapshot.revision_id, entry, pick, reverifyFromRevisionId)
-        : await postCheckRecipesRun(reviewId, snapshot.revision_id, entry, pick);
+      const response = await postCheckRecipesRun(reviewId, snapshot.revision_id, entry, pick);
       const verdict = response.verdicts[entry] ?? Object.values(response.verdicts)[0] ?? "NOT_RUN";
       const economy = [
         response.shared_base ? `${response.shared_base} base shared` : "",
@@ -445,8 +361,8 @@ export default function CheckRecipesPanel({
 
   function sendAutofix(proposalId: string) {
     void act(async () => {
-      await postCheckRequest(reviewId, snapshot.revision_id, { kind: "autofix", proposal_id: proposalId, approved: true });
-      return "Autofix approved and recorded in reviewer feedback";
+      await postCheckRequest(reviewId, snapshot.revision_id, { kind: "autofix", proposal_id: proposalId });
+      return "Autofix proposal sent as feedback for the agent";
     });
   }
 
@@ -466,7 +382,7 @@ export default function CheckRecipesPanel({
           <div>
             {entries.map((entry) => (
               <div key={entry.id} className="flex items-baseline gap-2 py-0.5 text-micro" data-testid={`check-entry-${entry.id}`}>
-                <span className="min-w-0 flex-1 truncate font-mono text-subtle" title={entry.reason}>
+                <span className="min-w-0 flex-1 truncate font-mono text-neutral-300" title={entry.reason}>
                   {entry.id}
                 </span>
                 <span className="text-muted-foreground">{entry.recipes.join(", ")}</span>
@@ -477,91 +393,18 @@ export default function CheckRecipesPanel({
             ))}
           </div>
         )}
-        {attributedCorrection && pendingRechecks.length > 0 && (
-          <section aria-label="Agent correction re-verification" data-testid="agent-correction-recheck"
-            className="space-y-1 border-t border-border/80 pt-2 text-micro">
-            <p className="font-semibold text-foreground">Agent correction captured · fresh verification pending</p>
-            <p className="text-muted-foreground">
-              Exact authoring-session Snapshot recorded for {attributedCorrection.subjects[0]?.title ?? "the correction"}.
-              {` ${pendingRechecks.length} previously failing trusted check${pendingRechecks.length === 1 ? "" : "s"} need a new result.`}
-              {" "}Use Reverify fresh below; execution is manual and remains subject to the run plan and budget.
-            </p>
-          </section>
-        )}
-        {(snapshot.recommended_checks?.recommendations.length ?? 0) > 0 && (
-          <section aria-label="Suggested checks" data-testid="check-recommendations" className="space-y-1.5 border-t border-border/80 pt-2">
-            <p className="text-caption font-semibold text-foreground">Suggested verification</p>
-            <p className="text-micro text-muted-foreground">Only trusted-base checks in the current run plan. Suggestions do not execute code automatically.</p>
-            {snapshot.recommended_checks!.recommendations.map((suggestion) => (
-              <div key={suggestion.recipe_id} className="flex flex-wrap items-start justify-between gap-2 border-b border-border/50 py-1.5 text-micro" data-testid={`suggested-check-${suggestion.recipe_id}`}>
-                <div className="min-w-0 flex-1 space-y-0.5">
-                  <p className="font-medium text-foreground">{suggestion.title}</p>
-                  <p className="text-muted-foreground">{suggestion.reason}</p>
-                  {suggestion.selected_test_count > 0 && (
-                    <p className="text-muted-foreground">{`${suggestion.selected_test_count} impacted tests${suggestion.selected_tests_sample.length > 0 ? ` · ${suggestion.selected_tests_sample.join(", ")}` : ""}`}</p>
-                  )}
-                  {suggestion.coverage === "unknown" && <p className="text-amber-300/80">Test impact coverage unknown; don't assume this validates the whole change.</p>}
-                </div>
-                {editable && suggestion.can_run_now && (
-                  <UiButton size="compact" variant="outline" disabled={busy} onClick={() => run(
-                    suggestion.entry_id, false,
-                    !suggestion.previous_verdict && ["FAIL", "UNKNOWN"].includes(suggestion.prior_snapshot_verdict) && snapshot.recommended_checks?.previous_revision_id
-                      ? snapshot.recommended_checks.previous_revision_id : "",
-                  )}>
-                    {!suggestion.previous_verdict && ["FAIL", "UNKNOWN"].includes(suggestion.prior_snapshot_verdict) ? "Reverify fresh" : "Run check"}
-                  </UiButton>
-                )}
-              </div>
-            ))}
-          </section>
-        )}
-        {(snapshot.observed_regressions?.rows.length ?? 0) > 0 && (
-          <section aria-label="Observed test regressions" data-testid="check-observed-regressions" className="space-y-1 border-t border-border/80 pt-2">
-            <p className="text-caption font-semibold text-red-300">Observed test regressions · {snapshot.observed_regressions!.rows.length}</p>
-            <p className="text-micro text-muted-foreground">These tests passed on the base and failed on this Snapshot in comparable runs. An assertion failure is not automatically a confirmed code defect.</p>
-            {snapshot.observed_regressions!.rows.map((row) => (
-              <div key={`${row.recipe_id}:${row.subject}`} className="flex min-w-0 flex-wrap gap-x-2 text-micro">
-                <span className="min-w-0 break-all font-mono text-foreground">{row.subject}</span>
-                <span className="text-muted-foreground">{row.recipe_id} · {row.independent_execution ? "worker observed" : "author machine observed"}</span>
-                <UiButton size="xs" variant="outline" type="button"
-                  aria-label={`Inspect evidence for ${row.subject}`}
-                  onClick={() => void inspectProof(row.differential_evidence_id, snapshot.revision_id)}>
-                  {openedProof?.id === row.differential_evidence_id ? "Hide proof" : "Inspect proof"}
-                </UiButton>
-                {openedProof?.id === row.differential_evidence_id && (
-                  <div className="basis-full" data-testid="regression-evidence-detail">
-                    {openedProof.pending ? <p className="text-muted-foreground">Loading protected evidence…</p>
-                      : openedProof.artifact ? <ArtifactCard artifact={openedProof.artifact} />
-                      : <p role="status" className="text-amber-300">{openedProof.error}</p>}
-                  </div>
-                )}
-              </div>
-            ))}
-            {snapshot.observed_regressions!.omitted > 0 && <p className="text-micro text-muted-foreground">{snapshot.observed_regressions!.omitted} additional observed failures omitted</p>}
-          </section>
-        )}
         {snapshot.future_policy.changed && (
           <div className="text-micro leading-relaxed text-amber-300/80" data-testid="check-future-policy">
             This Change edits check recipes. Its edits are proposed policy for {snapshot.future_policy.applies_to}; they never run here.
           </div>
         )}
         {snapshot.errors.map((row) => (
-          <div key={row} className="text-micro text-red-300/80">{row}</div>
+          <div key={row} className="text-micro text-rose-300/80">{row}</div>
         ))}
         {snapshot.results.map((result) => (
-          <DifferentialCard key={result.recipe.id} result={result} editable={editable} onProof={requestProof}
-            onSendAutofix={sendAutofix} approvedAutofixIds={new Set(snapshot.approved_autofix_ids ?? [])}
-            onFixWithAgent={setFixAutofixId} />
+          <DifferentialCard key={result.recipe.id} result={result} editable={editable} onProof={requestProof} onSendAutofix={sendAutofix} />
         ))}
-        {autofixRequest && <ReviewFixSheet reviewId={reviewId} revisionId={snapshot.revision_id}
-          request={autofixRequest}
-          onClose={() => setFixAutofixId("")}
-          onStarted={(action) => {
-            setFixAutofixId("");
-            setMessage(`Agent correction ${action.status === "awaiting_snapshot" ? "dispatched" : action.status}; waiting for a new Snapshot`);
-            void load();
-          }} />}
-        {message && <div className="text-micro text-subtle" role="status">{message}</div>}
+        {message && <div className="text-micro text-neutral-300" role="status">{message}</div>}
       </div>
     </PanelCard>
   );

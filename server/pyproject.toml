@@ -6,10 +6,10 @@ requires-python = ">=3.12,<3.14"
 license = { text = "Apache-2.0" }
 authors = [{ name = "LemonCrow" }]
 dependencies = [
-  "aiohttp>=3.14.4",
+  "aiohttp>=3.14.1",
   "regex>=2026.5.9",
   "lemoncrow>=0.8.0",
-  "lemoncrow-client==0.8.1",
+  "lemoncrow-client==0.8.0",
 ]
 
 [tool.uv.sources]

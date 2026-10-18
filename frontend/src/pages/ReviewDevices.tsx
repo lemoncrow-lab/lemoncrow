@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Card, PageFrame, PageHeader } from "../components/WorkbenchUI";
+import { Card, PageFrame } from "../components/WorkbenchUI";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Select, SelectItem } from "../components/ui/select";
@@ -195,16 +195,16 @@ export default function ReviewDevices() {
   return (
     <PageFrame className="space-y-5">
       <header className="max-w-3xl space-y-2">
-        <PageHeader
-          eyebrow="Settings"
-          title="Review connections"
-          description="Pair a laptop, VPS or agent sandbox once. The machine connects outbound to Hosted Review, independently of LemonCrow Runtime and MCP."
-        />
-        <p className="text-meta text-muted-foreground">
+        <h2 className="text-heading font-semibold text-foreground">Review connections</h2>
+        <p className="text-body text-muted-foreground">
+          Pair a laptop, VPS or agent sandbox once. The machine connects outbound to Hosted Review,
+          independently of LemonCrow Runtime and MCP.
+        </p>
+        <p className="text-caption text-muted-foreground">
           Connection does not imply that an executor is online or that checks are independently verified.
           Those capabilities require separately qualified workers.
         </p>
-        <p className="text-meta text-muted-foreground">
+        <p className="text-caption text-muted-foreground">
           Not available yet: unattended agent execution on a connected machine, external sandbox
           providers as a supported execution target, and model tasks billed by LemonCrow.
         </p>
@@ -276,7 +276,7 @@ export default function ReviewDevices() {
               One-time pairing code · expires {date(code.expires_at)}
             </p>
             <Input aria-label="One-time pairing code" readOnly value={code.pairing_code}
-              className="w-full rounded border border-border bg-background p-2 font-mono text-meta text-foreground" />
+              className="w-full rounded border border-border bg-background p-2 font-mono text-caption text-foreground" />
             <p className="text-caption text-muted-foreground">
               On the machine, run <code>lcr connect</code> and paste the code. Then run <code>lcr watch</code> to capture changes and report paired machine presence. For presence without capture, use <code>lcr device online</code>. It works only once,
               and is cleared when this page closes or the code expires.

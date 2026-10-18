@@ -108,11 +108,11 @@ export function ThreadSummary({
       }}
     >
       <summary className="cursor-pointer">
-        <Sparkles size={14} aria-hidden="true" className="mr-1 inline" />
+        <Sparkles size={12} aria-hidden="true" className="mr-1 inline" />
         Thread summary · AI
       </summary>
       <div className="space-y-1 pt-1 text-caption">
-        {loading && <LoaderCircle size={14} className="animate-spin" aria-label="Loading summary" />}
+        {loading && <LoaderCircle size={13} className="animate-spin" aria-label="Loading summary" />}
         {view && (
           <div className="text-muted-foreground" data-testid="thread-summary-state">
             Thread {view.thread.state} · {view.thread.message_count} messages · state is from the comments, not the summary

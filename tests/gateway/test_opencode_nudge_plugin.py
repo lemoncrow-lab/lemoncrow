@@ -237,8 +237,6 @@ def test_opencode_required_arg_default_threshold_needs_three_hits(tmp_path: Path
 def test_opencode_idle_event_shows_session_status(tmp_path: Path) -> None:
     env = os.environ.copy()
     env["LEMONCROW_ROOT"] = str(tmp_path / ".lemoncrow")
-    # Use this checkout, not a stale globally installed LemonCrow runtime.
-    env["LEMONCROW_PYTHON"] = sys.executable
     script = f"""
     import {{ LemonCrowNudge }} from {json.dumps((PLUGINS / "lemoncrow-nudge.js").as_uri())}
     const toasts = []

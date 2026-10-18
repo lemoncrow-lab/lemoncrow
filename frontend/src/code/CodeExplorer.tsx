@@ -40,8 +40,8 @@ function buildTree(files: readonly CodeMapNode[]): DirectoryNode {
 const CHANGE_TONE: Record<CodeChangedFile["status"], string> = {
   M: "text-amber-300",
   A: "text-emerald-300",
-  D: "text-red-300",
-  R: "text-cyan-300",
+  D: "text-rose-300",
+  R: "text-sky-300",
 };
 
 const LIVE_TONE: Record<CodeMapActivityKind, string> = {
@@ -86,12 +86,12 @@ function DirectoryBranch({ directory, depth, selectedPath, selectedId, symbolsBy
           unstyled
           type="button"
           onClick={() => setOpen((value) => !value)}
-          className="flex h-7 w-full items-center gap-1.5 truncate px-2 text-left text-label text-muted-foreground transition hover:bg-muted hover:text-foreground"
+          className="flex h-7 w-full items-center gap-1.5 truncate px-2 text-left text-label text-neutral-400 transition hover:bg-muted hover:text-foreground"
           style={{ paddingLeft: 8 + depth * 12 }}
           aria-expanded={open}
         >
-          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          {open ? <FolderOpen size={14} className="shrink-0 text-muted-foreground" /> : <Folder size={14} className="shrink-0 text-muted-foreground" />}
+          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          {open ? <FolderOpen size={13} className="shrink-0 text-muted-foreground" /> : <Folder size={13} className="shrink-0 text-muted-foreground" />}
           <span className="truncate">{directory.name}</span>
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
             {rollup?.live && <LiveDot kind="edit" label="An agent is working in this folder" />}
@@ -137,15 +137,15 @@ function DirectoryBranch({ directory, depth, selectedPath, selectedId, symbolsBy
                     fileActive
                       ? "border-cyan-400/50 bg-cyan-500/10 text-foreground"
                       : pathActive
-                        ? "border-cyan-500/30 bg-muted/50 text-foreground"
+                        ? "border-cyan-500/30 bg-muted/50 text-neutral-200"
                         : file.ignored
                           ? "border-transparent text-muted-foreground/70 hover:bg-muted hover:text-foreground"
-                          : "border-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
+                          : "border-transparent text-neutral-400 hover:bg-muted hover:text-foreground"
                   }`}
                   style={{ paddingLeft: 24 + depth * 12 }}
                   aria-current={fileActive ? "true" : undefined}
                 >
-                  <FileTypeIcon path={file.path} />
+                  <FileTypeIcon path={file.path} size={13} />
                   <span className={`truncate ${change?.status === "D" ? "line-through opacity-70" : ""}`}>{file.label}</span>
                   <span className="ml-auto flex shrink-0 items-center gap-1.5">
                     {liveKind && <LiveDot kind={liveKind} label={`Agent ${liveKind} now`} />}
@@ -165,15 +165,15 @@ function DirectoryBranch({ directory, depth, selectedPath, selectedId, symbolsBy
                     type="button"
                     onClick={() => onSelect(symbol)}
                     title={`${symbol.qualified_name} — ${symbol.path}:${symbol.line}`}
-                    className={`flex h-7 w-full items-center gap-1.5 border-l-2 pr-2 text-left text-meta transition ${
+                    className={`flex h-7 w-full items-center gap-1.5 border-l-2 pr-2 text-left text-caption transition ${
                       symbol.id === selectedId
                         ? "border-cyan-400/50 bg-cyan-500/10 text-cyan-100"
-                        : "border-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
+                        : "border-transparent text-muted-foreground hover:bg-muted hover:text-neutral-200"
                     }`}
                     style={{ paddingLeft: 42 + depth * 12 }}
                     aria-current={symbol.id === selectedId ? "true" : undefined}
                   >
-                    <CircleDot size={14} className="shrink-0 text-muted-foreground" />
+                    <CircleDot size={10} className="shrink-0 text-muted-foreground" />
                     <span className="min-w-0 flex-1 truncate">{symbol.label}</span>
                     <span className="shrink-0 text-micro tabular-nums text-muted-foreground">{symbol.line}</span>
                   </UiButton>
@@ -320,7 +320,7 @@ export default function CodeExplorer({
             {filtered.length}/{files.length}
           </span>
           <div className="relative min-w-0 flex-1">
-            <Search size={14} className="pointer-events-none absolute left-2 top-2.5 text-muted-foreground" />
+            <Search size={11} className="pointer-events-none absolute left-2 top-2.5 text-muted-foreground" />
             <UiInput
               type="search"
               value={fileFilter}
@@ -331,12 +331,12 @@ export default function CodeExplorer({
               aria-label="Filter files"
             />
           </div>
-          <UiButton type="button" size="icon" variant={changedOnly ? "solid" : "ghost"} onClick={() => setChangedOnly((value) => !value)} disabled={!changes} aria-label="Changed since HEAD" aria-pressed={changedOnly} tooltip="Show only files changed since HEAD" className="h-7 w-7 shrink-0">
-            <span className="font-mono text-label font-semibold">{changes?.total ?? "…"}</span>
+          <UiButton type="button" size="icon" variant={changedOnly ? "default" : "ghost"} onClick={() => setChangedOnly((value) => !value)} disabled={!changes} aria-label="Changed since HEAD" aria-pressed={changedOnly} tooltip="Show only files changed since HEAD" className="h-7 w-7 shrink-0">
+            <span className="font-mono text-micro font-semibold">{changes?.total ?? "…"}</span>
           </UiButton>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <UiButton type="button" size="icon" variant={showIgnored || folderFilter !== "all" || fileTypeFilter !== "all" ? "outline" : "ghost"} aria-label="Explorer filters" className="h-7 w-7 shrink-0"><ListFilter size={14} /></UiButton>
+              <UiButton type="button" size="icon" variant={showIgnored || folderFilter !== "all" || fileTypeFilter !== "all" ? "outline" : "ghost"} aria-label="Explorer filters" className="h-7 w-7 shrink-0"><ListFilter size={13} /></UiButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56" aria-label="Explorer filters">
               <DropdownMenuCheckboxItem checked={changedOnly} onCheckedChange={(checked) => setChangedOnly(Boolean(checked))} disabled={!changes}>Changed since HEAD</DropdownMenuCheckboxItem>
@@ -366,8 +366,8 @@ export default function CodeExplorer({
                   : "Uncommitted changes"
                 : `Session ${marks.get(sessionFilter) ?? ""} · ${sessionLabel(sessions.find((row) => row.id === sessionFilter) ?? { host: "", session_id: sessionFilter })}`}
             </span>
-            <UiButton unstyled type="button" className="ml-auto shrink-0 text-cyan-200 hover:text-foreground" onClick={() => onSessionFilter(null)} aria-label="Show all files">
-              <X size={14} />
+            <UiButton unstyled type="button" className="ml-auto shrink-0 text-cyan-200 hover:text-neutral-50" onClick={() => onSessionFilter(null)} aria-label="Show all files">
+              <X size={11} />
             </UiButton>
           </div>
         )}
@@ -375,8 +375,8 @@ export default function CodeExplorer({
       <Collapsible asChild open={filesOpen} onOpenChange={setFilesOpen}>
         <section className={`flex min-h-0 flex-col border-b border-border ${filesOpen ? "flex-1" : "shrink-0"}`} aria-label="Project files">
           <CollapsibleTrigger asChild>
-            <UiButton unstyled type="button" className="flex h-7 w-full shrink-0 items-center gap-1.5 px-3 text-left text-meta font-semibold uppercase tracking-widest text-muted-foreground transition hover:bg-muted hover:text-foreground">
-              {filesOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            <UiButton unstyled type="button" className="flex h-7 w-full shrink-0 items-center gap-1.5 px-3 text-left text-micro font-semibold uppercase tracking-widest text-muted-foreground transition hover:bg-muted hover:text-foreground">
+              {filesOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
               Project files
               <span className="ml-auto tabular-nums">{filtered.length}</span>
             </UiButton>
@@ -396,7 +396,7 @@ export default function CodeExplorer({
                 onSelect={onSelect}
               />
             ) : (
-              <p className="p-4 text-body text-muted-foreground">No matching files.</p>
+              <p className="p-4 text-xs text-muted-foreground">No matching files.</p>
             )}
           </CollapsibleContent>
         </section>
@@ -404,13 +404,13 @@ export default function CodeExplorer({
       <Collapsible asChild open={sessionsOpen} onOpenChange={setSessionsOpen}>
         <section ref={sessionsRef} className="flex min-h-0 shrink-0 flex-col border-b border-border" style={{ height: sessionsOpen ? sessionsHeight ?? `min(${SECONDARY_DEFAULT_HEIGHT}px, 28%)` : undefined }} aria-label="Sessions">
           {sessionsOpen && (
-            <UiButton unstyled type="button" aria-label="Resize Sessions" onPointerDown={(event) => startResize("sessions", event)} onPointerMove={moveResize} onPointerUp={stopResize} onPointerCancel={stopResize} onKeyDown={(event) => resizeWithKeyboard("sessions", event)} className="flex h-2 w-full shrink-0 cursor-row-resize touch-none items-center justify-center hover:bg-muted focus-visible:bg-muted focus-visible:outline-1 focus-visible:outline-ring pointer-coarse:h-4">
+            <UiButton unstyled type="button" aria-label="Resize Sessions" onPointerDown={(event) => startResize("sessions", event)} onPointerMove={moveResize} onPointerUp={stopResize} onPointerCancel={stopResize} onKeyDown={(event) => resizeWithKeyboard("sessions", event)} className="flex h-2 w-full shrink-0 cursor-row-resize touch-none items-center justify-center hover:bg-muted focus-visible:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:h-4">
               <span className="h-px w-8 bg-border" />
             </UiButton>
           )}
           <CollapsibleTrigger asChild>
-            <UiButton unstyled type="button" className="flex h-7 w-full shrink-0 items-center gap-1.5 px-3 text-left text-meta font-semibold uppercase tracking-widest text-muted-foreground transition hover:bg-muted hover:text-foreground">
-              {sessionsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            <UiButton unstyled type="button" className="flex h-7 w-full shrink-0 items-center gap-1.5 px-3 text-left text-micro font-semibold uppercase tracking-widest text-muted-foreground transition hover:bg-muted hover:text-foreground">
+              {sessionsOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
               Sessions
               {liveWorkspace && <span className="ml-auto tabular-nums">{sessions.length + idle.length + (changes?.unattributed.length ? 1 : 0)}</span>}
             </UiButton>
@@ -426,10 +426,10 @@ export default function CodeExplorer({
               type="button"
               onClick={() => onSessionFilter(sessionFilter === session.id ? null : session.id)}
               aria-pressed={sessionFilter === session.id}
-              className={`flex w-full items-center gap-2 px-3 py-1 text-left text-label transition hover:bg-muted ${sessionFilter === session.id ? "bg-cyan-500/10 text-foreground" : "text-subtle"}`}
+              className={`flex w-full items-center gap-2 px-3 py-1 text-left text-label transition hover:bg-muted ${sessionFilter === session.id ? "bg-cyan-500/10 text-foreground" : "text-neutral-300"}`}
               title={`${session.host} · ${session.session_id}${session.model ? ` · ${session.model}` : ""}`}
             >
-              <span className="inline-grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-p2 px-1 text-micro font-semibold text-background">{marks.get(session.id)}</span>
+              <span className="inline-grid h-4 min-w-4 shrink-0 place-items-center rounded-full bg-cyan-400 px-1 text-micro font-bold text-neutral-950">{marks.get(session.id)}</span>
               <span className="min-w-0 flex-1 truncate">{sessionLabel(session)}</span>
               {liveSessions.has(session.id) && <LiveDot kind="edit" label="Working now" />}
               <span className="shrink-0 text-micro tabular-nums text-muted-foreground" title={session.shared_files.length ? `${session.shared_files.length} shared with another session` : undefined}>
@@ -439,7 +439,7 @@ export default function CodeExplorer({
           ))}
           {idle.map((session) => (
             <div key={session.id} className="flex items-center gap-2 px-3 py-1 text-label text-muted-foreground" title={`${session.host} · ${session.session_id}`}>
-              <span className="inline-grid h-4 min-w-4 shrink-0 place-items-center rounded-full border border-border px-1 text-micro font-semibold">{marks.get(session.id)}</span>
+              <span className="inline-grid h-4 min-w-4 shrink-0 place-items-center rounded-full border border-neutral-700 px-1 text-micro font-bold">{marks.get(session.id)}</span>
               <span className="min-w-0 flex-1 truncate">
                 {session.host} {session.session_id.slice(0, 8)}
               </span>
@@ -453,10 +453,10 @@ export default function CodeExplorer({
               type="button"
               onClick={() => onSessionFilter(sessionFilter === "unattributed" ? null : "unattributed")}
               aria-pressed={sessionFilter === "unattributed"}
-              className={`flex w-full items-center gap-2 px-3 py-1 text-left text-label transition hover:bg-muted ${sessionFilter === "unattributed" ? "bg-cyan-500/10 text-foreground" : "text-muted-foreground"}`}
+              className={`flex w-full items-center gap-2 px-3 py-1 text-left text-label transition hover:bg-muted ${sessionFilter === "unattributed" ? "bg-cyan-500/10 text-foreground" : "text-neutral-400"}`}
               title="Uncommitted files no session recorded editing: your own edits, hosts that record nothing, or edits made before capture began."
             >
-              <span className="inline-grid h-4 min-w-4 shrink-0 place-items-center rounded-full border border-dashed border-input px-1 text-micro">?</span>
+              <span className="inline-grid h-4 min-w-4 shrink-0 place-items-center rounded-full border border-dashed border-neutral-600 px-1 text-micro">?</span>
               <span className="min-w-0 flex-1 truncate">{sessions.length ? "Unattributed" : "Uncommitted changes"}</span>
               <span className="shrink-0 text-micro tabular-nums text-muted-foreground">{changes.unattributed.length}</span>
             </UiButton>
@@ -467,7 +467,7 @@ export default function CodeExplorer({
       <Collapsible asChild open={hotspotsOpen} onOpenChange={setHotspotsOpen}>
         <section ref={hotspotsRef} className="flex min-h-0 shrink-0 flex-col" style={{ height: hotspotsOpen ? hotspotsHeight ?? `min(${SECONDARY_DEFAULT_HEIGHT}px, 28%)` : undefined }} aria-label={`Re-edited ${windowPhrase(hotspots?.days ?? 7)}`}>
           {hotspotsOpen && (
-            <UiButton unstyled type="button" aria-label="Resize Re-edited files" onPointerDown={(event) => startResize("hotspots", event)} onPointerMove={moveResize} onPointerUp={stopResize} onPointerCancel={stopResize} onKeyDown={(event) => resizeWithKeyboard("hotspots", event)} className="flex h-2 w-full shrink-0 cursor-row-resize touch-none items-center justify-center hover:bg-muted focus-visible:bg-muted focus-visible:outline-1 focus-visible:outline-ring pointer-coarse:h-4">
+            <UiButton unstyled type="button" aria-label="Resize Re-edited files" onPointerDown={(event) => startResize("hotspots", event)} onPointerMove={moveResize} onPointerUp={stopResize} onPointerCancel={stopResize} onKeyDown={(event) => resizeWithKeyboard("hotspots", event)} className="flex h-2 w-full shrink-0 cursor-row-resize touch-none items-center justify-center hover:bg-muted focus-visible:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:h-4">
               <span className="h-px w-8 bg-border" />
             </UiButton>
           )}
@@ -475,10 +475,10 @@ export default function CodeExplorer({
             <UiButton
               unstyled
               type="button"
-              className="flex h-7 w-full shrink-0 items-center gap-1.5 px-3 text-left text-meta font-semibold uppercase tracking-widest text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              className="flex h-7 w-full shrink-0 items-center gap-1.5 px-3 text-left text-micro font-semibold uppercase tracking-widest text-muted-foreground transition hover:bg-muted hover:text-foreground"
               title={`Files agents edited more than once ${windowPhrase(hotspots?.days ?? 7)}, counted from the edits their sessions recorded.`}
             >
-              {hotspotsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              {hotspotsOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
               Re-edited {windowPhrase(hotspots?.days ?? 7)}
               {liveWorkspace && <span className="ml-auto tabular-nums">{hotspotRows.length}</span>}
             </UiButton>
@@ -502,9 +502,9 @@ export default function CodeExplorer({
                 aria-current={selected ? "true" : undefined}
                 aria-label={`${row.path}: ${row.edits} edits by ${sessionsText}`}
                 title={`${row.path}\n${row.edits} edits by ${sessionsText}`}
-                className={`flex w-full items-center gap-2 px-3 py-1 text-left text-label transition hover:bg-muted ${selected ? "bg-cyan-500/10 text-foreground" : "text-subtle"}`}
+                className={`flex w-full items-center gap-2 px-3 py-1 text-left text-label transition hover:bg-muted ${selected ? "bg-cyan-500/10 text-foreground" : "text-neutral-300"}`}
               >
-                <FileTypeIcon path={row.path} />
+                <FileTypeIcon path={row.path} size={12} />
                 <span className="min-w-0 flex-1 truncate">{row.path.split("/").pop()}</span>
                 <span className="shrink-0 text-micro tabular-nums text-muted-foreground">{row.edits}×</span>
               </UiButton>

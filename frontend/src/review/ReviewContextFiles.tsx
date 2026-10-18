@@ -55,7 +55,7 @@ export default function ReviewContextFiles({ reviewId, revisionNumber, historica
   }
 
   return (
-    <section className="border-t border-border pt-3" data-testid="review-context-files">
+    <section className="border-t border-neutral-900 pt-3" data-testid="review-context-files">
       <div className="flex items-center gap-2">
         <div className="review-kicker">Context files</div>
         <span className="flex-1" />
@@ -82,7 +82,7 @@ export default function ReviewContextFiles({ reviewId, revisionNumber, historica
               className="block w-full rounded px-1.5 py-1 text-left hover:bg-muted disabled:cursor-default"
             >
               <div className="flex min-w-0 gap-2 text-caption">
-                <span className="min-w-0 flex-1 truncate font-mono text-subtle">{row.path}</span>
+                <span className="min-w-0 flex-1 truncate font-mono text-neutral-300">{row.path}</span>
                 <span className="shrink-0 text-muted-foreground">{row.exactness === "snapshot" ? "Snapshot context" : "current index"}</span>
               </div>
               {row.reasons?.[0] && <div className="truncate text-micro text-muted-foreground">{row.reasons[0]}</div>}

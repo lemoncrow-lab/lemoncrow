@@ -12717,16 +12717,3 @@ def test_ai_review_malformed_effective_policy_fails_closed(workspace: Workspace)
         json={"expected_revision_id": revision.id, "effort": "quick", "trigger": "manual"},
     )
     assert response.status_code == 500
-
-
-def test_an_error_text_shown_to_a_reader_never_carries_an_absolute_server_path() -> None:
-    from lemoncrow.pro.capabilities.review.api import _without_paths
-
-    assert _without_paths("not a git repository: /srv/lemoncrow/views/review/ab12") == "not a git repository: <path>"
-    assert _without_paths(OSError("[Errno 2] No such file or directory: '/tmp/x/y/z'")) == (
-        "[Errno 2] No such file or directory: '<path>'"
-    )
-    # Ordinary text and a single path segment are left alone.
-    assert _without_paths("review surface discovery failed (HTTP/1.1) in src/app") == (
-        "review surface discovery failed (HTTP/1.1) in src/app"
-    )

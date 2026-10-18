@@ -14,7 +14,7 @@ Tests for **differentiating logic** — domains, rules, expertise, quality gates
 | test_domains.py | Domain management & routing | ✅ Passing |
 | test_environments.py | Operating laws (optimization, safety, scope) | ✅ Passing |
 | test_rubric_gate.py | Quality gate enforcement | ✅ Passing |
-| test_rubric_gate_v2.py | Enhanced rubric system | ⚠️ 1 failure (missing domain spec) |
+| test_rubric_gate_v2.py | Enhanced rubric system | ⚠️ 1 failure (missing beseam spec) |
 | test_plan_checker.py | Plan validation & deadlock detection | ⚠️ 7 errors (missing specs) |
 | test_models.py | Core data models | ✅ Passing |
 | test_monitors.py | Monitoring & event tracking | ✅ Passing |
@@ -122,11 +122,11 @@ pytest tests/ -q | grep FAILED
 ## Known Issues & Next Steps
 
 ### Core Tier (HIGH PRIORITY)
-- ⚠️ `test_golden_fixtures.py`: 6 failures due to deleted domain-specific fixtures
+- ⚠️ `test_golden_fixtures.py`: 6 failures due to deleted Beseam-specific fixtures
   - **Impact:** Affects golden fixture validation
   - **Fix:** Re-add or create generic test fixtures
 
-- ⚠️ `test_plan_checker.py`: 7 errors (FileNotFoundError on domain specs)
+- ⚠️ `test_plan_checker.py`: 7 errors (FileNotFoundError on beseam specs)
   - **Impact:** Plan validation blocked for specific domains
   - **Fix:** Create fallback generic specs or mock
 

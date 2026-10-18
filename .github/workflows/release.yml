@@ -32,18 +32,10 @@ jobs:
           python-version: "3.13"
 
       - name: Verify tag matches package versions
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          # RC artifacts carry the base package version until stable release.
-          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc[0-9]+$ ]]; then
-            VERSION="${VERSION%%-rc*}"
-          fi
-          python scripts/release_version.py check "$VERSION"
+        run: python scripts/release_version.py check "${GITHUB_REF_NAME#v}"
 
       - name: Verify release notes can be rendered
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          python scripts/release_notes.py "${VERSION%%-rc*}" >/dev/null
+        run: python scripts/release_notes.py "${GITHUB_REF_NAME#v}" >/dev/null
 
   hosted-client-build:
     needs: [metadata]
@@ -207,18 +199,10 @@ jobs:
           path: candidate/
 
       - name: Upgrade previous release in place
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           archive="$(find candidate -maxdepth 1 -name 'lemoncrow-distribution-linux-x86_64.tar.gz' -print -quit)"
           test -n "$archive"
-          # A tag's release object may already be published when a slow job
-          # starts, especially when rerunning CI. `latest` would install the
-          # current candidate and falsely test a self-upgrade. Always use the
-          # highest prior *published stable* semver instead.
-          previous="$(python scripts/release_previous_tag.py "$GITHUB_REF_NAME")"
-          echo "Verifying actual release upgrade: $previous -> $GITHUB_REF_NAME"
-          bash scripts/verify_release_upgrade.sh "$previous" "$archive"
+          bash scripts/verify_release_upgrade.sh latest "$archive"
 
   release:
     name: Create GitHub Release
@@ -251,15 +235,7 @@ jobs:
           path: hosted/
 
       - name: Generate release notes
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          # A stable release's notes carry the GitHub Action pin line with this tag's commit; a candidate's do not.
-          pin=(--action-sha "$GITHUB_SHA")
-          if [[ "$VERSION" == *-rc* ]]; then pin=(); fi
-          python scripts/release_notes.py "${VERSION%%-rc*}" "${pin[@]}" > RELEASE_NOTES.md
-          if [[ "$VERSION" == *-rc* ]]; then
-            sed -i '1iPRE-RELEASE: release candidate for testing. Full release qualification is pending.\n' RELEASE_NOTES.md
-          fi
+        run: python scripts/release_notes.py "${GITHUB_REF_NAME#v}" > RELEASE_NOTES.md
 
       # This workflow runs directly on THIS (public) repo: scripts/mirror.py
       # rewrites it from .github/public-workflows/release.yml (private repo)
@@ -313,12 +289,8 @@ jobs:
             exit 1
           fi
 
-          release_flags=(--latest)
-          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc[0-9]+$ ]]; then
-            release_flags=(--prerelease --latest=false)
-          fi
           gh release create "${TAG}" \
-            "${release_flags[@]}" \
+            --latest \
             --title "LemonCrow ${TAG}" \
             --notes-file RELEASE_NOTES.md \
             "${assets[@]}"
@@ -339,8 +311,8 @@ jobs:
           # context so it never tries to discover a .git directory.
           GH_REPO: ${{ github.repository }}
         run: |
-          RELEASES=$(gh release list --limit 100 --json tagName,createdAt,isPrerelease \
-            | jq -r '[.[] | select(.isPrerelease == false)] | sort_by(.createdAt) | reverse | .[3:] | .[].tagName')
+          RELEASES=$(gh release list --limit 100 --json tagName,createdAt \
+            | jq -r 'sort_by(.createdAt) | reverse | .[3:] | .[].tagName')
 
           for tag in $RELEASES; do
             echo "Deleting old release: $tag"
