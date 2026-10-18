@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -191,27 +190,10 @@ def _opencode_launch(
     if not isinstance(mcp, dict):
         mcp = {}
         overlay["mcp"] = mcp
-    # V2 accepts V1 configuration, but prefer its canonical mcp.servers shape.
-    # Avoid a version check when no binary is installed (e.g. mocked unit tests).
-    try:
-        version = subprocess.run([binary, "--version"], check=False, capture_output=True, text=True, timeout=2)
-        match = re.search(r"(?<!\d)(\d+)\.\d+", version.stdout)
-        is_v2 = bool(match and int(match.group(1)) >= 2) or Path(binary).name == "opencode2"
-    except (OSError, subprocess.SubprocessError):
-        is_v2 = Path(binary).name == "opencode2"
-    if is_v2:
-        mcp.pop("lc", None)
-        servers = mcp.setdefault("servers", {})
-        if not isinstance(servers, dict):
-            raise HostTrialError("OpenCode V2 mcp.servers must be an object")
-        target = servers
-    else:
-        target = mcp
-    target["lc"] = {
+    mcp["lc"] = {
         "type": "local",
         "command": [command, *mcp_args],
         "environment": _mcp_env("opencode", mcp_extra_env),
-        **({"codemode": False} if is_v2 else {}),
     }
     env["OPENCODE_CONFIG_CONTENT"] = json.dumps(overlay, separators=(",", ":"))
     return [binary, *arguments], env
@@ -239,8 +221,6 @@ def build_trial_launch(
             raise HostTrialError("Pi host is not installed; run `lc rt host install --engine pi`")
     if binary is None:
         binary = shutil.which(host)
-    if binary is None and host == "opencode":
-        binary = shutil.which("opencode2")
     if binary is None:
         raise HostTrialError(f"{_HOST_LABELS[host]} is not installed or not on PATH")
     if host == "claude":

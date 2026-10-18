@@ -12,7 +12,7 @@ source "${SCRIPT_DIR}/lib/python_bootstrap.sh"
 bash "${SCRIPT_DIR}/install_opencode.sh" "$@"
 
 # 2) LemonCrow MCP smoke test against the installed opencode.json (skip if opencode absent).
-command -v "${OPENCODE_BIN:-opencode}" >/dev/null 2>&1 || command -v opencode2 >/dev/null 2>&1 || {
+command -v opencode >/dev/null 2>&1 || {
     echo "=== SKIPPED (opencode CLI absent) ==="
     exit 0
 }
@@ -37,8 +37,7 @@ python3 - "$OC_FILE" <<'EOF'
 import json, os, subprocess, sys
 
 data = json.load(open(sys.argv[1]))
-mcp = data.get("mcp", {})
-entry = mcp.get("servers", {}).get("lc") or mcp.get("lc")
+entry = data.get("mcp", {}).get("lc")
 if not isinstance(entry, dict):
     print("FAIL: 'lc' MCP server not found in opencode.json")
     sys.exit(1)

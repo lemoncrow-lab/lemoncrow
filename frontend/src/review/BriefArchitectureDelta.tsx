@@ -119,11 +119,11 @@ export default function BriefArchitectureDelta({
       className="flex flex-col gap-1.5 border-t border-border/70 py-3"
       data-testid="brief-architecture-delta"
     >
-      <div className="flex items-center gap-2 text-label font-medium text-foreground">
-        <Network size={14} aria-hidden="true" className="text-cyan-300" />
+      <div className="flex items-center gap-2 text-label font-medium text-neutral-200">
+        <Network size={14} aria-hidden="true" className="text-sky-300" />
         <span>Architecture moved</span>
       </div>
-      <p className="text-caption text-subtle">
+      <p className="text-caption text-neutral-300">
         {`${plural(summary.changed_components, "component")} · ${plural(summary.changed_edges, "relationship")} changed`}
         {relationshipParts.length > 0 ? ` (${relationshipParts.join(", ")})` : ""}
       </p>

@@ -132,15 +132,11 @@ PY
 # boundary. Pre-v0.8 marks, comments and Snapshots are not imported (as
 # documented in CHANGELOG.md); do not pretend to apply migrations on the old DB.
 # Instead verify that new marks/comments survive a separate read via the server.
-if ! LEMONCROW_URL="$DRILL_URL" "$LEMONCROW_BIN_DIR/lc" --root "$STORE" review \
+LEMONCROW_URL="$DRILL_URL" "$LEMONCROW_BIN_DIR/lc" --root "$STORE" review \
   --repo-root "$REPO" --track --no-open --no-impact --no-provenance \
   --mark app.py --mark-state reviewed \
   --comment "new-release durable comment" --on app.py:L2 --json \
-  > "$WORK/after.json" 2> "$WORK/after-state.txt"; then
-  echo "candidate Review smoke failed after installation (the exact CLI diagnostic follows):" >&2
-  cat "$WORK/after-state.txt" >&2
-  exit 1
-fi
+  > "$WORK/after.json" 2> "$WORK/after-state.txt"
 
 CANDIDATE_REVIEW_REF="$(python - "$WORK/after-state.txt" <<'PY'
 import json, pathlib, sys

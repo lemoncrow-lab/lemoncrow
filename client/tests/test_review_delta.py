@@ -536,7 +536,7 @@ def test_rebase_changes_commit_base_without_reusing_stale_blob_or_snapshot(
     git(worktree, "add", "docs/notes.md")
     git(worktree, "-c", "user.name=P2", "-c", "user.email=p2@example.invalid", "commit", "-qm", "main")
     git(worktree, "checkout", "p2-feature")
-    git(worktree, "-c", "user.name=P2", "-c", "user.email=p2@example.invalid", "rebase", original_branch)
+    git(worktree, "rebase", original_branch)
     rebased_head = git(worktree, "rev-parse", "HEAD")
     assert rebased_head not in (initial, feature_head)
     rebased = snapshot(worktree, rebased_head, cursor)

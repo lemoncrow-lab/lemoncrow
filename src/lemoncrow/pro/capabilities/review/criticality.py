@@ -13,7 +13,7 @@ Four separate concepts (plan §3.14-§3.16), never collapsed into one score:
 * **Finding threshold** (``critical | high | medium | suggestions``) controls what
   is surfaced. It is never part of the run plan, so it cannot change compute.
 
-Settings are read from ``review.focus`` / ``review.finding_threshold`` (or its alias ``review.strictness``) in the
+Settings are read from ``review.focus`` / ``review.finding_threshold`` in the
 **trusted-base** ``.lemoncrow/review.yaml`` (local Snapshot base, or the hosted
 provider-proven trusted-base capture) and from operator organization/repository
 policy (``effective_review["triage"]["layers"]``). Head-side edits are proposed
@@ -55,9 +55,6 @@ CRITICALITY_VALUES: Final[tuple[str, ...]] = ("critical", "high", "normal", "low
 FINDING_SEVERITIES: Final[tuple[str, ...]] = ("p0", "p1", "p2", "suggestion")
 FINDING_THRESHOLDS: Final[tuple[str, ...]] = ("critical", "high", "medium", "suggestions")
 DEFAULT_FINDING_THRESHOLD: Final[FindingThreshold] = "medium"
-#: ``review.strictness``: a friendly alias over ``review.finding_threshold`` (1 shows everything, 2 is the default,
-#: 3 holds back P2). It is resolved to a threshold when the settings are parsed, so nothing downstream knows it.
-STRICTNESS_THRESHOLDS: Final[Mapping[int, FindingThreshold]] = {1: "suggestions", 2: "medium", 3: "high"}
 
 CRITICALITY_RANK: Final[Mapping[str, int]] = {"low": 0, "normal": 1, "high": 2, "critical": 3}
 SEVERITY_RANK: Final[Mapping[str, int]] = {"suggestion": 0, "p2": 1, "p1": 2, "p0": 3}
@@ -368,17 +365,8 @@ def parse_triage_settings(raw: Mapping[str, Any], *, origin: PolicyOrigin) -> Tr
             if len(raw_focus) > MAX_FOCUS_RULES:
                 errors.append(f"focus exceeds {MAX_FOCUS_RULES} rules")
     threshold: FindingThreshold | None = None
-    if "strictness" in raw:
-        level = raw.get("strictness")
-        # ``True == 1`` in Python: a YAML ``yes`` is not a strictness.
-        if isinstance(level, int) and not isinstance(level, bool) and level in STRICTNESS_THRESHOLDS:
-            threshold = STRICTNESS_THRESHOLDS[level]
-        else:
-            errors.append("strictness must be 1, 2 or 3")
     if "finding_threshold" in raw:
         value = raw.get("finding_threshold")
-        if "strictness" in raw:
-            errors.append("set strictness or finding_threshold, not both; finding_threshold is used")
         if value in FINDING_THRESHOLDS:
             threshold = cast(FindingThreshold, value)
         else:
@@ -407,7 +395,7 @@ def parse_trusted_base_triage(content: str, *, source: str, commit: str = "") ->
         return None
     if not isinstance(section, Mapping):
         return TriageLayer(origin=origin, errors=("review must be a mapping",))
-    if "focus" not in section and "finding_threshold" not in section and "strictness" not in section:
+    if "focus" not in section and "finding_threshold" not in section:
         return None
     return parse_triage_settings(section, origin=origin)
 
@@ -738,44 +726,6 @@ def normalize_finding_severity(
     return None
 
 
-#: Investigator impact ratings, lowest first.
-FINDING_IMPACTS: Final[tuple[str, ...]] = ("low", "medium", "high")
-#: The categories where a verified high-impact finding is a must-fix: wrong results, security holes and
-#: data loss. Concurrency, API and performance findings can be P1 at most, however they are rated.
-# lc-debt: hard-coded; the PR bot's settings loader (`pr_bot/settings.py`) reads only the noise controls, not this
-# set; upgrade: a `review.p0_categories` key read there.
-P0_CATEGORIES: Final[frozenset[str]] = frozenset({"correctness", "security", "persistence_migration"})
-
-
-def severity_for(category: str, *, impact: str = "", verified: bool = False, rule_cited: bool = False) -> str:
-    """The severity of a finding: the one rule behind every badge, verdict and status (see ``pr_bot.findings``).
-
-    ``category`` is the finding's validated category, ``impact`` the investigator's rating (``""`` when it gave
-    none) and ``verified`` whether evidence from beyond the finding's own changed code backs it. Unverified
-    speculation is never P0: a ``high`` rating without that evidence, or outside :data:`P0_CATEGORIES`, is P1.
-
-    A ``critical_rule`` violation is P0 whatever its rating, but only when it ``rule_cited``: the rule's own ref is
-    the evidence that makes it a gate. A finding of that category that names no rule falls through to the ladder
-    below, where it is P1 at most.
-
-    The pull request bot stores this on every finding it tracks, and the Reader sends it on the annotation wire
-    (``review_triage.finding_severities``); both call this one function. It lives here, beside
-    :func:`normalize_finding_severity` which it builds on, so neither surface has to import the other.
-    """
-
-    if category == "critical_rule" and rule_cited:
-        return "p0"
-    if impact == "high":
-        return "p0" if verified and category in P0_CATEGORIES else "p1"
-    if impact == "medium":
-        return "p1" if verified else "p2"
-    if impact == "low":
-        return "p2"
-    # Unrated keeps the category's own severity (never P0 from here, never below P2).
-    rated = normalize_finding_severity("ai_review", category=category)
-    return rated if rated in {"p1", "p2"} else "p1"
-
-
 def surfaced(severity: FindingSeverity | None, threshold: FindingThreshold) -> bool:
     """Whether a finding of *severity* is shown under *threshold*.
 
@@ -812,125 +762,6 @@ def path_queue_reasons(policy: PathPolicy) -> list[QueueReason]:
     if policy.review_first == "last":
         reasons.append(QueueReason("review_last_policy", f"Review last · {_short(policy.review_first_rule)}"))
     return reasons
-
-
-# Built-in *reading attention* only. These paths are not findings and do not
-# change criticality, the AI depth floor, or merge/readiness policy. A reviewer
-# should not have to create a repository policy just to notice an auth or
-# payment change in a large agent-generated PR.
-_SENSITIVE_SOURCE_SUFFIXES: Final[frozenset[str]] = frozenset(
-    {
-        ".py",
-        ".go",
-        ".rs",
-        ".ts",
-        ".tsx",
-        ".js",
-        ".jsx",
-        ".java",
-        ".kt",
-        ".cs",
-        ".cc",
-        ".cpp",
-        ".c",
-        ".h",
-        ".hpp",
-        ".rb",
-        ".php",
-        ".sql",
-    }
-)
-_SENSITIVE_SEGMENTS: Final[Mapping[str, str]] = {
-    "auth": "authentication",
-    "authentication": "authentication",
-    "authorization": "authorization",
-    "security": "security",
-    "permissions": "permissions",
-    "payment": "payments",
-    "payments": "payments",
-    "billing": "billing",
-    "migrations": "database migration",
-}
-_SENSITIVE_FILE_STEMS: Final[Mapping[str, str]] = {
-    "auth": "authentication",
-    "authorization": "authorization",
-    "security": "security",
-    "permissions": "permissions",
-    "payment": "payments",
-    "payments": "payments",
-    "billing": "billing",
-    "migration": "database migration",
-}
-
-
-def sensitive_path_attention(path: str) -> str:
-    """Explainable, path-only review hint; never a bug assertion or proof.
-
-    Case-normalized repository paths are safe to inspect, but only known source
-    shapes are eligible. Docs, tests, fixtures and generated paths are never
-    silently promoted. A path outside these narrow patterns is still queued in
-    Understand rather than being called safe.
-    """
-    from pathlib import PurePosixPath
-
-    lowered = path.replace("\\", "/").lower().removeprefix("./")
-    parts = tuple(segment for segment in lowered.split("/") if segment)
-    if not parts or any(
-        segment in {"test", "tests", "__tests__", "fixtures", "vendor", "generated", "docs"} for segment in parts[:-1]
-    ):
-        return ""
-    name = parts[-1]
-    if name.endswith((".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx", "_test.go", "_test.py", "_spec.rb")):
-        return ""
-    if (
-        len(parts) >= 3
-        and parts[:2] == (".github", "workflows")
-        and name.endswith((".yml", ".yaml"))
-        and any(token in name for token in ("deploy", "release", "publish", "prod"))
-    ):
-        return "release automation"
-    if name.endswith((".tf", ".tfvars")) and any(
-        part in {"infra", "infrastructure", "terraform"} for part in parts[:-1]
-    ):
-        return "infrastructure configuration"
-    if PurePosixPath(name).suffix not in _SENSITIVE_SOURCE_SUFFIXES:
-        return ""
-    for segment in parts[:-1]:
-        if segment in _SENSITIVE_SEGMENTS:
-            return _SENSITIVE_SEGMENTS[segment]
-    return _SENSITIVE_FILE_STEMS.get(PurePosixPath(name).stem, "")
-
-
-def sensitivity_attention_reasons(
-    targets: Iterable[Any], policy: EffectiveTriagePolicy
-) -> dict[str, list[QueueReason]]:
-    """Additional transparent reading hints; no severity, finding or policy claim.
-
-    An explicit repository `priority: last` is respected for advisory hints,
-    while critical/high paths continue to get their stronger policy reasons.
-    """
-    by_path: dict[str, list[QueueReason]] = {}
-    result: dict[str, list[QueueReason]] = {}
-    for target in targets:
-        path = str(getattr(target, "path", "") or "")
-        if path not in by_path:
-            focus = policy.classify(path)
-            label = sensitive_path_attention(path)
-            by_path[path] = (
-                [
-                    QueueReason(
-                        "sensitive_path_attention", f"Review first: {label} path changed (not a verified finding)"
-                    )
-                ]
-                if label
-                and focus.review_first != "last"
-                and focus.criticality not in {"high", "critical"}
-                and focus.review_first != "first"
-                else []
-            )
-        if by_path[path]:
-            result[str(target.target_id)] = list(by_path[path])
-    return result
 
 
 def target_policy_reasons(targets: Iterable[Any], policy: EffectiveTriagePolicy) -> dict[str, list[QueueReason]]:
@@ -984,16 +815,13 @@ __all__ = [
     "CRITICALITY_RANK",
     "CRITICALITY_VALUES",
     "DEFAULT_FINDING_THRESHOLD",
-    "FINDING_IMPACTS",
     "FINDING_SEVERITIES",
     "FINDING_THRESHOLDS",
     "MAX_FOCUS_RULES",
-    "P0_CATEGORIES",
     "REQUIRED_FOCUS_CATEGORIES",
     "REVIEW_FIRST_VALUES",
     "SEVERITY_LABELS",
     "SEVERITY_RANK",
-    "STRICTNESS_THRESHOLDS",
     "THRESHOLD_LABELS",
     "Criticality",
     "EffectiveTriagePolicy",
@@ -1012,7 +840,6 @@ __all__ = [
     "parse_trusted_base_triage",
     "path_queue_reasons",
     "resolve_triage_policy",
-    "severity_for",
     "strictest_path_policy",
     "surfaced",
     "target_policy_reasons",

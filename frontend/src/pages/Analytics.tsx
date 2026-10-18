@@ -66,10 +66,10 @@ function CompactLeaderboard({
   return (
     <section className="rounded-lg border border-border/70 bg-background/60 p-4 space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <div className="text-caption uppercase tracking-widest text-muted-foreground font-semibold">
+        <div className="text-caption uppercase tracking-widest text-neutral-400 font-bold">
           {title}
         </div>
-        <div className="text-caption font-mono text-muted-foreground">
+        <div className="text-caption font-mono text-neutral-400">
           Top {rows.length}
         </div>
       </div>
@@ -81,25 +81,25 @@ function CompactLeaderboard({
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="w-5 shrink-0 font-mono text-caption text-muted-foreground">
+                    <span className="w-5 shrink-0 font-mono text-caption text-neutral-400">
                       {String(index + 1).padStart(2, "0")}
                     </span>
-                    <span className="truncate text-heading text-foreground">
+                    <span className="truncate text-sm text-neutral-200">
                       {row.label}
                     </span>
                   </div>
                   {row.sublabel && (
-                    <div className="pl-7 pt-0.5 text-caption text-muted-foreground truncate">
+                    <div className="pl-7 pt-0.5 text-caption text-neutral-400 truncate">
                       {row.sublabel}
                     </div>
                   )}
                 </div>
                 <div className="shrink-0 text-right">
-                  <div className="font-mono text-heading text-foreground">
+                  <div className="font-mono text-sm text-foreground">
                     {row.value}
                   </div>
                   {row.detail && (
-                    <div className="text-caption text-muted-foreground">
+                    <div className="text-caption text-neutral-400">
                       {row.detail}
                     </div>
                   )}
@@ -116,7 +116,7 @@ function CompactLeaderboard({
           ))}
         </div>
       ) : (
-        <div className="text-muted-foreground italic text-body">{emptyMessage}</div>
+        <div className="text-neutral-400 italic text-xs">{emptyMessage}</div>
       )}
     </section>
   );
@@ -228,7 +228,7 @@ function SpendTimelineChart({
       : fillDailyBuckets(dashboard.daily, days);
   if (!buckets.length)
     return (
-      <div className="text-muted-foreground italic text-body p-4">
+      <div className="text-neutral-400 italic text-xs p-4">
         No timeline data.
       </div>
     );
@@ -242,10 +242,10 @@ function SpendTimelineChart({
     <section className="rounded-lg border border-border/70 bg-background/60 p-4 space-y-4">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <div className="text-caption uppercase tracking-widest text-muted-foreground font-semibold">
+          <div className="text-caption uppercase tracking-widest text-neutral-400 font-bold">
             {breakdown === "hourly" ? "Hourly" : "Daily"} Activity
           </div>
-          <div className="mt-1 text-heading text-muted-foreground">
+          <div className="mt-1 text-sm text-neutral-400">
             Last {buckets.length} {unitLabel} snapshots in the selected window.
           </div>
         </div>
@@ -280,7 +280,7 @@ function SpendTimelineChart({
             >
               <div
                 className={`max-w-full truncate font-mono ${
-                  d.cost > 0 ? "text-emerald-300" : "text-muted-foreground"
+                  d.cost > 0 ? "text-emerald-300" : "text-neutral-400"
                 } ${isHourly ? "text-caption" : "text-caption"}`}
               >
                 {timelineValueLabel(d.cost)}
@@ -290,14 +290,14 @@ function SpendTimelineChart({
                   className={`rounded-t-sm transition-colors cursor-default ${
                     d.sessions > 0
                       ? "bg-emerald-500/60 hover:bg-emerald-400/80"
-                      : "bg-accent/70"
+                      : "bg-neutral-800/70"
                   } ${isHourly ? "w-5" : "w-7"}`}
                   style={{ height: `${h}px` }}
                 />
               </div>
               <div
                 className={`max-w-full truncate font-mono ${
-                  d.sessions > 0 ? "text-muted-foreground" : "text-muted-foreground"
+                  d.sessions > 0 ? "text-neutral-400" : "text-neutral-400"
                 } ${isHourly ? "h-3 text-caption" : "text-caption"}`}
               >
                 {timelineBucketLabel(d.date, breakdown)}
@@ -308,18 +308,18 @@ function SpendTimelineChart({
       </div>
       <div className="grid grid-cols-2 gap-3 pt-2 border-t border-border/60">
         <div>
-          <div className="text-caption uppercase text-muted-foreground mb-0.5">
+          <div className="text-caption uppercase text-neutral-400 mb-0.5">
             Total
           </div>
-          <div className="text-heading font-mono text-emerald-300">
+          <div className="text-sm font-mono text-emerald-300">
             ${totalCost.toFixed(2)}
           </div>
         </div>
         <div>
-          <div className="text-caption uppercase text-muted-foreground mb-0.5">
+          <div className="text-caption uppercase text-neutral-400 mb-0.5">
             Avg/Bucket
           </div>
-          <div className="text-heading font-mono text-emerald-300">
+          <div className="text-sm font-mono text-emerald-300">
             ${(totalCost / buckets.length).toFixed(2)}
           </div>
         </div>
@@ -454,7 +454,7 @@ export default function Analytics({
     return <EmptyState title="Loading analytics…" className="m-6" />;
 
   return (
-    <div className="space-y-4 text-foreground">
+    <div className="space-y-4 text-neutral-200">
       <div className="space-y-4">
           {/* Summary metrics */}
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -517,7 +517,7 @@ export default function Analytics({
           {/* Timeline */}
           <div className="space-y-4">
               {dashLoading ? (
-                <EmptyState title="Loading…" />
+                <EmptyState title="Loading…" className="p-4" />
               ) : dashboard ? (
                 <>
                   <SpendTimelineChart
@@ -528,7 +528,7 @@ export default function Analytics({
                   />
                 </>
               ) : (
-                <div className="text-muted-foreground italic text-heading">
+                <div className="text-neutral-400 italic text-sm">
                   Data unavailable.
                 </div>
               )}
@@ -556,7 +556,7 @@ export default function Analytics({
             <CompactLeaderboard
               title="Top Domains"
               rows={topDomainRows}
-              color="bg-muted-foreground/60"
+              color="bg-neutral-500/60"
               emptyMessage={
                 dashLoading ? "Loading dashboard..." : "No domain data."
               }

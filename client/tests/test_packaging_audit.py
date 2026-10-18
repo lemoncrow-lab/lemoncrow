@@ -146,15 +146,12 @@ def test_importing_the_package_pulls_in_nothing_third_party() -> None:
             sys.executable,
             "-c",
             (
-                # Modules the interpreter loaded before the import (a distro's sitecustomize, for one) are not the
-                # client's doing, so only what the import adds is checked.
                 "import sys, json;"
-                "startup = {m.split('.')[0] for m in sys.modules};"
                 "import lemoncrow_client.cli, lemoncrow_client.mcpserver;"
                 "import lemoncrow_client.dispatcher, lemoncrow_client.localtools;"
                 "from lemoncrow_client.localtools import executor_for;"
                 "[executor_for(name) for name in ('bash','edit','grep','sql','index')];"
-                "print(json.dumps(sorted({m.split('.')[0] for m in sys.modules} - startup)))"
+                "print(json.dumps(sorted({m.split('.')[0] for m in sys.modules})))"
             ),
         ],
         capture_output=True,
@@ -562,8 +559,6 @@ def test_persistent_state_writers_are_confined_to_the_worktree_or_state_director
     ``<state_dir>/mcp``; ``remote/service.py`` writes that gateway's two user
     units, only for ``runtime mcp serve --persistent``. ``pi_host.py`` owns the
     explicitly requested pinned Pi bundle and metadata under ``<state_dir>/hosts``.
-    ``uninstall.py`` rewrites a shell startup file only to cut the block the installer added to it, and a repository's
-    ``.git/info/exclude`` only to drop the one line a review added; it writes nothing else.
     Every other module must remain pure unless its persistence contract is
     reviewed here.
     """
@@ -590,7 +585,6 @@ def test_persistent_state_writers_are_confined_to_the_worktree_or_state_director
         "review_service.py",
         "session.py",
         "trace.py",
-        "uninstall.py",
         "workspace_paths.py",
     ], sorted(writers)
 

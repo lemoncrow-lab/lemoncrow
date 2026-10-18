@@ -39,7 +39,6 @@ def _run_drill(tmp_path: Path) -> tuple[subprocess.CompletedProcess[str], dict[s
 {{
   echo "pwd=$PWD"
   echo "home=$HOME"
-  echo "lemoncrow_home=$LEMONCROW_HOME"
   echo "supervisor=${{LEMONCROW_LOCAL_SERVER_SUPERVISOR:-}}"
   echo "port=${{LEMONCROW_LOCAL_SERVER_PORT:-}}"
   for name in {" ".join((*_XDG_HOMES, *_SESSION))}; do
@@ -68,8 +67,6 @@ exit 7
         **os.environ,
         "PATH": f"{host_bin}{os.pathsep}{os.environ['PATH']}",
         "TMPDIR": str(scratch),
-        "LEMONCROW_HOME": str(developer / "live-lemoncrow"),
-        "LEMONCROW_LOCAL_SERVER_DIR": str(developer / "live-lemoncrow/server"),
         **{name: str(developer / name.lower()) for name in _XDG_HOMES},
         "XDG_RUNTIME_DIR": str(developer / "run"),
         "DBUS_SESSION_BUS_ADDRESS": f"unix:path={developer / 'run' / 'bus'}",
@@ -96,8 +93,6 @@ def test_no_installer_reaches_the_host_service_manager_or_its_default_port(tmp_p
     assert seen["port"].isdigit() and int(seen["port"]) != 7420
     work = Path(seen["home"]).parent
     assert work.parent == tmp_path / "tmp" and Path(seen["pwd"]) == work
-    assert Path(seen["lemoncrow_home"]) == work / "home/.lemoncrow"
-    assert not (tmp_path / "developer/live-lemoncrow").exists()
 
 
 def test_no_installer_sees_the_developers_xdg_directories_or_session_bus(tmp_path: Path) -> None:

@@ -41,7 +41,7 @@ export function shortTime(value: string): string {
 
 export function statusTone(status: string): string {
   if (status === "pass") return "text-emerald-300";
-  if (status === "fail") return "text-red-300";
+  if (status === "fail") return "text-rose-300";
   if (status === "pending" || status === "open") return "text-amber-300";
   return "text-muted-foreground";
 }

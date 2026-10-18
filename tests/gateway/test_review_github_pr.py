@@ -667,7 +667,7 @@ def test_a_clone_of_another_repository_is_refused_with_the_repo_to_clone(tmp_pat
     ("args", "message"),
     [
         (["--publish"], "--publish needs --pr"),
-        (["--dry-run"], "use it with --pr NUMBER|URL and --ai, --publish-bot or --publish"),
+        (["--dry-run"], "--dry-run only applies to --publish"),
         (["--pr", "7", "--base", "main"], "--pr picks the range itself"),
     ],
 )

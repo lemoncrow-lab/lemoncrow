@@ -50,16 +50,6 @@ benchmarks/
 # Built-in Review evaluation corpus (synthetic, Apache-2.0), fixtures and Gate I
 # baseline. Organization corpora are never committed (tests enforce it).
 evals/review/
-# The seeded-bug corpus of repositories a public corpus may not carry (copyleft or source-available licences): commit
-# ids and fix subjects only, `visibility: private`; its reports go outside the checkout.
-!evals/review/seeded_public_bugs_nonpermissive.yaml
-# Its tests read that file, so they stay private with it.
-!tests/gateway/test_review_seeded_corpus_nonpermissive.py
-# The golden-comment corpus: 50 pull requests of repositories a public corpus may not carry, scored against an answer key
-# that has no licence (the key itself is never in this repository). Commit ids and titles only; reports go outside.
-!evals/review/golden_comment_prs.yaml
-# Its tests read that file, so they stay private with it.
-!tests/gateway/test_review_golden_corpus_shipped.py
 # Regression tests of the private code-intelligence engine (enterprise/runtime)
 # live under tests/private/ and are never published. Public tests reach the
 # engine only via the `private_engine` marker (skipped when it is absent).
@@ -86,10 +76,8 @@ evals/review/
 # The G11-RELEASE gate (scripts/release_gate.py, private like every unlisted script)
 # names enterprise test paths and private gates; its test stays private with it.
 !tests/test_release_gate.py
-!tests/test_release_canary_env.py
+!tests/gateway/test_stage_hosted_downloads.py
 !tests/test_release_record.py
-# Imports scripts/release_gate.py, release_impact.py and release_record.py, which are private.
-!tests/test_release_impact.py
 !tests/test_verify_compiled_candidate.py
 # The support-matrix renderer reads the private status index; only its page is public.
 !tests/gateway/test_support_matrix.py
@@ -137,9 +125,6 @@ frontend/index.html
 frontend/nginx.conf
 frontend/package.json
 frontend/package-lock.json
-# Vite runs Tailwind and autoprefixer through this file. The public mirror built the v0.8.0 Reader
-# without it, so the release shipped raw @tailwind directives and an unstyled Reader.
-frontend/postcss.config.js
 frontend/tailwind.config.ts
 frontend/test-results.json
 frontend/tsconfig.json
@@ -158,8 +143,6 @@ frontend/src/shared.ts
 frontend/src/vite-env.d.ts
 frontend/src/code/
 frontend/src/components/
-frontend/src/assets/
-frontend/src/design/
 frontend/src/control/
 frontend/src/lib/
 frontend/src/map/
@@ -195,7 +178,6 @@ scripts/install_hermes.sh
 scripts/install_hosts.sh
 scripts/install_lemoncode.sh
 scripts/install_opencode.sh
-scripts/opencode_v2_config.py
 scripts/install_pi.sh
 scripts/install.sh
 scripts/hosted.sh
@@ -218,12 +200,9 @@ scripts/mirror.py
 scripts/public-paths.txt
 scripts/reconcile.sh
 scripts/refresh_model_prices.py
-# Renders the published code-review benchmark table (README and landing copy) from evals/review/published/; its test is public.
-scripts/render_code_review_benchmark.py
 scripts/release_changelog.py
 scripts/release_notes.py
 scripts/release_preflight.py
-scripts/release_previous_tag.py
 scripts/release_version.py
 scripts/sessions.sh
 scripts/verify_release_upgrade.sh
@@ -285,8 +264,6 @@ vendor/babel-99.0.0-py3-none-any.whl
 .cursor-plugin/
 
 # === Root-level files ===
-# action.yml is the GitHub Action (`uses: lemoncrow-lab/lemoncrow@<sha>`, see docs/setup/github-action.md): it must sit at the repository root.
-action.yml
 AGENTS.md
 BENCHMARKS.md
 CLA.md

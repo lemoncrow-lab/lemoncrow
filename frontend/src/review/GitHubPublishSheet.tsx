@@ -1,5 +1,5 @@
 import { Button as UiButton } from "../components/ui/button";
-import { Sheet, SheetClose, SheetContent, SheetHeader, SheetLede, SheetTitle } from "../components/ui/sheet";
+import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "../components/ui/sheet";
 import { useCallback, useEffect, useState } from "react";
 import { ExternalLink, X } from "lucide-react";
 
@@ -67,20 +67,22 @@ export default function GitHubPublishSheet({ reviewId, onClose, onPublished }: G
     <Sheet open onOpenChange={(open) => { if (!open) onClose(); }}>
       <SheetContent>
         <SheetHeader>
-          <SheetTitle>
-            Publish to GitHub{preview ? ` · PR #${preview.pr.number}` : ""}
-          </SheetTitle>
+          <div className="min-w-0 flex-1">
+            <SheetTitle>
+              Publish to GitHub{preview ? ` · PR #${preview.pr.number}` : ""}
+            </SheetTitle>
+            <SheetDescription>
+              Posted as one review under your own <code>gh</code> login. Nothing is sent until you publish.
+            </SheetDescription>
+          </div>
           <SheetClose asChild>
             <UiButton variant="ghost" size="icon" type="button" aria-label="Close publish to GitHub">
               <X size={14} />
             </UiButton>
           </SheetClose>
         </SheetHeader>
-        <SheetLede>
-          Posted as one review under your own <code>gh</code> login. Nothing is sent until you publish.
-        </SheetLede>
 
-        <div className="min-h-0 flex-1 overflow-auto px-4 py-4 text-label text-subtle">
+        <div className="min-h-0 flex-1 overflow-auto px-4 py-4 text-label text-neutral-300">
           {busy === "preview" && <p className="text-muted-foreground">Asking GitHub what it will accept…</p>}
           {error && <p role="alert" className="mb-3 text-amber-300">{error}</p>}
           {result && (
@@ -88,7 +90,7 @@ export default function GitHubPublishSheet({ reviewId, onClose, onPublished }: G
               {result.adopted ? "Already on GitHub" : "Published"}: {EVENT_LABEL[result.event]}, {result.inline} inline
               {result.folded > 0 ? `, ${result.folded} in the review body` : ""}.{" "}
               <a href={result.html_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline">
-                Open on GitHub <ExternalLink size={14} />
+                Open on GitHub <ExternalLink size={11} />
               </a>
             </p>
           )}
@@ -109,8 +111,8 @@ export default function GitHubPublishSheet({ reviewId, onClose, onPublished }: G
               <ul className="mb-3 space-y-1">
                 {preview.inline.map((item) => (
                   <li key={item.annotation_id}>
-                    <span className="font-mono text-muted-foreground">{item.path}:{span(item.start_line, item.line)}{item.side === "LEFT" ? " (old)" : ""}</span>
-                    <div className="whitespace-pre-wrap text-subtle">{item.body}</div>
+                    <span className="font-mono text-neutral-400">{item.path}:{span(item.start_line, item.line)}{item.side === "LEFT" ? " (old)" : ""}</span>
+                    <div className="whitespace-pre-wrap text-neutral-300">{item.body}</div>
                   </li>
                 ))}
               </ul>
@@ -121,9 +123,9 @@ export default function GitHubPublishSheet({ reviewId, onClose, onPublished }: G
                   <ul className="space-y-1">
                     {preview.folded.map((item) => (
                       <li key={item.annotation_id}>
-                        <span className="font-mono text-muted-foreground">{item.location}</span>
+                        <span className="font-mono text-neutral-400">{item.location}</span>
                         <span className="text-muted-foreground"> · {item.reason}</span>
-                        <div className="whitespace-pre-wrap text-subtle">{item.body}</div>
+                        <div className="whitespace-pre-wrap text-neutral-300">{item.body}</div>
                       </li>
                     ))}
                   </ul>
@@ -145,7 +147,7 @@ export default function GitHubPublishSheet({ reviewId, onClose, onPublished }: G
             {result ? "Done" : "Refresh preview"}
           </UiButton>
           {!result && (
-            <UiButton variant="solid" type="button" disabled={busy !== "" || blocked} onClick={() => void publish()} className="px-3">
+            <UiButton variant="default" type="button" disabled={busy !== "" || blocked} onClick={() => void publish()} className="px-3">
               {busy === "publish" ? "Publishing…" : "Publish to GitHub"}
             </UiButton>
           )}

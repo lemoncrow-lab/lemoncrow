@@ -1,8 +1,8 @@
 """Product telemetry configuration: opt-out state and where remote telemetry goes.
 
 The local store (``telemetry.db``) and the local UI are always on. Only the
-anonymous rollups (savings, per-session usage counts, daily event counts) leave
-the machine, and :func:`resolve_destination` decides where they go:
+daily anonymous rollups (savings and event counts) leave the machine, and
+:func:`resolve_destination` decides where they go:
 
 - ``off``        local only; nothing is sent.
 - ``lemoncrow``  lemoncrow.com (the LemonCrow hosted service).
@@ -489,8 +489,8 @@ def remote_enabled() -> bool:
 
 
 def lemoncrow_cloud_enabled() -> bool:
-    """Whether telemetry may go to LemonCrow's own services (the per-event
-    PostHog export). Never true for an enterprise or custom destination."""
+    """Whether telemetry may go to LemonCrow's own services (PostHog, usage
+    sync). Never true for an enterprise or custom destination."""
     return resolve_destination().kind == "lemoncrow"
 
 

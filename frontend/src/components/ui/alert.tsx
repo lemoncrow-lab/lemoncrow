@@ -3,14 +3,14 @@ import type { ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 
-const alertVariants = cva("rounded-lg border p-4 text-body", {
+const alertVariants = cva("rounded-lg border p-4 text-sm", {
   variants: {
     tone: {
-      neutral: "border-border bg-card text-subtle",
-      info: "border-p2-line bg-p2-bg text-p2",
-      success: "border-ok-line bg-ok-bg text-ok",
-      warning: "border-p1-line bg-p1-bg text-p1",
-      destructive: "border-p0-line bg-p0-bg text-p0",
+      neutral: "border-border bg-background/60 text-neutral-300",
+      info: "border-cyan-900/40 bg-cyan-950/20 text-cyan-100",
+      success: "border-emerald-900/40 bg-emerald-950/20 text-emerald-100",
+      warning: "border-amber-900/40 bg-amber-950/20 text-amber-100",
+      destructive: "border-red-900/40 bg-red-950/20 text-red-100",
     },
   },
   defaultVariants: { tone: "neutral" },

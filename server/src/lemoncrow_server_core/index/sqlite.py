@@ -3240,10 +3240,6 @@ class SqliteRepoIdentityService:
     def __init__(self, db: _Db) -> None:
         self._db = db
 
-    def lookup_repo_id(self, org_id: str, claim: RepoIdentityClaim) -> str | None:
-        row = self._db.row("SELECT repo_id FROM repos WHERE org_id = ? AND claim_key = ?", (org_id, claim.key()))
-        return None if row is None else str(row["repo_id"])
-
     def canonical_repo_id(self, org_id: str, claim: RepoIdentityClaim) -> str:
         key = claim.key()
         existing = self._db.row("SELECT repo_id FROM repos WHERE org_id = ? AND claim_key = ?", (org_id, key))

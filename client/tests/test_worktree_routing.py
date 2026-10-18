@@ -67,21 +67,6 @@ def test_paths_inside_a_worktree_route_and_rebase(catalog: WorktreeCatalog, repo
     }
 
 
-@pytest.mark.parametrize("nested", [False, True])
-def test_worktree_created_after_catalog_cache_is_immediately_routable(
-    catalog: WorktreeCatalog, repos: tuple[Path, Path], nested: bool
-) -> None:
-    main, _ = repos
-    assert len(catalog.entries()) == 2  # Prime the cache before creation.
-    new = (main / ".lc-worktrees" / "new-feature") if nested else (main.parent / "new-feature")
-    _git(main, "worktree", "add", "--detach", str(new), "HEAD")
-
-    routed = catalog.route({"edits": [{"path": str(new / "pkg/alpha.py"), "old": "return 1", "new": "return 2"}]})
-    assert routed.worktree is not None and routed.worktree.root == new.resolve()
-    assert routed.arguments["edits"][0]["path"] == "pkg/alpha.py"
-    assert routed.explicit
-
-
 def test_project_id_is_not_a_worktree_selector(catalog: WorktreeCatalog) -> None:
     routed = catalog.route({"project_id": "feature-x", "query": "q"})
     assert routed.worktree is None
@@ -159,48 +144,6 @@ def test_dispatcher_sticks_to_worktree_then_switches_back_to_main(
     back_here = dispatcher.call("code_search", {"query": "alpha"})
     assert not back_here.is_error and back_here.view_id == ""
     assert not back_here.content[0]["text"].startswith("[worktree ")
-
-
-def test_dispatcher_edits_a_just_created_external_worktree_without_touching_main(
-    routed_dispatcher: tuple[Dispatcher, ClientConfig], repos: tuple[Path, Path]
-) -> None:
-    dispatcher, _ = routed_dispatcher
-    main, _ = repos
-    assert len(dispatcher._catalog.entries()) == 2  # The creation was not cached.
-    fresh = main.parent / "just-created-checkout"
-    _git(main, "worktree", "add", "--detach", str(fresh), "HEAD")
-
-    edited = dispatcher.call(
-        "edit", {"edits": [{"path": str(fresh / "pkg/alpha.py"), "old": "return 1", "new": "return 42"}]}
-    )
-    assert not edited.is_error, edited.content
-    assert "return 42" in (fresh / "pkg/alpha.py").read_text(encoding="utf-8")
-    assert "return 1" in (main / "pkg/alpha.py").read_text(encoding="utf-8")
-    assert edited.session_id and edited.view_id
-
-    # The selected checkout remains active for relative edits/read calls.
-    relative = dispatcher.call("edit", {"edits": [{"path": "pkg/alpha.py", "old": "return 42", "new": "return 43"}]})
-    assert not relative.is_error, relative.content
-    assert "return 43" in (fresh / "pkg/alpha.py").read_text(encoding="utf-8")
-    read_back = dispatcher.call("read", {"files": ["pkg/alpha.py:full"]})
-    assert not read_back.is_error and "return 43" in read_back.content[0]["text"]
-
-    # Returning to main is explicit and cannot inherit the stale checkout.
-    switched = dispatcher.call("bash", {"command": "pwd", "cwd": str(main)})
-    assert not switched.is_error
-    assert str(main) in switched.content[0]["text"]
-    assert "return 1" in (main / "pkg/alpha.py").read_text(encoding="utf-8")
-
-
-def test_unrelated_git_repo_is_not_a_worktree_route(catalog: WorktreeCatalog, repos: tuple[Path, Path]) -> None:
-    main, _ = repos
-    catalog.entries()
-    foreign = main.parent / "unrelated"
-    foreign.mkdir()
-    _git(foreign, "init")
-    routed = catalog.route({"edits": [{"path": str(foreign / "not-allowed.txt"), "new": "unsafe", "replace": True}]})
-    assert routed.worktree is None and not routed.explicit
-    assert routed.arguments["edits"][0]["path"] == str(foreign / "not-allowed.txt")
 
 
 def test_thin_client_still_refuses_project_id(
