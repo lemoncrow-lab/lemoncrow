@@ -19,7 +19,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 from pathlib import Path
 from typing import Any
 
@@ -39,10 +38,8 @@ __all__ = [
     "coerce",
     "env_override",
     "find_by_key",
-    "is_secret",
     "load_raw",
     "load_settings",
-    "secret_location_note",
     "settings_path",
     "unset_setting",
     "write_setting",
@@ -77,34 +74,11 @@ def _read_json(path: Path) -> dict[str, Any]:
     return {}
 
 
-_SECRET = re.compile(r"(?:api_key|_token|secret|password)$")
-
-
-def is_secret(spec: SettingSpec) -> bool:
-    """API keys and tokens: never echoed back to the screen, and the reason the settings file is owner-only."""
-    return spec.type == "str" and bool(_SECRET.search(spec.key))
-
-
 def _write_json(path: Path, data: dict[str, Any]) -> None:
-    """Replace *path* with *data*, readable by its owner only.
-
-    The file can hold API keys (``llm.openai_api_key``), so it is never group- or world-readable. It is written to a new
-    file and moved over the old one, which also repairs an older install's 0644 file the next time anything is saved.
-    """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.tmp")
-    descriptor = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-        handle.write(json.dumps(data, indent=2, sort_keys=True))
-    os.chmod(tmp, 0o600)  # a leftover temporary file keeps the mode it was created with
+    tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
     tmp.replace(path)
-
-
-def secret_location_note(root: str | Path, spec: SettingSpec) -> str:
-    """Where a secret setting is kept, said plainly (``""`` for a setting that is not a secret)."""
-    if not is_secret(spec):
-        return ""
-    return f"Stored as plain text in {settings_path(root)}, readable only by you (mode 600)."
 
 
 def coerce(spec: SettingSpec, raw: Any) -> Any:
@@ -219,8 +193,6 @@ def apply_settings_env(root: str | Path | None = None, *, env: dict[str, str] | 
             continue
         if spec.env_var in target:
             continue
-        if spec.yields_to and str(target.get(spec.yields_to) or "").strip():
-            continue  # the key exported in this shell wins over the saved one
         try:
             coerced = coerce(spec, value)
         except (TypeError, ValueError):

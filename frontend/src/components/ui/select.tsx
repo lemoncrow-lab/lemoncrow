@@ -21,8 +21,8 @@ import { usePortalContainer } from "./portal-container";
 type SelectSize = "xs" | "sm";
 
 const SIZE_STYLES: Record<SelectSize, string> = {
-  xs: "h-8 px-2.5 text-meta",
-  sm: "h-9 px-3 text-ui",
+  xs: "h-8 px-2.5 text-caption",
+  sm: "h-9 px-3 text-xs",
 };
 
 export interface SelectItemProps {
@@ -298,7 +298,7 @@ export function Select({
         )}
       >
         <span className="min-w-0 flex-1 truncate">{selected?.children ?? placeholder}</span>
-        <ChevronDown size={14} className={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+        <ChevronDown size={12} className={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
       </button>
       {open && rect && createPortal(
         <div
@@ -306,7 +306,7 @@ export function Select({
           data-ui-select-popup
           className={cn(
             // pointer-events-auto: a modal Radix dialog disables pointer events outside its layer.
-            "fixed z-50 flex max-h-[min(22rem,calc(100vh-24px))] flex-col overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-float",
+            "fixed z-50 flex max-h-[min(22rem,calc(100vh-24px))] flex-col overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-lg shadow-black/20",
             contentClassName
           )}
           style={popupStyle}
@@ -327,7 +327,7 @@ export function Select({
                     : undefined
                 }
                 placeholder={searchPlaceholder}
-                className={cn(fieldStyles, "h-8 w-full px-2 text-meta")}
+                className={cn(fieldStyles, "h-8 w-full px-2 text-caption")}
               />
             </div>
           )}
@@ -357,14 +357,14 @@ export function Select({
                   onMouseEnter={() => !item.disabled && setHighlighted(index)}
                   onClick={() => choose(index)}
                   className={cn(
-                    "flex w-full min-w-0 items-center gap-1.5 min-h-8 rounded-md px-2 py-1.5 text-left text-ui transition-colors duration-fast",
-                    focused ? "bg-accent text-accent-foreground" : "text-foreground",
+                    "flex w-full min-w-0 items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-label transition-colors",
+                    focused ? "bg-accent text-accent-foreground" : "text-neutral-300",
                     item.disabled && "cursor-not-allowed opacity-40",
                     item.className
                   )}
                 >
                   <span className="min-w-0 flex-1 truncate">{item.children}</span>
-                  {active && <Check size={14} className="shrink-0" />}
+                  {active && <Check size={12} className="shrink-0" />}
                 </button>
               );
             })}

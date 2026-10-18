@@ -89,14 +89,14 @@ function BinaryPreview({
 
   if (error) {
     return (
-      <div className="flex min-h-[520px] items-center justify-center p-4 text-body text-red-300">
+      <div className="flex min-h-[520px] items-center justify-center p-4 text-xs text-red-300">
         Could not preview {path}: {error}
       </div>
     );
   }
   if (!objectUrl) {
     return (
-      <div className="flex min-h-[520px] items-center justify-center text-body text-muted-foreground">
+      <div className="flex min-h-[520px] items-center justify-center text-xs text-muted-foreground">
         Loading preview…
       </div>
     );
@@ -107,7 +107,7 @@ function BinaryPreview({
         <img
           src={objectUrl}
           alt={path}
-          className="max-h-full max-w-full object-contain shadow-frame"
+          className="max-h-full max-w-full object-contain shadow-2xl"
         />
       </div>
     );

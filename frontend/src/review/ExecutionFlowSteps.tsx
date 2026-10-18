@@ -13,10 +13,10 @@ export default function ExecutionFlowSteps({ flow }: { flow: ReviewArchitectureD
   const observed = flow.observed;
   return (
     <>
-      <ol className="space-y-1.5 text-caption leading-4 text-muted-foreground" data-testid="execution-flow">
+      <ol className="space-y-1.5 text-caption leading-4 text-neutral-400" data-testid="execution-flow">
         {flow.steps.map((step) => (
           <li key={step.edge_id} data-testid={`flow-step-${step.edge_id}`}>
-            <span className="font-mono text-subtle">{step.from}</span> → <span className="font-mono text-subtle">{step.to}</span> · {step.delta_status} {step.relationship}
+            <span className="font-mono text-neutral-300">{step.from}</span> → <span className="font-mono text-neutral-300">{step.to}</span> · {step.delta_status} {step.relationship}
             {step.grounding === "observed" && step.trace ? (
               <span
                 className="ml-1.5 rounded border border-emerald-500/40 px-1 text-micro text-emerald-300"
@@ -43,14 +43,14 @@ export default function ExecutionFlowSteps({ flow }: { flow: ReviewArchitectureD
                 </div>
               ))}
               {observed.removed.map((row) => (
-                <div key={`-${call(row)}`} className="font-mono text-cyan-300" title={row.evidence_ref}>
+                <div key={`-${call(row)}`} className="font-mono text-sky-300" title={row.evidence_ref}>
                   − {call(row)}
                 </div>
               ))}
             </>
           ) : (
             observed.head.map((row) => (
-              <div key={call(row)} className="font-mono text-muted-foreground" title={row.evidence_ref}>
+              <div key={call(row)} className="font-mono text-neutral-400" title={row.evidence_ref}>
                 {call(row)}
               </div>
             ))

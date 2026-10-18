@@ -144,25 +144,6 @@ the server's own copy.
 and spills shortened content locally for `read`. PDF extraction uses
 `pdftotext` on the client PATH; no program is installed automatically.
 
-### Git worktrees
-
-A single MCP client can use any linked checkout reported by `git worktree list`,
-including worktrees **outside** the main repository directory. Select one with
-an absolute file path (for example, `edit(edits=[{"path":
-"/path/to/feature-worktree/src/app.py", "old": "...", "new": "..."}])`)
-or `bash(cwd="/path/to/feature-worktree", command="pwd")`. Repository-relative
-paths that spell a nested worktree also select it. Following that selection,
-relative `read`, `edit`, and search paths use the selected checkout until a tool
-explicitly names another one or the main checkout. The model-facing result
-identifies the active worktree when a route is inherited.
-
-Newly created worktrees are recognized on the first path-bearing call, even if
-the worktree catalog was already cached. Each linked checkout has its own remote
-View and local write boundary; edits never silently fall back to the main
-checkout, and a request spanning different worktrees must be split into
-separate calls. Arbitrary external folders and unrelated Git repositories are
-**not** eligible for edit routing.
-
 Three boundaries are drawn on purpose, and each is a typed refusal rather than a
 silent degradation:
 

@@ -70,14 +70,6 @@ class AgentCliDriverRefused(InternalLLMError):
     """The route resolved to an agent CLI on a host that never starts one."""
 
 
-class NoProviderConfigured(InternalLLMError):
-    """No model route is configured (``LEMONCROW_LLM_BACKEND`` is ``none``): nothing was chosen, nothing is broken.
-
-    Kept apart from the other route errors so a surface can tell a person how to set a model up instead of repeating
-    the operator wording below.
-    """
-
-
 class IntelligenceDisabled(InternalLLMError):
     """The effective intelligence policy turns model routes off, or cannot be read (fail closed)."""
 
@@ -202,56 +194,6 @@ class ModelCallUsage:
             currency=str(value.get("currency") or "") or None,
             request_id=str(value.get("request_id") or ""),
         )
-
-
-def exact_table_cost_usd(model: str, usage: ModelCallUsage) -> float | None:
-    """USD for one call at the local price table's own rate for *model*, on the call's reported tokens.
-
-    The one place a call without a provider figure is priced: the bot's footer, the benchmark and the per-call cost
-    ceiling all come here. ``None`` when the table has no exact entry for the model (a nearest sibling's rate is
-    refused, never guessed) or the call reported no token counts.
-    """
-
-    from lemoncrow.core.capabilities.pricing import exact_model_pricing
-
-    if usage.input_tokens is None or usage.output_tokens is None:
-        return None
-    pricing = exact_model_pricing(model)
-    if pricing is None:
-        return None
-    return pricing.call_cost_usd(
-        prompt_tokens=usage.input_tokens,
-        output_tokens=usage.output_tokens,
-        cache_read_tokens=usage.cache_read_input_tokens or 0,
-        cache_write_tokens=usage.cache_write_input_tokens or 0,
-    )
-
-
-def _unpriced_call_error(model: str, usage: ModelCallUsage, attempts: int) -> str:
-    """Why a call under a cost ceiling has no cost to compare, and what to do about it.
-
-    Called only when neither the provider's figure nor :func:`exact_table_cost_usd` gave one.
-    """
-
-    from lemoncrow.core.foundation.paths import default_store_root
-
-    named = model or "the model"
-    remove = "remove the cost ceiling (per_review_model_cost_usd, LEMONCROW_REVIEW_INTELLIGENCE_MAX_COST)"
-    if attempts > 1:
-        return (
-            "provider did not report cost for the whole call: an earlier attempt failed with no usage, so the "
-            f"requested cost budget cannot be verified; {remove}"
-        )
-    if usage.input_tokens is None or usage.output_tokens is None:
-        return (
-            f"provider reported neither a cost nor token counts for {named}, so the requested cost budget cannot be "
-            f"verified; use a route that reports usage, or {remove}"
-        )
-    return (
-        f"provider did not report cost and the local price table has no exact price for {named}, so the requested "
-        f"cost budget cannot be verified; set a price override for it in {default_store_root() / 'pricing.yaml'}, "
-        f"or {remove}"
-    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -394,7 +336,7 @@ def resolve_driver_model(
         requested = configured
     if requested not in {"claude", "codex", "opencode", "ollama", "openai", "litellm"}:
         if requested == "none":
-            raise NoProviderConfigured(
+            raise InternalLLMError(
                 "Review Intelligence provider is disabled; configure a provider or select a local/subscription driver"
             )
         raise InternalLLMError(f"Unsupported Review Intelligence driver: {requested}")
@@ -470,18 +412,13 @@ def execute_structured(
     cli_usage: dict[str, Any] = {}
 
     def record_cli_usage(reported: Mapping[str, Any]) -> None:
-        # CLI metering is informational, not an invoice: a subscription process bills nothing. A dollar figure is
-        # recorded only when the CLI itself reported one (the claude CLI's list-price estimate); none is ever worked
-        # out for a CLI that does not (Codex and OpenCode report tokens at most).
+        # CLI metering is informational: a subscription process cannot supply
+        # an enforceable provider invoice or an authoritative dollar charge.
         cli_usage.update(reported)
 
     def optional_nonnegative(name: str) -> int | None:
         value = cli_usage.get(name)
         return value if type(value) is int and value >= 0 else None
-
-    def reported_cost() -> float | None:
-        value = cli_usage.get("cost_usd")
-        return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0 else None
 
     if resolved.driver in {"claude", "codex", "opencode"}:
         if source_kind == "review" and project_root is None:
@@ -523,7 +460,6 @@ def execute_structured(
                 raise IntelligenceCancelled(str(exc)) from exc
         if _cancelled(cancellation):
             raise IntelligenceCancelled("Review Intelligence run was cancelled")
-        cli_cost = reported_cost()
         return StructuredExecution(
             result=_mapping_result(value),
             driver=resolved.driver,
@@ -534,8 +470,6 @@ def execute_structured(
                 output_tokens=optional_nonnegative("output_tokens"),
                 cache_read_input_tokens=optional_nonnegative("cached_input_tokens"),
                 cache_write_input_tokens=optional_nonnegative("cache_write_input_tokens"),
-                provider_cost=cli_cost,
-                currency="USD" if cli_cost is not None else None,
             ),
             observed_models=tuple(observed),
         )
@@ -581,15 +515,12 @@ def execute_structured(
         usage = _usage_from_internal(provider_result)
         observed.append(provider_result.reported_model)
     elif resolved.driver == "litellm":
-        from lemoncrow.infra.internal_llm.litellm_client import bounded_max_tokens
         from lemoncrow.infra.internal_llm.litellm_client import chat_with_result as litellm_chat_with_result
 
         provider_result = litellm_chat_with_result(
             messages,
             model=resolved.model or None,
             json_schema=dict(output_schema),
-            # LiteLLM would otherwise send the model's own maximum (128,000 tokens on current Claude models).
-            extra_kwargs={"max_tokens": bounded_max_tokens(resolved.model or None)},
         )
         value = provider_result.parsed_json or {}
         usage = _usage_from_internal(provider_result)
@@ -1160,29 +1091,18 @@ def _run_intelligence(
             )
 
         if request.budget.max_cost is not None:
-            # Checked after the call, against that one call's own cost (the money is already spent; an over-ceiling
-            # result is discarded): the provider's figure, else the exact local price on the call's own tokens.
-            call_cost = execution_usage.provider_cost
-            priced_locally = call_cost is None
-            if call_cost is None:
-                call_cost = exact_table_cost_usd(resolved.model, execution_usage)
-            if call_cost is None:
+            if execution_usage.provider_cost is None:
                 return finish(
                     "failed",
                     usage=execution_usage,
-                    error=_unpriced_call_error(resolved.model, execution_usage, attempts),
+                    error="provider did not report cost; requested cost budget cannot be verified",
                     observed=executed_identity,
                 )
-            if call_cost > request.budget.max_cost:
+            if execution_usage.provider_cost > request.budget.max_cost:
                 return finish(
                     "failed",
                     usage=execution_usage,
-                    error=(
-                        f"Review Intelligence cost budget exceeded: the call came to ${call_cost:.6f} at the local "
-                        f"price table's rate, over the ${request.budget.max_cost:.6f} ceiling"
-                        if priced_locally
-                        else "Review Intelligence provider cost budget exceeded"
-                    ),
+                    error="Review Intelligence provider cost budget exceeded",
                     observed=executed_identity,
                 )
         return finish("ready", result=execution.result, usage=execution_usage, observed=executed_identity)
@@ -1208,7 +1128,6 @@ __all__ = [
     "RouteOverrideRefused",
     "StructuredExecution",
     "build_intelligence_identity",
-    "exact_table_cost_usd",
     "execute_structured",
     "intelligence_input_digest",
     "require_intelligence_enabled",

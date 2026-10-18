@@ -141,7 +141,7 @@ export default function ReviewActionMenu({
         )}
         {onShowHistory && (
           <DropdownMenuItem onSelect={onShowHistory}>
-            <History size={14} />
+            <History size={12} />
             Snapshot history
           </DropdownMenuItem>
         )}
@@ -153,7 +153,7 @@ export default function ReviewActionMenu({
               onPublishGitHub();
             }}
           >
-            <Send size={14} />
+            <Send size={12} />
             Publish to GitHub…
           </DropdownMenuItem>
         )}
@@ -183,7 +183,7 @@ export default function ReviewActionMenu({
             copyText(reviewId, setCopyIdState);
           }}
         >
-          <Copy size={14} />
+          <Copy size={12} />
           Copy Change ID
           {copyIdState === "copied" && <span className="ml-auto text-emerald-400">Copied</span>}
           {copyIdState === "failed" && <span className="ml-auto text-amber-300">Copy failed</span>}
@@ -196,7 +196,7 @@ export default function ReviewActionMenu({
               copyText(workspacePath, setCopyWorkspaceState);
             }}
           >
-            <Copy size={14} className="mt-0.5 shrink-0" />
+            <Copy size={12} className="mt-0.5 shrink-0" />
             <span className="min-w-0 flex-1">
               <span className="block">Copy workspace path</span>
               <span className="block truncate text-caption text-muted-foreground">{workspacePath}</span>
@@ -206,7 +206,7 @@ export default function ReviewActionMenu({
           </DropdownMenuItem>
         )}
         <DropdownMenuItem className="items-start" onSelect={onDownloadPatch}>
-          <Download size={14} className="mt-0.5 shrink-0" />
+          <Download size={12} className="mt-0.5 shrink-0" />
           <span className="min-w-0 flex-1">
             <span className="block">Download Snapshot patch</span>
             <span className="block text-caption text-muted-foreground">Apply with git apply</span>
@@ -262,12 +262,12 @@ export default function ReviewActionMenu({
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
           <a href={settingsHref}>
-            <Settings size={14} />
+            <Settings size={12} />
             Settings
           </a>
         </DropdownMenuItem>
         <DropdownMenuItem className="items-start" onSelect={onOpenFeedback} aria-label="Send LemonCrow feedback">
-          <CircleHelp size={14} className="mt-0.5 shrink-0" />
+          <CircleHelp size={12} className="mt-0.5 shrink-0" />
           <span className="min-w-0 flex-1">
             <span className="block">Make a wish</span>
             <span className="block text-caption text-muted-foreground">Tell LemonCrow what to build next</span>

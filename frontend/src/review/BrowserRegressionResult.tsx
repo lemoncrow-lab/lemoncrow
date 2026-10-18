@@ -16,7 +16,7 @@ function runLabel(run: ReviewBrowserRun): string {
 
 function statusTone(status: string): string {
   if (status === "PASS") return "text-emerald-300";
-  if (status === "FAIL") return "text-red-300";
+  if (status === "FAIL") return "text-rose-300";
   return "text-amber-300";
 }
 
@@ -127,7 +127,7 @@ function TraceLink({ run, label }: { run: ReviewBrowserRun; label: string }) {
   };
   return (
     <span className="inline-flex items-center gap-1.5">
-      <UiButton type="button" variant="link" onClick={() => void download()} className="text-cyan-300 hover:text-cyan-200 hover:underline">
+      <UiButton type="button" variant="link" onClick={() => void download()} className="text-sky-300 hover:text-sky-200 hover:underline">
         {label} trace
       </UiButton>
       <span className="font-mono text-muted-foreground" title={trace.digest}>{shortDigest(trace.digest)}</span>
@@ -154,7 +154,7 @@ function RunFacts({ run }: { run: ReviewBrowserRun }) {
             {[...failing, ...passing].slice(0, 24).map((row, index) => (
               <li key={`${row.name}:${index}`} className="flex gap-2 text-caption">
                 <span className={`w-12 shrink-0 font-mono ${statusTone(row.status)}`}>{row.status}</span>
-                <span className="min-w-0 flex-1 text-subtle">
+                <span className="min-w-0 flex-1 text-neutral-300">
                   {row.name}
                   {(row.expected || row.actual) && (
                     <span className="text-muted-foreground"> — expected {row.expected || "∅"}, observed {row.actual || "∅"}</span>
@@ -175,7 +175,7 @@ function RunFacts({ run }: { run: ReviewBrowserRun }) {
       {(consoleErrors.length > 0 || run.runtime_errors.length > 0) && (
         <div>
           <div className="mb-1 text-micro font-semibold uppercase tracking-wider text-muted-foreground">Console / runtime errors</div>
-          <ul className="space-y-0.5 font-mono text-micro text-red-300/80">
+          <ul className="space-y-0.5 font-mono text-micro text-rose-300/80">
             {consoleErrors.slice(0, 8).map((row, index) => (
               <li key={`console:${index}`} className="break-words">{row.text}{row.location ? ` (${row.location})` : ""}</li>
             ))}
@@ -224,7 +224,7 @@ export default function BrowserRegressionResult({ check }: { check: ReviewVerifi
       className="mt-1.5 rounded border border-border/80 bg-background/60"
       onToggle={(event) => setOpen((event.currentTarget as HTMLDetailsElement).open)}
     >
-      <summary className="cursor-pointer px-2 py-1.5 text-meta text-muted-foreground hover:text-foreground">
+      <summary className="cursor-pointer px-2 py-1.5 text-caption text-neutral-400 hover:text-foreground">
         What the browser observed · <span className="font-mono text-muted-foreground">{browser.route}</span>
         {environment && <span className="text-muted-foreground"> · {environment}</span>}
       </summary>

@@ -16,7 +16,6 @@ Routes (all under the Review API prefix):
 
 from __future__ import annotations
 
-import logging
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -50,7 +49,6 @@ from lemoncrow.pro.capabilities.review.feedback_sync import (
 from lemoncrow.pro.capabilities.review.post_merge_actions import (
     POST_MERGE_KINDS,
     MergeAutomationResult,
-    MergeObservation,
     PostMergeConflict,
     PostMergeExecutor,
     PostMergeLedger,
@@ -90,8 +88,6 @@ class ReviewAutomationDeps:
     """``(session, annotation, op, body)``: the local comment write after the provider confirmed."""
     branch_protection: Callable[[Any, Mapping[str, Any]], BranchProtectionFacts] | None = None
     provider_fact: Callable[[Any], ProviderMergeFact | None] | None = None
-    landed_knowledge_sync: Callable[[Any, MergeObservation], Mapping[str, Any] | None] | None = None
-    """Trusted, opt-in canonical-history publisher; never a public request payload."""
     executors: Mapping[str, PostMergeExecutor] | None = None
     feedback_sync_provider: Callable[[Any], FeedbackSyncProvider | None] | None = None
     hard_delete_allowed: Callable[[Any], bool] | None = None
@@ -285,25 +281,10 @@ class ReviewAutomationHooks:
         deps = self._deps
         ruleset = deps.rules(session)
         rules = ruleset.for_repository(deps.repository(session))
-        # Canonical Project Knowledge is independent of optional notification
-        # rules. Only an actual provider-observed merge may trigger the trusted
-        # integration callback; operator callbacks are never accepted via HTTP.
-        merge = observed_merge(
-            deps.store, session, provider_fact=deps.provider_fact(session) if deps.provider_fact else None
-        )
-        if merge is not None and deps.landed_knowledge_sync is not None:
-            try:
-                deps.landed_knowledge_sync(session, merge)
-            except Exception:
-                # A failed derived-history projection must not roll back an
-                # already settled provider merge or prevent other follow-ups.
-                logging.getLogger(__name__).warning(
-                    "landed Project Knowledge sync failed for Review %s", session.id, exc_info=True
-                )
         if not rules:
-            return MergeAutomationResult(merge=merge)
+            return MergeAutomationResult(merge=None)
         readiness = deps.readiness(session)
-        _observed, facts = self.facts(session, readiness)
+        merge, facts = self.facts(session, readiness)
         return run_merge_automation(
             deps.store,
             session,

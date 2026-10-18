@@ -1517,11 +1517,6 @@ def plugin_settings_set(ctx: click.Context, key: str, value: str, as_json: bool)
         click.echo(style.row("warn", f"{current.env_shown} in your environment still overrides it"))
         return
     click.echo(style.success(f"{key} set to {style.bold(current.shown)}"))
-    from lemoncrow.core.settings import secret_location_note
-
-    where = secret_location_note(ctx.obj["root"], current.spec)
-    if where:  # a key is saved as plain text: say where, rather than only "hidden"
-        click.echo(style.dim(where))
 
 
 @plugin_settings_group.command("reset", short_help="Put one setting back to its default.")

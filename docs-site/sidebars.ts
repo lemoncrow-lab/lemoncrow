@@ -18,23 +18,8 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: "doc",
-          id: "setup/ai-review",
-          label: "Your first AI review",
-        },
-        {
-          type: "doc",
           id: "setup/pro-hosted-runtime",
           label: "LemonCrow Pro: Hosted Runtime",
-        },
-        {
-          type: "doc",
-          id: "setup/github-action",
-          label: "GitHub Action: AI pull request review",
-        },
-        {
-          type: "doc",
-          id: "setup/importing-review-rules",
-          label: "Importing review rules",
         },
         {
           type: "doc",

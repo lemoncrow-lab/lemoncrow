@@ -51,7 +51,7 @@ function IntegrationDetails({ host }: { host: LocalIntegrationHost }) {
           <div className="text-micro font-semibold uppercase tracking-wide text-muted-foreground">
             Host CLI
           </div>
-          <div className="mt-1 text-foreground">
+          <div className="mt-1 text-neutral-200">
             {host.detected ? "Detected on this machine" : "Not detected on PATH"}
           </div>
         </div>
@@ -59,7 +59,7 @@ function IntegrationDetails({ host }: { host: LocalIntegrationHost }) {
           <div className="text-micro font-semibold uppercase tracking-wide text-muted-foreground">
             Live integration evidence
           </div>
-          <div className="mt-1 text-foreground">
+          <div className="mt-1 text-neutral-200">
             {components.length > 0
               ? `${presentCount}/${components.length} surfaces present`
               : "No surfaces detected"}
@@ -77,11 +77,11 @@ function IntegrationDetails({ host }: { host: LocalIntegrationHost }) {
               {component.present ? (
                 <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-emerald-400" />
               ) : (
-                <Circle size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
+                <Circle size={13} className="mt-0.5 shrink-0 text-muted-foreground" />
               )}
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                  <div className="text-caption font-medium text-foreground">{component.label}</div>
+                  <div className="text-caption font-medium text-neutral-200">{component.label}</div>
                   <span
                     className={
                       component.present
@@ -133,7 +133,7 @@ export default function Integrations() {
 
   if (!runtimeCapabilities.localIntegrations) {
     return (
-      <PageFrame className="space-y-4 text-foreground">
+      <PageFrame className="space-y-4 text-neutral-200">
         <section className="max-w-2xl space-y-3">
           <div>
             <h2 className="text-heading font-semibold text-foreground">Developer connections</h2>
@@ -167,15 +167,15 @@ export default function Integrations() {
   };
 
   return (
-    <PageFrame className="space-y-4 text-foreground">
+    <PageFrame className="space-y-4 text-neutral-200">
       {error && (
-        <div className="border border-red-900/50 bg-red-950/15 px-3 py-2 text-label text-red-300">
+        <div className="border border-rose-900/50 bg-rose-950/15 px-3 py-2 text-label text-rose-300">
           Could not load integrations · {error}
         </div>
       )}
 
       {!data && !error && (
-        <div className="border-y border-border py-6 text-center text-label text-muted-foreground">
+        <div className="border-y border-neutral-900 py-6 text-center text-label text-muted-foreground">
           Loading integrations…
         </div>
       )}
@@ -185,15 +185,25 @@ export default function Integrations() {
           <section>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h2 className="text-caption font-semibold uppercase tracking-tag text-muted-foreground">
+                <h2 className="text-caption font-semibold uppercase tracking-[0.1em] text-muted-foreground">
                   Coding hosts
                 </h2>
+                <p className="mt-1 text-caption text-muted-foreground">
+                  Expand a host to see the exact LemonCrow surfaces detected on this machine.
+                </p>
               </div>
-              {!data.dispatcher_available && (
-                <span role="status" className="rounded-md border border-red-900/60 bg-red-950/20 px-2 py-1 text-caption text-red-300">
-                  Connection unavailable
+              <div className="flex items-center gap-2">
+                <span className="text-caption text-muted-foreground">Live detection</span>
+                <span
+                  className={`rounded-md border px-2 py-1 text-caption ${
+                    data.dispatcher_available
+                      ? "border-emerald-900/60 bg-emerald-950/20 text-emerald-300"
+                      : "border-rose-900/60 bg-rose-950/20 text-rose-300"
+                  }`}
+                >
+                  Connection {data.dispatcher_available ? "ready" : "unavailable"}
                 </span>
-              )}
+              </div>
             </div>
 
             <div className="grid items-start gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -211,7 +221,7 @@ export default function Integrations() {
                     <UiButton
                       unstyled
                       type="button"
-                      className="w-full p-3 text-left transition-colors hover:bg-muted/35 focus-visible:outline-1 focus-visible:outline-ring"
+                      className="w-full p-3 text-left transition-colors hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                       aria-expanded={open}
                       aria-controls={`integration-details-${host.id}`}
                       onClick={() => toggleHost(host.id)}
@@ -219,7 +229,7 @@ export default function Integrations() {
                       <div className="flex items-start gap-3">
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <div className="truncate text-body font-semibold text-foreground">
+                            <div className="truncate text-body font-semibold text-neutral-200">
                               {host.label}
                             </div>
                             {isComingSoon(host) && <Chip tone="info">Coming soon</Chip>}
@@ -233,7 +243,7 @@ export default function Integrations() {
                             (host.configured ? (
                               <CheckCircle2 size={14} className="text-emerald-400" />
                             ) : (
-                              <Circle size={14} className="text-muted-foreground" />
+                              <Circle size={13} className="text-muted-foreground" />
                             ))}
                           {open ? (
                             <ChevronDown size={14} className="text-muted-foreground" />

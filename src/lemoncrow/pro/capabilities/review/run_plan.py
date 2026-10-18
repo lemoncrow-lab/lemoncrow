@@ -688,23 +688,9 @@ def parse_review_config_layer(text: str, *, source: str) -> RunSettingsLayer | N
         return None
     if not isinstance(section, Mapping):
         return RunSettingsLayer(origin=origin, errors=("review must be a mapping",))
-    # ``review.auto`` is the trigger model owned by the hosted behavior contract; ``focus``/``finding_threshold``/
-    # ``strictness`` are triage policy (``criticality.py``); the rest are the pull request reviewer's noise controls
-    # (``pr_bot/settings.py``), which have no effect on what runs.
-    return parse_run_settings(
-        section,
-        origin=origin,
-        ignore_keys=(
-            "auto",
-            "focus",
-            "finding_threshold",
-            "strictness",
-            "ignore",
-            "inline_comments",
-            "max_files",
-            "rules",
-        ),
-    )
+    # ``review.auto`` is the trigger model owned by the hosted behavior contract;
+    # ``focus``/``finding_threshold`` are triage policy (``criticality.py``).
+    return parse_run_settings(section, origin=origin, ignore_keys=("auto", "focus", "finding_threshold"))
 
 
 def layer_from_wire(raw: Mapping[str, Any]) -> RunSettingsLayer:

@@ -149,9 +149,9 @@ describe("ReviewTargetHeader accessibility", () => {
     );
 
     let group = screen.getByRole("group", { name: "Checkout review area" });
-    expect(group.className).toContain("border-border");
-    expect(group.className).toContain("bg-muted");
-    expect(group.className).toContain("border-l-p0-solid");
+    expect(group.className).toContain("border-border/80");
+    expect(group.className).toContain("bg-rose-950/8");
+    expect(group.className).toContain("inset_2px_0_0_rgba(251,113,133,0.42)");
 
     rerender(
       <ReviewTargetHeader
@@ -170,9 +170,9 @@ describe("ReviewTargetHeader accessibility", () => {
     );
 
     group = screen.getByRole("group", { name: "Checkout review area" });
-    expect(group.className).toContain("border-border");
-    expect(group.className).toContain("bg-muted");
-    expect(group.className).toContain("border-l-p2-solid");
+    expect(group.className).toContain("border-border/80");
+    expect(group.className).toContain("bg-sky-950/8");
+    expect(group.className).toContain("inset_2px_0_0_rgba(56,189,248,0.38)");
   });
 
   it("does not change the active review target merely because the pointer crossed it", () => {
@@ -211,8 +211,8 @@ describe("ReviewTargetHeader accessibility", () => {
     );
 
     const group = screen.getByRole("group", { name: "Checkout review area" });
-    expect(group.className).toContain("bg-muted");
-    expect(group.className).toContain("border-l-ok-solid");
+    expect(group.className).toContain("bg-emerald-950/15");
+    expect(group.className).toContain("border-emerald-700/60");
     expect(screen.getByText("Reviewed")).toBeTruthy();
     expect(screen.getByText("reviewed", { selector: ".sr-only" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Mark Checkout reviewed" }).textContent).toContain("✓ Reviewed");
@@ -280,13 +280,13 @@ describe("ReviewTargetHeader target states (plan §8.4)", () => {
     foldable: boolean;
     markedReviewed: boolean;
   }> = [
-    { state: "reviewed", badge: "Reviewed", spoken: "reviewed", tone: "border-l-ok-solid", explanation: null, foldable: true, markedReviewed: true },
-    { state: "needs_changes", badge: "Needs changes", spoken: "needs changes", tone: "border-l-p0-solid", explanation: null, foldable: true, markedReviewed: false },
+    { state: "reviewed", badge: "Reviewed", spoken: "reviewed", tone: "bg-emerald-950/15", explanation: null, foldable: true, markedReviewed: true },
+    { state: "needs_changes", badge: "Needs changes", spoken: "needs changes", tone: "bg-rose-950/15", explanation: null, foldable: true, markedReviewed: false },
     {
       state: "changed_since_review",
       badge: "Changed · re-review",
       spoken: "changed since review",
-      tone: "border-l-p2-solid",
+      tone: "bg-sky-950/15",
       explanation: "Changed since you reviewed · your earlier judgment no longer covers this review area.",
       foldable: false,
       markedReviewed: false,
@@ -295,7 +295,7 @@ describe("ReviewTargetHeader target states (plan §8.4)", () => {
       state: "unknown",
       badge: "State uncertain",
       spoken: "unknown",
-      tone: "border-l-p1-solid",
+      tone: "bg-amber-950/15",
       explanation: "Review state uncertain · LemonCrow could not safely carry your earlier judgment forward.",
       foldable: false,
       markedReviewed: false,
@@ -326,7 +326,7 @@ describe("ReviewTargetHeader target states (plan §8.4)", () => {
       else expect(within(group).queryByText(other)).toBeNull();
     }
     if (row.tone) expect(group.className).toContain(row.tone);
-    else expect(group.className).toContain("border-input");
+    else expect(group.className).toContain("border-sky-900/60");
     if (row.explanation) expect(within(group).getByText(row.explanation)).toBeTruthy();
     else expect(within(group).queryByText(/earlier judgment/)).toBeNull();
 
@@ -360,8 +360,8 @@ describe("ReviewTargetHeader target states (plan §8.4)", () => {
   });
 
   it.each([
-    { state: "reviewed" as const, spoken: "reviewed", text: "· Reviewed", tone: "bg-muted" },
-    { state: "needs_changes" as const, spoken: "needs changes", text: "· Needs changes", tone: "bg-p0-bg" },
+    { state: "reviewed" as const, spoken: "reviewed", text: "· Reviewed", tone: "bg-background/40" },
+    { state: "needs_changes" as const, spoken: "needs changes", text: "· Needs changes", tone: "bg-rose-950/8" },
   ])("folds $state into a compact strip that expands on request", ({ state, spoken, text, tone }) => {
     const onFocus = vi.fn();
     const onToggleFold = vi.fn();

@@ -21,25 +21,8 @@ _EXECUTABLES = {"lc", "lemoncrow", "lemoncrow-client", "lemoncrow-runtime-client
 _TOKENS = re.compile(r'"(?:\\.|[^"\\])*"|//[^\n]*|/\*.*?\*/|[{}\[\]:,]|[^\s{}\[\]:,]+', re.S)
 
 
-def _owned_command(command: str, owner: Path) -> bool:
-    candidate = Path(command).expanduser()
-    if not candidate.is_absolute():
-        # A bare PATH lookup carries no custom-install identity. Only the normal
-        # user installation may migrate legacy bare lc/lemoncrow registrations.
-        return candidate.parent == Path(".") and owner.resolve() == (Path.home() / ".lemoncrow").resolve()
-    lexical = Path(os.path.abspath(candidate))
-    return lexical.is_relative_to(Path(os.path.abspath(owner))) or candidate.resolve().is_relative_to(owner.resolve())
-
-
-def _invocation(
-    command: Any,
-    args: Any,
-    executable: str,
-    owner: Path | None = None,
-) -> tuple[str, list[str]] | None:
+def _invocation(command: Any, args: Any, executable: str) -> tuple[str, list[str]] | None:
     if not isinstance(command, str) or Path(command).name not in _EXECUTABLES:
-        return None
-    if owner is not None and not _owned_command(command, owner):
         return None
     if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
         return None
@@ -57,7 +40,7 @@ def _invocation(
     return executable, normalized
 
 
-def _json_repair(text: str, executable: str, owner: Path | None = None) -> str:
+def _json_repair(text: str, executable: str) -> str:
     # Validate with the existing JSONC reader. Token offsets let us change only
     # command/args values, keeping comments, whitespace and all other settings.
     _parse_jsonc(text)
@@ -88,9 +71,9 @@ def _json_repair(text: str, executable: str, owner: Path | None = None) -> str:
         if is_array:
             if not command:
                 continue
-            invocation = _invocation(command[0], command[1:], executable, owner)
+            invocation = _invocation(command[0], command[1:], executable)
         else:
-            invocation = _invocation(command, entry.get("args"), executable, owner)
+            invocation = _invocation(command, entry.get("args"), executable)
         if invocation is None:
             continue
         value: Any = [invocation[0], *invocation[1]] if is_array else invocation[0]
@@ -107,7 +90,7 @@ def _json_repair(text: str, executable: str, owner: Path | None = None) -> str:
     return text
 
 
-def _toml_repair(text: str, executable: str, owner: Path | None = None) -> str:
+def _toml_repair(text: str, executable: str) -> str:
     parsed = tomllib.loads(text)
     entries = parsed.get("mcp_servers", {})
     headers = list(re.finditer(r"(?m)^[ \t]*\[[^\n]+\][ \t]*(?:#[^\n]*)?$", text))
@@ -123,7 +106,7 @@ def _toml_repair(text: str, executable: str, owner: Path | None = None) -> str:
         if table[name] != {"command": "probe"}:
             continue
         entry = entries.get(name, {})
-        invocation = _invocation(entry.get("command"), entry.get("args"), executable, owner)
+        invocation = _invocation(entry.get("command"), entry.get("args"), executable)
         if invocation is None:
             continue
         end = headers[i + 1].start() if i + 1 < len(headers) else len(text)
@@ -198,18 +181,13 @@ def _repair_legacy_launcher(home: Path) -> None:
 
 def repair_existing() -> int:
     from . import pi_integration
-    from .cli import _state_dir
 
     home = Path.home()
-    owner = _state_dir().absolute()
     xdg = Path(os.environ.get("XDG_CONFIG_HOME", str(home / ".config")))
     codex = Path(os.environ.get("CODEX_HOME", str(home / ".codex")))
     executable = str(Path(sys.executable).parent / "lemoncrow-runtime-client")
     if not os.access(executable, os.X_OK):
         raise RuntimeError("run migration with the installed Runtime Python")
-    if not _owned_command(executable, owner):
-        print("Skipping automatic host migration: Runtime is outside the selected installation state.", file=sys.stderr)
-        return 0
     paths = [
         home / ".claude.json",
         home / ".cursor" / "mcp.json",
@@ -227,11 +205,7 @@ def repair_existing() -> int:
             continue
         try:
             before = path.read_text(encoding="utf-8")
-            after = (
-                _toml_repair(before, executable, owner)
-                if path.suffix == ".toml"
-                else _json_repair(before, executable, owner)
-            )
+            after = _toml_repair(before, executable) if path.suffix == ".toml" else _json_repair(before, executable)
             _save(path, before, after)
             if before != after:
                 print(f"Updated existing LC connection: {path}")
@@ -240,16 +214,8 @@ def repair_existing() -> int:
             status = 1
     if pi_integration.enabled():
         try:
-            extension = pi_integration._extension_path().read_text(encoding="utf-8")
-            marker = re.search(r"(?m)^const installedInvocation = (.*);$", extension)
-            invocation = json.loads(marker.group(1)) if marker else None
-            if (
-                isinstance(invocation, dict)
-                and isinstance(invocation.get("command"), str)
-                and _owned_command(invocation["command"], owner)
-            ):
-                pi_integration.refresh()
-                print("Updated existing Pi Runtime extension")
+            pi_integration.refresh()
+            print("Updated existing Pi Runtime extension")
         except (OSError, ValueError, RuntimeError) as exc:
             print(f"Could not migrate Pi Runtime extension: {exc}", file=sys.stderr)
             status = 1

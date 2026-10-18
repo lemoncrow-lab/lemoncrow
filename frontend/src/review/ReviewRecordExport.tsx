@@ -107,9 +107,9 @@ export default function ReviewRecordExport({
     <div className="space-y-3">
       <div className="rounded-md border border-border/80 bg-muted/25 p-3">
         <div className="flex items-start gap-2">
-          <FileSignature size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
+          <FileSignature size={12} className="mt-0.5 shrink-0 text-neutral-400" />
           <div className="min-w-0 flex-1">
-            <div className="text-caption font-semibold text-foreground">Signed review record</div>
+            <div className="text-caption font-semibold text-neutral-200">Signed review record</div>
             <div className="mt-1 text-caption leading-4 text-muted-foreground">
               {status.decision
                 ? `Snapshot ${status.snapshot_number} · ${status.decision.outcome.replaceAll("_", " ")} by ${status.decision.actor.id || "unknown"}`
@@ -149,7 +149,7 @@ export default function ReviewRecordExport({
             </UiButton>
           </div>
         )}
-        {error && <div className="mt-2 text-caption text-red-300" role="alert">{error}</div>}
+        {error && <div className="mt-2 text-caption text-rose-300" role="alert">{error}</div>}
         {result && (
           <div className="mt-2 text-caption leading-4 text-muted-foreground" data-testid="record-export-result">
             <span className={result.verification.status === "verified" ? "text-emerald-300" : "text-amber-300"}>
@@ -161,7 +161,7 @@ export default function ReviewRecordExport({
         )}
       </div>
       {status.records.length > 0 && (
-        <div className="divide-y divide-border border-y border-border" aria-label="Exported review records">
+        <div className="divide-y divide-neutral-900 border-y border-neutral-900" aria-label="Exported review records">
           {status.records.map((record) => (
             <div key={record.record_id} className="flex items-center gap-2 py-2">
               <div className="min-w-0 flex-1">
@@ -171,7 +171,7 @@ export default function ReviewRecordExport({
                   ) : (
                     <Badge tone="secondary" className="text-amber-300">UNSIGNED</Badge>
                   )}
-                  <span className="truncate text-caption text-subtle">{recordLabel(record)}</span>
+                  <span className="truncate text-caption text-neutral-300">{recordLabel(record)}</span>
                 </div>
                 <div className="mt-0.5 font-mono text-caption text-muted-foreground">
                   {record.issued_at.replace("T", " ").slice(0, 19)} · {record.payload_digest.slice(0, 12)}
@@ -184,7 +184,7 @@ export default function ReviewRecordExport({
                 aria-label={`Download ${recordLabel(record)}`}
                 onClick={() => void download(record)}
               >
-                <Download size={14} />
+                <Download size={12} />
               </UiButton>
             </div>
           ))}

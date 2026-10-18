@@ -502,11 +502,7 @@ def test_worker_shutdown_interrupts_and_restart_recovers_running_job(
         restarted.start()
         try:
             leaf = owner.backend.for_view("org_deferred", view_id)
-            # A ready layer is visible before its queue completion transaction commits.
-            _eventually(
-                lambda: leaf.links.status("org_deferred", view_id).ready
-                and owner.deferred_jobs.get(job.job_id).state == "completed"  # type: ignore[union-attr]
-            )
+            _eventually(lambda: leaf.links.status("org_deferred", view_id).ready)
             assert owner.deferred_jobs.get(job.job_id).state == "completed"  # type: ignore[union-attr]
         finally:
             restarted.close()

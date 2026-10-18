@@ -8,9 +8,11 @@ must follow when the LemonCrow MCP server is available.
 Any coding task — bug fix, refactor, feature, migration, schema change —
 in this workspace, especially anything touching:
 
-- `publish/**`, `schema/**`, `migrations/**`
+- `shopify/**`, `pdp/**`, `catalog/**`, `tracker/**`, `publish/**`,
+  `schema/**`
 - backend services or alembic migrations
-- code in a domain that has a rubric (for example `swe.general`)
+- domain code labeled `beseam.shopify.publish`, `beseam.pdp.schema`,
+  `beseam.catalog.fix`, `beseam.tracker.classification`
 
 ## Loop
 
@@ -18,9 +20,9 @@ in this workspace, especially anything touching:
 
 ```json
 context({
-  "task": "Fix publish validation",
-  "domain": "swe.general",
-  "files": ["backend/src/modules/publish/validate.py"],
+  "task": "Fix Shopify publish validation",
+  "domain": "beseam.shopify.publish",
+  "files": ["backend/src/modules/shopify/publish.py"],
   "errors": ["Handle 'foo-bar' not found"]
 })
 ```
@@ -41,10 +43,10 @@ Trigger: same command/test/tool fails twice with same error signature.
 
 ```json
 rescue({
-  "task": "Fix publish validation",
+  "task": "Fix Shopify publish validation",
   "error": "AssertionError: metafield not updated",
   "files": ["..."],
-  "domain": "swe.general",
+  "domain": "beseam.shopify.publish",
   "recent_actions": [
     "ran pytest tests/test_publish.py",
     "edited publish.py",
@@ -57,15 +59,16 @@ rescue({
 
 ```json
 verify({
-  "rubric_id": "rubric_change_safety",
+  "rubric_id": "rubric_shopify_publish",
   "checks": {
-    "identity_uses_stable_id": true,
-    "pre_change_snapshot_exists": true,
+    "product_identity_uses_gid": true,
+    "pre_publish_snapshot_exists": true,
     "write_result_checked": true,
-    "post_change_refetch_done": true,
-    "post_change_audit_passed": true,
+    "post_publish_refetch_done": true,
+    "post_publish_audit_passed": true,
     "rollback_available": true,
-    "edge_case_test_passed": null
+    "localized_url_test_passed": null,
+    "changed_handle_test_passed": null
   }
 })
 ```
@@ -77,17 +80,17 @@ verify({
 ```json
 record({
   "agent": "codex",
-  "domain": "swe.general",
-  "task": "Fix publish validation",
+  "domain": "beseam.shopify.publish",
+  "task": "Fix Shopify publish validation",
   "status": "success",
-  "files_touched": ["backend/src/modules/publish/validate.py"],
+  "files_touched": ["backend/src/modules/shopify/publish.py"],
   "tools_called": [
     {"name": "context", "args_hash": "", "count": 1},
     {"name": "edit", "args_hash": "", "count": 3}
   ],
   "commands_run": ["pytest tests/test_publish.py"],
   "errors_seen": [],
-  "diff_summary": "Switched record identity from slug to stable id and added a post-publish refetch.",
+  "diff_summary": "Switched product identity from handle to GID and added post-publish refetch.",
   "output_summary": "All 12 publish tests pass.",
   "validation_results": [
     {"name": "pytest", "passed": true, "detail": "12/12"}

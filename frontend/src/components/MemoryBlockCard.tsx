@@ -17,7 +17,7 @@ export default function MemoryBlockCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="text-heading text-foreground font-semibold">
+            <h3 className="text-sm text-neutral-200 font-bold">
               {block.label}
             </h3>
             {block.pinned && (
@@ -25,7 +25,7 @@ export default function MemoryBlockCard({
                 pinned
               </span>
             )}
-            <span className="text-caption uppercase tracking-tight px-1.5 py-0.5 border border-border text-muted-foreground">
+            <span className="text-caption uppercase tracking-tight px-1.5 py-0.5 border border-neutral-700 text-neutral-400">
               v{block.version}
             </span>
             {[...new Set(badges)].map((badge) => (
@@ -38,9 +38,9 @@ export default function MemoryBlockCard({
             ))}
           </div>
           {block.description && (
-            <p className="text-body text-muted-foreground mt-1">{block.description}</p>
+            <p className="text-xs text-neutral-400 mt-1">{block.description}</p>
           )}
-          <p className="text-body text-subtle mt-2 whitespace-pre-wrap break-words leading-relaxed">
+          <p className="text-xs text-neutral-300 mt-2 whitespace-pre-wrap break-words leading-relaxed">
             {block.value}
           </p>
         </div>

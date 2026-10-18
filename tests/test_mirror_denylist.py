@@ -286,11 +286,6 @@ _VERIFIED_SYNTHETIC = frozenset(
         "tests/core/test_output_redaction_wiring.py",
         "tests/core/test_redaction.py",
         "tests/gateway/test_cli_memory_commands.py",
-        # opengrep `--test` fixture for src/lemoncrow/pro/capabilities/review/security_rules/secrets.yaml: the rules
-        # must match this text, so it cannot be split or assembled. Made-up values only: an AKIA key id spelling
-        # A to P, a ghp_ token spelling a-z then 0-9, AWS's documented example key id (AKIAIOSFODNN7...), and a PEM
-        # RSA private-key header with no key body. None is a real credential.
-        "tests/fixtures/opengrep/secrets.txt",
     }
 )
 _REPO = Path(__file__).resolve().parents[1]

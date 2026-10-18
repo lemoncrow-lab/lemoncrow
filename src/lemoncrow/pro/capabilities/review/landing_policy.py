@@ -29,9 +29,6 @@ One ``landing`` section, read from two kinds of layer:
       break_glass:
         responders: [alice, bob]      # principal ids; empty = nobody
         follow_up_hours: 72           # 1..720
-      merge_status:
-        enabled: false                # publish the "LemonCrow / Merge readiness" commit status; off unless
-                                      # a layer turns it on, and any layer that says false turns it off
 
 An invalid section never reads as defaults that could approve: its errors are
 kept and :attr:`LandingPolicy.auto_approve_enabled` is ``False`` while any
@@ -63,7 +60,7 @@ FOLLOW_UP_HOURS_MIN: Final[int] = 1
 FOLLOW_UP_HOURS_MAX: Final[int] = 720
 DEFAULT_FOLLOW_UP_HOURS: Final[int] = 72
 
-_SECTION_KEYS: Final[frozenset[str]] = frozenset({"auto_approve", "merge_result", "break_glass", "merge_status"})
+_SECTION_KEYS: Final[frozenset[str]] = frozenset({"auto_approve", "merge_result", "break_glass"})
 _AUTO_KEYS: Final[frozenset[str]] = frozenset(
     {"enabled", "max_criticality", "require_clean_review", "include", "exclude", "sensitive_paths"}
 )
@@ -84,7 +81,6 @@ MERGE_CHECK_CLASSES: Final[tuple[str, ...]] = ("provider_ci", "lemoncrow_verific
 # merge-group commit, with an end-to-end landing test, then add the class here.
 PRODUCED_MERGE_CHECK_CLASSES: Final[tuple[str, ...]] = ("provider_ci",)
 _BREAK_KEYS: Final[frozenset[str]] = frozenset({"responders", "follow_up_hours"})
-_STATUS_KEYS: Final[frozenset[str]] = frozenset({"enabled"})
 
 
 class _PolicyError(ValueError):
@@ -157,7 +153,6 @@ class LandingPolicyLayer:
     merge_result_checks: tuple[RequiredCheck, ...] = ()
     responders: tuple[str, ...] | None = None
     follow_up_hours: int | None = None
-    merge_status_enabled: bool | None = None
     errors: tuple[str, ...] = ()
     notes: tuple[str, ...] = ()
 
@@ -174,9 +169,6 @@ class LandingPolicy:
     merge_result_required: bool = False
     merge_result_checks: tuple[RequiredCheck, ...] = ()
     break_glass: BreakGlassPolicy = field(default_factory=BreakGlassPolicy)
-    #: Publish the ``LemonCrow / Merge readiness`` commit status to the provider. Off by default: a pending
-    #: status that nothing in the repository resolves must never appear without someone asking for it.
-    merge_status_enabled: bool = False
     errors: tuple[str, ...] = ()
     notes: tuple[str, ...] = ()
     sources: tuple[str, ...] = ()
@@ -199,7 +191,6 @@ class LandingPolicy:
             "auto_approve": {**self.auto_approve.to_wire(), "effective": self.auto_approve_enabled},
             "merge_result": merge,
             "break_glass": {**self.break_glass.to_wire(), "enabled": self.break_glass_enabled},
-            "merge_status": {"enabled": self.merge_status_enabled},
             "errors": list(self.errors),
             "notes": list(self.notes),
             "sources": list(self.sources),
@@ -296,7 +287,6 @@ def _parse(raw: Mapping[str, Any], *, layer: LandingLayer, source: str) -> Landi
     exclude = _mapping(auto.get("exclude"), where="landing.auto_approve.exclude", keys=_EXCLUDE_KEYS)
     merge = _mapping(section.get("merge_result"), where="landing.merge_result", keys=_MERGE_KEYS)
     breaking = _mapping(section.get("break_glass"), where="landing.break_glass", keys=_BREAK_KEYS)
-    status = _mapping(section.get("merge_status"), where="landing.merge_status", keys=_STATUS_KEYS)
     notes: list[str] = []
     enabled: bool | None = None
     if "enabled" in auto:
@@ -346,9 +336,6 @@ def _parse(raw: Mapping[str, Any], *, layer: LandingLayer, source: str) -> Landi
                 f"{FOLLOW_UP_HOURS_MAX}"
             )
         follow_up = value
-    status_enabled: bool | None = None
-    if "enabled" in status:
-        status_enabled = _bool(status["enabled"], where="landing.merge_status.enabled")
     return LandingPolicyLayer(
         layer=layer,
         source=source,
@@ -364,7 +351,6 @@ def _parse(raw: Mapping[str, Any], *, layer: LandingLayer, source: str) -> Landi
         merge_result_checks=_required_checks(merge.get("required_checks")),
         responders=responders,
         follow_up_hours=follow_up,
-        merge_status_enabled=status_enabled,
         notes=tuple(notes),
     )
 
@@ -434,8 +420,6 @@ def merge_landing_policies(layers: Sequence[LandingPolicyLayer]) -> LandingPolic
     merge_checks: list[RequiredCheck] = []
     responders: tuple[str, ...] | None = None
     follow_up: int | None = None
-    status_on = False
-    status_off = False
     errors: list[str] = []
     notes: list[str] = []
     sources: list[str] = []
@@ -471,10 +455,6 @@ def merge_landing_policies(layers: Sequence[LandingPolicyLayer]) -> LandingPolic
             responders = layer.responders
         if layer.follow_up_hours is not None:
             follow_up = layer.follow_up_hours if follow_up is None else min(follow_up, layer.follow_up_hours)
-        if layer.merge_status_enabled is True:
-            status_on = True
-        elif layer.merge_status_enabled is False:
-            status_off = True
     return LandingPolicy(
         auto_approve=AutoApprovePolicy(
             enabled=bool(enabled) and not disabled,
@@ -492,9 +472,6 @@ def merge_landing_policies(layers: Sequence[LandingPolicyLayer]) -> LandingPolic
             responders=responders or (),
             follow_up_hours=DEFAULT_FOLLOW_UP_HOURS if follow_up is None else follow_up,
         ),
-        # Publishing a status is informational, so the repository (trusted base) may ask for it as well as
-        # the organization; the safer value wins: any layer that says false keeps it off.
-        merge_status_enabled=status_on and not status_off,
         errors=tuple(errors),
         notes=tuple(notes),
         sources=tuple(sources),

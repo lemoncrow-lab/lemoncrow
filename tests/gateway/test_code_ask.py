@@ -76,12 +76,7 @@ def test_code_ask_stream_hides_split_workspace_paths(tmp_path: Path) -> None:
 
 
 def _cli_code_ask(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    driver: str,
-    event: dict[str, Any],
-    commands: list[list[str]],
-    stdin_texts: list[str | None] | None = None,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, driver: str, event: dict[str, Any], commands: list[list[str]]
 ) -> dict[str, Any]:
     """Code Ask over an agent CLI, through route resolution and the private executor."""
 
@@ -93,12 +88,8 @@ def _cli_code_ask(
         intelligence_drivers.shutil, "copytree", lambda *args, **kwargs: pytest.fail("Code Ask copied the workspace")
     )
 
-    def fake_stream(
-        command: list[str], *, cwd: Path, env: Any, on_stdout: Any, timeout: float, stdin_text: str | None = None
-    ) -> tuple[int, str, str]:
+    def fake_stream(command: list[str], *, cwd: Path, env: Any, on_stdout: Any, timeout: float) -> tuple[int, str, str]:
         commands.append(list(command))
-        if stdin_texts is not None:
-            stdin_texts.append(stdin_text)
         line = json.dumps(event) + "\n"
         on_stdout(line)
         return 0, line, ""
@@ -118,15 +109,12 @@ def test_code_cli_ask_has_read_only_tools_without_workspace_copy(
 ) -> None:
     event = {"type": "item.completed", "item": {"type": "agent_message", "text": json.dumps(_ANSWER)}}
     commands: list[list[str]] = []
-    stdin_texts: list[str | None] = []
-    result = _cli_code_ask(tmp_path, monkeypatch, "codex", event, commands, stdin_texts)
+    result = _cli_code_ask(tmp_path, monkeypatch, "codex", event, commands)
     assert result["body"] == "Read-only answer"
     rendered = " ".join(commands[0])
     assert 'mcp_servers.lemoncrow.enabled_tools=["code_search","read","grep","web_fetch"]' in rendered
     assert "LEMONCROW_BASH_WORKSPACE_ROOT" not in rendered
-    # The prompt is codex's standard input (`-`), not an argv element.
-    assert commands[0][-1] == "-" and "Code context:" not in rendered
-    assert stdin_texts[0] is not None and "Code context:" in stdin_texts[0]
+    assert "Code context:" in rendered
 
 
 def test_claude_code_ask_disables_builtin_write_tools(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

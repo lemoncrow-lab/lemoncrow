@@ -78,7 +78,7 @@ export function InboxViewControls({
   return (
     <>
       <div className="review-inbox-filter review-inbox-view">
-        <Select aria-label="Review inbox" value={view} uiSize="xs" className="text-meta"
+        <Select aria-label="Review inbox" value={view} uiSize="xs" className="text-caption"
           onValueChange={(value) => { if (isInboxView(value)) onView(value); }}>
           {views.map((item) => (
             <SelectItem key={item.id} value={item.id}>
@@ -88,12 +88,12 @@ export function InboxViewControls({
         </Select>
       </div>
       <details className="review-inbox-filters relative">
-        <summary className="review-field flex h-8 cursor-pointer select-none items-center rounded-md px-2.5 text-meta text-muted-foreground hover:text-foreground">
+        <summary className="review-field flex h-8 cursor-pointer select-none items-center rounded-md px-2.5 text-caption text-neutral-400 hover:text-neutral-200">
           Filters{filtersActive ? " · active" : ""}
         </summary>
-        <div className="absolute right-0 z-30 mt-1 flex min-w-[260px] flex-col gap-2 rounded-md border border-border bg-popover p-2 shadow-float">
+        <div className="absolute right-0 z-30 mt-1 flex min-w-[260px] flex-col gap-2 rounded-md border border-border bg-popover p-2 shadow-xl">
           <div className="review-inbox-filter review-inbox-workflow">
-            <Select aria-label="Workflow state" value={workflow || "any"} uiSize="xs" className="w-full text-meta"
+            <Select aria-label="Workflow state" value={workflow || "any"} uiSize="xs" className="w-full text-caption"
               onValueChange={(value) => onWorkflow(value === "any" ? "" : (value as InboxWorkflowState))}>
               <SelectItem value="any">Any workflow</SelectItem>
               {INBOX_WORKFLOW_OPTIONS.map((item) => <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>)}
@@ -161,7 +161,7 @@ export function SavedInboxFilterControls({
 
   return (
     <div className="review-inbox-saved-filters flex items-center gap-2">
-      <Select aria-label="Saved filter" value={activeId || "none"} uiSize="xs" className="text-meta"
+      <Select aria-label="Saved filter" value={activeId || "none"} uiSize="xs" className="text-caption"
         onValueChange={(value) => onApply(value === "none" ? "" : value)}>
         <SelectItem value="none">No saved filter</SelectItem>
         {filters.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}
@@ -169,14 +169,14 @@ export function SavedInboxFilterControls({
       {naming ? (
         <form onSubmit={(event) => void save(event)} className="flex items-center gap-1">
           <Input value={name} maxLength={80} onChange={(event) => setName(event.target.value)}
-            aria-label={renaming ? "New saved filter name" : "Saved filter name"} placeholder="Name this view" className="h-7 w-40 text-meta" />
+            aria-label={renaming ? "New saved filter name" : "Saved filter name"} placeholder="Name this view" className="h-7 w-40 text-caption" />
           <Button type="submit" size="xs" disabled={busy || !name.trim()}>{renaming ? "Rename" : "Save"}</Button>
           <Button type="button" size="xs" variant="ghost" onClick={() => { setNaming(false); setRenaming(false); setName(""); }}>Cancel</Button>
         </form>
       ) : (
         <>
           <Button type="button" size="xs" variant="ghost" onClick={() => setNaming(true)}>
-            <Bookmark size={14} />Save view
+            <Bookmark size={11} />Save view
           </Button>
           {active && onRename && (
             <Button type="button" size="xs" variant="ghost" aria-label="Rename saved filter" disabled={busy}
@@ -195,10 +195,10 @@ export function SavedInboxFilterControls({
       {activeId && (
         <Button type="button" size="icon" variant="ghost" aria-label="Delete saved filter" disabled={busy}
           onClick={() => void run(() => onDelete(activeId))}>
-          <Trash2 size={14} />
+          <Trash2 size={11} />
         </Button>
       )}
-      {error && <span role="alert" className="text-caption text-p0">{error}</span>}
+      {error && <span role="alert" className="text-caption text-rose-300">{error}</span>}
     </div>
   );
 }
@@ -239,8 +239,9 @@ export function inboxAxesText(axes: InboxAxes): [string, string, string] {
 }
 
 function workflowTone(state: InboxSignals["workflow"]["state"]): string {
-  if (state === "ready_to_merge") return "text-ok";
-  if (state === "needs_decision") return "text-p2";
+  if (state === "ready_to_merge") return "text-emerald-300";
+  if (state === "needs_review" || state === "waiting_on_reviewer") return "text-amber-200";
+  if (state === "needs_decision") return "text-sky-300";
   if (state === "closed") return "text-muted-foreground";
   return "text-foreground";
 }
@@ -277,7 +278,7 @@ export function InboxRowSignals({ signals }: { signals: InboxSignals }) {
           {signals.workflow.label}
         </span>
         {priority !== "normal" && (
-          <span className={priority === "urgent" || priority === "high" ? "text-p0" : "text-muted-foreground"}
+          <span className={priority === "urgent" || priority === "high" ? "text-rose-300" : "text-muted-foreground"}
             title={signals.priority.overridden ? "Priority set by a person" : "Computed priority"}>
             {priority} priority
           </span>
