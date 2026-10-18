@@ -172,9 +172,6 @@ class ProjectContextRequest:
     contracts: tuple[str, ...] = ()
     edges: tuple[str, ...] = ()
     terms: tuple[str, ...] = ()
-    # Explicit *human* history browsing. No unscoped memory is added to a model
-    # by default, and browsing can never become Snapshot proof.
-    history_kind: Literal["", "decisions", "checks"] = ""
     own_refs: tuple[str, ...] = ()
     """This Review's own ``review:``/``revision:`` refs: history they produced is from this Change."""
     base_revision: str = ""
@@ -185,10 +182,6 @@ class ProjectContextRequest:
     def __post_init__(self) -> None:
         if self.purpose not in _PURPOSES:
             raise ValueError(f"unsupported Project context purpose: {self.purpose!r}")
-        if self.history_kind not in {"", "decisions", "checks"} or (
-            self.history_kind and self.purpose not in {"brief", "map"}
-        ):
-            raise ValueError("historical review browsing requires a supported human Review purpose")
 
 
 @dataclass(frozen=True, slots=True)
@@ -643,23 +636,6 @@ def retrieve_project_context(
         ("question", KnowledgeQuery(term=term, states=states, limit=per_query, scan_limit=limits.scan_limit))
         for term in terms
     ]
-    if request.history_kind:
-        # A reviewer explicitly asked to browse recorded decisions/checks, not
-        # current changed paths or vague repository-wide documents. Keep this
-        # read separate from Ask and AI Review context assembly.
-        kind = "landed_review_decision" if request.history_kind == "decisions" else "landed_review_observation"
-        plan = []
-        question_plan = [
-            (
-                "question",
-                KnowledgeQuery(
-                    knowledge_kinds=(kind,),
-                    states=("historical",),
-                    limit=per_query,
-                    scan_limit=limits.scan_limit,
-                ),
-            )
-        ]
     # Reserve at least one query for the Ask question so path/subject/neighborhood
     # queries never silently crowd its terms out of the plan.
     keep = limits.max_queries - (1 if question_plan else 0)
@@ -720,12 +696,10 @@ def retrieve_project_context(
     ranked = sorted(found.values(), key=lambda item: item[1].entry_id)
     ranked.sort(key=lambda item: item[1].updated_at or item[1].created_at, reverse=True)
     ranked.sort(
-        key=lambda item: (
-            -(
-                _RELEVANCE_WEIGHT[item[0]]
-                + _STATE_WEIGHT.get(item[1].state, 0)
-                + (0 if item[1].knowledge_kind in _LOW_VALUE_KINDS else 10)
-            )
+        key=lambda item: -(
+            _RELEVANCE_WEIGHT[item[0]]
+            + _STATE_WEIGHT.get(item[1].state, 0)
+            + (0 if item[1].knowledge_kind in _LOW_VALUE_KINDS else 10)
         )
     )
     shortlist = ranked[: limits.max_entries]

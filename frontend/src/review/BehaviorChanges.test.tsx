@@ -221,8 +221,7 @@ describe("Behavior changes in the Brief", () => {
     bare.unmount();
 
     const shown = renderBrief(projection({ behavior: behavior(), actions: [BEHAVIOR_QUEUE_ENTRY] }));
-    // Compact Snapshot orientation and proof lead. Detailed behavior stays below them.
-    expect(sectionLabels(shown.container)).toEqual([...bareSections, "Behavior changes · 1"]);
+    expect(sectionLabels(shown.container)).toEqual([...bareSections.slice(0, 1), "Behavior changes · 1", ...bareSections.slice(1)].filter(Boolean));
     expect(shown.container.querySelectorAll("header button").length).toBe(bareButtons);
     // A behavior queue entry is not a "Required check".
     expect(screen.queryByText(/Required checks/)).toBeNull();
@@ -284,9 +283,10 @@ describe("Behavior changes in the Brief", () => {
     expect(narrative).toHaveTextContent("AI narrative · every statement cites the evidence it describes");
   });
 
-  it("states changed-but-never-executed in the proof card only when execution ran", () => {
+  it("states changed-but-never-executed only when execution ran", async () => {
     const ran = renderBrief(projection({ behavior: behavior({ targets: [] }) }));
-    const coverage = within(screen.getByTestId("brief-proof")).getByTestId("execution-coverage");
+    await userEvent.click(screen.getByText("What was checked"));
+    const coverage = screen.getByTestId("execution-coverage");
     expect(coverage).toHaveTextContent("1 of 2 changed areas exercised by 2 recorded runs");
     expect(coverage).toHaveTextContent("Changed but never executed: src/billing.py");
     ran.unmount();

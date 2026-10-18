@@ -74,12 +74,8 @@ def test_prod_rebuilds_and_installs_into_the_live_home_on_both_sides() -> None:
     assert 'REHEARSE_HOME="$HOME/.lemoncrow"' in oss
     assert 'REHEARSE_PORT="7420"' in oss
     assert ".lemoncrow-oss" not in oss and "7428" not in oss
-    # OSS prod installs Runtime as well as Review, without configuring agent hosts.
-    assert _install_line(oss).endswith("--product both --local")
-    assert _install_line(_make_dry_run("oss-dev")).endswith("--product review --local")
-    assert "systemctl --user restart lemoncrow-mcp-gateway.service" in oss
-    assert "systemctl --user is-active --quiet lemoncrow-mcp-gateway.service" in oss
-    assert oss.index("--product both --local") < oss.index("systemctl --user restart")
+    # Same installer, same staging; only home, port and freshness differ.
+    assert _install_line(oss).split("bash ")[-1] == _install_line(_make_dry_run("oss-dev")).split("bash ")[-1]
 
     hosted = _make_dry_run("hosted-prod")
     build = hosted.index("bash scripts/build_review_client.sh")
@@ -93,51 +89,6 @@ def test_prod_rebuilds_and_installs_into_the_live_home_on_both_sides() -> None:
     assert _install_line(_make_dry_run("hosted-prod", "HOSTED_URL=https://lc.example")).endswith(
         "--cloud --url https://lc.example"
     )
-
-
-@pytest.mark.parametrize(
-    ("gateway_state", "expected_calls", "expected_rc"),
-    [
-        ("configured", ["cat", "restart", "is-active"], 0),
-        ("absent", ["cat"], 0),
-        ("restart-fails", ["cat", "restart"], 1),
-        ("health-fails", ["cat", "restart", "is-active"], 1),
-    ],
-)
-def test_oss_prod_refreshes_configured_gateway_without_touching_unconfigured_one(
-    tmp_path: Path, gateway_state: str, expected_calls: list[str], expected_rc: int
-) -> None:
-    """Use a mocked installer and systemctl: never touch a live install in tests."""
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    systemctl = fake_bin / "systemctl"
-    systemctl.write_text(
-        "#!/bin/sh\n"
-        'printf "%s\\n" "$*" >> "$LC_TEST_SYSTEMCTL_LOG"\n'
-        'case "$*" in\n'
-        '  "--user cat lemoncrow-mcp-gateway.service") [ "$LC_TEST_GATEWAY_STATE" != absent ] ;;\n'
-        '  "--user restart lemoncrow-mcp-gateway.service") [ "$LC_TEST_GATEWAY_STATE" != restart-fails ] ;;\n'
-        '  "--user is-active --quiet lemoncrow-mcp-gateway.service") [ "$LC_TEST_GATEWAY_STATE" != health-fails ] ;;\n'
-        "  *) exit 2 ;;\n"
-        "esac\n"
-    )
-    systemctl.chmod(0o755)
-    calls = tmp_path / "systemctl.log"
-    result = subprocess.run(
-        ["make", "oss-prod", "MAKE=true"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        env={
-            **os.environ,
-            "PATH": f"{fake_bin}:{os.environ['PATH']}",
-            "HOME": str(tmp_path),
-            "LC_TEST_SYSTEMCTL_LOG": str(calls),
-            "LC_TEST_GATEWAY_STATE": gateway_state,
-        },
-    )
-    assert (result.returncode == 0) is (expected_rc == 0), result.stderr
-    assert [line.split()[1] for line in calls.read_text().splitlines()] == expected_calls
 
 
 @pytest.mark.parametrize("target", ["oss-prod", "hosted-prod"])
@@ -193,72 +144,6 @@ def test_ui_ports_never_collide() -> None:
     assert '--port "3131"' in _make_dry_run("hosted-ui")
     assert "npm --prefix frontend run build" in _make_dry_run("oss-ui-build")
     assert "npm --prefix enterprise/frontend run build" in _make_dry_run("hosted-ui-build")
-
-
-def test_oss_test_isolates_user_home_and_host_overrides(tmp_path: Path) -> None:
-    import json
-
-    real_home = tmp_path / "real-user"
-    real_home.mkdir()
-    config = real_home / ".claude.json"
-    config.write_text('{"keep":"real-user-config"}')
-    report = tmp_path / "installer-env.json"
-    stage = tmp_path / "stage"
-    stage.mkdir()
-    (stage / "install.sh").write_text("""#!/bin/sh
-python3 - <<'PY'
-import json, os
-from pathlib import Path
-keys = [
-    "HOME", "LEMONCROW_HOME", "LEMONCROW_BIN_DIR",
-    "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME",
-    "CLAUDE_CONFIG_DIR", "CODEX_HOME", "PI_CODING_AGENT_DIR",
-    "PYTHONPATH", "PYTHONHOME", "LEMONCROW_RUNTIME_INSTALL_ROOT",
-    "LEMONCROW_REVIEW_INSTALL_ROOT", "LEMONCROW_HOSTED_INSTALL_ROOT", "LEMONCROW_REVIEW_ENGINE_ROOT",
-]
-Path(os.environ["LC_TEST_ENV_REPORT"]).write_text(json.dumps({key: os.environ.get(key) for key in keys}))
-# Model the old package's unsafe write to its caller's host configuration.
-(Path.home() / ".claude.json").write_text("temporary runtime path")
-PY
-""")
-    env = {
-        **os.environ,
-        "HOME": str(real_home),
-        "LC_TEST_ENV_REPORT": str(report),
-        "PYTHONPATH": str(real_home / "python"),
-    }
-    for key in (
-        "XDG_CONFIG_HOME",
-        "XDG_CACHE_HOME",
-        "XDG_DATA_HOME",
-        "XDG_STATE_HOME",
-        "CLAUDE_CONFIG_DIR",
-        "CODEX_HOME",
-        "PI_CODING_AGENT_DIR",
-        "LEMONCROW_RUNTIME_INSTALL_ROOT",
-        "LEMONCROW_REVIEW_INSTALL_ROOT",
-        "LEMONCROW_HOSTED_INSTALL_ROOT",
-        "LEMONCROW_REVIEW_ENGINE_ROOT",
-    ):
-        env[key] = str(real_home / key)
-    subprocess.run(
-        ["make", "oss-test", "MAKE=true", f"RELEASE_STAGE={stage}"],
-        cwd=ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    observed = json.loads(report.read_text())
-    assert config.read_text() == '{"keep":"real-user-config"}'
-    isolated_root = Path(observed["HOME"]).parent
-    assert "lemoncrow-oss-test." in isolated_root.name
-    for key, value in observed.items():
-        if key in ("PYTHONPATH", "PYTHONHOME") or key.endswith(("_INSTALL_ROOT", "_ENGINE_ROOT")):
-            assert value is None, (key, value)
-        else:
-            assert Path(value).is_relative_to(isolated_root), (key, value)
-    assert not isolated_root.exists(), "temporary installation must be cleaned up"
 
 
 def test_oss_test_installs_both_products_into_a_temp_home_and_cleans_up() -> None:

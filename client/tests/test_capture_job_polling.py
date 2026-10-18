@@ -4,7 +4,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from lemoncrow_client import capture_polling
 from lemoncrow_client import session as session_module
 from lemoncrow_client.errors import ClientError, ErrorCode
 from lemoncrow_client.review_session import ReviewSession
@@ -50,20 +49,6 @@ def test_synchronous_answer_passes_through() -> None:
 def test_polls_until_done() -> None:
     remote = _session([_Resp(RUNNING), _Resp({"state": "done", "result": {"review": {"id": "r1"}}})])
     assert remote._await_capture("/v1/repos/x/reviews", RUNNING) == {"review": {"id": "r1"}}
-
-
-def test_fast_local_first_poll_backs_off_without_pounding_long_running_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
-    delays: list[float] = []
-    monkeypatch.setattr(capture_polling.time, "sleep", delays.append)
-    running = {**RUNNING, "poll_after_s": 0.1}
-    remote = _session(
-        [_Resp(running) for _ in range(8)] + [_Resp({"state": "done", "result": {"review": {"id": "ok"}}})]
-    )
-    assert remote._await_capture("/v1/repos/x/reviews", running) == {"review": {"id": "ok"}}
-    assert delays[0] == pytest.approx(0.1)
-    assert delays[1] == pytest.approx(0.15)
-    assert delays[-1] <= 1.0
-    assert delays == sorted(delays)
 
 
 def test_file_progress_is_forwarded_on_each_poll_until_done() -> None:

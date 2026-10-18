@@ -26,12 +26,11 @@ from __future__ import annotations
 import io
 import json
 import os
-import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from contextlib import redirect_stderr, redirect_stdout
 from typing import Any
 
-from lemoncrow.infra.internal_llm.exceptions import LiteLLMUnavailable, refusal_from_exception
+from lemoncrow.infra.internal_llm.exceptions import LiteLLMUnavailable
 from lemoncrow.infra.internal_llm.result import InternalLLMChatResult
 
 
@@ -40,9 +39,6 @@ def _litellm_module() -> Any:
         import litellm
     except ImportError as exc:
         raise LiteLLMUnavailable("litellm package is not installed; install lemoncrow[litellm]") from exc
-    # LiteLLM prints a "Give Feedback / Get Help" banner, in colour whatever NO_COLOR says, on every provider error.
-    # The review reports the error itself, in one line.
-    litellm.suppress_debug_info = True
     return litellm
 
 
@@ -71,106 +67,6 @@ def _content(response: Any) -> str:
         return str(response.choices[0].message.content or "")
     except (AttributeError, IndexError, KeyError, TypeError) as exc:
         raise LiteLLMUnavailable(f"Unexpected LiteLLM response shape: {exc}") from exc
-
-
-#: What a retry says when the first reply to a JSON request held no JSON.
-_JSON_ONLY = (
-    "Your previous reply could not be read as JSON. Reply again with only the JSON object that answers the request: "
-    "no prose before or after it, no Markdown, no code fences."
-)
-_FENCE = re.compile(r"```[A-Za-z0-9_+-]*[ \t]*\r?\n?(.*?)```", re.DOTALL)
-#: Most places in one reply a JSON value is looked for, so a reply full of braces cannot make parsing slow.
-_MAX_JSON_STARTS = 200
-
-
-def _parse_json(content: str) -> tuple[Any, str]:
-    """``(value, "")`` for the JSON in a model reply, or ``(None, why)`` when it holds none.
-
-    Models wrap JSON they were asked for in a Markdown fence or a sentence of prose even in JSON mode, and a
-    provider that rejected ``response_format`` has no such mode at all. So after the strict parse the reply is
-    searched, fenced blocks first: the first JSON object that decodes wins, and a list is taken only when there
-    is no object (a ``[1]`` footnote in front of the answer must not be mistaken for it).
-    """
-
-    text = content.strip()
-    try:
-        return json.loads(text), ""
-    except json.JSONDecodeError as exc:
-        why = str(exc)
-    decoder = json.JSONDecoder()
-    candidates = [match.group(1) for match in _FENCE.finditer(text)] + [text]
-    attempts = 0
-    for opener in ("{", "["):
-        for candidate in candidates:
-            start = candidate.find(opener)
-            while start != -1 and attempts < _MAX_JSON_STARTS:
-                attempts += 1
-                try:
-                    value, _end = decoder.raw_decode(candidate, start)
-                except json.JSONDecodeError:
-                    start = candidate.find(opener, start + 1)
-                    continue
-                return value, ""
-    return None, why
-
-
-_ACCOUNT_ERROR = re.compile(
-    r"AuthenticationError|PermissionDeniedError|RateLimitError|authentication_error|permission_error|rate_limit_error"
-    r"|invalid[ _-]?x?-?api[ _-]?key|credit balance|insufficient[_ ](?:quota|credit|funds)|exceeded your current quota",
-    re.IGNORECASE,
-)
-
-
-def is_account_error(exc: BaseException) -> bool:
-    """Whether *exc* says the key, the account or the rate limit is the problem rather than the request's shape.
-
-    Retrying such a request without ``response_format`` cannot help and is billed or counted against the limit again.
-    """
-
-    status = getattr(exc, "status_code", None)
-    if isinstance(status, int) and status in {401, 402, 403, 429}:
-        return True
-    return bool(_ACCOUNT_ERROR.search(f"{type(exc).__name__} {exc}"))
-
-
-#: The most output one review call may ask for. A review answer is a small JSON object (a few hundred tokens); without a
-#: limit LiteLLM sends the model's own maximum (128,000 tokens for current Claude models), which bounds nothing.
-REVIEW_MAX_OUTPUT_TOKENS = 8192
-REVIEW_MAX_OUTPUT_ENV = "LEMONCROW_REVIEW_MAX_OUTPUT_TOKENS"
-
-
-def bounded_max_tokens(model: str | None, env: Mapping[str, str] | None = None) -> int:
-    """The output-token limit for one review call on *model*.
-
-    ``REVIEW_MAX_OUTPUT_TOKENS`` unless ``LEMONCROW_REVIEW_MAX_OUTPUT_TOKENS`` names another positive number, and never
-    more than the model can produce when LiteLLM knows that limit.
-    """
-
-    raw = str((os.environ if env is None else env).get(REVIEW_MAX_OUTPUT_ENV) or "").strip()
-    wanted = int(raw) if raw.isdigit() and int(raw) > 0 else REVIEW_MAX_OUTPUT_TOKENS
-    limit = _model_output_limit(_resolve_model(model))
-    return min(wanted, limit) if limit else wanted
-
-
-def _model_output_limit(model: str) -> int:
-    """The most output tokens LiteLLM's price table says *model* can produce; ``0`` when it does not know the model.
-
-    Read from the table directly (``get_model_info`` prints a banner for an unknown id, and silencing a print means
-    swapping ``sys.stdout``, which parallel review calls must not do).
-    """
-
-    try:
-        table = _litellm_module().model_cost
-    except Exception:
-        return 0
-    for key in (model, model.split("/", 1)[-1]):
-        entry = table.get(key) if isinstance(table, dict) else None
-        if isinstance(entry, dict):
-            for field in ("max_output_tokens", "max_tokens"):
-                limit = entry.get(field)
-                if isinstance(limit, int) and not isinstance(limit, bool) and limit > 0:
-                    return limit
-    return 0
 
 
 def _field(source: Any, name: str) -> Any:
@@ -245,94 +141,62 @@ def chat_with_result(
     ``max_tokens`` for a connectivity probe). This keeps every litellm call on
     the user's path routed through this single infra wrapper.
     """
+    litellm = _litellm_module()
     chosen_model = _resolve_model(model)
     request_messages = _apply_cache_control(messages, chosen_model=chosen_model, cache_metadata=cache_metadata)
-    try:
-        litellm = _litellm_module()
-    except LiteLLMUnavailable:
-        # The installed Review engine ships no SDK: ANTHROPIC_API_KEY alone must be enough for `lc review --ai`.
-        from lemoncrow.infra.internal_llm import direct_http
-
-        if not direct_http.handles_anthropic(chosen_model):
-            raise
-        return direct_http.anthropic_chat_with_result(
-            request_messages, model=chosen_model, json_schema=json_schema, cache_metadata=cache_metadata
-        )
     request_kwargs: dict[str, Any] = {"model": chosen_model, "messages": request_messages}
     if api_key:
         request_kwargs["api_key"] = api_key
     if extra_kwargs:
         request_kwargs.update(extra_kwargs)
     request_kwargs = _with_provider_transport(request_kwargs)
-    json_mode = json_schema is not None
-
-    def complete(kwargs: dict[str, Any]) -> Any:
-        nonlocal json_mode
-        try:
-            if json_mode:
-                try:
-                    return litellm.completion(**kwargs, response_format={"type": "json_object"})
-                except Exception as exc:
-                    if is_account_error(exc):
-                        raise  # a rejected key or an empty balance fails the same way again: do not pay a second request
-                    json_mode = False  # this provider rejects it; the retry below does not ask again
-            return litellm.completion(**kwargs)
-        except Exception as exc:
-            if isinstance(exc, LiteLLMUnavailable):
-                raise
-            raise LiteLLMUnavailable(
-                refusal_from_exception("", exc) or f"LiteLLM completion unavailable: {exc}"
-            ) from exc
-
-    response = complete(request_kwargs)
-    responses = [response]
+    try:
+        if json_schema is None:
+            response = litellm.completion(**request_kwargs)
+        else:
+            try:
+                response = litellm.completion(
+                    **request_kwargs,
+                    response_format={"type": "json_object"},
+                )
+            except Exception:
+                response = litellm.completion(**request_kwargs)
+    except Exception as exc:
+        if isinstance(exc, LiteLLMUnavailable):
+            raise
+        raise LiteLLMUnavailable(f"LiteLLM completion unavailable: {exc}") from exc
     content = _content(response)
     parsed_json: dict[str, Any] | None = None
     if json_schema is not None:
-        parsed, why = _parse_json(content)
-        if why:
-            # One more try, saying so plainly: a reply of prose, or a refusal, often answers a direct instruction.
-            retry = {
-                **request_kwargs,
-                "messages": [*request_kwargs["messages"], {"role": "user", "content": _JSON_ONLY}],
-            }
-            response = complete(retry)
-            responses.append(response)
-            content = _content(response)
-            parsed, why = _parse_json(content)
-            if why:
-                raise LiteLLMUnavailable(f"LiteLLM returned invalid JSON, also after one retry: {why}")
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise LiteLLMUnavailable(f"LiteLLM returned invalid JSON: {exc}") from exc
         parsed_json = parsed if isinstance(parsed, dict) else {"value": parsed}
-    costs = [_reported_cost(item) for item in responses]
-    provider_cost = None if any(cost is None for cost in costs) else sum(cost for cost in costs if cost is not None)
-    usages = [_field(item, "usage") for item in responses]
+    usage = _field(response, "usage")
+    hidden = _field(response, "_hidden_params")
+    reported_cost = _field(hidden, "response_cost")
+    provider_cost = (
+        float(reported_cost)
+        if isinstance(reported_cost, (int, float)) and not isinstance(reported_cost, bool) and reported_cost >= 0
+        else None
+    )
     return InternalLLMChatResult(
         content=content,
         parsed_json=parsed_json,
         model=chosen_model,
         reported_model=reported if isinstance(reported := _field(response, "model"), str) else "",
         request_id=str(_field(response, "id") or ""),
-        # Every call that was made is paid for, so a retry adds to the tokens and the cost of the answer it produced.
-        input_tokens=sum(_token_value(usage, "prompt_tokens") for usage in usages),
-        output_tokens=sum(_token_value(usage, "completion_tokens") for usage in usages),
-        cache_read_input_tokens=sum(_usage_detail(usage, "prompt_tokens_details", "cached_tokens") for usage in usages),
-        cache_write_input_tokens=sum(
-            _token_value(usage, "cache_creation_input_tokens")
-            or _usage_detail(usage, "prompt_tokens_details", "cache_creation_tokens")
-            for usage in usages
-        ),
+        input_tokens=_token_value(usage, "prompt_tokens"),
+        output_tokens=_token_value(usage, "completion_tokens"),
+        cache_read_input_tokens=_usage_detail(usage, "prompt_tokens_details", "cached_tokens"),
+        cache_write_input_tokens=_token_value(usage, "cache_creation_input_tokens")
+        or _usage_detail(usage, "prompt_tokens_details", "cache_creation_tokens"),
         cache_capability=_cache_capability(chosen_model=chosen_model, cache_metadata=cache_metadata),
         request_metadata=dict(cache_metadata or {}),
         provider_cost=provider_cost,
         currency="USD",
     )
-
-
-def _reported_cost(response: Any) -> float | None:
-    reported = _field(_field(response, "_hidden_params"), "response_cost")
-    if isinstance(reported, (int, float)) and not isinstance(reported, bool) and reported >= 0:
-        return float(reported)
-    return None
 
 
 def chat(
@@ -385,10 +249,10 @@ def chat_stream(
     content = "".join(chunks)
     if json_schema is None:
         return content
-    parsed, why = _parse_json(content)
-    if why:
-        # No retry here: the caller has already been shown the deltas of this reply.
-        raise LiteLLMUnavailable(f"LiteLLM returned invalid JSON: {why}")
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise LiteLLMUnavailable(f"LiteLLM returned invalid JSON: {exc}") from exc
     return parsed if isinstance(parsed, dict) else {"value": parsed}
 
 

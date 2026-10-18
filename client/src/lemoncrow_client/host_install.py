@@ -32,11 +32,6 @@ _HOST_BINARY: Final[dict[str, str]] = {
 }
 
 
-def _host_executable(host: str) -> str | None:
-    """Resolve the normal CLI, including side-by-side OpenCode V2 betas."""
-    return _which(_HOST_BINARY[host]) or (_which("opencode2") if host == "opencode" else None)
-
-
 def register_agents(
     agent: str,
     *,
@@ -51,7 +46,7 @@ def register_agents(
     """
 
     if agent == "auto":
-        targets = tuple(name for name in SUPPORTED_AGENTS if _host_executable(name) is not None)
+        targets = tuple(name for name in SUPPORTED_AGENTS if _which(_HOST_BINARY[name]) is not None)
         if not targets:
             sink.write("no supported coding agent found (claude, codex, opencode)\n")
             return 2
@@ -64,7 +59,7 @@ def register_agents(
     failed = False
     for target in targets:
         command = _client_mcp_command(target, hosted=hosted)
-        binary = _host_executable(target)
+        binary = _which(_HOST_BINARY[target])
         if binary is None:
             sink.write(f"{target}: host CLI not found on PATH\n")
             failed = True
@@ -111,7 +106,7 @@ def runtime_status(agent: str, *, sink: TextIO, as_json: bool = False) -> int:
     present = 0
     rows: list[dict[str, object]] = []
     for target in targets:
-        binary = _host_executable(target)
+        binary = _which(_HOST_BINARY[target])
         if binary is None:
             rows.append(
                 {
@@ -155,7 +150,7 @@ def runtime_status(agent: str, *, sink: TextIO, as_json: bool = False) -> int:
 def unregister_agents(agent: str, *, dry_run: bool, sink: TextIO) -> int:
     """Remove the persisted Runtime MCP entry using the host native CLI."""
     if agent == "auto":
-        targets = tuple(name for name in SUPPORTED_AGENTS if _host_executable(name) is not None)
+        targets = tuple(name for name in SUPPORTED_AGENTS if _which(_HOST_BINARY[name]) is not None)
         if not targets:
             sink.write("no supported coding agent found (claude, codex, opencode)\n")
             return 2
@@ -167,7 +162,7 @@ def unregister_agents(agent: str, *, dry_run: bool, sink: TextIO) -> int:
 
     failed = False
     for target in targets:
-        binary = _host_executable(target)
+        binary = _which(_HOST_BINARY[target])
         if binary is None:
             sink.write(f"{target}: host CLI not found on PATH\n")
             failed = True

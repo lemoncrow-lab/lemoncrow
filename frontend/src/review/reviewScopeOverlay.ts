@@ -264,8 +264,7 @@ export function decorateReviewScopeBoxes(
   path: string,
   targets: readonly ReviewTarget[],
   phase: "mount" | "update" | "unmount",
-  /** Kept for the call sites; the overlay now reads theme tokens, so it follows the theme on its own. */
-  _chromeTheme: Theme,
+  chromeTheme: Theme,
   diffStyle: DiffStyle,
   activeTargetId = "",
 ): void {
@@ -288,12 +287,22 @@ export function decorateReviewScopeBoxes(
     || getComputedStyle(container).lineHeight;
   const lineHeight = Number.parseFloat(lineHeightValue) || 21;
 
-  // The scope edge reads the state tokens (added ok, deleted P0, modified P2), so it follows the theme.
   const edgeFor = (target: ReviewTarget) => {
     const tone = reviewScopeTone(target);
     const active = target.target_id === activeTargetId;
-    const token = tone === "added" ? "--ok-solid" : tone === "deleted" ? "--p0-solid" : "--p2-solid";
-    return `rgb(var(${token}) / ${active ? 0.6 : 0.28})`;
+    if (tone === "added") {
+      return chromeTheme === "dark"
+        ? (active ? "rgba(74, 222, 128, 0.62)" : "rgba(74, 222, 128, 0.28)")
+        : (active ? "rgba(22, 163, 74, 0.58)" : "rgba(22, 163, 74, 0.28)");
+    }
+    if (tone === "deleted") {
+      return chromeTheme === "dark"
+        ? (active ? "rgba(251, 113, 133, 0.64)" : "rgba(251, 113, 133, 0.30)")
+        : (active ? "rgba(225, 29, 72, 0.58)" : "rgba(225, 29, 72, 0.28)");
+    }
+    return chromeTheme === "dark"
+      ? (active ? "rgba(56, 189, 248, 0.58)" : "rgba(56, 189, 248, 0.22)")
+      : (active ? "rgba(2, 132, 199, 0.54)" : "rgba(2, 132, 199, 0.22)");
   };
 
   const scopeRange = (target: ReviewTarget, side?: "old" | "new") => {
@@ -384,7 +393,7 @@ export function decorateReviewScopeBoxes(
       borderBottom: "0 solid transparent",
       borderRadius: "0",
       background: active
-        ? "rgb(var(--foreground) / 0.03)"
+        ? (chromeTheme === "dark" ? "rgba(255,255,255,0.018)" : "rgba(15,23,42,0.018)")
         : "transparent",
       boxSizing: "border-box",
     });

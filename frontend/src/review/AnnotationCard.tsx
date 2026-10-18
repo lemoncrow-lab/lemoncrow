@@ -1,4 +1,3 @@
-import { Badge } from "../components/ui/badge";
 import { Button as UiButton } from "../components/ui/button";
 import { Input as UiInput } from "../components/ui/input";
 import { Textarea as UiTextarea } from "../components/ui/textarea";
@@ -29,14 +28,9 @@ import { Check, LoaderCircle, MessageSquareText, PencilLine, Reply, RotateCcw, S
 import "./reviewUi.css";
 
 import {
-  annotationRail,
-  annotationSeverity,
-  annotationSourceTone,
+  annotationIdentityColor,
   KIND_ACCENTS,
-  KIND_BADGE_TONES,
   KIND_LABELS,
-  SEVERITY_LABELS,
-  severityTone,
   KIND_ORDER,
   annotationIdentityLabel,
   annotationProducerDetail,
@@ -55,10 +49,10 @@ import { PublishedFeedbackControls } from "./feedbackSync";
 import { ThreadSummary } from "./ThreadSummary";
 
 const ACTION_TONE: Record<ActionTone, string> = {
-  progress: "border-p2-line bg-p2-bg text-p2",
-  done: "border-ok-line bg-ok-bg text-ok",
-  warning: "border-p1-line bg-p1-bg text-p1",
-  muted: "border-border text-muted-foreground",
+  progress: "border-sky-900/55 bg-sky-950/15 text-sky-300",
+  done: "border-emerald-900/55 bg-emerald-950/15 text-emerald-300",
+  warning: "border-amber-900/55 bg-amber-950/15 text-amber-300",
+  muted: "border-border/70 text-muted-foreground",
 };
 
 export interface AnnotationCardProps {
@@ -161,7 +155,7 @@ function Composer({
   return (
     <div className="review-composer" aria-busy={busy}>
       <div className="review-composer-heading">
-        <MessageSquareText size={16} className="text-muted-foreground" aria-hidden="true" />
+        <MessageSquareText size={16} className="text-neutral-400" aria-hidden="true" />
         <span>Draft · {label}</span>
       </div>
       <UiTextarea
@@ -205,7 +199,7 @@ function Composer({
               if (parentId === "") onDraftChange?.({ kind: option });
             }}
             className={`review-composer-kind ${
-              kind === option ? KIND_ACCENTS[option] : "border-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
+              kind === option ? KIND_ACCENTS[option] : "border-transparent text-neutral-400 hover:bg-neutral-800/50 hover:text-foreground"
             }`}
           >
             {KIND_LABELS[option]}
@@ -215,10 +209,10 @@ function Composer({
           <UiButton unstyled
             type="button"
             onClick={onAsk}
-            className="review-composer-kind border-border text-muted-foreground hover:text-foreground"
+            className="review-composer-kind border-violet-900/70 text-violet-300"
             tooltip="Ask LemonCrow about the selected code without creating review feedback"
           >
-            <Sparkles size={14} aria-hidden="true" />
+            <Sparkles size={11} aria-hidden="true" />
             Ask
           </UiButton>
         )}
@@ -228,10 +222,10 @@ function Composer({
               <UiButton unstyled
                 type="button"
                 onClick={onSuggestEdit}
-                className="review-composer-kind review-composer-kind-source border-border text-muted-foreground"
+                className="review-composer-kind review-composer-kind-source border-violet-900/70 text-violet-300"
                 tooltip="Save a concrete patch without changing the working source"
               >
-                <PencilLine size={14} aria-hidden="true" />
+                <PencilLine size={11} aria-hidden="true" />
                 Suggest edit
               </UiButton>
             )}
@@ -239,7 +233,7 @@ function Composer({
               <UiButton unstyled
                 type="button"
                 onClick={onEditSource}
-                className="review-composer-kind review-composer-kind-source border-cyan-900/70 text-cyan-300"
+                className="review-composer-kind review-composer-kind-source border-sky-900/70 text-sky-300"
                 tooltip="Edit the trusted working source through the guarded proposal path"
               >
                 Edit source
@@ -257,7 +251,7 @@ function Composer({
                 setMarkTarget(event.target.checked);
                 if (parentId === "") onDraftChange?.({ markTarget: event.target.checked });
               }}
-              className="accent-red-500"
+              className="accent-rose-500"
             />
             Also mark target needs changes
           </label>
@@ -269,7 +263,7 @@ function Composer({
           Cancel
         </UiButton>
         <UiButton
-          variant="solid"
+          variant="default"
           size="xs"
           type="button"
           disabled={busy || body.trim() === ""}
@@ -311,9 +305,10 @@ function Comment({
   const source = annotationSource(comment);
   const human = isHumanJudgment(comment);
   const sourceDetail = annotationProducerDetail(comment);
-  const severity = annotationSeverity(comment);
+  const identityColor = annotationIdentityColor(comment);
   const aiFinding = source === "ai_review";
   const findingDisposition = comment.finding_disposition || (comment.anchored ? "open" : "superseded_stale");
+  const blocking = human && comment.kind === "request_change" && !resolved;
   // Which controlled action addressed this finding, if any. Fix routes through
   // that preview (exact author -> preferred agent -> copied prompt) when the
   // reader has a writable current Snapshot; the action never sets a disposition.
@@ -327,17 +322,13 @@ function Comment({
       ? () => onFindingFix(comment)
       : undefined;
   return (
-    <article
-      className={`review-thread review-thread-src-${source} ${resolved ? "review-thread-resolved" : ""}`}
-      data-rail={annotationRail(comment)}
-    >
+    <article className={`review-thread review-thread-src-${source} ${blocking ? "review-thread-blocking" : ""} ${resolved ? "review-thread-resolved" : ""}`}>
       <div className="review-thread-heading">
-        {severity && <Badge tone={severityTone(severity)} data-testid="annotation-severity">{SEVERITY_LABELS[severity]}</Badge>}
-        {human && comment.kind !== "comment" && (
-          <Badge tone={KIND_BADGE_TONES[comment.kind]}>{KIND_LABELS[comment.kind]}</Badge>
-        )}
-        <Badge tone={annotationSourceTone(comment)} data-testid="annotation-source">{annotationIdentityLabel(comment)}</Badge>
+        <span className={`review-thread-source ${identityColor}`}>{annotationIdentityLabel(comment)}</span>
         {sourceDetail && <span className="review-thread-author" title={annotationProducerTitle(comment)}>{sourceDetail}</span>}
+        {human && comment.kind !== "comment" && (
+          <span className={`rounded-md border px-1.5 py-0.5 ${KIND_ACCENTS[comment.kind]}`}>{KIND_LABELS[comment.kind]}</span>
+        )}
         {comment.origin_revision_number != null && (
           <span
             className="review-thread-symbol font-mono"
@@ -368,8 +359,8 @@ function Comment({
         <span className="flex-1" />
         {comment.created_at && <time dateTime={comment.created_at} className="review-thread-date">{new Date(comment.created_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}</time>}
         {resolved && (
-          <span className="inline-flex items-center gap-1 text-ok">
-            <Check size={14} aria-hidden="true" />
+          <span className="inline-flex items-center gap-1 text-emerald-400">
+            <Check size={13} aria-hidden="true" />
             Resolved{comment.resolved_revision_number != null ? ` · Snapshot ${comment.resolved_revision_number}` : ""}
           </span>
         )}
@@ -391,7 +382,7 @@ function Comment({
         </div>
       )}
       {human && comment.author_response === "addressed" && !resolved && (
-        <div className="w-fit rounded-md border border-p2-line bg-p2-bg px-2 py-1 text-meta font-medium text-p2">
+        <div className="w-fit rounded-md border border-sky-900/55 bg-sky-950/15 px-2 py-1 text-caption font-medium text-sky-300">
           marked addressed{comment.author_addressed_revision_number != null ? ` in Snapshot ${comment.author_addressed_revision_number}` : ""} · re-review
         </div>
       )}
@@ -422,7 +413,7 @@ function Comment({
         </details>
       )}
       {human && comment.author_response === "addressed" && !resolved && comment.author_response_source_id && (
-        <div className="font-mono text-caption text-muted-foreground">
+        <div className="font-mono text-caption text-sky-500/80">
           addressed by {comment.author_response_source_id}; only you can resolve this comment
         </div>
       )}
@@ -430,11 +421,11 @@ function Comment({
         <div className="review-thread-replies">
           {replies.map((reply) => (
             <div key={reply.id} className="review-thread-reply">
-              <div className="mb-1 flex items-center gap-2 text-body font-medium text-muted-foreground">
-                <Badge tone={annotationSourceTone(reply)}>{annotationIdentityLabel(reply)}</Badge>
+              <div className="mb-1 flex items-center gap-2 text-body font-medium text-neutral-400">
+                <span className={annotationIdentityColor(reply)}>{annotationIdentityLabel(reply)}</span>
                 <span title={annotationProducerTitle(reply)}>{annotationProducerDetail(reply)}</span>
                 {reply.kind !== "comment" && (
-                  <Badge tone={KIND_BADGE_TONES[reply.kind]}>{KIND_LABELS[reply.kind]}</Badge>
+                  <span className={`rounded-md border px-1.5 py-0.5 text-caption ${KIND_ACCENTS[reply.kind]}`}>{KIND_LABELS[reply.kind]}</span>
                 )}
               </div>
               <div className="review-thread-body">{reply.body}</div>
@@ -576,7 +567,7 @@ function Comment({
             disabled={busy}
             onClick={() => onReply(comment.id)}
           >
-            <Reply size={14} aria-hidden="true" />
+            <Reply size={13} aria-hidden="true" />
             Reply
           </UiButton>
           <UiButton
@@ -587,7 +578,7 @@ function Comment({
             disabled={busy}
             onClick={() => (resolved ? onReopen(comment.id) : onResolve(comment.id))}
           >
-            {resolved ? <RotateCcw size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}
+            {resolved ? <RotateCcw size={13} aria-hidden="true" /> : <Check size={13} aria-hidden="true" />}
             {resolved ? "Reopen" : "Resolve"}
           </UiButton>
         </div>
@@ -710,24 +701,24 @@ export function OrphanedComments({
 }) {
   if (comments.length === 0) return null;
   return (
-    <div className="border-b border-p1-line bg-p1-bg px-3 py-2.5">
-      <div className="review-kicker text-p1">
+    <div className="border-b border-amber-900/50 bg-amber-950/15 px-3 py-2.5">
+      <div className="review-kicker text-amber-300">
         {comments.length === 1 ? "1 comment lost its anchor" : `${comments.length} comments lost their anchor`}
       </div>
       <BelowThresholdList items={comments} render={(comment) => (
-        <div key={comment.id} className="mt-2 rounded-md border border-border bg-card px-3 py-2 text-label text-subtle">
-          <div className="flex flex-wrap items-center gap-2 font-mono text-caption text-muted-foreground">
-            <Badge tone={annotationSourceTone(comment)}>{annotationIdentityLabel(comment)}</Badge>
+        <div key={comment.id} className="mt-2 rounded-md border border-amber-900/35 bg-amber-950/10 px-3 py-2 text-label text-amber-200/80">
+          <div className="flex flex-wrap items-center gap-2 font-mono text-caption text-amber-300/75">
+            <span className={annotationIdentityColor(comment)}>{annotationIdentityLabel(comment)}</span>
             <span>{comment.file_level ? "file" : locationLabel(comment.start_line, comment.end_line)}</span>
             <span>{comment.state}</span>
             <span>not anchored</span>
           </div>
-          {comment.title && <div className="pt-0.5 font-sans font-semibold text-foreground">{comment.title}</div>}
+          {comment.title && <div className="pt-0.5 font-sans font-semibold text-amber-100">{comment.title}</div>}
           <div className="whitespace-pre-wrap font-sans">{comment.body}</div>
-          <div className="font-mono text-caption text-muted-foreground">
+          <div className="font-mono text-caption text-amber-200/50">
             {comment.anchor_method_label || comment.anchor_method}: {comment.anchor_detail || "no reason recorded"}
           </div>
-      {onSetState && comment.state !== "obsolete" && (
+          {onSetState && comment.state !== "obsolete" && (
             <UiButton
               type="button"
               variant="ghost"

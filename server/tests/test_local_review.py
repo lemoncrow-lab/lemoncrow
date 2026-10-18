@@ -57,26 +57,6 @@ def test_reader_primes_lazy_fastapi_route_tables_before_parallel_dispatch() -> N
     assert version == router_version
 
 
-def test_a_direct_browser_load_of_activity_is_the_app_shell_like_runs(tmp_path: Path) -> None:
-    """``/activity`` is a console page, so it is public (no API 401 JSON) exactly as ``/runs`` is."""
-
-    from lemoncrow_server_core.local_review import LocalReviewSurface
-
-    bundle = tmp_path / "dist"
-    bundle.mkdir()
-    (bundle / "index.html").write_text("<!doctype html><div id=root></div>", encoding="utf-8")
-    surface = LocalReviewSurface(tmp_path / "store", port=45999, frontend_dir=bundle)
-    for page in ("/activity", "/activity/run_1", "/runs", "/runs/run_1"):
-        assert surface.is_console_path(page), page
-        assert surface.is_ui_path(page), page
-        assert surface.is_public_path(page), page
-    # The word is not claimed anywhere else: these stay authenticated API routes.
-    for api in ("/api/activity", "/v1/code-map/activity", "/activities", "/activity-feed"):
-        assert not surface.is_ui_path(api), api
-    served = {route.path for route in surface.route_defs() if route.method == "GET"}
-    assert {"/activity", "/activity/{tail:.*}", "/runs", "/runs/{tail:.*}"} <= served
-
-
 def test_review_location_metadata_identifies_checkout(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()

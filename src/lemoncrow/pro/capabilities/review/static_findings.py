@@ -643,27 +643,6 @@ def investigator_static_context(
     return refs, stale_rows
 
 
-#: Check categories whose findings are security facts about the changed code (a SAST, secret or IaC scanner).
-SECURITY_CATEGORIES: Final[frozenset[str]] = frozenset({"sast", "secret_scan", "iac_security"})
-
-
-def static_security_lines(store: Any, revision: ReviewRevision) -> dict[str, tuple[tuple[int, int], ...]]:
-    """``{path: ((first, last), ...)}`` of the current security findings of at least P1 (a scanner's error-level result).
-
-    The pull request reviewer turns each into a ``security`` candidate for the targets that hold those lines, so a
-    scanner hit is investigated for the category it belongs to even when nothing in the file's name or text looks
-    security related. Stale findings (an earlier Snapshot) and lower severities never count.
-    """
-
-    current, _stale, _checks = snapshot_findings(store, revision)
-    lines: dict[str, set[tuple[int, int]]] = {}
-    for row in current:
-        finding = row.finding
-        if row.category in SECURITY_CATEGORIES and SEVERITY_RANK[finding.severity] >= SEVERITY_RANK["p1"]:
-            lines.setdefault(finding.path, set()).add((finding.start_line, max(finding.start_line, finding.end_line)))
-    return {path: tuple(sorted(rows)) for path, rows in lines.items()}
-
-
 # --------------------------------------------------------------------------- #
 # usefulness (item 13)
 # --------------------------------------------------------------------------- #
@@ -763,7 +742,6 @@ __all__ = [
     "CHAIN_RULES_VERSION",
     "DISPOSITION_EVENT",
     "FACT_CWES",
-    "SECURITY_CATEGORIES",
     "STATIC_DISPOSITIONS",
     "ChainRule",
     "FindingChain",
@@ -777,6 +755,5 @@ __all__ = [
     "security_facts",
     "snapshot_findings",
     "static_findings_projection",
-    "static_security_lines",
     "static_severity_signals",
 ]

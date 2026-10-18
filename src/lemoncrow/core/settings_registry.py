@@ -44,9 +44,6 @@ class SettingSpec:
     """Allowed values for a ``str`` setting (empty means free text, or unset)."""
     int_range: tuple[int, int] | None = None
     """Inclusive ``(low, high)`` bounds an ``int`` setting must lie in (``None``: unbounded)."""
-    yields_to: str | None = None
-    """An exported variable (the vendor's own name, ``ANTHROPIC_API_KEY``) that wins over the saved value: when it is
-    set, the saved value is not put into the environment at all."""
 
 
 SETTINGS: list[SettingSpec] = [
@@ -1996,17 +1993,7 @@ SETTINGS: list[SettingSpec] = [
         "str",
         "",
         "llm",
-        "OpenAI API key for `lc review --ai` and LemonCrow's other model calls. An exported OPENAI_API_KEY wins over it.",
-        yields_to="OPENAI_API_KEY",
-    ),
-    SettingSpec(
-        "llm.anthropic_api_key",
-        "LEMONCROW_ANTHROPIC_API_KEY",
-        "str",
-        "",
-        "llm",
-        "Anthropic API key for `lc review --ai`. An exported ANTHROPIC_API_KEY wins over it.",
-        yields_to="ANTHROPIC_API_KEY",
+        "OpenAI API key for internal LLM calls (falls back to OPENAI_API_KEY).",
     ),
     SettingSpec(
         "llm.openai_base_url",
@@ -2275,18 +2262,6 @@ SETTINGS: list[SettingSpec] = [
         4096,
         "review",
         "Memory ceiling per sandboxed Review job in MB (256-65536); 0 disables the ceiling.",
-    ),
-    # Personal: the agent CLI `lc review --ai` uses when no API key is set. Written only by
-    # `lc review --ai --agent NAME --remember` (the person names it once); no env var.
-    SettingSpec(
-        "review.agent",
-        None,
-        "str",
-        "",
-        "review",
-        "Agent CLI `lc review --ai` uses when no API key is set (claude, codex, opencode); empty means none. "
-        "Set by `lc review --ai --agent NAME --remember`.",
-        choices=("claude", "codex", "opencode"),
     ),
     # Personal, never policy (plan §3.22/§3.23): which local coding agent a Review
     # Fix starts when the exact authoring session is unavailable. Read fresh on

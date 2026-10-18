@@ -1,4 +1,3 @@
-import { LOCAL_BROWSER_RECONNECT_MESSAGE } from "./localBrowser";
 import { subscribeReviewState } from "./reviewStateEvents";
 /**
  * The Review fetch layer. The machine credential never enters JavaScript.
@@ -106,8 +105,6 @@ import type {
   SavedInboxFilter,
   SavedInboxFilterList,
 } from "./types";
-export { LOCAL_BROWSER_RECONNECT_MESSAGE };
-
 let reviewId = "";
 let browserSession = "";
 let localBrowserClaim: Promise<Response> | null = null;
@@ -296,6 +293,10 @@ function forgetBrowserSession(): void {
     // Nothing else to clear.
   }
 }
+
+/** Shown when this browser has no usable local capability and no CLI pairing is armed. */
+export const LOCAL_BROWSER_RECONNECT_MESSAGE =
+  "This browser is not connected to LemonCrow Review. Run `lc review --open` in your terminal to reconnect.";
 
 /** Renew a capability once it is a day old so active browsers never need re-pairing. */
 const BROWSER_SESSION_RENEW_AFTER_S = 24 * 60 * 60;
@@ -681,12 +682,10 @@ export function fetchReviewProjectContext(
   selection: ReviewProjectContextSelection = {},
 ): Promise<ReviewProjectContextResponse> {
   const params = new URLSearchParams({ purpose, revision_number: String(revisionNumber) });
-  if (selection.history) params.append("history", selection.history);
   for (const path of selection.paths ?? []) params.append("path", path);
   for (const component of selection.components ?? []) params.append("component", component);
   for (const edge of selection.edges ?? []) params.append("edge", edge);
   for (const symbol of selection.symbols ?? []) params.append("symbol", symbol);
-  for (const term of selection.terms ?? []) params.append("term", term);
   return request<ReviewProjectContextResponse>(
     `/api/reviews/${encodeURIComponent(id)}/project-context?${params.toString()}`,
   );

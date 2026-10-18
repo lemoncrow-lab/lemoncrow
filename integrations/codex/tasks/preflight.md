@@ -5,7 +5,7 @@ Use this task file to force an LemonCrow preflight before implementation:
 1. Run `context` with task, domain, files, and likely tools.
 2. Run `memory` to check archival memory for relevant past findings before reading files.
 3. Draft a concrete plan.
-4. If the task is high risk (schema migrations, public API changes, destructive operations) and its domain has a rubric (for example `swe.general`), run `verify` before finalizing.
+4. If domain is high risk (`beseam.shopify.publish`, `beseam.pdp.schema`, `beseam.catalog.fix`, `beseam.tracker.classification`), run `verify` before finalizing.
 5. Record the run with `record`.
 6. Archive key findings with `memory` for future runs.
 

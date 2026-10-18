@@ -22,12 +22,12 @@ VITE_API_URL=http://localhost:8787 npm run dev
 
 ## Pages
 
-- **Home** — at-a-glance summary: savings, recent traces, review prompts
-- **Reviews** — review directory and review detail (beta)
-- **Code** — code map and Knowledge: project knowledge, Playbooks, memory, failures, plans, rubrics
-- **Activity** — agent sessions (and swarm runs when enabled)
-- **Usage** — token / cost / savings / counts (estimates)
-- **Settings** — products, AI & background, review connections, integrations, editor, diagnostics, telemetry, advanced
+- **Overview** — token / cost / savings / counts (estimates)
+- **Plans** — plan-related validation results per trace
+- **Traces** — full observable trace list + detail view
+- **Failures** — failure clusters from `FailureAnalyzer`
+- **Environments** — Beseam environments + linked rubrics
+- **Playbooks** — reusable procedures (the "memory")
 
 All numbers under "tokens" and "cost" are **estimates** computed from
 observable trace content (4 chars ≈ 1 token, $/1K rate via

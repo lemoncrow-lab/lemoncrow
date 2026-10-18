@@ -83,7 +83,7 @@ import {
   type ReviewMapLocation,
 } from "./reviewMapLocation";
 import { withTransientRetry } from "./transientRetry";
-import { unavailableFeaturesNotice, useReviewEnvironment, type ReviewDeploymentMode } from "./reviewEnvironment";
+import { useReviewEnvironment, type ReviewDeploymentMode } from "./reviewEnvironment";
 import type { Draft } from "./annotationModel";
 import { markBelowThreshold } from "./findingThreshold";
 import { selectedNewSideTextFromPatch } from "./selectedNewSideText";
@@ -206,7 +206,6 @@ import {
   fetchReviewDependencies,
   fetchReviewProjectContext,
 } from "./reviewApi";
-import { isLocalBrowserUnpaired } from "./localBrowser";
 import type {
   Annotation,
   AnnotationDraft,
@@ -809,11 +808,9 @@ function streamAccessLoss(status: number): "forbidden" | "gone" {
 }
 
 /** A load refusal no retry can fix: the review is gone, or this account may not open it. */
-function missingReviewState(reason: unknown): "" | "not_found" | "no_access" | "unpaired" {
+function missingReviewState(reason: unknown): "" | "not_found" | "no_access" {
   const status = reviewErrorStatus(reason);
   if (status === 404) return "not_found";
-  // A browser the terminal never paired is not an account that lost access: no administrator is involved.
-  if (isLocalBrowserUnpaired(reason)) return "unpaired";
   // 401 here is what remains after the request's own sign-in recovery.
   if (status === 403 || status === 401) return "no_access";
   return "";
@@ -895,7 +892,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   const selectedHistoricalRevisionNumber = historicalRevisionNumber ?? 0;
   const [authed, setAuthed] = useState(true);
   const [preparationId, setPreparationId] = useState("");
-  const [reviewMissing, setReviewMissing] = useState<"" | "none" | "not_found" | "no_access" | "unpaired">("");
+  const [reviewMissing, setReviewMissing] = useState<"" | "none" | "not_found" | "no_access">("");
   // The live stream reported that this open Review was revoked or removed.
   const [accessLost, setAccessLost] = useState<"" | "forbidden" | "gone">("");
   const [preparationStage, setPreparationStage] = useState("");
@@ -2371,7 +2368,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   // Lists fold below-threshold findings behind a disclosure; counts and readiness keep reading displayAnnotations.
   const surfacedAnnotations = useMemo(
     () => markBelowThreshold(displayAnnotations, projection?.triage?.hidden_finding_ids),
-    [displayAnnotations, projection?.triage],
+    [displayAnnotations, projection?.triage?.hidden_finding_ids],
   );
   const conceptSearchText = useMemo(() => projectionSearchTextByTarget(projection), [projection]);
   const combinedSearchText = useMemo(() => {
@@ -4878,20 +4875,14 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   // Knowledge configured for this repository, so without it the Map is unchanged.
   const projectContextCacheRef = useRef(new Map<string, Promise<ReviewProjectContext | null>>());
   const [projectKnowledgeReview, setProjectKnowledgeReview] = useState("");
-  const loadProjectContext = useCallback((term = "", history: "" | "decisions" | "checks" = "", force = false): Promise<ReviewProjectContext | null> => {
+  const loadProjectContext = useCallback((): Promise<ReviewProjectContext | null> => {
     if (!reviewId || architectureRevisionNumber < 0) return Promise.resolve(null);
-    const bounded = term.trim().slice(0, 256);
     const cache = projectContextCacheRef.current;
-    const key = `${reviewId}:${architectureRevisionNumber}:${history}:${bounded}`;
-    const cached = !force && cache.get(key);
+    const key = `${reviewId}:${architectureRevisionNumber}`;
+    const cached = cache.get(key);
     if (cached) return cached;
     const loadedFor = reviewId;
-    const request = (history
-      ? fetchReviewProjectContext(reviewId, architectureRevisionNumber, "brief", { history })
-      : bounded
-        ? fetchReviewProjectContext(reviewId, architectureRevisionNumber, "brief", { terms: [bounded] })
-        : fetchReviewProjectContext(reviewId, architectureRevisionNumber, "brief")
-    ).then((payload) => {
+    const request = fetchReviewProjectContext(reviewId, architectureRevisionNumber, "brief").then((payload) => {
       const context = payload.project_context;
       if (context.available) setProjectKnowledgeReview(loadedFor);
       return context;
@@ -5615,34 +5606,17 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
 
   if (!authed) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-6 text-subtle">
+      <div className="flex min-h-screen items-center justify-center bg-background px-6 text-neutral-300">
         <div className="max-w-md">
           <div className="text-heading font-semibold text-foreground">This review link is incomplete</div>
-          <p className="mt-1 text-caption leading-5 text-muted-foreground">For a local review, reopen it from the terminal with <code className="text-subtle">lc review --open</code>.</p>
-        </div>
-      </div>
-    );
-  }
-  if (reviewMissing === "unpaired" && !overview) {
-    // The refusal a local browser gets before the terminal has connected it. Retry works once `lc review` has run.
-    return (
-      <div className="flex h-screen items-center justify-center bg-background px-6 text-subtle">
-        <div className="w-full max-w-md" role="alert">
-          <div className="text-heading font-semibold text-foreground">This browser isn't connected to your local review</div>
-          <div className="mt-1 text-caption leading-5 text-muted-foreground">
-            Run <code className="text-subtle">lc review --open</code> in your terminal and this page opens already connected, or run{" "}
-            <code className="text-subtle">lc review</code> again in your project. Then retry here.
-          </div>
-          <UiButton type="button" disabled={Boolean(busy)} onClick={() => void reloadReader()} className="mt-4">
-            {busy === "reload" ? "Retrying…" : "Retry"}
-          </UiButton>
+          <p className="mt-1 text-caption leading-5 text-muted-foreground">For a local review, reopen it from the terminal with <code className="text-neutral-300">lc review --open</code>.</p>
         </div>
       </div>
     );
   }
   if (reviewMissing && !overview) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background px-6 text-subtle">
+      <div className="flex h-screen items-center justify-center bg-background px-6 text-neutral-300">
         <div className="w-full max-w-md" role="alert">
           <div className="text-heading font-semibold text-foreground">
             {reviewMissing === "none"
@@ -5665,13 +5639,13 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   }
   if (error && !overview) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background px-6 text-subtle">
+      <div className="flex h-screen items-center justify-center bg-background px-6 text-neutral-300">
         <div className="w-full max-w-md">
           <div className="text-heading font-semibold text-foreground">Review couldn't load</div>
           <div className="mt-1 text-caption leading-5 text-muted-foreground">The review is still available; the Reader could not fetch its current state.</div>
-          <details className="mt-3 text-meta text-muted-foreground">
-            <summary className="cursor-pointer hover:text-foreground">Error details</summary>
-            <div className="mt-1 whitespace-pre-wrap font-mono text-red-300/80">{error}</div>
+          <details className="mt-3 text-caption text-muted-foreground">
+            <summary className="cursor-pointer hover:text-neutral-50">Error details</summary>
+            <div className="mt-1 whitespace-pre-wrap font-mono text-rose-300/80">{error}</div>
           </details>
           <UiButton type="button" disabled={Boolean(busy)} onClick={() => void reloadReader()} className="mt-4">
             {busy === "reload" ? "Retrying…" : "Retry"}
@@ -5751,8 +5725,8 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   const proposalBarTone = conflictedProposalCount + staleProposalCount > 0
     ? "border-amber-900/45 bg-amber-950/10"
     : awaitingCaptureCount > 0
-      ? "border-cyan-900/45 bg-cyan-950/10"
-      : "border-border bg-muted";
+      ? "border-sky-900/45 bg-sky-950/10"
+      : "border-violet-900/40 bg-violet-950/10";
   const compareBaseRevision: ReviewCompareBase = comparisonQueryValid
     ? requestedHeadBase ? "head" : requestedBaseRevision!
     : revisionComparison?.from_revision.revision_number
@@ -5869,7 +5843,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       chipLabel: label,
       detail: ACCESS_LOST_NOTICE[accessLost],
       actions: (
-        <a href="/reviews" className="review-context-action border-red-800/60 text-red-200 hover:text-red-50">
+        <a href="/reviews" className="review-context-action border-rose-800/60 text-rose-200 hover:text-rose-50">
           All reviews
         </a>
       ),
@@ -5888,7 +5862,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
         <>
           <a
             href={historicalReviewHref(overview.session.ref || overview.session.id, overview.revision.revision_number)}
-            className="review-context-action border-red-800/60 text-red-200 hover:text-red-50"
+            className="review-context-action border-rose-800/60 text-rose-200 hover:text-rose-50"
           >
             Keep reading this Snapshot
           </a>
@@ -5918,7 +5892,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       tone: "amber",
       icon: Clock3,
       testId: "historical-revision-banner",
-      label: <span className="uppercase tracking-tag text-amber-300">Historical</span>,
+      label: <span className="uppercase tracking-[0.12em] text-amber-300">Historical</span>,
       chipLabel: `Historical · Snapshot ${overview.revision.revision_number}`,
       detail: (
         <>
@@ -5969,7 +5943,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       actions: (
         <a
           href={reviewHref(fixOf.review_id)}
-          className="review-context-action border-cyan-800/60 text-cyan-200 hover:text-cyan-50"
+          className="review-context-action border-sky-800/60 text-sky-200 hover:text-sky-50"
         >
           Back to the Review
         </a>
@@ -5986,7 +5960,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     const hostedPanel = (trigger: ReactNode) => (
       <Popover key="hosted">
         <PopoverTrigger asChild>{trigger}</PopoverTrigger>
-        <PopoverContent align="end" aria-label="Hosted queue" className="w-[460px] max-w-[92vw] rounded-md border-border p-2.5">
+        <PopoverContent align="end" aria-label="Hosted queue" className="w-[460px] max-w-[92vw] rounded-md border-neutral-700 p-2.5">
           <HostedQueuePanel
             reviewId={reviewId}
             hosted={hostedInfo}
@@ -6017,8 +5991,8 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
         </UiButton>,
       ),
       chip: hostedPanel(
-        <UiButton unstyled type="button" className={`review-context-chip ${conflicts > 0 ? "border-amber-800/60 text-amber-200 hover:bg-amber-950/30" : "border-cyan-800/60 text-cyan-200 hover:bg-cyan-950/30"}`}>
-          <Cloud size={14} aria-hidden="true" />
+        <UiButton unstyled type="button" className={`review-context-chip ${conflicts > 0 ? "border-amber-800/60 text-amber-200 hover:bg-amber-950/30" : "border-sky-800/60 text-sky-200 hover:bg-sky-950/30"}`}>
+          <Cloud size={11} aria-hidden="true" />
           <span className="truncate">{`Hosted ${hostedInfo.reference}${queueLabel ? ` · ${queueLabel}` : ""}`}</span>
         </UiButton>,
       ),
@@ -6076,11 +6050,11 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
         <Popover key="context-failures">
           <PopoverTrigger asChild>
             <UiButton unstyled type="button" className="review-context-chip border-amber-800/60 text-amber-200 hover:bg-amber-950/30">
-              <TriangleAlert size={14} aria-hidden="true" />
+              <TriangleAlert size={11} aria-hidden="true" />
               <span className="truncate">Some context unavailable</span>
             </UiButton>
           </PopoverTrigger>
-          <PopoverContent align="end" aria-label="Unavailable review context" className="w-[420px] max-w-[88vw] space-y-1 rounded-md border-border p-2.5 text-label leading-5 text-muted-foreground">
+          <PopoverContent align="end" aria-label="Unavailable review context" className="w-[420px] max-w-[88vw] space-y-1 rounded-md border-neutral-700 p-2.5 text-label leading-5 text-neutral-400">
             {contextFailureMessages.map((message) => <div key={message}>{message}</div>)}
           </PopoverContent>
         </Popover>
@@ -6101,7 +6075,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
           type="button"
           disabled={Boolean(busy)}
           onClick={() => void undoBulkReview()}
-          className="px-1 text-label text-cyan-300 hover:text-cyan-200"
+          className="px-1 text-label text-sky-300 hover:text-sky-200"
         >
           Undo
         </UiButton>
@@ -6138,7 +6112,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
           unstyled
           type="button"
           onClick={() => setCapabilityNoticeDismissed(true)}
-          className="px-1 text-label text-muted-foreground hover:text-foreground"
+          className="px-1 text-label text-neutral-400 hover:text-neutral-200"
         >
           Dismiss
         </UiButton>
@@ -6146,23 +6120,23 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     });
   }
 
-  // A feature the server declares off is hidden and named, with the reason, so a
-  // missing control reads as "Ask is not available: it needs an AI model", never as a bug.
+  // A feature the server declares off is hidden and named, so a missing
+  // control reads as "this server does not support X", never as a bug.
   if (reviewEnvironment.unsupported.length > 0 && !unsupportedNoticeDismissed) {
-    const unavailable = unavailableFeaturesNotice(reviewEnvironment.unsupported);
+    const features = reviewEnvironment.unsupported.join(", ");
     contextSignals.push({
       id: "capabilities-unsupported",
       tone: "neutral",
       icon: Puzzle,
-      label: unavailable.label,
-      chipLabel: unavailable.label,
-      detail: unavailable.detail,
+      label: `This server does not support ${features}`,
+      chipLabel: `Server does not support ${features}`,
+      detail: "The server's Review capability manifest turns this off, so the control is hidden. Upgrade or reconfigure the server to use it.",
       actions: (
         <UiButton
           unstyled
           type="button"
           onClick={() => setUnsupportedNoticeDismissed(true)}
-          className="px-1 text-label text-muted-foreground hover:text-foreground"
+          className="px-1 text-label text-neutral-400 hover:text-neutral-200"
         >
           Dismiss
         </UiButton>
@@ -6187,9 +6161,9 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     revisionDeltaActive: Boolean(!comparisonActive && (revisionInfo?.target_delta || overview.discarded.length > 0)),
   });
   const blockingNotice = blockingNoticeKind === "error" ? (
-    <div role="alert" className="flex shrink-0 items-start gap-2 border-b border-red-900/50 bg-red-950/20 px-3 py-1.5 text-caption text-red-200" data-testid="review-blocking-notice" data-notice="error">
+    <div role="alert" className="flex shrink-0 items-start gap-2 border-b border-rose-900/50 bg-rose-950/20 px-3 py-1.5 text-caption text-rose-200" data-testid="review-blocking-notice" data-notice="error">
       <span className="min-w-0 flex-1 break-words">{error}</span>
-      <UiButton unstyled type="button" onClick={() => setError("")} className="shrink-0 text-red-300/80 hover:text-red-100">Dismiss</UiButton>
+      <UiButton unstyled type="button" onClick={() => setError("")} className="shrink-0 text-rose-300/80 hover:text-rose-100">Dismiss</UiButton>
     </div>
   ) : blockingNoticeKind === "comparison" ? (
     <div data-testid="review-blocking-notice" data-notice="comparison">
@@ -6227,7 +6201,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     <ReviewCorrectionsProvider value={corrections.context}>
     <FeedbackSyncProvider value={feedbackSync}>
     <div
-      className="review-app relative flex h-dvh min-h-0 flex-col bg-background text-foreground"
+      className="review-app relative flex h-dvh min-h-0 flex-col bg-background text-neutral-200"
       data-testid="review-reader"
       data-review-targets-complete={targetList?.complete === false ? "false" : "true"}
     >
@@ -6337,7 +6311,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
               aria-expanded={!outlineCollapsed}
               aria-label={`${outlineCollapsed ? "Open" : "Close"} change navigation · ${Math.max(0, progress.target_count - progress.reviewed)} left`}
             >
-              <ListTree size={14} aria-hidden="true" />
+              <ListTree size={13} aria-hidden="true" />
               <span>Changes · {Math.max(0, progress.target_count - progress.reviewed)}</span>
             </UiButton>
           ) : undefined,
@@ -6465,32 +6439,32 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       {!historical && activeProposals.length > 0 && (
         <div className={`shrink-0 border-b px-3 py-1.5 text-caption ${proposalBarTone}`} data-testid="review-proposals">
           <div className="flex items-center gap-2">
-            <span className="font-medium text-foreground">Source edits</span>
-            {readyProposalCount > 0 && <span className="text-muted-foreground">{readyProposalCount} ready</span>}
+            <span className="font-medium text-neutral-200">Source edits</span>
+            {readyProposalCount > 0 && <span className="text-violet-300/75">{readyProposalCount} ready</span>}
             {savedProposalCount > 0 && <span className="text-muted-foreground">{savedProposalCount} saved</span>}
-            {awaitingCaptureCount > 0 && <span className="text-cyan-300/75">{awaitingCaptureCount} awaiting update</span>}
+            {awaitingCaptureCount > 0 && <span className="text-sky-300/75">{awaitingCaptureCount} awaiting update</span>}
             {staleProposalCount > 0 && <span className="text-amber-300/80">{staleProposalCount} from older Snapshot</span>}
             {conflictedProposalCount > 0 && <span className="text-amber-300/80">{conflictedProposalCount} need attention</span>}
             <span className="flex-1" />
             <Popover>
               <PopoverTrigger asChild>
-                <UiButton variant="link" className="text-meta text-muted-foreground hover:text-foreground">Details</UiButton>
+                <UiButton variant="link" className="text-caption text-muted-foreground hover:text-neutral-200">Details</UiButton>
               </PopoverTrigger>
-              <PopoverContent align="end" aria-label="Source edit details" className="w-[480px] max-w-[88vw] rounded-md border-border p-1.5 text-caption">
+              <PopoverContent align="end" aria-label="Source edit details" className="w-[480px] max-w-[88vw] rounded-md border-neutral-700 p-1.5 text-caption">
                 {activeProposals.map((proposal) => {
                   const status = proposal.state === "conflicted"
                     ? { label: "Source moved", tone: "text-amber-300" }
                     : proposal.state === "applied"
-                      ? { label: "Awaiting review update", tone: "text-cyan-300" }
+                      ? { label: "Awaiting review update", tone: "text-sky-300" }
                       : proposal.base_revision_id !== overview.revision.id
                         ? { label: "Review advanced", tone: "text-amber-300" }
                         : proposal.can_apply
-                          ? { label: "Ready to apply", tone: "text-muted-foreground" }
+                          ? { label: "Ready to apply", tone: "text-violet-300" }
                           : { label: "Saved proposal", tone: "text-muted-foreground" };
                   return (
                     <div key={proposal.id} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-2 border-b border-border px-2 py-2 last:border-b-0">
                       <div className="min-w-0">
-                        <div className="truncate font-mono text-subtle" title={proposal.path}>
+                        <div className="truncate font-mono text-neutral-300" title={proposal.path}>
                           {proposal.path}:{proposal.start_line}{proposal.end_line !== proposal.start_line ? `-${proposal.end_line}` : ""}
                         </div>
                         {proposal.intent && <div className="mt-0.5 truncate text-muted-foreground" title={proposal.intent}>{proposal.intent}</div>}
@@ -6501,7 +6475,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
                           variant="ghost"
                           size="compact"
                           type="button"
-                          className="h-6 text-meta"
+                          className="h-6 text-caption"
                           onClick={() => {
                             setProposalSelection({
                               revision_id: proposal.base_revision_id,
@@ -6655,8 +6629,6 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
                       onJudgeBehavior={historical || readOnly ? undefined : judgeBehavior}
                       onNarrateBehavior={historical || readOnly ? undefined : narrateBehavior}
                       dependencies={dependencyReview}
-                      checks={historical ? undefined : overview?.evidence}
-                      checkCounts={historical ? undefined : overview?.brief?.verification}
                       loadArchitectureDelta={architectureRelevant ? loadArchitectureDelta : undefined}
                       onOpenArchitecture={openArchitecture}
                       loadProjectContext={reviewId ? loadProjectContext : undefined}
@@ -6779,8 +6751,8 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
             <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-info/30 bg-info/10 px-4 py-2 text-label" data-testid="dedicated-review-scope">
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 {dedicatedItem.kind === "file"
-                  ? <FileDiff size={16} className="shrink-0 text-info" aria-hidden="true" />
-                  : <Puzzle size={16} className="shrink-0 text-info" aria-hidden="true" />}
+                  ? <FileDiff size={15} className="shrink-0 text-info" aria-hidden="true" />
+                  : <Puzzle size={15} className="shrink-0 text-info" aria-hidden="true" />}
                 <span className="shrink-0 font-semibold text-foreground">
                   {dedicatedItem.kind === "file" ? "File view" : "Component view"}
                 </span>
@@ -6826,19 +6798,19 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
             <div
               role="status"
               aria-live="polite"
-              className="pointer-events-none absolute left-1/2 top-3 z-30 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-md border border-border bg-background/95 px-2.5 py-1 text-label text-muted-foreground"
+              className="pointer-events-none absolute left-1/2 top-3 z-30 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-md border border-border bg-background/95 px-2.5 py-1 text-label text-neutral-400 shadow-sm"
             >
-              <LoaderCircle size={14} className="shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-              <span className="truncate">Opening <span className="font-mono text-subtle">{openingPath.split("/").pop()}</span>…</span>
+              <LoaderCircle size={13} className="shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+              <span className="truncate">Opening <span className="font-mono text-neutral-300">{openingPath.split("/").pop()}</span>…</span>
             </div>
           )}
           {related && (
-            <div className="absolute inset-4 z-40 flex flex-col border border-border bg-background shadow-float">
+            <div className="absolute inset-4 z-40 flex flex-col border border-neutral-700 bg-background shadow-2xl">
               <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-caption">
-                <span className="font-mono text-subtle">{related.path}</span>
+                <span className="font-mono text-neutral-300">{related.path}</span>
                 <span className="text-muted-foreground">reviewed Snapshot</span>
                 <span className="flex-1" />
-                <UiButton unstyled type="button" onClick={() => setRelated(null)} className="text-muted-foreground">Close</UiButton>
+                <UiButton unstyled type="button" onClick={() => setRelated(null)} className="text-neutral-400">Close</UiButton>
               </div>
               {"pending" in related ? (
                 <div role="status" className="flex items-center gap-2 p-3 text-label text-muted-foreground">
@@ -6846,7 +6818,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
                   Loading source…
                 </div>
               ) : (
-                <pre className="min-h-0 flex-1 overflow-auto p-3 font-mono text-label leading-5 text-subtle">{related.text}</pre>
+                <pre className="min-h-0 flex-1 overflow-auto p-3 font-mono text-label leading-5 text-neutral-300">{related.text}</pre>
               )}
             </div>
           )}
@@ -6964,15 +6936,15 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
 
         {(contextOpen || (askOpen && view === "implementation")) && drawer && (
           <div data-review-rail={askOpen ? "ask" : "context"} className={"review-secondary-rail " + ((askOpen || contextPinned)
-            ? "absolute inset-y-0 right-0 z-50 w-[min(420px,calc(100%-40px))] border-l border-border bg-background shadow-float min-[960px]:static min-[960px]:z-auto min-[960px]:w-[min(32vw,400px)] min-[960px]:shrink-0 min-[960px]:border-border min-[960px]:shadow-none"
-            : "absolute inset-y-0 right-0 z-50 w-[min(420px,calc(100%-40px))] border-l border-border bg-background shadow-float")}>
+            ? "absolute inset-y-0 right-0 z-50 w-[min(420px,calc(100%-40px))] border-l border-neutral-700 bg-background shadow-[-18px_0_40px_rgba(0,0,0,0.35)] min-[960px]:static min-[960px]:z-auto min-[960px]:w-[min(32vw,400px)] min-[960px]:shrink-0 min-[960px]:border-border min-[960px]:shadow-none"
+            : "absolute inset-y-0 right-0 z-50 w-[min(420px,calc(100%-40px))] border-l border-neutral-700 bg-background shadow-[-18px_0_40px_rgba(0,0,0,0.35)]")}>
             {drawer}
           </div>
         )}
       </div>
 
       {githubPublishOpen && reviewId && (
-        <Suspense fallback={<div className="absolute inset-0 z-50 flex items-center justify-center bg-black/45 text-label text-muted-foreground">Loading GitHub preview…</div>}>
+        <Suspense fallback={<div className="absolute inset-0 z-50 flex items-center justify-center bg-black/45 text-label text-neutral-400">Loading GitHub preview…</div>}>
           <GitHubPublishSheet
             reviewId={reviewId}
             onClose={() => { setGithubPublishOpen(false); setFinishAfterPublish(false); }}
@@ -6985,7 +6957,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       )}
 
       {finishSheetOpen && finishSummary && (
-        <Suspense fallback={<div className="absolute inset-0 z-50 flex items-center justify-center bg-black/45 text-label text-muted-foreground">Loading finish summary…</div>}>
+        <Suspense fallback={<div className="absolute inset-0 z-50 flex items-center justify-center bg-black/45 text-label text-neutral-400">Loading finish summary…</div>}>
           <FinishSheet
             reviewId={reviewId}
             summary={finishSummary}

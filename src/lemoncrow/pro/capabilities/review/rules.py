@@ -13,14 +13,11 @@ import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 import yaml
 
 from lemoncrow.pro.capabilities.review.trusted_base import TrustedBaseDocument
-
-if TYPE_CHECKING:
-    from lemoncrow.pro.capabilities.review.config_import import ImportedConfig
 
 RuleTrustClass = Literal[
     "organization_platform",
@@ -31,13 +28,6 @@ RuleTrustClass = Literal[
 ]
 ContentAccessMode = Literal["external_allowed", "customer_local_only", "ai_denied"]
 ModelRouteTrust = Literal["external", "customer_local", "unknown"]
-#: ``critical``: a violation that cites the rule is a P0 (every rule a repository writes in
-#: ``.lemoncrow/review.yaml``). ``advisory``: a violation is a P1 or P2 by the ordinary ladder and never a P0
-#: (every rule imported through ``import.rules_files``, unless ``import.critical`` in ``.lemoncrow/review.yaml`` says so).
-RuleSeverity = Literal["critical", "advisory"]
-#: An advisory rule's ref starts with this, a prefix no critical ref can have (no trust class is called ``advisory``),
-#: so a finding's severity can be read from the rule refs it cites without looking the rules up.
-ADVISORY_REF_PREFIX = "rule:advisory:"
 
 AUTHORITATIVE_RULE_TRUST: frozenset[str] = frozenset(
     {"organization_platform", "trusted_base_repository", "provider_authoritative_base"}
@@ -115,7 +105,6 @@ class ReviewRule:
     trust_class: RuleTrustClass
     source_identity: str
     source_location: str = ""
-    severity: RuleSeverity = "critical"
 
     @property
     def authoritative(self) -> bool:
@@ -123,24 +112,21 @@ class ReviewRule:
 
     @property
     def digest(self) -> str:
-        document: dict[str, Any] = {
-            "stable_key": self.stable_key,
-            "instruction": self.instruction,
-            "path_scope": list(self.path_scope),
-            "origin": self.origin,
-            "trust_class": self.trust_class,
-            "source_identity": self.source_identity,
-            "source_location": self.source_location,
-        }
-        if self.severity != "critical":
-            # Left out at the default, so every critical rule keeps the digest (and ref) it had before severities.
-            document["severity"] = self.severity
-        return _sha(document)
+        return _sha(
+            {
+                "stable_key": self.stable_key,
+                "instruction": self.instruction,
+                "path_scope": list(self.path_scope),
+                "origin": self.origin,
+                "trust_class": self.trust_class,
+                "source_identity": self.source_identity,
+                "source_location": self.source_location,
+            }
+        )
 
     @property
     def ref(self) -> str:
-        head = ADVISORY_REF_PREFIX if self.severity == "advisory" else "rule:"
-        return f"{head}{self.trust_class}:{self.stable_key}@sha256:{self.digest}"
+        return f"rule:{self.trust_class}:{self.stable_key}@sha256:{self.digest}"
 
     def applies_to(self, path: str) -> bool:
         return self.authoritative and path_matches(path, self.path_scope)
@@ -157,20 +143,7 @@ class ReviewRule:
             "source_location": self.source_location,
             "digest": self.digest,
             "authoritative": self.authoritative,
-            **({"severity": self.severity} if self.severity != "critical" else {}),
         }
-
-
-def is_critical_rule_ref(ref: str) -> bool:
-    """Whether *ref* names a rule whose violation may be a P0 (every rule but an advisory, imported one)."""
-
-    return not ref.startswith(ADVISORY_REF_PREFIX)
-
-
-def cites_critical_rule(refs: Sequence[str]) -> bool:
-    """Whether a finding that cites *refs* cites at least one critical rule (it cites some rule, and not only advisories)."""
-
-    return any(is_critical_rule_ref(ref) for ref in refs)
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,10 +197,6 @@ class ReviewGovernance:
     rule_documents: tuple[str, ...] = ()
     base_state: str = "absent"
     errors: tuple[str, ...] = ()
-    #: What the G10 import read from the trusted base (``import.rules_files``, AGENTS.md / CLAUDE.md); ``None`` when
-    #: none ran. Its rules are already merged into ``rules``; this keeps their provenance, the warnings, and the
-    #: conventions context.
-    imports: ImportedConfig | None = None
 
     def rules_for_path(self, path: str) -> tuple[ReviewRule, ...]:
         return tuple(rule for rule in self.rules if rule.applies_to(path))
@@ -612,65 +581,8 @@ def resolve_review_governance(
     *,
     read_base_document: Callable[[str], TrustedBaseDocument],
     organization: ReviewGovernance | None = None,
-    base_paths: Callable[[], Sequence[str] | None] | None = None,
 ) -> ReviewGovernance:
     """Resolve current rules without ever consulting change/head content.
-
-    The native layers (organization policy, ``.lemoncrow/review.yaml`` and its rule documents) come first. Then, from
-    the same trusted base and only when the base is readable, the G10 import adds the rules files that
-    ``import.rules_files`` lists as advisory rules, and ``AGENTS.md`` / ``CLAUDE.md`` as conventions context
-    (:mod:`config_import`; opt out of the conventions with ``import.agent_docs: false`` in ``.lemoncrow/review.yaml``).
-    A rule of ``.lemoncrow/review.yaml`` always wins over an imported rule of the same key. ``base_paths`` lists the
-    trusted base's files so a glob in ``import.rules_files`` can be expanded; without it only the files named by exact
-    path are read.
-    """
-
-    native = _resolve_native_governance(config, read_base_document=read_base_document, organization=organization)
-    if config.state == "provisional":
-        return native  # the base cannot be read, so nothing in it, an import included, is known
-    options = _import_options(config)
-    if options is None:
-        return native  # a review.yaml that does not parse already fails closed; nothing is layered onto it
-    from lemoncrow.pro.capabilities.review.config_import import load_imports, with_imports
-
-    imported = load_imports(
-        read_base_document,
-        options=options,
-        native_keys=[rule.stable_key for rule in native.rules],
-        base_paths=base_paths,
-    )
-    return with_imports(native, imported) if imported.active or imported.notes or imported.sources else native
-
-
-def _literal_rules_files(raw: Mapping[str, Any]) -> tuple[str, ...]:
-    """The files ``import.rules_files`` names by exact path (a glob cannot be followed without a listing)."""
-
-    from lemoncrow.pro.capabilities.review.config_import import parse_import_options
-
-    return parse_import_options(raw.get("import")).literal_files
-
-
-def _import_options(config: TrustedBaseDocument) -> Any:
-    """The ``import:`` block of the trusted-base ``.lemoncrow/review.yaml``; defaults when absent; ``None`` if unparseable."""
-
-    from lemoncrow.pro.capabilities.review.config_import import ImportOptions, parse_import_options
-
-    if config.state != "present":
-        return ImportOptions()
-    try:
-        raw = _yaml_mapping(config.content, source=config.path)
-    except ValueError:
-        return None
-    return parse_import_options(raw.get("import"), source=config.path)
-
-
-def _resolve_native_governance(
-    config: TrustedBaseDocument,
-    *,
-    read_base_document: Callable[[str], TrustedBaseDocument],
-    organization: ReviewGovernance | None = None,
-) -> ReviewGovernance:
-    """The native layers of :func:`resolve_review_governance`.
 
     Organization rows always apply, whatever the trusted base's state. A
     trusted base that cannot be read (``provisional``), or whose YAML or
@@ -869,7 +781,6 @@ def project_future_policy(
     """Describe policy files changed by the head without granting them authority."""
 
     configured: dict[str, tuple[str, ...]] = {}
-    imported: set[str] = set()
     for content, source in (
         (base_config.content if base_config.state == "present" else "", base_config.path),
         (head_config_content or "", base_config.path),
@@ -880,7 +791,6 @@ def project_future_policy(
             raw = _yaml_mapping(content, source=source)
             for path, paths in _configured_rule_documents(raw.get("rule_documents"), source=source):
                 configured.setdefault(path, paths)
-            imported.update(_literal_rules_files(raw))
         except ValueError:
             continue
 
@@ -893,9 +803,6 @@ def project_future_policy(
         "CLAUDE.md": ("instruction_context", ()),
         "REVIEW.md": ("instruction_context", ()),
     }
-    # G10: a rules file `import.rules_files` names by path. A head edit to it is future policy, like the files above.
-    for path in sorted(imported):
-        tracked.setdefault(path, ("instruction_context", ()))
     for path, paths in configured.items():
         tracked[path] = ("review_rules", paths)
 
@@ -934,8 +841,6 @@ def project_future_policy(
                 )
         elif category == "owner_routing":
             effects = ("changes owner routing for later Reviews",)
-        elif path in imported:
-            effects = ("changes imported review rules for later Reviews",)
         else:
             effects = ("changes repository instruction/context for later Reviews",)
 

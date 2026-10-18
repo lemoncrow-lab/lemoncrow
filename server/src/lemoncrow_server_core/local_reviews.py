@@ -1096,31 +1096,6 @@ class LocalReviewReader:
             provider = self._review_workflow
             return None if provider is None else provider(resolved.repo_id, resolved.store, session, as_of, progress)
 
-        def _landed_project_history(_session: ReviewSession) -> Any | None:
-            # PK0 is synced into the *global* local Review store by
-            # `lc knowledge project sync`, not this repository's ReviewStore.
-            # Resolve only the explicitly recorded checkout identity; never
-            # select another repository's knowledge by a name or a partial
-            # path match. An unsynced installation stays completely inert.
-            if checkout_root is None:
-                return None
-            from lemoncrow.pro.capabilities.review.project_context import ProjectKnowledgeBinding
-            from lemoncrow.pro.capabilities.review.project_knowledge import ProjectKnowledgeStore
-            from lemoncrow.pro.capabilities.review.project_knowledge_surface import LocalKnowledgeSources
-
-            global_root = default_store_root()
-            if not (global_root / DB_NAME).is_file():
-                return None
-            attached = [
-                item.repository
-                for item in LocalKnowledgeSources(global_root).all().values()
-                if Path(item.repo_root).expanduser().resolve() == checkout_root.resolve()
-            ]
-            if len(attached) != 1:
-                return None
-            knowledge = ProjectKnowledgeStore(ReviewStore(global_root))
-            return ProjectKnowledgeBinding(knowledge, attached[0])
-
         register_review_api(
             app,
             resolved.store,
@@ -1147,7 +1122,6 @@ class LocalReviewReader:
             approval_separate_requester=False,
             discussion_summaries=self._discussion_summaries,
             review_workflow=_review_workflow,
-            project_knowledge=_landed_project_history,
         )
         _prime_asgi_route_caches(app)
         self._apps[cache_key] = app

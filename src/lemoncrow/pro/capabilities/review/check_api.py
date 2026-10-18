@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import sqlite3
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -316,46 +315,9 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
                 for item in store.list_change_proposals(session.id)
                 if item.base_revision_id == revision.id and item.intent.startswith("autofix:")
             ]
-            # Read the existing human feedback ledger rather than introducing a
-            # competing approval store or keeping a transient frontend flag.
-            from lemoncrow.pro.capabilities.review.autofix_approval import is_autofix_approval
-
-            approvals = {
-                proposal.id
-                for proposal in store.list_change_proposals(session.id)
-                if proposal.intent.startswith("autofix:")
-                and any(
-                    is_autofix_approval(
-                        annotation,
-                        review_id=session.id,
-                        proposal_id=proposal.id,
-                        recipe_id=proposal.intent.removeprefix("autofix:"),
-                        revision_id=proposal.base_revision_id,
-                        reviewer_id=session.reviewer_id,
-                    )
-                    for annotation in store.list_annotations(session.id)
-                )
-            }
-            from lemoncrow.pro.capabilities.review.check_recommendations import recommend_checks
-
-            revisions = list(store.list_revisions(session.id))
-            position = next((index for index, item in enumerate(revisions) if item.id == revision.id), -1)
-            prior_rows: list[dict[str, Any]] = []
-            if position > 0:
-                prior_differentials, _ = latest_results(store, revisions[position - 1])
-                prior_rows = [prior_differentials[key] for key in sorted(prior_differentials)]
-            recommended = recommend_checks(
-                plan, catalog, [differentials[key] for key in sorted(differentials)], previous_results=prior_rows
-            )
-            recommended["previous_revision_id"] = revisions[position - 1].id if position > 0 else ""
-            from lemoncrow.pro.capabilities.review.check_regressions import observed_test_regressions
-
-            observed = observed_test_regressions([differentials[key] for key in sorted(differentials)])
             return {
                 "revision_id": revision.id,
                 "historical": revision.id != latest.id,
-                "recommended_checks": recommended,
-                "observed_regressions": observed,
                 "run_plan_digest": plan.digest,
                 **catalog.to_wire(),
                 "entries": _entries(plan, catalog),
@@ -366,7 +328,6 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
                 "verdicts": [verdicts[key] for key in sorted(verdicts)],
                 "claims": [row.to_wire() for row in claims],
                 "proposals": proposals,
-                "approved_autofix_ids": sorted(item["id"] for item in proposals if item["id"] in approvals),
                 **({"qualification": gate_h["summary"]} if gate_h.get("summary") else {}),
             }
 
@@ -428,44 +389,8 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
                 detail=f"entry must be one of {', '.join(CHECK_ENTRIES)} or {RECIPE_ENTRY_PREFIX}<id>",
             )
         pick = body.get("pick") is True
-        # A correction re-verification is a fresh, user-authorized check against
-        # the immediately following Snapshot. The last failed verdict is only
-        # a *reason* to run; it never counts as this Snapshot's evidence.
-        from_revision_id = str(body.get("reverify_from_revision_id") or "").strip()
-        if from_revision_id:
-            if pick or revision.id != deps.latest(session).id:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="correction re-verification requires an unmodified current run plan and the current Snapshot",
-                )
-            revisions = list(store.list_revisions(session.id))
-            index = next((position for position, row in enumerate(revisions) if row.id == revision.id), -1)
-            if index <= 0 or revisions[index - 1].id != from_revision_id:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="the previous Snapshot is no longer adjacent; refresh the Review",
-                )
-            prior_differentials, prior_verdicts = latest_results(store, revisions[index - 1])
-            source_catalog = run_plans.recipe_catalog(revision)
-            original = run_plans.recipe_catalog(revisions[index - 1])
-            if source_catalog.base_state == "provisional" or original.base_state == "provisional":
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="trusted-base recipes are unavailable")
-            eligible = any(
-                (recipe.entry_id == entry_id or recipe.kind_entry == entry_id)
-                and original.get(recipe.id) is not None
-                and original.get(recipe.id).digest == recipe.digest
-                and str(prior_differentials.get(recipe.id, {}).get("head_verdict") or "") in {"FAIL", "UNKNOWN"}
-                for recipe in source_catalog.recipes
-            ) or (
-                entry_id in prior_verdicts and str(prior_verdicts[entry_id].get("status") or "") in {"FAIL", "UNKNOWN"}
-            )
-            if not eligible:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="no failed check with the same trusted recipe identity exists on the immediately previous Snapshot",
-                )
         # An explicit fresh run: nothing replayed, carried forward, shared or satisfied by CI.
-        fresh = body.get("fresh") is True or bool(from_revision_id)
+        fresh = body.get("fresh") is True
         fresh_run_id = uuid.uuid4().hex if fresh else ""
 
         def run() -> dict[str, Any]:
@@ -571,7 +496,6 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
                 "executor_class": executor_class.value,
                 "run_on": run_on,
                 "fresh_run_id": fresh_run_id,
-                "reverified_from_revision_id": from_revision_id,
                 "wall_seconds": round(time.monotonic() - started, 3),
             }
 
@@ -606,68 +530,17 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
         units = {unit.path for unit in store.list_units(revision.id) if unit.kind == "file"}
         evidence: list[str] = []
         if kind == "autofix":
-            if body.get("approved") is not True or not expected:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="an autofix needs explicit reviewer approval and the exact expected Snapshot",
-                )
             proposal = store.get_change_proposal(str(body.get("proposal_id") or ""))
             if (
                 proposal is None
                 or proposal.review_id != session.id
                 or proposal.base_revision_id != revision.id
-                or proposal.state != "proposed"
                 or not proposal.intent.startswith("autofix:")
-                or not proposal.created_by.startswith("lemoncrow:recipe:")
             ):
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND, detail="no autofix proposal on the current Snapshot"
                 )
             recipe_id = proposal.intent.removeprefix("autofix:")
-            differentials, _ = latest_results(store, revision)
-            differential = differentials.get(recipe_id) or {}
-            fix_meta = differential.get("autofix") if isinstance(differential, Mapping) else None
-            proposal_ids = fix_meta.get("proposal_ids") if isinstance(fix_meta, Mapping) else None
-            if (
-                not isinstance(proposal_ids, list)
-                or proposal.id not in proposal_ids
-                or differential.get("head_verdict") != "FAIL"
-                or proposal.created_by != f"lemoncrow:recipe:{recipe_id}"
-            ):
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="the autofix is not backed by the current trusted failing check",
-                )
-            from lemoncrow.pro.capabilities.review.autofix_approval import is_autofix_approval
-
-            prior = [
-                annotation
-                for annotation in store.list_annotations(session.id)
-                if any(
-                    is_autofix_approval(
-                        annotation,
-                        review_id=session.id,
-                        proposal_id=old.id,
-                        recipe_id=old.intent.removeprefix("autofix:"),
-                        revision_id=old.base_revision_id,
-                        reviewer_id=session.reviewer_id,
-                    )
-                    for old in store.list_change_proposals(session.id)
-                    if old.intent.startswith("autofix:")
-                )
-            ]
-            if any(f"proposal:{proposal.id}" in annotation.evidence for annotation in prior):
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="this autofix was already approved; use the existing correction action; review the existing handoff",
-                )
-            # A bounded assisted correction loop, not unbounded agent retries:
-            # further changes require a reviewer to open a new Review.
-            if len(prior) >= 3:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="the Review reached its three autofix handoff limit; escalate to manual review",
-                )
             path = proposal.path
             title = f"Autofix proposed · {recipe_id}"
             text = (
@@ -711,33 +584,14 @@ def register_check_recipe_routes(router: APIRouter, deps: CheckRecipeDeps) -> No
 
         def create() -> Any:
             return deps.annotate_feedback(
-                session,
-                revision,
-                path=path,
-                body=text,
-                title=title,
-                evidence=tuple(evidence),
-                **({"autofix_proposal_id": proposal.id} if kind == "autofix" else {}),
+                session, revision, path=path, body=text, title=title, evidence=tuple(evidence)
             )
 
         try:
             annotation = await run_in_threadpool(create)
-        except sqlite3.IntegrityError as exc:
-            if kind != "autofix":
-                raise
-            # The deterministic approval annotation already exists: another
-            # request won the race. Do not create a second feedback handoff.
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="this autofix was already approved; use the existing correction action",
-            ) from exc
         except ValueError as exc:
             message = str(exc)
-            code = (
-                status.HTTP_409_CONFLICT
-                if any(term in message for term in ("advanced", "autofix", "handoff limit"))
-                else status.HTTP_422_UNPROCESSABLE_ENTITY
-            )
+            code = status.HTTP_409_CONFLICT if "advanced" in message else status.HTTP_422_UNPROCESSABLE_ENTITY
             raise HTTPException(status_code=code, detail=message) from exc
         await deps.enforce_armed_landing(session)
         return {"annotation": deps.annotation_payload(annotation), "kind": kind, "revision_id": revision.id}

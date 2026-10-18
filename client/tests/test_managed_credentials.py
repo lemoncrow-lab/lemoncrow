@@ -128,42 +128,6 @@ def test_refreshing_transport_rotates_once_directly_with_authward_and_retries(tm
     )
 
 
-def test_invalid_grant_refresh_removes_managed_session_without_retry(tmp_path: Path, monkeypatch) -> None:
-    write_managed_credentials(
-        tmp_path,
-        access_token="access-old-0123456789",
-        refresh_token="refresh-old-0123456789",
-    )
-    calls: list[str] = []
-
-    def expired(self, method, path, *, body=None, form=None, headers=None, timeout_s=None):
-        calls.append(path)
-        return Response(status=401, payload={"error": {"code": "unauthenticated"}})
-
-    class FakeAuthward:
-        def refresh(self, refresh_token: str):
-            calls.append("refresh")
-            raise ClientError(
-                credentials_mod.ErrorCode.UNAUTHENTICATED,
-                "Your session has ended. Sign in again.",
-                server_code="invalid_grant",
-            )
-
-    monkeypatch.setattr(HttpTransport, "request", expired)
-    monkeypatch.setattr(credentials_mod, "discover_authward", lambda *_args, **_kwargs: FakeAuthward())
-    transport = RefreshingHttpTransport(
-        "https://api.lemoncrow.test",
-        timeout_s=5,
-        state_dir=tmp_path,
-        access_token="access-old-0123456789",
-        refresh_token="refresh-old-0123456789",
-    )
-    with pytest.raises(ClientError, match="session has ended"):
-        transport.get("/v1/sessions", headers={"Authorization": "Bearer access-old-0123456789"})
-    assert calls == ["/v1/sessions", "refresh"]
-    assert read_managed_credentials(tmp_path) == ("", "")
-
-
 def test_refreshing_transport_adopts_rotation_won_by_another_process(tmp_path: Path, monkeypatch) -> None:
     write_managed_credentials(
         tmp_path,

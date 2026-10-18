@@ -144,7 +144,7 @@ export default function PdfReviewDocument({ blob, label }: PdfReviewDocumentProp
             >
               ←
             </UiButton>
-            <span className="min-w-16 text-center text-muted-foreground">{pageNumber} / {pageCount}</span>
+            <span className="min-w-16 text-center text-neutral-400">{pageNumber} / {pageCount}</span>
             <UiButton
               type="button"
               variant="ghost"
@@ -173,7 +173,7 @@ export default function PdfReviewDocument({ blob, label }: PdfReviewDocumentProp
             <canvas
               ref={canvasRef}
               aria-label={`${label} PDF page ${pageNumber}`}
-              className={`max-w-full bg-white shadow-frame ${rendering ? "opacity-40" : "opacity-100"}`}
+              className={`max-w-full bg-white shadow-[0_14px_45px_rgba(0,0,0,0.35)] ${rendering ? "opacity-40" : "opacity-100"}`}
             />
             {rendering && (
               <div className="absolute inset-0 flex items-center justify-center font-mono text-caption text-muted-foreground">
