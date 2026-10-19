@@ -189,8 +189,12 @@ def test_installer_environment_contract() -> None:
     "Regression: OC_FILE must not be interpolated into Python heredoc source.\n\n    A config path containing single quotes or backslashes (e.g. /home/o'brien/...)\n    broke `Path('$OC_FILE')` with a SyntaxError at compile time, leaving the config\n    unwritten. The path must be passed through the environment and read with\n    os.environ inside the heredoc instead.\n    "
     content = (SCRIPTS / "install_opencode.sh").read_text()
     assert "Path('$OC_FILE')" not in content, "opencode install.sh must not interpolate $OC_FILE into Python source"
-    assert content.count('LEMONCROW_OC_FILE="$OC_FILE" "${PYTHON_CMD[@]}"') == 3
+    # OpenCode V2 now invokes the dedicated Python config helper for its
+    # merge; the remaining inline configuration and inspection heredocs must
+    # still pass paths through environment variables, not interpolate source.
+    assert content.count('LEMONCROW_OC_FILE="$OC_FILE"') == 3
     assert content.count("os.environ['LEMONCROW_OC_FILE']") == 3
+    assert '"${SCRIPT_DIR}/opencode_v2_config.py" merge "$OC_FILE" "$NEW_ENTRY"' in content
     "case: test_claude_install_passes_workspace_paths_via_env_not_source_interpolation"
     "Regression: CLAUDE_LOCAL_SETTINGS / WORKSPACE must not be interpolated into Python heredoc source.\n\n    A workspace path containing backslashes or single quotes (e.g. /tmp/a\\b, /home/o'brien)\n    broke `Path('${CLAUDE_LOCAL_SETTINGS}')`: Python parsed backslash escapes into a mangled,\n    nonexistent path (FileNotFoundError) or produced a SyntaxError, aborting the install under\n    set -e. The paths must be exported to the subprocess and read with os.environ inside the\n    heredoc, which must use a quoted delimiter to suppress shell interpolation.\n    "
     content = (SCRIPTS / "install_claude.sh").read_text()

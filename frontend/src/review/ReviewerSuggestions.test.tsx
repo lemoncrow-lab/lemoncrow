@@ -5,13 +5,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const api = vi.hoisted(() => ({ requestBrowserJson: vi.fn() }));
 vi.mock("./reviewApi", () => api);
 const panel = vi.hoisted(() => ({ fetchReviewerSuggestions: vi.fn() }));
-vi.mock("./reviewerSuggestions", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./reviewerSuggestions")>()),
+vi.mock("./reviewerSuggestionLogic", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./reviewerSuggestionLogic")>()),
   fetchReviewerSuggestions: panel.fetchReviewerSuggestions,
 }));
 
 import ReviewerSuggestionsPanel, { ReviewerSuggestionList } from "./ReviewerSuggestions";
-import { degradedSignals, exclusionSummary, type ReviewerSuggestionSet } from "./reviewerSuggestions";
+import { degradedSignals, exclusionSummary, type ReviewerSuggestionSet } from "./reviewerSuggestionLogic";
 
 const set: ReviewerSuggestionSet = {
   advisory: true,
@@ -109,7 +109,7 @@ describe("ReviewerSuggestionList", () => {
 
 describe("fetchReviewerSuggestions", () => {
   it("asks the Reader API for the exact Snapshot", async () => {
-    const actual = await vi.importActual<typeof import("./reviewerSuggestions")>("./reviewerSuggestions");
+    const actual = await vi.importActual<typeof import("./reviewerSuggestionLogic")>("./reviewerSuggestionLogic");
     api.requestBrowserJson.mockResolvedValue(set);
     await expect(actual.fetchReviewerSuggestions("rv 1", "rev-2")).resolves.toBe(set);
     expect(api.requestBrowserJson).toHaveBeenCalledWith("/api/reviews/rv%201/reviewer-suggestions?revision_id=rev-2");

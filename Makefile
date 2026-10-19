@@ -13,7 +13,6 @@ TEST_PRINT_TIME ?= 0
 # ~2 points below the first nightly run's reported total.
 COV_FAIL_UNDER ?= 66
 FORCE_ARG := $(if $(f),--force,)
-RELEASE_IMPACT_ARG = $(if $(filter 1,$(RELEASE_FULL)),,--changed-since-last-release)
 # Messages choose color at recipe execution time, so redirected logs stay plain.
 _log = sh "$(CURDIR)/scripts/lib/terminal.sh" $(1) "$(2)"
 .PHONY: help uninstall build review-client-build review-engine-build runtime-client-build build-lemoncode-host build-host-skills sync-agent-context mirror release release-preflight release-prepare release-prepared release-version-check release-qualify release-stage \
@@ -209,11 +208,9 @@ release-prepare: release-preflight ## Version and commit the release, not pushed
 	git commit -m "chore(release): $$TAG"; \
 	echo "✓ Prepared $$TAG at $$(git rev-parse --short HEAD) (not pushed); next: make release-qualify tag=$$TAG"
 
-release-qualify: release-prepared release-version-check ## Impact-selected release qualification since last published tag (RELEASE_FULL=1 for exhaustive); stamp only on passing evidence
+release-qualify: release-prepared release-version-check ## Qualify the prepared release commit for tag=vX.Y.Z: agent CLIs, the full release gate (clean checkout, fresh services, versioned candidate) and a stamped release record
 	@# Catch missing prerequisites before spending hours on the release gate.
-	@# Default: run only impacted tests/checks since the latest published release.
-	@# RELEASE_FULL=1 restores exhaustive 52-component qualification for audits.
-	bash scripts/release_canary_env.sh uv run --locked --extra postgres python -m scripts.release_gate --preflight --tag "$(tag)" $(RELEASE_IMPACT_ARG)
+	bash scripts/release_canary_env.sh uv run --locked --extra postgres python -m scripts.release_gate --preflight --tag "$(tag)"
 	@# Real agent CLIs and accounts live on the releasing machine, outside the gate's clean checkout.
 	bash scripts/verify_agent_clis.sh
 	@# Rehearse the OSS installer here; the release gate also runs the hosted-test suite
@@ -222,7 +219,7 @@ release-qualify: release-prepared release-version-check ## Impact-selected relea
 	@# G11-RELEASE: suites, gates, drills and the versioned candidate upgrade all run inside the gate;
 	@# the release record below is stamped only from its releasable report for this commit and tag.
 	@# The whole root suite runs only with the person's opt-in on this command: LEMONCROW_FULL_SUITE=1.
-	@bash scripts/release_canary_env.sh $(MAKE) --no-print-directory release-gate RELEASE_GATE_ARGS="--tag $(tag) $(RELEASE_IMPACT_ARG) $(RELEASE_GATE_ARGS)"
+	@bash scripts/release_canary_env.sh $(MAKE) --no-print-directory release-gate RELEASE_GATE_ARGS="--tag $(tag) $(RELEASE_GATE_ARGS)"
 	uv run python -m scripts.release_record stamp --report "$(RELEASE_REPORT)" --tag "$(tag)"
 
 release: release-prepared ## Push, mirror and tag the exact commit release-qualify qualified: make release tag=vX.Y.Z [f=1] [SKIP_MIRROR=1]

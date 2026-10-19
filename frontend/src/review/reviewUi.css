@@ -95,7 +95,7 @@
 .review-field:focus-visible {
   border-color: rgb(var(--ring));
   outline: none;
-  box-shadow: none;
+  box-shadow: 0 0 0 2px rgb(var(--ring) / 0.15);
 }
 
 /* Keep the outline search glyph and clear action out of the text/placeholder.
