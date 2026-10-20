@@ -770,7 +770,9 @@ def test_a_finding_on_untouched_code_is_carried_with_no_model_and_no_new_comment
     result = run(previous, [], rereviewed={"b"})
     (kept,) = result.findings
     assert (kept.id, kept.state, kept.thread_id, kept.placement) == ("keep", "carried", 77, "inline")
-    assert kept.last_seen == "abcdef0" and not kept.unverified and (kept.line, kept.end_line) == (3, 4)
+    # Its thread is on lines 12-14 and cannot move; the summary keeps pointing at it, not at where the target is now.
+    assert kept.last_seen == "abcdef0" and not kept.unverified and (kept.line, kept.end_line) == (12, 14)
+    assert kept.target_line == 3
 
 
 def test_a_finding_still_reported_after_its_code_changed_is_the_same_finding_not_a_second_one() -> None:

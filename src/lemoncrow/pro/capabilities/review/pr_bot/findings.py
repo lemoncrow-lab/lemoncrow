@@ -63,10 +63,13 @@ _SHA = re.compile(r"^[0-9a-f]{4,40}$")
 
 
 #: Longest span one inline comment covers. A finding about a whole function would
-#: otherwise highlight the function; the comment sits on the first changed lines.
-# lc-debt: a finding names targets, not lines (the model returns none), so its comment sits on the first changed lines
-# of its target; upgrade: have the investigator cite the line and check it against the Snapshot.
+#: otherwise highlight the function; the comment sits on the lines the investigator cited, else the first changed
+#: lines of its target.
 MAX_INLINE_SPAN: Final[int] = 8
+#: Where a finding's comment was anchored: ``cited``, the lines the investigator named (checked against the
+#: Snapshot head and the diff), or ``target``, the fallback, the first changed lines of its target, used when it
+#: cited none or the claim failed its checks. ``""`` is a finding recorded before the field existed.
+ANCHORS: Final[tuple[str, ...]] = ("", "cited", "target")
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +130,10 @@ class BotFinding:
     #: Where ``suggestion`` applies: lines ``suggestion_start..suggestion_end`` of ``path`` at the reviewed head.
     suggestion_start: int = 0
     suggestion_end: int = 0
+    #: How ``line`` was chosen (:data:`ANCHORS`), and the first changed line of the finding's target when it was
+    #: located. The second is the baseline a later push compares against to see that the target's code has moved.
+    anchor: str = ""
+    target_line: int = 0
 
     @property
     def is_open(self) -> bool:
@@ -140,11 +147,24 @@ class BotFinding:
 
     @property
     def span(self) -> tuple[int, int]:
-        """The lines its inline comment covers: the lines a suggestion replaces, else its target's first changed lines."""
+        """The lines its inline comment covers (or will): the lines a suggestion replaces, else the lines it cites.
 
-        if self.has_suggestion:
+        Once a comment exists its lines are ``line..end_line`` for good (:meth:`posted`), whatever a later push
+        suggests, so the summary never points away from the thread.
+        """
+
+        if self.has_suggestion and not self.thread_id:
             return self.suggestion_start, self.suggestion_end
         return self.line, max(self.line, self.end_line)
+
+    def posted(self, **fields: Any) -> BotFinding:
+        """This finding once its comment exists: ``line..end_line`` become the lines the comment covers.
+
+        A thread cannot be moved, so from here on that is where the finding is, in the summary and in the prompt.
+        """
+
+        start, end = self.span
+        return self.changed(line=start, end_line=end, **fields)
 
     def changed(self, **fields: Any) -> BotFinding:
         return replace(self, **fields)
@@ -189,6 +209,8 @@ class BotFinding:
             ("unverified", self.unverified),
             ("impact", self.impact),
             ("verified", self.verified),
+            ("anchor", self.anchor),
+            ("target_line", self.target_line),
         ):
             if value:
                 wire[key] = value
@@ -238,6 +260,7 @@ def finding_from_wire(raw: object) -> BotFinding | None:
         return None
     targets = raw.get("targets")
     impact = raw.get("impact")
+    anchor = raw.get("anchor")
     # A suggestion is whole or absent: truncating a replacement would post a different, wrong edit.
     suggestion = raw.get("suggestion")
     fix = suggestion if isinstance(suggestion, str) and 0 < len(suggestion) <= MAX_SUGGESTION else ""
@@ -272,6 +295,8 @@ def finding_from_wire(raw: object) -> BotFinding | None:
         verified=raw.get("verified") is True,
         suggestion_start=fix_start,
         suggestion_end=fix_end,
+        anchor=anchor if isinstance(anchor, str) and anchor in ANCHORS else "",
+        target_line=_count(raw, "target_line"),
     )
 
 

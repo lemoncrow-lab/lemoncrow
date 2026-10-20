@@ -24,7 +24,7 @@ import hashlib
 import json
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any, Final
 
 from lemoncrow.pro.capabilities.review.github_placement import index_files, unplaceable_reason
@@ -135,6 +135,8 @@ class InlineOutcome:
     """Findings GitHub cannot show on a diff line; they live in the summary only."""
     review_url: str = ""
     skipped_reason: str = ""
+    sent: dict[str, BotFinding] = field(default_factory=dict)
+    """finding id -> the finding as it was sent: its suggestion and lines after GitHub's own diff was consulted."""
 
 
 @dataclass(frozen=True)
@@ -249,10 +251,12 @@ class BotGitHub:
         state = load_bot_pull_request_state(self.pr, self.runner)
         files = index_files(state.files)
         candidates = []
+        sent: dict[str, BotFinding] = {}
         for finding in findings:
             if finding.line <= 0:
                 continue
-            finding = self._placeable_suggestion(finding, files)
+            finding = self._placeable_anchor(self._placeable_suggestion(finding, files), files)
+            sent[finding.id] = finding
             start, end = finding.span
             candidates.append(
                 PublishCandidate(
@@ -286,7 +290,32 @@ class BotGitHub:
             annotation_id: (comment_id, self.comment_url(comment_id))
             for annotation_id, comment_id in result.comment_ids.items()
         }
-        return InlineOutcome(posted, unplaced, review_url=result.html_url)
+        return InlineOutcome(posted, unplaced, review_url=result.html_url, sent=sent)
+
+    @staticmethod
+    def _placeable_anchor(finding: BotFinding, files: dict[str, Any]) -> BotFinding:
+        """*finding* on its target's first changed line when GitHub's own diff cannot hold the lines it cites.
+
+        The cited lines were checked against the captured Snapshot's hunks; GitHub attaches a comment only to lines
+        inside a hunk of the diff it serves. The comment is kept, on the line its target's change begins at.
+        """
+
+        if finding.anchor != "cited" or finding.target_line <= 0:
+            return finding
+        start, end = finding.span
+        pr_file = files.get(finding.path)
+        if pr_file is not None and not unplaceable_reason(
+            patch=pr_file.patch, anchor_side=finding.side, start_line=start, end_line=end
+        ):
+            return finding
+        return finding.changed(
+            line=finding.target_line,
+            end_line=finding.target_line,
+            anchor="target",
+            suggestion="",
+            suggestion_start=0,
+            suggestion_end=0,
+        )
 
     @staticmethod
     def _placeable_suggestion(finding: BotFinding, files: dict[str, Any]) -> BotFinding:

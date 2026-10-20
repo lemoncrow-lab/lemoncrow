@@ -303,6 +303,10 @@ class FakeModel:
         """``BUG`` titles whose finding also cites the repository-context excerpts (callers, tests, definitions) of its targets."""
         self.replacements: dict[str, dict[str, Any]] = {}
         """``BUG`` title -> the ``replacement`` object the model returns for it."""
+        self.cite_lines: set[str] = set()
+        """``BUG`` titles whose finding cites the line its ``BUG:`` marker is really on (a careful model)."""
+        self.lines: dict[str, tuple[int, int]] = {}
+        """``BUG`` title -> the (start, end) lines the model claims, right or wrong; wins over ``cite_lines``."""
         self.evidence_seen: list[dict[str, Any]] = []
         """The evidence registry each investigator call was offered, with the path of its first target."""
         self.fail = False
@@ -373,7 +377,20 @@ class FakeModel:
                 if title in self.severity:
                     result["severity"] = self.severity[title]
                 result["replacement"] = self.replacements.get(title)
+                result["lines"] = self._claimed_lines(title, source[targets[0]])
         return StructuredExecution(result=result, driver="openai", model=self.model, usage=usage)
+
+    def _claimed_lines(self, title: str, excerpt: dict[str, Any]) -> dict[str, int] | None:
+        if title in self.lines:
+            start, end = self.lines[title]
+            return {"start_line": start, "end_line": end}
+        if title not in self.cite_lines:
+            return None
+        for offset, line in enumerate(str(excerpt.get("text", "")).splitlines()):
+            if "BUG: " in line:
+                number = int(excerpt["start_line"]) + offset
+                return {"start_line": number, "end_line": number}
+        return None
 
     def _rule_check(self, prompt: dict[str, Any]) -> StructuredExecution:
         """The per-rule question: violated when a shown target carries a ``BUG:`` line."""

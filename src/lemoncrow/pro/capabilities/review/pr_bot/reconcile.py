@@ -80,6 +80,13 @@ def finding_from_confirmed(confirmed: Any, located: Located | None, head: str) -
     fix = getattr(confirmed, "replacement", None)
     if fix is None or fix.verified is not True or not where.path or where.side != "new":
         fix = None  # only a replacement checked against the Snapshot head may ever be posted
+    cited = getattr(confirmed, "lines", None)
+    if cited is None or cited.verified is not True or not where.path or where.side != "new":
+        cited = None  # likewise the lines: only ones checked against the head and the diff may place a comment
+    if cited is not None:
+        line, end_line, anchor = cited.start_line, cited.end_line, "cited"
+    else:
+        line, end_line, anchor = where.line, where.end_line, "target" if where.path else ""
     return BotFinding(
         id=confirmed.id,
         fingerprint=fingerprint_for(confirmed.category, target_ids, confirmed.rule_refs),
@@ -89,8 +96,8 @@ def finding_from_confirmed(confirmed: Any, located: Located | None, head: str) -
         category=confirmed.category,
         state="new",
         path=where.path,
-        line=where.line,
-        end_line=where.end_line,
+        line=line,
+        end_line=end_line,
         side=where.side,
         target_ids=target_ids,
         title=trimmed(confirmed.title, MAX_TITLE),
@@ -103,27 +110,36 @@ def finding_from_confirmed(confirmed: Any, located: Located | None, head: str) -
         suggestion=fix.text if fix else "",
         suggestion_start=fix.start_line if fix else 0,
         suggestion_end=fix.end_line if fix else 0,
+        anchor=anchor,
+        target_line=where.line,
     )
 
 
 def _moved(finding: BotFinding, located: Located | None) -> BotFinding:
-    """*finding* at its current lines; unchanged when its target has no location any more.
+    """*finding* after a push that left its target's code alone but may have shifted it; unchanged if it has no place.
 
-    A suggestion was checked against the head it was made on: when its target now sits elsewhere the line
-    numbers it names may mean other code, so it is dropped rather than carried.
+    The target's first changed line is compared with where it was when the finding was located. A suggestion was
+    checked against the head it was made on, so when the target moved the line numbers it names may mean other
+    code and it is dropped rather than carried.
+
+    Where the finding is shown follows its thread. A thread cannot move, so a finding that has one stays on the
+    lines it was posted on and the summary keeps pointing at the thread. A finding with no thread follows its
+    code: by the same shift when it cites a line, else to the target's first changed lines.
     """
 
     if located is None or not located.path:
         return finding
-    moved = finding.changed(path=located.path, line=located.line, end_line=located.end_line, side=located.side)
-    if (located.path, located.line, located.end_line, located.side) != (
-        finding.path,
-        finding.line,
-        finding.end_line,
-        finding.side,
-    ):
-        moved = moved.changed(suggestion="", suggestion_start=0, suggestion_end=0)
-    return moved
+    baseline = finding.target_line or finding.line
+    same_file = (located.path, located.side) == (finding.path, finding.side)
+    if same_file and baseline > 0 and located.line == baseline:
+        return finding if finding.target_line else finding.changed(target_line=located.line)
+    moved = finding.changed(suggestion="", suggestion_start=0, suggestion_end=0, target_line=located.line)
+    if finding.thread_id:
+        return moved
+    if same_file and finding.anchor == "cited" and baseline > 0 and located.line > 0:
+        shift = located.line - baseline
+        return moved.changed(line=max(1, finding.line + shift), end_line=max(1, finding.end_line + shift))
+    return moved.changed(path=located.path, line=located.line, end_line=located.end_line, side=located.side)
 
 
 def reconcile(
@@ -174,17 +190,22 @@ def reconcile(
             match = next((item for item in by_fingerprint.get(old.fingerprint, ()) if item.id not in used), None)
         if match is not None:
             used.add(match.id)
-            # Same concern, possibly reworded: keep its identity, thread and history; take the current text and place.
-            result.append(
-                match.changed(
-                    id=old.id,
-                    state="carried",
-                    first_seen=old.first_seen or head,
-                    thread_id=old.thread_id,
-                    thread_url=old.thread_url,
-                    placement=old.placement,
-                )
+            # Same concern, possibly reworded: keep its identity, thread and history; take the current text. The
+            # place is the current one too, unless a thread exists: that stays where it was posted, and so does the
+            # finding, or the summary would point away from its own thread.
+            carried = match.changed(
+                id=old.id,
+                state="carried",
+                first_seen=old.first_seen or head,
+                thread_id=old.thread_id,
+                thread_url=old.thread_url,
+                placement=old.placement,
             )
+            if old.thread_id:
+                carried = carried.changed(
+                    path=old.path, line=old.line, end_line=old.end_line, side=old.side, anchor=old.anchor
+                )
+            result.append(carried)
         elif touched <= set(covered):
             result.append(old.changed(state="fixed", resolved_in=head, last_seen=head))
         else:

@@ -354,7 +354,7 @@ def agent_prompt(
 def _suggested_edit(finding: BotFinding) -> list[str]:
     """The checked replacement for a prompt: the lines it covers and what they become, in its own fence."""
 
-    start, end = finding.span
+    start, end = finding.suggestion_start, finding.suggestion_end
     fence = fence_for(finding.suggestion)
     covers = f"lines {start}-{end}" if end > start else f"line {start}"
     # The code stays at column 0: its indentation is part of the edit.

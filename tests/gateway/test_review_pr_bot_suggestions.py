@@ -508,9 +508,15 @@ def test_a_carried_suggestion_survives_while_its_target_stays_put() -> None:
 
 
 def test_a_carried_suggestion_is_dropped_when_its_target_moved() -> None:
+    # The suggestion's line numbers may now mean other code. The finding has a thread, which cannot move, so the
+    # summary keeps pointing at lines 2-3, where the thread is.
     moved = carry(finding(), Located("src/auth.py", 12, 13, "new"))
-    assert not moved.has_suggestion and (moved.line, moved.end_line) == (12, 13)
-    assert not carry(finding(), Located("src/renamed.py", 2, 3, "new")).has_suggestion
+    assert not moved.has_suggestion and (moved.line, moved.end_line) == (2, 3)
+    renamed = carry(finding(), Located("src/renamed.py", 2, 3, "new"))
+    assert not renamed.has_suggestion and (renamed.path, renamed.line) == ("src/auth.py", 2)
+    # With no thread yet there is nothing to stay consistent with: the finding follows its code.
+    unposted = carry(finding(thread_id=0, placement=""), Located("src/auth.py", 12, 13, "new"))
+    assert not unposted.has_suggestion and (unposted.line, unposted.end_line) == (12, 13)
 
 
 def test_a_suggestion_is_whole_or_absent_in_the_state() -> None:

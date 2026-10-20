@@ -26,7 +26,7 @@ from lemoncrow.pro.capabilities.review import finding_replacement
 from lemoncrow.pro.capabilities.review.anchors import build_anchor
 from lemoncrow.pro.capabilities.review.ask import exact_revision_sources
 from lemoncrow.pro.capabilities.review.data_governance import process_route_trust
-from lemoncrow.pro.capabilities.review.finding_replacement import Replacement
+from lemoncrow.pro.capabilities.review.finding_replacement import CitedLines, Replacement
 from lemoncrow.pro.capabilities.review.intelligence_runtime import (
     IntelligenceRunOutcome,
     IntelligenceRunRequest,
@@ -267,6 +267,9 @@ class ConfirmedFinding:
     verified: bool = False
     #: A suggested fix; usable only once ``verified`` (``finding_replacement.verify_replacement``).
     replacement: Replacement | None = None
+    #: The lines of the first target's file the investigator says the defect is on; usable only once ``verified``
+    #: (``finding_replacement.verify_cited_lines``). ``None``: none cited, or the claim failed its checks.
+    lines: CitedLines | None = None
 
     def to_wire(self) -> dict[str, Any]:
         wire: dict[str, Any] = {
@@ -283,6 +286,8 @@ class ConfirmedFinding:
             wire["severity"] = self.severity
         if self.replacement is not None and self.replacement.verified:
             wire["replacement"] = self.replacement.to_wire()
+        if self.lines is not None and self.lines.verified:
+            wire["lines"] = self.lines.to_wire()
         return wire
 
 
@@ -479,8 +484,8 @@ INVESTIGATION_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
-#: What a pull request review asks of the investigator beyond ``INVESTIGATION_SCHEMA``: how bad the defect is, and
-#: optionally a small fix, which is then proven against the Snapshot before it is used. A separate schema, so the
+#: What a pull request review asks of the investigator beyond ``INVESTIGATION_SCHEMA``: how bad the defect is, the
+#: line it is on, and optionally a small fix, each proven against the Snapshot before it is used. A separate schema, so the
 #: Reader's and the evaluation corpus's recorded calls (keyed by schema and prompt digests) are untouched;
 #: ``run_independent_review(pr_fields=True)`` selects it.
 PR_INVESTIGATION_SCHEMA: dict[str, Any] = {
@@ -488,6 +493,17 @@ PR_INVESTIGATION_SCHEMA: dict[str, Any] = {
     "properties": {
         **INVESTIGATION_SCHEMA["properties"],
         "severity": {"type": "string", "enum": list(_IMPACTS)},
+        "lines": {
+            "anyOf": [
+                {"type": "null"},
+                {
+                    "type": "object",
+                    "properties": {"start_line": {"type": "integer"}, "end_line": {"type": "integer"}},
+                    "required": ["start_line", "end_line"],
+                    "additionalProperties": False,
+                },
+            ]
+        },
         "replacement": {
             "anyOf": [
                 {"type": "null"},
@@ -505,11 +521,11 @@ PR_INVESTIGATION_SCHEMA: dict[str, Any] = {
             ]
         },
     },
-    "required": [*INVESTIGATION_SCHEMA["required"], "severity", "replacement"],
+    "required": [*INVESTIGATION_SCHEMA["required"], "severity", "lines", "replacement"],
 }
 #: Bump when ``PR_INVESTIGATION_SCHEMA`` or the instructions below change: a pull request review's reusable
 #: results (``pr_bot.engine.policy_digest``) are only valid for the fields it asked for.
-PR_FIELDS_VERSION = 3
+PR_FIELDS_VERSION = 4
 _PR_FIELD_RULES = f"""
 Also return severity: low, medium or high, the defect's impact on the cited code. high means it will break correctness,
 security or stored data in normal use (a crash, a wrong result, data loss, an authorization bypass) and you can point
@@ -518,6 +534,11 @@ high rating is posted as a must-fix only when evidence_refs also include evidenc
 shows the problem (a check, a static_finding, or a repo_context excerpt of another file, such as a caller the change
 breaks). The target and source refs of the changed code itself do not count. Cite only refs that really support the
 finding. When unsure, rate lower.
+Also return lines: null, or an object with start_line and end_line (1-based, counted from the excerpt's start_line, so
+they are line numbers of the file) for the specific line, or short range of at most {finding_replacement.MAX_CITED_LINES}
+lines, where the defect is. Point at the line that is wrong, not at the start of the function. The comment is posted
+on those lines when they are in the pull request's diff, otherwise on the first lines of the target that changed.
+A wrong line is worse than null.
 Also return replacement: null unless the fix is a small, local and certain edit of at most
 {finding_replacement.MAX_LINES} consecutive lines in the file of the first target_ids entry. Then it is an object with
 start_line and end_line (1-based, counted from the excerpt's start_line), original (those lines exactly as shown,
@@ -1568,35 +1589,42 @@ def _validate_investigation(
             severity=rating if rating in _IMPACTS else "",
             verified=_corroborated(evidence_refs, registry_by_ref, target_ids),
             replacement=finding_replacement.parse_replacement(raw.get("replacement")),
+            lines=finding_replacement.parse_cited_lines(raw.get("lines")),
         ),
     )
 
 
 def _with_checked_replacement(
-    store: Any, revision: ReviewRevision, target: ReviewTarget | None, finding: ConfirmedFinding | None
+    store: Any,
+    revision: ReviewRevision,
+    target: ReviewTarget | None,
+    finding: ConfirmedFinding | None,
+    shown: tuple[int, int] | None = None,
 ) -> ConfirmedFinding | None:
-    """*finding* with its replacement proven against the exact Snapshot head, or without it when it is not.
+    """*finding* with its replacement and cited lines proven against the exact Snapshot head, else without them.
 
-    The replacement applies to the first target's file. It survives only when the new-side source has those lines
-    as quoted, inside a hunk of the change (``finding_replacement.verify_replacement``); the finding itself is
-    never dropped for a replacement that fails.
+    Both apply to the first target's file. A replacement survives only when the new-side source has those lines
+    as quoted, inside a hunk of the change (``finding_replacement.verify_replacement``). Cited lines survive only
+    when they exist, were inside the excerpt the model was shown (*shown*: its first and last line) and sit inside
+    a hunk (``finding_replacement.verify_cited_lines``). The finding itself is never dropped for a claim that fails.
     """
 
-    if finding is None or finding.replacement is None:
+    if finding is None or (finding.replacement is None and finding.lines is None):
         return finding
     checked: Replacement | None = None
+    cited: CitedLines | None = None
     if target is not None and _target_side(target) == "new":
         from lemoncrow.pro.capabilities.review.sources.local import read_packet_json
 
         source = exact_revision_sources(store, revision, paths=(target.path,), side="new").get(target.path)
         packet = read_packet_json(store, revision) if source is not None else None
         if source is not None and packet is not None:
-            checked = finding_replacement.verify_replacement(
-                finding.replacement,
-                source=source,
-                hunks=finding_replacement.hunk_headers(packet.get("files"), target.path),
-            )
-    return replace(finding, replacement=checked)
+            hunks = finding_replacement.hunk_headers(packet.get("files"), target.path)
+            if finding.replacement is not None:
+                checked = finding_replacement.verify_replacement(finding.replacement, source=source, hunks=hunks)
+            if finding.lines is not None and shown is not None:
+                cited = finding_replacement.verify_cited_lines(finding.lines, source=source, hunks=hunks, shown=shown)
+    return replace(finding, replacement=checked, lines=cited)
 
 
 def _finding_key(finding: ConfirmedFinding) -> tuple[Any, ...]:
@@ -2669,9 +2697,10 @@ def _run_independent_review_stages(
                 applicable_rules,
             )
             if pr_fields and finding is not None and finding.target_ids:
-                finding = _with_checked_replacement(
-                    store, revision, candidate_targets.get(finding.target_ids[0]), finding
-                )
+                first = finding.target_ids[0]
+                row = hypothesis_source.get(first) or {}
+                window = (int(row.get("start_line") or 0), int(row.get("end_line") or 0))
+                finding = _with_checked_replacement(store, revision, candidate_targets.get(first), finding, window)
             return status, finding, outcome
 
         investigated: list[tuple[str, ConfirmedFinding | None, IntelligenceRunOutcome]] = []

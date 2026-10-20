@@ -17,6 +17,11 @@ render it:
 * the edit changes something and applies cleanly (:func:`change_proposals.replace_line_range`).
 
 A replacement that fails any check is dropped and the finding stays. Pure: no store, no I/O.
+
+The same module holds the other claim an investigator makes about *where*: ``lines``, the line or short
+range of the new file a finding is about. :func:`verify_cited_lines` holds it to the same standard (the lines
+exist in the file at the head, were among the lines the model was shown, and sit inside one right-side hunk),
+so a comment can sit on the line the model found instead of the first line the pull request changed.
 """
 
 from __future__ import annotations
@@ -31,6 +36,9 @@ from lemoncrow.pro.capabilities.review.github_placement import unplaceable_reaso
 #: "Small and local": a suggestion longer than this is a rewrite, which a person should review as one.
 MAX_LINES: Final[int] = 10
 MAX_TEXT: Final[int] = 2000
+#: Longest range of cited lines kept: one inline comment highlights this many lines at most. A longer claim
+#: keeps its first lines, which is where the investigator says the defect starts.
+MAX_CITED_LINES: Final[int] = 8
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +96,61 @@ def parse_replacement(raw: object) -> Replacement | None:
     ):
         return None
     return Replacement(start, end, original, text)
+
+
+@dataclass(frozen=True, slots=True)
+class CitedLines:
+    """Lines ``start_line..end_line`` (1-based, inclusive, new side) of the first target's file, as cited.
+
+    ``verified`` is true only for lines :func:`verify_cited_lines` returned; a parsed claim is not, and no
+    comment may be placed by one.
+    """
+
+    start_line: int
+    end_line: int
+    verified: bool = False
+
+    def to_wire(self) -> dict[str, int]:
+        return {"start_line": self.start_line, "end_line": self.end_line}
+
+
+def parse_cited_lines(raw: object) -> CitedLines | None:
+    """The model's cited lines as an unverified claim, or ``None`` when absent or malformed.
+
+    Shape only: ``null`` or anything unreadable means the model did not point at a line, which costs the finding
+    nothing; it just sits on the first changed lines of its target as it always has.
+    """
+
+    if not isinstance(raw, Mapping):
+        return None
+    start, end = _count(raw, "start_line"), _count(raw, "end_line")
+    if not 0 < start <= end:
+        return None
+    return CitedLines(start, min(end, start + MAX_CITED_LINES - 1))
+
+
+def verify_cited_lines(claim: CitedLines, *, source: str, hunks: str, shown: tuple[int, int]) -> CitedLines | None:
+    """*claim* when it names real, visible, placeable lines of *source* (the file at the exact head), else ``None``.
+
+    ``hunks`` is the file's hunk headers (:func:`hunk_headers`) and ``shown`` the first and last line of the
+    excerpt the model was given: a line it was never shown is a guess. The lines must exist, carry some code, and
+    sit inside one right-side hunk of the change, the lines GitHub lets a comment attach to
+    (:func:`github_placement.unplaceable_reason`, the rule the publisher places comments by).
+    """
+
+    if not _numbered_like_github(source):
+        return None
+    if not shown[0] <= claim.start_line <= claim.end_line <= shown[1]:
+        return None
+    try:
+        text = selected_line_text(source, claim.start_line, claim.end_line)
+    except ValueError:
+        return None
+    if not text.strip():
+        return None
+    if unplaceable_reason(patch=hunks, anchor_side="new", start_line=claim.start_line, end_line=claim.end_line):
+        return None
+    return replace(claim, verified=True)
 
 
 def hunk_headers(files: object, path: str) -> str:
@@ -156,4 +219,15 @@ def verify_replacement(replacement: Replacement, *, source: str, hunks: str) -> 
     return replace(replacement, original=current.rstrip("\n"), verified=True)
 
 
-__all__ = ["MAX_LINES", "MAX_TEXT", "Replacement", "hunk_headers", "parse_replacement", "verify_replacement"]
+__all__ = [
+    "MAX_CITED_LINES",
+    "MAX_LINES",
+    "MAX_TEXT",
+    "CitedLines",
+    "Replacement",
+    "hunk_headers",
+    "parse_cited_lines",
+    "parse_replacement",
+    "verify_cited_lines",
+    "verify_replacement",
+]

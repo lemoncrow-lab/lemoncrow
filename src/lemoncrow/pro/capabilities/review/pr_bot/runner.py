@@ -400,7 +400,7 @@ def _adopt(github: BotGitHub, findings: list[BotFinding], comments: list[Remote]
     for finding in findings:
         comment = found.get(finding.id)
         if comment is not None and finding.thread_id == 0:
-            finding = finding.changed(
+            finding = finding.posted(
                 thread_id=comment.id, thread_url=comment.url or github.comment_url(comment.id), placement="inline"
             )
         adopted.append(finding)
@@ -422,7 +422,18 @@ def _post_inline(
     for finding in findings:
         posted = outcome.posted.get(finding.id)
         if posted is not None:
-            finding = finding.changed(thread_id=posted[0], thread_url=posted[1], placement="inline")
+            # The comment sits on the lines it was sent on, which GitHub's own diff may have narrowed from what the
+            # Snapshot allowed. The finding keeps a suggestion the comment lost: an agent with the checkout can use it.
+            sent = outcome.sent.get(finding.id, finding)
+            start, end = sent.span
+            finding = finding.changed(
+                thread_id=posted[0],
+                thread_url=posted[1],
+                placement="inline",
+                line=start,
+                end_line=end,
+                anchor=sent.anchor,
+            )
         elif finding.id in outcome.unplaced:
             # Not on a line GitHub shows: the summary lists it, and later runs do not retry.
             finding = finding.changed(placement="summary")
