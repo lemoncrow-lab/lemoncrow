@@ -26,9 +26,15 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from lemoncrow.pro.capabilities.review.pr_bot import ci_env
+from lemoncrow.pro.capabilities.review.pr_bot import ci_env, learning
 from lemoncrow.pro.capabilities.review.pr_bot.findings import BotFinding
-from lemoncrow.pro.capabilities.review.pr_bot.github import BotGitHub, Remote, with_backoff
+from lemoncrow.pro.capabilities.review.pr_bot.github import (
+    BotGitHub,
+    FeedbackThread,
+    PullFacts,
+    Remote,
+    with_backoff,
+)
 from lemoncrow.pro.capabilities.review.pr_bot.reconcile import reconcile
 from lemoncrow.pro.capabilities.review.pr_bot.render import (
     Receipt,
@@ -44,6 +50,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.render import (
     verdict,
 )
 from lemoncrow.pro.capabilities.review.pr_bot.state import ReviewState, Usage, cap_findings
+from lemoncrow.pro.capabilities.review.pr_bot.suppression import Suppression
 from lemoncrow.pro.capabilities.review.sources.github import (
     GhRunner,
     GitHubCliError,
@@ -83,6 +90,12 @@ class RunOptions:
     #: Chat's "recheck": review only these targets and nothing else (an empty set: no model call at all). ``None``
     #: is a whole review, of everything that changed.
     only_targets: frozenset[str] | None = None
+    #: Who may teach the bot by reacting, replying or resolving (G9): the ``author_association`` allow-list chat uses.
+    feedback_from: frozenset[str] = frozenset(ci_env.DEFAULT_ASSOCIATIONS)
+    #: Suppressions a person asked for in words (chat's ``ignore``), applied by this run on top of what the state holds,
+    #: and the ids among them whose thread was already told by the reply to that command.
+    suppress: tuple[Suppression, ...] = ()
+    told: frozenset[str] = frozenset()
 
 
 @dataclass
@@ -152,6 +165,7 @@ def run_pr_review(
 
     environ = os.environ if env is None else env
     say = progress or (lambda _message: None)
+    options = replace(options, feedback_from=ci_env.chat_associations(environ))
     if options.fail_on not in FAIL_ON:
         raise PrReviewError(f"fail-on must be one of {', '.join(FAIL_ON)}")
     if (options.max_usd_per_pr is not None and options.max_usd_per_pr <= 0) or (
@@ -237,7 +251,7 @@ def run_pr_review(
     if writes:
         _best_effort(lambda: github.set_status(facts.head_sha, "pending", "Reviewing…"), [], "set the pending status")
     try:
-        report = _review(options, ref, github, run, structured_executor, say, writes)
+        report = _review(options, ref, github, run, structured_executor, say, writes, facts=facts)
         if report.skipped and writes:
             # The pending status must not be left hanging on a run that decided not to review.
             _best_effort(
@@ -294,7 +308,7 @@ def _chat(
     writes = options.publish and not options.dry_run
 
     def review(narrowed: RunOptions) -> RunReport:
-        return _review(narrowed, ref, github, run, structured_executor, say, writes)
+        return _review(narrowed, ref, github, run, structured_executor, say, writes, facts=facts)
 
     try:
         return chat.run_chat(
@@ -333,6 +347,8 @@ def _review(
     structured_executor: Callable[..., Any] | None,
     say: Callable[[str], None],
     writes: bool,
+    *,
+    facts: PullFacts | None = None,
 ) -> RunReport:
     from lemoncrow.pro.capabilities.review.pr_bot import engine
 
@@ -387,6 +403,28 @@ def _review(
     if options.publish:
         comments = _best_effort_value(github.review_comments, report.notes, "read the review comments") or []
     findings = _adopt(github, findings, comments)
+    # G9: what people did to the bot's comments since the last run becomes a suppression, applied now.
+    held = previous.suppressions if previous is not None else ()
+    signals: list[learning.Signal] = []
+    if options.publish and previous is not None:
+        threads = _best_effort_value(github.feedback_threads, report.notes, "read reactions and replies") or []
+        if threads:
+            people = learning.People(
+                options.feedback_from,
+                _known_associations(threads, comments, facts),
+                owner=ref.owner,
+                lookup=github.permission_of,
+            )
+            reviewed_again, intact = set(ai.rereviewed), set(ai.intact)
+            signals = learning.read_signals(
+                threads,
+                findings,
+                people,
+                # "Without a code change": the finding's code was not looked at again, or its cited lines are still there.
+                code_changed=lambda f: bool(set(f.target_ids) & reviewed_again) and f.id not in intact,
+            )
+    learned = learning.learn(findings, held, signals, commands=options.suppress, head=short(head))
+    findings = list(learned.findings)
     wanted = [
         finding
         for finding in findings
@@ -414,13 +452,22 @@ def _review(
             report.published["replied"] = threads.replied
             report.published["resolved"] = threads.resolved
             report.notes.extend(threads.notes)
-    if writes and (wanted or closed):
+    owed = learning.confirmations(findings, learned.suppressions, comments, quiet=options.told)
+    if writes and owed:
+        told = _best_effort_value(
+            lambda: learning.post_confirmations(github, owed, ref.slug), report.notes, "confirm what was learned"
+        )
+        if told is not None:
+            report.published["learned"] = told
+    if writes and (wanted or closed or owed or learned.changed):
         report.noop = False
 
     tracked, dropped = cap_findings(findings)
-    usage = ai.usage
-    reviews = 1 if previous is None else previous.reviews + (0 if report.noop else 1)
-    total = usage if previous is None else previous.usage_total.plus(usage)
+    # A run asked only to apply an instruction (`only_targets` empty) re-examines nothing: it is not another review.
+    refresh = options.only_targets is not None and not options.only_targets
+    usage = previous.usage if refresh and previous is not None else ai.usage
+    reviews = 1 if previous is None else previous.reviews + (0 if report.noop or refresh else 1)
+    total = ai.usage if previous is None else previous.usage_total.plus(ai.usage)
     # Chat answers given while this review ran are in the summary now and not in `previous`: carry them, so a review
     # never erases the count the budget reads. The re-read is as late as it can be, just before the state is built.
     chats, chat_usage = (previous.chats, previous.chat_usage) if previous is not None else (0, Usage())
@@ -446,6 +493,7 @@ def _review(
         usage_total=total,
         chats=chats,
         chat_usage=chat_usage,
+        suppressions=learned.suppressions,
     )
     reason = "model calls failed; see the workflow log" if ai.errors else (ai.reason if not ai.complete else "")
     uninvestigated = max(ai.candidates - ai.investigated, 0)
@@ -464,6 +512,7 @@ def _review(
             unreported=len(_state_is(tracked, "unreported")),
             complete=ai.complete,
             uninvestigated=uninvestigated,
+            suppressed=len(_state_is(tracked, "suppressed")),
         ),
         receipt=Receipt(
             files=ai.files,
@@ -482,6 +531,7 @@ def _review(
         depth_label=options.depth.capitalize(),
         max_calls=ai.max_calls,
         fail_on=options.fail_on,
+        suggestions=learning.suggest(ref.slug, learned.suppressions),
     )
     body, posted_state = render_summary(summary_view)
     status = check_status(view, fail_on=options.fail_on)
@@ -555,7 +605,10 @@ def _over_budget(
         for finding in previous.findings
         if finding.is_open or finding.state == "unreported"
     )
-    state = replace(previous, findings=kept, usage=Usage())
+    # An instruction costs no model call, so it applies here too.
+    learned = learning.learn(kept, previous.suppressions, (), commands=options.suppress, head=short(head))
+    kept = learned.findings
+    state = replace(previous, findings=kept, usage=Usage(), suppressions=learned.suppressions)
     view = verdict(kept, complete=True, budget=spent)
     body, posted_state = render_summary(
         SummaryView(
@@ -602,6 +655,28 @@ def _best_effort_value(action: Callable[[], Any], notes: list[str], what: str) -
     except GitHubCliError as exc:
         notes.append(f"could not {what}: {str(exc)[:200]}")
         return None
+
+
+def _known_associations(
+    threads: list[FeedbackThread], comments: list[Remote], facts: PullFacts | None
+) -> dict[str, str]:
+    """The ``author_association`` GitHub reports for each person who has written on this pull request.
+
+    A reaction carries none, so a person who reacted is matched with one they were given on a comment (or as the
+    pull request's author); anyone else is looked up by repository permission.
+    """
+
+    known: dict[str, str] = {}
+    if facts is not None and facts.author and facts.author_association:
+        known[facts.author] = facts.author_association
+    for thread in threads:
+        for comment in thread.comments:
+            if comment.association and not learning.is_bot_login(comment.login, comment.kind):
+                known.setdefault(comment.login, comment.association)
+    for remote in comments:
+        if remote.association and not remote.by_bot:
+            known.setdefault(remote.author, remote.association)
+    return known
 
 
 def _adopt(github: BotGitHub, findings: list[BotFinding], comments: list[Remote]) -> list[BotFinding]:

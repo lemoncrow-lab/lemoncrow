@@ -1257,6 +1257,8 @@ def _emit_bot_publication(report: Any) -> None:
         click.echo(f"Summary comment  {published['summary_url']}")
     if "inline" in published:
         click.echo(f"Inline comments  {published['inline']}")
+    if published.get("learned"):
+        click.echo(f"Learned          {published['learned']} thread(s) told what was learned from feedback")
     if published.get("replied"):
         click.echo(f"Fixed threads    {published['replied']} replied, {published.get('resolved', 0)} resolved")
     status = published.get("status")

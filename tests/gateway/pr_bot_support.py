@@ -113,6 +113,10 @@ class FakeGitHub:
         """Every ``POST .../reviews`` body exactly as the bot sent it."""
         self.associations: dict[str, str] = {"alice": "MEMBER"}
         """``author_association`` GitHub reports for a login; any other login is ``NONE``."""
+        self.permissions: dict[str, str] = {}
+        """The repository permission (``admin``, ``write``, ``read``, ``none``) for a login; an unknown login is a 404."""
+        self.reactions: dict[int, list[dict[str, str]]] = {}
+        """Comment id -> its reactions as GraphQL reports them (``content`` enum, ``login`` of the user)."""
         self._ids = 1000
 
     # ----- helpers ------------------------------------------------------ #
@@ -176,6 +180,16 @@ class FakeGitHub:
         self.review_comments.append(row)
         return row
 
+    def react(self, comment_id: int, content: str, login: str = "alice") -> None:
+        """A person reacts to a comment (``THUMBS_UP``, ``THUMBS_DOWN``, ``LAUGH`` ...). An empty login is an app."""
+
+        self.reactions.setdefault(comment_id, []).append({"content": content, "login": login})
+
+    def resolve(self, comment_id: int, by: str = "alice") -> None:
+        """A person resolves the review thread whose first comment is *comment_id*."""
+
+        self.threads[comment_id].update(resolved=True, by=by, by_kind="Bot" if by.endswith("[bot]") else "User")
+
     def add_issue_comment(
         self, body: str, *, user: dict[str, str] = PERSON, association: str | None = None
     ) -> dict[str, Any]:
@@ -208,6 +222,11 @@ class FakeGitHub:
             self.calls.append((method, path))
             return self._write(method, path, json.loads(stdin or "{}"))
         self.calls.append(("GET", call[1]))
+        collaborator = re.fullmatch(rf"repos/{SLUG}/collaborators/([^/]+)/permission", call[1])
+        if collaborator is not None:
+            if collaborator[1] not in self.permissions:
+                raise GitHubCliError("Not Found (HTTP 404)")
+            return json.dumps({"permission": self.permissions[collaborator[1]]})
         assert call[1] == self.api, call
         return json.dumps(self._pull())
 
@@ -331,14 +350,50 @@ class FakeGitHub:
             node = request["variables"]["id"]
             for thread in self.threads.values():
                 if thread["id"] == node:
-                    thread["resolved"] = True
+                    thread.update(resolved=True, by=BOT["login"].removesuffix("[bot]"), by_kind="Bot")
             return json.dumps({"data": {"resolveReviewThread": {"thread": {"isResolved": True}}}})
+        if "reactions" in query:
+            return json.dumps({"data": {"repository": {"pullRequest": {"reviewThreads": self._feedback_page()}}}})
         nodes = [
             {"id": thread["id"], "isResolved": thread["resolved"], "comments": {"nodes": [{"databaseId": comment_id}]}}
             for comment_id, thread in self.threads.items()
         ]
         page = {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes}
         return json.dumps({"data": {"repository": {"pullRequest": {"reviewThreads": page}}}})
+
+    def _feedback_page(self) -> dict[str, Any]:
+        """Every thread with its comments, their reactions and who resolved it: the feedback query's answer."""
+
+        def comment(row: dict[str, Any]) -> dict[str, Any]:
+            return {
+                "databaseId": row["id"],
+                "body": row["body"],
+                "author": {"login": row["user"]["login"], "__typename": row["user"]["type"]},
+                "authorAssociation": row.get("author_association", "NONE"),
+                "reactions": {
+                    "nodes": [
+                        {"content": r["content"], "user": {"login": r["login"]} if r["login"] else None}
+                        for r in self.reactions.get(row["id"], [])
+                    ]
+                },
+            }
+
+        nodes = []
+        for root, thread in self.threads.items():
+            rows = [r for r in self.review_comments if r["id"] == root or r.get("in_reply_to_id") == root]
+            nodes.append(
+                {
+                    "id": thread["id"],
+                    "isResolved": thread["resolved"],
+                    "resolvedBy": (
+                        {"login": thread["by"], "__typename": thread.get("by_kind", "User")}
+                        if thread.get("by")
+                        else None
+                    ),
+                    "comments": {"nodes": [comment(r) for r in sorted(rows, key=lambda r: r["id"])]},
+                }
+            )
+        return {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes}
 
 
 class FakeModel:

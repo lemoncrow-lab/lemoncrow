@@ -1,7 +1,7 @@
 name: LemonCrow Review
 description: >-
   AI pull request review on your own model key. Posts one summary comment and inline findings as a bot,
-  on each push re-reviews only what changed, and answers @lemoncrow questions in the pull request's threads.
+  on each push re-reviews only what changed, answers @lemoncrow questions in the pull request's threads, and learns from reactions, replies and ignore commands.
 author: LemonCrow
 branding:
   icon: eye
@@ -60,9 +60,11 @@ inputs:
     default: ""
   chat-allowed-associations:
     description: >-
-      Whose mentions the bot answers, by the author_association GitHub puts on the comment: a comma separated subset
-      of OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR, FIRST_TIMER, MANNEQUIN, NONE. Bots, and
-      this bot, are never answered whatever this says.
+      Whose mentions the bot answers, and whose reactions, replies and resolved threads teach it what not to flag on a
+      pull request, by the author_association GitHub puts on the comment (for a reaction, the association of a comment
+      of theirs, else their repository permission: write counts as COLLABORATOR): a comma separated subset of OWNER,
+      MEMBER, COLLABORATOR, CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR, FIRST_TIMER, MANNEQUIN, NONE. Bots, and this bot, are
+      never answered or listened to whatever this says.
     default: "OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR"
   pr-number:
     description: >-

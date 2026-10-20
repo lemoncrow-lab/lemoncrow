@@ -8,7 +8,10 @@ the Review dispositions (``session_models.FINDING_DISPOSITIONS``): ``new`` and
 ``superseded_stale`` (the code it was about no longer exists). ``unreported`` is the one state with no Review
 disposition: the code it was about changed and a later review did not find the problem again, but nothing
 showed that it was fixed. It is closed (it blocks nothing), its thread is left open for a person, and it comes
-back as ``carried``, on the same thread, if a later review reports it.
+back as ``carried``, on the same thread, if a later review reports it. ``suppressed`` is the other state with no
+Review disposition: a person said, with a reaction, a resolved thread, a reply or an ``ignore`` command, that the bot
+should not flag it on this pull request (:mod:`suppression`). It is closed, counts toward no verdict, keeps its thread,
+and a later push that reports the same concern is held back the same way.
 
 Severity is the product's own, one rule for every surface (:func:`severity_for`):
 
@@ -44,7 +47,7 @@ SEVERITIES: Final[tuple[str, ...]] = ("p0", "p1", "p2")
 SEVERITY_BADGE: Final[Mapping[str, str]] = {"p0": "P0", "p1": "P1", "p2": "P2"}
 SEVERITY_MEANING: Final[Mapping[str, str]] = {"p0": "must fix", "p1": "should fix", "p2": "optional"}
 SEVERITY_RANK: Final[Mapping[str, int]] = {"p0": 0, "p1": 1, "p2": 2}
-STATES: Final[tuple[str, ...]] = ("new", "carried", "fixed", "stale", "unreported")
+STATES: Final[tuple[str, ...]] = ("new", "carried", "fixed", "stale", "unreported", "suppressed")
 OPEN_STATES: Final[frozenset[str]] = frozenset({"new", "carried"})
 PLACEMENTS: Final[tuple[str, ...]] = ("", "inline", "summary")
 #: Investigator impact ratings, lowest first.
@@ -141,6 +144,10 @@ class BotFinding:
     #: Digest of the text of the lines the investigator cited, when a review checked them
     #: (``finding_replacement.lines_digest``): what lets a later push tell that the finding's own code changed.
     anchor_digest: str = ""
+    #: The suppression (:class:`suppression.Suppression`) that holds this finding back, when ``state`` is
+    #: ``suppressed``; and whether an allowed person gave it a thumbs-up (kept for analytics, it changes nothing).
+    suppressed_by: str = ""
+    confirmed: bool = False
 
     @property
     def is_open(self) -> bool:
@@ -219,6 +226,8 @@ class BotFinding:
             ("anchor", self.anchor),
             ("target_line", self.target_line),
             ("anchor_digest", self.anchor_digest),
+            ("suppressed_by", self.suppressed_by),
+            ("confirmed", self.confirmed),
         ):
             if value:
                 wire[key] = value
@@ -307,6 +316,8 @@ def finding_from_wire(raw: object) -> BotFinding | None:
         anchor=anchor if isinstance(anchor, str) and anchor in ANCHORS else "",
         target_line=_count(raw, "target_line"),
         anchor_digest=digest if isinstance(digest, str) and _DIGEST.match(digest) else "",
+        suppressed_by=_text(raw, "suppressed_by", 40),
+        confirmed=raw.get("confirmed") is True,
     )
 
 

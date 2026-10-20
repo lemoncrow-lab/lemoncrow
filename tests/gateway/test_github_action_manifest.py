@@ -303,3 +303,27 @@ def test_chat_is_wired_through_the_gate_and_the_review_step_and_documented() -> 
     assert ci_env.DEFAULT_MENTION == "@lemoncrow"
     assert ",".join(ci_env.DEFAULT_ASSOCIATIONS) == manifest()["inputs"]["chat-allowed-associations"]["default"]
     assert "OWNER`, `MEMBER`, `COLLABORATOR` or `CONTRIBUTOR`" in guide
+
+
+def test_the_guide_documents_learning_and_its_limits_and_the_sample_asks_for_no_extra_permission() -> None:
+    """G9: feedback is read with the permissions the sample already has, and wider learning is explicit and inert."""
+
+    guide = GUIDE.read_text(encoding="utf-8")
+    for phrase in (
+        "## Learning from feedback",
+        "Suggested rules from feedback",
+        "`@lemoncrow ignore <category or words> [in <path glob>]`",
+        "**and its code has not changed**",
+        "GitHub sends no event when someone reacts",
+        "the bot writes nothing to your repository",
+        "pull request's **merge base**",
+        "cannot be dismissed by a reaction, a reply, a resolved thread or `ignore`",
+        "A suppression cannot be undone from a comment yet",
+    ):
+        assert phrase in guide, phrase
+    # Reading reactions and resolutions, replying in a thread and rewriting the summary need nothing new.
+    assert documented_workflow()["permissions"] == {"contents": "read", "pull-requests": "write", "statuses": "write"}
+    # The suggested YAML in the guide is a valid rules block for the repository's own loader.
+    (example,) = [text for text in fenced("yaml") if text.startswith('rules:\n  - stable_key: "learned-')]
+    parsed = yaml.safe_load(example)
+    assert set(parsed["rules"][0]) == {"stable_key", "instruction", "paths"}

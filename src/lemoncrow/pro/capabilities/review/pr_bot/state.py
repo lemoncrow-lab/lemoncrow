@@ -33,6 +33,11 @@ from lemoncrow.pro.capabilities.review.pr_bot.findings import (
     BotFinding,
     finding_from_wire,
 )
+from lemoncrow.pro.capabilities.review.pr_bot.suppression import (
+    MAX_SUPPRESSIONS,
+    Suppression,
+    suppression_from_wire,
+)
 
 SCHEMA: Final[int] = 1
 SUMMARY_MARKER: Final[str] = "<!-- lemoncrow:summary v1 -->"
@@ -41,6 +46,8 @@ FINDING_MARKER_PREFIX: Final[str] = "<!-- lemoncrow:finding "
 #: The finding's fingerprint, stable across rewording (``findings.fingerprint_for``): what lets a later run recognise
 #: an inline comment it posted for the same concern when it no longer has the finding's id (a lost summary).
 FINGERPRINT_MARKER: Final[str] = "<!-- lemoncrow:fingerprint {fingerprint} -->"
+#: On the bot's "learned" reply in a finding's thread: which suppression it confirms, so it is said once per thread (G9).
+LEARNED_MARKER: Final[str] = "<!-- lemoncrow:learned {suppression_id} -->"
 STATE_OPEN: Final[str] = "<!-- lemoncrow:state v1\n"
 STATE_CLOSE: Final[str] = "\n-->"
 _STATE = re.compile(r"<!-- lemoncrow:state v1\n(.*?)\n-->", re.DOTALL)
@@ -150,6 +157,9 @@ class ReviewState:
     #: each other's numbers; both count toward the pull request's budget (:attr:`runs`, :attr:`spent`).
     chats: int = 0
     chat_usage: Usage = field(default_factory=Usage)
+    #: What people told the bot not to flag on this pull request (G9). Kept beside the findings it held back so a
+    #: later push that reports the same concern is held back the same way.
+    suppressions: tuple[Suppression, ...] = ()
 
     def open_findings(self) -> tuple[BotFinding, ...]:
         return tuple(finding for finding in self.findings if finding.is_open)
@@ -212,6 +222,7 @@ def state_wire(state: ReviewState) -> dict[str, Any]:
         "usage_total": state.usage_total.to_wire(),
         # Absent until the first chat answer, so a state written before G6 round-trips unchanged.
         **({"chats": state.chats, "chat_usage": state.chat_usage.to_wire()} if state.chats else {}),
+        **({"suppressions": [row.to_wire() for row in state.suppressions]} if state.suppressions else {}),
     }
 
 
@@ -269,6 +280,7 @@ def parse_state(body: str) -> ReviewState | None:
     reviews = raw.get("reviews")
     dropped = raw.get("findings_dropped")
     chats = raw.get("chats")
+    held = raw.get("suppressions")
     return ReviewState(
         head_sha=head,
         base_sha=_sha(raw, "base_sha"),
@@ -287,6 +299,13 @@ def parse_state(body: str) -> ReviewState | None:
         usage_total=Usage.from_wire(raw.get("usage_total")),
         chats=chats if isinstance(chats, int) and not isinstance(chats, bool) and 0 < chats < 1_000_000 else 0,
         chat_usage=Usage.from_wire(raw.get("chat_usage")),
+        suppressions=tuple(
+            row
+            for row in (
+                suppression_from_wire(item) for item in (held[:MAX_SUPPRESSIONS] if isinstance(held, list) else ())
+            )
+            if row is not None
+        ),
     )
 
 
@@ -353,6 +372,11 @@ def shrink(state: ReviewState, level: int) -> ReviewState:
     if level >= 3 and len(units) > MAX_UNITS // 4:
         units = dict(sorted(units.items())[: MAX_UNITS // 4])
         truncated = True
+    held = state.suppressions
+    if level >= 2:
+        held = tuple(replace(row, note="") for row in held)
+    if level >= 3:
+        held = tuple(replace(row, title=row.title[:60]) for row in held)
     dropped = state.findings_dropped
     if level >= MAX_DETAIL:
         important = {f.id for f in findings if f.is_open and f.severity in {"p0", "p1"}}
@@ -363,7 +387,12 @@ def shrink(state: ReviewState, level: int) -> ReviewState:
         findings = [f.changed(explanation="", consequence="", suggestion="") for f in findings if f.id in keep]
         units, truncated = {}, True
     return replace(
-        state, findings=tuple(findings), reviewed_units=units, units_truncated=truncated, findings_dropped=dropped
+        state,
+        findings=tuple(findings),
+        reviewed_units=units,
+        units_truncated=truncated,
+        findings_dropped=dropped,
+        suppressions=held,
     )
 
 

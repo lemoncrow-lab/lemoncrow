@@ -63,11 +63,55 @@ _THREADS_QUERY: Final[str] = (
     "pullRequest(number:$number){reviewThreads(first:100,after:$cursor){pageInfo{hasNextPage endCursor}"
     "nodes{id isResolved comments(first:1){nodes{databaseId}}}}}}}"
 )
+#: Every review thread with who resolved it, its comments (author, association) and the reactions on them: what G9
+#: reads to learn from people. Pages of 100 threads; a thread past 30 comments or a comment past 30 reactions is
+#: read as far as that (the first comment's reactions and the replies that matter are early).
+_FEEDBACK_QUERY: Final[str] = (
+    "query($owner:String!,$name:String!,$number:Int!,$cursor:String){repository(owner:$owner,name:$name){"
+    "pullRequest(number:$number){reviewThreads(first:100,after:$cursor){pageInfo{hasNextPage endCursor}"
+    "nodes{id isResolved resolvedBy{login __typename} comments(first:30){nodes{databaseId body "
+    "author{login __typename} authorAssociation reactions(first:30){nodes{content user{login}}}}}}}}}}"
+)
+_LOGIN: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}")
 _RESOLVE_MUTATION: Final[str] = "mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}"
 
 
 def _mapping(value: object) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _feedback_thread(node: dict[str, Any]) -> FeedbackThread | None:
+    comments: list[ThreadComment] = []
+    for row in _mapping(node.get("comments")).get("nodes") or ():
+        item = _mapping(row)
+        identity = item.get("databaseId")
+        if not isinstance(identity, int) or isinstance(identity, bool):
+            continue
+        author = _mapping(item.get("author"))
+        reactions = tuple(
+            Reaction(str(_mapping(r).get("content") or ""), str(_mapping(_mapping(r).get("user")).get("login") or ""))
+            for r in _mapping(item.get("reactions")).get("nodes") or ()
+        )
+        comments.append(
+            ThreadComment(
+                id=identity,
+                body=str(item.get("body") or ""),
+                login=str(author.get("login") or ""),
+                kind=str(author.get("__typename") or ""),
+                association=str(item.get("authorAssociation") or "").upper(),
+                reactions=reactions,
+            )
+        )
+    if not comments:
+        return None
+    resolver = _mapping(node.get("resolvedBy"))
+    return FeedbackThread(
+        root_id=comments[0].id,
+        resolved=node.get("isResolved") is True,
+        resolved_by=str(resolver.get("login") or ""),
+        resolved_by_kind=str(resolver.get("__typename") or ""),
+        comments=tuple(comments),
+    )
 
 
 def finding_id_of(comment: Remote) -> str:
@@ -249,6 +293,36 @@ class InlineOutcome:
     """finding id -> the finding as it was sent: its suggestion and lines after GitHub's own diff was consulted."""
     adopted: tuple[str, ...] = ()
     """Findings in ``posted`` that already had a comment from the bot, found just before posting; nothing was sent for them."""
+
+
+@dataclass(frozen=True, slots=True)
+class Reaction:
+    """One reaction on a comment. ``content`` is GitHub's enum (``THUMBS_UP``, ``THUMBS_DOWN``, ``LAUGH``, ...); ``login`` is
+    empty when GitHub names no user (an app)."""
+
+    content: str
+    login: str
+
+
+@dataclass(frozen=True, slots=True)
+class ThreadComment:
+    id: int
+    body: str
+    login: str
+    kind: str
+    association: str
+    reactions: tuple[Reaction, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class FeedbackThread:
+    """A review thread as people left it: whether and by whom it was resolved, and what was said and reacted to."""
+
+    root_id: int
+    resolved: bool
+    resolved_by: str
+    resolved_by_kind: str
+    comments: tuple[ThreadComment, ...]
 
 
 @dataclass(frozen=True)
@@ -662,6 +736,54 @@ class BotGitHub:
                 return threads
             cursor = str(info["endCursor"])
 
+    def feedback_threads(self) -> list[FeedbackThread]:
+        """Every review thread with its comments, their reactions and who resolved it (one GraphQL call per 100 threads)."""
+
+        found: list[FeedbackThread] = []
+        cursor: str | None = None
+        owner, _, name = self.pr.slug.partition("/")
+        while True:
+            data = gh_json(
+                self.runner,
+                ["api", "graphql", "--input", "-"],
+                json.dumps(
+                    {
+                        "query": _FEEDBACK_QUERY,
+                        "variables": {"owner": owner, "name": name, "number": self.pr.number, "cursor": cursor},
+                    }
+                ),
+            )
+            if _mapping(data).get("errors"):
+                raise GitHubCliError(str(_mapping(data)["errors"])[:200])
+            page = _mapping(
+                _mapping(_mapping(_mapping(_mapping(data).get("data")).get("repository")).get("pullRequest")).get(
+                    "reviewThreads"
+                )
+            )
+            for node in page.get("nodes") or ():
+                thread = _feedback_thread(_mapping(node))
+                if thread is not None:
+                    found.append(thread)
+            info = _mapping(page.get("pageInfo"))
+            if info.get("hasNextPage") is not True or not isinstance(info.get("endCursor"), str):
+                return found
+            cursor = str(info["endCursor"])
+
+    def permission_of(self, login: str) -> str:
+        """The repository permission GitHub reports for *login* (``admin``, ``write``, ``read``, ``none``), else ``""``.
+
+        A reaction carries no ``author_association``, so a person who only reacted is looked up. Fails closed: a login
+        that is not a user name, a refusal and a missing user are all ``""``.
+        """
+
+        if not _LOGIN.fullmatch(login):
+            return ""
+        try:
+            data = gh_json(self.runner, ["api", f"repos/{self.pr.slug}/collaborators/{login}/permission"])
+        except GitHubCliError:
+            return ""
+        return str(_mapping(data).get("permission") or "")
+
     def resolve_thread(self, thread_id: str) -> None:
         data = gh_json(
             self.runner,
@@ -688,10 +810,13 @@ class BotGitHub:
 
 __all__ = [
     "BotGitHub",
+    "FeedbackThread",
     "InlineOutcome",
     "PullFacts",
     "PullRequestState",
+    "Reaction",
     "Remote",
+    "ThreadComment",
     "ThreadOutcome",
     "finding_id_of",
     "with_backoff",

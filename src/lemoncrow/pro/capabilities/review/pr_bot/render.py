@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 from lemoncrow.pro.capabilities.review.pr_bot.findings import (
     SEVERITY_BADGE,
@@ -27,6 +27,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.findings import (
 from lemoncrow.pro.capabilities.review.pr_bot.state import (
     FINDING_MARKER,
     FINGERPRINT_MARKER,
+    LEARNED_MARKER,
     MAX_DETAIL,
     SUMMARY_MARKER,
     ReviewState,
@@ -35,6 +36,10 @@ from lemoncrow.pro.capabilities.review.pr_bot.state import (
     shrink,
     verdict_counts,
 )
+from lemoncrow.pro.capabilities.review.pr_bot.suppression import REASON_WORDS, Suppression, category_label
+
+if TYPE_CHECKING:
+    from lemoncrow.pro.capabilities.review.rule_suggestions import RuleSuggestion
 
 #: GitHub refuses a comment over 65,536 characters; stay clear of it.
 MAX_COMMENT: Final[int] = 65_000
@@ -251,16 +256,22 @@ CHAT_MARKER: Final[str] = "<!-- lemoncrow:chat {comment_id} -->"
 MAX_CHAT_ANSWER: Final[int] = 3_000
 
 
-def chat_reply(answer: str, *, comment_id: int, usage: Usage | None = None, note: str = "") -> str:
+def chat_reply(
+    answer: str, *, comment_id: int, usage: Usage | None = None, note: str = "", trusted: bool = False
+) -> str:
     """A chat answer as a comment: neutralised text, a one-line cost, and the marker that makes a re-run answer once.
 
     *comment_id* is the comment being answered. The text is whatever a model (or this module) wrote about code and
     comments that came from other people, so it goes through :func:`clean`: no marker, mention, image, link target or
     HTML block it wrote survives. The only marker in the comment is the one added here.
+
+    *trusted* is for text this module's callers built themselves (the help text, a budget notice, a "learned" reply),
+    where every piece that came from a person or a model has been cleaned already: it keeps its own markup (a collapsed
+    block, a hidden confirmation marker) and the ``@lemoncrow`` a person is meant to copy.
     """
 
-    text = clean(answer.strip())
-    if len(text) > MAX_CHAT_ANSWER:
+    text = answer.strip() if trusted else clean(answer.strip())
+    if len(text) > MAX_CHAT_ANSWER and not trusted:
         text = text[: MAX_CHAT_ANSWER - 1].rstrip() + "…"
     lines = [text]
     footer = " · ".join(part for part in (note, usage_text(usage) if usage is not None and usage.calls else "") if part)
@@ -289,6 +300,8 @@ class RunFacts:
     complete: bool = True
     uninvestigated: int = 0
     unreported: int = 0
+    #: Findings held back by feedback in this run (G9): a person said not to flag them on this pull request.
+    suppressed: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -322,6 +335,8 @@ class SummaryView:
     fail_on: str = "none"
     #: Why this pull request's review budget is spent (``3 of 3 reviews used``); empty when it is not.
     budget: str = ""
+    #: Rules worth offering for what people dismissed (:func:`learning.suggest`), shown as YAML to copy.
+    suggestions: tuple[RuleSuggestion, ...] = ()
 
 
 def strip_text(facts: RunFacts) -> str:
@@ -337,6 +352,8 @@ def strip_text(facts: RunFacts) -> str:
         ]
     if facts.unreported:
         parts.append(f"{facts.unreported} no longer reported")
+    if facts.suppressed:
+        parts.append(f"{facts.suppressed} dismissed by feedback")
     if facts.uninvestigated:
         parts.append(f"{plural(facts.uninvestigated, 'risk signal')} not investigated yet")
     if not facts.complete:
@@ -360,6 +377,8 @@ def _tag(finding: BotFinding) -> str:
         return "carried forward, unverified" if finding.unverified else "carried forward"
     if finding.state == "unreported":
         return f"no longer reported in {short(finding.resolved_in)}, not confirmed fixed"
+    if finding.state == "suppressed":
+        return "dismissed by feedback"
     return f"fixed in {short(finding.resolved_in)}" if finding.state == "fixed" else "no longer applies"
 
 
@@ -378,6 +397,68 @@ def _held_back(findings: Sequence[BotFinding], *, detailed: bool) -> list[str]:
             lines.append(f"  {clean(trimmed(finding.explanation, 240))}")
     lines += ["", "</details>"]
     return lines
+
+
+def scope_phrase(row: Suppression) -> str:
+    """What a suppression holds back, in a sentence (the category and the globs are code spans)."""
+
+    where = f" in {', '.join(f'`{code(path)}`' for path in row.paths)}" if row.paths else ""
+    if row.fingerprint:
+        place = f" in `{code(row.path)}`" if row.path else ""
+        return f'"{clean(row.title)}"{place}' if row.title else f"this finding{place}"
+    if row.category:
+        return f"`{code(category_label(row.category))}` findings{where}"
+    return f'findings that mention "{clean(row.pattern)}"{where}'
+
+
+def how_phrase(row: Suppression) -> str:
+    """Who taught the bot a suppression and how, for a sentence. The login is in a code span, so it pings no one."""
+
+    person = f"`{code(row.by)}`" if row.by else "someone"
+    if row.source == "reaction":
+        return f"thumbs-down from {person}"
+    if row.source == "resolved":
+        return f"thread resolved by {person} with the code unchanged"
+    if row.source == "reply":
+        return f"reply from {person}: {REASON_WORDS.get(row.reason, 'not wanted')}"
+    return f"{person} asked for it"
+
+
+def learned_reply(row: Suppression, rule: str, *, matched: Sequence[BotFinding] = (), marker: bool = True) -> str:
+    """The "learned" confirmation: what will not be flagged, why, and the rule that would make it permanent.
+
+    *rule* is the YAML for ``.lemoncrow/review.yaml`` (:func:`rule_suggestions.rule_yaml`). The bot never writes it: a
+    person copies it, and it governs reviews once it is merged to the base branch the Action reads it from. *marker*
+    makes a thread's confirmation say itself once; a reply to a command carries the chat marker instead.
+    """
+
+    lines = [
+        f"Learned: won't flag {scope_phrase(row)} on this pull request. {how_phrase(row)[0].upper()}{how_phrase(row)[1:]}."
+    ]
+    if row.note and row.source in {"reaction", "resolved"}:
+        lines.append(f'Their words: "{clean(row.note)}"')
+    if matched:
+        titles = "; ".join(clean(finding.title) for finding in matched[:5])
+        more = f" and {len(matched) - 5} more" if len(matched) > 5 else ""
+        lines += ["", f"{plural(len(matched), 'open finding')} taken off the verdict: {titles}{more}."]
+    fence = fence_for(rule)
+    lines += [
+        "",
+        "Make it a repo rule: add the rule below to `.lemoncrow/review.yaml` on your default branch. The Action reads "
+        "that file from the pull request's merge base, so the rule takes effect once it is merged; it never writes to "
+        "your repository.",
+        "",
+        "<details><summary>Rule for .lemoncrow/review.yaml</summary>",
+        "",
+        f"{fence}yaml",
+        rule.rstrip("\n"),
+        fence,
+        "",
+        "</details>",
+    ]
+    if marker:
+        lines += ["", LEARNED_MARKER.format(suppression_id=row.id)]
+    return "\n".join(lines)
 
 
 def agent_prompt(
@@ -423,8 +504,11 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
 
     findings = sorted(view.findings, key=sort_key)
     opened = [finding for finding in findings if finding.is_open]
-    closed = [finding for finding in findings if not finding.is_open and finding.state != "unreported"]
+    closed = [
+        finding for finding in findings if not finding.is_open and finding.state not in {"unreported", "suppressed"}
+    ]
     unreported = [finding for finding in findings if finding.state == "unreported"]
+    dismissed = [finding for finding in findings if finding.state == "suppressed"]
     shown = [finding for finding in opened if finding.severity != "p2"]
     held = [finding for finding in opened if finding.severity == "p2"]
     result = verdict(
@@ -462,6 +546,14 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
         lines += ["", f"<details><summary>{plural(len(closed), 'finding')} fixed since last review</summary>", ""]
         lines += [f"- ~~{clean(finding.title)}~~ — `{_where(finding)}` · {_tag(finding)}" for finding in closed]
         lines += ["", "</details>"]
+    if dismissed:
+        by_id = {row.id: row for row in state.suppressions}
+        lines += ["", f"<details><summary>{plural(len(dismissed), 'finding')} dismissed by feedback</summary>", ""]
+        for finding in dismissed:
+            row = by_id.get(finding.suppressed_by)
+            why = how_phrase(row) if row is not None else "dismissed by feedback"
+            lines.append(f"- {clean(finding.title)} — `{_where(finding)}` · {why}")
+        lines += ["", "Held back on this pull request only; they count toward no verdict.", "", "</details>"]
     if unreported:
         heading = plural(len(unreported), "finding") + " no longer reported, not confirmed fixed"
         lines += ["", f"<details><summary>{heading}</summary>", ""]
@@ -472,6 +564,31 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
             "",
         ]
         lines += ["</details>"]
+    if state.suppressions and level < 3:
+        heading = f"{plural(len(state.suppressions), 'instruction')} learned on this pull request"
+        lines += ["", f"<details><summary>{heading}</summary>", ""]
+        lines += [f"- Not flagging {scope_phrase(row)} · {how_phrase(row)}" for row in state.suppressions]
+        lines += ["", "</details>"]
+    if view.suggestions and level < MAX_DETAIL:
+        from lemoncrow.pro.capabilities.review.rule_suggestions import rule_yaml
+
+        text = rule_yaml(view.suggestions)
+        fence = fence_for(text)
+        lines += [
+            "",
+            "<details><summary>Suggested rules from feedback</summary>",
+            "",
+            "Copy these into `.lemoncrow/review.yaml` on your default branch (add the rows under `rules:` if the file "
+            "has one) to make them repo-wide. The Action reads that file from the pull request's merge base, so a rule "
+            "takes effect once it is merged; nothing here is applied until then, and the bot never writes to your "
+            "repository.",
+            "",
+            f"{fence}yaml",
+            text.rstrip("\n"),
+            fence,
+            "",
+            "</details>",
+        ]
     if opened:
         prompt = agent_prompt(
             opened,

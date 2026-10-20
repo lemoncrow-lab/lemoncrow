@@ -105,7 +105,7 @@ Notes on the workflow:
 | `review-drafts` | `false` | Review draft pull requests too. |
 | `on-push` | `true` | Re-review on each push to an open pull request. `false` reviews only when it opens. |
 | `mention-aliases` | none | Extra handles the bot answers to besides `@lemoncrow`, comma separated (`@review-bot`). See "Chat in pull request threads". |
-| `chat-allowed-associations` | `OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR` | Whose mentions are answered, by the `author_association` GitHub puts on the comment. |
+| `chat-allowed-associations` | `OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR` | Whose mentions are answered, and whose reactions, replies and resolved threads teach the bot, by the `author_association` GitHub puts on the comment. |
 | `pr-number` | the event's pull request (also for a comment on one) | Set it for `workflow_dispatch` runs. |
 | `working-directory` | `.` | Where the repository is checked out. |
 
@@ -120,6 +120,7 @@ LiteLLM users can set `model-provider: litellm` and the variables LiteLLM alread
 - findings sorted by severity, each linking to its inline thread. **P0** must fix, **P1** should fix, **P2** optional;
 - P2 findings in a collapsed block, `N low-priority findings held back`;
 - on a clean review, a collapsed `What we checked`: files, rules applied, depth;
+- collapsed blocks for feedback: `N findings dismissed by feedback`, `N instructions learned on this pull request` and `Suggested rules from feedback` (see "Learning from feedback");
 - a collapsed `Fix with your agent`: a prompt listing the open findings with `file:line`, and the checked replacement for each finding that has one, to paste into Claude Code, Codex or Cursor;
 - a footer with the model, depth, model calls and tokens, how much of those tokens was repository context (`~3k of it repository context`, see below), and an estimated cost when LemonCrow's local price table knows the model. It never guesses a price: an unknown model shows tokens only.
 
@@ -217,7 +218,7 @@ The summary ends with `<!-- lemoncrow:state v1 {json} -->`. Read it instead of s
 
 `context_tokens` is LemonCrow's own estimate (four characters per token) of the repository context in the prompts; it is part of `input_tokens`, not on top of it, and it is absent when no context was sent.
 
-A finding's `state` is `new`, `carried`, `fixed`, `stale` or `unreported` ("no longer reported"). A finding also carries `impact` (the investigator's rating), `verified` (evidence from beyond its own changed code backs it), `anchor` (`cited` or `target`, see above) and `target_line` (where its code's change begins, which later pushes compare against) and `anchor_digest` (a digest of the lines it cited, which a later push uses to tell that they changed) when it has them, and, when it has a checked replacement, `suggestion` with the `suggestion_start` and `suggestion_end` lines it replaces. `units` and `units_truncated` hold what the next run compares against. Only a comment from a `Bot` account is trusted as this state.
+A finding's `state` is `new`, `carried`, `fixed`, `stale`, `unreported` ("no longer reported") or `suppressed` (a person told the bot not to flag it on this pull request). A finding also carries `impact` (the investigator's rating), `verified` (evidence from beyond its own changed code backs it), `anchor` (`cited` or `target`, see above) and `target_line` (where its code's change begins, which later pushes compare against) and `anchor_digest` (a digest of the lines it cited, which a later push uses to tell that they changed) when it has them, and, when it has a checked replacement, `suggestion` with the `suggestion_start` and `suggestion_end` lines it replaces. `units` and `units_truncated` hold what the next run compares against. Only a comment from a `Bot` account is trusted as this state.
 
 ## Pushes cost less
 
@@ -242,6 +243,7 @@ Mention the bot and it answers where you asked. The same Action does it: the wor
 ```text
 @lemoncrow is this reachable from the HTTP layer?     reply in a finding's thread, or anywhere
 @lemoncrow recheck                                     in a finding's thread: re-examine that finding alone
+@lemoncrow ignore verification in tests/**             stop flagging that on this pull request (see "Learning from feedback")
 @lemoncrow help                                        the commands, no model call
 ```
 
@@ -262,6 +264,57 @@ Mention the bot and it answers where you asked. The same Action does it: the wor
 **Permissions.** None beyond the sample's. A reply in a review thread is `POST /pulls/{n}/comments/{id}/replies` and a conversation answer is `POST /issues/{n}/comments`; both are covered by `pull-requests: write`, which GitHub's REST reference is understood to list (as an alternative to `issues: write`) for commenting on a pull request, and which the summary comment already relies on. Add `issues: write` only if you pass your own `github-token` that was issued with the `Issues` permission and not `Pull requests`. This was written from GitHub's documentation, not checked against a live repository (nothing in this Action has been); if a conversation answer fails with `Resource not accessible by integration`, add `issues: write`.
 
 **Limits.** The reply goes up when the model has finished; there is no "working on it" marker. A chat job installs the Action (a few seconds to a minute) and captures the pull request, so an answer takes about as long as the start of a review plus one model call. Two answers that finish in the same instant can be counted once. A mention is answered from the commit the pull request is at now, and the finding from the last review; if they differ the prompt says the review is not current.
+
+## Learning from feedback
+
+Greptile asks for "2-3 weeks of consistent reactions" before it adapts. Here a person's feedback takes effect in the run that sees it, for the pull request it was given on, and the thread is told what was learned. Wider learning is a suggestion you copy, never something the bot does to your repository.
+
+**What teaches it.** Four things, all on the bot's own inline comments:
+
+| Signal | Taught | Needs |
+| --- | --- | --- |
+| A thumbs-down (`-1`) on the comment | the finding's concern is not wanted on this pull request | the next run |
+| A reply that says so: "not a bug", "false positive", "won't fix", "by design", "intentional", "duplicate", "n/a" | the same, with the reason (`incorrect`, `accepted_risk`, `duplicate`, `not_applicable`, the vocabulary of a Review's finding dismissal) and the reply as the note | the next run |
+| The thread resolved by a person while the finding still stands **and its code has not changed** | the same | the next run |
+| `@lemoncrow ignore <category or words> [in <path glob>]` | that category (`security`, `correctness`, `api`, `concurrency`, `persistence`, `performance`, `verification`) or any finding whose title or explanation has those words, optionally only under the glob | now |
+| A thumbs-up (`+1`) | nothing: the finding is marked `confirmed` in the state, for analytics | the next run |
+
+Other emoji are neutral. A thumbs-down wins over a reply, a reply over a resolve, and any of them over a thumbs-up. A reply that asks (a question mark), addresses the bot (that is chat) or only quotes is not a dismissal, and a reply that only gives a reason ("the tests use bare asserts") is kept as the note of a thumbs-down or a resolve rather than read on its own. A thread resolved after the code was fixed is a fix, not a disagreement, and a thread the bot resolved itself teaches nothing.
+
+**When it takes effect.** GitHub sends no event when someone reacts, so a reaction is read by the next run: a push, a re-run of the workflow, or a `recheck` or `ignore`, which re-render the summary. An `ignore` is a comment event, so with the chat triggers it applies at once (a reply that does not mention the bot is read by the next run, like a reaction): the summary and the `LemonCrow Review` status are re-rendered from the same findings with no model call (a pull request that has moved on since the last review keeps the instruction in the state for the next review instead, and says so). A suppressed finding is closed: it counts toward no verdict and no check, posts no inline comment, and keeps its thread, in a collapsed `N findings dismissed by feedback` block. A later push that reports the same concern, even worded differently, is held back the same way, because a dismissal learned from a reaction is the finding's *fingerprint* (category, code and rules, not its words). That also means a second, different problem in the same function is held back with it; use a reply to say which.
+
+**Who may teach it.** The same `author_association` allow-list as chat (`chat-allowed-associations`, default `OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR`). A reaction carries no association, so the Action takes the one GitHub put on a comment of theirs on this pull request (or the pull request's author association) and otherwise looks up their repository permission (`GET /repos/{owner}/{repo}/collaborators/{user}/permission`): `write`, `maintain` and `admin` count as a collaborator, anything else, and any lookup GitHub refuses, counts for nothing. Bots and apps are never listened to. Reactions, replies and resolutions from anyone else are ignored without a word.
+
+**What it will not let a comment do.** A violation of a rule you wrote in `.lemoncrow/review.yaml` (`critical_rule`) cannot be dismissed by a reaction, a reply, a resolved thread or `ignore`: that file is the trusted base's, and a comment on a pull request is not allowed to loosen it. `ignore critical_rule` and `ignore` in such a thread say so and do nothing. Anyone else on the allow-list can dismiss any other finding, a P0 included, and the check follows; if you do not want a pull request's author to be able to do that, narrow `chat-allowed-associations`.
+
+**The confirmation.** The thread gets one reply, once, whatever the number of later pushes:
+
+```text
+Learned: won't flag "accepts a null principal" in `src/auth.py` on this pull request. Thumbs-down from `alice`.
+
+Make it a repo rule: add the rule below to `.lemoncrow/review.yaml` on your default branch. The Action reads that
+file from the pull request's merge base, so the rule takes effect once it is merged; it never writes to your repository.
+
+▸ Rule for .lemoncrow/review.yaml          (collapsed: the YAML)
+```
+
+A reply to an `ignore` command is its own confirmation, with how many open findings it took off the verdict and their titles.
+
+**Suggested rules from feedback.** The summary gets a collapsed `Suggested rules from feedback` block with YAML to copy under `rules:` in `.lemoncrow/review.yaml`, built with the same code that proposes rule adoptions in the Reader, so the repository's rule loader accepts it (the tests load it with that loader). A command is a rule of its own; thumbs-downs and resolves are grouped by category and directory and offered when a person said why in words or when two or more repeat, because one thumbs-down is not yet a pattern. The block is text: the bot writes nothing to your repository, and the Action reads `.lemoncrow/review.yaml` from the pull request's **merge base**, so a suggested rule governs reviews only once a person has merged it, the same trusted-base rule every other rule follows (a copy in the pull request's own branch changes nothing for that pull request).
+
+```yaml
+rules:
+  - stable_key: "learned-9f2c1a7b3d4e5f60"
+    instruction: "Do not report security findings in src/legacy/**. A reviewer asked for them to be ignored."
+    paths:
+      - "src/legacy/**"
+```
+
+There is no `ignore` key in `.lemoncrow/review.yaml`, so a suggestion is a rule, written in words. It is trusted text the investigator reads for the paths it covers, and, like every rule, it can also be asked as a per-rule question where your review settings ask them; read a suggestion before you merge it. Everything a person or a model wrote that goes into a suggestion is cut short and stripped of angle brackets, backticks and link syntax first, and a rule is a quoted YAML string, so it cannot add a key or a row.
+
+**What is stored.** The summary's hidden state carries `suppressions` (at most 40, the newest kept), each with its id, source (`reaction`, `resolved`, `reply`, `command`), what it holds back (a fingerprint, a category or words, and an optional path glob), the person's login, the reason and a short note, and the thread it came from; a held-back finding has state `suppressed` and the id of the suppression that holds it back; a finding that got a thumbs-up has `confirmed`. A feedback line costs no model call. Suppressions live as long as the summary comment: deleting it resets them, and the review budget with them.
+
+**Limits.** A suppression cannot be undone from a comment yet (delete the bot's summary to reset). A reaction cannot take effect before a run that reads it; there is no GitHub event to start one. Feedback is read when a review runs, so a pull request whose budget is spent (`Review budget reached`) applies commands and stored suppressions but does not read new reactions until the budget allows a run. The reaction reader looks at the first 30 comments of a thread and 30 reactions on each, and at 100 threads per page. The reply phrases are English. Whether a teaching reply or reaction was *right* is not checked: it is a person's decision.
 
 ## Cost and limits
 
@@ -434,4 +487,5 @@ LemonCrow is not on PyPI. The Action checks out itself at the ref you named, ins
 - **`Resource not accessible by integration`** in the run log: the workflow lacks a permission. The review still completes; the note names what it could not do (a status needs `statuses: write`, comments and thread resolution need `pull-requests: write`).
 - **Nothing happened on a pull request**: check the run's notice. Forks, drafts and `on-push: false` runs say so, and all but forks also set the `LemonCrow Review` status to `skipped: <reason>`.
 - **A mention got no answer**: look at the run log of the comment's workflow run. The usual causes are that the workflow does not trigger on `issue_comment` / `pull_request_review_comment`, that the job's `if:` did not match (an alias must be added to it), that the commenter's `author_association` is not allowed (the log says so), that the comment was on a fork's review thread (no secrets), or that the comment only quoted the handle in code or a quote.
+- **A thumbs-down did nothing**: it is read by the next run, not when you click (GitHub has no event for a reaction); push, re-run the workflow, or `@lemoncrow ignore` the finding. The reaction must be on the bot's own inline comment, from a person whose association is allowed (or who has write access), and the finding must still be open; a rule violation is never dismissed by feedback.
 - **A push posted nothing new**: the changed code produced no new finding. The summary's status strip says what was re-reviewed.
