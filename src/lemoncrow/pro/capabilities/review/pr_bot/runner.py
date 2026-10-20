@@ -413,16 +413,26 @@ def _best_effort_value(action: Callable[[], Any], notes: list[str], what: str) -
 def _adopt(github: BotGitHub, findings: list[BotFinding], comments: list[Remote]) -> list[BotFinding]:
     """Give each finding the inline comment it already has on the pull request, found by its marker."""
 
-    found = github.adopt_existing([finding for finding in findings if finding.thread_id == 0], comments)
+    found = github.adopt_existing(
+        [finding for finding in findings if finding.thread_id == 0], comments, tracked={f.id for f in findings}
+    )
     if not found:
         return findings
     adopted: list[BotFinding] = []
     for finding in findings:
         comment = found.get(finding.id)
         if comment is not None and finding.thread_id == 0:
-            finding = finding.posted(
-                thread_id=comment.id, thread_url=comment.url or github.comment_url(comment.id), placement="inline"
-            )
+            fields: dict[str, Any] = {
+                "thread_id": comment.id,
+                "thread_url": comment.url or github.comment_url(comment.id),
+                "placement": "inline",
+            }
+            if comment.line > 0:
+                # The thread is where it is, whatever this run would have chosen.
+                fields.update(line=comment.start_line or comment.line, end_line=comment.line)
+                finding = finding.changed(**fields)
+            else:
+                finding = finding.posted(**fields)
         adopted.append(finding)
     return adopted
 
@@ -430,12 +440,16 @@ def _adopt(github: BotGitHub, findings: list[BotFinding], comments: list[Remote]
 def _post_inline(
     github: BotGitHub, findings: list[BotFinding], wanted: list[BotFinding], head: str, report: RunReport
 ) -> list[BotFinding]:
-    outcome = _best_effort_value(lambda: github.post_inline(wanted, head), report.notes, "post the inline review")
+    outcome = _best_effort_value(
+        lambda: github.post_inline(wanted, head, tracked={f.id for f in findings}),
+        report.notes,
+        "post the inline review",
+    )
     if outcome is None:
         return findings
     if outcome.skipped_reason:
         report.notes.append(f"inline comments not posted: {outcome.skipped_reason}")
-    report.published["inline"] = len(outcome.posted)
+    report.published["inline"] = len(outcome.posted) - len(outcome.adopted)
     if outcome.review_url:
         report.published["review_url"] = outcome.review_url
     updated: list[BotFinding] = []

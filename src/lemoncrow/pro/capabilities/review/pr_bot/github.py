@@ -23,7 +23,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Final
 
@@ -56,6 +56,7 @@ from lemoncrow.pro.capabilities.review.sources.github import (
 # upgrade: back off on 403/429 with Retry-After.
 BOT_TYPE: Final[str] = "Bot"
 _FINDING_MARKER = re.compile(r"<!-- lemoncrow:finding (\S+) -->")
+_FINGERPRINT_MARKER = re.compile(r"<!-- lemoncrow:fingerprint (fp-[0-9a-f]{16}) -->")
 _RESOLVED_MARKER = re.compile(r"<!-- lemoncrow:resolved (\S+) -->")
 
 _THREADS_QUERY: Final[str] = (
@@ -103,6 +104,10 @@ class Remote:
     author_type: str
     url: str
     reply_to: int = 0
+    #: For an inline comment: its file and the lines (new side) it covers; ``0`` when GitHub no longer shows them.
+    path: str = ""
+    line: int = 0
+    start_line: int = 0
 
     @property
     def by_bot(self) -> bool:
@@ -115,6 +120,15 @@ def _remote(row: dict[str, Any]) -> Remote | None:
         return None
     user = _mapping(row.get("user"))
     reply = row.get("in_reply_to_id")
+
+    def number(*keys: str) -> int:
+        for key in keys:
+            value = row.get(key)
+            if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+                return value
+        return 0
+
+    last = number("line", "original_line")
     return Remote(
         id=identity,
         body=str(row.get("body") or ""),
@@ -122,6 +136,9 @@ def _remote(row: dict[str, Any]) -> Remote | None:
         author_type=str(user.get("type") or ""),
         url=str(row.get("html_url") or ""),
         reply_to=reply if isinstance(reply, int) and not isinstance(reply, bool) else 0,
+        path=str(row.get("path") or ""),
+        line=last,
+        start_line=number("start_line", "original_start_line") or last,
     )
 
 
@@ -137,6 +154,8 @@ class InlineOutcome:
     skipped_reason: str = ""
     sent: dict[str, BotFinding] = field(default_factory=dict)
     """finding id -> the finding as it was sent: its suggestion and lines after GitHub's own diff was consulted."""
+    adopted: tuple[str, ...] = ()
+    """Findings in ``posted`` that already had a comment from the bot, found just before posting; nothing was sent for them."""
 
 
 @dataclass(frozen=True)
@@ -222,11 +241,19 @@ class BotGitHub:
     def comment_url(self, comment_id: int) -> str:
         return f"https://{self.pr.host}/{self.pr.slug}/pull/{self.pr.number}#discussion_r{comment_id}"
 
-    def adopt_existing(self, findings: Sequence[BotFinding], comments: Sequence[Remote]) -> dict[str, Remote]:
+    def adopt_existing(
+        self, findings: Sequence[BotFinding], comments: Sequence[Remote], *, tracked: Collection[str] = ()
+    ) -> dict[str, Remote]:
         """Findings that already have an inline comment on the PR, found by their marker.
 
-        This is what keeps a re-run, or a run whose summary write was lost, from
-        posting a second comment for a finding.
+        This is what keeps a re-run, or a run whose summary write was lost, from posting a second comment for a
+        finding. A comment is matched by the finding's id first. A finding the id does not find is matched by its
+        fingerprint, which does not change when the model words the same concern differently (a cancelled run
+        that posted its comment and lost its summary meets a reworded finding next time): the bot's own inline
+        comment on the same file with the same fingerprint, one comment per finding. A comment whose finding was
+        closed (the bot replied that it was fixed) is never matched, or a bug that comes back would be silenced by
+        the thread of the one that was fixed; neither is a comment of another finding the review tracks
+        (*tracked*: all their ids), which is why two bugs in one function keep a comment each, or a person's.
         """
 
         wanted = {finding.id for finding in findings}
@@ -237,9 +264,40 @@ class BotGitHub:
             match = _FINDING_MARKER.search(comment.body)
             if match is not None and match[1] in wanted:
                 found.setdefault(match[1], comment)
+        unmatched = [finding for finding in findings if finding.id not in found and finding.fingerprint]
+        if not unmatched:
+            return found
+        closed = {
+            match[1]
+            for comment in comments
+            if comment.by_bot
+            for match in [_RESOLVED_MARKER.search(comment.body)]
+            if match is not None
+        }
+        taken = {comment.id for comment in found.values()}
+        for finding in unmatched:
+            for comment in comments:
+                if comment.id in taken or not comment.by_bot or comment.reply_to or comment.path != finding.path:
+                    continue
+                marked = _FINGERPRINT_MARKER.search(comment.body)
+                owner = _FINDING_MARKER.search(comment.body)
+                if marked is None or marked[1] != finding.fingerprint:
+                    continue
+                if owner is not None and owner[1] in closed | wanted | set(tracked):
+                    continue  # a closed finding's thread, or one that belongs to a finding of its own
+                found[finding.id] = comment
+                taken.add(comment.id)
+                break
         return found
 
-    def post_inline(self, findings: Sequence[BotFinding], head_sha: str, *, dry_run: bool = False) -> InlineOutcome:
+    def post_inline(
+        self,
+        findings: Sequence[BotFinding],
+        head_sha: str,
+        *,
+        dry_run: bool = False,
+        tracked: Collection[str] = (),
+    ) -> InlineOutcome:
         """Post the findings as one ``COMMENT`` review, each on its own diff line.
 
         Findings GitHub cannot place are returned as ``unplaced`` (the summary lists
@@ -248,6 +306,28 @@ class BotGitHub:
 
         if not findings:
             return InlineOutcome({}, ())
+        # The last look before writing: a run that was cancelled while posting, or one that raced this, may have put
+        # the comment there since this run read the pull request. Those findings are adopted, not posted again.
+        existing = self.adopt_existing(findings, self.review_comments(), tracked=tracked)
+        adopted = {
+            finding_id: (comment.id, comment.url or self.comment_url(comment.id))
+            for finding_id, comment in existing.items()
+        }
+        # An adopted finding sits where the comment it was adopted from sits.
+        as_found = {
+            finding.id: finding.changed(
+                line=existing[finding.id].start_line or finding.line,
+                end_line=existing[finding.id].line or finding.end_line,
+                suggestion="",
+                suggestion_start=0,
+                suggestion_end=0,
+            )
+            for finding in findings
+            if finding.id in existing and existing[finding.id].line > 0
+        }
+        findings = [finding for finding in findings if finding.id not in existing]
+        if not findings:
+            return InlineOutcome(adopted, (), sent=as_found, adopted=tuple(adopted))
         state = load_bot_pull_request_state(self.pr, self.runner)
         files = index_files(state.files)
         candidates = []
@@ -278,10 +358,20 @@ class BotGitHub:
         placed = {item.annotation_id for item in plan.inline}
         unplaced = tuple(finding.id for finding in findings if finding.id not in placed)
         if not plan.inline or dry_run:
-            return InlineOutcome({}, unplaced, skipped_reason="dry run" if dry_run and plan.inline else "")
+            return InlineOutcome(
+                adopted,
+                unplaced,
+                skipped_reason="dry run" if dry_run and plan.inline else "",
+                sent=as_found,
+                adopted=tuple(adopted),
+            )
         if state.head_sha and state.head_sha != head_sha:
             return InlineOutcome(
-                {}, unplaced, skipped_reason=f"the pull request moved to {state.head_sha[:7]}; the next run reviews it"
+                adopted,
+                unplaced,
+                skipped_reason=f"the pull request moved to {state.head_sha[:7]}; the next run reviews it",
+                sent=as_found,
+                adopted=tuple(adopted),
             )
         bot_plan: GitHubReviewPlan = replace(plan, folded=(), summary="")
         operation_id = self.operation_id(head_sha, [item.annotation_id for item in plan.inline])
@@ -290,7 +380,13 @@ class BotGitHub:
             annotation_id: (comment_id, self.comment_url(comment_id))
             for annotation_id, comment_id in result.comment_ids.items()
         }
-        return InlineOutcome(posted, unplaced, review_url=result.html_url, sent=sent)
+        return InlineOutcome(
+            {**adopted, **posted},
+            unplaced,
+            review_url=result.html_url,
+            sent={**as_found, **sent},
+            adopted=tuple(adopted),
+        )
 
     @staticmethod
     def _placeable_anchor(finding: BotFinding, files: dict[str, Any]) -> BotFinding:

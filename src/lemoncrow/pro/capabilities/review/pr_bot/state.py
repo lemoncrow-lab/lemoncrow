@@ -38,6 +38,9 @@ SCHEMA: Final[int] = 1
 SUMMARY_MARKER: Final[str] = "<!-- lemoncrow:summary v1 -->"
 FINDING_MARKER: Final[str] = "<!-- lemoncrow:finding {finding_id} -->"
 FINDING_MARKER_PREFIX: Final[str] = "<!-- lemoncrow:finding "
+#: The finding's fingerprint, stable across rewording (``findings.fingerprint_for``): what lets a later run recognise
+#: an inline comment it posted for the same concern when it no longer has the finding's id (a lost summary).
+FINGERPRINT_MARKER: Final[str] = "<!-- lemoncrow:fingerprint {fingerprint} -->"
 STATE_OPEN: Final[str] = "<!-- lemoncrow:state v1\n"
 STATE_CLOSE: Final[str] = "\n-->"
 _STATE = re.compile(r"<!-- lemoncrow:state v1\n(.*?)\n-->", re.DOTALL)

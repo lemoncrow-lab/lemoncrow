@@ -26,6 +26,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.findings import (
 )
 from lemoncrow.pro.capabilities.review.pr_bot.state import (
     FINDING_MARKER,
+    FINGERPRINT_MARKER,
     MAX_DETAIL,
     SUMMARY_MARKER,
     ReviewState,
@@ -46,6 +47,8 @@ _DANGEROUS_TAG = re.compile(
     r"<(?=/?(?:img|picture|source|video|audio|iframe|script|style|link|a|details|summary|!--))", re.IGNORECASE
 )
 _MENTION = re.compile(r"@(?=[A-Za-z0-9_])")
+#: A fingerprint as ``findings.fingerprint_for`` writes it; anything else is never put in a comment's marker.
+FINGERPRINT = re.compile(r"fp-[0-9a-f]{16}")
 
 
 def clean(text: str) -> str:
@@ -211,7 +214,10 @@ def inline_comment(finding: BotFinding) -> str:
     if finding.has_suggestion:
         fence = fence_for(finding.suggestion)
         lines += ["", f"{fence}suggestion", finding.suggestion.rstrip("\n"), fence]
-    lines += ["", "<sub>LemonCrow AI review</sub>", FINDING_MARKER.format(finding_id=finding.id)]
+    lines += ["", "<sub>LemonCrow AI review</sub>"]
+    if FINGERPRINT.fullmatch(finding.fingerprint):
+        lines.append(FINGERPRINT_MARKER.format(fingerprint=finding.fingerprint))
+    lines.append(FINDING_MARKER.format(finding_id=finding.id))
     return "\n".join(lines)
 
 
