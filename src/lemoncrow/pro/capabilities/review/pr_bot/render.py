@@ -83,7 +83,8 @@ def short(sha: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class Verdict:
-    """``state`` is ``must_fix`` (an open P0), ``incomplete`` (not fully reviewed) or ``clean``."""
+    """``state`` is ``must_fix`` (an open P0), ``incomplete`` (the review could not finish), ``partial`` (it finished
+    but left risk signals unexamined) or ``clean`` (it examined every risk signal and found nothing to fix first)."""
 
     state: str
     headline: str
@@ -97,8 +98,19 @@ class Verdict:
         return " · ".join(part for part in parts if part)
 
 
-def verdict(findings: Sequence[BotFinding], *, complete: bool, reason: str = "") -> Verdict:
-    """The one verdict line. An incomplete review never reads as clean, but a found P0 still reads as a P0."""
+def verdict(
+    findings: Sequence[BotFinding],
+    *,
+    complete: bool,
+    reason: str = "",
+    signals: int = 0,
+    uninvestigated: int = 0,
+) -> Verdict:
+    """The one verdict line. A review that could not finish, or left risk signals unexamined, never reads as clean.
+
+    ``signals`` is how many changed targets carry a risk signal and ``uninvestigated`` how many of them no model
+    call reached; Auto looks at two however many there are. A found P0 still reads as a P0.
+    """
 
     counts = verdict_counts(list(findings))
     if counts["p0"]:
@@ -106,15 +118,27 @@ def verdict(findings: Sequence[BotFinding], *, complete: bool, reason: str = "")
     if not complete:
         why = f": {reason}" if reason else ""
         return Verdict("incomplete", f"Review incomplete{why}", 0, counts["p1"], counts["p2"])
+    if uninvestigated > 0:
+        total = max(signals, uninvestigated)
+        noun = "risk signal" if total == 1 else "risk signals"
+        headline = f"Partially reviewed: {total - uninvestigated} of {total} {noun} examined"
+        return Verdict("partial", headline, 0, counts["p1"], counts["p2"])
     return Verdict("clean", "No must-fix findings", 0, counts["p1"], counts["p2"])
 
 
 def check_status(view: Verdict, *, fail_on: str) -> tuple[str, str]:
     """``(state, description)`` of the commit status; ``state`` is a GitHub status state.
 
-    No P0: success. A P0 with ``fail_on == "p0"``: failure; without it the status
-    stays green and says so. An incomplete review fails closed only when failing on
-    P0 (a gate must not pass what it could not check) and is otherwise advisory.
+    No P0 and every risk signal examined: success. A P0 with ``fail_on == "p0"``:
+    failure; without it the status stays green and says so. An incomplete review
+    (a model call failed, the budget ran out) fails closed only when failing on P0:
+    a gate must not pass what it could not check. A *partial* review finished but
+    left risk signals unexamined; it is ``success`` either way, because failing it
+    would block every pull request with more risk signals than Auto's two
+    investigations for a reason its author cannot fix, but its description says
+    ``Partially reviewed: N of M risk signals examined`` and never ``No must-fix
+    findings``, so a green check cannot be read as full coverage. The unexamined
+    signals compete for the next push's investigations; ``depth: thorough`` covers more.
     """
 
     gating = fail_on == "p0"
@@ -124,7 +148,7 @@ def check_status(view: Verdict, *, fail_on: str) -> tuple[str, str]:
     if view.state == "incomplete":
         return ("error" if gating else "success"), trimmed(view.headline, 140)
     detail = f"; {view.counts}" if view.counts else ""
-    return "success", trimmed(view.headline + detail, 140)
+    return "success", trimmed(view.headline + detail, 140)  # clean, or partial: the headline says which
 
 
 # --------------------------------------------------------------------------- #
@@ -350,7 +374,13 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
     closed = [finding for finding in findings if not finding.is_open]
     shown = [finding for finding in opened if finding.severity != "p2"]
     held = [finding for finding in opened if finding.severity == "p2"]
-    result = verdict(opened, complete=view.facts.complete, reason=view.incomplete_reason)
+    result = verdict(
+        opened,
+        complete=view.facts.complete,
+        reason=view.incomplete_reason,
+        signals=view.receipt.candidates,
+        uninvestigated=view.facts.uninvestigated,
+    )
 
     head = f"**{result.headline}**" + (f" · {result.counts}" if result.counts else "")
     lines = [SUMMARY_MARKER, head, "", f"<sub>{strip_text(view.facts)}</sub>"]

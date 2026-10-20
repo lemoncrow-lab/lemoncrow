@@ -543,6 +543,54 @@ def test_a_risk_candidate_beyond_autos_cap_is_said_so_and_investigated_on_a_late
     assert len(world.github.inline()) == 2  # the two P1s, once each; the P2 found on push two is held back
 
 
+@pytest.mark.parametrize("fail_on", ["none", "p0"])
+def test_a_review_that_examined_two_of_three_risk_signals_is_partial_not_clean(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail_on: str
+) -> None:
+    # R2: three risk signals, Auto examines two, nothing is found. That is "I looked at two of three and saw
+    # nothing", which must not read as "No must-fix findings" in the headline or on the green check.
+    base = {**BASE, "src/token.py": "def verify(token):\n    return True\n"}
+    world = build_world(tmp_path, monkeypatch, base)
+    world.origin.push(
+        {
+            "src/auth.py": "def authorize(user):\n    return bool(user) and user.is_admin\n",
+            "src/cache.py": "CACHE = {}\n\n\ndef remember(key, value):\n    CACHE[key] = (value,)\n",
+            "src/token.py": "def verify(token):\n    return token is not None\n",
+        }
+    )
+    report = world.review(fail_on=fail_on)
+    assert len(world.model.paths()) == 3 and world.model.paths()[0] == "(synthesis)"  # synthesis + two investigators
+    assert report.findings == ()
+    headline = "Partially reviewed: 2 of 3 risk signals examined"
+    assert report.verdict is not None and (report.verdict.state, report.verdict.headline) == ("partial", headline)
+    # Failing on P0 does not turn partial coverage into a block (its author cannot fix it), but it never passes as
+    # a full review either: the check says "Partially reviewed", never "No must-fix findings".
+    assert report.status == ("success", headline)
+    body = world.github.summary_comments()[0]["body"]
+    assert body.split("\n")[1] == f"**{headline}**"
+    assert "1 risk signal not investigated yet" in body and "No must-fix findings" not in body
+    pending, final = world.github.statuses
+    assert (pending["state"], final["state"], final["description"]) == ("pending", "success", headline)
+    assert report.to_wire()["verdict"]["state"] == "partial"
+
+    # Once a later run reaches the signal that was left, the review reads clean again.
+    world.model.reset()
+    world.origin.push({"src/plain.py": "VALUE = 3\n"}, "touch an unrelated file")
+    done = world.review(fail_on=fail_on)
+    assert done.verdict is not None and done.verdict.state == "clean"
+    assert world.github.last_status()["description"] == "No must-fix findings"
+
+
+def test_a_found_p0_still_reads_as_a_p0_on_a_partial_review(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    base = {**BASE, "src/token.py": "def verify(token):\n    return True\n", ".lemoncrow/review.yaml": RULE}
+    world = build_world(tmp_path, monkeypatch, base)
+    world.origin.push({"src/auth.py": AUTH_BUGGY, "src/cache.py": CACHE_BUGGY, "src/token.py": TOKEN_BUGGY})
+    report = world.review(fail_on="p0")
+    assert report.verdict is not None and report.verdict.state == "must_fix"
+    assert report.status is not None and report.status[0] == "failure"
+    assert "risk signal not investigated yet" in report.summary
+
+
 # --------------------------------------------------------------------------- #
 # the human path stays human
 # --------------------------------------------------------------------------- #

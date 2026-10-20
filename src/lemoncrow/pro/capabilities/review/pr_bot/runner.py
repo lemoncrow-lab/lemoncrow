@@ -318,7 +318,8 @@ def _review(
         usage_total=total,
     )
     reason = "model calls failed; see the workflow log" if ai.errors else (ai.reason if not ai.complete else "")
-    view = verdict(tracked, complete=ai.complete, reason=reason)
+    uninvestigated = max(ai.candidates - ai.investigated, 0)
+    view = verdict(tracked, complete=ai.complete, reason=reason, signals=ai.candidates, uninvestigated=uninvestigated)
     summary_view = SummaryView(
         state=state,
         findings=tuple(tracked),
@@ -331,7 +332,7 @@ def _review(
             fixed=len(_state_is(tracked, "fixed")),
             stale=len(_state_is(tracked, "stale")),
             complete=ai.complete,
-            uninvestigated=max(ai.candidates - ai.investigated, 0),
+            uninvestigated=uninvestigated,
         ),
         receipt=Receipt(
             files=ai.files,

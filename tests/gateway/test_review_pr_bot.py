@@ -465,6 +465,33 @@ def test_the_verdict_and_the_check_status_come_from_one_rule(
     assert body.split("\n", 2)[1].startswith(f"**{result.headline}**")
 
 
+@pytest.mark.parametrize("fail_on", ["none", "p0"])
+def test_a_review_that_left_risk_signals_unexamined_says_partially_reviewed(fail_on: str) -> None:
+    result = verdict((), complete=True, signals=3, uninvestigated=1)
+    assert (result.state, result.headline) == ("partial", "Partially reviewed: 2 of 3 risk signals examined")
+    # The status stays green (failing it would block every pull request above Auto's two investigations), but its
+    # description is the partial headline, never the clean one.
+    assert check_status(result, fail_on=fail_on) == ("success", result.headline)
+    one = verdict((finding("a", "p1"),), complete=True, signals=1, uninvestigated=1)
+    assert one.headline == "Partially reviewed: 0 of 1 risk signal examined"
+    assert check_status(one, fail_on=fail_on)[1] == "Partially reviewed: 0 of 1 risk signal examined; 1 should-fix"
+    body, _ = render_summary(
+        view(
+            (),
+            facts=RunFacts(True, 1, 1, 0, 0, 0, 0, uninvestigated=1),
+            receipt=Receipt(("src/a.py",), targets=1, candidates=3, investigated=2, rules=()),
+        )
+    )
+    assert body.split("\n")[1] == f"**{result.headline}**" and "No must-fix findings" not in body
+
+
+def test_a_p0_and_an_incomplete_review_outrank_a_partial_one() -> None:
+    assert verdict((finding("a", "p0"),), complete=True, signals=3, uninvestigated=1).state == "must_fix"
+    incomplete = verdict((), complete=False, reason="the model-call budget ran out", signals=3, uninvestigated=1)
+    assert (incomplete.state, check_status(incomplete, fail_on="p0")[0]) == ("incomplete", "error")
+    assert verdict((), complete=True, signals=3, uninvestigated=0).state == "clean"
+
+
 def test_a_p0_that_is_not_blocking_says_so_in_the_status() -> None:
     _, description = check_status(verdict((finding("a", "p0"),), complete=True), fail_on="none")
     assert description == "1 must-fix before merge (advisory: fail-on is off)"

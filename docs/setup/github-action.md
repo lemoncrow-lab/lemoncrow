@@ -72,7 +72,7 @@ LiteLLM users can set `model-provider: litellm` and the variables LiteLLM alread
 
 **One summary comment**, found and updated in place by a hidden marker (`<!-- lemoncrow:summary v1 -->`), so a push edits it instead of adding another:
 
-- a verdict line that agrees with the status: `1 must-fix before merge`, or `No must-fix findings`;
+- a verdict line that agrees with the status: `1 must-fix before merge`, `Partially reviewed: 2 of 3 risk signals examined` when the review finished but left risk signals unexamined, `Review incomplete: <why>` when it could not finish, or `No must-fix findings` only when every risk signal was examined;
 - a status strip: `Re-reviewed 38 changed lines · 1 new · 2 carried forward · 1 fixed since last review`;
 - findings sorted by severity, each linking to its inline thread. **P0** must fix, **P1** should fix, **P2** optional;
 - P2 findings in a collapsed block, `N low-priority findings held back`;
@@ -122,12 +122,15 @@ The `LemonCrow Review` commit status is set on the reviewed head, with a link to
 
 | Situation | Status |
 | --- | --- |
-| No P0 finding | `success` |
+| No P0 finding, every risk signal examined | `success`, `No must-fix findings` |
+| No P0 finding, but some risk signals were not examined | `success`, described `Partially reviewed: N of M risk signals examined` |
 | A P0 finding and `fail-on: p0` | `failure` |
 | A P0 finding and `fail-on: none` | `success`, described as advisory |
-| Review incomplete (a model call failed) | `error` with `fail-on: p0`, otherwise `success` saying it is incomplete |
+| Review incomplete (a model call failed, the call budget ran out) | `error` with `fail-on: p0`, otherwise `success` saying it is incomplete |
 
 Add `LemonCrow Review` to your branch protection's required checks if you want it to block.
+
+**A partial review is `success` on purpose.** Auto examines at most two risk signals per run, so failing the check on every pull request with three or more would block merges for something its author cannot fix. What it will not do is look like full coverage: the headline, the check description and the status strip all say `Partially reviewed` and how many signals were reached, the check never says `No must-fix findings` for it, and a P0 found in the signals that were examined still fails the check under `fail-on: p0`. The unexamined signals are still owed: the next run (a push, or a re-run of the job) competes for the cap again until they are all examined. To examine more of them in one run, use `depth: thorough` or `deep`.
 
 ### The hidden state
 
@@ -160,7 +163,7 @@ On a push, the Action reads the previous state, compares the new commit with it,
 - a fixed finding gets a reply on its thread, `Fixed in <short sha>`, and the thread is resolved when the token allows it (GitHub's `resolveReviewThread`). If it does not, the reply stays and the review still completes;
 - a finding whose code left the pull request is **stale**;
 - if the model call for a changed target fails, the finding stays, marked unverified, and the target is retried on the next push.
-- Auto investigates at most two hypotheses per run, however many risk signals a large change has. One it did not reach is **pending**, not reviewed: the status strip says `N risk signals not investigated yet`, and the next push competes for the cap again. Ask for `depth: thorough` to investigate more of them in one run.
+- Auto investigates at most two hypotheses per run, however many risk signals a large change has. One it did not reach is **pending**, not reviewed: the headline says `Partially reviewed: N of M risk signals examined`, the status strip says `N risk signals not investigated yet`, and the next push competes for the cap again. Ask for `depth: thorough` to investigate more of them in one run.
 
 A push that changes nothing LemonCrow reviews makes no model call and posts nothing. A changed depth, rule set, content-access policy or review prompt re-reviews everything once, because last time's result no longer means the same thing.
 
