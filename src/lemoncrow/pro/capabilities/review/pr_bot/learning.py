@@ -1,7 +1,8 @@
 """Learning from feedback (G9): reactions, resolved threads, replies and ``ignore`` commands, applied on the next push.
 
-Greptile asks for "2-3 weeks of consistent reactions" before it adapts. This does it in the run that sees the
-feedback, for the pull request the feedback is on, and says so in the thread:
+A reviewer that waits for weeks of consistent reactions before it adapts is slow to correct. This applies feedback in
+the run that sees it (the next push, re-run or command), for the pull request the feedback is on, and says so in the
+thread:
 
 1. **Read** what people did to the bot's inline comments since the last run (:func:`read_signals`): a thumbs-down, a
    thumbs-up, a reply that says it is not a bug or will not be fixed, a thread resolved by a person while the finding
