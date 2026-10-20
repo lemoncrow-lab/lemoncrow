@@ -33,7 +33,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: lemoncrow-lab/lemoncrow@v1
+      # Pin a full commit SHA of the public repository (see "Installing a pinned version" below), not a branch or a
+      # tag that moves: the commit is the version that reviews, and the prompt and checks come with it.
+      - uses: lemoncrow-lab/lemoncrow@<commit-sha>  # pin to a release commit
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           # or: OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -71,7 +73,7 @@ Notes on the workflow:
 - **The last step** (`if: failure() || cancelled()`) is the fallback for a killed job. The Action sets `LemonCrow Review` to `pending` when it starts, and a job that is cancelled or times out never gets to replace it, which would leave a required check waiting for good. The step looks at the status on this run's head commit and, only if it is still `pending`, sets it to `error` with a message to re-run. It touches only its own commit, so a run that a newer push cancelled marks its own, older commit and nothing else. It is `error`, not a pass, on purpose: a review that never finished has not approved anything; change `-f state=error` to `success` if you would rather it stay out of the way. GitHub runs a `failure()` or `cancelled()` step after a timeout in the normal case; if the runner itself is lost, nothing can run, and the status stays pending until the next push or a re-run.
 - **`concurrency`** per pull request with `cancel-in-progress` means a newer push cancels the review of an older one instead of queueing behind it.
 - **`fetch-depth: 0`** gives LemonCrow the history to find the merge base. `ready_for_review` is in `types` so a draft is reviewed when it is marked ready.
-- **`v1`** is the major tag cut at release. Before it exists, or to pin exactly what you tested, use a full commit SHA: `lemoncrow-lab/lemoncrow@<sha>`. The Action installs LemonCrow from its own checkout at that ref, so the version you pin is the version that reviews.
+- **`<commit-sha>`** is a placeholder: replace it with the full 40-character SHA of a commit of the public `lemoncrow-lab/lemoncrow` repository. There is no moving `v1` tag, on purpose. The Action installs LemonCrow from its own checkout at that ref, so the version you pin is the version that reviews, and a floating ref would change the prompt under you. See "Installing a pinned version".
 - **Organization policy.** If your organization restricts which actions may run, allow `lemoncrow-lab/lemoncrow` and `astral-sh/setup-uv`; the Action uses the latter to install LemonCrow's dependencies (`uv` itself is pinned to an exact version). If it requires every third-party action to be **pinned to a commit SHA**, note that the Action's own `astral-sh/setup-uv@v5` is currently pinned by tag: its SHA has not been recorded yet (it is marked `TODO(sha-pin)` in `action.yml`), so such a policy will reject it until that is done. The sample workflow's `actions/checkout@v4` is a tag pin too; pin it to a SHA if your policy needs that.
 - **GitHub rate limits.** When GitHub throttles a call (HTTP 429, or a 403 that names a secondary rate limit), the Action waits and tries again up to three times (5, 15 and 45 seconds, or the wait GitHub states, at most 60 seconds each), and never more than 120 seconds in total in one run. A permission error (`Resource not accessible by integration`) is not a rate limit and is not retried. If the limit outlasts that, the one write that was refused is reported in the run's notes and the next push repeats it.
 - Runners: Linux and macOS (the install is POSIX shell); Windows runners are not supported. The key must reach the step as an environment variable; the Action never prints it.
@@ -323,7 +325,7 @@ on:
 # …the same job, with:
 #   - uses: actions/checkout@v4          # your default branch, not the fork
 #       with: {fetch-depth: 0}
-#   - uses: lemoncrow-lab/lemoncrow@v1
+#   - uses: lemoncrow-lab/lemoncrow@<commit-sha>  # pin to a release commit
 #       with: {pr-number: "${{ inputs.pr }}"}
 ```
 
@@ -343,6 +345,38 @@ lc review --pr 123 --publish-bot --dry-run   # the exact comments the bot would 
 ```
 
 `--publish-bot` itself runs only in GitHub Actions: on a laptop your `gh` login is a person, and AI output must not be posted under a person's name. This is the full Review CLI (`uv run lc review` in a source checkout).
+
+## Installing a pinned version
+
+`uses:` needs a ref that exists in the **public** repository, `lemoncrow-lab/lemoncrow`. Use the full commit SHA of one of its commits:
+
+- Open the repository's commit list (or its releases) on github.com, pick the commit you want to run, and copy its **full** 40-character SHA, not the 7-character short form: GitHub resolves only a full SHA in `uses:`.
+- Or from a terminal: `gh api repos/lemoncrow-lab/lemoncrow/commits/HEAD --jq .sha` for the latest commit of the default branch, or `git ls-remote https://github.com/lemoncrow-lab/lemoncrow.git refs/tags/<tag>` for a release tag (an annotated tag is listed twice; the line ending `^{}` is the commit).
+- The public repository's history is a filtered rewrite of the private one, so a SHA from the private repository does not exist there. Always take it from the public one.
+
+Once a release tag exists you can pin that instead (`@v0.9.0`, for example), which is readable but moves if a tag is ever re-pushed; a SHA cannot. There is no `v1` tag to float on: the Release workflow requires a tag to equal the package version, so a `v1` tag would fail it.
+
+Org policy and trial advice are in "Notes on the workflow" and "Pin the Action during a trial".
+
+## Releasing the Action
+
+For the owner of the repository. The Action runs from the **public** repository, so until the mirror has published it, no customer can use it. In order:
+
+1. **Merge to `main`.** The Action (`action.yml`, the `pr_bot` package and the allowlist change) lives on a feature branch of the private repository until it is merged. Land it on `main` through the normal review.
+2. **Run the mirror with `--resync`.** `scripts/public-paths.txt` was widened (it now allows `action.yml`), and an ordinary incremental mirror applies only the paths each new commit touched, so it would publish a fragment. From a checkout of `main`:
+
+   ```bash
+   make mirror ARGS="--resync"
+   ```
+
+   This publishes everything the allowlist newly allows as one new commit on top of the public `HEAD` (a fast-forward, no history rewrite). Add `ARGS="--resync --dry-run"` first to see the plan. `git ls-remote origin refs/mirror/last-pub` then prints the public SHA that run created.
+3. **Check the public tree** has `action.yml`, `uv.lock`, `pyproject.toml`, `hatch_build.py`, `vendor/` and `src/lemoncrow/pro/capabilities/review/pr_bot/` (`uv run python scripts/mirror.py --export-dir <empty dir> --source-ref HEAD` materializes exactly what is published, and the Action's install command can be run against it).
+4. **Pick the ref customers pin.** Either:
+   - **a commit**: the public SHA from step 2 (or any later public commit). Nothing else is needed; customers use `lemoncrow-lab/lemoncrow@<that sha>`; or
+   - **the next semver release**, for example `v0.9.0`, cut through the repository's normal release flow (`make release-prepare tag=v0.9.0`, then `make release-qualify tag=v0.9.0`, then `make release tag=v0.9.0`, which pushes, mirrors and tags). Do not cut a `v1` tag: `.github/public-workflows/release.yml` runs on every `v*` tag and `scripts/release_version.py check` requires the tag to equal the package version (`0.8.0` is not `1`), so it would fail the Release run. This change leaves the release process as it is.
+5. **Try it once** from a scratch private repository on a real runner with `uses: lemoncrow-lab/lemoncrow@<the public sha>` before telling a customer to.
+
+Until step 2 has run, `lemoncrow-lab/lemoncrow` on github.com has no `action.yml`, and any `uses:` of it fails with an error that the action cannot be found.
 
 ## How it installs
 

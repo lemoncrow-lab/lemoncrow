@@ -167,7 +167,10 @@ def test_the_documented_workflow_has_least_privilege_and_per_pull_request_concur
     job_steps = workflow["jobs"]["review"]["steps"]
     assert job_steps[0]["uses"].startswith("actions/checkout@") and job_steps[0]["with"]["fetch-depth"] == 0
     action_step = job_steps[1]
-    assert action_step["uses"] == "lemoncrow-lab/lemoncrow@v1"
+    # R5: no `v1` tag exists (cutting one would fail the Release workflow), so the sample pins a commit.
+    assert action_step["uses"] == "lemoncrow-lab/lemoncrow@<commit-sha>"
+    assert "@v1" not in GUIDE.read_text(encoding="utf-8")
+    assert "@v1" not in (ROOT / "README.md").read_text(encoding="utf-8")
     assert action_step["env"]["ANTHROPIC_API_KEY"] == "${{ secrets.ANTHROPIC_API_KEY }}"
     # The documented checkout is the default one: never the pull request's own head.
     assert "ref" not in job_steps[0].get("with", {})

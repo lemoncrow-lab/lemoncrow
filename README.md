@@ -194,7 +194,7 @@ re-reviews only what changed and carries the rest forward, so a push to a
 long-running pull request does not pay to review the same code twice.
 
 ```yaml
-- uses: lemoncrow-lab/lemoncrow@v1
+- uses: lemoncrow-lab/lemoncrow@<commit-sha>  # pin to a release commit
   env:
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}   # or OPENAI_API_KEY
   with:
@@ -203,6 +203,8 @@ long-running pull request does not pay to review the same code twice.
     fail-on: none
 ```
 
+Replace `<commit-sha>` with the full SHA of a commit of the public repository
+(there is no moving `v1` tag; the guide explains how to find the SHA).
 The full workflow, permissions, fork-pull-request behavior and limits are in
 [Install the GitHub Action](docs/setup/github-action.md). To try it without
 CI: `lc review --pr 123 --ai` (full Review CLI) prints the findings and posts
