@@ -198,7 +198,9 @@ long-running pull request does not pay to review the same code twice.
   env:
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}   # or OPENAI_API_KEY
   with:
-    fail-on: p0
+    # Advisory while you trial it. After a few weeks of P0s you agree with, set `p0`
+    # to fail the "LemonCrow Review" check while a P0 is open.
+    fail-on: none
 ```
 
 The full workflow, permissions, fork-pull-request behavior and limits are in

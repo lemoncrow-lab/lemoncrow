@@ -83,7 +83,9 @@ def finding_from_confirmed(confirmed: Any, located: Located | None, head: str) -
     return BotFinding(
         id=confirmed.id,
         fingerprint=fingerprint_for(confirmed.category, target_ids, confirmed.rule_refs),
-        severity=severity_for(confirmed.category, impact=impact, verified=verified),
+        severity=severity_for(
+            confirmed.category, impact=impact, verified=verified, rule_cited=bool(tuple(confirmed.rule_refs))
+        ),
         category=confirmed.category,
         state="new",
         path=where.path,

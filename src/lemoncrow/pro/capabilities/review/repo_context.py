@@ -758,6 +758,11 @@ class RepoContextBlock:
     def evidence(self) -> tuple[tuple[str, str, tuple[str, ...]], ...]:
         return tuple((item.ref, item.label(), item.target_ids) for item in self.items)
 
+    def locations(self) -> dict[str, str]:
+        """``{ref: path}``: the file each excerpt comes from, so a validator can tell it from the finding's own."""
+
+        return {item.ref: item.path for item in self.items}
+
 
 _POLICY: Final[str] = (
     "repo_context holds excerpts of OTHER files of this exact Snapshot, found by a bounded deterministic search "

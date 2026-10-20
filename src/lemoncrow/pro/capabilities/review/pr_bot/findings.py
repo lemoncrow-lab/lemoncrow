@@ -9,11 +9,13 @@ the Review dispositions (``session_models.FINDING_DISPOSITIONS``): ``new`` and
 
 Severity is the product's own, one rule for every surface (:func:`severity_for`):
 
-* **P0, must fix before merge**: a violation of a critical rule the repository wrote, or a
-  *verified* finding the investigator rated ``high`` in the correctness, security or
-  persistence (data-loss) categories. Verified means a ref beyond the bare target pointer
-  backs it (the exact Snapshot source, a recorded check, an attached artifact or a static
-  finding), and a carried finding whose re-check failed is no longer verified.
+* **P0, must fix before merge**: a violation of a critical rule the repository wrote (and the
+  finding cites that rule), or a *verified* finding the investigator rated ``high`` in the
+  correctness, security or persistence (data-loss) categories. Verified means evidence from
+  beyond the finding's own changed code backs it: a recorded check, an attached artifact, a
+  static finding, or an excerpt of a *different* file (a caller, a test, a definition). The
+  exact source of the finding's own target does not count -- every target has it and the
+  model is shown those bytes anyway. A carried finding whose re-check failed is no longer verified.
 * **P1, should fix**: every other ``high`` finding, and ``medium`` findings that are verified.
   A finding with no rating keeps its category's own severity (P1, or P2 for performance and
   verification), because unrated is not low.
@@ -148,8 +150,14 @@ class BotFinding:
         return replace(self, **fields)
 
     def rated(self) -> BotFinding:
-        """This finding with its severity re-derived. A failed re-check removes the verification, and with it any P0 it earned."""
+        """This finding with its severity re-derived. A failed re-check removes the verification, and with it any P0 it earned.
 
+        A critical-rule violation is the exception: the repository's rule made it a gate, not the model's rating or
+        its evidence, so a failed re-check suspends nothing and its severity (set once, from the rule it cited) stands.
+        """
+
+        if self.category == "critical_rule":
+            return self
         return self.changed(
             severity=severity_for(self.category, impact=self.impact, verified=self.verified and not self.unverified)
         )
@@ -267,15 +275,19 @@ def finding_from_wire(raw: object) -> BotFinding | None:
     )
 
 
-def severity_for(category: str, *, impact: str = "", verified: bool = False) -> str:
+def severity_for(category: str, *, impact: str = "", verified: bool = False, rule_cited: bool = False) -> str:
     """The severity of a finding: the one rule behind every badge, verdict and status (see the module docstring).
 
     ``category`` is the finding's validated category, ``impact`` the investigator's rating (``""`` when it gave
-    none) and ``verified`` whether evidence beyond the bare target backs it. Unverified speculation is never P0:
-    a ``high`` rating without that evidence, or outside :data:`P0_CATEGORIES`, is P1.
+    none) and ``verified`` whether evidence from beyond the finding's own changed code backs it. Unverified
+    speculation is never P0: a ``high`` rating without that evidence, or outside :data:`P0_CATEGORIES`, is P1.
+
+    A ``critical_rule`` violation is P0 whatever its rating, but only when it ``rule_cited``: the rule's own ref is
+    the evidence that makes it a gate. A finding of that category that names no rule falls through to the ladder
+    below, where it is P1 at most.
     """
 
-    if category == "critical_rule":
+    if category == "critical_rule" and rule_cited:
         return "p0"
     if impact == "high":
         return "p0" if verified and category in P0_CATEGORIES else "p1"

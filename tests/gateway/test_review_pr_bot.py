@@ -427,7 +427,8 @@ def test_shrinking_removes_detail_in_steps_and_never_an_open_p0_or_p1() -> None:
 
 
 def test_severity_follows_the_validated_category_and_unrated_is_never_low() -> None:
-    assert severity_for("critical_rule") == "p0"
+    assert severity_for("critical_rule", rule_cited=True) == "p0"
+    assert severity_for("critical_rule") == "p1"  # a rule violation that names no rule is not a gate
     assert severity_for("security") == "p1" and severity_for("correctness") == "p1"
     assert severity_for("performance") == "p2" and severity_for("verification") == "p2"
     assert severity_for("something-new") == "p1"

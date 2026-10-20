@@ -78,7 +78,15 @@ def test_a_low_finding_is_p2_whatever_backs_it(category: str, verified: bool) ->
 @pytest.mark.parametrize("impact", ["", "low", "medium", "high"])
 @pytest.mark.parametrize("verified", [True, False])
 def test_a_critical_rule_violation_is_p0_however_it_is_rated(impact: str, verified: bool) -> None:
-    assert severity_for("critical_rule", impact=impact, verified=verified) == "p0"
+    assert severity_for("critical_rule", impact=impact, verified=verified, rule_cited=True) == "p0"
+
+
+@pytest.mark.parametrize("verified", [True, False])
+def test_a_critical_rule_finding_that_cites_no_rule_is_not_a_gate(verified: bool) -> None:
+    # R1: the rule's own ref is the evidence that makes a rule violation P0; without it the model's word is all there is.
+    assert severity_for("critical_rule", impact="high", verified=verified) == "p1"
+    assert severity_for("critical_rule", impact="low", verified=verified) == "p2"
+    assert severity_for("critical_rule") != "p0"
 
 
 def test_an_unrated_finding_keeps_its_categorys_severity_and_is_never_p0() -> None:
@@ -135,6 +143,14 @@ def test_a_confirmed_finding_carries_its_rating_and_verification_into_the_severi
     assert finding_from_confirmed(confirmed(severity="high", verified=False), located, "abc1234").severity == "p1"
     assert finding_from_confirmed(confirmed(severity="low", verified=True), located, "abc1234").severity == "p2"
     assert finding_from_confirmed(confirmed(severity="medium", verified=True), located, "abc1234").severity == "p1"
+
+
+def test_a_confirmed_rule_violation_is_p0_only_when_it_cites_its_rule() -> None:
+    located = Located("src/a.py", 3, 4)
+    cited = finding_from_confirmed(confirmed(category="critical_rule", rule_refs=("rule:r1",)), located, "abc1234")
+    assert (cited.severity, cited.category) == ("p0", "critical_rule")
+    bare = finding_from_confirmed(confirmed(category="critical_rule", severity="high"), located, "abc1234")
+    assert bare.severity == "p1"
 
 
 def test_a_finding_from_an_engine_that_rates_nothing_keeps_the_category_severity() -> None:
@@ -288,9 +304,14 @@ def test_a_p0_with_fail_on_off_is_green_and_says_why() -> None:
 # --------------------------------------------------------------------------- #
 
 
+HANDLER = 'from auth import authorize\n\n\ndef handle(request):\n    return "ok" if authorize(request.user) else "no"\n'
+
+
 @pytest.fixture
 def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> World:
-    return build_world(tmp_path, monkeypatch, BASE)
+    """``src/handlers.py`` calls the function under review, so the context pack has another file to show."""
+
+    return build_world(tmp_path, monkeypatch, {**BASE, "src/handlers.py": HANDLER})
 
 
 def summary_body(world: World) -> str:
@@ -300,7 +321,7 @@ def summary_body(world: World) -> str:
 
 def test_a_verified_high_finding_is_p0_and_fails_the_status_with_fail_on_p0(world: World) -> None:
     world.model.severity[TITLE] = "high"
-    world.model.cite_source.add(TITLE)
+    world.model.cite_context.add(TITLE)  # the caller in src/handlers.py: evidence from another file
     world.origin.push({"src/auth.py": AUTH_BUGGY})
     report = world.review(fail_on="p0")
 
@@ -308,6 +329,10 @@ def test_a_verified_high_finding_is_p0_and_fails_the_status_with_fail_on_p0(worl
     assert (found.category, found.severity, found.impact, found.verified) == ("security", "p0", "high", True)
     assert report.verdict is not None and report.verdict.state == "must_fix"
     assert report.status == ("failure", "1 must-fix before merge")
+    prompts = [call["evidence"] for call in world.model.evidence_seen if call["path"] == "src/auth.py"]
+    assert any(
+        row["kind"] == "repo_context" and "src/handlers.py" in row["ref"] for rows in prompts for row in rows
+    ), "the corroborating excerpt is a real file of the Snapshot, found by the pack, not by the model"
     assert world.github.last_status()["state"] == "failure"
     assert summary_body(world).split("\n")[1] == "**1 must-fix before merge**"
     (inline,) = world.github.inline()
@@ -318,9 +343,41 @@ def test_a_verified_high_finding_is_p0_and_fails_the_status_with_fail_on_p0(worl
     assert wire["verdict"]["p0"] == 1 and wire["status"]["state"] == "failure"
 
 
-def test_the_same_p0_does_not_block_unless_fail_on_is_p0(world: World) -> None:
+def test_a_model_only_p0_is_demoted_to_p1_and_does_not_fail_the_status(world: World) -> None:
+    # R1: rated high and citing the exact source of the very code it was shown. Every target has that ref and the
+    # model is told which to cite, so it is the model's word alone: should-fix, never a merge block.
     world.model.severity[TITLE] = "high"
     world.model.cite_source.add(TITLE)
+    world.origin.push({"src/auth.py": AUTH_BUGGY})
+    report = world.review(fail_on="p0")
+
+    (found,) = report.findings
+    assert (found.category, found.impact, found.verified, found.severity) == ("security", "high", False, "p1")
+    assert report.verdict is not None and report.verdict.state == "clean"
+    assert report.status == ("success", "No must-fix findings; 1 should-fix")
+    assert world.github.last_status()["state"] == "success"
+    (inline,) = world.github.inline()
+    assert inline["body"].startswith("**P1 · should fix** — lets a missing principal through")
+
+
+def test_a_medium_finding_backed_only_by_its_own_source_is_optional_not_should_fix(world: World) -> None:
+    world.model.severity[TITLE] = "medium"
+    world.model.cite_source.add(TITLE)
+    world.origin.push({"src/auth.py": AUTH_BUGGY})
+    (found,) = world.review().findings
+    assert (found.impact, found.verified, found.severity) == ("medium", False, "p2")
+    assert world.github.inline() == []
+
+    world.model.severity[TITLE] = "medium"
+    world.model.cite_context.add(TITLE)
+    world.origin.push({"src/auth.py": AUTH_BUGGY.replace("return True", "return 1 == 1")}, "touch it")
+    (backed,) = world.review().findings
+    assert (backed.verified, backed.severity) == (True, "p1")
+
+
+def test_the_same_p0_does_not_block_unless_fail_on_is_p0(world: World) -> None:
+    world.model.severity[TITLE] = "high"
+    world.model.cite_context.add(TITLE)
     world.origin.push({"src/auth.py": AUTH_BUGGY})
     report = world.review()
     assert report.verdict is not None and report.verdict.state == "must_fix"
@@ -365,7 +422,7 @@ def test_a_finding_the_model_did_not_rate_keeps_the_category_severity(world: Wor
 
 def test_a_p0_whose_recheck_failed_is_suspended_and_the_incomplete_review_fails_closed(world: World) -> None:
     world.model.severity[TITLE] = "high"
-    world.model.cite_source.add(TITLE)
+    world.model.cite_context.add(TITLE)
     world.origin.push({"src/auth.py": AUTH_BUGGY})
     assert world.review(fail_on="p0").status == ("failure", "1 must-fix before merge")
 
@@ -388,7 +445,7 @@ def test_a_p0_whose_recheck_failed_is_suspended_and_the_incomplete_review_fails_
 
 def test_fixing_the_p0_clears_the_verdict_and_the_status(world: World) -> None:
     world.model.severity[TITLE] = "high"
-    world.model.cite_source.add(TITLE)
+    world.model.cite_context.add(TITLE)
     world.origin.push({"src/auth.py": AUTH_BUGGY})
     assert world.review(fail_on="p0").status == ("failure", "1 must-fix before merge")
     world.origin.push({"src/auth.py": AUTH_FIXED}, "fix auth")

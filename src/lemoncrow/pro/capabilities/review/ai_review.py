@@ -87,10 +87,12 @@ _CATEGORIES: tuple[FindingCategory, ...] = (
 _CATEGORY_SET = frozenset(_CATEGORIES)
 #: The investigator's impact rating, lowest first (pull request reviews only: ``PR_INVESTIGATION_SCHEMA``).
 _IMPACTS: tuple[str, ...] = ("low", "medium", "high")
-#: Evidence that points at exact bytes or recorded results, not just at the changed unit: the exact Snapshot
-#: source, a recorded check, an attached artifact or a deterministic tool's finding. A finding that cites one of
-#: these is ``verified``; one that cites only ``target:`` (the unit itself) or related-repository context is not.
-_CONCRETE_EVIDENCE = frozenset({"source", "check", "artifact", "static_finding"})
+#: Evidence the model cannot pick for itself, because it is not the finding's own changed code: a recorded
+#: check, an attached artifact or a deterministic tool's finding. A finding that cites one of these, or an
+#: excerpt of a different file (``repo_context``, see ``_corroborated``), is ``verified``. ``target:`` is the
+#: unit itself and ``source:`` the exact bytes of that same unit -- every target always has both, so citing
+#: them proves nothing -- and related-repository context cannot stand alone.
+_INDEPENDENT_EVIDENCE = frozenset({"check", "artifact", "static_finding"})
 _CLI_DRIVERS = frozenset({"claude", "codex", "opencode"})
 #: Evidence that can support a finding only alongside a target or source ref of that finding.
 _CORROBORATING_KINDS = frozenset({"cross_repository", "repo_context"})
@@ -231,6 +233,9 @@ class EvidenceRegistryEntry:
     kind: EvidenceRefKind
     label: str
     target_ids: tuple[str, ...]
+    #: The file the evidence is about (a target, its exact source, a context excerpt). Not part of the wire: the
+    #: prompt is unchanged. It lets the validator tell evidence from another file from the finding's own.
+    path: str = ""
 
     def to_wire(self) -> dict[str, Any]:
         return {
@@ -257,7 +262,8 @@ class ConfirmedFinding:
     #: The investigator's own rating of the defect's impact (``low | medium | high``), ``""`` when it gave none.
     #: A nomination only: the product's severity rule decides what it is worth (``pr_bot.findings.severity_for``).
     severity: str = ""
-    #: Whether a ref beyond the bare target pointer backs the finding (see ``_CONCRETE_EVIDENCE``).
+    #: Whether evidence beyond the finding's own changed code backs it: a check, an artifact, a static finding or
+    #: an excerpt of a different file (see ``_corroborated``). Citing the target's own source does not count.
     verified: bool = False
     #: A suggested fix; usable only once ``verified`` (``finding_replacement.verify_replacement``).
     replacement: Replacement | None = None
@@ -503,12 +509,15 @@ PR_INVESTIGATION_SCHEMA: dict[str, Any] = {
 }
 #: Bump when ``PR_INVESTIGATION_SCHEMA`` or the instructions below change: a pull request review's reusable
 #: results (``pr_bot.engine.policy_digest``) are only valid for the fields it asked for.
-PR_FIELDS_VERSION = 2
+PR_FIELDS_VERSION = 3
 _PR_FIELD_RULES = f"""
 Also return severity: low, medium or high, the defect's impact on the cited code. high means it will break correctness,
 security or stored data in normal use (a crash, a wrong result, data loss, an authorization bypass) and you can point
-at the exact lines; medium, a likely defect with limited impact; low, minor or unlikely. A high rating is only credited
-when evidence_refs include an exact-source (source:) or check ref, not just the target. When unsure, rate lower.
+at the exact lines; medium, a likely defect with limited impact; low, minor or unlikely. Your rating is a nomination: a
+high rating is posted as a must-fix only when evidence_refs also include evidence from outside the changed code that
+shows the problem (a check, a static_finding, or a repo_context excerpt of another file, such as a caller the change
+breaks). The target and source refs of the changed code itself do not count. Cite only refs that really support the
+finding. When unsure, rate lower.
 Also return replacement: null unless the fix is a small, local and certain edit of at most
 {finding_replacement.MAX_LINES} consecutive lines in the file of the first target_ids entry. Then it is an object with
 start_line and end_line (1-based, counted from the excerpt's start_line), original (those lines exactly as shown,
@@ -964,14 +973,15 @@ def _investigation_evidence_registry(
 
     entries: dict[str, EvidenceRegistryEntry] = {}
 
-    def add(ref: str, kind: EvidenceRefKind, label: str, target_ids: Sequence[str]) -> None:
+    def add(ref: str, kind: EvidenceRefKind, label: str, target_ids: Sequence[str], path: str = "") -> None:
         ids = tuple(dict.fromkeys(target_ids))
         if not ids:
             return
         previous = entries.get(ref)
         if previous is not None:
             ids = tuple(dict.fromkeys((*previous.target_ids, *ids)))
-        entries[ref] = EvidenceRegistryEntry(ref=ref, kind=kind, label=label, target_ids=ids)
+            path = previous.path or path
+        entries[ref] = EvidenceRegistryEntry(ref=ref, kind=kind, label=label, target_ids=ids, path=path)
 
     for target in targets:
         add(
@@ -979,13 +989,20 @@ def _investigation_evidence_registry(
             "target",
             f"{target.label or target.symbol or target.path} · {_scope_label(target)}",
             (target.target_id,),
+            target.path,
         )
         source_row = source.get(target.target_id) or {}
         source_ref = str(source_row.get("source_ref") or "")
         if source_ref:
             start = int(source_row.get("start_line") or target.start_line)
             end = int(source_row.get("end_line") or target.end_line)
-            add(source_ref, "source", f"Exact Snapshot source {target.path}:{start}-{end}", (target.target_id,))
+            add(
+                source_ref,
+                "source",
+                f"Exact Snapshot source {target.path}:{start}-{end}",
+                (target.target_id,),
+                target.path,
+            )
 
     relevant_evidence: list[tuple[ReviewEvidence, tuple[str, ...]]] = []
     for evidence in store.list_evidence(revision.review_id):
@@ -1027,8 +1044,9 @@ def _investigation_evidence_registry(
     if repo_context is not None:
         # Excerpts of other files of this exact Snapshot (G4). They may corroborate a finding about the targets,
         # never prove it alone: see _validate_investigation.
+        locations = repo_context.locations()
         for ref, label, ids in repo_context.evidence():
-            add(ref, "repo_context", label, ids)
+            add(ref, "repo_context", label, ids, locations.get(ref, ""))
 
     return tuple(sorted(entries.values(), key=lambda entry: (entry.kind, entry.ref)))
 
@@ -1433,6 +1451,31 @@ Do not write a review essay, style advice, confidence percentage, merge recommen
     return system, prompt
 
 
+def _corroborated(
+    evidence_refs: Sequence[str], registry_by_ref: Mapping[str, EvidenceRegistryEntry], target_ids: Sequence[str]
+) -> bool:
+    """Whether evidence from beyond the finding's own targets backs it, so its P0 is not the model's word alone.
+
+    A recorded check, an attached artifact or a deterministic tool's finding qualifies, and so does an excerpt of
+    *another* file (``repo_context``: a caller the change breaks, a test, a definition). The finding's own target
+    and the exact source of that same target never do: every target has both, and the investigator is shown the
+    very bytes they point at. An excerpt whose file is unknown, or is the finding's own file, does not count.
+    """
+
+    own = {
+        registry_by_ref[f"target:{target_id}"].path
+        for target_id in target_ids
+        if f"target:{target_id}" in registry_by_ref
+    }
+    for ref in evidence_refs:
+        entry = registry_by_ref[ref]
+        if entry.kind in _INDEPENDENT_EVIDENCE:
+            return True
+        if entry.kind == "repo_context" and entry.path and entry.path not in own:
+            return True
+    return False
+
+
 def _validate_investigation(
     outcome: IntelligenceRunOutcome,
     hypothesis: ReviewHypothesis,
@@ -1523,7 +1566,7 @@ def _validate_investigation(
             driver=outcome.driver,
             model=outcome.model,
             severity=rating if rating in _IMPACTS else "",
-            verified=any(registry_by_ref[ref].kind in _CONCRETE_EVIDENCE for ref in evidence_refs),
+            verified=_corroborated(evidence_refs, registry_by_ref, target_ids),
             replacement=finding_replacement.parse_replacement(raw.get("replacement")),
         ),
     )

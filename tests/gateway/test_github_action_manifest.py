@@ -138,6 +138,21 @@ def test_the_documented_workflow_has_least_privilege_and_per_pull_request_concur
     assert "ref" not in job_steps[0].get("with", {})
 
 
+def test_the_samples_start_advisory_and_say_how_to_opt_into_p0() -> None:
+    """R1: a hallucinated P0 must not become a merge block on a customer's first day, so the copy-paste starts at none."""
+
+    sample = documented_workflow()["jobs"]["review"]["steps"][1]
+    assert sample["with"]["fail-on"] == "none"
+    guide = GUIDE.read_text(encoding="utf-8")
+    assert "change this to `p0`" in guide and "branch protection" in guide
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    (block,) = [
+        text for text in re.findall(r"```yaml\n(.*?)```", readme, re.DOTALL) if "lemoncrow-lab/lemoncrow@" in text
+    ]
+    (step,) = yaml.safe_load(block)
+    assert step["with"]["fail-on"] == "none" and "set `p0`" in block
+
+
 def test_the_guide_never_recommends_pull_request_target() -> None:
     text = GUIDE.read_text(encoding="utf-8")
     for block in fenced("yaml"):

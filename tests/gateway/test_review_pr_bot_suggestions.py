@@ -226,9 +226,15 @@ def investigate(**result: Any) -> tuple[str, ConfirmedFinding | None]:
         evidence_needed="",
     )
     registry = (
-        EvidenceRegistryEntry("target:t1", "target", "the unit", ("t1",)),
-        EvidenceRegistryEntry("source:new:src/a.py@sha256:abc", "source", "Exact Snapshot source", ("t1",)),
+        EvidenceRegistryEntry("target:t1", "target", "the unit", ("t1",), "src/a.py"),
+        EvidenceRegistryEntry("source:new:src/a.py@sha256:abc", "source", "Exact Snapshot source", ("t1",), "src/a.py"),
         EvidenceRegistryEntry("cross-repo:x", "cross_repository", "elsewhere", ("t1",)),
+        EvidenceRegistryEntry("check:ci:unit", "check", "unit tests failed", ("t1",)),
+        EvidenceRegistryEntry("artifact:a1", "artifact", "an attached log", ("t1",)),
+        EvidenceRegistryEntry("static:semgrep:1", "static_finding", "a scanner hit", ("t1",)),
+        EvidenceRegistryEntry("context:caller:src/b.py:1-3@sha256:1", "repo_context", "caller", ("t1",), "src/b.py"),
+        EvidenceRegistryEntry("context:caller:src/a.py:9-9@sha256:2", "repo_context", "same file", ("t1",), "src/a.py"),
+        EvidenceRegistryEntry("context:caller:unknown@sha256:3", "repo_context", "no known file", ("t1",)),
     )
     answer: dict[str, Any] = {
         "status": "confirmed",
@@ -274,11 +280,37 @@ def test_the_rating_is_kept_only_when_it_is_in_the_vocabulary() -> None:
     assert investigate(severity=5)[1].severity == ""  # type: ignore[union-attr]
 
 
-def test_a_finding_is_verified_only_by_evidence_beyond_the_target() -> None:
-    assert investigate(evidence_refs=["target:t1"])[1].verified is False  # type: ignore[union-attr]
-    assert investigate(evidence_refs=["target:t1", "source:new:src/a.py@sha256:abc"])[1].verified is True  # type: ignore[union-attr]
+def verified(*refs: str) -> bool:
+    status, found = investigate(evidence_refs=["target:t1", *refs])
+    assert status == "confirmed" and found is not None
+    return found.verified
+
+
+def test_the_findings_own_target_and_exact_source_never_verify_it() -> None:
+    # R1: every target has these two refs and the model is told which to cite, so they prove nothing.
+    assert verified() is False
+    assert verified("source:new:src/a.py@sha256:abc") is False
     # Related-repository context is never proof of this Snapshot (and cannot stand alone at all).
-    assert investigate(evidence_refs=["target:t1", "cross-repo:x"])[1].verified is False  # type: ignore[union-attr]
+    assert verified("cross-repo:x") is False
+
+
+@pytest.mark.parametrize("ref", ["check:ci:unit", "artifact:a1", "static:semgrep:1"])
+def test_a_check_an_artifact_or_a_static_finding_verifies_a_finding(ref: str) -> None:
+    assert verified(ref) is True
+
+
+def test_an_excerpt_of_another_file_verifies_a_finding_but_the_findings_own_file_does_not() -> None:
+    assert verified("context:caller:src/b.py:1-3@sha256:1") is True
+    assert verified("source:new:src/a.py@sha256:abc", "context:caller:src/b.py:1-3@sha256:1") is True
+    assert verified("context:caller:src/a.py:9-9@sha256:2") is False  # the finding's own file is not a second opinion
+    assert verified("context:caller:unknown@sha256:3") is False  # an excerpt whose file is not known counts for nothing
+
+
+def test_the_pull_request_prompt_does_not_tell_the_model_that_its_own_source_earns_a_must_fix() -> None:
+    from lemoncrow.pro.capabilities.review.ai_review import _PR_FIELD_RULES
+
+    assert "exact-source (source:)" not in _PR_FIELD_RULES
+    assert "do not count" in _PR_FIELD_RULES and "repo_context excerpt of another file" in _PR_FIELD_RULES
 
 
 def test_a_parsed_replacement_rides_on_the_finding_unverified() -> None:
@@ -349,7 +381,8 @@ def test_a_pull_request_review_asks_for_a_rating_and_a_replacement(tmp_path: Pat
     assert seen["schema"] is PR_INVESTIGATION_SCHEMA
     assert "Also return severity" in seen["system"] and "Also return replacement: null unless" in seen["system"]
     (found,) = result.machine_findings
-    assert (found.severity, found.verified, found.replacement) == ("high", True, None)
+    # The answer cites the target and its own exact source: a rating, but not evidence from beyond the code.
+    assert (found.severity, found.verified, found.replacement) == ("high", False, None)
 
 
 def test_a_replacement_for_deleted_code_is_dropped_because_nothing_on_the_new_side_can_take_it(tmp_path: Path) -> None:
@@ -646,8 +679,7 @@ def test_a_stale_or_unsafe_replacement_is_dropped_and_the_finding_is_kept(world:
 
 def test_a_replacement_outside_the_hunks_of_the_change_is_dropped(world: World) -> None:
     # src/cache.py changes lines 2-5 only; line 1 exists, and the quote is right, but GitHub cannot attach to it.
-    world.model.severity[CACHE_TITLE] = "medium"
-    world.model.cite_source.add(CACHE_TITLE)
+    world.model.severity[CACHE_TITLE] = "high"  # a performance finding: P1 at most, however it is backed
     world.model.replacements[CACHE_TITLE] = {
         "start_line": 1,
         "end_line": 1,
@@ -664,8 +696,7 @@ def test_a_replacement_outside_the_hunks_of_the_change_is_dropped(world: World) 
 
 
 def test_the_same_replacement_inside_a_hunk_is_kept(world: World) -> None:
-    world.model.severity[CACHE_TITLE] = "medium"
-    world.model.cite_source.add(CACHE_TITLE)
+    world.model.severity[CACHE_TITLE] = "high"  # a performance finding: P1 at most, however it is backed
     world.model.replacements[CACHE_TITLE] = {
         "start_line": 5,
         "end_line": 5,

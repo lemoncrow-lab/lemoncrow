@@ -299,8 +299,12 @@ class FakeModel:
         """``BUG`` title -> the impact rating the model returns for it."""
         self.cite_source: set[str] = set()
         """``BUG`` titles whose finding also cites the exact-source refs of its targets, not just the targets."""
+        self.cite_context: set[str] = set()
+        """``BUG`` titles whose finding also cites the repository-context excerpts (callers, tests, definitions) of its targets."""
         self.replacements: dict[str, dict[str, Any]] = {}
         """``BUG`` title -> the ``replacement`` object the model returns for it."""
+        self.evidence_seen: list[dict[str, Any]] = []
+        """The evidence registry each investigator call was offered, with the path of its first target."""
         self.fail = False
         self.input_tokens: int | None = 1000
         self.output_tokens: int | None = 200
@@ -324,6 +328,7 @@ class FakeModel:
         text = "\n".join(str(source[target].get("text", "")) for target in targets if target in source)
         path = str(source[targets[0]]["path"])
         self.calls.append({"path": path, "targets": targets, "category": hypothesis["category"]})
+        self.evidence_seen.append({"path": path, "evidence": prompt["evidence_registry"]["value"]})
         if self.fail:
             raise RuntimeError("provider unavailable")
         usage = ModelCallUsage(calls=1, input_tokens=self.input_tokens, output_tokens=self.output_tokens)
@@ -343,10 +348,16 @@ class FakeModel:
             rules = prompt.get("trusted_repository_rules") or []
             title = found.group(1).strip()
             refs = [f"target:{target}" for target in targets]
+            registry = prompt["evidence_registry"]["value"]
             if title in self.cite_source:
-                registry = prompt["evidence_registry"]["value"]
                 refs += [
                     row["ref"] for row in registry if row["kind"] == "source" and set(row["target_ids"]) & set(targets)
+                ]
+            if title in self.cite_context:
+                refs += [
+                    row["ref"]
+                    for row in registry
+                    if row["kind"] == "repo_context" and set(row["target_ids"]) & set(targets)
                 ]
             result = {
                 "status": "confirmed",

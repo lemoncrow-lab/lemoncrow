@@ -38,7 +38,10 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           # or: OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         with:
-          fail-on: p0
+          # Advisory while you trial it: the check reports P0s but never fails. Once you have seen a few weeks of
+          # pull requests and agree with the P0s it raised, change this to `p0` to fail the "LemonCrow Review"
+          # check while a P0 is open (add the check to branch protection if you want it to block merges).
+          fail-on: none
 ```
 
 3. Open a pull request. The bot posts a summary comment and a `LemonCrow Review` status when the run finishes.
@@ -92,16 +95,17 @@ One rule gives each finding its severity, and everything the bot shows reads tha
 
 | Level | Meaning | What puts a finding there |
 | --- | --- | --- |
-| **P0** | Must fix before merge: a wrong result, a security hole, data loss | A violation of a rule you wrote in `.lemoncrow/review.yaml` (a critical rule), or a **verified** finding the investigator rated **high** in the `correctness`, `security` or `persistence_migration` category. |
-| **P1** | Should fix | Every other **high** finding (unverified, or in concurrency, API, performance and the like), and **medium** findings that are verified. |
+| **P0** | Must fix before merge: a wrong result, a security hole, data loss | A violation of a rule you wrote in `.lemoncrow/review.yaml` (a critical rule) that cites that rule, or a **verified** finding the investigator rated **high** in the `correctness`, `security` or `persistence_migration` category. |
+| **P1** | Should fix | Every other **high** finding (not verified, or in concurrency, API, performance and the like), and **medium** findings that are verified. |
 | **P2** | Optional | Everything else, including every finding rated **low**, and a medium one with nothing but the changed code behind it. |
 
 - **Rated** is the investigator's own `low`, `medium` or `high` for the impact of the defect on the code it cites. It only nominates a finding: it can lower one, and it can never make one P0 on its own. Its wording is never read, so a title that says "critical" changes nothing.
-- **Verified** means a reference beyond the changed code itself backs the finding: the exact source of the commit, a recorded check, an attached artifact or a static-analysis result. A finding that cites only the changed unit, or only a related repository, is not verified. Unverified speculation is never P0.
+- **Verified** means evidence from beyond the finding's own changed code backs it, evidence the model did not write: a recorded check, an attached artifact, a static-analysis result, or an excerpt of a *different* file from the repository context pack (a caller the change breaks, a test, a definition). The finding's own changed unit and the exact source of that same unit do **not** count, because every changed unit comes with both and the model is shown those bytes anyway; neither does an excerpt of the finding's own file, or a related repository. A model's rating of `high` with nothing but the changed code behind it is therefore a **P1**, never a P0, and so never fails the check. What the Action can corroborate today is mostly the pack: it runs no scanner and records no checks of its own, so a P0 needs a finding whose cause the pack shows in another file (the stale caller of a function whose behavior the change broke), or a rule you wrote. Expect P0 to be rare; that is the point.
 - **Unrated** findings (a model that gave no rating) keep the severity of their category: P1 for correctness, security, concurrency, persistence and API findings, P2 for performance and verification. Unrated is never low and never P0.
 - A finding carried forward whose re-check failed on a push is **unverified** until a later check succeeds, so a P0 drops to P1 meanwhile. That review is incomplete, so with `fail-on: p0` the status is `error`, not a pass. A critical rule keeps its P0: your rule, not the model, made it a gate.
+- **Rules**: every rule in `.lemoncrow/review.yaml` is a critical rule today (there is no per-rule severity yet), and a violation is P0 only when the finding cites the rule it violates, which the Action requires of every rule finding. A finding that names no rule is held to the ordinary ladder, P1 at most.
 
-The categories that can reach P0 and the rule above are fixed in this release: there is no setting for them yet. `fail-on: p0` therefore gates your own rules and the findings LemonCrow could back with evidence.
+The categories that can reach P0 and the rule above are fixed in this release: there is no setting for them yet. `fail-on: p0` therefore gates your own rules and the findings LemonCrow could back with evidence. Start with `fail-on: none` (the sample's default), read the P0s for a few weeks, and switch to `p0` when you trust them.
 
 ### Suggested fixes
 
@@ -152,7 +156,7 @@ The summary ends with `<!-- lemoncrow:state v1 {json} -->`. Read it instead of s
 
 `context_tokens` is LemonCrow's own estimate (four characters per token) of the repository context in the prompts; it is part of `input_tokens`, not on top of it, and it is absent when no context was sent.
 
-A finding's `state` is `new`, `carried`, `fixed` or `stale`. A finding also carries `impact` (the investigator's rating) and `verified` when it has them, and, when it has a checked replacement, `suggestion` with the `suggestion_start` and `suggestion_end` lines it replaces. `units` and `units_truncated` hold what the next run compares against. Only a comment from a `Bot` account is trusted as this state.
+A finding's `state` is `new`, `carried`, `fixed` or `stale`. A finding also carries `impact` (the investigator's rating) and `verified` (evidence from beyond its own changed code backs it) when it has them, and, when it has a checked replacement, `suggestion` with the `suggestion_start` and `suggestion_end` lines it replaces. `units` and `units_truncated` hold what the next run compares against. Only a comment from a `Bot` account is trusted as this state.
 
 ## Pushes cost less
 
