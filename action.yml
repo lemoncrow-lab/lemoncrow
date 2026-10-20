@@ -1,0 +1,111 @@
+name: LemonCrow Review
+description: >-
+  AI pull request review on your own model key. Posts one summary comment and inline findings as a bot,
+  and on each push re-reviews only what changed.
+author: LemonCrow
+branding:
+  icon: eye
+  color: yellow
+
+# Usage: docs/setup/github-action.md. The model key is a secret passed as an environment variable on the
+# step (ANTHROPIC_API_KEY or OPENAI_API_KEY); nothing is read from `inputs` that could be logged.
+inputs:
+  github-token:
+    description: >-
+      Token the bot comments with. Keep the default, the workflow's GITHUB_TOKEN, so comments come from
+      github-actions[bot] and never from a person. Needs pull-requests: write and statuses: write.
+    default: ${{ github.token }}
+  model-provider:
+    description: >-
+      anthropic, openai or litellm. The default, auto, uses ANTHROPIC_API_KEY or OPENAI_API_KEY from the
+      step's environment (Anthropic first when both are set).
+    default: auto
+  model:
+    description: >-
+      Model id. Default: the provider's own (OpenAI gpt-4o-mini; Anthropic claude-sonnet-4-6).
+    default: ""
+  depth:
+    description: >-
+      Review depth, auto, thorough or deep. auto follows review.effort in .lemoncrow/review.yaml; the others go
+      deeper. The hard model-call cap applies at every depth.
+    default: auto
+  fail-on:
+    description: >-
+      "p0" fails the "LemonCrow Review" commit status while a P0 finding is open; "none" keeps it advisory.
+    default: none
+  review-drafts:
+    description: Review draft pull requests too. Drafts are skipped by default.
+    default: "false"
+  on-push:
+    description: Re-review on each push to an open pull request, not only when it opens.
+    default: "true"
+  pr-number:
+    description: Pull request to review. Set it for workflow_dispatch runs.
+    default: ${{ github.event.pull_request.number }}
+  working-directory:
+    description: Directory of the repository checkout.
+    default: "."
+
+runs:
+  using: composite
+  steps:
+    # Standard library only and runs before anything is installed, so a fork, a draft or a missing key costs
+    # seconds. Forks get no secrets and a read-only token on pull_request, so they exit 0 with a notice.
+    # pull_request_target is refused: it would run with secrets on behalf of code from the pull request.
+    - name: Decide whether to review
+      id: gate
+      shell: bash
+      env:
+        LEMONCROW_REVIEW_PR: ${{ inputs.pr-number }}
+        LEMONCROW_REVIEW_DRAFTS: ${{ inputs.review-drafts }}
+        LEMONCROW_REVIEW_ON_PUSH: ${{ inputs.on-push }}
+        LEMONCROW_REVIEW_PROVIDER: ${{ inputs.model-provider }}
+        INPUT_MODEL: ${{ inputs.model }}
+      run: |
+        if [ -n "$INPUT_MODEL" ]; then export LEMONCROW_REVIEW_MODEL="$INPUT_MODEL"; fi
+        python3 "$GITHUB_ACTION_PATH/src/lemoncrow/pro/capabilities/review/pr_bot/ci_env.py"
+
+    - name: Set up uv
+      if: steps.gate.outputs.run == 'true'
+      uses: astral-sh/setup-uv@v5
+      with:
+        version: "0.11.32"
+
+    # LemonCrow is not on PyPI. The checkout of this action at the ref the workflow named is the package,
+    # installed from its lockfile into a private environment, so the code that reviews is the code you pinned.
+    - name: Install LemonCrow
+      if: steps.gate.outputs.run == 'true'
+      shell: bash
+      env:
+        EXTRA: ${{ steps.gate.outputs.extra }}
+        UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/lemoncrow-venv
+      run: |
+        set -euo pipefail
+        if [ -n "$EXTRA" ]; then
+          uv sync --project "$GITHUB_ACTION_PATH" --frozen --no-dev --no-progress --extra "$EXTRA"
+        else
+          uv sync --project "$GITHUB_ACTION_PATH" --frozen --no-dev --no-progress
+        fi
+
+    - name: Review the pull request
+      if: steps.gate.outputs.run == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        LEMONCROW_REVIEW_PR: ${{ inputs.pr-number }}
+        LEMONCROW_REVIEW_DRAFTS: ${{ inputs.review-drafts }}
+        LEMONCROW_REVIEW_ON_PUSH: ${{ inputs.on-push }}
+        LEMONCROW_REVIEW_PROVIDER: ${{ inputs.model-provider }}
+        INPUT_MODEL: ${{ inputs.model }}
+        DEPTH: ${{ inputs.depth }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        VENV: ${{ runner.temp }}/lemoncrow-venv
+      run: |
+        set -euo pipefail
+        # An input left empty must not hide LEMONCROW_REVIEW_MODEL set on the step that uses this action.
+        if [ -n "$INPUT_MODEL" ]; then export LEMONCROW_REVIEW_MODEL="$INPUT_MODEL"; fi
+        args=(review --pr "$LEMONCROW_REVIEW_PR" --ai --publish-bot --depth "$DEPTH" --fail-on "$FAIL_ON")
+        if [ "$LEMONCROW_REVIEW_DRAFTS" = "true" ]; then args+=(--review-drafts); fi
+        if [ "$LEMONCROW_REVIEW_ON_PUSH" = "false" ]; then args+=(--no-on-push); fi
+        "$VENV/bin/lemoncrow" "${args[@]}"

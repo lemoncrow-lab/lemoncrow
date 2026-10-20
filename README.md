@@ -118,8 +118,11 @@ Architecture details: [Runtime Lite](docs/architecture/runtime-lite.md) and the
 ## Review agent changes
 
 Coding agents can produce changes faster than a human can confidently review
-them. LemonCrow treats human review state as the durable object instead of
-asking a model to write another review summary.
+them. LemonCrow treats human review state as the durable object. The default
+review is deterministic and calls no model. When you configure a model route,
+Auto AI review adds findings as hints for the reviewer, never as a verdict, and
+in CI the [GitHub Action](docs/setup/github-action.md) posts them on your pull
+requests with your own model key.
 
 Start with the local review reader:
 
@@ -181,6 +184,27 @@ LemonCrow does not synthesize a passing test status.
 
 See the [10-minute review walkthrough](docs/reference/review-walkthrough.md) or
 the [CLI reference](docs/reference/cli.md#reviewing-agent-written-changes).
+
+### Install the GitHub Action
+
+Early access. A workflow in your repository reviews each pull request on your
+own model key and posts the result as a bot: one summary comment with a verdict,
+inline P0/P1 findings, and a `LemonCrow Review` status. On each push it
+re-reviews only what changed and carries the rest forward, so a push to a
+long-running pull request does not pay to review the same code twice.
+
+```yaml
+- uses: lemoncrow-lab/lemoncrow@v1
+  env:
+    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}   # or OPENAI_API_KEY
+  with:
+    fail-on: p0
+```
+
+The full workflow, permissions, fork-pull-request behavior and limits are in
+[Install the GitHub Action](docs/setup/github-action.md). To try it without
+CI: `lc review --pr 123 --ai` (full Review CLI) prints the findings and posts
+nothing.
 
 ---
 

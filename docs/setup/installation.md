@@ -19,6 +19,10 @@ lc status
 
 The normal Runtime path does not require a LemonCrow daemon or a listening local application server. Repository intelligence is prepared in the repository you are working in.
 
+## Install the GitHub Action
+
+To have LemonCrow review your pull requests in CI, on your own model key, add the Action to a workflow instead of installing anything: see [GitHub Action: AI pull request review](./github-action.md).
+
 ## Use LemonCrow with your existing coding agent
 
 Claude Code, Codex, and OpenCode support a temporary launch that adds the LemonCrow plugin only to that run:

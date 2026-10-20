@@ -23,6 +23,11 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: "doc",
+          id: "setup/github-action",
+          label: "GitHub Action: AI pull request review",
+        },
+        {
+          type: "doc",
           id: "setup/hosted-review",
           label: "Hosted Review: administrator guide",
         },

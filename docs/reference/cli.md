@@ -135,6 +135,7 @@ lc review --finish
 lc review --current
 lc review --resume-author
 lc review --pr 123
+lc review --pr 123 --ai --depth auto   # AI review in the terminal or CI; --publish-bot posts it as a bot
 lc review data-flow
 lc review diagnostics
 lc review observation-worker check --server URL --pins pins.json

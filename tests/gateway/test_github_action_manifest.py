@@ -1,0 +1,158 @@
+"""`action.yml` and the workflow the docs tell customers to copy: what they promise, and that the code keeps it."""
+
+from __future__ import annotations
+
+import importlib.util
+import re
+from pathlib import Path
+from typing import Any
+
+import pytest
+import yaml
+
+from lemoncrow.pro.capabilities.review.pr_bot import ci_env
+from tests.gateway.pr_bot_support import BASE, FIRST_PUSH, build_world
+
+ROOT = Path(__file__).resolve().parents[2]
+ACTION = ROOT / "action.yml"
+GUIDE = ROOT / "docs" / "setup" / "github-action.md"
+
+
+def manifest() -> dict[str, Any]:
+    return yaml.safe_load(ACTION.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
+
+
+def fenced(language: str) -> list[str]:
+    return re.findall(rf"```{language}\n(.*?)```", GUIDE.read_text(encoding="utf-8"), re.DOTALL)
+
+
+def documented_workflow() -> dict[str, Any]:
+    (block,) = [text for text in fenced("yaml") if text.startswith("name: LemonCrow Review")]
+    return yaml.safe_load(block)  # type: ignore[no-any-return]
+
+
+def steps(action: dict[str, Any]) -> list[dict[str, Any]]:
+    return list(action["runs"]["steps"])
+
+
+def test_the_action_is_a_composite_action_at_the_repository_root() -> None:
+    action = manifest()
+    assert action["name"] == "LemonCrow Review" and action["runs"]["using"] == "composite"
+    assert ACTION.parent == ROOT
+
+
+def test_the_inputs_are_the_documented_ones_with_safe_defaults() -> None:
+    inputs = manifest()["inputs"]
+    assert set(inputs) == {
+        "github-token",
+        "model-provider",
+        "model",
+        "depth",
+        "fail-on",
+        "review-drafts",
+        "on-push",
+        "pr-number",
+        "working-directory",
+    }
+    assert inputs["github-token"]["default"] == "${{ github.token }}"
+    assert (inputs["depth"]["default"], inputs["fail-on"]["default"], inputs["model-provider"]["default"]) == (
+        "auto",
+        "none",
+        "auto",
+    )
+    assert (inputs["review-drafts"]["default"], inputs["on-push"]["default"]) == ("false", "true")
+    documented = GUIDE.read_text(encoding="utf-8")
+    for name in inputs:
+        assert f"`{name}`" in documented, f"input {name} is not documented"
+
+
+def test_no_secret_or_event_text_is_pasted_into_a_shell_script() -> None:
+    """Expressions reach scripts only through ``env:``, never inline: an input is attacker-controllable text."""
+
+    for step in steps(manifest()):
+        script = str(step.get("run", ""))
+        assert "${{" not in script, f"{step.get('name')}: expression interpolated into a script"
+
+
+def test_every_input_reference_is_declared_and_no_credential_is_an_input() -> None:
+    text = ACTION.read_text(encoding="utf-8")
+    declared = set(manifest()["inputs"])
+    assert set(re.findall(r"inputs\.([a-z-]+)", text)) <= declared
+    assert not [name for name in declared if "key" in name or "secret" in name]
+
+
+def test_the_steps_run_the_gate_first_and_only_continue_when_it_says_so() -> None:
+    action = manifest()
+    gate, *rest = steps(action)
+    assert gate["id"] == "gate" and "ci_env.py" in gate["run"]
+    assert (ROOT / "src/lemoncrow/pro/capabilities/review/pr_bot/ci_env.py").is_file()
+    assert rest and all(step["if"] == "steps.gate.outputs.run == 'true'" for step in rest)
+    read = set(re.findall(r"steps\.gate\.outputs\.(\w+)", ACTION.read_text(encoding="utf-8")))
+    assert read == {"run", "extra"}
+    source = Path(ci_env.__file__).read_text(encoding="utf-8")
+    assert all(f'f"{name}=' in source for name in read)
+
+
+def test_it_installs_from_its_own_checkout_and_lockfile_into_a_private_environment() -> None:
+    install = next(step for step in steps(manifest()) if step["name"] == "Install LemonCrow")
+    assert "uv sync" in install["run"] and "--frozen" in install["run"] and "--no-dev" in install["run"]
+    assert "$GITHUB_ACTION_PATH" in install["run"]
+    assert install["env"]["UV_PROJECT_ENVIRONMENT"] == "${{ runner.temp }}/lemoncrow-venv"
+    assert (ROOT / "uv.lock").is_file() and (ROOT / "pyproject.toml").is_file()
+
+
+def test_the_review_step_runs_the_headless_command_with_the_workflow_token() -> None:
+    review = next(step for step in steps(manifest()) if step["name"] == "Review the pull request")
+    assert review["env"]["GH_TOKEN"] == "${{ inputs.github-token }}"
+    for flag in ("--ai", "--publish-bot", "--depth", "--fail-on", "--review-drafts", "--no-on-push"):
+        assert flag in review["run"]
+
+
+def test_the_action_ships_in_the_public_mirror() -> None:
+    spec = importlib.util.spec_from_file_location("_mirror", ROOT / "scripts" / "mirror.py")
+    assert spec and spec.loader
+    mirror = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mirror)
+    prefixes = mirror.load_public_prefixes()
+    for path in ("action.yml", "uv.lock", "pyproject.toml", "docs/setup/github-action.md"):
+        assert mirror.is_public(path, prefixes), path
+    assert mirror.is_public("src/lemoncrow/pro/capabilities/review/pr_bot/ci_env.py", prefixes)
+
+
+def test_the_documented_workflow_has_least_privilege_and_per_pull_request_concurrency() -> None:
+    workflow = documented_workflow()
+    assert workflow["permissions"] == {"contents": "read", "pull-requests": "write", "statuses": "write"}
+    assert workflow["concurrency"] == {
+        "group": "lemoncrow-review-${{ github.event.pull_request.number }}",
+        "cancel-in-progress": True,
+    }
+    trigger = workflow["on"] if "on" in workflow else workflow[True]
+    assert list(trigger) == ["pull_request"]
+    assert {"opened", "synchronize", "reopened", "ready_for_review"} <= set(trigger["pull_request"]["types"])
+    job_steps = workflow["jobs"]["review"]["steps"]
+    assert job_steps[0]["uses"].startswith("actions/checkout@") and job_steps[0]["with"]["fetch-depth"] == 0
+    action_step = job_steps[1]
+    assert action_step["uses"] == "lemoncrow-lab/lemoncrow@v1"
+    assert action_step["env"]["ANTHROPIC_API_KEY"] == "${{ secrets.ANTHROPIC_API_KEY }}"
+    # The documented checkout is the default one: never the pull request's own head.
+    assert "ref" not in job_steps[0].get("with", {})
+
+
+def test_the_guide_never_recommends_pull_request_target() -> None:
+    text = GUIDE.read_text(encoding="utf-8")
+    for block in fenced("yaml"):
+        assert "pull_request_target" not in block
+    assert "Do not work around it with `pull_request_target`" in text
+    assert "Never check out the pull request's head" in text
+
+
+def test_the_documented_review_yaml_is_accepted_and_changes_nothing_it_should_not(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (config,) = [text for text in fenced("yaml") if text.startswith("# .lemoncrow/review.yaml")]
+    world = build_world(tmp_path, monkeypatch, {**BASE, ".lemoncrow/review.yaml": config})
+    world.origin.push(FIRST_PUSH)
+    report = world.review()
+    assert not report.skipped and "Review policy invalid" not in report.reason
+    assert report.verdict is not None and report.state is not None and report.state.complete
+    assert any("auth-required" in str(rule) for rule in yaml.safe_load(config)["rules"])
