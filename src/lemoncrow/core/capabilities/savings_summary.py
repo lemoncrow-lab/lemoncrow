@@ -3369,6 +3369,14 @@ def aggregate_usage_totals_by_day(root: str | Path, *, since_day: str, today: st
     return by_day
 
 
+def ledger_session_ids(root: str | Path) -> set[str]:
+    """Ids of the sessions the daily public rollup already reports: those with at
+    least one day in the savings ledger (see :func:`aggregate_usage_totals_by_day`).
+    Reporting one of them again per session would count its usage twice."""
+    agg = reconcile_savings_aggregate(Path(root))
+    return {Path(str(key)).name for key, entry in agg.get("sessions", {}).items() if entry.get("days")}
+
+
 def aggregate_usage_totals_since_day(root: str | Path, *, since_day: str, today: str) -> dict[str, float | int]:
     """Whole-window sum of :func:`aggregate_usage_totals_by_day` -- kept for
     callers that want one total rather than the per-day breakdown."""

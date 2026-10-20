@@ -161,13 +161,6 @@ def _isolate_workspace_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> I
 
 
 @pytest.fixture(autouse=True)
-def _no_network_sync() -> Iterator[None]:
-    """Block optional outbound sync so ordinary tests stay hermetic."""
-    with patch("lemoncrow.core.service.sync.sync_usage", return_value=True):
-        yield
-
-
-@pytest.fixture(autouse=True)
 def _no_external_search_in_tests(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Isolate tests from zoekt and semantic search backends.
 
