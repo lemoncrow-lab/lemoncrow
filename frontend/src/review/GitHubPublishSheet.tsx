@@ -147,7 +147,7 @@ export default function GitHubPublishSheet({ reviewId, onClose, onPublished }: G
             {result ? "Done" : "Refresh preview"}
           </UiButton>
           {!result && (
-            <UiButton variant="default" type="button" disabled={busy !== "" || blocked} onClick={() => void publish()} className="px-3">
+            <UiButton variant="solid" type="button" disabled={busy !== "" || blocked} onClick={() => void publish()} className="px-3">
               {busy === "publish" ? "Publishing…" : "Publish to GitHub"}
             </UiButton>
           )}

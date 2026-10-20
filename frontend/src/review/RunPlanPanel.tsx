@@ -516,7 +516,7 @@ export default function RunPlanPanel({
                   key={row.id}
                   type="button"
                   size="xs"
-                  variant={selected ? "default" : "outline"}
+                  variant={selected ? "solid" : "outline"}
                   aria-pressed={selected}
                   className="w-full justify-start"
                   onClick={() => {
@@ -546,7 +546,7 @@ export default function RunPlanPanel({
             {actionError && <div className="text-micro text-rose-300">{actionError}</div>}
             <div className="flex gap-2">
               {preview ? (
-                <UiButton type="button" size="xs" variant="default" disabled={busy} onClick={() => void confirmPicks()}>
+                <UiButton type="button" size="xs" variant="solid" disabled={busy} onClick={() => void confirmPicks()}>
                   Add to this Review
                 </UiButton>
               ) : (

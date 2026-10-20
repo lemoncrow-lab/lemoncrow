@@ -1082,7 +1082,7 @@ export default function CodeMap() {
                       >
                         <span className="flex items-center gap-2">
                           <FileTypeIcon path={path} size={13} />
-                          <span className="min-w-0 flex-1 truncate text-xs text-foreground">{label}</span>
+                          <span className="min-w-0 flex-1 truncate text-body text-foreground">{label}</span>
                           <span className="shrink-0 text-micro font-semibold uppercase tracking-wider text-muted-foreground">{badge}</span>
                         </span>
                         <span className="mt-0.5 block truncate pl-[21px] text-caption text-muted-foreground">
@@ -1186,15 +1186,15 @@ export default function CodeMap() {
         </div>
       )}
       {loading ? (
-        <div className="flex min-h-[560px] items-center justify-center gap-3 text-sm text-neutral-300">
+        <div className="flex min-h-[560px] items-center justify-center gap-3 text-heading text-neutral-300">
           <Loader2 className="animate-spin text-neutral-300" size={18} /> Listing files…
         </div>
       ) : !files.length && !error ? (
         <div className="flex min-h-[560px] items-center justify-center px-4">
           <div className="max-w-lg rounded-lg border border-border/70 bg-background/60 p-4 text-center">
             <Braces className="mx-auto text-neutral-300" size={28} />
-            <h3 className="mt-4 text-base font-semibold text-foreground">No files in this project yet</h3>
-            <p className="mt-2 text-sm leading-6 text-neutral-300">Index the repository, then return here.</p>
+            <h3 className="mt-4 text-title font-semibold text-foreground">No files in this project yet</h3>
+            <p className="mt-2 text-heading leading-6 text-neutral-300">Index the repository, then return here.</p>
             <UiButton type="button" size="xs" variant="outline" className="mt-3" onClick={() => setShowIgnored((value) => !value)}>{showIgnored ? "Hide Git ignored files" : "Show Git ignored files"}</UiButton>
             <code className="mt-4 inline-block rounded-md border border-border/70 bg-surface-code px-3 py-1.5 font-mono text-label text-emerald-300">{fullCode ? "lc code index" : "lc runtime index"}</code>
           </div>

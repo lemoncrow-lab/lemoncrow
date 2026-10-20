@@ -17,7 +17,7 @@ export default function MemoryBlockCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="text-sm text-neutral-200 font-bold">
+            <h3 className="text-heading text-neutral-200 font-bold">
               {block.label}
             </h3>
             {block.pinned && (
@@ -38,9 +38,9 @@ export default function MemoryBlockCard({
             ))}
           </div>
           {block.description && (
-            <p className="text-xs text-neutral-400 mt-1">{block.description}</p>
+            <p className="text-body text-neutral-400 mt-1">{block.description}</p>
           )}
-          <p className="text-xs text-neutral-300 mt-2 whitespace-pre-wrap break-words leading-relaxed">
+          <p className="text-body text-neutral-300 mt-2 whitespace-pre-wrap break-words leading-relaxed">
             {block.value}
           </p>
         </div>

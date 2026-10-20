@@ -127,7 +127,7 @@ export default function Rubrics() {
                           {r.id}
                         </h3>
                       </div>
-                      <p className="text-xs text-neutral-400">
+                      <p className="text-body text-neutral-400">
                         {r.required_checks.length} check
                         {r.required_checks.length !== 1 ? "s" : ""}
                       </p>
@@ -150,11 +150,11 @@ export default function Rubrics() {
                       <FieldLabel className="mb-2">
                         <ChevronRight size={10} className="inline mr-1" /> created
                       </FieldLabel>
-                      <p className="text-xs text-neutral-400 font-mono">
+                      <p className="text-body text-neutral-400 font-mono">
                         {new Date(r.created_at).toLocaleString()}
                       </p>
                       {r.updated_at && (
-                        <p className="text-xs text-neutral-400 font-mono mt-1">
+                        <p className="text-body text-neutral-400 font-mono mt-1">
                           Updated: {new Date(r.updated_at).toLocaleString()}
                         </p>
                       )}

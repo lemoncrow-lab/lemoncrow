@@ -333,7 +333,7 @@ export default function ReaderHeader({
       {handoffControls}
       {!handoffControls && !hidePrimaryAction && (
         <UiButton
-          variant="default"
+          variant="brand"
           ref={finishButtonRef}
           type="button"
           disabled={busy || primaryAction.disabled}
@@ -546,7 +546,7 @@ export default function ReaderHeader({
               </DialogClose>
               {feedbackState !== "sent" && (
                 <UiButton
-                  variant="default"
+                  variant="solid"
                   type="submit"
                   disabled={!feedbackText.trim() || feedbackState === "sending"}
                 >

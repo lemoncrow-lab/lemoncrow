@@ -767,7 +767,7 @@ export default function CodeGraph({
   if (renderingUnavailable) {
     return (
       <div className="h-full min-h-[420px] overflow-y-auto bg-surface-sunken p-4">
-        <div className="rounded-lg border border-neutral-800/70 border-l-2 border-l-amber-600/50 bg-neutral-950/60 p-4 text-sm text-neutral-300">
+        <div className="rounded-lg border border-neutral-800/70 border-l-2 border-l-amber-600/50 bg-neutral-950/60 p-4 text-heading text-neutral-300">
           WebGL is unavailable, so the graph is shown as a navigable list capped
           at 500 items.
         </div>
@@ -780,7 +780,7 @@ export default function CodeGraph({
               onDoubleClick={() => onExpand(node.id)}
               className="rounded-md border border-neutral-800/70 bg-neutral-950/60 p-3 text-left transition-colors hover:border-neutral-600"
             >
-              <span className="block truncate text-sm text-neutral-100">
+              <span className="block truncate text-heading text-neutral-100">
                 {node.label}
               </span>
               <span className="mt-1 block truncate text-caption text-muted-foreground">

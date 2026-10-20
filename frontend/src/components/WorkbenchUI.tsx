@@ -99,10 +99,10 @@ export function MetricCard({
   return (
     <Card className={cn("p-4", palette.panel)}>
       <FieldLabel className={palette.eyebrow}>{label}</FieldLabel>
-      <div className={cn("mt-2 text-lg font-semibold", palette.value)}>
+      <div className={cn("mt-2 text-lead font-semibold", palette.value)}>
         {value}
       </div>
-      {detail && <div className="mt-2 text-xs text-neutral-400">{detail}</div>}
+      {detail && <div className="mt-2 text-body text-neutral-400">{detail}</div>}
     </Card>
   );
 }
@@ -122,7 +122,7 @@ export function SectionHeader({
     <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
       <div>
         {eyebrow && <FieldLabel className="tracking-[0.2em]">{eyebrow}</FieldLabel>}
-        <h2 className="mt-1 text-sm font-semibold text-foreground">{title}</h2>
+        <h2 className="mt-1 text-heading font-semibold text-foreground">{title}</h2>
         {description && (
           <p className="mt-1 text-label leading-5 text-muted-foreground">
             {description}
@@ -152,10 +152,10 @@ export function FeaturePanel({
   return (
     <Card tone="muted" className="p-4">
       <div className="flex items-start gap-4">
-        <div className="shrink-0 text-3xl">{icon}</div>
+        <div className="shrink-0 text-h2">{icon}</div>
         <div className="flex-1">
           <div className="mb-2 flex items-center gap-3">
-            <h2 className="text-lg font-semibold text-neutral-200">
+            <h2 className="text-lead font-semibold text-neutral-200">
               {title}
             </h2>
             <Badge tone="success">{status}</Badge>
@@ -165,11 +165,11 @@ export function FeaturePanel({
               {subtitle}
             </p>
           )}
-          <div className="text-xs leading-relaxed text-neutral-300">
+          <div className="text-body leading-relaxed text-neutral-300">
             {description}
           </div>
           {bullets.length > 0 && (
-            <div className="mt-3 space-y-1 text-xs text-emerald-300">
+            <div className="mt-3 space-y-1 text-body text-emerald-300">
               {bullets.map((bullet) => (
                 <p key={bullet} className="flex items-center gap-1.5">
                   <Check size={12} className="text-emerald-300" /> {bullet}
@@ -196,8 +196,8 @@ export function ExplainerCard({
 }) {
   return (
     <Card className="p-4">
-      <div className="text-sm font-semibold text-foreground">{title}</div>
-      <dl className="mt-4 space-y-3 text-sm">
+      <div className="text-heading font-semibold text-foreground">{title}</div>
+      <dl className="mt-4 space-y-3 text-heading">
         <div className="grid gap-1 md:grid-cols-[88px_1fr]">
           <dt>
             <FieldLabel>Detects</FieldLabel>
@@ -268,12 +268,12 @@ export function SnippetCard({
     <Card className="bg-background/70">
       <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
         <div>
-          <div className="text-sm font-semibold text-foreground">{title}</div>
-          {caption && <div className="mt-1 text-xs text-neutral-400">{caption}</div>}
+          <div className="text-heading font-semibold text-foreground">{title}</div>
+          {caption && <div className="mt-1 text-body text-neutral-400">{caption}</div>}
         </div>
         <CopyButton text={body} />
       </div>
-      <pre className="overflow-x-auto border-0 bg-transparent p-4 text-xs leading-relaxed text-neutral-300">
+      <pre className="overflow-x-auto border-0 bg-transparent p-4 text-body leading-relaxed text-neutral-300">
         {body}
       </pre>
     </Card>
@@ -317,7 +317,7 @@ export function Slider({
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <FieldLabel>{label}</FieldLabel>
-        <span className="font-mono text-sm text-foreground">
+        <span className="font-mono text-heading text-foreground">
           {formatValue(value)}
         </span>
       </div>

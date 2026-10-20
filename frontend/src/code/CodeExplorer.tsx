@@ -331,7 +331,7 @@ export default function CodeExplorer({
               aria-label="Filter files"
             />
           </div>
-          <UiButton type="button" size="icon" variant={changedOnly ? "default" : "ghost"} onClick={() => setChangedOnly((value) => !value)} disabled={!changes} aria-label="Changed since HEAD" aria-pressed={changedOnly} tooltip="Show only files changed since HEAD" className="h-7 w-7 shrink-0">
+          <UiButton type="button" size="icon" variant={changedOnly ? "solid" : "ghost"} onClick={() => setChangedOnly((value) => !value)} disabled={!changes} aria-label="Changed since HEAD" aria-pressed={changedOnly} tooltip="Show only files changed since HEAD" className="h-7 w-7 shrink-0">
             <span className="font-mono text-micro font-semibold">{changes?.total ?? "…"}</span>
           </UiButton>
           <DropdownMenu>
@@ -396,7 +396,7 @@ export default function CodeExplorer({
                 onSelect={onSelect}
               />
             ) : (
-              <p className="p-4 text-xs text-muted-foreground">No matching files.</p>
+              <p className="p-4 text-body text-muted-foreground">No matching files.</p>
             )}
           </CollapsibleContent>
         </section>

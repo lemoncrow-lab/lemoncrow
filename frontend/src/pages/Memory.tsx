@@ -331,7 +331,7 @@ export default function Memory() {
             <Card key={vendor}>
               <div
                 className={cx(
-                  "border-b border-border px-4 py-2 text-xs font-bold uppercase tracking-widest",
+                  "border-b border-border px-4 py-2 text-body font-bold uppercase tracking-widest",
                   VENDOR_COLORS[vendor] ?? "text-neutral-400"
                 )}
               >
@@ -339,7 +339,7 @@ export default function Memory() {
               </div>
               <ul className="divide-y divide-neutral-800">
                 {vfacts.map((f) => (
-                  <li key={f.fact_id} className="px-4 py-3 text-xs">
+                  <li key={f.fact_id} className="px-4 py-3 text-body">
                     <div className="flex items-start justify-between gap-4">
                       <div>
                         <p className="font-semibold text-neutral-200">{f.source_kind}</p>
@@ -376,7 +376,7 @@ export default function Memory() {
         />
       </section>
 
-      {error && <p className="text-xs text-red-300">{error}</p>}
+      {error && <p className="text-body text-red-300">{error}</p>}
 
       <section className="grid gap-4 md:grid-cols-3">
         <MetricCard
@@ -420,7 +420,7 @@ export default function Memory() {
           </div>
 
           {loadingBlocks && (
-            <p className="text-xs text-neutral-400 pt-3">
+            <p className="text-body text-neutral-400 pt-3">
               Loading memory blocks...
             </p>
           )}
@@ -432,7 +432,7 @@ export default function Memory() {
                   Pinned
                 </h3>
                 {pinnedBlocks.length === 0 ? (
-                  <p className="text-xs text-neutral-400 mt-2">
+                  <p className="text-body text-neutral-400 mt-2">
                     No pinned blocks have been saved for the visible agents yet.
                   </p>
                 ) : (
@@ -452,7 +452,7 @@ export default function Memory() {
                   Recent
                 </h3>
                 {recentBlocks.length === 0 ? (
-                  <p className="text-xs text-neutral-400 mt-2">
+                  <p className="text-body text-neutral-400 mt-2">
                     No editable core blocks are present yet. Archived passages
                     can still exist below.
                   </p>
@@ -490,11 +490,11 @@ export default function Memory() {
                 Recent archived passages
               </h3>
               {loadingPassages ? (
-                <p className="text-xs text-neutral-400 mt-2">
+                <p className="text-body text-neutral-400 mt-2">
                   Loading archived passages...
                 </p>
               ) : recentPassages.length === 0 ? (
-                <p className="text-xs text-neutral-400 mt-2">
+                <p className="text-body text-neutral-400 mt-2">
                   No archived passages are visible yet.
                 </p>
               ) : (
@@ -515,7 +515,7 @@ export default function Memory() {
                           {passage.source}
                         </span>
                       </div>
-                      <p className="mt-2 text-xs text-neutral-300 whitespace-pre-wrap leading-relaxed">
+                      <p className="mt-2 text-body text-neutral-300 whitespace-pre-wrap leading-relaxed">
                         {passage.text}
                       </p>
                     </li>
@@ -529,7 +529,7 @@ export default function Memory() {
                 Search results
               </h3>
               {recallResults.length === 0 ? (
-                <p className="text-xs text-neutral-400 mt-2">
+                <p className="text-body text-neutral-400 mt-2">
                   No archival search results yet.
                 </p>
               ) : (
@@ -556,7 +556,7 @@ export default function Memory() {
                           </span>
                         )}
                       </div>
-                      <p className="mt-2 text-xs text-neutral-300 whitespace-pre-wrap leading-relaxed">
+                      <p className="mt-2 text-body text-neutral-300 whitespace-pre-wrap leading-relaxed">
                         {passage.text}
                       </p>
                       <div className="mt-1">
@@ -566,12 +566,12 @@ export default function Memory() {
                             href={safeHref(passage.source_ref) ?? undefined}
                             target="_blank"
                             rel="noreferrer"
-                            className="text-xs text-amber-300 underline"
+                            className="text-body text-amber-300 underline"
                           >
                             Source
                           </a>
                         ) : (
-                          <span className="text-xs text-neutral-400">
+                          <span className="text-body text-neutral-400">
                             No source
                           </span>
                         )}
@@ -605,7 +605,7 @@ export default function Memory() {
                   <h3 className="text-label uppercase tracking-widest text-neutral-400 mb-1">
                     Current
                   </h3>
-                  <pre className="min-h-40 whitespace-pre-wrap rounded-md border border-border/70 bg-surface-code p-3 text-xs text-neutral-300">
+                  <pre className="min-h-40 whitespace-pre-wrap rounded-md border border-border/70 bg-surface-code p-3 text-body text-neutral-300">
                     {editDraft.block.value}
                   </pre>
                 </div>
@@ -631,7 +631,7 @@ export default function Memory() {
               </div>
 
               {conflictMessage && (
-                <p className="text-xs text-red-300 mt-3">{conflictMessage}</p>
+                <p className="text-body text-red-300 mt-3">{conflictMessage}</p>
               )}
             </DialogBody>
             <DialogFooter>
@@ -649,7 +649,7 @@ export default function Memory() {
                 aria-label="Save memory block edit"
                 onClick={submitEdit}
                 size="sm"
-                variant="default"
+                variant="solid"
               >
                 Save
               </UiButton>

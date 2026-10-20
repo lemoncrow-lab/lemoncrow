@@ -139,14 +139,14 @@ export default function Savings() {
             <div className="text-label font-mono uppercase tracking-[0.22em] text-cyan-300">
               {headlineLabel}
             </div>
-            <div className="mt-1 text-3xl font-semibold leading-none text-foreground md:text-4xl">
+            <div className="mt-1 text-h2 font-semibold leading-none text-foreground">
               {fmtPct(
                 data.cost_basis === "session_ledger"
                   ? (data.saved_pct ?? 0)
                   : data.reduction_pct
               )}
             </div>
-            <p className="text-sm text-neutral-400 mt-3">
+            <p className="text-heading text-neutral-400 mt-3">
               {fmtUsd(totalSavedUsd)} saved of{" "}
               {fmtUsd(data.would_have_cost_usd ?? 0)} would-have-cost over the
               last {data.window_days} days —{" "}
@@ -163,7 +163,7 @@ export default function Savings() {
               )}{" "}
               avoided calls.
             </p>
-            <p className="max-w-3xl text-xs text-neutral-400 mt-3 leading-relaxed">
+            <p className="max-w-3xl text-body text-neutral-400 mt-3 leading-relaxed">
               {data.cost_basis === "context_budget"
                 ? "Proof-oriented reduction from persisted context-budget rows. Ledger totals remain visible below for statusline/CLI reconciliation."
                 : "Realized savings from the per-session ledger — the same figure shown by the statusline and the LemonCrow savings CLI."}
@@ -183,21 +183,21 @@ export default function Savings() {
           <div className="text-caption font-mono uppercase tracking-widest text-emerald-300 mb-1">
             Cost Saved
           </div>
-          <div className="text-2xl font-semibold text-emerald-300">
+          <div className="text-h3 font-semibold text-emerald-300">
             {fmtUsd(data.saved_usd ?? 0)}
           </div>
           {(data.saved_pct ?? 0) > 0 && (
-            <div className="text-xs text-emerald-300 mt-1">
+            <div className="text-body text-emerald-300 mt-1">
               {fmtPct(data.saved_pct ?? 0)} vs baseline
             </div>
           )}
           {(data.routing_saved_usd ?? 0) > 0 && (
-            <div className="text-xs text-neutral-400 mt-1">
+            <div className="text-body text-neutral-400 mt-1">
               + {fmtUsd(data.routing_saved_usd ?? 0)} routing (separate)
             </div>
           )}
           {(data.ops_saved_usd ?? 0) > 0 && (
-            <div className="text-xs text-neutral-400 mt-1">
+            <div className="text-body text-neutral-400 mt-1">
               internal ops: {fmtUsd(data.ops_saved_usd ?? 0)}
             </div>
           )}
@@ -206,10 +206,10 @@ export default function Savings() {
           <div className="text-caption font-mono uppercase tracking-widest text-neutral-400/70 mb-1">
             Actual Cost
           </div>
-          <div className="text-2xl font-semibold text-neutral-200">
+          <div className="text-h3 font-semibold text-neutral-200">
             {fmtUsd(data.actually_cost_usd ?? 0)}
           </div>
-          <div className="text-xs text-neutral-400 mt-1">
+          <div className="text-body text-neutral-400 mt-1">
             {data.cost_basis === "session_ledger"
               ? `realized session spend (${fmtUsd(data.saved_usd ?? 0)} saved)`
               : data.cost_basis === "context_budget"
@@ -221,14 +221,14 @@ export default function Savings() {
           <div className="text-caption font-mono uppercase tracking-widest text-neutral-400/70 mb-1">
             Calls Saved
           </div>
-          <div className="text-2xl font-semibold text-neutral-200">
+          <div className="text-h3 font-semibold text-neutral-200">
             {fmtTok(
               data.cost_basis === "session_ledger"
                 ? (data.ledger_calls_saved ?? 0)
                 : (data.live_calls_saved ?? 0)
             )}
           </div>
-          <div className="text-xs text-neutral-400 mt-1">
+          <div className="text-body text-neutral-400 mt-1">
             {(data.total_calls ?? 0) > 0
               ? `${fmtTok(data.total_calls ?? 0)} LLM calls tracked`
               : trackedToolCalls > 0
@@ -240,10 +240,10 @@ export default function Savings() {
           <div className="text-caption font-mono uppercase tracking-widest text-neutral-400/70 mb-1">
             Actual Tool Tokens
           </div>
-          <div className="text-2xl font-semibold text-neutral-200">
+          <div className="text-h3 font-semibold text-neutral-200">
             {fmtTok(data.total_actual_tokens)}
           </div>
-          <div className="text-xs text-neutral-400 mt-1">
+          <div className="text-body text-neutral-400 mt-1">
             persisted compacted tool-output tokens
           </div>
         </div>
@@ -251,10 +251,10 @@ export default function Savings() {
           <div className="text-caption font-mono uppercase tracking-widest text-teal-300 mb-1">
             Read Savings
           </div>
-          <div className="text-2xl font-semibold text-teal-300">
+          <div className="text-h3 font-semibold text-teal-300">
             {fmtUsd(data.read_saved_usd ?? 0)}
           </div>
-          <div className="text-xs text-neutral-400 mt-1">
+          <div className="text-body text-neutral-400 mt-1">
             cache-read / retrieval cost avoided
           </div>
         </div>
@@ -262,17 +262,17 @@ export default function Savings() {
           <div className="mb-1 text-caption font-medium text-muted-foreground">
             Context Carry
           </div>
-          <div className="text-2xl font-semibold text-foreground">
+          <div className="text-h3 font-semibold text-foreground">
             {fmtUsd(data.carry_usd ?? 0)}
           </div>
-          <div className="text-xs text-neutral-400 mt-1">
+          <div className="text-body text-neutral-400 mt-1">
             {fmtTok(data.carry_tokens ?? 0)} tokens carried
           </div>
         </div>
       </section>
 
       {(data.unpriced_cache_write_tokens ?? 0) > 0 && (
-        <section className="rounded-lg border border-border/70 border-l-2 border-l-amber-600/50 bg-background/60 p-4 text-xs text-neutral-300">
+        <section className="rounded-lg border border-border/70 border-l-2 border-l-amber-600/50 bg-background/60 p-4 text-body text-neutral-300">
           <span className="font-mono uppercase tracking-widest text-amber-300 mr-2">
             Cost Note
           </span>
@@ -300,7 +300,7 @@ export default function Savings() {
       ) : (
         <>
           <section className="rounded-lg border border-border/70 bg-background/60 p-4">
-            <h2 className="text-xs uppercase tracking-widest text-neutral-400 mb-4">
+            <h2 className="text-body uppercase tracking-widest text-neutral-400 mb-4">
               Per-lever savings
             </h2>
             <div className="space-y-4">
@@ -319,15 +319,15 @@ export default function Savings() {
 
           {latestBenchmark && (
             <section className="rounded-lg border border-border/70 border-l-2 border-l-cyan-600/45 bg-background/60 p-4">
-              <h2 className="text-xs uppercase tracking-widest text-cyan-300 mb-4">
+              <h2 className="text-body uppercase tracking-widest text-cyan-300 mb-4">
                 Latest paired benchmark
               </h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-heading">
                 <div>
                   <div className="text-caption uppercase tracking-widest text-neutral-400">
                     Token reduction
                   </div>
-                  <div className="text-2xl font-semibold text-cyan-200">
+                  <div className="text-h3 font-semibold text-cyan-200">
                     {fmtPct(latestBenchmark.reduction_pct)}
                   </div>
                 </div>
@@ -335,7 +335,7 @@ export default function Savings() {
                   <div className="text-caption uppercase tracking-widest text-neutral-400">
                     Cost saved
                   </div>
-                  <div className="text-2xl font-semibold text-emerald-300">
+                  <div className="text-h3 font-semibold text-emerald-300">
                     {fmtUsd(latestBenchmark.cost_saved_usd)}
                   </div>
                 </div>
@@ -343,7 +343,7 @@ export default function Savings() {
                   <div className="text-caption uppercase tracking-widest text-neutral-400">
                     Tasks
                   </div>
-                  <div className="text-2xl font-semibold text-neutral-200">
+                  <div className="text-h3 font-semibold text-neutral-200">
                     {fmtTok(latestBenchmark.n_prompts)}
                   </div>
                 </div>
@@ -351,12 +351,12 @@ export default function Savings() {
                   <div className="text-caption uppercase tracking-widest text-neutral-400">
                     Success
                   </div>
-                  <div className="text-2xl font-semibold text-neutral-200">
+                  <div className="text-h3 font-semibold text-neutral-200">
                     {fmtPct(latestBenchmark.lemoncrow_success_rate * 100, 0)}
                   </div>
                 </div>
               </div>
-              <p className="mt-3 text-xs text-neutral-400">
+              <p className="mt-3 text-body text-neutral-400">
                 Real paired command run: baseline{" "}
                 {fmtTok(latestBenchmark.total_tokens_baseline)} tokens vs
                 LemonCrow-enabled {fmtTok(latestBenchmark.total_tokens_lc)}{" "}
@@ -367,11 +367,11 @@ export default function Savings() {
 
           {topSources.length > 0 && (
             <section className="rounded-lg border border-border/70 bg-background/60 p-4">
-              <h2 className="text-xs uppercase tracking-widest text-neutral-400 mb-4">
+              <h2 className="text-body uppercase tracking-widest text-neutral-400 mb-4">
                 Top savings sources
               </h2>
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
+                <table className="w-full text-left text-body">
                   <thead className="text-caption uppercase tracking-widest text-neutral-400">
                     <tr>
                       <th className="pb-2 pr-4">Lever</th>
@@ -407,7 +407,7 @@ export default function Savings() {
                   </tbody>
                 </table>
               </div>
-              <p className="mt-3 text-xs text-neutral-400">
+              <p className="mt-3 text-body text-neutral-400">
                 These rows use an equivalent-call estimator: search, edit, and
                 SQL tools count the built-in calls they replace, then apply live
                 token constants to estimate avoided cost.
@@ -417,11 +417,11 @@ export default function Savings() {
 
           {toolAggregates.length > 0 && (
             <section className="rounded-lg border border-border/70 bg-background/60 p-4">
-              <h2 className="text-xs uppercase tracking-widest text-neutral-400 mb-4">
+              <h2 className="text-body uppercase tracking-widest text-neutral-400 mb-4">
                 Per-tool cost proof
               </h2>
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
+                <table className="w-full text-left text-body">
                   <thead className="text-caption uppercase tracking-widest text-neutral-400">
                     <tr>
                       <th className="pb-2 pr-4">Tool</th>
@@ -469,7 +469,7 @@ export default function Savings() {
                   </tbody>
                 </table>
               </div>
-              <p className="mt-3 text-xs text-neutral-400 leading-relaxed">
+              <p className="mt-3 text-body text-neutral-400 leading-relaxed">
                 These rows are built from persisted proof items. Actual and
                 baseline cost reflect the tracked tokens on each tool turn.
                 Baseline here is the naive tool-output baseline, not audited
@@ -482,10 +482,10 @@ export default function Savings() {
           {sessionProof.length > 0 && (
             <section className="space-y-4">
               <div>
-                <h2 className="text-xs uppercase tracking-widest text-neutral-400 mb-2">
+                <h2 className="text-body uppercase tracking-widest text-neutral-400 mb-2">
                   Session proof
                 </h2>
-                <p className="text-xs text-neutral-400">
+                <p className="text-body text-neutral-400">
                   Each session below links saved tokens and cost back to
                   concrete tool turns. Expand a session to inspect the stored
                   ledger, imported trace conversation, and command/tool
@@ -507,7 +507,7 @@ export default function Savings() {
 
           {coverageGaps.length > 0 && (
             <section className="rounded-lg border border-border/70 border-l-2 border-l-red-600/45 bg-background/60 p-4">
-              <h2 className="text-xs uppercase tracking-widest text-red-300 mb-4">
+              <h2 className="text-body uppercase tracking-widest text-red-300 mb-4">
                 Coverage gaps
               </h2>
               <div className="space-y-3">
@@ -527,8 +527,8 @@ export default function Savings() {
                       )}
                       <span className="text-neutral-400">{gap.session_id}</span>
                     </div>
-                    <div className="text-sm text-neutral-200">{gap.task}</div>
-                    <p className="mt-2 text-xs text-neutral-400 leading-relaxed">
+                    <div className="text-heading text-neutral-200">{gap.task}</div>
+                    <p className="mt-2 text-body text-neutral-400 leading-relaxed">
                       {gap.reason}
                     </p>
                   </div>
@@ -557,17 +557,17 @@ function ManualVerificationPanel({
     <section className="rounded-lg border border-border/70 border-l-2 border-l-amber-600/45 bg-background/60 p-4 space-y-4">
       <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
         <div>
-          <h2 className="text-xs uppercase tracking-widest text-amber-300 mb-2">
+          <h2 className="text-body uppercase tracking-widest text-amber-300 mb-2">
             Manual verification
           </h2>
-          <p className="text-sm text-neutral-300 leading-relaxed max-w-3xl">
+          <p className="text-heading text-neutral-300 leading-relaxed max-w-3xl">
             This section shows the raw proof coverage behind the headline so you
             can audit whether the aggregate is broad-based or dominated by a
             small number of tool turns.
           </p>
         </div>
         {verification.warning && (
-          <div className="max-w-xl rounded-lg border border-border/70 border-l-2 border-l-amber-600/50 bg-background/60 p-3 text-xs text-amber-200 leading-relaxed">
+          <div className="max-w-xl rounded-lg border border-border/70 border-l-2 border-l-amber-600/50 bg-background/60 p-3 text-body text-amber-200 leading-relaxed">
             {verification.warning}
           </div>
         )}
@@ -605,11 +605,11 @@ function ManualVerificationPanel({
           <div className="text-caption font-mono uppercase tracking-widest text-neutral-400">
             Excluded Compact Output Rows
           </div>
-          <div className="text-lg font-semibold text-cyan-200">
+          <div className="text-lead font-semibold text-cyan-200">
             {fmtTok(compactOutputRows)} row
             {compactOutputRows === 1 ? "" : "s"}
           </div>
-          <div className="text-xs text-neutral-400 leading-relaxed">
+          <div className="text-body text-neutral-400 leading-relaxed">
             {fmtTok(compactOutputSavedTokens)} saved tokens remain visible in
             session proof, but are excluded from the top-line headline because
             they represent tool-output compaction rather than audited
@@ -625,25 +625,25 @@ function ManualVerificationPanel({
           </div>
           {dominantRun ? (
             <>
-              <div className="text-lg font-semibold text-cyan-200">
+              <div className="text-lead font-semibold text-cyan-200">
                 {fmtPct(verification.dominant_run_share_pct)} of saved tokens
               </div>
-              <div className="text-xs text-neutral-400 font-mono break-all">
+              <div className="text-body text-neutral-400 font-mono break-all">
                 {dominantRun.session_id}
               </div>
 
-              <div className="text-sm text-neutral-300">
+              <div className="text-heading text-neutral-300">
                 {dominantRun.agent ?? "unknown"}
               </div>
-              <p className="text-xs text-neutral-400 leading-relaxed">
+              <p className="text-body text-neutral-400 leading-relaxed">
                 {truncate(dominantRun.task ?? "No trace task attached.", 180)}
               </p>
-              <div className="text-xs text-neutral-400">
+              <div className="text-body text-neutral-400">
                 {fmtTok(dominantRun.saved_tokens)} saved tokens
               </div>
             </>
           ) : (
-            <div className="text-sm text-neutral-400">
+            <div className="text-heading text-neutral-400">
               No tracked session data yet.
             </div>
           )}
@@ -655,32 +655,32 @@ function ManualVerificationPanel({
           </div>
           {dominantItem ? (
             <>
-              <div className="text-lg font-semibold text-cyan-200">
+              <div className="text-lead font-semibold text-cyan-200">
                 {fmtPct(verification.dominant_item_share_pct)} of saved tokens
               </div>
-              <div className="text-sm text-neutral-300">
+              <div className="text-heading text-neutral-300">
                 {dominantItem.tool_name} · {toTitle(dominantItem.lever)} · turn{" "}
                 {dominantItem.turn_index}
               </div>
-              <div className="text-xs text-neutral-400 font-mono break-all">
+              <div className="text-body text-neutral-400 font-mono break-all">
                 {dominantItem.session_id}
               </div>
 
-              <div className="text-xs text-neutral-400 leading-relaxed">
+              <div className="text-body text-neutral-400 leading-relaxed">
                 {fmtTok(dominantItem.saved_tokens)} saved tokens from{" "}
                 {fmtTok(dominantItem.naive_tokens)} naive vs{" "}
                 {fmtTok(dominantItem.actual_tokens)} compacted tokens.
               </div>
             </>
           ) : (
-            <div className="text-sm text-neutral-400">
+            <div className="text-heading text-neutral-400">
               No tracked proof rows yet.
             </div>
           )}
         </div>
       </div>
 
-      <p className="text-xs text-neutral-400 font-mono break-all">
+      <p className="text-body text-neutral-400 font-mono break-all">
         Data root: {verification.data_root}
       </p>
     </section>
@@ -755,20 +755,20 @@ function SessionProofCard({
               </span>
             ))}
           </div>
-          <div className="text-sm text-foreground break-words">
+          <div className="text-heading text-foreground break-words">
             {session.task}
           </div>
           <div className="text-caption font-mono text-neutral-400 break-all">
             Session: {session.session_id}
           </div>
           {session.note && (
-            <p className="text-xs text-amber-300 leading-relaxed">
+            <p className="text-body text-amber-300 leading-relaxed">
               {session.note}
             </p>
           )}
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs min-w-[280px]">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-body min-w-[280px]">
           <Metric label="Saved Cost" value={fmtUsd(session.saved_cost_usd)} />
           <Metric label="Saved Tokens" value={fmtTok(session.saved_tokens)} />
           <Metric
@@ -783,7 +783,7 @@ function SessionProofCard({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-left text-xs">
+        <table className="w-full text-left text-body">
           <thead className="text-caption uppercase tracking-widest text-neutral-400">
             <tr>
               <th className="pb-2 pr-4">Turn</th>
@@ -847,17 +847,17 @@ function SessionProofCard({
       {expanded && (
         <div className="rounded-lg border border-border/70 bg-background/60 p-4 space-y-4">
           {loading && (
-            <div className="text-xs text-neutral-400">
+            <div className="text-body text-neutral-400">
               Loading ledger proof…
             </div>
           )}
           {!loading && ledger?.error && (
-            <div className="text-xs text-red-300">{ledger.error}</div>
+            <div className="text-body text-red-300">{ledger.error}</div>
           )}
           {!loading && !ledger?.error && (
             <>
               {!hasEvidence ? (
-                <div className="rounded-lg border border-border/70 border-l-2 border-l-amber-600/50 bg-background/60 p-4 space-y-2 text-xs">
+                <div className="rounded-lg border border-border/70 border-l-2 border-l-amber-600/50 bg-background/60 p-4 space-y-2 text-body">
                   <div className="text-caption font-mono uppercase tracking-widest text-amber-300">
                     Capture gap
                   </div>
@@ -875,7 +875,7 @@ function SessionProofCard({
                   )}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 text-xs">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 text-body">
                   <div>
                     <div className="text-caption font-mono uppercase tracking-widest text-neutral-400 mb-2">
                       Tool calls
@@ -992,7 +992,7 @@ function Metric({ label, value }: { label: string; value: string }) {
       <div className="text-caption font-mono uppercase tracking-widest text-neutral-400 mb-1">
         {label}
       </div>
-      <div className="text-sm font-semibold text-neutral-200">{value}</div>
+      <div className="text-heading font-semibold text-neutral-200">{value}</div>
     </div>
   );
 }

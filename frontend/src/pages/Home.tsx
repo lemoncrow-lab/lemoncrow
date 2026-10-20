@@ -185,7 +185,7 @@ export default function Home() {
   return (
     <PageFrame className="space-y-5 text-neutral-200">
       {error && (
-        <div className="border border-rose-900/50 bg-rose-950/15 px-3 py-2 text-xs text-rose-300">
+        <div className="border border-rose-900/50 bg-rose-950/15 px-3 py-2 text-body text-rose-300">
           {error}
         </div>
       )}
@@ -206,22 +206,22 @@ export default function Home() {
           </div>
         </div>
         {savingsUnavailable ? (
-          <div className="flex min-h-12 flex-[4] items-center px-3 text-xs text-amber-300">
+          <div className="flex min-h-12 flex-[4] items-center px-3 text-body text-amber-300">
             Savings data is unavailable. Usage details may still be available.
           </div>
         ) : savings ? (
           <>
             <div className="min-w-[130px] flex-1 border-r border-border px-3 py-2.5">
               <div className="text-micro font-semibold uppercase tracking-widest text-muted-foreground">Saved</div>
-              <div className="mt-0.5 text-sm font-semibold text-emerald-400">{savings.savings_available === false ? "No data" : fmtUsd(totalSavedUsd)}</div>
+              <div className="mt-0.5 text-heading font-semibold text-emerald-400">{savings.savings_available === false ? "No data" : fmtUsd(totalSavedUsd)}</div>
             </div>
             <div className="min-w-[130px] flex-1 border-r border-border px-3 py-2.5">
               <div className="text-micro font-semibold uppercase tracking-widest text-muted-foreground">Reduction</div>
-              <div className="mt-0.5 text-sm font-semibold text-neutral-200">{savings.savings_available === false || savings.spend_available === false ? "No data" : fmtPct(savedPct)}</div>
+              <div className="mt-0.5 text-heading font-semibold text-neutral-200">{savings.savings_available === false || savings.spend_available === false ? "No data" : fmtPct(savedPct)}</div>
             </div>
             <div className="min-w-[170px] flex-1 border-r border-border px-3 py-2.5">
               <div className="text-micro font-semibold uppercase tracking-widest text-muted-foreground">Cost</div>
-              <div className="mt-0.5 text-sm font-semibold text-neutral-200">
+              <div className="mt-0.5 text-heading font-semibold text-neutral-200">
                 {savings.spend_available === false ? "No data" : <>
                   {(savings.spend?.unpriced_rows ?? 0) > 0 ? "≥ " : ""}{fmtUsd(actualCostUsd)}
                   {savings.savings_available !== false && <span className="font-normal text-muted-foreground"> / {fmtUsd(baselineCostUsd)} baseline</span>}
@@ -230,11 +230,11 @@ export default function Home() {
             </div>
             <div className="min-w-[140px] flex-1 px-3 py-2.5">
               <div className="text-micro font-semibold uppercase tracking-widest text-muted-foreground">Tokens saved</div>
-              <div className="mt-0.5 text-sm font-semibold text-neutral-200">{savings.savings_available === false ? "No data" : fmtTok(savedTokens)}</div>
+              <div className="mt-0.5 text-heading font-semibold text-neutral-200">{savings.savings_available === false ? "No data" : fmtTok(savedTokens)}</div>
             </div>
           </>
         ) : (
-          <div className="flex min-h-12 flex-[4] items-center px-3 text-xs text-muted-foreground">
+          <div className="flex min-h-12 flex-[4] items-center px-3 text-body text-muted-foreground">
             Loading savings…
           </div>
         )}
@@ -251,7 +251,7 @@ export default function Home() {
       <section className="space-y-2">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-sm font-semibold text-foreground">Needs attention</h1>
+            <h1 className="text-heading font-semibold text-foreground">Needs attention</h1>
             <p className="mt-0.5 text-label text-muted-foreground">
               {reviewAvailable && runtimeAvailable
                 ? "Reviews and agent sessions that need a human decision."
@@ -266,7 +266,7 @@ export default function Home() {
         </div>
 
         {attentionCount === 0 ? (
-          <div className="border border-border bg-muted/20 px-4 py-4 text-xs text-muted-foreground">
+          <div className="border border-border bg-muted/20 px-4 py-4 text-body text-muted-foreground">
             {attentionIncomplete ? "Attention data is incomplete because a source is unavailable." : "Nothing needs attention right now."}
           </div>
         ) : (
@@ -277,9 +277,9 @@ export default function Home() {
                 <ClipboardCheck size={12} /> Reviews
               </div>
               {reviewsUnavailable ? (
-                <div className="px-3 py-4 text-xs text-muted-foreground">Review data is unavailable.</div>
+                <div className="px-3 py-4 text-body text-muted-foreground">Review data is unavailable.</div>
               ) : openReviews.length === 0 ? (
-                <div className="px-3 py-4 text-xs text-muted-foreground">No open reviews.</div>
+                <div className="px-3 py-4 text-body text-muted-foreground">No open reviews.</div>
               ) : (
                 openReviews.slice(0, 5).map((review) => (
                   <a
@@ -288,7 +288,7 @@ export default function Home() {
                     className="flex min-h-11 items-center gap-3 border-b border-neutral-900 px-3 py-2 last:border-0 hover:bg-muted/55"
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-xs font-medium text-neutral-200">
+                      <div className="truncate text-body font-medium text-neutral-200">
                         {review.title || "Untitled review"}
                       </div>
                       <div className="mt-0.5 truncate text-caption text-muted-foreground">
@@ -308,9 +308,9 @@ export default function Home() {
                 <AlertTriangle size={12} /> Failed runs
               </div>
               {runsUnavailable ? (
-                <div className="px-3 py-4 text-xs text-muted-foreground">Run history is unavailable.</div>
+                <div className="px-3 py-4 text-body text-muted-foreground">Run history is unavailable.</div>
               ) : failedRuns.length === 0 ? (
-                <div className="px-3 py-4 text-xs text-muted-foreground">No failed runs.</div>
+                <div className="px-3 py-4 text-body text-muted-foreground">No failed runs.</div>
               ) : (
                 failedRuns.map((run) => (
                   <Link
@@ -319,7 +319,7 @@ export default function Home() {
                     className="flex min-h-11 items-center gap-3 border-b border-neutral-900 px-3 py-2 last:border-0 hover:bg-muted/55"
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-xs font-medium text-neutral-200">
+                      <div className="truncate text-body font-medium text-neutral-200">
                         {runLabel(run)}
                       </div>
                       <div className="mt-0.5 truncate text-caption text-muted-foreground">
@@ -343,7 +343,7 @@ export default function Home() {
                   className="flex min-h-16 items-center gap-3 px-3 py-3 hover:bg-muted/55"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="text-xs font-medium text-neutral-200">
+                    <div className="text-body font-medium text-neutral-200">
                       {!integrations?.dispatcher_available
                         ? "Agent connection is unavailable"
                         : "Connect a coding agent"}
@@ -365,7 +365,7 @@ export default function Home() {
       <section className="space-y-2">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-foreground">Active now</h2>
+            <h2 className="text-heading font-semibold text-foreground">Active now</h2>
             <p className="mt-0.5 text-label text-muted-foreground">
               Coding work LemonCrow can currently see.
             </p>
@@ -375,9 +375,9 @@ export default function Home() {
           </Link>
         </div>
         {runsUnavailable ? (
-          <div className="rounded-lg border border-border bg-muted/20 px-4 py-4 text-xs text-muted-foreground">Coding-agent activity is unavailable.</div>
+          <div className="rounded-lg border border-border bg-muted/20 px-4 py-4 text-body text-muted-foreground">Coding-agent activity is unavailable.</div>
         ) : activeRuns.length === 0 ? (
-          <div className="border border-border bg-muted/20 px-4 py-4 text-xs text-muted-foreground">
+          <div className="border border-border bg-muted/20 px-4 py-4 text-body text-muted-foreground">
             No active runs.
           </div>
         ) : (
@@ -388,7 +388,7 @@ export default function Home() {
                   <div className="flex items-start gap-2">
                     <Play size={12} className="mt-0.5 shrink-0 text-emerald-400" />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-xs font-medium text-neutral-200">
+                      <div className="truncate text-body font-medium text-neutral-200">
                         {runLabel(run)}
                       </div>
                       <div className="mt-1 text-caption text-muted-foreground">
@@ -417,9 +417,9 @@ export default function Home() {
             <Link to="/reviews" className="text-caption text-muted-foreground hover:text-neutral-300">View all</Link>
           </div>
           {reviewsUnavailable ? (
-            <div className="px-3 py-4 text-xs text-muted-foreground">Review data is unavailable.</div>
+            <div className="px-3 py-4 text-body text-muted-foreground">Review data is unavailable.</div>
           ) : recentReviews.length === 0 ? (
-            <div className="px-3 py-4 text-xs text-muted-foreground">No recent reviews.</div>
+            <div className="px-3 py-4 text-body text-muted-foreground">No recent reviews.</div>
           ) : (
             recentReviews.map((review) => (
               <a
@@ -428,7 +428,7 @@ export default function Home() {
                 className="flex items-center gap-3 border-b border-neutral-900 px-3 py-2 last:border-0 hover:bg-muted/55"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-xs text-neutral-300">{review.title || review.source_ref}</div>
+                  <div className="truncate text-body text-neutral-300">{review.title || review.source_ref}</div>
                   <div className="mt-0.5 text-caption text-muted-foreground">{review.repo_id}</div>
                 </div>
                 <span className="text-caption capitalize text-muted-foreground">{review.status === "open" ? "needs review" : review.status}</span>
@@ -447,9 +447,9 @@ export default function Home() {
             <Link to="/activity" className="text-caption text-muted-foreground hover:text-neutral-300">View all</Link>
           </div>
           {runsUnavailable ? (
-            <div className="px-3 py-4 text-xs text-muted-foreground">Session history is unavailable.</div>
+            <div className="px-3 py-4 text-body text-muted-foreground">Session history is unavailable.</div>
           ) : recentRuns.length === 0 ? (
-            <div className="px-3 py-4 text-xs text-muted-foreground">No recent sessions.</div>
+            <div className="px-3 py-4 text-body text-muted-foreground">No recent sessions.</div>
           ) : (
             recentRuns.map((run) => (
               <Link
@@ -458,7 +458,7 @@ export default function Home() {
                 className="flex items-center gap-3 border-b border-neutral-900 px-3 py-2 last:border-0 hover:bg-muted/55"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-xs text-neutral-300">{runLabel(run)}</div>
+                  <div className="truncate text-body text-neutral-300">{runLabel(run)}</div>
                   <div className="mt-0.5 text-caption text-muted-foreground">
                     {run.host || run.agent || "agent"} · {fmtRelativeTime(run.created_at)}
                   </div>

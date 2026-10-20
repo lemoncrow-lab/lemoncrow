@@ -253,7 +253,7 @@ export default function CodeInspector({
     return (
       <aside className="border-t border-border bg-background/60 p-4 xl:border-l xl:border-t-0" aria-label="Inspector">
         <div className="text-caption font-semibold uppercase tracking-widest text-neutral-400">Inspector</div>
-        <p className="mt-2 text-xs leading-5 text-muted-foreground">Select a file, symbol, or module to see what uses it, what it uses, and who is working on it.</p>
+        <p className="mt-2 text-body leading-5 text-muted-foreground">Select a file, symbol, or module to see what uses it, what it uses, and who is working on it.</p>
       </aside>
     );
   }

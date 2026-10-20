@@ -3,16 +3,17 @@ import type { HTMLAttributes } from "react";
 
 import { cn } from "../../lib/utils";
 
+/** Plain hairline card. For a framed object with a header strip use Hunk (./hunk). */
 export const cardVariants = cva("rounded-lg border", {
   variants: {
     tone: {
-      neutral: "border-border bg-background/60",
-      subtle: "border-border bg-background/70",
-      muted: "border-border bg-muted/50",
-      info: "border-cyan-900/50 bg-background/60",
-      success: "border-emerald-900/50 bg-background/60",
-      warning: "border-amber-900/50 bg-background/60",
-      destructive: "border-red-900/50 bg-background/60",
+      neutral: "border-border bg-card",
+      subtle: "border-border bg-card",
+      muted: "border-border bg-muted",
+      info: "border-p2-line bg-card",
+      success: "border-ok-line bg-card",
+      warning: "border-p1-line bg-card",
+      destructive: "border-p0-line bg-card",
     },
   },
   defaultVariants: { tone: "neutral" },

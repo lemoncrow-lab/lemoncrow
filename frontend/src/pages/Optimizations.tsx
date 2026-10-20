@@ -180,7 +180,7 @@ export function CandidateSummaryCard({
             {label}
           </div>
           <div className="mt-2 flex items-center gap-2">
-            <h2 className="text-xl font-semibold text-foreground">
+            <h2 className="text-lead font-semibold text-foreground">
               {candidate.policy.name}
             </h2>
             <Hint text={note} />
@@ -196,10 +196,10 @@ export function CandidateSummaryCard({
           </div>
         </div>
         <div className="text-right">
-          <div className="text-2xl font-semibold text-foreground">
+          <div className="text-h3 font-semibold text-foreground">
             {fmtUsd(candidate.weekly_cost_usd)}
           </div>
-          <div className="mt-1 text-xs text-neutral-400">weekly</div>
+          <div className="mt-1 text-body text-neutral-400">weekly</div>
         </div>
       </div>
 
@@ -241,7 +241,7 @@ export function CandidateSummaryCard({
           <div className="text-caption font-mono uppercase tracking-widest text-neutral-400">
             Routing
           </div>
-          <div className="mt-3 grid gap-2 text-sm text-neutral-300">
+          <div className="mt-3 grid gap-2 text-heading text-neutral-300">
             <div>Simple: {candidate.policy.routing.simple}</div>
             <div>Medium: {candidate.policy.routing.medium}</div>
             <div>Hard: {candidate.policy.routing.hard}</div>
@@ -260,7 +260,7 @@ export function CandidateSummaryCard({
           <div className="text-caption font-mono uppercase tracking-widest text-neutral-400">
             Compaction
           </div>
-          <div className="mt-3 grid gap-2 text-sm text-neutral-300">
+          <div className="mt-3 grid gap-2 text-heading text-neutral-300">
             <div>
               Trigger:{" "}
               {fmtPercent(
@@ -323,20 +323,20 @@ export function CandidateOptions({
               )}
             >
               <div className="flex flex-wrap items-center gap-2">
-                <div className="text-sm font-semibold text-foreground">
+                <div className="text-heading font-semibold text-foreground">
                   {candidate.policy.name}
                 </div>
                 {isCurrent && <Chip tone="neutral">Current</Chip>}
                 {isRecommended && <Chip tone="warning">Recommended</Chip>}
               </div>
-              <div className="mt-2 text-xs uppercase tracking-widest text-neutral-400">
+              <div className="mt-2 text-body uppercase tracking-widest text-neutral-400">
                 {fmtPolicyLabel(candidate.policy.preset)}
               </div>
-              <div className="mt-4 text-2xl font-semibold text-foreground">
+              <div className="mt-4 text-h3 font-semibold text-foreground">
                 {fmtUsd(candidate.weekly_cost_usd)}
               </div>
-              <div className="mt-1 text-xs text-neutral-400">per week</div>
-              <div className="mt-4 space-y-2 text-sm text-neutral-300">
+              <div className="mt-1 text-body text-neutral-400">per week</div>
+              <div className="mt-4 space-y-2 text-heading text-neutral-300">
                 <div>Quality {fmtPercent(candidate.estimated_quality)}</div>
                 <div>Latency {candidate.latency_mult.toFixed(2)}x</div>
                 <div>Escalation {fmtPercent(candidate.escalation_rate)}</div>
@@ -398,7 +398,7 @@ function CandidateDetail({
           <div className="text-caption font-mono uppercase tracking-widest text-neutral-400">
             Policy details
           </div>
-          <div className="mt-3 grid gap-2 text-sm text-neutral-300">
+          <div className="mt-3 grid gap-2 text-heading text-neutral-300">
             <div>
               Routing mode: {fmtPolicyLabel(candidate.policy.routing.policy)}
             </div>
@@ -425,7 +425,7 @@ function CandidateDetail({
             }
           />
           <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-left text-sm">
+            <table className="w-full text-left text-heading">
               <thead>
                 <tr className="border-b border-border text-caption uppercase tracking-widest text-neutral-400">
                   <th className="py-3 pr-4">Compaction type</th>
@@ -474,7 +474,7 @@ function CandidateDetail({
           />
           <div className="mt-4 grid gap-3 md:grid-cols-3">
             {routingRows.length === 0 ? (
-              <div className="rounded-lg border border-border/70 bg-background/60 p-4 text-sm text-neutral-400 md:col-span-3">
+              <div className="rounded-lg border border-border/70 bg-background/60 p-4 text-heading text-neutral-400 md:col-span-3">
                 No routing distribution was available for this option.
               </div>
             ) : (
@@ -486,10 +486,10 @@ function CandidateDetail({
                   <div className="text-caption font-mono uppercase tracking-widest text-neutral-400">
                     {tier}
                   </div>
-                  <div className="mt-2 text-xl font-semibold text-foreground">
+                  <div className="mt-2 text-lead font-semibold text-foreground">
                     {fmtPercent(share)}
                   </div>
-                  <div className="mt-2 text-xs text-neutral-400">of turns</div>
+                  <div className="mt-2 text-body text-neutral-400">of turns</div>
                 </div>
               ))
             )}
@@ -516,7 +516,7 @@ function SessionsBehindRecommendation({
       />
 
       {evidence.length === 0 ? (
-        <section className="rounded-lg border border-border/70 bg-background/60 p-4 text-sm text-neutral-400">
+        <section className="rounded-lg border border-border/70 bg-background/60 p-4 text-heading text-neutral-400">
           No concrete session examples were available in this window.
         </section>
       ) : (
@@ -537,10 +537,10 @@ function SessionsBehindRecommendation({
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="text-sm font-semibold text-foreground">
+                  <div className="text-heading font-semibold text-foreground">
                     {session.recommendationTitle}
                   </div>
-                  <div className="mt-1 font-mono text-xs text-neutral-400">
+                  <div className="mt-1 font-mono text-body text-neutral-400">
                     {session.trace_id}
                   </div>
                 </div>
@@ -572,14 +572,14 @@ function SessionsBehindRecommendation({
                 />
               </div>
 
-              <div className="mt-4 space-y-1 text-sm text-neutral-300">
+              <div className="mt-4 space-y-1 text-heading text-neutral-300">
                 <div>
                   {session.project || session.host || "session"}
                   {typeof session.input_output_ratio === "number"
                     ? ` • ${session.input_output_ratio.toFixed(1)}:1 input/output`
                     : ""}
                 </div>
-                <div className="text-xs text-neutral-400">
+                <div className="text-body text-neutral-400">
                   Hover for details
                 </div>
               </div>
@@ -793,7 +793,7 @@ function OptimizationHistory({
         }
       />
       <div className="overflow-x-auto border border-border bg-background/60">
-        <table className="w-full text-left text-sm">
+        <table className="w-full text-left text-heading">
           <thead>
             <tr className="border-b border-border text-caption uppercase tracking-widest text-neutral-400">
               <th className="px-5 py-3">Date</th>
@@ -888,26 +888,26 @@ function OptimizationComparison({
           </div>
           <div className="mt-4 grid grid-cols-2 gap-4">
             <div>
-              <div className="text-xs text-neutral-400">Traces</div>
-              <div className="text-xl font-semibold text-foreground">
+              <div className="text-body text-neutral-400">Traces</div>
+              <div className="text-lead font-semibold text-foreground">
                 {impact.before.trace_count}
               </div>
             </div>
             <div>
-              <div className="text-xs text-neutral-400">Avg Cost</div>
-              <div className="text-xl font-semibold text-foreground">
+              <div className="text-body text-neutral-400">Avg Cost</div>
+              <div className="text-lead font-semibold text-foreground">
                 {fmtUsd(impact.before.avg_cost_usd)}
               </div>
             </div>
             <div>
-              <div className="text-xs text-neutral-400">Avg Tokens</div>
-              <div className="text-xl font-semibold text-foreground">
+              <div className="text-body text-neutral-400">Avg Tokens</div>
+              <div className="text-lead font-semibold text-foreground">
                 {fmtTok(impact.before.avg_tokens)}
               </div>
             </div>
             <div>
-              <div className="text-xs text-neutral-400">Cache leverage</div>
-              <div className="text-xl font-semibold text-foreground">
+              <div className="text-body text-neutral-400">Cache leverage</div>
+              <div className="text-lead font-semibold text-foreground">
                 {fmtPercent(impact.before.avg_cache_leverage)}
               </div>
             </div>
@@ -920,26 +920,26 @@ function OptimizationComparison({
           </div>
           <div className="mt-4 grid grid-cols-2 gap-4">
             <div>
-              <div className="text-xs text-neutral-400">Traces</div>
-              <div className="text-xl font-semibold text-foreground">
+              <div className="text-body text-neutral-400">Traces</div>
+              <div className="text-lead font-semibold text-foreground">
                 {impact.after.trace_count}
               </div>
             </div>
             <div>
-              <div className="text-xs text-neutral-400">Avg Cost</div>
-              <div className="text-xl font-semibold text-foreground">
+              <div className="text-body text-neutral-400">Avg Cost</div>
+              <div className="text-lead font-semibold text-foreground">
                 {fmtUsd(impact.after.avg_cost_usd)}
               </div>
             </div>
             <div>
-              <div className="text-xs text-neutral-400">Avg Tokens</div>
-              <div className="text-xl font-semibold text-foreground">
+              <div className="text-body text-neutral-400">Avg Tokens</div>
+              <div className="text-lead font-semibold text-foreground">
                 {fmtTok(impact.after.avg_tokens)}
               </div>
             </div>
             <div>
-              <div className="text-xs text-neutral-400">Cache leverage</div>
-              <div className="text-xl font-semibold text-foreground">
+              <div className="text-body text-neutral-400">Cache leverage</div>
+              <div className="text-lead font-semibold text-foreground">
                 {fmtPercent(impact.after.avg_cache_leverage)}
               </div>
             </div>
@@ -1069,7 +1069,7 @@ function SupportingEvidence({
                   <div className="text-caption font-mono uppercase tracking-widest text-neutral-400">
                     {bucket}
                   </div>
-                  <div className="mt-2 text-xl font-semibold text-foreground">
+                  <div className="mt-2 text-lead font-semibold text-foreground">
                     {count.toLocaleString()}
                   </div>
                 </div>
@@ -1087,10 +1087,10 @@ function SupportingEvidence({
                 className="rounded-md border border-border/70 bg-background/60 p-3"
                 title={`${fmtTok(item.tokens_saved)} saved across ${item.session_count.toLocaleString()} sessions`}
               >
-                <div className="text-sm font-semibold text-foreground">
+                <div className="text-heading font-semibold text-foreground">
                   {item.title}
                 </div>
-                <div className="mt-2 text-xs text-neutral-400">
+                <div className="mt-2 text-body text-neutral-400">
                   {fmtUsd(item.cost_saved_usd)}
                 </div>
               </div>
@@ -1339,13 +1339,13 @@ export default function Optimizations() {
                 )}
               >
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="text-sm font-semibold text-foreground">
+                  <div className="text-heading font-semibold text-foreground">
                     {candidate.policy.name}
                   </div>
                   {isCurrent && <Chip tone="neutral">Current</Chip>}
                   {isRecommended && <Chip tone="warning">Recommended</Chip>}
                 </div>
-                <div className="mt-2 text-xs uppercase tracking-widest text-neutral-400">
+                <div className="mt-2 text-body uppercase tracking-widest text-neutral-400">
                   {fmtPolicyLabel(candidate.policy.preset)}
                 </div>
                 {(() => {
@@ -1364,18 +1364,18 @@ export default function Optimizations() {
                     <>
                       <div
                         className={cx(
-                          "mt-4 text-2xl font-semibold",
+                          "mt-4 text-h3 font-semibold",
                           isSaving ? "text-emerald-300" : "text-foreground"
                         )}
                       >
                         {isSaving ? "+" : ""}
                         {fmtUsd(Math.max(0, totalSaved))}
                       </div>
-                      <div className="mt-1 text-xs text-neutral-400">
+                      <div className="mt-1 text-body text-neutral-400">
                         savings / week
                       </div>
                       {hasBreakdown && (
-                        <div className="mt-3 space-y-1 border-t border-border pt-3 text-xs">
+                        <div className="mt-3 space-y-1 border-t border-border pt-3 text-body">
                           <div className="flex justify-between text-neutral-400">
                             <span>Read</span>
                             <span className="font-mono text-neutral-300">
@@ -1405,7 +1405,7 @@ export default function Optimizations() {
                     </>
                   );
                 })()}
-                <div className="mt-4 space-y-2 text-sm text-neutral-300">
+                <div className="mt-4 space-y-2 text-heading text-neutral-300">
                   <div>Quality {fmtPercent(candidate.estimated_quality)}</div>
                   <div>Latency {candidate.latency_mult.toFixed(2)}x</div>
                   <div>Escalation {fmtPercent(candidate.escalation_rate)}</div>
@@ -1424,19 +1424,19 @@ export default function Optimizations() {
                 : "border-border bg-background/60 hover:bg-muted/40"
             )}
           >
-            <div className="text-sm font-semibold text-foreground">
+            <div className="text-heading font-semibold text-foreground">
               Advanced
             </div>
-            <div className="mt-2 text-xs uppercase tracking-widest text-neutral-400">
+            <div className="mt-2 text-body uppercase tracking-widest text-neutral-400">
               Custom Tuning
             </div>
-            <div className="mt-4 text-2xl font-semibold text-foreground">
+            <div className="mt-4 text-h3 font-semibold text-foreground">
               Sandbox
             </div>
-            <div className="mt-1 text-xs text-neutral-400">
+            <div className="mt-1 text-body text-neutral-400">
               Interactive tuning
             </div>
-            <div className="mt-4 space-y-2 text-sm text-neutral-300 italic">
+            <div className="mt-4 space-y-2 text-heading text-neutral-300 italic">
               Adjust quality floors, compaction triggers, and routing.
             </div>
           </UiButton>

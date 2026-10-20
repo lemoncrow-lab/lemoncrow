@@ -178,7 +178,7 @@ export default function ReviewCompareReader() {
             placeholder="git/HEAD, worktree, index, rr/<revision-id>"
             spellCheck={false}
           />
-          <UiButton variant="default" type="button" onClick={runCompare} className="h-8 px-3">Compare</UiButton>
+          <UiButton variant="solid" type="button" onClick={runCompare} className="h-8 px-3">Compare</UiButton>
           <ToggleGroup
             variant="segment"
             aria-label="Diff layout"

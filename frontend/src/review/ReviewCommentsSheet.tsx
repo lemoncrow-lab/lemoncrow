@@ -138,7 +138,7 @@ export default function ReviewCommentsSheet({
       >
         <SheetHeader className="items-start px-5 py-5">
           <div className="min-w-0 flex-1">
-            <SheetTitle className="text-lg tracking-tight">Comments</SheetTitle>
+            <SheetTitle className="text-lead tracking-tight">Comments</SheetTitle>
             <div className="mt-1 text-body text-neutral-400">
               {handoffParts.length > 0
                 ? handoffParts.join(" · ")

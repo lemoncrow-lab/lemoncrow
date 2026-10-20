@@ -117,7 +117,7 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
       </div>
 
       {error ? (
-        <Card className="border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-100">
+        <Card className="border-rose-500/30 bg-rose-500/10 p-3 text-heading text-rose-100">
           {error}
         </Card>
       ) : null}
@@ -126,10 +126,10 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
         <Card className="space-y-3 p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-neutral-400">
+              <h2 className="text-heading font-semibold uppercase tracking-[0.2em] text-neutral-400">
                 Snapshot
               </h2>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-heading text-muted-foreground">
                 There is at most one current workflow snapshot per workspace.
               </p>
             </div>
@@ -137,7 +137,7 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
           </div>
 
           {loading ? (
-            <p className="text-sm text-muted-foreground">Loading workflow snapshot…</p>
+            <p className="text-heading text-muted-foreground">Loading workflow snapshot…</p>
           ) : hasSnapshot && summary ? (
             <UiButton unstyled
               type="button"
@@ -145,16 +145,16 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-foreground">
+                  <div className="truncate text-heading font-semibold text-foreground">
                     {summary.workflow_id || "Current workflow"}
                   </div>
-                  <div className="mt-1 text-xs text-neutral-400">
+                  <div className="mt-1 text-body text-neutral-400">
                     run_id: {summary.run_id}
                   </div>
                 </div>
                 <Chip tone={statusChipTone(summary.status)}>{summary.status}</Chip>
               </div>
-              <div className="mt-3 grid gap-2 text-xs text-neutral-400">
+              <div className="mt-3 grid gap-2 text-body text-neutral-400">
                 <div>current step: {summary.current_step || "—"}</div>
                 <div>
                   progress: {summary.completed_steps}/{summary.step_count}
@@ -163,7 +163,7 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
               </div>
             </UiButton>
           ) : (
-            <Card className="border-dashed border-border bg-background/60 p-4 text-sm text-muted-foreground">
+            <Card className="border-dashed border-border bg-background/60 p-4 text-heading text-muted-foreground">
               No persisted workflow snapshot for this workspace yet.
             </Card>
           )}
@@ -171,7 +171,7 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
 
         <div className="space-y-4">
           {!hasSnapshot || !detail || !summary ? (
-            <Card className="border-dashed border-border/70 bg-background/60 p-4 text-sm text-muted-foreground">
+            <Card className="border-dashed border-border/70 bg-background/60 p-4 text-heading text-muted-foreground">
               Run a workflow first, then this section will show its persisted
               state, route, review metadata, and step outputs.
             </Card>
@@ -188,19 +188,19 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
                 </Card>
                 <Card className="p-4">
                   <FieldLabel>Current step</FieldLabel>
-                  <div className="mt-2 text-sm text-foreground">
+                  <div className="mt-2 text-heading text-foreground">
                     {summary.current_step || "—"}
                   </div>
                 </Card>
                 <Card className="p-4">
                   <FieldLabel>Progress</FieldLabel>
-                  <div className="mt-2 text-sm text-foreground">
+                  <div className="mt-2 text-heading text-foreground">
                     {summary.completed_steps}/{summary.step_count}
                   </div>
                 </Card>
                 <Card className="p-4">
                   <FieldLabel>Review decision</FieldLabel>
-                  <div className="mt-2 text-sm text-foreground">
+                  <div className="mt-2 text-heading text-foreground">
                     {summary.review_decision || "pending / none"}
                   </div>
                 </Card>
@@ -209,10 +209,10 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
               <Card className="space-y-4 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-neutral-400">
+                    <h2 className="text-heading font-semibold uppercase tracking-[0.2em] text-neutral-400">
                       Actions
                     </h2>
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-heading text-muted-foreground">
                       Pause/stop affect the persisted snapshot only. Resume
                       payloads are copyable because the actual resume path still
                       runs through the host workflow tool.
@@ -278,7 +278,7 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
                         />
                       ) : null}
                     </div>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-body text-muted-foreground">
                       {detail.notes.summary}
                     </p>
                   </div>
@@ -314,10 +314,10 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
               <Card className="space-y-3 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-neutral-400">
+                    <h2 className="text-heading font-semibold uppercase tracking-[0.2em] text-neutral-400">
                       Step outputs
                     </h2>
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-heading text-muted-foreground">
                       Expand each step to inspect output, error state, and
                       execution receipt.
                     </p>
@@ -343,7 +343,7 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
                             <div className="font-semibold text-foreground">
                               {stepId}
                             </div>
-                            <div className="mt-1 text-xs text-muted-foreground">
+                            <div className="mt-1 text-body text-muted-foreground">
                               {result?.kind || "step"}
                             </div>
                           </div>
@@ -351,7 +351,7 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
                             <Chip tone={statusChipTone(result?.status || "idle")}>
                               {result?.status || "unknown"}
                             </Chip>
-                            <span className="text-xs text-muted-foreground">
+                            <span className="text-body text-muted-foreground">
                               {result?.duration_seconds
                                 ? `${result.duration_seconds.toFixed(2)}s`
                                 : "—"}
@@ -378,7 +378,7 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-heading text-muted-foreground">
                     No step outputs persisted yet.
                   </p>
                 )}
@@ -387,25 +387,25 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
               <Card className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-4">
                 <div>
                   <FieldLabel>Workspace</FieldLabel>
-                  <div className="mt-2 break-all text-sm text-foreground">
+                  <div className="mt-2 break-all text-heading text-foreground">
                     {detail.workspace_root || "—"}
                   </div>
                 </div>
                 <div>
                   <FieldLabel>Created</FieldLabel>
-                  <div className="mt-2 text-sm text-foreground">
+                  <div className="mt-2 text-heading text-foreground">
                     {fmtDate(summary.created_at)}
                   </div>
                 </div>
                 <div>
                   <FieldLabel>Updated</FieldLabel>
-                  <div className="mt-2 text-sm text-foreground">
+                  <div className="mt-2 text-heading text-foreground">
                     {fmtDate(summary.updated_at)}
                   </div>
                 </div>
                 <div>
                   <FieldLabel>Session phase</FieldLabel>
-                  <div className="mt-2 text-sm text-foreground">
+                  <div className="mt-2 text-heading text-foreground">
                     {summary.session_phase || "—"}
                   </div>
                 </div>

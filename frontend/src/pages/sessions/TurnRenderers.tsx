@@ -146,7 +146,7 @@ function ModelPill({ model }: { model: string }) {
 
 function MarkdownConversationText({ text }: { text: string }) {
   return (
-    <div className="space-y-3 break-words [&_a]:text-cyan-300 [&_a]:underline [&_a]:underline-offset-2 [&_blockquote]:border-l-2 [&_blockquote]:border-neutral-600 [&_blockquote]:pl-3 [&_blockquote]:text-neutral-400 [&_code]:rounded [&_code]:bg-surface-code [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.92em] [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-medium [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol]:pl-5 [&_p]:leading-7 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border/70 [&_pre]:bg-surface-code [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5">
+    <div className="space-y-3 break-words [&_a]:text-cyan-300 [&_a]:underline [&_a]:underline-offset-2 [&_blockquote]:border-l-2 [&_blockquote]:border-neutral-600 [&_blockquote]:pl-3 [&_blockquote]:text-neutral-400 [&_code]:rounded [&_code]:bg-surface-code [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_h1]:text-title [&_h1]:font-semibold [&_h2]:text-heading [&_h2]:font-semibold [&_h3]:text-heading [&_h3]:font-medium [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol]:pl-5 [&_p]:leading-7 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-border/70 [&_pre]:bg-surface-code [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5">
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
     </div>
   );
@@ -207,7 +207,7 @@ function TodoCard({ turn }: { turn: ConversationEntry }) {
           <div className="text-caption font-mono uppercase tracking-[0.3em] text-amber-300">
             Task List
           </div>
-          <div className="mt-1 text-sm font-semibold text-amber-100">
+          <div className="mt-1 text-heading font-semibold text-amber-100">
             {turn.summary}
           </div>
         </div>
@@ -221,7 +221,7 @@ function TodoCard({ turn }: { turn: ConversationEntry }) {
             key={`${todo.content}-${index}`}
             className="grid gap-2 rounded-md border border-border/70 bg-surface-code px-3 py-2 md:grid-cols-[1fr_auto]"
           >
-            <div className="text-sm leading-6 text-foreground">
+            <div className="text-heading leading-6 text-foreground">
               {todo.content}
             </div>
             <div className="flex flex-wrap items-center gap-2 md:justify-end">
@@ -321,7 +321,7 @@ function AttachmentPreview({
   }
 
   if (error) {
-    return <div className="text-xs text-red-300">{error}</div>;
+    return <div className="text-body text-red-300">{error}</div>;
   }
 
   if (remoteContent) {
@@ -353,7 +353,7 @@ function AttachmentCard({
               ? "Pasted Context"
               : "Attached Context"}
           </div>
-          <div className="mt-1 text-sm font-semibold text-foreground">
+          <div className="mt-1 text-heading font-semibold text-foreground">
             {turn.summary}
           </div>
         </div>
@@ -372,7 +372,7 @@ function AttachmentCard({
           >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="text-xs font-semibold text-foreground">
+                <div className="text-body font-semibold text-foreground">
                   {attachment.display_name ||
                     attachment.title ||
                     attachment.type}
@@ -444,7 +444,7 @@ function SubagentCard({ turn }: { turn: ConversationEntry }) {
           <div className="text-caption font-mono uppercase tracking-[0.3em] text-violet-300">
             Subagent Lifecycle
           </div>
-          <div className="mt-1 text-sm font-semibold text-foreground">
+          <div className="mt-1 text-heading font-semibold text-foreground">
             {turn.subagent_name || turn.summary}
           </div>
         </div>
@@ -456,7 +456,7 @@ function SubagentCard({ turn }: { turn: ConversationEntry }) {
         </div>
       </div>
       {(turn.subagent_description || turn.content) && (
-        <div className="mt-4 text-sm leading-6 text-neutral-300">
+        <div className="mt-4 text-heading leading-6 text-neutral-300">
           <MarkdownConversationText text={turn.subagent_description || turn.content || ""} />
         </div>
       )}
@@ -490,7 +490,7 @@ function ToolConversationCard({
           <div className="text-caption font-mono uppercase tracking-[0.3em] text-neutral-400">
             Tool Call
           </div>
-          <div className="mt-1 text-sm font-semibold text-foreground">
+          <div className="mt-1 text-heading font-semibold text-foreground">
             {turn.tool_name || getNormName(turn)}
           </div>
         </div>
@@ -694,10 +694,10 @@ export function ConversationTurn({
           <div
             className={cx(
               isThinking
-                ? "text-xs italic leading-relaxed tracking-tight text-cyan-200/40"
+                ? "text-body italic leading-relaxed tracking-tight text-cyan-200/40"
                 : isUser || isAgent
-                  ? "text-sm leading-7 text-neutral-200"
-                  : "font-mono text-xs leading-relaxed tracking-tight text-neutral-300"
+                  ? "text-heading leading-7 text-neutral-200"
+                  : "font-mono text-body leading-relaxed tracking-tight text-neutral-300"
             )}
           >
             {!turn.content && (
@@ -764,7 +764,7 @@ export function ToolCallDetail({
             <span className="rounded-md border border-blue-500/20 bg-background/60 px-2 py-0.5 text-caption font-semibold uppercase tracking-[0.12em] text-blue-300">
               SYSTEM_TOOL
             </span>
-            <span className="text-xs font-mono font-bold tracking-wide text-neutral-400 transition-colors group-hover/tool:text-blue-300">
+            <span className="text-body font-mono font-bold tracking-wide text-neutral-400 transition-colors group-hover/tool:text-blue-300">
               {tool.count > 1 && (
                 <span className="mr-2 text-blue-300">{tool.count}x</span>
               )}
@@ -844,7 +844,7 @@ export function CommandDetail({
             <span className="rounded-md border border-amber-500/25 bg-background/60 px-2 py-0.5 text-caption font-semibold uppercase tracking-[0.12em] text-amber-300">
               SHELL_CMD
             </span>
-            <span className="truncate font-mono text-xs text-amber-200/80 transition-colors group-hover/cmd:text-amber-100">
+            <span className="truncate font-mono text-body text-amber-200/80 transition-colors group-hover/cmd:text-amber-100">
               $ {text}
             </span>
           </div>

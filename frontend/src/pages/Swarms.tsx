@@ -144,10 +144,10 @@ function MarkdownSourceEditor({
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/70 px-4 py-3">
         <div className="min-w-0">
           <FieldLabel>{label}</FieldLabel>
-          <div className="mt-1 truncate font-mono text-sm text-foreground">
+          <div className="mt-1 truncate font-mono text-heading text-foreground">
             {path}
           </div>
-          <div className="mt-1 text-xs text-muted-foreground">{modeLabel}</div>
+          <div className="mt-1 text-body text-muted-foreground">{modeLabel}</div>
         </div>
         <div className="flex items-center gap-2">
           <Chip tone="neutral">{lines.length} lines</Chip>
@@ -161,7 +161,7 @@ function MarkdownSourceEditor({
       <div className="grid flex-1 grid-cols-[3.5rem_minmax(0,1fr)]">
         <div
           ref={gutterRef}
-          className="min-h-0 overflow-auto border-r border-border/70 bg-surface-code px-2 py-3 text-right font-mono text-xs leading-6 text-muted-foreground"
+          className="min-h-0 overflow-auto border-r border-border/70 bg-surface-code px-2 py-3 text-right font-mono text-body leading-6 text-muted-foreground"
           aria-hidden="true"
         >
           {lines.map((line) => (
@@ -174,13 +174,13 @@ function MarkdownSourceEditor({
             value={content}
             onChange={(event) => onChange?.(event.target.value)}
             onScroll={(event) => syncScroll(event.currentTarget.scrollTop)}
-            className="h-full min-h-0 w-full resize-y overflow-auto bg-background/90 px-4 py-3 font-mono text-sm leading-6 text-foreground outline-none transition focus:bg-background"
+            className="h-full min-h-0 w-full resize-y overflow-auto bg-background/90 px-4 py-3 font-mono text-heading leading-6 text-foreground outline-none transition focus:bg-background"
             spellCheck={false}
             wrap="off"
           />
         ) : (
           <pre
-            className="h-full min-h-0 overflow-auto bg-background/90 px-4 py-3 font-mono text-sm leading-6 text-foreground"
+            className="h-full min-h-0 overflow-auto bg-background/90 px-4 py-3 font-mono text-heading leading-6 text-foreground"
             onScroll={(event) => syncScroll(event.currentTarget.scrollTop)}
           >
             <code>{content || ""}</code>
@@ -517,7 +517,7 @@ export default function Swarms() {
       </div>
 
       {error ? (
-        <Card className="border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-100">
+        <Card className="border-rose-500/30 bg-rose-500/10 p-3 text-heading text-rose-100">
           {error}
         </Card>
       ) : null}
@@ -526,12 +526,12 @@ export default function Swarms() {
         <Card className="space-y-4 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-neutral-400">
+              <h2 className="text-heading font-semibold uppercase tracking-[0.2em] text-neutral-400">
                 Launch swarms
               </h2>
             </div>
             {loadingLaunchOptions ? (
-              <span className="text-xs text-muted-foreground">Loading options…</span>
+              <span className="text-body text-muted-foreground">Loading options…</span>
             ) : null}
           </div>
 
@@ -560,7 +560,7 @@ export default function Swarms() {
                   ))}
                 </Select>
                 {worktreeHint ? (
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-body text-muted-foreground">
                     Swarms working directory:{" "}
                     <code className="text-neutral-200">{worktreeHint}</code>
                   </p>
@@ -637,7 +637,7 @@ export default function Swarms() {
                     ))}
                   </Select>
                   {!selectedProvider?.supported && selectedProvider?.reason ? (
-                    <p className="text-xs text-amber-300">
+                    <p className="text-body text-amber-300">
                       {selectedProvider.reason}
                     </p>
                   ) : null}
@@ -804,8 +804,8 @@ export default function Swarms() {
                 </div>
                 <div className="flex items-end">
                   <Button
-                    variant="default"
-                    className="w-full bg-neutral-500/20 text-neutral-100 hover:bg-neutral-500/30 hover:text-neutral-50"
+                    variant="brand"
+                    className="w-full"
                     onClick={handleLaunch}
                     disabled={
                       launching ||
@@ -817,7 +817,7 @@ export default function Swarms() {
                   </Button>
                 </div>
               </div>
-              <div className="space-y-2 text-sm text-neutral-400">
+              <div className="space-y-2 text-heading text-neutral-400">
                 <label className="inline-flex items-center gap-2">
                   <UiInput unstyled
                     type="checkbox"
@@ -864,10 +864,10 @@ export default function Swarms() {
         <Card className="w-full flex-shrink-0 space-y-3 p-4 md:w-80 lg:w-96">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-neutral-400">
+              <h2 className="text-heading font-semibold uppercase tracking-[0.2em] text-neutral-400">
                 Swarms
               </h2>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-heading text-muted-foreground">
                 Compact view of wave count, winner, prompt snapshot, and
                 activity.
               </p>
@@ -875,7 +875,7 @@ export default function Swarms() {
             <Chip tone="neutral">{runs.length} runs</Chip>
           </div>
           {loadingRuns ? (
-            <p className="text-sm text-muted-foreground">Loading swarm runs…</p>
+            <p className="text-heading text-muted-foreground">Loading swarm runs…</p>
           ) : runs.length ? (
             <div className="space-y-2">
               {runs.map((run) => (
@@ -901,18 +901,18 @@ export default function Swarms() {
                           {run.current_wave}/{run.max_runs}
                         </Chip>
                       </div>
-                      <p className="mt-1 text-xs text-neutral-400">
+                      <p className="mt-1 text-body text-neutral-400">
                         {run.repo_label} · {run.runner_name}
                         {run.runner_model ? ` / ${run.runner_model}` : ""}
                         {run.launch_effort ? ` · ${run.launch_effort}` : ""}
                       </p>
                       {run.spec_excerpt ? (
-                        <p className="mt-2 line-clamp-2 text-sm text-neutral-300">
+                        <p className="mt-2 line-clamp-2 text-heading text-neutral-300">
                           {compactExcerpt(run.spec_excerpt)}
                         </p>
                       ) : null}
                     </div>
-                    <div className="shrink-0 text-right text-xs text-muted-foreground">
+                    <div className="shrink-0 text-right text-body text-muted-foreground">
                       <div>{fmtDate(run.updated_at)}</div>
                       <div className="mt-1">
                         accepted {run.accepted_child_ids.length} · fail{" "}
@@ -929,7 +929,7 @@ export default function Swarms() {
               ))}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-heading text-muted-foreground">
               No swarm runs captured yet.
             </p>
           )}
@@ -942,7 +942,7 @@ export default function Swarms() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-lg font-semibold text-foreground">
+                      <h2 className="text-lead font-semibold text-foreground">
                         {detail.spec.title}
                       </h2>
                       <Chip tone={statusChipTone(detail.run.status)}>
@@ -952,11 +952,11 @@ export default function Swarms() {
                         {detail.run.planning_mode || detail.run.mode}
                       </Chip>
                     </div>
-                    <p className="mt-1 text-sm text-neutral-400">
+                    <p className="mt-1 text-heading text-neutral-400">
                       {selectedRun.repo_label} · {detail.run.run_id} ·{" "}
                       {fmtDate(detail.run.updated_at)}
                     </p>
-                    <p className="mt-2 text-sm text-muted-foreground">
+                    <p className="mt-2 text-heading text-muted-foreground">
                       {detail.run.runner_name}
                       {detail.run.runner_model
                         ? ` / ${detail.run.runner_model}`
@@ -980,35 +980,35 @@ export default function Swarms() {
 
                 <div className="grid gap-3 lg:grid-cols-4">
                   <Card className="p-3">
-                    <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                    <div className="text-body uppercase tracking-[0.2em] text-muted-foreground">
                       Wave
                     </div>
-                    <div className="mt-2 text-xl font-semibold text-foreground">
+                    <div className="mt-2 text-lead font-semibold text-foreground">
                       {detail.run.current_wave}/
                       {detail.run.max_runs || detail.run.runs}
                     </div>
                   </Card>
                   <Card className="p-3">
-                    <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                    <div className="text-body uppercase tracking-[0.2em] text-muted-foreground">
                       Accepted
                     </div>
-                    <div className="mt-2 text-xl font-semibold text-foreground">
+                    <div className="mt-2 text-lead font-semibold text-foreground">
                       {detail.run.accepted_child_ids.length}
                     </div>
                   </Card>
                   <Card className="p-3">
-                    <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                    <div className="text-body uppercase tracking-[0.2em] text-muted-foreground">
                       Children
                     </div>
-                    <div className="mt-2 text-xl font-semibold text-foreground">
+                    <div className="mt-2 text-lead font-semibold text-foreground">
                       {detail.run.children.length}
                     </div>
                   </Card>
                   <Card className="p-3">
-                    <div className="text-xs uppercase tracking-[0.2em] text-muted-foreground">
+                    <div className="text-body uppercase tracking-[0.2em] text-muted-foreground">
                       Winner
                     </div>
-                    <div className="mt-2 truncate text-sm font-medium text-foreground">
+                    <div className="mt-2 truncate text-heading font-medium text-foreground">
                       {detail.run.primary_winner_child_id || "—"}
                     </div>
                   </Card>
@@ -1018,15 +1018,15 @@ export default function Swarms() {
               <Card className="space-y-3 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-neutral-400">
+                    <h3 className="text-heading font-semibold uppercase tracking-[0.2em] text-neutral-400">
                       Frozen spec snapshot
                     </h3>
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-heading text-muted-foreground">
                       Rendered from the copied run snapshot, not the live
                       mutable file.
                     </p>
                   </div>
-                  <div className="text-right text-xs text-muted-foreground">
+                  <div className="text-right text-body text-muted-foreground">
                     <div>{detail.spec.source_path}</div>
                     <div>{detail.spec.copied_path}</div>
                   </div>
@@ -1043,7 +1043,7 @@ export default function Swarms() {
               <div className="grid gap-4 xl:grid-cols-2">
                 <Card className="space-y-3 p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-neutral-400">
+                    <h3 className="text-heading font-semibold uppercase tracking-[0.2em] text-neutral-400">
                       Accepted commits
                     </h3>
                     <Chip tone="success">
@@ -1061,18 +1061,18 @@ export default function Swarms() {
                             <span className="font-medium text-foreground">
                               {commit.child_id}
                             </span>
-                            <span className="text-xs text-muted-foreground">
+                            <span className="text-body text-muted-foreground">
                               #{commit.order} · {commitLabel(commit)}
                             </span>
                           </div>
-                          <p className="mt-2 text-sm text-neutral-400">
+                          <p className="mt-2 text-heading text-neutral-400">
                             {artifactSummary(commit.artifacts)}
                           </p>
                         </div>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-heading text-muted-foreground">
                       No accepted commits recorded yet.
                     </p>
                   )}
@@ -1089,10 +1089,10 @@ export default function Swarms() {
                 <Card className="space-y-3 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-neutral-400">
+                      <h3 className="text-heading font-semibold uppercase tracking-[0.2em] text-neutral-400">
                         Child logs
                       </h3>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-heading text-muted-foreground">
                         Tail output from the selected child worktree.
                       </p>
                     </div>
@@ -1122,18 +1122,18 @@ export default function Swarms() {
                     </Select>
                   </div>
 
-                  <pre className="max-h-[28rem] overflow-auto rounded-lg border border-border/70 bg-surface-code p-4 text-xs leading-6 text-foreground">
+                  <pre className="max-h-[28rem] overflow-auto rounded-lg border border-border/70 bg-surface-code p-4 text-body leading-6 text-foreground">
                     {logs || "No logs captured yet for this run."}
                   </pre>
                 </Card>
               </div>
             </>
           ) : loadingDetail ? (
-            <Card className="p-4 text-sm text-muted-foreground">
+            <Card className="p-4 text-heading text-muted-foreground">
               Loading swarm detail…
             </Card>
           ) : (
-            <Card className="p-4 text-sm text-muted-foreground">
+            <Card className="p-4 text-heading text-muted-foreground">
               Select a run to inspect its frozen prompt snapshot, accepted
               commits, and logs.
             </Card>
@@ -1147,10 +1147,10 @@ export default function Swarms() {
         header={
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-neutral-400">
+              <h2 className="text-heading font-semibold uppercase tracking-[0.2em] text-neutral-400">
                 Workflow (advanced)
               </h2>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-heading text-muted-foreground">
                 Workspace-local `workflow` runtime snapshot — pause, stop, and
                 inspect step outputs.
               </p>

@@ -5,29 +5,12 @@
   --review-border: rgb(var(--n-800) / 0.85);
   --review-surface: rgb(var(--surface-raised));
   --review-muted: rgb(var(--n-400));
-  --review-cta-fill: 238 231 216;
-  --review-cta-hover: 247 240 225;
-  --review-cta-text: 42 36 27;
-  --review-cta-border: 219 207 186;
-  --review-cta-finish-border: 151 119 76;
-  --review-cta-disabled-fill: 51 48 43;
-  --review-cta-disabled-text: 177 169 155;
   font-family: var(--review-ui-font);
   font-feature-settings: "kern" 1, "liga" 1;
-  font-size: 12px;
+  font-size: 0.8125rem; /* text-ui: the app's body size */
   line-height: 1.4;
-  accent-color: rgb(var(--n-400));
-  caret-color: rgb(var(--n-400));
-}
-
-:root.light .review-app {
-  --review-cta-fill: 23 23 23;
-  --review-cta-hover: 38 38 38;
-  --review-cta-text: 250 250 250;
-  --review-cta-border: 23 23 23;
-  --review-cta-finish-border: 38 38 38;
-  --review-cta-disabled-fill: 82 82 82;
-  --review-cta-disabled-text: 245 245 245;
+  accent-color: rgb(var(--brand));
+  caret-color: rgb(var(--foreground));
 }
 
 .review-app input,
@@ -51,7 +34,7 @@
 }
 
 .review-app :where(button, a, summary, [role="button"], [role="menuitem"], [role="tab"], [role="combobox"], [role="listbox"]):focus-visible {
-  outline: 2px solid rgb(var(--n-400));
+  outline: 2px solid rgb(var(--ring));
   outline-offset: 2px;
 }
 
@@ -122,24 +105,8 @@
   @apply bg-black/20 font-semibold opacity-100;
 }
 
-/* Review chrome stays quiet; the change title and the next action lead. */
-.review-reader-primary {
-  border-color: rgb(var(--review-cta-border));
-  background-color: rgb(var(--review-cta-fill));
-  color: rgb(var(--review-cta-text));
-}
-.review-reader-primary:hover:not(:disabled):not([aria-disabled="true"]) {
-  background-color: rgb(var(--review-cta-hover));
-}
-.review-reader-primary[data-finish="true"]:not(:disabled):not([aria-disabled="true"]) {
-  border-color: rgb(var(--review-cta-finish-border));
-}
-.review-reader-primary:is(:disabled, [aria-disabled="true"]) {
-  border-color: rgb(var(--review-cta-disabled-fill));
-  background-color: rgb(var(--review-cta-disabled-fill));
-  color: rgb(var(--review-cta-disabled-text));
-  opacity: 1;
-}
+/* Review chrome stays quiet; the change title and the next action lead. `.review-reader-primary` marks the
+   one primary action (a `brand` Button); it carries layout only, the colour comes from the Button variant. */
 .review-reader-toolbar {
   display: flex;
   align-items: center;

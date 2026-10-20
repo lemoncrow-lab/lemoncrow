@@ -233,11 +233,11 @@ export default function ReviewFixSheet({
           )}
           <span className="flex-1" />
           {stale && preview ? (
-            <UiButton variant="default" size="xs" type="button" disabled={loading} onClick={() => void load(route, directive)}>
+            <UiButton variant="solid" size="xs" type="button" disabled={loading} onClick={() => void load(route, directive)}>
               Update preview
             </UiButton>
           ) : (
-            <UiButton variant="default" size="xs" type="button" disabled={!canStart} onClick={() => void start()}>
+            <UiButton variant="solid" size="xs" type="button" disabled={!canStart} onClick={() => void start()}>
               {starting && <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}
               {preview ? primaryLabel(preview) : title}
             </UiButton>

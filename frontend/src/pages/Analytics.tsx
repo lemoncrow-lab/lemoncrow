@@ -84,7 +84,7 @@ function CompactLeaderboard({
                     <span className="w-5 shrink-0 font-mono text-caption text-neutral-400">
                       {String(index + 1).padStart(2, "0")}
                     </span>
-                    <span className="truncate text-sm text-neutral-200">
+                    <span className="truncate text-heading text-neutral-200">
                       {row.label}
                     </span>
                   </div>
@@ -95,7 +95,7 @@ function CompactLeaderboard({
                   )}
                 </div>
                 <div className="shrink-0 text-right">
-                  <div className="font-mono text-sm text-foreground">
+                  <div className="font-mono text-heading text-foreground">
                     {row.value}
                   </div>
                   {row.detail && (
@@ -116,7 +116,7 @@ function CompactLeaderboard({
           ))}
         </div>
       ) : (
-        <div className="text-neutral-400 italic text-xs">{emptyMessage}</div>
+        <div className="text-neutral-400 italic text-body">{emptyMessage}</div>
       )}
     </section>
   );
@@ -228,7 +228,7 @@ function SpendTimelineChart({
       : fillDailyBuckets(dashboard.daily, days);
   if (!buckets.length)
     return (
-      <div className="text-neutral-400 italic text-xs p-4">
+      <div className="text-neutral-400 italic text-body p-4">
         No timeline data.
       </div>
     );
@@ -245,7 +245,7 @@ function SpendTimelineChart({
           <div className="text-caption uppercase tracking-widest text-neutral-400 font-bold">
             {breakdown === "hourly" ? "Hourly" : "Daily"} Activity
           </div>
-          <div className="mt-1 text-sm text-neutral-400">
+          <div className="mt-1 text-heading text-neutral-400">
             Last {buckets.length} {unitLabel} snapshots in the selected window.
           </div>
         </div>
@@ -311,7 +311,7 @@ function SpendTimelineChart({
           <div className="text-caption uppercase text-neutral-400 mb-0.5">
             Total
           </div>
-          <div className="text-sm font-mono text-emerald-300">
+          <div className="text-heading font-mono text-emerald-300">
             ${totalCost.toFixed(2)}
           </div>
         </div>
@@ -319,7 +319,7 @@ function SpendTimelineChart({
           <div className="text-caption uppercase text-neutral-400 mb-0.5">
             Avg/Bucket
           </div>
-          <div className="text-sm font-mono text-emerald-300">
+          <div className="text-heading font-mono text-emerald-300">
             ${(totalCost / buckets.length).toFixed(2)}
           </div>
         </div>
@@ -528,7 +528,7 @@ export default function Analytics({
                   />
                 </>
               ) : (
-                <div className="text-neutral-400 italic text-sm">
+                <div className="text-neutral-400 italic text-heading">
                   Data unavailable.
                 </div>
               )}

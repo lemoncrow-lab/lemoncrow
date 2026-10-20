@@ -541,7 +541,7 @@ function DiffShell({
           <span className="text-caption font-black uppercase tracking-[0.2em] text-emerald-600/80 border border-emerald-800/40 bg-emerald-950/30 px-1.5 py-0.5 flex-shrink-0">
             FILE_EDIT
           </span>
-          <span className="text-xs font-mono text-neutral-400 truncate">
+          <span className="text-body font-mono text-neutral-400 truncate">
             {path || "(unknown path)"}
           </span>
           {(addCount > 0 || delCount > 0) && (
@@ -633,7 +633,7 @@ export function FileDetail({
           onClick={() => setInternalExpanded(!internalExpanded)}
           className="flex-1 flex items-center gap-4 min-w-0 text-left"
         >
-          <span className="text-xs font-mono text-neutral-400 group-hover/file:text-foreground transition-colors tracking-wide truncate">
+          <span className="text-body font-mono text-neutral-400 group-hover/file:text-foreground transition-colors tracking-wide truncate">
             {path}
           </span>
           {diff && (addCount > 0 || delCount > 0) && (

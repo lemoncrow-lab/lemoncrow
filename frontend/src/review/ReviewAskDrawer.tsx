@@ -919,7 +919,7 @@ export default function ReviewAskDrawer({
             <div className="mx-auto flex h-8 w-8 items-center justify-center rounded-full border border-border bg-muted/70 text-violet-300">
               <Sparkles size={14} />
             </div>
-            <div className="mt-3 text-sm font-medium text-neutral-200">{transport ? "Ask about this code" : "Ask, challenge, or request a change"}</div>
+            <div className="mt-3 text-heading font-medium text-neutral-200">{transport ? "Ask about this code" : "Ask, challenge, or request a change"}</div>
             <p className="mx-auto mt-1 max-w-[290px] text-caption leading-4 text-muted-foreground">
               {transport ? "Ask about the selected code and explore it as a conversation." : "Discuss this review like a chat. Ask why something changed, check an implementation, or request a concrete fix."}
             </p>
@@ -1045,7 +1045,7 @@ export default function ReviewAskDrawer({
                           <div className="flex items-center gap-2 border-t border-violet-900/25 px-2.5 py-2">
                             <UiButton
                               type="button"
-                              variant="default"
+                              variant="solid"
                               disabled={!canSend}
                               onClick={() => void sendHandoff(message)}
                               className="h-7 px-3 text-caption"
@@ -1416,20 +1416,20 @@ export default function ReviewAskDrawer({
             {asking ? (
               <UiButton
                 type="button"
-                variant="default"
+                variant="solid"
                 onClick={stopAsk}
                 aria-label="Stop Ask"
-                className="h-8 w-8 shrink-0 rounded-full bg-neutral-100 text-neutral-950 shadow-sm hover:bg-neutral-200"
+                className="h-8 w-8 shrink-0 rounded-full"
               >
                 <Square size={11} fill="currentColor" strokeWidth={0} />
               </UiButton>
             ) : (
               <UiButton
                 type="submit"
-                variant="default"
+                variant="solid"
                 disabled={body.trim() === ""}
                 aria-label="Send Ask question"
-                className="h-8 w-8 shrink-0 rounded-full bg-neutral-100 text-neutral-950 shadow-sm hover:bg-neutral-200 disabled:cursor-not-allowed disabled:bg-neutral-800 disabled:text-neutral-600"
+                className="h-8 w-8 shrink-0 rounded-full"
               >
                 <ArrowUp size={14} strokeWidth={2.4} />
               </UiButton>

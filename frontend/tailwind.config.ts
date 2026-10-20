@@ -14,16 +14,6 @@ export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
-      /* Step 1 keeps the pre-shift values; the preset's +1px scale replaces them in the next commit. */
-      fontSize: {
-        micro: "9px",
-        caption: "10px",
-        label: "11px",
-        body: "12px",
-        heading: "13px",
-        title: "14px",
-      },
-      borderRadius: { DEFAULT: "0.25rem", sm: "0.125rem" },
       /* Overlays share z-50 and stack by DOM order; only the global request indicator sits above them. */
       zIndex: { indicator: "100" },
       colors: {

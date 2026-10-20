@@ -290,7 +290,7 @@ export default function ReviewHistorySheet({
                       </Select>
                     </label>
                     {advancedCompareHref ? (
-                      <UiButton asChild variant="default" className="px-3 text-caption">
+                      <UiButton asChild variant="outline" className="px-3 text-caption">
                         <a href={advancedCompareHref}>
                           <GitCompareArrows size={11} aria-hidden="true" />
                           Compare

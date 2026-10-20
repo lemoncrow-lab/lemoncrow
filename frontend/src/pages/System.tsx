@@ -154,10 +154,10 @@ export function HostsSection() {
 
   return (
     <section className="space-y-3">
-      <h2 className="text-xs uppercase tracking-widest text-neutral-400">
+      <h2 className="text-body uppercase tracking-widest text-neutral-400">
         Hosts
       </h2>
-      <p className="text-xs text-neutral-400">
+      <p className="text-body text-neutral-400">
         LemonCrow can configure these host surfaces. Detected hosts are shown
         first, but unsupported gaps are still visible so you can wire them up
         directly.
@@ -178,7 +178,7 @@ export function HostsSection() {
                 </span>
                 <div className="min-w-0 flex-1 space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="text-base font-semibold text-foreground">
+                    <div className="text-title font-semibold text-foreground">
                       {host.label}
                     </div>
                     <Chip
@@ -192,7 +192,7 @@ export function HostsSection() {
                       </Chip>
                     )}
                   </div>
-                  <p className="text-sm text-neutral-400">
+                  <p className="text-heading text-neutral-400">
                     {host.description ?? HOST_DESC[host.host_id] ?? ""}
                   </p>
                   {host.install_command && (
@@ -241,17 +241,17 @@ export function AgentsSection() {
   if (agents === null) {
     return (
       <section className="space-y-3">
-        <h2 className="text-xs uppercase tracking-widest text-neutral-400">
+        <h2 className="text-body uppercase tracking-widest text-neutral-400">
           Agents
         </h2>
-        <p className="text-xs text-neutral-400">Loading…</p>
+        <p className="text-body text-neutral-400">Loading…</p>
       </section>
     );
   }
 
   return (
     <section className="space-y-3">
-      <h2 className="text-xs uppercase tracking-widest text-neutral-400">
+      <h2 className="text-body uppercase tracking-widest text-neutral-400">
         Agents
       </h2>
       <div className="grid gap-2 sm:grid-cols-2">
@@ -294,7 +294,7 @@ function AgentCard({
           <div className="min-w-0 flex-1">
             <div className="mb-1 flex flex-wrap items-center gap-3">
               <span
-                className={`${bg} ${color} font-mono text-xs px-2 py-1 transition-transform inline-flex items-center gap-2 ${
+                className={`${bg} ${color} font-mono text-body px-2 py-1 transition-transform inline-flex items-center gap-2 ${
                   expanded ? "rotate-0" : ""
                 }`}
               >
@@ -302,7 +302,7 @@ function AgentCard({
                   size={14}
                   className={`transition-transform ${expanded ? "rotate-90" : ""}`}
                 />
-                <span className="font-bold text-sm">{agent.name}</span>
+                <span className="font-bold text-heading">{agent.name}</span>
               </span>
               {agent.model && (
                 <Chip
@@ -313,7 +313,7 @@ function AgentCard({
                 </Chip>
               )}
             </div>
-            <p className="text-xs text-neutral-400">{agent.description}</p>
+            <p className="text-body text-neutral-400">{agent.description}</p>
           </div>
         </div>
       }
@@ -379,10 +379,10 @@ export function SkillsSection() {
 
   return (
     <section className="space-y-3">
-      <h2 className="text-xs uppercase tracking-widest text-neutral-400">
+      <h2 className="text-body uppercase tracking-widest text-neutral-400">
         Skills
       </h2>
-      <p className="text-xs text-neutral-400 mb-3">
+      <p className="text-body text-neutral-400 mb-3">
         {totalSkillCount === null
           ? "Loading skill catalog..."
           : `${totalSkillCount} skills available on the public host surface.`}
@@ -579,7 +579,7 @@ export function ToolsSection() {
 
   return (
     <section className="space-y-3">
-      <h2 className="text-xs uppercase tracking-widest text-neutral-400">
+      <h2 className="text-body uppercase tracking-widest text-neutral-400">
         Tools
       </h2>
       {!mcpTools && <EmptyState title="Loading tools…" className="p-4" />}
@@ -662,7 +662,7 @@ export function ToolsSection() {
                                 <span
                                   className={`w-1.5 h-1.5 flex-shrink-0 ${tool.available ? "bg-emerald-400" : "bg-neutral-600"}`}
                                 />
-                                <span className="font-mono font-semibold text-neutral-200 text-xs flex-1">
+                                <span className="font-mono font-semibold text-neutral-200 text-body flex-1">
                                   {tool.tool_name}
                                 </span>
                                 {primaryEnum && (
@@ -695,11 +695,11 @@ export function ToolsSection() {
                               {isExpanded && (
                                 <div className="px-4 pb-3 pt-1 border-t border-border/50">
                                   {cleanDescription ? (
-                                    <p className="text-xs text-neutral-300 leading-relaxed">
+                                    <p className="text-body text-neutral-300 leading-relaxed">
                                       {cleanDescription}
                                     </p>
                                   ) : (
-                                    <p className="text-xs text-neutral-400 italic">
+                                    <p className="text-body text-neutral-400 italic">
                                       No description available.
                                     </p>
                                   )}
@@ -799,10 +799,10 @@ function HealthSection() {
 
   return (
     <section className="space-y-3">
-      <h2 className="text-xs uppercase tracking-widest text-neutral-400">
+      <h2 className="text-body uppercase tracking-widest text-neutral-400">
         Health
       </h2>
-      <p className="text-xs text-neutral-400">
+      <p className="text-body text-neutral-400">
         Daemon liveness plus per-host adapter status. "Detected" reflects
         whether LemonCrow has ever seen a session from that host; last import
         below is the real per-host import time, not detection.
@@ -829,7 +829,7 @@ function HealthSection() {
           {(hosts ?? []).map((host) => (
             <Card key={host.host_id} className="p-3">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-sm text-neutral-200">{host.label}</span>
+                <span className="text-heading text-neutral-200">{host.label}</span>
                 <Chip tone={host.status === "active" ? "success" : "neutral"}>
                   {host.status}
                 </Chip>
@@ -867,7 +867,7 @@ export default function System({ forcedSection }: { forcedSection?: Section }) {
   const active = forcedSection ?? (section as Section) ?? "health";
 
   return (
-    <PageFrame className="space-y-4 text-sm">
+    <PageFrame className="space-y-4 text-heading">
       {!forcedSection && (
         <UiButton asChild variant="ghost" size="sm" className="-ml-2 w-fit">
           <Link to="/settings/advanced"><ArrowLeft size={14} />Back to Advanced</Link>

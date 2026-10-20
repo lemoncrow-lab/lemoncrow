@@ -20,7 +20,8 @@ const workbenchStyleRules = [
 const systemRules = [
   { pattern: /role="dialog"|aria-modal=/g, message: "Use Dialog/Sheet from components/ui; do not hand-roll modals." },
   { pattern: /data-review-dropdown/g, message: "Use DropdownMenu (actions) or Popover (content) from components/ui." },
-  { pattern: /\btext-\[\d+(?:\.\d+)?px\]/g, message: "Use the type scale: text-micro/caption/label/body/heading/title." },
+  { pattern: /\btext-\[\d+(?:\.\d+)?(?:px|rem|em)\]/g, message: "Use the type scale: text-micro/caption/label/body/heading/title (or tag/meta/ui/small/copy/lead/h3/h2/display/code)." },
+  { pattern: /\btext-(?:xs|sm|base|lg|xl|[2-9]xl)\b/g, message: "Tailwind's default sizes are retired: use text-meta/ui/small/copy/lead or the app aliases text-label/body/heading/title." },
   { pattern: /\bz-\[\d+\]/g, message: "Overlays portal at z-50; use z-10/z-20 for in-flow stacking." },
   { pattern: /(?<!disabled:)\btext-neutral-(?:600|700)\b/g, message: "Below WCAG AA contrast for text; use text-muted-foreground." },
 ];

@@ -45,7 +45,7 @@ export function HealthStrip({ compact = false }: { compact?: boolean }) {
                 : "bg-neutral-500"
           }`}
         />
-        <span className="text-xs font-mono text-neutral-300">
+        <span className="text-body font-mono text-neutral-300">
           Daemon {health?.status ?? (healthErr ? "unreachable" : "…")}
         </span>
         {health?.timestamp && (
@@ -67,7 +67,7 @@ export function HealthStrip({ compact = false }: { compact?: boolean }) {
               host.status === "active" ? "bg-emerald-500" : "bg-neutral-600"
             }`}
           />
-          <span className="text-xs font-mono text-neutral-300">
+          <span className="text-body font-mono text-neutral-300">
             {host.label}
           </span>
           <span
@@ -81,7 +81,7 @@ export function HealthStrip({ compact = false }: { compact?: boolean }) {
         </div>
       ))}
       {hosts && hosts.length === 0 && (
-        <span className="text-xs text-neutral-400">
+        <span className="text-body text-neutral-400">
           No host adapters detected.
         </span>
       )}

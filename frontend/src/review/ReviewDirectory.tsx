@@ -309,7 +309,7 @@ function ReviewRow({
                         <UiButton
                           type="button"
                           size="xs"
-                          variant={acknowledged.has(item.id) ? "default" : "outline"}
+                          variant={acknowledged.has(item.id) ? "solid" : "outline"}
                           className="shrink-0"
                           aria-pressed={acknowledged.has(item.id)}
                           aria-label={`Confirm ${item.label.toLowerCase()}`}

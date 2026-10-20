@@ -275,7 +275,7 @@ export default function FinishSheet({
                 Continue reviewing
               </UiButton>
               <UiButton
-                variant="default"
+                variant="solid"
                 type="button"
                 disabled={busy || blockedRequest}
                 onClick={() => onFinish(outcome, outcomeSummary.trim(), { send: sending })}

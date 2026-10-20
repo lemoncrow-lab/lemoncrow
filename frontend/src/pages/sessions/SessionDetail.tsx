@@ -523,10 +523,10 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
     return (
       <div className="h-full flex items-center justify-center bg-surface px-6 py-8 text-center">
         <div className="max-w-xs space-y-3">
-          <div className="text-red-300 text-sm font-mono font-bold uppercase tracking-widest">
+          <div className="text-red-300 text-heading font-mono font-bold uppercase tracking-widest">
             Load Failure
           </div>
-          <div className="text-neutral-400 text-xs font-mono leading-relaxed">
+          <div className="text-neutral-400 text-body font-mono leading-relaxed">
             {err}
           </div>
         </div>
@@ -540,7 +540,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
         <div className="space-y-2">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
             <div className="min-w-0 flex-1 space-y-1.5">
-              <h1 className="text-sm font-bold tracking-wide text-foreground truncate uppercase">
+              <h1 className="text-heading font-bold tracking-wide text-foreground truncate uppercase">
                 {trace && (
                   <span
                     className="inline-flex items-center px-1"

@@ -26,7 +26,7 @@ export default function SavingsTimeChart({
   windowDays,
 }: SavingsTimeChartProps) {
   if (data.length === 0) {
-    return <div className="text-sm text-neutral-400">No trend data yet.</div>;
+    return <div className="text-heading text-neutral-400">No trend data yet.</div>;
   }
 
   const maxVal = Math.max(1, ...data.map((d) => d.naive));

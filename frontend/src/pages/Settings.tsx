@@ -150,7 +150,7 @@ function AiSettingsEditor({ data, onSaved }: {
       </div>
       {error && <p role="alert" className="text-caption text-destructive">{error}</p>}
       {saved && <p role="status" className="text-caption text-foreground">Saved to this machine. Effective AI status updated below.</p>}
-      <Button type="submit" variant="default" disabled={saving}>
+      <Button type="submit" variant="brand" disabled={saving}>
         {saving ? "Saving…" : "Save AI settings"}
       </Button>
     </form>
@@ -254,7 +254,7 @@ function ProductsSettings() {
               <Card key={product} className="p-4" data-testid={`product-state-${product}`}>
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-xs font-semibold text-foreground">LemonCrow {label}</div>
+                    <div className="text-body font-semibold text-foreground">LemonCrow {label}</div>
                     <div className="mt-1 text-caption text-muted-foreground">{detail}</div>
                   </div>
                   <Chip tone={state.available ? "success" : "neutral"}>{state.available ? "Available" : "Unavailable"}</Chip>
@@ -403,7 +403,7 @@ export default function Settings() {
                 <Wrench size={13} className="mt-0.5 shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <div className="text-xs font-medium text-neutral-200">{label}</div>
+                    <div className="text-body font-medium text-neutral-200">{label}</div>
                     {badge && <Chip tone="info">{badge}</Chip>}
                   </div>
                   <p className="mt-1 text-caption leading-4 text-muted-foreground">{description}</p>

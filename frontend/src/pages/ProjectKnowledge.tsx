@@ -248,7 +248,7 @@ function RepositoryKnowledge({ repositoryId }: { repositoryId: string }) {
       )}
 
       <section className="space-y-2" aria-label="AI narratives">
-        <h3 className="text-sm font-semibold text-foreground">AI narratives</h3>
+        <h3 className="text-heading font-semibold text-foreground">AI narratives</h3>
         {overview.narratives.length === 0 ? (
           <p className="text-caption text-muted-foreground">
             No AI narratives. <code>lc knowledge project sync --narrate</code> queues them; the source-backed context
@@ -277,7 +277,7 @@ function RepositoryKnowledge({ repositoryId }: { repositoryId: string }) {
       </section>
 
       <section className="space-y-2" aria-label="Source-backed context">
-        <h3 className="text-sm font-semibold text-foreground">Source-backed context</h3>
+        <h3 className="text-heading font-semibold text-foreground">Source-backed context</h3>
         <form className="flex max-w-md gap-2" onSubmit={submit} role="search">
           <Input
             aria-label="Search Project Knowledge"
@@ -316,7 +316,7 @@ function RepositoryKnowledge({ repositoryId }: { repositoryId: string }) {
       </section>
 
       <section className="space-y-2" aria-label="Recent evolution">
-        <h3 className="text-sm font-semibold text-foreground">Recent evolution</h3>
+        <h3 className="text-heading font-semibold text-foreground">Recent evolution</h3>
         <ol className="space-y-1 text-caption">
           {overview.evolution.map((event) => (
             <li key={`${event.generation_id}-${event.observed_at}`} className="flex flex-wrap gap-2">

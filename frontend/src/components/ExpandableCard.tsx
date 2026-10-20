@@ -40,20 +40,20 @@ export function ExpandableCard({
       >
         <div className="flex-1 flex items-start gap-4 min-w-0">
           {/* Icon */}
-          <div className="text-2xl flex-shrink-0 mt-0.5">{icon}</div>
+          <div className="text-h3 flex-shrink-0 mt-0.5">{icon}</div>
 
           {/* Title & Subtitle */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3 mb-1">
               {/* Expandable indicator */}
               <span
-                className={`text-amber-300 font-mono text-xs transition-transform ${
+                className={`text-amber-300 font-mono text-body transition-transform ${
                   isExpanded ? "rotate-90" : ""
                 }`}
               >
                 ❯
               </span>
-              <h3 className="font-bold text-neutral-200 text-sm">
+              <h3 className="font-bold text-neutral-200 text-heading">
                 {title}
               </h3>
               {status && (
@@ -78,7 +78,7 @@ export function ExpandableCard({
       {/* Expanded Content */}
       {isExpanded && (
         <div className="border-t border-border bg-background/50 px-5 py-4">
-          <div className="space-y-4 font-mono text-sm text-neutral-300">
+          <div className="space-y-4 font-mono text-heading text-neutral-300">
             {children}
           </div>
         </div>

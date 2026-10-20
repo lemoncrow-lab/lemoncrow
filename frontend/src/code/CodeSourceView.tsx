@@ -172,8 +172,8 @@ export default function CodeSourceView({
       <main className="flex min-h-[560px] min-w-0 items-center justify-center bg-surface-code p-4 xl:min-h-0">
         <div className="max-w-xl text-center">
           <FileCode2 size={28} className="mx-auto text-cyan-300" />
-          <h2 className="mt-4 text-base font-semibold text-foreground">Open a file or symbol</h2>
-          <p className="mt-2 text-sm leading-6 text-neutral-400">
+          <h2 className="mt-4 text-title font-semibold text-foreground">Open a file or symbol</h2>
+          <p className="mt-2 text-heading leading-6 text-neutral-400">
             Browse the repository on the left or use the search above. Symbol selections open the full file and highlight the exact range.
           </p>
         </div>
@@ -301,13 +301,13 @@ export default function CodeSourceView({
       {editorError && <div className="border-b border-red-900/50 bg-red-950/20 px-4 py-1.5 text-caption text-red-300/80">{editorError}</div>}
       <div className="relative min-h-0 flex-1 overflow-hidden" aria-label="Source viewer">
         {sourceLoading && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-background/70 text-xs text-muted-foreground backdrop-blur-[1px]">
+          <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-background/70 text-body text-muted-foreground backdrop-blur-[1px]">
             <Loader2 size={14} className="animate-spin" />
             Reading {selectedNode.path.split("/").pop()}…
           </div>
         )}
         {sourceError ? (
-          <div className="m-4 rounded-lg border border-red-900/60 bg-red-950/20 p-4 text-xs text-red-200">
+          <div className="m-4 rounded-lg border border-red-900/60 bg-red-950/20 p-4 text-body text-red-200">
             <div className="font-medium">Could not open {selectedNode.path}</div>
             <div className="mt-1 text-red-300/70">{sourceError}</div>
           </div>
@@ -325,7 +325,7 @@ export default function CodeSourceView({
           />
         )}
         {!sourceLoading && !sourceError && source === null && fileNeedsText(renderKind, viewerMode) && (
-          <div className="flex min-h-[520px] items-center justify-center text-xs text-muted-foreground">Source is unavailable.</div>
+          <div className="flex min-h-[520px] items-center justify-center text-body text-muted-foreground">Source is unavailable.</div>
         )}
       </div>
     </main>

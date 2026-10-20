@@ -263,7 +263,7 @@ function Composer({
           Cancel
         </UiButton>
         <UiButton
-          variant="default"
+          variant="solid"
           size="xs"
           type="button"
           disabled={busy || body.trim() === ""}

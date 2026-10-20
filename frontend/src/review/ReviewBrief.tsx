@@ -464,7 +464,7 @@ function AiReviewLine({
             <div>{modelDataText(modelDataLocus)}</div>
           </div>
           <div className="mt-2 flex gap-1.5">
-            <UiButton variant="default" size="compact" type="button" onClick={() => void runDeeper()}>
+            <UiButton variant="outline" size="compact" type="button" onClick={() => void runDeeper()}>
               Run {confirmEffort} review
             </UiButton>
             <UiButton variant="ghost" size="compact" type="button" onClick={() => setConfirmEffort(null)}>Cancel</UiButton>
@@ -589,7 +589,7 @@ function AiReviewLine({
                 <div>{modelDataText(freshPreview.model_data_locus)}</div>
               </div>
               <div className="mt-2 flex gap-1.5">
-                <UiButton variant="default" size="compact" type="button" onClick={() => void rerunFresh()}>
+                <UiButton variant="outline" size="compact" type="button" onClick={() => void rerunFresh()}>
                   Re-run fresh now
                 </UiButton>
                 <UiButton variant="ghost" size="compact" type="button" onClick={() => setFreshActionId("")}>
@@ -831,7 +831,7 @@ function ItemCard({
               {onAsk && <UiButton variant="outline" size="compact" type="button" onClick={() => onAsk(first)}>Ask</UiButton>}
             </>
           )}
-          <UiButton variant={reviewFirst ? "default" : "ghost"} size="compact" type="button" onClick={() => onOpenTarget(first)}>
+          <UiButton variant={reviewFirst ? "solid" : "ghost"} size="compact" type="button" onClick={() => onOpenTarget(first)}>
             Open code
           </UiButton>
         </div>
@@ -989,13 +989,13 @@ function DecisionCard({
       {actionable && (
         <div className="mt-1.5 flex flex-wrap gap-1.5">
           {actions.has("reconfirm") && (
-            <UiButton variant="default" size="compact" type="button" disabled={busy} onClick={() => void run({ action: "reconfirm" })}>
+            <UiButton variant="outline" size="compact" type="button" disabled={busy} onClick={() => void run({ action: "reconfirm" })}>
               Reconfirm
             </UiButton>
           )}
           {actions.has("accept") && (
             <UiButton
-              variant={actions.has("reconfirm") ? "outline" : "default"}
+              variant="outline"
               size="compact"
               type="button"
               disabled={busy || !chosen}
@@ -1027,7 +1027,7 @@ function DecisionCard({
       {form === "request_change" && (
         <div className="mt-1.5 flex flex-col gap-1">
           <UiTextarea uiSize="xs" aria-label="Requested change" rows={3} value={text} onChange={(event) => setText(event.target.value)} />
-          <UiButton variant="default" size="compact" type="button" className="self-start" disabled={busy || !text.trim()} onClick={() => void run({ action: "request_change", feedback_body: text.trim() })}>
+          <UiButton variant="outline" size="compact" type="button" className="self-start" disabled={busy || !text.trim()} onClick={() => void run({ action: "request_change", feedback_body: text.trim() })}>
             Send request
           </UiButton>
         </div>
@@ -1042,7 +1042,7 @@ function DecisionCard({
               <SelectItem key={key} value={`check_available:${key}`}>{`When ${key} has a result`}</SelectItem>
             ))}
           </Select>
-          <UiButton variant="default" size="compact" type="button" className="self-start" disabled={busy || !text.trim()} onClick={() => void run({ action: "defer", reason: text.trim(), trigger })}>
+          <UiButton variant="outline" size="compact" type="button" className="self-start" disabled={busy || !text.trim()} onClick={() => void run({ action: "defer", reason: text.trim(), trigger })}>
             Defer decision
           </UiButton>
         </div>
@@ -1235,8 +1235,8 @@ export default function ReviewBrief({
             </p>
           )}
           <div className="flex flex-wrap gap-1.5">
-            {onOpenTour && (projection.tour?.step_count ?? 0) > 0 && <UiButton variant="default" size="compact" onClick={onOpenTour}>Start guided review</UiButton>}
-            <UiButton variant={onOpenTour && (projection.tour?.step_count ?? 0) > 0 ? "outline" : "default"} size="compact" onClick={onOpenFiles}>Open code</UiButton>
+            {onOpenTour && (projection.tour?.step_count ?? 0) > 0 && <UiButton variant="solid" size="compact" onClick={onOpenTour}>Start guided review</UiButton>}
+            <UiButton variant={onOpenTour && (projection.tour?.step_count ?? 0) > 0 ? "outline" : "solid"} size="compact" onClick={onOpenFiles}>Open code</UiButton>
           </div>
         </section>
       )}

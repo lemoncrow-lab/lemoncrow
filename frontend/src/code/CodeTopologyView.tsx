@@ -39,7 +39,7 @@ export interface CodeTopologyViewProps {
 
 function Status({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex h-full min-h-[420px] items-center justify-center gap-2 p-6 text-center text-xs text-muted-foreground">
+    <div className="flex h-full min-h-[420px] items-center justify-center gap-2 p-6 text-center text-body text-muted-foreground">
       {children}
     </div>
   );

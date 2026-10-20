@@ -212,7 +212,7 @@ export default function ReviewFeedbackPanel({
         )}
         {canDirectSend && open && recordsCopy && !sendBlocked && (
           <UiButton
-            variant="default"
+            variant="solid"
             className="px-3"
             type="button"
             disabled={busy || copyState === "copying"}
@@ -223,13 +223,13 @@ export default function ReviewFeedbackPanel({
           </UiButton>
         )}
         {canDirectSend && open && toPullRequest && reachable && onPublishGitHub && (
-          <UiButton variant="default" className="px-3" type="button" disabled={busy} onClick={onPublishGitHub}>
+          <UiButton variant="solid" className="px-3" type="button" disabled={busy} onClick={onPublishGitHub}>
             <GitPullRequest size={12} />
             Publish {unsent} to {destination}…
           </UiButton>
         )}
         {canDirectSend && open && !toAuthor && !toPullRequest && reachable && !sendBlocked && (
-          <UiButton variant="default" className="px-3" type="button" disabled={busy} onClick={() => void onSend()}>
+          <UiButton variant="solid" className="px-3" type="button" disabled={busy} onClick={() => void onSend()}>
             <Send size={12} />
             Send {unsent} to {destination}
           </UiButton>

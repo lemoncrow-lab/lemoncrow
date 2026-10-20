@@ -514,7 +514,7 @@ function NodeDetails({
         <div className="mt-3 flex flex-wrap gap-1.5">
           {openLabel && node.path && (
             // In-Review jump; Back returns to this Map location.
-            <Button variant="default" size="xs" onClick={() => onOpenSelection(node.selection)}>
+            <Button variant="outline" size="xs" onClick={() => onOpenSelection(node.selection)}>
               <ArrowRight size={12} aria-hidden="true" />{openLabel}
             </Button>
           )}
@@ -719,7 +719,7 @@ function EdgeDetails({ payload, edge, onSelectNode, onClear, onAskSelection, sel
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5">
           {canOpenReviewTarget && (
-            <Button variant="default" size="sm" onClick={() => onOpenSelection(edge.selection)} icon={<ArrowRight size={12} />}>
+            <Button variant="outline" size="sm" onClick={() => onOpenSelection(edge.selection)} icon={<ArrowRight size={12} />}>
               Open Review target
             </Button>
           )}

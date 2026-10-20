@@ -16,7 +16,6 @@ import { Link, NavLink, Navigate, Route, Routes, useLocation, useSearchParams } 
 import {
   Activity,
   ClipboardCheck,
-  ChevronRight,
   House,
   Loader2,
   Moon,
@@ -31,6 +30,8 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PortalContainerContext } from "./components/ui/portal-container";
 import { isChunkLoadFailure } from "./lib/chunkLoad";
 import { applyTheme, getInitialTheme, type Theme } from "./lib/theme";
+import lemonCrowMark from "./assets/lemoncrow-mark.svg";
+import { Badge } from "./components/ui/badge";
 import { useTimeRange, TIME_RANGE_OPTIONS } from "./lib/TimeRangeContext";
 
 // Every page is its own chunk: the entry bundle carried all of them (~350 KB
@@ -139,7 +140,7 @@ export function NotificationBanner({
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>{children}</div>
         <Button
-          variant="default"
+          variant="outline"
           size="sm"
           onClick={() => {
             setDismissed(true);
@@ -205,7 +206,9 @@ function LemonCrowBrand({ className }: { className?: string }) {
   }, [active]);
 
   const visibleWord = BRAND_WORD.slice(0, typed);
-  const brandWidth = active ? "14.5ch" : "2.5ch";
+  // Collapsed: the lemon mark alone (24px). Active: mark, gap, and the typed wordmark (9 letters plus the cursor,
+  // each one mono advance plus the 0.14em wordmark tracking).
+  const brandWidth = active ? "calc(1.5rem + 0.5rem + 10 * (1ch + 0.14em))" : "1.5rem";
 
   return (
     <NavLink
@@ -216,18 +219,18 @@ function LemonCrowBrand({ className }: { className?: string }) {
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
       className={cx(
-        "z-20 flex h-7 shrink-0 items-center gap-0.5 overflow-visible font-mono text-heading font-semibold tracking-[0.04em] text-foreground transition-[width] duration-100 ease-out",
+        "z-20 flex h-7 shrink-0 items-center gap-2 overflow-visible rounded-md font-mono text-small font-semibold uppercase tracking-wordmark text-foreground transition-[width] duration-fast ease-out",
         className,
       )}
       style={{ width: brandWidth }}
     >
-      <ChevronRight aria-hidden="true" size={14} strokeWidth={2} className="relative -top-px shrink-0" />
+      <img src={lemonCrowMark} alt="" aria-hidden="true" width={24} height={24} className="size-6 shrink-0 rounded-md" />
       <span
         aria-hidden="true"
         data-testid="lemoncrow-brand-mark"
         className="whitespace-nowrap"
       >
-        {active ? `${visibleWord}${cursorVisible ? "_" : ""}` : "_"}
+        {active ? `${visibleWord}${cursorVisible ? "_" : ""}` : ""}
       </span>
     </NavLink>
   );
@@ -242,10 +245,9 @@ function MobilePrimaryNav({ pathname, items }: { pathname: string; items: readon
           aria-label="Open navigation"
           size="icon"
           variant="ghost"
-          className="z-20 h-8 w-9 shrink-0 gap-0.5 rounded-md font-mono text-heading font-semibold tracking-[0.04em] text-foreground md:hidden"
+          className="z-20 h-8 w-9 shrink-0 text-foreground md:hidden"
         >
-          <ChevronRight aria-hidden="true" size={14} strokeWidth={2} className="relative -top-px shrink-0" />
-          <span aria-hidden="true">_</span>
+          <img src={lemonCrowMark} alt="" aria-hidden="true" width={24} height={24} className="size-6 shrink-0 rounded-md" />
         </UiButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -270,12 +272,9 @@ function MobilePrimaryNav({ pathname, items }: { pathname: string; items: readon
                 <span className="relative">
                   {item.label}
                   {item.annotation && (
-                    <span
-                      aria-hidden="true"
-                      className="ml-1.5 font-serif text-micro font-medium italic tracking-wide text-red-500/80"
-                    >
+                    <Badge aria-hidden="true" className="ml-1.5 h-4 px-1 text-micro">
                       {item.annotation}
-                    </span>
+                    </Badge>
                   )}
                 </span>
               </Link>
@@ -310,7 +309,7 @@ function ThemeToggle() {
 
 function ReviewFallback({ label }: { label: string }) {
   return (
-    <div className="flex min-h-[560px] items-center justify-center gap-2 text-sm text-neutral-400">
+    <div className="flex min-h-[560px] items-center justify-center gap-2 text-heading text-neutral-400">
       <Loader2 size={15} className="animate-spin" />
       {label}
     </div>
@@ -645,15 +644,12 @@ export default function App({
                         )}
                       >
                         <item.icon size={12} />
-                        <span className="relative">
+                        <span className="flex items-center">
                           {item.label}
                           {item.annotation && (
-                            <span
-                              aria-hidden="true"
-                              className="absolute -right-3 -top-2 whitespace-nowrap font-serif text-micro font-medium italic tracking-wide text-red-500/80"
-                            >
+                            <Badge aria-hidden="true" className="ml-1.5 h-4 px-1 text-micro">
                               {item.annotation}
-                            </span>
+                            </Badge>
                           )}
                         </span>
                       </Link>

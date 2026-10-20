@@ -243,7 +243,7 @@ function BlocksSection() {
           />
         ))}
         {filtered.length === 0 && (
-          <div className="text-neutral-400 text-sm italic py-4 font-mono">
+          <div className="text-neutral-400 text-heading italic py-4 font-mono">
             No blocks match the current filters.
           </div>
         )}
@@ -315,18 +315,18 @@ function FailuresSection() {
                     size={14}
                     className={`text-neutral-400 transition-transform ${isExpanded ? "rotate-90" : ""}`}
                   />
-                  <span className="font-mono font-bold text-neutral-200 text-sm">
+                  <span className="font-mono font-bold text-neutral-200 text-heading">
                     {c.domain}
                   </span>
                 </div>
-                <p className="text-xs text-neutral-400">
+                <p className="text-body text-neutral-400">
                   {c.trace_ids.length} trace
                   {c.trace_ids.length !== 1 ? "s" : ""} · {c.id}
                 </p>
               </div>
             </UiButton>
             {isExpanded && (
-              <div className="border-t border-border bg-background/50 px-5 py-4 space-y-4 text-xs">
+              <div className="border-t border-border bg-background/50 px-5 py-4 space-y-4 text-body">
                 <div>
                   <div className="text-caption uppercase tracking-widest text-neutral-400 mb-2 font-mono">
                     Fingerprint
@@ -446,15 +446,15 @@ function PlansSection() {
                     size={14}
                     className={`text-neutral-400 transition-transform ${isExpanded ? "rotate-90" : ""}`}
                   />
-                  <span className="font-mono font-bold text-neutral-200 text-sm">
+                  <span className="font-mono font-bold text-neutral-200 text-heading">
                     {p.domain}
                   </span>
                 </div>
-                <p className="text-xs text-neutral-400 truncate">{p.task}</p>
+                <p className="text-body text-neutral-400 truncate">{p.task}</p>
               </div>
             </UiButton>
             {isExpanded && (
-              <div className="border-t border-border bg-background/50 px-5 py-4 space-y-3 text-xs">
+              <div className="border-t border-border bg-background/50 px-5 py-4 space-y-3 text-body">
                 <div>
                   <div className="text-caption uppercase tracking-widest text-neutral-400 mb-2 font-mono">
                     Task
@@ -559,7 +559,7 @@ function BlockCard({
               size={14}
               className={`text-amber-300 transition-transform ${isExpanded ? "rotate-90" : ""}`}
             />
-            <h3 className="font-bold text-neutral-200 text-sm">
+            <h3 className="font-bold text-neutral-200 text-heading">
               {block.title}
             </h3>
             <StatusBadge status={block.status} />
@@ -616,7 +616,7 @@ function BlockDetail({ block }: { block: Playbook }) {
     total > 0 ? Math.round((block.success_count / total) * 100) : null;
 
   return (
-    <div className="space-y-5 text-sm">
+    <div className="space-y-5 text-heading">
       <header className="pb-4 border-b border-border">
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <StatusBadge status={block.status} />
@@ -632,7 +632,7 @@ function BlockDetail({ block }: { block: Playbook }) {
             </span>
           ))}
         </div>
-        <h2 className="text-base font-bold text-neutral-300 leading-snug">
+        <h2 className="text-title font-bold text-neutral-300 leading-snug">
           {block.title}
         </h2>
         <div className="font-mono text-caption text-neutral-400 mt-1">
@@ -649,7 +649,7 @@ function BlockDetail({ block }: { block: Playbook }) {
             <div className="text-caption uppercase tracking-widest text-neutral-400">
               Tier
             </div>
-            <div className="mt-1 text-sm text-neutral-200">
+            <div className="mt-1 text-heading text-neutral-200">
               {blockTier(block)}
             </div>
           </div>
@@ -657,7 +657,7 @@ function BlockDetail({ block }: { block: Playbook }) {
             <div className="text-caption uppercase tracking-widest text-neutral-400">
               Used by
             </div>
-            <div className="mt-1 text-sm text-neutral-200">
+            <div className="mt-1 text-heading text-neutral-200">
               {block.task_types.length > 0
                 ? block.task_types.join(", ")
                 : "General retrieval"}
@@ -667,7 +667,7 @@ function BlockDetail({ block }: { block: Playbook }) {
             <div className="text-caption uppercase tracking-widest text-neutral-400">
               Focus
             </div>
-            <div className="mt-1 text-sm text-neutral-200">
+            <div className="mt-1 text-heading text-neutral-200">
               {blockSeverity(block)} signal
             </div>
           </div>
@@ -699,7 +699,7 @@ function BlockDetail({ block }: { block: Playbook }) {
           <div className="text-caption uppercase tracking-widest text-neutral-400">
             Detects
           </div>
-          <p className="mt-2 text-xs leading-relaxed text-neutral-300">
+          <p className="mt-2 text-body leading-relaxed text-neutral-300">
             {block.situation.trim()}
           </p>
         </div>
@@ -707,7 +707,7 @@ function BlockDetail({ block }: { block: Playbook }) {
           <div className="text-caption uppercase tracking-widest text-neutral-400">
             Catches
           </div>
-          <p className="mt-2 text-xs leading-relaxed text-neutral-300">
+          <p className="mt-2 text-body leading-relaxed text-neutral-300">
             {block.dead_ends.length > 0
               ? block.dead_ends[0]
               : block.failure_signals[0] ||
@@ -718,7 +718,7 @@ function BlockDetail({ block }: { block: Playbook }) {
           <div className="text-caption uppercase tracking-widest text-neutral-400">
             Why it matters
           </div>
-          <p className="mt-2 text-xs leading-relaxed text-neutral-300">
+          <p className="mt-2 text-body leading-relaxed text-neutral-300">
             {block.verification[0] ||
               block.when_not_to_apply ||
               "It gives the runtime a reusable, reviewable procedure instead of rediscovering the path in every session."}
@@ -870,7 +870,7 @@ function Stat({
 }) {
   return (
     <div className="flex flex-col items-center bg-muted/60 border border-border px-2.5 py-1.5 min-w-[48px]">
-      <span className={`text-sm font-bold ${color}`}>{value}</span>
+      <span className={`text-heading font-bold ${color}`}>{value}</span>
       <span className="text-caption text-neutral-400 uppercase tracking-wide">
         {label}
       </span>

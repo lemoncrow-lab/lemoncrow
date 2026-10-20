@@ -455,7 +455,7 @@ export default function Sessions() {
 
                       <p
                         className={cx(
-                          "mb-2 text-xs font-mono line-clamp-2 leading-relaxed",
+                          "mb-2 text-body font-mono line-clamp-2 leading-relaxed",
                           isActive
                             ? "text-foreground font-bold"
                             : "text-neutral-400 group-hover/card:text-neutral-300"
@@ -595,7 +595,7 @@ function EmptyState({ summaries }: { summaries: SessionSummary[] | null }) {
 
       <div className="rounded-lg border border-border/70 bg-background/60 p-4 text-center">
         <Terminal size={28} className="mx-auto mb-3 text-muted-foreground" />
-        <h3 className="mb-1 text-xs font-semibold text-neutral-300">
+        <h3 className="mb-1 text-body font-semibold text-neutral-300">
           Select a session
         </h3>
         <p className="mx-auto max-w-sm text-label leading-relaxed text-muted-foreground">

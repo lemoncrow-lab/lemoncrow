@@ -222,7 +222,7 @@ export function ReviewHandoffControls({
     <div className="flex shrink-0 items-center">
       <UiButton
         ref={buttonRef}
-        variant="default"
+        variant="brand"
         type="button"
         disabled={busy}
         onClick={waiting && unsent === 0 ? onShowHandoff : onSendNow}
@@ -237,7 +237,7 @@ export function ReviewHandoffControls({
       </UiButton>
       <ReviewDestinationPicker reviewId={reviewId} disabled={busy} onChanged={onDestinationChanged}>
         <UiButton
-          variant="default"
+          variant="brand"
           type="button"
           aria-label="Change where fixes go"
           title={`Fixes go to: ${label}`}

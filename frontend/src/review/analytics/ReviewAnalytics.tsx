@@ -285,7 +285,7 @@ function DrillSheet({
             <SheetTitle className="text-caption font-mono font-normal uppercase tracking-widest text-muted-foreground">
               Reviews behind this figure
             </SheetTitle>
-            <div className="mt-0.5 truncate text-sm font-semibold text-foreground">{target?.label}</div>
+            <div className="mt-0.5 truncate text-heading font-semibold text-foreground">{target?.label}</div>
           </div>
           <SheetClose asChild>
             <Button type="button" size="icon" variant="ghost" aria-label="Close records">

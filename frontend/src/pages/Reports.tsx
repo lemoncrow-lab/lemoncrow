@@ -80,7 +80,7 @@ export default function Reports() {
               <Button
                 key={report.id}
                 onClick={() => setSelectedId(report.id)}
-                variant={selectedId === report.id ? "default" : "ghost"}
+                variant={selectedId === report.id ? "solid" : "ghost"}
                 className="h-auto w-full justify-start px-3 py-2 text-left normal-case tracking-normal"
               >
                 <div className="min-w-0">
@@ -106,7 +106,7 @@ export default function Reports() {
           <Card className="min-w-0 p-4">
             {contentErr && <Alert tone="destructive" description={contentErr} />}
             {content === null && !contentErr && (
-              <div className="text-xs text-muted-foreground">
+              <div className="text-body text-muted-foreground">
                 Loading benchmark report…
               </div>
             )}

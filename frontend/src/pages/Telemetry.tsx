@@ -99,7 +99,7 @@ function Section({
     <section className="rounded-lg border border-border/70 bg-background/60 p-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div className="flex items-center gap-2">
-          <h2 className="text-lg font-semibold text-foreground">{title}</h2>
+          <h2 className="text-lead font-semibold text-foreground">{title}</h2>
           {hint && <HintButton label={`${title} hint`} hint={hint} />}
         </div>
         {action}
@@ -150,7 +150,7 @@ function FilterSelect({
         aria-label={label}
         value={value}
         onValueChange={onChange}
-        className="min-w-[148px] border border-border bg-background px-3 py-2 text-sm normal-case tracking-normal text-foreground outline-none transition focus:border-cyan-500/70"
+        className="min-w-[148px] border border-border bg-background px-3 py-2 text-heading normal-case tracking-normal text-foreground outline-none transition focus:border-cyan-500/70"
       >
         {children}
       </Select>
@@ -167,13 +167,13 @@ function CountBars({
 }) {
   const max = Math.max(1, ...items.map((item) => item.count));
   if (items.length === 0) {
-    return <div className="text-sm text-neutral-400">{emptyLabel}</div>;
+    return <div className="text-heading text-neutral-400">{emptyLabel}</div>;
   }
   return (
     <div className="space-y-3">
       {items.slice(0, 8).map((item) => (
         <div key={item.name}>
-          <div className="mb-1 flex justify-between gap-3 text-xs text-neutral-400">
+          <div className="mb-1 flex justify-between gap-3 text-body text-neutral-400">
             <span className="truncate">{item.name}</span>
             <span>{fmt.format(item.count)}</span>
           </div>
@@ -256,7 +256,7 @@ function TimelineChart({
 }) {
   if (points.length === 0) {
     return (
-      <div className="flex min-h-[280px] items-center justify-center border border-dashed border-border bg-background/60 text-sm text-neutral-400">
+      <div className="flex min-h-[280px] items-center justify-center border border-dashed border-border bg-background/60 text-heading text-neutral-400">
         {emptyLabel}
       </div>
     );
@@ -419,14 +419,14 @@ function EventRow({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <Circle size={10} fill={color} stroke="none" className="mt-0.5" />
-            <span className="font-mono text-xs uppercase tracking-widest text-foreground">
+            <span className="font-mono text-body uppercase tracking-widest text-foreground">
               {item.event}
             </span>
             {commandName && <Chip tone="warning">{commandName}</Chip>}
             {hostName && <Chip tone="info">{hostName}</Chip>}
             {item.exported && <Chip tone="success">Exported</Chip>}
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-neutral-400">
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-body text-neutral-400">
             <span>{formatTimestamp(item.ts, rangeSeconds ?? undefined)}</span>
             <span>{formatRelative(item.ts)}</span>
             {item.session_id && <span>session {item.session_id}</span>}
@@ -437,7 +437,7 @@ function EventRow({
         </span>
       </summary>
       <div className="border-t border-border px-4 py-4">
-        <pre className="overflow-x-auto bg-background p-4 text-xs leading-relaxed text-neutral-300">
+        <pre className="overflow-x-auto bg-background p-4 text-body leading-relaxed text-neutral-300">
           {JSON.stringify(
             {
               id: item.id,
@@ -763,7 +763,7 @@ export default function Telemetry() {
       </Section>
 
       {error && (
-        <div className="border border-red-900/40 bg-red-950/20 px-4 py-3 text-sm text-red-200">
+        <div className="border border-red-900/40 bg-red-950/20 px-4 py-3 text-heading text-red-200">
           Refresh error: {error}
         </div>
       )}
@@ -812,7 +812,7 @@ export default function Telemetry() {
       >
         <div className="space-y-3">
           {recentEvents.length === 0 ? (
-            <div className="text-sm text-neutral-400">
+            <div className="text-heading text-neutral-400">
               No telemetry rows match the current filters.
             </div>
           ) : (
@@ -833,9 +833,9 @@ export default function Telemetry() {
         hint="Allowlisted telemetry properties and example payloads for each event type."
       >
         <div className="overflow-auto">
-          <table className="min-w-full border-collapse text-left text-sm">
+          <table className="min-w-full border-collapse text-left text-heading">
             <thead>
-              <tr className="border-b border-border text-xs uppercase tracking-widest text-neutral-400">
+              <tr className="border-b border-border text-body uppercase tracking-widest text-neutral-400">
                 <th className="py-2 pr-4">Event</th>
                 <th className="py-2 pr-4">Allowlisted properties</th>
                 <th className="py-2">Example payload</th>
@@ -856,7 +856,7 @@ export default function Telemetry() {
                   <td className="py-3">
                     <code
                       className={cx(
-                        "whitespace-pre-wrap text-xs text-neutral-400"
+                        "whitespace-pre-wrap text-body text-neutral-400"
                       )}
                     >
                       {JSON.stringify(spec.example)}

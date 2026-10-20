@@ -228,7 +228,7 @@ export default function ReviewTour({
           </UiButton>
           <span className="flex-1" />
           {step.implementation?.target_id && (
-            <UiButton variant="default" size="compact" type="button" onClick={() => onOpenTarget(step.implementation!.target_id)}>
+            <UiButton variant="solid" size="compact" type="button" onClick={() => onOpenTarget(step.implementation!.target_id)}>
               <Code2 className="size-3.5" aria-hidden="true" />
               Open code
             </UiButton>

@@ -162,7 +162,7 @@ export default function ReviewChangeProposalComposer({
                 Suggest
               </UiButton>
               {allowApply && (
-                <UiButton variant="default" size="compact" type="button" disabled={!canSubmit} onClick={apply}>
+                <UiButton variant="solid" size="compact" type="button" disabled={!canSubmit} onClick={apply}>
                   {busy ? <LoaderCircle size={11} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <FilePenLine size={11} aria-hidden="true" />}
                   Apply
                 </UiButton>
@@ -173,7 +173,7 @@ export default function ReviewChangeProposalComposer({
           <div className="review-quick-edit-footer">
             <span className="min-w-0 flex-1 truncate text-caption text-muted-foreground">{state?.detail}</span>
             {allowApply && proposal.can_apply && (
-              <UiButton variant="default" size="compact" className="h-6 px-2 text-caption" type="button" disabled={busy} onClick={onApply}>
+              <UiButton variant="solid" size="compact" className="h-6 px-2 text-caption" type="button" disabled={busy} onClick={onApply}>
                 {busy ? <LoaderCircle size={11} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <FilePenLine size={11} aria-hidden="true" />}
                 Apply
               </UiButton>
@@ -260,7 +260,7 @@ export default function ReviewChangeProposalComposer({
           <div className="review-composer-footer">
             <span className="review-composer-shortcut">Exact reviewed source · stale writes are blocked</span>
             <UiButton
-              variant="default"
+              variant="solid"
               size="xs"
               className="px-2.5"
               type="button"
@@ -294,7 +294,7 @@ export default function ReviewChangeProposalComposer({
           <div className="review-composer-footer">
             <span className="review-composer-shortcut">{state.detail}</span>
             {proposal.can_apply && (
-              <UiButton variant="default" size="xs" className="px-2.5" type="button" disabled={busy} onClick={onApply}>
+              <UiButton variant="solid" size="xs" className="px-2.5" type="button" disabled={busy} onClick={onApply}>
                 {busy ? <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <FilePenLine size={14} aria-hidden="true" />}
                 {busy ? "Applying…" : directEdit ? "Apply to source" : "Apply suggestion"}
               </UiButton>
