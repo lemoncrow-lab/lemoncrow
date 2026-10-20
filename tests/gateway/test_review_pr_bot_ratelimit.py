@@ -3,17 +3,21 @@
 ``gh api`` reports a throttled call as an error carrying the message GitHub sent. The bot used to note a failed
 write and leave it to the next push; now it waits (the ``Retry-After`` GitHub gave, when the error carries it,
 else a short growing backoff), bounded per call and per run, because a CI job has a timeout.
+
+The waits are observed through the ``sleep`` the retry code takes, never by patching ``time.sleep``: that is one
+function for the whole process, and ``subprocess`` polls with it, so a patched one also hears every git call.
 """
 
 from __future__ import annotations
 
+import inspect
+import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from lemoncrow.pro.capabilities.review.pr_bot import github as github_module
 from lemoncrow.pro.capabilities.review.pr_bot.github import BACKOFF_DELAYS, with_backoff
 from lemoncrow.pro.capabilities.review.pr_bot.runner import RunOptions, run_pr_review
 from lemoncrow.pro.capabilities.review.sources.github import GitHubCliError
@@ -24,13 +28,14 @@ SECONDARY = (
     "If you reach out to GitHub Support for help, please include the request ID ABCD:1234. (HTTP 403)"
 )
 FORBIDDEN = "Resource not accessible by integration (HTTP 403)"
+REAL_SLEEP = time.sleep
 
 
 @pytest.fixture
-def slept(monkeypatch: pytest.MonkeyPatch) -> list[float]:
-    waits: list[float] = []
-    monkeypatch.setattr(github_module.time, "sleep", waits.append)
-    return waits
+def slept() -> list[float]:
+    """Every wait the code under test asked for; pass ``slept.append`` as its ``sleep``. Nothing is patched."""
+
+    return []
 
 
 class Throttled:
@@ -48,34 +53,37 @@ class Throttled:
 
 def test_a_throttled_call_waits_a_growing_backoff_and_then_succeeds(slept: list[float]) -> None:
     inner = Throttled(SECONDARY, 2)
-    assert with_backoff(inner)(["api", "x"], None) == "ok"
+    assert with_backoff(inner, sleep=slept.append)(["api", "x"], None) == "ok"
     assert inner.calls == 3 and slept == [5.0, 15.0]
 
 
 def test_the_wait_github_asked_for_wins_over_the_default_and_is_capped(slept: list[float]) -> None:
-    assert with_backoff(Throttled(f"{SECONDARY} Retry-After: 7", 1))(["api"], None) == "ok"
+    wait = slept.append
+    assert with_backoff(Throttled(f"{SECONDARY} Retry-After: 7", 1), sleep=wait)(["api"], None) == "ok"
     assert (
-        with_backoff(Throttled("API rate limit exceeded. Try again in 12 seconds. (HTTP 429)", 1))(["api"], None)
+        with_backoff(Throttled("API rate limit exceeded. Try again in 12 seconds. (HTTP 429)", 1), sleep=wait)(
+            ["api"], None
+        )
         == "ok"
     )
-    assert with_backoff(Throttled("HTTP 403 (HTTP 403) retry-after: 600", 1))(["api"], None) == "ok"
+    assert with_backoff(Throttled("HTTP 403 (HTTP 403) retry-after: 600", 1), sleep=wait)(["api"], None) == "ok"
     assert slept == [7.0, 12.0, 60.0]
 
 
 @pytest.mark.parametrize("message", ["Too Many Requests (HTTP 429)", SECONDARY, "abuse detection mechanism (HTTP 403)"])
 def test_429_and_secondary_limits_are_retried(slept: list[float], message: str) -> None:
-    assert with_backoff(Throttled(message, 1))(["api"], None) == "ok" and slept == [5.0]
+    assert with_backoff(Throttled(message, 1), sleep=slept.append)(["api"], None) == "ok" and slept == [5.0]
 
 
 def test_a_limit_that_does_not_lift_fails_after_the_bounded_retries_and_says_so(slept: list[float]) -> None:
     inner = Throttled(SECONDARY, 99)
     with pytest.raises(GitHubCliError, match=r"secondary rate limit.*still rate limited after 3 retries and 65s"):
-        with_backoff(inner)(["api"], None)
+        with_backoff(inner, sleep=slept.append)(["api"], None)
     assert inner.calls == len(BACKOFF_DELAYS) + 1 and slept == list(BACKOFF_DELAYS)
 
 
 def test_a_run_never_waits_longer_than_its_budget_in_total(slept: list[float]) -> None:
-    run = with_backoff(Throttled(f"{SECONDARY} Retry-After: 50", 99), budget=120)
+    run = with_backoff(Throttled(f"{SECONDARY} Retry-After: 50", 99), budget=120, sleep=slept.append)
     for _ in range(5):
         with pytest.raises(GitHubCliError, match="still rate limited"):
             run(["api"], None)
@@ -89,8 +97,16 @@ def test_a_run_never_waits_longer_than_its_budget_in_total(slept: list[float]) -
 def test_nothing_else_is_retried_waiting_would_not_change_it(slept: list[float], message: str) -> None:
     inner = Throttled(message, 99)
     with pytest.raises(GitHubCliError):
-        with_backoff(inner)(["api"], None)
+        with_backoff(inner, sleep=slept.append)(["api"], None)
     assert inner.calls == 1 and slept == []
+
+
+def test_the_default_wait_is_the_real_sleep_bound_at_import_so_patching_time_sleep_cannot_reach_it() -> None:
+    """The flake this replaced: a test patched ``time.sleep`` for the process, ``subprocess`` polled with the patched
+    function during a git call, and the recorded waits held entries nobody asked for."""
+
+    default = inspect.signature(with_backoff).parameters["sleep"].default
+    assert default is REAL_SLEEP
 
 
 # --------------------------------------------------------------------------- #
@@ -124,6 +140,7 @@ def test_a_throttled_review_post_is_waited_out_and_the_comment_is_posted_once(
         RunOptions(pr=str(NUMBER), repo_root=world.origin.clone, publish=True),
         runner=flaky,
         structured_executor=world.model,
+        sleep=slept.append,
     )
     assert sorted(flaky.refused) == ["/reviews", "/statuses/"] and slept == [5.0, 5.0]
     assert world.github.review_posts == 1 and len(world.github.inline()) == 1, "a refused post is not a posted one"
@@ -137,5 +154,10 @@ def test_a_forbidden_status_is_still_just_a_note_and_never_slept_on(
     world = build_world(tmp_path, monkeypatch, BASE)
     world.origin.push(FIRST_PUSH)
     world.github.deny_status = True
-    report = world.review()
+    report = run_pr_review(
+        RunOptions(pr=str(NUMBER), repo_root=world.origin.clone, publish=True),
+        runner=world.github,
+        structured_executor=world.model,
+        sleep=slept.append,
+    )
     assert slept == [] and any("could not set the commit status" in note for note in report.notes)

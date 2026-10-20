@@ -24,7 +24,7 @@ import hashlib
 import json
 import re
 import time
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Final
 
@@ -165,6 +165,7 @@ def with_backoff(
     delays: Sequence[float] = BACKOFF_DELAYS,
     max_wait: float = MAX_WAIT_S,
     budget: float = WAIT_BUDGET_S,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> GhRunner:
     """*runner* that waits and tries again when GitHub throttles a call, a bounded number of times.
 
@@ -173,6 +174,10 @@ def with_backoff(
     the next of *delays*. Each call retries at most ``len(delays)`` times and the run as a whole waits at most
     *budget* seconds, so a limit that outlasts a CI job fails the one write (noted, and repeated by the next push)
     instead of holding the job. A throttled write was refused, so retrying it cannot post twice.
+
+    *sleep* is how a wait is spent. It is bound to the real ``time.sleep`` when this module loads, so a caller that
+    wants to see or skip the waits passes its own instead of patching ``time.sleep``, which every other caller in the
+    process shares (``subprocess`` polls with it).
     """
 
     waited = 0.0
@@ -196,7 +201,7 @@ def with_backoff(
                         f"{message} (still rate limited after {retries} "
                         f"{'retry' if retries == 1 else 'retries'} and {waited:.0f}s of waiting)"
                     ) from exc
-                time.sleep(wait)
+                sleep(wait)
                 waited += wait
                 retries += 1
 

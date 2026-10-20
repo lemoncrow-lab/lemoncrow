@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 import re
 import tempfile
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -160,6 +161,7 @@ def run_pr_review(
     structured_executor: Callable[..., Any] | None = None,
     env: Mapping[str, str] | None = None,
     progress: Callable[[str], None] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> RunReport:
     from lemoncrow.pro.capabilities.review.pr_bot import engine
 
@@ -180,7 +182,7 @@ def run_pr_review(
             "the workflow's bot token. Locally, use --ai to read the findings, or add --dry-run to see the comments."
         )
     # Every GitHub call of the run goes through one wrapper that waits out a rate limit a few times (and only that).
-    run = with_backoff(runner or (lambda args, stdin: run_gh(args, stdin, cwd=options.repo_root)))
+    run = with_backoff(runner or (lambda args, stdin: run_gh(args, stdin, cwd=options.repo_root)), sleep=sleep)
     # Gate on the event alone first: a fork, a draft or a refused event costs no network call. A URL or
     # OWNER/REPO#N names its pull request by itself, so only a bare number needs the event to carry one.
     bare = re.fullmatch(r"#?(\d+)", options.pr.strip())
