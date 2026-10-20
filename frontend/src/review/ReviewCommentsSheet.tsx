@@ -206,7 +206,8 @@ export default function ReviewCommentsSheet({
 
         <TabsContent value={filter} className="min-h-0 flex-1 overflow-auto px-5 py-2">
           {visible.length === 0 && <div className="review-comments-empty"><MessageSquareText size={20} aria-hidden="true" /><p>No matching comments.</p></div>}
-          <div className="divide-y divide-border">
+          {/* Rows draw their own top hairline: `divide-border` on this wrapper would repaint every row's left border (the severity rail) in the hairline colour. */}
+          <div>
             <BelowThresholdList items={visible} render={(item) => {
               const canJump = item.anchored && item.state !== "orphaned" && Boolean(item.path);
               const orphaned = isUnanchoredComment(item);
@@ -222,7 +223,7 @@ export default function ReviewCommentsSheet({
                     : "border-border bg-muted text-muted-foreground";
               const severity = annotationSeverity(item);
               return (
-                <article key={item.id} className={cn("review-comment-list-item py-5 pl-3", hunkRowVariants({ rail: annotationRail(item) }))}>
+                <article key={item.id} className={cn("review-comment-list-item border-t border-t-border py-5 pl-3 first:border-t-0", hunkRowVariants({ rail: annotationRail(item) }))}>
                   <div className="flex flex-wrap items-center gap-2 text-body">
                     {severity && <Badge tone={severityTone(severity)}>{SEVERITY_LABELS[severity]}</Badge>}
                     {item.kind !== "comment" && <Badge tone={KIND_BADGE_TONES[item.kind]}>{KIND_LABELS[item.kind]}</Badge>}
