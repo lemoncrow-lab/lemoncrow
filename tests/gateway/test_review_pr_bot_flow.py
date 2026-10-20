@@ -8,7 +8,7 @@ the machine: GitHub's REST and GraphQL surface, and the model.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -18,59 +18,23 @@ from fastapi.testclient import TestClient
 
 from lemoncrow.pro.capabilities.review.api import make_token_dependency, register_review_api
 from lemoncrow.pro.capabilities.review.pr_bot import engine
-from lemoncrow.pro.capabilities.review.pr_bot.runner import PrReviewError, RunOptions, RunReport, run_pr_review
+from lemoncrow.pro.capabilities.review.pr_bot.runner import PrReviewError, RunReport
 from lemoncrow.pro.capabilities.review.pr_bot.state import dump_state, parse_state
 from lemoncrow.pro.capabilities.review.sources.github import resolve_pull_request
 from lemoncrow.pro.capabilities.review.sources.local import annotate_machine_finding
-from tests.gateway.pr_bot_support import NUMBER, PERSON, SLUG, FakeGitHub, FakeModel, Origin
-
-BASE = {
-    "src/auth.py": "def authorize(user):\n    return user.is_admin\n",
-    "src/cache.py": "CACHE = {}\n\n\ndef remember(key, value):\n    CACHE[key] = value\n",
-    "src/plain.py": "VALUE = 1\n",
-}
-AUTH_BUGGY = "def authorize(user):\n    if user is None:  # BUG: lets a missing principal through\n        return True\n    return user.is_admin\n"
-AUTH_FIXED = "def authorize(user):\n    if user is None:\n        return False\n    return user.is_admin\n"
-CACHE_BUGGY = "CACHE = {}\n\n\ndef remember(key, value):\n    CACHE.setdefault(key, []).append(value)  # BUG: grows without a bound\n"
-TOKEN_BUGGY = "def verify(token):\n    return token == 'x'  # BUG: compares secrets without a constant-time check\n"
-FIRST_PUSH = {"src/auth.py": AUTH_BUGGY, "src/cache.py": CACHE_BUGGY, "src/plain.py": "VALUE = 2\n"}
-RULE = "rules:\n  - stable_key: no-bug-markers\n    instruction: Source must not carry known defects.\n    paths: [src/auth.py]\n"
-
-
-@dataclass
-class World:
-    origin: Origin
-    github: FakeGitHub
-    model: FakeModel
-    root: Path
-
-    def review(self, **options: Any) -> RunReport:
-        options.setdefault("publish", True)
-        return run_pr_review(
-            RunOptions(pr=str(NUMBER), repo_root=self.origin.clone, **options),
-            runner=self.github,
-            structured_executor=self.model,
-        )
-
-
-def build_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, files: dict[str, str]) -> World:
-    for name in (
-        "LEMONCROW_LLM_BACKEND",
-        "LEMONCROW_OPENAI_MODEL",
-        "LEMONCROW_LITELLM_MODEL",
-        "LEMONCROW_REVIEW_MODEL",
-        "ANTHROPIC_API_KEY",
-        "GITHUB_EVENT_NAME",
-        "GITHUB_EVENT_PATH",
-        "GITHUB_ACTOR",
-    ):
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    monkeypatch.setenv("GITHUB_ACTIONS", "true")
-    monkeypatch.setenv("LEMONCROW_AST_GREP_BIN", str(tmp_path / "sg"))
-    origin = Origin(tmp_path)
-    origin.seed_main(files)
-    return World(origin, FakeGitHub(origin), FakeModel(), tmp_path)
+from tests.gateway.pr_bot_support import (
+    AUTH_FIXED,
+    BASE,
+    CACHE_BUGGY,
+    FIRST_PUSH,
+    NUMBER,
+    PERSON,
+    RULE,
+    SLUG,
+    TOKEN_BUGGY,
+    World,
+    build_world,
+)
 
 
 @pytest.fixture
@@ -514,7 +478,32 @@ def test_the_hard_call_cap_still_bounds_the_review(world: World, monkeypatch: py
     report = world.review()
     assert len(world.model.calls) == 1
     assert report.state is not None and not report.state.complete
-    assert "Review incomplete" in world.github.summary_comments()[0]["body"]
+    assert "**Review incomplete: the model-call budget ran out**" in world.github.summary_comments()[0]["body"]
+
+
+def test_a_depth_that_cannot_cover_the_candidates_says_so_instead_of_passing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The repository asks for Quick (depth auto follows review.effort). Quick spends one call, so with two
+    # risk candidates it covers neither: that must read as incomplete, never as a clean review.
+    base = {
+        "src/cache.py": BASE["src/cache.py"],
+        "src/query.py": "def run(q):\n    return q\n",
+        ".lemoncrow/review.yaml": "review:\n  effort: quick\n",
+    }
+    world = build_world(tmp_path, monkeypatch, base)
+    world.origin.push(
+        {"src/cache.py": CACHE_BUGGY, "src/query.py": "def run(q):\n    return q.all()  # BUG: unbounded\n"}
+    )
+    report = world.review()
+    reason = "quick depth cannot cover 2 risk candidates; ask for more depth"
+    assert world.model.calls == [] and report.state is not None and not report.state.complete
+    assert report.status == ("success", f"Review incomplete: {reason}")
+    assert f"**Review incomplete: {reason}**" in report.summary
+    assert world.review(fail_on="p0").status == ("error", f"Review incomplete: {reason}")
+    # Nothing candidate-bearing counted as reviewed, so asking for more depth examines both.
+    world.review(depth="deep")
+    assert sorted(world.model.paths())[-2:] == ["src/cache.py", "src/query.py"]
 
 
 # --------------------------------------------------------------------------- #

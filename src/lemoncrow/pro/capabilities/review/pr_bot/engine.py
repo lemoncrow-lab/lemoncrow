@@ -12,8 +12,8 @@ a hosted worker takes it. Here the submitter runs it inline -- on only the targe
 changed since the last review, and with the same hard call cap -- and keeps the result.
 
 Depth ``auto`` is the Snapshot's own effective plan, escalation included (the route a
-fresh re-run takes); ``quick``, ``thorough`` and ``deep`` are the same manual picks the
-Reader's "Run deeper" makes.
+fresh re-run takes); ``thorough`` and ``deep`` are the same manual picks the Reader's
+"Run deeper" makes.
 """
 
 from __future__ import annotations
@@ -37,7 +37,9 @@ if TYPE_CHECKING:
     from lemoncrow.pro.capabilities.review.store import ReviewStore
     from lemoncrow.pro.capabilities.review.targets import ReviewTarget
 
-DEPTHS = ("auto", "quick", "thorough", "deep")
+#: ``quick`` is not offered: a manual request only adds to the Snapshot's plan, so it could not lower an
+#: Auto default. A repository that wants Quick sets ``review.effort: quick``, which ``auto`` then follows.
+DEPTHS = ("auto", "thorough", "deep")
 
 
 class AiStageError(RuntimeError):
@@ -297,8 +299,8 @@ def run_ai_stage(
     outcome: dict[str, AiStage] = {}
 
     def submit(
-        session: ReviewSession,
-        revision: ReviewRevision,
+        request_session: ReviewSession,
+        request_revision: ReviewRevision,
         effort: str,
         trigger: str,
         policy: Mapping[str, Any],
@@ -308,8 +310,9 @@ def run_ai_stage(
         run_plan: Mapping[str, Any],
         fresh: bool = False,
     ) -> Mapping[str, Any]:
+        # The seam a hosted worker's queue sits behind, run inline: everything the endpoint resolved is passed in.
         outcome["stage"] = _execute(app, captured, depth, previous, policy, governance, structured_executor)
-        return {"status": "inline", "revision_id": revision.id}
+        return {"status": "inline", "revision_id": request_revision.id}
 
     async def open_access() -> None:
         # A one-shot, in-process app: nothing outside this process can reach it.
@@ -349,6 +352,10 @@ def run_ai_stage(
         )
         return AiStage(status="unplanned", reason=detail, depth=depth)
     return stage
+
+
+def _candidates_phrase(candidates: int) -> str:
+    return f"{candidates} risk candidate" + ("" if candidates == 1 else "s")
 
 
 def _tokens(
@@ -450,17 +457,23 @@ def _execute(
     }
     # A target the model was meant to look at but did not (a failed call, a spent budget,
     # a Quick run that cannot cover them) is not "reviewed": it is retried next push.
+    # lc-debt: a candidate counts as reviewed once the AI stage planned it, not once a model examined it, so a
+    # candidate past Auto's two-investigation cap is not retried while unchanged; upgrade: record examined targets per run.
+    uncovered = result.status == "skipped_unnecessary" and result.candidates > 0
     complete = result.status in {"completed", "skipped_unnecessary"} and not result.provider_errors
-    complete = (
-        complete and not result.skipped_by_budget and not (result.status == "skipped_unnecessary" and result.candidates)
-    )
+    complete = complete and not result.skipped_by_budget and not uncovered
     pending = set() if complete else candidate_ids
+    why = ""
+    if result.skipped_by_budget:
+        why = "the model-call budget ran out"
+    elif uncovered:
+        why = f"{stage_plan.effort} depth cannot cover {_candidates_phrase(result.candidates)}; ask for more depth"
     kept, truncated = cap_units(_tokens(targets, units, pending=pending))
     changed_ids = tuple(target.target_id for target in changed)
     return replace(
         base,
         status="ran",
-        reason="; ".join(result.provider_errors),
+        reason=why,
         findings=tuple(result.machine_findings),
         rereviewed=changed_ids,
         covered=tuple(target_id for target_id in changed_ids if target_id not in pending),

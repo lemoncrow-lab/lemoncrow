@@ -44,6 +44,8 @@ _STATE = re.compile(r"<!-- lemoncrow:state v1\n(.*?)\n-->", re.DOTALL)
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 
 #: Findings and reviewed units the state may carry. Past them the state says so.
+# lc-debt: the state rides in one 65,536-character comment, so at most 60 findings and 700 reviewed units are
+# carried (past that the rest are re-reviewed on the next push); upgrade: keep the units in a workflow artifact or a git ref.
 MAX_FINDINGS: Final[int] = 60
 MAX_UNITS: Final[int] = 700
 MAX_STATE_BYTES: Final[int] = 200_000

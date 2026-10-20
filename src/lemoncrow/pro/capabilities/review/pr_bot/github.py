@@ -51,6 +51,8 @@ from lemoncrow.pro.capabilities.review.sources.github import (
     gh_paginated,
 )
 
+# lc-debt: no retry or backoff on GitHub's secondary rate limits; a failed write is noted and the next push repeats it;
+# upgrade: back off on 403/429 with Retry-After.
 BOT_TYPE: Final[str] = "Bot"
 _FINDING_MARKER = re.compile(r"<!-- lemoncrow:finding (\S+) -->")
 _RESOLVED_MARKER = re.compile(r"<!-- lemoncrow:resolved (\S+) -->")

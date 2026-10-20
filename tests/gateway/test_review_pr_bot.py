@@ -31,6 +31,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.render import (
     SummaryView,
     check_status,
     clean,
+    code,
     inline_comment,
     render_summary,
     usage_text,
@@ -249,13 +250,13 @@ def test_the_gate_runs_as_a_standard_library_script_and_writes_its_output(tmp_pa
     # -I: no site-packages and no cwd on the path, so this proves the file needs nothing installed.
     done = subprocess.run([sys.executable, "-I", str(script)], env=env, capture_output=True, text=True, check=False)
     assert done.returncode == 0
-    assert output.read_text() == "run=false\n"
+    assert output.read_text() == "run=false\nextra=\n"
     assert done.stdout.startswith("::notice title=LemonCrow Review::Pull request from a fork")
 
     event.write_text(json.dumps(pull_event()), encoding="utf-8")
     output.write_text("")
     done = subprocess.run([sys.executable, "-I", str(script)], env=env, capture_output=True, text=True, check=False)
-    assert done.returncode == 0 and output.read_text() == "run=true\n" and done.stdout == ""
+    assert done.returncode == 0 and output.read_text() == "run=true\nextra=cloud\n" and done.stdout == ""
 
     done = subprocess.run(
         [sys.executable, "-I", str(script)],
@@ -265,6 +266,35 @@ def test_the_gate_runs_as_a_standard_library_script_and_writes_its_output(tmp_pa
         check=False,
     )
     assert done.returncode == 1 and done.stdout.startswith("::error title=LemonCrow Review::")
+
+
+@pytest.mark.parametrize(
+    ("keys", "extra"),
+    [
+        ({"ANTHROPIC_API_KEY": "k"}, "litellm"),
+        ({"OPENAI_API_KEY": "k"}, "cloud"),
+        ({"OPENAI_API_KEY": "k", "LEMONCROW_REVIEW_PROVIDER": "litellm"}, "litellm"),
+        ({"LEMONCROW_LLM_BACKEND": "claude"}, ""),
+    ],
+)
+def test_the_gate_tells_the_action_which_client_library_to_install(
+    tmp_path: Path, keys: dict[str, str], extra: str
+) -> None:
+    event = tmp_path / "event.json"
+    event.write_text(json.dumps(pull_event()), encoding="utf-8")
+    output = tmp_path / "output"
+    env = {
+        "PATH": "/usr/bin:/bin",
+        "GITHUB_EVENT_NAME": "pull_request",
+        "GITHUB_EVENT_PATH": str(event),
+        "GITHUB_OUTPUT": str(output),
+        **keys,
+    }
+    done = subprocess.run(
+        [sys.executable, "-I", str(Path(ci_env.__file__))], env=env, capture_output=True, text=True, check=False
+    )
+    assert done.returncode == 0, done.stdout
+    assert output.read_text() == f"run=true\nextra={extra}\n"
 
 
 # --------------------------------------------------------------------------- #
@@ -463,7 +493,7 @@ def test_a_clean_review_carries_a_what_we_checked_receipt() -> None:
     assert "**No must-fix findings**" in body
     assert "<details><summary>What we checked</summary>" in body
     assert "Files: 2 files (`src/a.py`, `src/b.py`)" in body
-    assert "Changed targets: 4; examined by the model: 2" in body
+    assert "Targets in this change: 4; examined by the model: 2" in body
     assert "Rules applied: `api-auth`" in body and "Depth: Auto" in body
     assert "Fix with your agent" not in body
 
@@ -534,6 +564,21 @@ def test_model_text_cannot_forge_markers_mentions_images_or_block_tags() -> None
     assert parsed is not None and parsed.head_sha == HEAD and len(parsed.findings) == 1
     assert comment.count("<!-- lemoncrow:finding evil -->") == 1
     assert clean("Vec<String> and a < b") == "Vec<String> and a < b"  # ordinary code is left alone
+
+
+def test_a_hostile_file_name_cannot_break_out_of_its_code_span() -> None:
+    name = "src/a`![x](https://evil.example/p.png)`.py\nnext line"
+    row = finding("p", "p1", path=name)
+    body, _ = render_summary(view((row,), receipt=Receipt((name,), 1, 0, ("r`ule",))))
+    visible = strip_state(body)
+    assert "![x](" not in visible and "](https://evil" not in visible  # the image and link syntax is broken
+    assert all(line.count("`") % 2 == 0 for line in visible.splitlines() if line.startswith(("- ", "  -")))
+    assert "next line" in visible and "\n" not in code(name)
+
+
+def test_markdown_link_syntax_in_model_text_is_broken() -> None:
+    assert "](" not in clean("[click here](https://evil.example)")
+    assert "\u200b" in clean("[a](b)") and clean("plain text") == "plain text"
 
 
 def test_an_inline_comment_has_a_badge_a_reason_a_consequence_and_a_marker() -> None:

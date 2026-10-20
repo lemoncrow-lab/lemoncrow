@@ -42,6 +42,8 @@ _SHA = re.compile(r"^[0-9a-f]{4,40}$")
 
 #: Longest span one inline comment covers. A finding about a whole function would
 #: otherwise highlight the function; the comment sits on the first changed lines.
+# lc-debt: a finding names targets, not lines (the model returns none), so its comment sits on the first changed lines
+# of its target; upgrade: have the investigator cite the line and check it against the Snapshot.
 MAX_INLINE_SPAN: Final[int] = 8
 
 

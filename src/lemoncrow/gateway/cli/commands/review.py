@@ -1,11 +1,12 @@
 """``lc review`` — what changed, what it affects, and who made it.
 
-A deterministic, LLM-free review surface: one libgit2 pass over a revision
-range produces a packet that names the changed files, the reading order, the
-places the change reaches outside the patch, and the agent session that
-produced it. No model is called and no verdict is issued — the packet is
-evidence for a human reviewer, which is why every rendering ends in
-``Human review  REQUIRED``.
+A deterministic review surface: one libgit2 pass over a revision range produces
+a packet that names the changed files, the reading order, the places the change
+reaches outside the patch, and the agent session that produced it. No model is
+called and no verdict is issued — the packet is evidence for a human reviewer,
+which is why every rendering ends in ``Human review  REQUIRED``. The one
+exception is ``--pr N --ai``: it runs the AI review on the caller's own model
+route and prints hints, and ``--publish-bot`` posts them as a bot in CI.
 
 The default range is the working tree, not a commit range, because the moment a
 developer actually reviews agent output is the one where the agent has stopped
@@ -216,10 +217,13 @@ class _ReviewCliProgress:
 )
 @click.option(
     "--depth",
-    type=click.Choice(["auto", "quick", "thorough", "deep"]),
+    type=click.Choice(["auto", "thorough", "deep"]),
     default="auto",
     show_default=True,
-    help="Depth of the --ai review. The hard model-call cap applies at every depth.",
+    help=(
+        "Depth of the --ai review. auto follows review.effort in .lemoncrow/review.yaml; the others go deeper. "
+        "The hard model-call cap applies at every depth."
+    ),
 )
 @click.option(
     "--fail-on",
@@ -1183,6 +1187,11 @@ def _review_pull_request_with_ai(
             click.echo(report.reason, err=True)
     for note in report.notes:
         click.echo(f"  ! {note}", err=True)
+    step_summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
+    if in_actions and step_summary and report.summary:
+        # The run page shows the review even when the comment could not be posted (or on a dry run).
+        with open(step_summary, "a", encoding="utf-8") as handle:
+            handle.write(strip_state(report.summary) + "\n")
     if as_json:
         _emit(report.to_wire(), as_json=True)
     elif not report.skipped:

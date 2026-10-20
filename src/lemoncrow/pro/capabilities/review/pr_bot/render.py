@@ -51,8 +51,14 @@ _MENTION = re.compile(r"@(?=[A-Za-z0-9_])")
 def clean(text: str) -> str:
     """Model-written *text* made inert: no markers, mentions, images, links or block tags it could forge."""
 
-    cleaned = text.replace("-->", f"-{_ZWSP}->").replace("![", f"!{_ZWSP}[")
+    cleaned = text.replace("-->", f"-{_ZWSP}->").replace("![", f"!{_ZWSP}[").replace("](", f"]{_ZWSP}(")
     return _MENTION.sub(f"@{_ZWSP}", _DANGEROUS_TAG.sub(f"<{_ZWSP}", cleaned))
+
+
+def code(text: str) -> str:
+    """*text* safe inside a Markdown code span on one line: a file name is attacker-chosen and may hold a backtick."""
+
+    return " ".join(clean(text).replace("`", "'").split())
 
 
 def fence_for(text: str) -> str:
@@ -252,10 +258,11 @@ def strip_text(facts: RunFacts) -> str:
 
 
 def _where(finding: BotFinding) -> str:
+    path = code(finding.path)
     if finding.line <= 0:
-        return finding.path
+        return path
     span = f"{finding.line}-{finding.end_line}" if finding.end_line > finding.line else str(finding.line)
-    return f"{finding.path}:{span}"
+    return f"{path}:{span}"
 
 
 def _tag(finding: BotFinding) -> str:
@@ -361,12 +368,12 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
 
 def _receipt_lines(view: SummaryView) -> list[str]:
     receipt = view.receipt
-    shown = ", ".join(f"`{clean(path)}`" for path in receipt.files[:20])
+    shown = ", ".join(f"`{code(path)}`" for path in receipt.files[:20])
     more = f" and {len(receipt.files) - 20} more" if len(receipt.files) > 20 else ""
-    rules = ", ".join(f"`{clean(rule)}`" for rule in receipt.rules[:10]) or "none configured"
+    rules = ", ".join(f"`{code(rule)}`" for rule in receipt.rules[:10]) or "none configured"
     lines = [
         f"- Files: {plural(len(receipt.files), 'file')}" + (f" ({shown}{more})" if receipt.files else ""),
-        f"- Changed targets: {receipt.targets}; examined by the model: {receipt.examined}",
+        f"- Targets in this change: {receipt.targets}; examined by the model: {receipt.examined}",
         f"- Rules applied: {rules}",
         f"- Depth: {view.depth_label}" + (f", up to {plural(view.max_calls, 'model call')}" if view.max_calls else ""),
     ]

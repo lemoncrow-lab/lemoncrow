@@ -204,6 +204,8 @@ def decide(
 
 
 _LEVEL_COMMAND = {"notice": "notice", "warning": "warning", "error": "error"}
+#: The LemonCrow extra (``pyproject.toml`` optional dependencies) each backend's client library comes from.
+_EXTRA_FOR_BACKEND = {"litellm": "litellm", "openai": "cloud", "ollama": "smart"}
 
 
 def _truthy(value: str, default: bool) -> bool:
@@ -214,7 +216,7 @@ def _truthy(value: str, default: bool) -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Script entry for ``action.yml``: decide, print a workflow command, write ``run=`` to ``$GITHUB_OUTPUT``."""
+    """Script entry for ``action.yml``: decide, print a workflow command, write ``run=`` and ``extra=`` to ``$GITHUB_OUTPUT``."""
 
     env = os.environ
     raw_number = (argv[0] if argv else str(env.get("LEMONCROW_REVIEW_PR") or "")).strip()
@@ -229,8 +231,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"::{_LEVEL_COMMAND.get(gate.level, 'notice')} title=LemonCrow Review::{gate.reason}")
     output = str(env.get("GITHUB_OUTPUT") or "").strip()
     if output:
+        route = resolve_model_route(env, str(env.get(PROVIDER_ENV) or "auto")) if gate.run else None
         with open(output, "a", encoding="utf-8") as handle:
             handle.write(f"run={'true' if gate.run else 'false'}\n")
+            handle.write(f"extra={_EXTRA_FOR_BACKEND.get(route.backend, '') if route is not None else ''}\n")
     return gate.exit_code
 
 

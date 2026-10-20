@@ -13,10 +13,14 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from lemoncrow.pro.capabilities.review.intelligence_runtime import ModelCallUsage, StructuredExecution
+from lemoncrow.pro.capabilities.review.pr_bot.runner import RunOptions, RunReport, run_pr_review
 from lemoncrow.pro.capabilities.review.sources.github import GitHubCliError
 
 SLUG = "acme/widgets"
@@ -384,3 +388,58 @@ class FakeModel:
         ]
         usage = ModelCallUsage(calls=1, input_tokens=self.input_tokens, output_tokens=self.output_tokens)
         return StructuredExecution(result={"hypotheses": rows}, driver="openai", model=self.model, usage=usage)
+
+
+# --------------------------------------------------------------------------- #
+# a ready-made world: one repository, one pull request, a fake GitHub, a fake model
+# --------------------------------------------------------------------------- #
+
+BASE = {
+    "src/auth.py": "def authorize(user):\n    return user.is_admin\n",
+    "src/cache.py": "CACHE = {}\n\n\ndef remember(key, value):\n    CACHE[key] = value\n",
+    "src/plain.py": "VALUE = 1\n",
+}
+AUTH_BUGGY = "def authorize(user):\n    if user is None:  # BUG: lets a missing principal through\n        return True\n    return user.is_admin\n"
+AUTH_FIXED = "def authorize(user):\n    if user is None:\n        return False\n    return user.is_admin\n"
+CACHE_BUGGY = "CACHE = {}\n\n\ndef remember(key, value):\n    CACHE.setdefault(key, []).append(value)  # BUG: grows without a bound\n"
+TOKEN_BUGGY = "def verify(token):\n    return token == 'x'  # BUG: compares secrets without a constant-time check\n"
+FIRST_PUSH = {"src/auth.py": AUTH_BUGGY, "src/cache.py": CACHE_BUGGY, "src/plain.py": "VALUE = 2\n"}
+RULE = "rules:\n  - stable_key: no-bug-markers\n    instruction: Source must not carry known defects.\n    paths: [src/auth.py]\n"
+
+
+@dataclass
+class World:
+    origin: Origin
+    github: FakeGitHub
+    model: FakeModel
+    root: Path
+
+    def review(self, **options: Any) -> RunReport:
+        options.setdefault("publish", True)
+        return run_pr_review(
+            RunOptions(pr=str(NUMBER), repo_root=self.origin.clone, **options),
+            runner=self.github,
+            structured_executor=self.model,
+        )
+
+
+def build_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, files: dict[str, str]) -> World:
+    """Seed ``main`` with *files*; the environment is that of a GitHub Actions job with an OpenAI key."""
+
+    for name in (
+        "LEMONCROW_LLM_BACKEND",
+        "LEMONCROW_OPENAI_MODEL",
+        "LEMONCROW_LITELLM_MODEL",
+        "LEMONCROW_REVIEW_MODEL",
+        "ANTHROPIC_API_KEY",
+        "GITHUB_EVENT_NAME",
+        "GITHUB_EVENT_PATH",
+        "GITHUB_ACTOR",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("LEMONCROW_AST_GREP_BIN", str(tmp_path / "sg"))
+    origin = Origin(tmp_path)
+    origin.seed_main(files)
+    return World(origin, FakeGitHub(origin), FakeModel(), tmp_path)

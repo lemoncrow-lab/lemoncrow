@@ -27,8 +27,8 @@ from typing import Any
 
 from lemoncrow.pro.capabilities.review.pr_bot import ci_env
 from lemoncrow.pro.capabilities.review.pr_bot.findings import BotFinding
-from lemoncrow.pro.capabilities.review.pr_bot.github import BotGitHub, PullFacts, Remote
-from lemoncrow.pro.capabilities.review.pr_bot.reconcile import Reconciled, reconcile
+from lemoncrow.pro.capabilities.review.pr_bot.github import BotGitHub, Remote
+from lemoncrow.pro.capabilities.review.pr_bot.reconcile import reconcile
 from lemoncrow.pro.capabilities.review.pr_bot.render import (
     Receipt,
     RunFacts,
@@ -40,7 +40,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.render import (
     short,
     verdict,
 )
-from lemoncrow.pro.capabilities.review.pr_bot.state import ReviewState, Usage, cap_findings
+from lemoncrow.pro.capabilities.review.pr_bot.state import ReviewState, cap_findings
 from lemoncrow.pro.capabilities.review.sources.github import (
     GhRunner,
     GitHubCliError,
@@ -51,6 +51,8 @@ from lemoncrow.pro.capabilities.review.sources.github import (
 )
 
 FAIL_ON = ("none", "p0")
+# lc-debt: the repository's review.finding_threshold is not applied here, so P2 findings always show (held back, collapsed);
+# upgrade: resolve criticality.triage_policy_for for the Snapshot and drop findings below the threshold.
 #: Severities that get an inline comment; P2 stays in the summary, held back.
 INLINE_SEVERITIES = frozenset({"p0", "p1"})
 
@@ -190,7 +192,7 @@ def run_pr_review(
     if writes:
         _best_effort(lambda: github.set_status(facts.head_sha, "pending", "Reviewing…"), [], "set the pending status")
     try:
-        report = _review(options, ref, github, facts, run, structured_executor, say, writes)
+        report = _review(options, ref, github, run, structured_executor, say, writes)
         if report.skipped and writes:
             # The pending status must not be left hanging on a run that decided not to review.
             _best_effort(
@@ -224,7 +226,6 @@ def _review(
     options: RunOptions,
     ref: PullRequestRef,
     github: BotGitHub,
-    facts: PullFacts,
     run: GhRunner,
     structured_executor: Callable[..., Any] | None,
     say: Callable[[str], None],
@@ -340,15 +341,13 @@ def _review(
         max_calls=ai.max_calls,
         fail_on=options.fail_on,
     )
-    body, state = render_summary(summary_view)
+    body, posted_state = render_summary(summary_view)
     status = check_status(view, fail_on=options.fail_on)
-    report.findings, report.state, report.summary, report.verdict, report.status = (
-        tuple(tracked),
-        state,
-        body,
-        view,
-        status,
-    )
+    report.findings = tuple(tracked)
+    report.state = posted_state
+    report.summary = body
+    report.verdict = view
+    report.status = status
 
     if writes:
         link = existing.url if existing is not None else ""
@@ -420,4 +419,4 @@ def _post_inline(
     return updated
 
 
-__all__ = ["FAIL_ON", "PrReviewError", "Reconciled", "RunOptions", "RunReport", "Usage", "run_pr_review"]
+__all__ = ["FAIL_ON", "PrReviewError", "RunOptions", "RunReport", "run_pr_review"]
