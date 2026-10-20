@@ -44,15 +44,15 @@ export default function CodeChangesMenu({
       <PopoverTrigger asChild>
         <UiButton type="button" size="xs" variant="outline">
           {reviewBusy ? (
-            <Loader2 size={11} className="animate-spin" />
+            <Loader2 size={14} className="animate-spin" />
           ) : (
-            <GitPullRequest size={11} />
+            <GitPullRequest size={14} />
           )}
           Changes{" "}
           <span className="tabular-nums text-muted-foreground">
             {changes ? total : "…"}
           </span>
-          <ChevronDown size={11} />
+          <ChevronDown size={14} />
         </UiButton>
       </PopoverTrigger>
       <PopoverContent

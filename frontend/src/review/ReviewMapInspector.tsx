@@ -61,7 +61,7 @@ function statusLine(node: ReviewMapNode): string {
 }
 
 function NodeGlyph({ node }: { node: ReviewMapNode }) {
-  return isChangedStatus(node) ? <ChangeBadge node={node} /> : <FileTypeIcon path={node.path} size={15} />;
+  return isChangedStatus(node) ? <ChangeBadge node={node} /> : <FileTypeIcon path={node.path} />;
 }
 
 function RelationshipList({
@@ -253,7 +253,7 @@ function ArchitectureDeltaGuide({
                   : delta.reason || "No material architecture relationship change was detected."}
             </p>
           </div>
-          {overlay && <Button variant="ghost" size="icon" className="-mr-1.5 -mt-1" onClick={onClear} aria-label="Close architecture delta guide"><X size={13} /></Button>}
+          {overlay && <Button variant="ghost" size="icon" className="-mr-1.5 -mt-1" onClick={onClear} aria-label="Close architecture delta guide"><X size={14} /></Button>}
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5 text-caption">
           <span className="rounded-md border border-border bg-muted/60 px-2 py-1 text-subtle">{summary.added_edges} added</span>
@@ -310,7 +310,7 @@ function ArchitectureDeltaGuide({
             className="mt-3"
             disabled={architectureExplainLoading}
             onClick={onExplainArchitecture}
-            icon={architectureExplainLoading ? undefined : <Sparkles size={12} />}
+            icon={architectureExplainLoading ? undefined : <Sparkles size={14} />}
           >
             {architectureExplainLoading ? "Explaining…" : "Explain exact delta"}
           </Button>
@@ -371,7 +371,7 @@ function ChangeGuide({ payload, onSelectNode, onClear, overlay }: InspectorProps
       <div className="px-4 pb-3.5 pt-4">
         <div className="flex items-start justify-between gap-3">
           <h2 className="text-title font-semibold text-foreground">This change</h2>
-          {overlay && <Button variant="ghost" size="icon" className="-mr-1.5 -mt-1" onClick={onClear} aria-label="Close map guide"><X size={13} /></Button>}
+          {overlay && <Button variant="ghost" size="icon" className="-mr-1.5 -mt-1" onClick={onClear} aria-label="Close map guide"><X size={14} /></Button>}
         </div>
         <p className="mt-1.5 text-body leading-5 text-muted-foreground">
           {summary}{" "}
@@ -398,7 +398,7 @@ function ChangeGuide({ payload, onSelectNode, onClear, overlay }: InspectorProps
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-1.5">
                       <span className="truncate text-body font-medium text-foreground">{nodeName(node)}</span>
-                      <NodeSignals node={node} size={11} />
+                      <NodeSignals node={node} size={14} />
                     </span>
                     <span className="mt-0.5 block truncate text-caption text-muted-foreground first-letter:uppercase">
                       {reasonsOf(node)[0] ?? node.path}
@@ -495,7 +495,7 @@ function NodeDetails({
         titleHint={node.label}
         location={location}
         headerAction={
-          <Button variant="ghost" size="xs" onClick={() => onAskSelection(node.selection, node.label)} icon={<Sparkles size={12} />} aria-label={`Ask about this ${subject}`}>
+          <Button variant="ghost" size="xs" onClick={() => onAskSelection(node.selection, node.label)} icon={<Sparkles size={14} />} aria-label={`Ask about this ${subject}`}>
             Ask
           </Button>
         }
@@ -515,18 +515,18 @@ function NodeDetails({
           {openLabel && node.path && (
             // In-Review jump; Back returns to this Map location.
             <Button variant="outline" size="xs" onClick={() => onOpenSelection(node.selection)}>
-              <ArrowRight size={12} aria-hidden="true" />{openLabel}
+              <ArrowRight size={14} aria-hidden="true" />{openLabel}
             </Button>
           )}
           {diffHref && (
             <Button asChild variant="ghost" size="xs" tooltip="Opens the file's diff in a new tab">
               <a href={diffHref} target="_blank" rel="noopener noreferrer" aria-label={`${openLabel} in a new tab`}>
-                <ExternalLink size={12} aria-hidden="true" />New tab
+                <ExternalLink size={14} aria-hidden="true" />New tab
               </a>
             </Button>
           )}
           {canFocusFile && (
-            <Button variant="outline" size="xs" onClick={() => onFocusFile(node.id)} icon={<Focus size={12} />}>
+            <Button variant="outline" size="xs" onClick={() => onFocusFile(node.id)} icon={<Focus size={14} />}>
               Map this file
             </Button>
           )}
@@ -535,7 +535,7 @@ function NodeDetails({
               variant="outline"
               size="xs"
               onClick={() => onOpenInCode({ path: node.path, line: isFile ? 0 : node.line, endLine: isFile ? 0 : node.end_line })}
-              icon={<Code2 size={12} />}
+              icon={<Code2 size={14} />}
               title="Opens the working tree's current file in Code"
             >
               Open in Code
@@ -715,22 +715,22 @@ function EdgeDetails({ payload, edge, onSelectNode, onClear, onAskSelection, sel
               {plural(edge.weight || 1, "link site")}{edge.exactness === "snapshot" ? " · Snapshot fact" : edge.exactness === "current_index" ? " · current index" : " · exactness unavailable"}{architectureLabel}{edge.uncertain ? " · uncertain" : ""}
             </p>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClear} aria-label="Close map inspector"><X size={13} /></Button>
+          <Button variant="ghost" size="icon" onClick={onClear} aria-label="Close map inspector"><X size={14} /></Button>
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5">
           {canOpenReviewTarget && (
-            <Button variant="outline" size="sm" onClick={() => onOpenSelection(edge.selection)} icon={<ArrowRight size={12} />}>
+            <Button variant="outline" size="sm" onClick={() => onOpenSelection(edge.selection)} icon={<ArrowRight size={14} />}>
               Open Review target
             </Button>
           )}
           {reviewHref && (
             <Button asChild variant="ghost" size="sm" tooltip="Opens the changed Review file in a new tab">
               <a href={reviewHref} target="_blank" rel="noopener noreferrer" aria-label="Open Review target in a new tab">
-                <ExternalLink size={12} aria-hidden="true" />New tab
+                <ExternalLink size={14} aria-hidden="true" />New tab
               </a>
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={() => onAskSelection(edge.selection, label)} icon={<Sparkles size={12} />} aria-label="Ask about this link">
+          <Button variant="outline" size="sm" onClick={() => onAskSelection(edge.selection, label)} icon={<Sparkles size={14} />} aria-label="Ask about this link">
             Ask
           </Button>
         </div>
@@ -746,7 +746,7 @@ function EdgeDetails({ payload, edge, onSelectNode, onClear, onAskSelection, sel
             >
               <NodeGlyph node={node} />
               <span className="min-w-0 flex-1 truncate text-body text-foreground">{nodeName(node)}</span>
-              {index === 0 && <ArrowRight size={12} className="shrink-0 text-muted-foreground" aria-hidden="true" />}
+              {index === 0 && <ArrowRight size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />}
             </InspectorRow>
           ))}
         </div>

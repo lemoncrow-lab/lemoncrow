@@ -285,7 +285,7 @@ export default function ReviewIdentityBar({
             : "Snapshot history and compare"
         }
       >
-        <Clock3 size={12} />
+        <Clock3 size={14} />
         <span className="font-mono text-label">{revisionShortLabel(overview.revision)}</span>
       </UiButton>
     </div>

@@ -288,7 +288,7 @@ function AgentCard({
       header={
         <div className="flex min-w-0 items-start gap-4">
           <div className={`mt-0.5 shrink-0 ${color}`}>
-            <Icon size={24} />
+            <Icon size={20} />
           </div>
           <div className="min-w-0 flex-1">
             <div className="mb-1 flex flex-wrap items-center gap-3">
@@ -320,7 +320,7 @@ function AgentCard({
       {/* Tools */}
       <div>
         <FieldLabel className="mb-2">
-          <ChevronRight size={10} className="inline mr-1" /> tools
+          <ChevronRight size={14} className="inline mr-1" /> tools
         </FieldLabel>
         <div className="flex flex-wrap gap-1">
           {agent.tools.map((t) => (
@@ -339,7 +339,7 @@ function AgentCard({
       {agent.content && (
         <div>
           <FieldLabel className="mb-2">
-            <ChevronRight size={10} className="inline mr-1" /> instructions
+            <ChevronRight size={14} className="inline mr-1" /> instructions
           </FieldLabel>
           <pre className="text-caption bg-background px-2 py-2 text-muted-foreground font-mono border border-border block overflow-auto max-h-48 whitespace-pre-wrap">
             {agent.content}
@@ -721,7 +721,7 @@ export function ToolsSection() {
                                       <div className="mt-4 space-y-3">
                                         <FieldLabel className="mb-1">
                                           <ChevronRight
-                                            size={10}
+                                            size={14}
                                             className="inline mr-1"
                                           />{" "}
                                           enum params

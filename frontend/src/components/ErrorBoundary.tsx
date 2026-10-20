@@ -109,7 +109,7 @@ export class ErrorBoundary extends Component<
         <ChunkReloadOnce error={error} />
         <Card tone="destructive" className={cn("m-4", this.props.className)}>
           <CardHeader className="flex flex-row items-start gap-3">
-            <AlertTriangle size={18} className="mt-0.5 shrink-0 text-red-300" />
+            <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-300" />
             <div className="min-w-0">
               <div className="text-heading font-semibold text-red-100">
                 {this.props.label
@@ -130,7 +130,7 @@ export class ErrorBoundary extends Component<
             <Button
               variant="destructive"
               size="sm"
-              icon={<RotateCcw size={12} />}
+              icon={<RotateCcw size={14} />}
               onClick={this.retry}
             >
               Retry

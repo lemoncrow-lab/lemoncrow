@@ -302,7 +302,7 @@ export default function ContextDrawer({
               tooltip="Open the working tree's current file in Code (current index)"
               className="h-7 w-7"
             >
-              <Code2 size={12} />
+              <Code2 size={14} />
             </UiButton>
           )}
           <UiButton
@@ -315,10 +315,10 @@ export default function ContextDrawer({
             tooltip={pinned ? "Unpin context drawer" : "Pin context drawer"}
             className={`h-7 w-7 ${pinned ? "text-cyan-300" : ""}`}
           >
-            {pinned ? <PinOff size={12} /> : <Pin size={12} />}
+            {pinned ? <PinOff size={14} /> : <Pin size={14} />}
           </UiButton>
           <UiButton ref={closeRef} type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close review context" className="h-7 w-7">
-            <X size={13} />
+            <X size={14} />
           </UiButton>
         </div>
         <div className="flex min-w-0 items-end gap-1">
@@ -386,7 +386,7 @@ export default function ContextDrawer({
                           tooltip="Open in Code (current index)"
                           className="h-5 w-5 shrink-0 self-center"
                         >
-                          <Code2 size={11} />
+                          <Code2 size={14} />
                         </UiButton>
                       )}
                     </div>

@@ -310,7 +310,7 @@ function ThemeToggle() {
 function ReviewFallback({ label }: { label: string }) {
   return (
     <div className="flex min-h-[560px] items-center justify-center gap-2 text-heading text-muted-foreground">
-      <Loader2 size={15} className="animate-spin" />
+      <Loader2 size={16} className="animate-spin" />
       {label}
     </div>
   );

@@ -573,7 +573,7 @@ function DiffShell({
                 rel="noreferrer"
                 className="text-meta text-muted-foreground hover:text-emerald-300 font-semibold uppercase tracking-widest transition-colors flex items-center gap-1"
               >
-                View <ExternalLink size={10} />
+                View <ExternalLink size={14} />
               </a>
             </>
           )}
@@ -584,11 +584,11 @@ function DiffShell({
             >
               {expanded ? (
                 <>
-                  Hide Diff <ChevronUp size={10} />
+                  Hide Diff <ChevronUp size={14} />
                 </>
               ) : (
                 <>
-                  View Diff <ChevronDown size={10} />
+                  View Diff <ChevronDown size={14} />
                 </>
               )}
             </UiButton>
@@ -666,7 +666,7 @@ export function FileDetail({
                 className="text-meta text-muted-foreground font-semibold tracking-widest hover:text-emerald-300 transition-colors uppercase flex items-center gap-1"
                 title="View raw file content"
               >
-                Raw <ExternalLink size={10} />
+                Raw <ExternalLink size={14} />
               </a>
             </>
           )}
@@ -676,11 +676,11 @@ export function FileDetail({
           >
             {expanded ? (
               <>
-                Hide <ChevronUp size={10} />
+                Hide <ChevronUp size={14} />
               </>
             ) : (
               <>
-                Diff <ChevronDown size={10} />
+                Diff <ChevronDown size={14} />
               </>
             )}
           </UiButton>

@@ -62,7 +62,7 @@ export function ContextChip({ signal }: { signal: ContextSignal }) {
       className={`review-context-chip ${CHIP_TONE[signal.tone]}`}
       data-testid={signal.testId}
     >
-      <Icon size={11} aria-hidden="true" />
+      <Icon size={14} aria-hidden="true" />
       <span className="truncate">{signal.chipLabel}</span>
     </UiButton>
   );
@@ -82,7 +82,7 @@ export default function ReviewContextStrip({ signals }: { signals: ContextSignal
       data-signal={primary.id}
       data-tone={primary.tone}
     >
-      <Icon size={13} strokeWidth={1.9} aria-hidden="true" className="shrink-0 opacity-85" />
+      <Icon size={14} aria-hidden="true" className="shrink-0 opacity-85" />
       <span className="review-context-label">{primary.label}</span>
       {primary.detail ? (
         <span className={`review-context-detail ${DETAIL_TONE[primary.tone]}`}>{primary.detail}</span>

@@ -106,7 +106,7 @@ export default function ReviewChangeProposalComposer({
   const apply = () => { if (canSubmit) onCreateAndApply(); };
   const expandControl = selection && !proposal ? (
     <UiButton variant="ghost" size="compact" type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
-      {expanded ? <Minimize2 size={12} aria-hidden="true" /> : <Maximize2 size={12} aria-hidden="true" />}
+      {expanded ? <Minimize2 size={14} aria-hidden="true" /> : <Maximize2 size={14} aria-hidden="true" />}
       {expanded ? "Compact editor" : "Expand editor"}
     </UiButton>
   ) : null;
@@ -124,14 +124,14 @@ export default function ReviewChangeProposalComposer({
         aria-busy={busy || loading}
       >
         <div className="review-quick-edit-heading">
-          <FilePenLine size={12} className="text-cyan-300" aria-hidden="true" />
+          <FilePenLine size={14} className="text-cyan-300" aria-hidden="true" />
           <span className="font-medium text-subtle">Quick edit</span>
           {location && <span className="review-source-location" title={location}>{location}</span>}
           {proposal && state && <span className={`review-source-state ${state.tone}`}>{state.label}</span>}
           <span className="flex-1" />
           {expandControl}
           <UiButton variant="ghost" size="icon" type="button" onClick={onClose} aria-label="Close quick edit">
-            <X size={12} aria-hidden="true" />
+            <X size={14} aria-hidden="true" />
           </UiButton>
         </div>
 
@@ -158,12 +158,12 @@ export default function ReviewChangeProposalComposer({
               <span className="review-composer-shortcut"><kbd>Ctrl/⌘</kbd>+<kbd>Enter</kbd> suggest{allowApply ? " · Shift to apply" : ""}</span>
               <UiButton variant="ghost" size="compact" className="h-6 px-2 text-meta" type="button" onClick={onClose}>Cancel</UiButton>
               <UiButton size="compact" type="button" disabled={!canSubmit} onClick={save}>
-                {busy ? <LoaderCircle size={11} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <PencilLine size={11} aria-hidden="true" />}
+                {busy ? <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <PencilLine size={14} aria-hidden="true" />}
                 Suggest
               </UiButton>
               {allowApply && (
                 <UiButton variant="solid" size="compact" type="button" disabled={!canSubmit} onClick={apply}>
-                  {busy ? <LoaderCircle size={11} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <FilePenLine size={11} aria-hidden="true" />}
+                  {busy ? <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <FilePenLine size={14} aria-hidden="true" />}
                   Apply
                 </UiButton>
               )}
@@ -174,7 +174,7 @@ export default function ReviewChangeProposalComposer({
             <span className="min-w-0 flex-1 truncate text-caption text-muted-foreground">{state?.detail}</span>
             {allowApply && proposal.can_apply && (
               <UiButton variant="solid" size="compact" className="h-6 px-2 text-meta" type="button" disabled={busy} onClick={onApply}>
-                {busy ? <LoaderCircle size={11} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <FilePenLine size={11} aria-hidden="true" />}
+                {busy ? <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <FilePenLine size={14} aria-hidden="true" />}
                 Apply
               </UiButton>
             )}
@@ -193,8 +193,8 @@ export default function ReviewChangeProposalComposer({
     >
       <div className="review-composer-heading review-source-composer-heading">
         {directEdit
-          ? <FilePenLine size={15} className="text-cyan-300" aria-hidden="true" />
-          : <PencilLine size={15} className="text-muted-foreground" aria-hidden="true" />}
+          ? <FilePenLine size={16} className="text-cyan-300" aria-hidden="true" />
+          : <PencilLine size={16} className="text-muted-foreground" aria-hidden="true" />}
         <span>{directEdit ? "Edit source" : "Suggested change"}</span>
         {location && <span className="review-source-location" title={location}>{location}</span>}
         {state && <span className={`review-source-state ${state.tone}`}>{state.label}</span>}

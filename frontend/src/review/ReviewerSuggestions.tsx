@@ -24,7 +24,7 @@ function SuggestionRow({ suggestion, onRequest, busy }: { suggestion: ReviewerSu
   return (
     <li className="flex gap-2.5 py-2.5" data-testid="reviewer-suggestion">
       <div className="mt-0.5 shrink-0 text-muted-foreground">
-        {suggestion.kind === "team" ? <UsersRound size={12} aria-label="Team" /> : <UserRound size={12} aria-label="Person" />}
+        {suggestion.kind === "team" ? <UsersRound size={14} aria-label="Team" /> : <UserRound size={14} aria-label="Person" />}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
@@ -76,7 +76,7 @@ export function ReviewerSuggestionList({ data, loading = false, error = "", onRe
       {error && <div className="py-2 text-caption text-red-300">{error}</div>}
       {data && data.head_changes.map((change) => (
         <div key={change.path} className="mb-1 flex gap-2 text-caption leading-4 text-amber-200/80">
-          <AlertTriangle size={11} className="mt-0.5 shrink-0" />
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
           <span>{change.note}</span>
         </div>
       ))}

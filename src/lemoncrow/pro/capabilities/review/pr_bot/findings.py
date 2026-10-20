@@ -41,7 +41,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Final
 
-from lemoncrow.pro.capabilities.review.criticality import normalize_finding_severity
+# The rule lives in `criticality` so the Reader can use it without importing the PR bot; the names stay importable here.
+from lemoncrow.pro.capabilities.review.criticality import FINDING_IMPACTS
+from lemoncrow.pro.capabilities.review.criticality import P0_CATEGORIES as P0_CATEGORIES
+from lemoncrow.pro.capabilities.review.criticality import severity_for as severity_for
 
 SEVERITIES: Final[tuple[str, ...]] = ("p0", "p1", "p2")
 SEVERITY_BADGE: Final[Mapping[str, str]] = {"p0": "P0", "p1": "P1", "p2": "P2"}
@@ -51,12 +54,7 @@ STATES: Final[tuple[str, ...]] = ("new", "carried", "fixed", "stale", "unreporte
 OPEN_STATES: Final[frozenset[str]] = frozenset({"new", "carried"})
 PLACEMENTS: Final[tuple[str, ...]] = ("", "inline", "summary")
 #: Investigator impact ratings, lowest first.
-IMPACTS: Final[tuple[str, ...]] = ("low", "medium", "high")
-#: The categories where a verified high-impact finding is a must-fix: wrong results, security holes and
-#: data loss. Concurrency, API and performance findings can be P1 at most, however they are rated.
-# lc-debt: hard-coded; there is no loader for PR-bot settings, only the CLI options and the rules in
-# `.lemoncrow/review.yaml`; upgrade: a `review.pr_bot.p0_categories` key once such a loader exists.
-P0_CATEGORIES: Final[frozenset[str]] = frozenset({"correctness", "security", "persistence_migration"})
+IMPACTS: Final[tuple[str, ...]] = FINDING_IMPACTS
 
 #: Text kept per finding. Truncation is marked with an ellipsis and the originals
 #: are bounded by the engine (title 160, explanation 900, consequence 400).
@@ -319,31 +317,6 @@ def finding_from_wire(raw: object) -> BotFinding | None:
         suppressed_by=_text(raw, "suppressed_by", 40),
         confirmed=raw.get("confirmed") is True,
     )
-
-
-def severity_for(category: str, *, impact: str = "", verified: bool = False, rule_cited: bool = False) -> str:
-    """The severity of a finding: the one rule behind every badge, verdict and status (see the module docstring).
-
-    ``category`` is the finding's validated category, ``impact`` the investigator's rating (``""`` when it gave
-    none) and ``verified`` whether evidence from beyond the finding's own changed code backs it. Unverified
-    speculation is never P0: a ``high`` rating without that evidence, or outside :data:`P0_CATEGORIES`, is P1.
-
-    A ``critical_rule`` violation is P0 whatever its rating, but only when it ``rule_cited``: the rule's own ref is
-    the evidence that makes it a gate. A finding of that category that names no rule falls through to the ladder
-    below, where it is P1 at most.
-    """
-
-    if category == "critical_rule" and rule_cited:
-        return "p0"
-    if impact == "high":
-        return "p0" if verified and category in P0_CATEGORIES else "p1"
-    if impact == "medium":
-        return "p1" if verified else "p2"
-    if impact == "low":
-        return "p2"
-    # Unrated keeps the category's own severity (never P0 from here, never below P2).
-    rated = normalize_finding_severity("ai_review", category=category)
-    return rated if rated in {"p1", "p2"} else "p1"
 
 
 def fingerprint_for(category: str, target_ids: Sequence[str], rule_refs: Sequence[str] = ()) -> str:

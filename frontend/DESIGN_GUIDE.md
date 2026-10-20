@@ -63,7 +63,7 @@ It means the feature owns the visual treatment, never that the feature owns the 
 
 `Badge` tones: `p0`, `p1`, `p2` (severity; they come first in a row), `new` (ink, never lemon), `carried`, `fixed`, `ai` (attribution only), and
 the generic `neutral`, `secondary`, `info`, `success`, `warning`, `destructive`. A comment's kind uses `KIND_BADGE_TONES` in
-`review/annotationModel.ts`: request change P0, suggestion P2, comment neutral. AI findings show P0, P1 or P2 from their severity.
+`review/annotationModel.ts`: request change P0, suggestion P2, comment neutral. AI findings show P0, P1 or P2 from the `severity` the server sends.
 
 ### Overlays
 
@@ -79,7 +79,13 @@ the generic `neutral`, `secondary`, `info`, `success`, `warning`, `destructive`.
 | Expand/collapse | `Collapsible` / `DisclosureCard` |
 | Choose from a list | `Select` |
 | A framed object with a header strip | `Hunk` |
-| Nothing to show | `EmptyState` (one recipe: optional icon, one-line title, one sentence, at most one action) |
+| Nothing to show | `EmptyState` (one recipe: optional icon, one-line title, one sentence, at most one action; `density="compact"` for a slot inside a strip, as on Home's savings band). It says what will appear and the one real route or action that gets there; never "No data" |
+
+A `Sheet` or `Dialog` opens with the Hunk header strip: `DialogHeader` / `SheetHeader` is the 36px mono strip and its `DialogTitle` /
+`SheetTitle` draws as `@@ TITLE @@` (the markers are CSS, so the accessible name is the title text and nothing else). The right slot takes
+at most one meta string, badge or the close button; the one sentence that says what the overlay will and will not do goes in
+`DialogLede` / `SheetLede` under the strip (it is the dialog's description), and a status line that is not a description uses `LEDE_CLASS`.
+A title outside a header strip stays an ordinary heading (the command palette).
 
 Overlays portal into the app shell (`PortalContainerContext`) and stack at `z-50` by DOM order; do not add arbitrary `z-[NN]` layers.
 `Dialog`/`Sheet` trap focus, close on Escape and outside press, hide the page from assistive tech, and return focus to the element that
@@ -175,7 +181,11 @@ density, typography, focus treatment, control sizes, and light/dark behavior.
 - Prefer semantic tokens over `bg-black`, hex, or duplicated light/dark values.
 - Normal routed pages use `PageFrame` and open with `PageHeader`; full-canvas tools may opt out but still inherit the same control and surface
   language.
-- Icons are lucide, in `currentColor`, muted by default. File-type glyphs in the diff outline keep their colours because they encode content.
+- Icons are lucide, in `currentColor`, muted by default, on one scale: `size={14}` (dense rows, inline with 12 to 13px text; the default in this
+  dense tool), `size={16}` (back arrows, loaders, standalone controls) and `size={20}` (empty states and feature headings). The 1.75 stroke is
+  global (`svg.lucide` in `src/index.css`), so no call site sets `strokeWidth`. `check:ui-primitives` rejects any other `size={N}` and any
+  `strokeWidth` on an icon. File-type glyphs in the diff outline keep their colours because they encode content, and are fixed at 14px
+  (`FileTypeIcon` takes no size).
 - Motion is short and functional.
 
 The diff body (`@pierre/diffs`), Monaco, CodeMirror, the markdown preview, the graph canvases and the chart series keep their own palettes: they
@@ -188,9 +198,10 @@ When a workbench pattern and a Review pattern disagree, align the workbench to R
 
 A thread is one Hunk (`AnnotationCard`): a neutral header strip with the severity badge first (AI findings), then the kind badge (human
 request change or suggestion), then a neutral source chip, the file or symbol, the Snapshot and the date; the body in `text-heading`; the actions
-as ghost buttons. The 3px rail is `annotationRail()`: AI findings by severity, human comments by kind. The server rates each AI finding
-(`criticality.normalize_finding_severity`) but the annotation wire carries only counts, so the Reader fills `severity` in client-side only when
-`projection.triage` makes it exact (`markFindingSeverity`); an AI finding with no known level shows no severity badge rather than a guess.
+as ghost buttons. The 3px rail is `annotationRail()`: AI findings by severity, human comments by kind. The server rates each AI finding with the product's one
+severity rule (`criticality.severity_for`, the function the PR bot uses) and sends it as the optional `severity` (`p0 | p1 | p2`) on the
+annotation wire; a finding with no severity evidence, an older server, and every human comment send none, and the card then shows no severity
+badge and a neutral rail rather than a guess. The Reader never derives it client-side.
 
 ## Review UX gate
 

@@ -155,7 +155,7 @@ export default function ReviewCompareReader() {
           <UiButton variant="ghost" size="icon" type="button" onClick={goBack} className="h-8 w-8" aria-label="Back" tooltip="Back">
             <ArrowLeft size={14} aria-hidden="true" />
           </UiButton>
-          <GitCompareArrows size={15} className="shrink-0 text-cyan-300" aria-hidden="true" />
+          <GitCompareArrows size={16} className="shrink-0 text-cyan-300" aria-hidden="true" />
           <span className="shrink-0 text-label font-semibold text-foreground">Compare</span>
           <UiInput
             uiSize="xs"
@@ -167,7 +167,7 @@ export default function ReviewCompareReader() {
             placeholder="git/HEAD~1 or rr/<revision-id>"
             spellCheck={false}
           />
-          <ArrowRight size={13} className="shrink-0 text-muted-foreground" aria-hidden="true" />
+          <ArrowRight size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />
           <UiInput
             uiSize="xs"
             aria-label="Compare to source"
@@ -194,7 +194,7 @@ export default function ReviewCompareReader() {
         {comparison && (
           <div className="mt-1.5 flex items-center gap-2 pl-10 text-caption text-muted-foreground">
             <span className="font-mono text-muted-foreground">{comparison.from.label}</span>
-            <ArrowRight size={10} aria-hidden="true" />
+            <ArrowRight size={14} aria-hidden="true" />
             <span className="font-mono text-subtle">{comparison.to.label}</span>
             <span className="ml-auto">{comparison.summary.files} files · <span className="text-emerald-400">+{comparison.summary.additions}</span> <span className="text-red-400">-{comparison.summary.deletions}</span></span>
           </div>

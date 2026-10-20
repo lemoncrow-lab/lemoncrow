@@ -90,8 +90,8 @@ function DirectoryBranch({ directory, depth, selectedPath, selectedId, symbolsBy
           style={{ paddingLeft: 8 + depth * 12 }}
           aria-expanded={open}
         >
-          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          {open ? <FolderOpen size={13} className="shrink-0 text-muted-foreground" /> : <Folder size={13} className="shrink-0 text-muted-foreground" />}
+          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          {open ? <FolderOpen size={14} className="shrink-0 text-muted-foreground" /> : <Folder size={14} className="shrink-0 text-muted-foreground" />}
           <span className="truncate">{directory.name}</span>
           <span className="ml-auto flex shrink-0 items-center gap-1.5">
             {rollup?.live && <LiveDot kind="edit" label="An agent is working in this folder" />}
@@ -145,7 +145,7 @@ function DirectoryBranch({ directory, depth, selectedPath, selectedId, symbolsBy
                   style={{ paddingLeft: 24 + depth * 12 }}
                   aria-current={fileActive ? "true" : undefined}
                 >
-                  <FileTypeIcon path={file.path} size={13} />
+                  <FileTypeIcon path={file.path} />
                   <span className={`truncate ${change?.status === "D" ? "line-through opacity-70" : ""}`}>{file.label}</span>
                   <span className="ml-auto flex shrink-0 items-center gap-1.5">
                     {liveKind && <LiveDot kind={liveKind} label={`Agent ${liveKind} now`} />}
@@ -173,7 +173,7 @@ function DirectoryBranch({ directory, depth, selectedPath, selectedId, symbolsBy
                     style={{ paddingLeft: 42 + depth * 12 }}
                     aria-current={symbol.id === selectedId ? "true" : undefined}
                   >
-                    <CircleDot size={10} className="shrink-0 text-muted-foreground" />
+                    <CircleDot size={14} className="shrink-0 text-muted-foreground" />
                     <span className="min-w-0 flex-1 truncate">{symbol.label}</span>
                     <span className="shrink-0 text-micro tabular-nums text-muted-foreground">{symbol.line}</span>
                   </UiButton>
@@ -320,7 +320,7 @@ export default function CodeExplorer({
             {filtered.length}/{files.length}
           </span>
           <div className="relative min-w-0 flex-1">
-            <Search size={11} className="pointer-events-none absolute left-2 top-2.5 text-muted-foreground" />
+            <Search size={14} className="pointer-events-none absolute left-2 top-2.5 text-muted-foreground" />
             <UiInput
               type="search"
               value={fileFilter}
@@ -336,7 +336,7 @@ export default function CodeExplorer({
           </UiButton>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <UiButton type="button" size="icon" variant={showIgnored || folderFilter !== "all" || fileTypeFilter !== "all" ? "outline" : "ghost"} aria-label="Explorer filters" className="h-7 w-7 shrink-0"><ListFilter size={13} /></UiButton>
+              <UiButton type="button" size="icon" variant={showIgnored || folderFilter !== "all" || fileTypeFilter !== "all" ? "outline" : "ghost"} aria-label="Explorer filters" className="h-7 w-7 shrink-0"><ListFilter size={14} /></UiButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56" aria-label="Explorer filters">
               <DropdownMenuCheckboxItem checked={changedOnly} onCheckedChange={(checked) => setChangedOnly(Boolean(checked))} disabled={!changes}>Changed since HEAD</DropdownMenuCheckboxItem>
@@ -367,7 +367,7 @@ export default function CodeExplorer({
                 : `Session ${marks.get(sessionFilter) ?? ""} · ${sessionLabel(sessions.find((row) => row.id === sessionFilter) ?? { host: "", session_id: sessionFilter })}`}
             </span>
             <UiButton unstyled type="button" className="ml-auto shrink-0 text-cyan-200 hover:text-foreground" onClick={() => onSessionFilter(null)} aria-label="Show all files">
-              <X size={11} />
+              <X size={14} />
             </UiButton>
           </div>
         )}
@@ -376,7 +376,7 @@ export default function CodeExplorer({
         <section className={`flex min-h-0 flex-col border-b border-border ${filesOpen ? "flex-1" : "shrink-0"}`} aria-label="Project files">
           <CollapsibleTrigger asChild>
             <UiButton unstyled type="button" className="flex h-7 w-full shrink-0 items-center gap-1.5 px-3 text-left text-meta font-semibold uppercase tracking-widest text-muted-foreground transition hover:bg-muted hover:text-foreground">
-              {filesOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+              {filesOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
               Project files
               <span className="ml-auto tabular-nums">{filtered.length}</span>
             </UiButton>
@@ -410,7 +410,7 @@ export default function CodeExplorer({
           )}
           <CollapsibleTrigger asChild>
             <UiButton unstyled type="button" className="flex h-7 w-full shrink-0 items-center gap-1.5 px-3 text-left text-meta font-semibold uppercase tracking-widest text-muted-foreground transition hover:bg-muted hover:text-foreground">
-              {sessionsOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+              {sessionsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
               Sessions
               {liveWorkspace && <span className="ml-auto tabular-nums">{sessions.length + idle.length + (changes?.unattributed.length ? 1 : 0)}</span>}
             </UiButton>
@@ -478,7 +478,7 @@ export default function CodeExplorer({
               className="flex h-7 w-full shrink-0 items-center gap-1.5 px-3 text-left text-meta font-semibold uppercase tracking-widest text-muted-foreground transition hover:bg-muted hover:text-foreground"
               title={`Files agents edited more than once ${windowPhrase(hotspots?.days ?? 7)}, counted from the edits their sessions recorded.`}
             >
-              {hotspotsOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+              {hotspotsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
               Re-edited {windowPhrase(hotspots?.days ?? 7)}
               {liveWorkspace && <span className="ml-auto tabular-nums">{hotspotRows.length}</span>}
             </UiButton>
@@ -504,7 +504,7 @@ export default function CodeExplorer({
                 title={`${row.path}\n${row.edits} edits by ${sessionsText}`}
                 className={`flex w-full items-center gap-2 px-3 py-1 text-left text-label transition hover:bg-muted ${selected ? "bg-cyan-500/10 text-foreground" : "text-subtle"}`}
               >
-                <FileTypeIcon path={row.path} size={12} />
+                <FileTypeIcon path={row.path} />
                 <span className="min-w-0 flex-1 truncate">{row.path.split("/").pop()}</span>
                 <span className="shrink-0 text-micro tabular-nums text-muted-foreground">{row.edits}×</span>
               </UiButton>

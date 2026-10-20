@@ -803,7 +803,7 @@ export default function CodeGraph({
       />
       {computing && (
         <div className="pointer-events-none absolute left-3 top-3 z-20 flex items-center gap-2 rounded-md border border-border bg-background/90 px-2.5 py-1.5 text-caption text-muted-foreground backdrop-blur">
-          <Loader2 className="animate-spin" size={12} />
+          <Loader2 className="animate-spin" size={14} />
           Settling layout…
         </div>
       )}
@@ -815,7 +815,7 @@ export default function CodeGraph({
           onClick={() => void camera()?.animatedZoom({ duration: 180 })}
           aria-label="Zoom in"
         >
-          <Plus size={15} />
+          <Plus size={16} />
         </UiButton>
         <UiButton
           type="button"
@@ -824,7 +824,7 @@ export default function CodeGraph({
           onClick={() => void camera()?.animatedUnzoom({ duration: 180 })}
           aria-label="Zoom out"
         >
-          <Minus size={15} />
+          <Minus size={16} />
         </UiButton>
         <UiButton
           type="button"
@@ -833,7 +833,7 @@ export default function CodeGraph({
           onClick={() => void camera()?.animatedReset({ duration: 220 })}
           aria-label="Fit graph"
         >
-          <Focus size={15} />
+          <Focus size={16} />
         </UiButton>
       </div>
       <div className="pointer-events-none absolute bottom-4 right-4 rounded-lg border border-border bg-background/85 px-2.5 py-1.5 text-micro font-medium text-muted-foreground shadow-float backdrop-blur-md">

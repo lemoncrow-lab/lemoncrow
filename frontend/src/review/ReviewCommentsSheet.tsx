@@ -9,7 +9,7 @@ import {
 import { Badge } from "../components/ui/badge";
 import { hunkRowVariants } from "../components/ui/hunk";
 import { cn } from "../lib/utils";
-import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
+import { SHEET_LEDE_CLASS, Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, ChevronDown, CornerUpRight, MessageSquareText, RefreshCw, X } from "lucide-react";
@@ -139,31 +139,29 @@ export default function ReviewCommentsSheet({
           closeRef.current?.focus();
         }}
       >
-        <SheetHeader className="items-start px-5 py-5">
-          <div className="min-w-0 flex-1">
-            <SheetTitle className="text-lead tracking-tight">Comments</SheetTitle>
-            <div className="mt-1 text-body text-muted-foreground">
-              {handoffParts.length > 0
-                ? handoffParts.join(" · ")
-                : `${filterCounts.open} open${filterCounts.rereview > 0 ? ` · ${filterCounts.rereview} need re-review` : ""}`}
-            </div>
-            {feedbackStatus && feedbackStatus.open_total > 0 && (
-              <details className="mt-3 text-body leading-5 text-muted-foreground">
-                <summary className="cursor-pointer">How feedback works</summary>
-                <p className="mt-2">
-                {toAgent
-                  ? `Flow: send to ${destination} → agent fixes and verifies → marks addressed → you re-review and resolve.`
-                  : "Flow: copy/export feedback to the author → re-review their response → resolve only after you verify the fix."}
-                </p>
-              </details>
-            )}
-          </div>
+        <SheetHeader>
+          <SheetTitle>Comments</SheetTitle>
           <SheetClose asChild>
             <UiButton ref={closeRef} variant="ghost" size="icon" type="button" aria-label="Close review comments">
               <X size={14} />
             </UiButton>
           </SheetClose>
         </SheetHeader>
+        <div className={SHEET_LEDE_CLASS}>
+          {handoffParts.length > 0
+            ? handoffParts.join(" · ")
+            : `${filterCounts.open} open${filterCounts.rereview > 0 ? ` · ${filterCounts.rereview} need re-review` : ""}`}
+          {feedbackStatus && feedbackStatus.open_total > 0 && (
+            <details className="mt-2 leading-5">
+              <summary className="cursor-pointer">How feedback works</summary>
+              <p className="mt-2">
+              {toAgent
+                ? `Flow: send to ${destination} → agent fixes and verifies → marks addressed → you re-review and resolve.`
+                : "Flow: copy/export feedback to the author → re-review their response → resolve only after you verify the fix."}
+              </p>
+            </details>
+          )}
+        </div>
 
         <Tabs value={filter} onValueChange={(value) => setFilter(value as Filter)} className="contents">
         <div className="review-comments-filters flex items-center gap-2">
@@ -189,7 +187,7 @@ export default function ReviewCommentsSheet({
                     {sourceFilters.find((item) => item.id === sourceFilter)?.label ?? "All sources"}
                   </span>
                   <span className="font-mono text-micro text-muted-foreground">{sourceCounts[sourceFilter]}</span>
-                  <ChevronDown size={11} className="shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <ChevronDown size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />
                 </UiButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" aria-label="Comment source options" className="w-44">
@@ -207,8 +205,9 @@ export default function ReviewCommentsSheet({
         </div>
 
         <TabsContent value={filter} className="min-h-0 flex-1 overflow-auto px-5 py-2">
-          {visible.length === 0 && <div className="review-comments-empty"><MessageSquareText size={24} strokeWidth={1.5} aria-hidden="true" /><p>No matching comments.</p></div>}
-          <div className="divide-y divide-border">
+          {visible.length === 0 && <div className="review-comments-empty"><MessageSquareText size={20} aria-hidden="true" /><p>No matching comments.</p></div>}
+          {/* Rows draw their own top hairline: `divide-border` on this wrapper would repaint every row's left border (the severity rail) in the hairline colour. */}
+          <div>
             <BelowThresholdList items={visible} render={(item) => {
               const canJump = item.anchored && item.state !== "orphaned" && Boolean(item.path);
               const orphaned = isUnanchoredComment(item);
@@ -224,7 +223,7 @@ export default function ReviewCommentsSheet({
                     : "border-border bg-muted text-muted-foreground";
               const severity = annotationSeverity(item);
               return (
-                <article key={item.id} className={cn("review-comment-list-item py-5 pl-3", hunkRowVariants({ rail: annotationRail(item) }))}>
+                <article key={item.id} className={cn("review-comment-list-item border-t border-t-border py-5 pl-3 first:border-t-0", hunkRowVariants({ rail: annotationRail(item) }))}>
                   <div className="flex flex-wrap items-center gap-2 text-body">
                     {severity && <Badge tone={severityTone(severity)}>{SEVERITY_LABELS[severity]}</Badge>}
                     {item.kind !== "comment" && <Badge tone={KIND_BADGE_TONES[item.kind]}>{KIND_LABELS[item.kind]}</Badge>}
@@ -240,13 +239,13 @@ export default function ReviewCommentsSheet({
                     )}
                     {orphaned || reReview || item.state === "resolved" ? (
                       <span className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 font-medium ${stateTone}`}>
-                        <StateIcon size={12} aria-hidden="true" />
+                        <StateIcon size={14} aria-hidden="true" />
                         {orphaned ? "orphaned" : reReview ? "re-review" : "resolved"}
                       </span>
                     ) : null}
                     {replyCount > 0 && (
                       <span className="ml-auto inline-flex items-center gap-1 text-muted-foreground">
-                        <CornerUpRight size={10} aria-hidden="true" />
+                        <CornerUpRight size={14} aria-hidden="true" />
                         {replyCount} repl{replyCount === 1 ? "y" : "ies"}
                       </span>
                     )}

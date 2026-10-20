@@ -726,6 +726,44 @@ def normalize_finding_severity(
     return None
 
 
+#: Investigator impact ratings, lowest first.
+FINDING_IMPACTS: Final[tuple[str, ...]] = ("low", "medium", "high")
+#: The categories where a verified high-impact finding is a must-fix: wrong results, security holes and
+#: data loss. Concurrency, API and performance findings can be P1 at most, however they are rated.
+# lc-debt: hard-coded; there is no loader for PR-bot settings, only the CLI options and the rules in
+# `.lemoncrow/review.yaml`; upgrade: a `review.pr_bot.p0_categories` key once such a loader exists.
+P0_CATEGORIES: Final[frozenset[str]] = frozenset({"correctness", "security", "persistence_migration"})
+
+
+def severity_for(category: str, *, impact: str = "", verified: bool = False, rule_cited: bool = False) -> str:
+    """The severity of a finding: the one rule behind every badge, verdict and status (see ``pr_bot.findings``).
+
+    ``category`` is the finding's validated category, ``impact`` the investigator's rating (``""`` when it gave
+    none) and ``verified`` whether evidence from beyond the finding's own changed code backs it. Unverified
+    speculation is never P0: a ``high`` rating without that evidence, or outside :data:`P0_CATEGORIES`, is P1.
+
+    A ``critical_rule`` violation is P0 whatever its rating, but only when it ``rule_cited``: the rule's own ref is
+    the evidence that makes it a gate. A finding of that category that names no rule falls through to the ladder
+    below, where it is P1 at most.
+
+    The pull request bot stores this on every finding it tracks, and the Reader sends it on the annotation wire
+    (``review_triage.finding_severities``); both call this one function. It lives here, beside
+    :func:`normalize_finding_severity` which it builds on, so neither surface has to import the other.
+    """
+
+    if category == "critical_rule" and rule_cited:
+        return "p0"
+    if impact == "high":
+        return "p0" if verified and category in P0_CATEGORIES else "p1"
+    if impact == "medium":
+        return "p1" if verified else "p2"
+    if impact == "low":
+        return "p2"
+    # Unrated keeps the category's own severity (never P0 from here, never below P2).
+    rated = normalize_finding_severity("ai_review", category=category)
+    return rated if rated in {"p1", "p2"} else "p1"
+
+
 def surfaced(severity: FindingSeverity | None, threshold: FindingThreshold) -> bool:
     """Whether a finding of *severity* is shown under *threshold*.
 
@@ -815,9 +853,11 @@ __all__ = [
     "CRITICALITY_RANK",
     "CRITICALITY_VALUES",
     "DEFAULT_FINDING_THRESHOLD",
+    "FINDING_IMPACTS",
     "FINDING_SEVERITIES",
     "FINDING_THRESHOLDS",
     "MAX_FOCUS_RULES",
+    "P0_CATEGORIES",
     "REQUIRED_FOCUS_CATEGORIES",
     "REVIEW_FIRST_VALUES",
     "SEVERITY_LABELS",
@@ -840,6 +880,7 @@ __all__ = [
     "parse_trusted_base_triage",
     "path_queue_reasons",
     "resolve_triage_policy",
+    "severity_for",
     "strictest_path_policy",
     "surfaced",
     "target_policy_reasons",

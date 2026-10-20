@@ -1,5 +1,5 @@
 import { Button as UiButton } from "../components/ui/button";
-import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "../components/ui/sheet";
+import { Sheet, SheetClose, SheetContent, SheetHeader, SheetLede, SheetTitle } from "../components/ui/sheet";
 import { Input as UiInput } from "../components/ui/input";
 import { Textarea as UiTextarea } from "../components/ui/textarea";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -123,18 +123,16 @@ export default function ReviewFixSheet({
     <Sheet open onOpenChange={(open) => { if (!open) onClose(); }}>
       <SheetContent className="w-[min(640px,100%)]" aria-label={`${title} preview`}>
         <SheetHeader>
-          <div className="min-w-0 flex-1">
-            <SheetTitle>{title}</SheetTitle>
-            <SheetDescription>
-              Nothing changes the reviewed Snapshot. The fixer's work comes back as a new Snapshot for re-review; nothing here marks a finding resolved.
-            </SheetDescription>
-          </div>
+          <SheetTitle>{title}</SheetTitle>
           <SheetClose asChild>
             <UiButton variant="ghost" size="icon" type="button" aria-label="Close action preview">
               <X size={14} />
             </UiButton>
           </SheetClose>
         </SheetHeader>
+        <SheetLede>
+          Nothing changes the reviewed Snapshot. The fixer's work comes back as a new Snapshot for re-review; nothing here marks a finding resolved.
+        </SheetLede>
         <div className="min-h-0 flex-1 space-y-4 overflow-auto px-4 py-3 text-label">
           {loading && !preview && (
             <div className="flex items-center gap-2 text-muted-foreground">

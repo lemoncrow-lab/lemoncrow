@@ -218,7 +218,7 @@ function Composer({
             className="review-composer-kind border-border text-muted-foreground hover:text-foreground"
             tooltip="Ask LemonCrow about the selected code without creating review feedback"
           >
-            <Sparkles size={11} aria-hidden="true" />
+            <Sparkles size={14} aria-hidden="true" />
             Ask
           </UiButton>
         )}
@@ -231,7 +231,7 @@ function Composer({
                 className="review-composer-kind review-composer-kind-source border-border text-muted-foreground"
                 tooltip="Save a concrete patch without changing the working source"
               >
-                <PencilLine size={11} aria-hidden="true" />
+                <PencilLine size={14} aria-hidden="true" />
                 Suggest edit
               </UiButton>
             )}
@@ -576,7 +576,7 @@ function Comment({
             disabled={busy}
             onClick={() => onReply(comment.id)}
           >
-            <Reply size={13} aria-hidden="true" />
+            <Reply size={14} aria-hidden="true" />
             Reply
           </UiButton>
           <UiButton
@@ -587,7 +587,7 @@ function Comment({
             disabled={busy}
             onClick={() => (resolved ? onReopen(comment.id) : onResolve(comment.id))}
           >
-            {resolved ? <RotateCcw size={13} aria-hidden="true" /> : <Check size={13} aria-hidden="true" />}
+            {resolved ? <RotateCcw size={14} aria-hidden="true" /> : <Check size={14} aria-hidden="true" />}
             {resolved ? "Reopen" : "Resolve"}
           </UiButton>
         </div>

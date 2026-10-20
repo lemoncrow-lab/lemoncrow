@@ -14,14 +14,14 @@ export default function ReviewSnapshotControl({ files, detail, compareHref, busy
   return (
     <div className="flex shrink-0 items-center" data-testid="source-snapshot-control">
       <Button variant="outline" size="compact" disabled={busy} onClick={onCapture} aria-label="Capture current source" tooltip={busy ? undefined : detail} className="rounded-r-none border-amber-600/70 bg-amber-800/45 text-amber-50 hover:bg-amber-700/55 hover:text-amber-50">
-        <RefreshCw size={12} aria-hidden="true" />
+        <RefreshCw size={14} aria-hidden="true" />
         <span>New Snapshot</span>
         <span className="text-caption tabular-nums text-current opacity-80">{files}</span>
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="compact" aria-label="New Snapshot options" className="rounded-l-none border-l-0 border-amber-600/70 bg-amber-800/45 px-1 text-amber-50 hover:bg-amber-700/55 hover:text-amber-50">
-            <ChevronDown size={12} aria-hidden="true" />
+            <ChevronDown size={14} aria-hidden="true" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-72">

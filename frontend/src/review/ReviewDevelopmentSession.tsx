@@ -76,14 +76,14 @@ export default function ReviewDevelopmentSession({ session, onBack }: {
       <div className="shrink-0 space-y-2 border-b border-border/70 px-5 py-3">
         <div className="flex items-center justify-between gap-2">
           <Button ref={backRef} unstyled type="button" onClick={onBack} className="review-context-action">
-            <ArrowLeft size={13} aria-hidden="true" /> Back to Activity
+            <ArrowLeft size={14} aria-hidden="true" /> Back to Activity
           </Button>
           <Button
             unstyled type="button" onClick={() => setRefresh((value) => value + 1)}
             disabled={entries === null && !failed}
             className="review-context-action"
           >
-            <RefreshCw size={12} aria-hidden="true" /> Refresh session
+            <RefreshCw size={14} aria-hidden="true" /> Refresh session
           </Button>
         </div>
         <h3 className="text-heading font-semibold text-foreground">

@@ -14,6 +14,8 @@ export {
   DialogFooter as SheetFooter,
   DialogTitle as SheetTitle,
   DialogDescription as SheetDescription,
+  DialogLede as SheetLede,
+  LEDE_CLASS as SHEET_LEDE_CLASS,
 } from "./dialog";
 
 const sheetVariants = cva(

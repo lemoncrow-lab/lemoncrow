@@ -143,9 +143,9 @@ function themedUrl(url: string, theme: Theme): string {
 }
 
 function DeviceIcon({ preset }: { preset: ViewportPreset }) {
-  if (preset === "desktop") return <Monitor size={14} strokeWidth={1.7} />;
-  if (preset === "tablet") return <TabletIcon size={14} strokeWidth={1.7} />;
-  return <Smartphone size={14} strokeWidth={1.7} />;
+  if (preset === "desktop") return <Monitor size={14} />;
+  if (preset === "tablet") return <TabletIcon size={14} />;
+  return <Smartphone size={14} />;
 }
 
 function DevicePicker({ value, onChange }: { value: ViewportPreset; onChange(value: ViewportPreset): void }) {
@@ -187,7 +187,7 @@ function PreviewThemeToggle({ value, chromeTheme, onChange }: { value: PreviewTh
       onClick={() => onChange(next)}
       className="h-7 w-8 shrink-0 rounded border-border bg-background text-muted-foreground hover:bg-muted"
     >
-      <Icon size={13} strokeWidth={1.7} />
+      <Icon size={14} />
     </UiButton>
   );
 }
@@ -653,7 +653,7 @@ export default function WebReviewPreview({
           tooltip={`${framework} rendered surface · open in dedicated tab`}
           className="h-auto shrink-0 gap-1 border-transparent px-0 text-meta font-medium uppercase tracking-tag text-cyan-400/75 hover:bg-transparent hover:text-cyan-300"
         >
-          <Monitor size={12} /> Web <span className="normal-case tracking-normal text-cyan-300/90">· {serviceName}</span> <ExternalLink size={10} />
+          <Monitor size={14} /> Web <span className="normal-case tracking-normal text-cyan-300/90">· {serviceName}</span> <ExternalLink size={14} />
         </UiButton>
         {rankedRouteOptions.length > 1 ? (
           <SurfacePicker
@@ -742,7 +742,7 @@ export default function WebReviewPreview({
             onClick={() => updatePreferences({ linkedScroll: !preferences.linkedScroll })}
             className={`h-7 w-7 ${preferences.linkedScroll ? "text-cyan-300" : "text-muted-foreground"}`}
           >
-            {preferences.linkedScroll ? <Link2 size={13} /> : <Unlink2 size={13} />}
+            {preferences.linkedScroll ? <Link2 size={14} /> : <Unlink2 size={14} />}
           </UiButton>
         )}
 
@@ -781,7 +781,7 @@ export default function WebReviewPreview({
                         onClick={() => onOpenPath(path)}
                         className="flex w-full items-center gap-2 px-1 py-1.5 text-left font-mono text-meta text-muted-foreground hover:text-foreground"
                       >
-                        <FileCode2 size={11} className="shrink-0 text-muted-foreground" />
+                        <FileCode2 size={14} className="shrink-0 text-muted-foreground" />
                         <span className="truncate" title={path}>{path}</span>
                       </UiButton>
                     ))}

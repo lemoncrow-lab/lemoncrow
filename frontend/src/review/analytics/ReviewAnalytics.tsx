@@ -14,7 +14,7 @@ import {
   Select,
   SelectItem,
 } from "../../components/WorkbenchUI";
-import { Sheet, SheetBody, SheetClose, SheetContent, SheetHeader, SheetTitle } from "../../components/ui/sheet";
+import { SHEET_LEDE_CLASS, Sheet, SheetBody, SheetClose, SheetContent, SheetHeader, SheetTitle } from "../../components/ui/sheet";
 import { useResolvedProductCapabilities } from "../../lib/RuntimeCapabilities";
 import { useTimeRange } from "../../lib/TimeRangeContext";
 import { reviewHref } from "../reviewApi";
@@ -280,19 +280,15 @@ function DrillSheet({
   return (
     <Sheet open={target !== null} onOpenChange={(open) => !open && onClose()}>
       <SheetContent side="right" className="w-[min(720px,100%)]" aria-describedby={undefined}>
-        <SheetHeader className="items-center">
-          <div className="min-w-0 flex-1">
-            <SheetTitle className="text-caption font-mono font-normal uppercase tracking-widest text-muted-foreground">
-              Reviews behind this figure
-            </SheetTitle>
-            <div className="mt-0.5 truncate text-heading font-semibold text-foreground">{target?.label}</div>
-          </div>
+        <SheetHeader>
+          <SheetTitle>Reviews behind this figure</SheetTitle>
           <SheetClose asChild>
             <Button type="button" size="icon" variant="ghost" aria-label="Close records">
               <X size={16} />
             </Button>
           </SheetClose>
         </SheetHeader>
+        <div className={`${SHEET_LEDE_CLASS} truncate text-heading font-semibold text-foreground`}>{target?.label}</div>
         <SheetBody>
           {error ? (
             <Alert tone="destructive" description={error} />

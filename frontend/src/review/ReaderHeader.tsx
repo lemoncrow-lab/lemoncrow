@@ -1,6 +1,6 @@
 import { Badge } from "../components/ui/badge";
 import { Button as UiButton } from "../components/ui/button";
-import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle, LEDE_CLASS } from "../components/ui/dialog";
 import { Input as UiInput } from "../components/ui/input";
 import { Textarea as UiTextarea } from "../components/ui/textarea";
 import { useRef, useState, type FormEvent, type ReactNode, type Ref } from "react";
@@ -269,7 +269,7 @@ export default function ReaderHeader({
           className={developmentOpen ? "bg-accent text-foreground" : ""}
           data-testid="reader-development-action"
         >
-          <Workflow size={13} aria-hidden="true" />
+          <Workflow size={14} aria-hidden="true" />
           <span className="review-tool-label hidden lg:inline">Activity</span>
           {development.contributors > 0 && (
             <Badge>{development.contributors}</Badge>
@@ -289,7 +289,7 @@ export default function ReaderHeader({
           : commentState === "loading" ? "Review comments: loading" : "Review comments: unavailable"}
         tooltip={commentState === "failed" ? "Comments unavailable" : "Comments"}
       >
-        <MessageSquareText size={13} />
+        <MessageSquareText size={14} />
         <span className="review-tool-label hidden lg:inline">Comments</span>
         {commentState === "ready" && openCommentCount > 0 && <Badge>{openCommentCount}</Badge>}
         {commentState !== "ready" && <span className="font-mono text-caption text-muted-foreground">—</span>}
@@ -305,7 +305,7 @@ export default function ReaderHeader({
           className={`review-reader-readiness ${readiness.className}`}
           data-review-status-authority=""
         >
-          <ShieldCheck size={13} aria-hidden="true" />
+          <ShieldCheck size={14} aria-hidden="true" />
           <span>{docked ? readiness.shortText ?? readiness.text : readiness.text}</span>
           {uncertain > 0 && <span className="text-caption text-p1" aria-hidden="true">· {docked ? `${uncertain}?` : `${uncertain} uncertain`}</span>}
         </UiButton>
@@ -321,7 +321,7 @@ export default function ReaderHeader({
           tooltip="Ask about this change"
           className={askOpen ? "bg-accent text-foreground" : ""}
         >
-          <Sparkles size={13} />
+          <Sparkles size={14} />
           <span className="review-tool-label hidden lg:inline">Ask</span>
         </UiButton>
       )}
@@ -362,7 +362,7 @@ export default function ReaderHeader({
       <div className="review-reader-toolbar">
         {backToReviewHref ? (
           <UiButton asChild variant="ghost" size="icon" tooltip="Back to full review">
-            <a href={backToReviewHref} aria-label="Back to full review"><ArrowLeft size={15} /></a>
+            <a href={backToReviewHref} aria-label="Back to full review"><ArrowLeft size={16} /></a>
           </UiButton>
         ) : backtrail ? (
           <UiButton
@@ -374,11 +374,11 @@ export default function ReaderHeader({
             tooltip={`Back to ${backtrail.label}`}
             data-testid="review-backtrail"
           >
-            <ArrowLeft size={15} />
+            <ArrowLeft size={16} />
           </UiButton>
         ) : returnTo ? (
           <UiButton asChild variant="ghost" size="icon" tooltip={returnTo.label}>
-            <a href={returnTo.href} aria-label={returnTo.label}><ArrowLeft size={15} /></a>
+            <a href={returnTo.href} aria-label={returnTo.label}><ArrowLeft size={16} /></a>
           </UiButton>
         ) : (
           <UiButton
@@ -389,7 +389,7 @@ export default function ReaderHeader({
             aria-label="Back to reviews"
             tooltip="All reviews"
           >
-            <ArrowLeft size={15} />
+            <ArrowLeft size={16} />
           </UiButton>
         )}
 
@@ -419,7 +419,7 @@ export default function ReaderHeader({
                   tooltip={hint}
                   className={`h-6 rounded-sm ${(view === value || (view === "tour" && value === "brief")) ? "border-border bg-card text-foreground" : "text-muted-foreground"}`}
                 >
-                  <Icon size={13} aria-hidden="true" />
+                  <Icon size={14} aria-hidden="true" />
                   <span className="review-tool-label hidden lg:inline">{label}</span>
                 </UiButton>
               ))}
@@ -486,16 +486,14 @@ export default function ReaderHeader({
         >
           <form onSubmit={sendProductFeedback}>
             <DialogHeader>
-              <div className="min-w-0 flex-1">
-                <DialogTitle>Make a wish</DialogTitle>
-                <p className="mt-0.5 text-caption text-muted-foreground">What would make Review better?</p>
-              </div>
+              <DialogTitle>Make a wish</DialogTitle>
               <DialogClose asChild>
                 <UiButton variant="ghost" size="icon" aria-label="Close feedback">
                   <X size={14} />
                 </UiButton>
               </DialogClose>
             </DialogHeader>
+            <p className={LEDE_CLASS}>What would make Review better?</p>
             <DialogBody>
               {feedbackState === "sent" ? (
                 <p className="text-body leading-5 text-emerald-400">Sent. Thank you — it’s in the wish backlog.</p>

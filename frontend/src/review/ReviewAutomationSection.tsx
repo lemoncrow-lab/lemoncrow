@@ -29,8 +29,8 @@ function CheckRow({ check }: { check: AutomationCheck }) {
   return (
     <li className="flex gap-1.5 text-caption leading-4">
       {check.passed
-        ? <CheckCircle2 size={11} className="mt-0.5 shrink-0 text-emerald-400" aria-label="holds" />
-        : <XCircle size={11} className="mt-0.5 shrink-0 text-amber-300" aria-label="does not hold" />}
+        ? <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-emerald-400" aria-label="holds" />
+        : <XCircle size={14} className="mt-0.5 shrink-0 text-amber-300" aria-label="does not hold" />}
       <span className="min-w-0">
         <span className={check.passed ? "text-subtle" : "text-amber-300"}>{check.name}</span>
         <span className="text-muted-foreground"> · {check.detail}</span>
@@ -150,7 +150,7 @@ export default function ReviewAutomationSection({ reviewId, readOnly = false }: 
             <li key={kind.kind} className="flex items-start justify-between gap-3 rounded-md border border-border/60 px-3 py-2">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2 text-caption">
-                  <CircleDot size={10} className="shrink-0 text-muted-foreground" />
+                  <CircleDot size={14} className="shrink-0 text-muted-foreground" />
                   <span className="font-medium text-foreground">{kind.label}</span>
                   {kind.latest && (
                     <Badge tone="secondary" className={kind.latest.status === "completed" ? "text-emerald-300" : "text-amber-300"}>

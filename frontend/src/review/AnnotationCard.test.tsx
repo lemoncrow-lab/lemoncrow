@@ -332,6 +332,47 @@ describe("AnnotationCard", () => {
     expect(source.className).toContain("text-ai");
   });
 
+  it.each([
+    ["p0", "P0", "text-p0"],
+    ["p1", "P1", "text-p1"],
+    ["p2", "P2", "text-p2"],
+  ] as const)("shows %s from the annotation wire's severity field: the badge in its tone and the matching rail", (level, label, tone) => {
+    // The shape `GET /api/reviews/{id}/annotations` sends for an AI finding: `severity` is an optional string.
+    const wire = JSON.parse(
+      JSON.stringify({ ...annotation({ source: "ai_review", created_by_actor: "agent", title: "A finding" }), severity: level }),
+    ) as Annotation;
+    mount([wire]);
+    const badge = screen.getByTestId("annotation-severity");
+    expect(badge).toHaveTextContent(label);
+    expect(badge.className).toContain(tone);
+    expect(screen.getByRole("article")).toHaveAttribute("data-rail", level);
+  });
+
+  it("shows no severity for an AI finding the server did not rate, and never for a human comment", () => {
+    // An older server, or a finding with no severity evidence: no badge, and a neutral rail rather than a guess.
+    const { unmount } = render(
+      <AnnotationCard
+        comments={[annotation({ source: "ai_review", created_by_actor: "agent" })]}
+        all={[]}
+        label="Comment"
+        composing={false}
+        busy={false}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+        onResolve={vi.fn()}
+        onReopen={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId("annotation-severity")).toBeNull();
+    expect(screen.getByRole("article")).toHaveAttribute("data-rail", "neutral");
+    unmount();
+    // A human comment keeps its kind: even a stray `severity` on it is not drawn.
+    mount([annotation({ kind: "suggestion", severity: "p0" })]);
+    expect(screen.queryByTestId("annotation-severity")).toBeNull();
+    expect(screen.getByRole("article")).toHaveAttribute("data-rail", "p2");
+    expect(screen.getByText("Suggestion")).toBeTruthy();
+  });
+
   it("rails a human request for change red and a plain comment neutral, with the source in a neutral chip", () => {
     mount([annotation({ kind: "request_change" })]);
     expect(screen.getByRole("article")).toHaveAttribute("data-rail", "p0");

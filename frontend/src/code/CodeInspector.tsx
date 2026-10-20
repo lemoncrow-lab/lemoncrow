@@ -109,7 +109,7 @@ function RelationshipRows({
                 onClick={() => onOpen(row.path, row.lines[0])}
                 title={`${row.path}${row.lines.length ? `:${row.lines.join(", ")}` : ""}\n${kinds}`}
               >
-                <Icon size={11} className={`shrink-0 ${direction === "in" ? "text-violet-300" : "text-cyan-300"}`} />
+                <Icon size={14} className={`shrink-0 ${direction === "in" ? "text-violet-300" : "text-cyan-300"}`} />
                 <span className="min-w-0 flex-1 truncate text-label text-subtle">
                   {row.path.split("/").pop()}
                   {row.symbols.length > 0 && <span className="text-muted-foreground"> · {row.symbols.slice(0, 2).join(", ")}</span>}
@@ -136,7 +136,7 @@ function ModuleRows({ rows, direction, onSelect }: { rows: ModuleLink[]; directi
       {rows.slice(0, 20).map((row) => (
         <li key={row.id}>
           <InspectorRow onClick={() => onSelect(row.id)} title={row.id || "Repository root"}>
-            <Icon size={11} className={`shrink-0 ${direction === "in" ? "text-violet-300" : "text-cyan-300"}`} />
+            <Icon size={14} className={`shrink-0 ${direction === "in" ? "text-violet-300" : "text-cyan-300"}`} />
             <span className="min-w-0 flex-1 truncate text-label text-subtle">{row.label}</span>
             <span className="shrink-0 text-micro tabular-nums text-muted-foreground">×{row.weight}</span>
           </InspectorRow>
@@ -152,7 +152,7 @@ function ReferenceList({ payload, loading, error, onOpen }: { payload: CodeMapRe
     <Section title={`References${payload ? ` · ${payload.reference_count}` : ""}`} aside={payload?.truncated ? "partial" : undefined}>
       {loading ? (
         <div className="flex items-center gap-2 py-2 text-caption text-muted-foreground">
-          <Loader2 size={11} className="animate-spin" /> Finding usages…
+          <Loader2 size={14} className="animate-spin" /> Finding usages…
         </div>
       ) : error ? (
         <p className="py-1 text-caption leading-4 text-red-300/70">{error}</p>
@@ -168,7 +168,7 @@ function ReferenceList({ payload, loading, error, onOpen }: { payload: CodeMapRe
               title={`${reference.path}:${reference.line}`}
             >
               <div className="flex min-w-0 items-center gap-2">
-                <Search size={10} className="shrink-0 text-amber-300/70" />
+                <Search size={14} className="shrink-0 text-amber-300/70" />
                 <span className="min-w-0 flex-1 truncate text-caption text-subtle">{reference.path}</span>
                 <span className="shrink-0 font-mono text-micro tabular-nums text-amber-300/70">L{reference.line}</span>
               </div>
@@ -262,7 +262,7 @@ export default function CodeInspector({
     const module = subject.module;
     return (
       <aside className="min-h-0 overflow-y-auto overscroll-contain border-t border-border bg-background/60 xl:border-l xl:border-t-0" aria-label="Inspector">
-        <InspectorFacts glyph={<Folder size={15} className="text-cyan-200" />} kicker={module.package ? "package" : "module"} title={module.path || "(repository root)"} titleHint={module.path}>
+        <InspectorFacts glyph={<Folder size={14} className="text-cyan-200" />} kicker={module.package ? "package" : "module"} title={module.path || "(repository root)"} titleHint={module.path}>
           <div className="mt-1 text-caption text-muted-foreground">
             {module.files.toLocaleString()} files · {module.symbols.toLocaleString()} symbols
             {module.changed ? ` · ${module.changed} uncommitted` : ""}
@@ -288,7 +288,7 @@ export default function CodeInspector({
                 onClick={() => onDescribeModule(module.id)}
                 title={`Ask ${purposeModel} for one line on this module, from its paths, the files' own statements, and the names they define.`}
               >
-                {purposeBusy ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
+                {purposeBusy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
                 {module.purpose_kind === "generated" ? "Describe again" : `Describe with ${purposeModel}`}
               </UiButton>
             )}
@@ -307,7 +307,7 @@ export default function CodeInspector({
               {module.top_files.map((path) => (
                 <li key={path}>
                   <InspectorRow onClick={() => onOpenPath(path)} title={path}>
-                    <FileTypeIcon path={path} size={12} />
+                    <FileTypeIcon path={path} />
                     <span className="min-w-0 flex-1 truncate text-label text-subtle">{path.split("/").pop()}</span>
                   </InspectorRow>
                 </li>
@@ -333,12 +333,12 @@ export default function CodeInspector({
   return (
     <aside className="min-h-0 overflow-y-auto overscroll-contain border-t border-border bg-background/60 xl:border-l xl:border-t-0" aria-label="Inspector">
       <InspectorFacts
-        glyph={subject.kind === "file" ? <FileTypeIcon path={node.path} size={15} /> : <CircleDot size={15} className="text-cyan-200" />}
+        glyph={subject.kind === "file" ? <FileTypeIcon path={node.path} /> : <CircleDot size={14} className="text-cyan-200" />}
         kicker={`${subject.kind === "file" ? node.file_type || "file" : node.kind}${node.language ? ` · ${node.language}` : ""}`}
         title={subject.kind === "file" ? node.label : node.qualified_name || node.label}
         titleHint={subject.kind === "file" ? node.path : node.qualified_name || node.label}
         location={`${node.path}${subject.range ? `:${displayRange(subject.range)}` : ""}`}
-        headerAction={onAsk ? <UiButton type="button" size="xs" variant="ghost" onClick={onAsk} aria-label={`Ask about ${node.label}`}><Sparkles size={12} /> Ask</UiButton> : undefined}
+        headerAction={onAsk ? <UiButton type="button" size="xs" variant="ghost" onClick={onAsk} aria-label={`Ask about ${node.label}`}><Sparkles size={14} /> Ask</UiButton> : undefined}
       >
         {change && (
           <div className="mt-2 text-caption text-amber-200/90">
@@ -351,7 +351,7 @@ export default function CodeInspector({
       <Section title={`Used by · ${relationships?.used_by_total ?? "…"}`} aside={note}>
         {relationshipsLoading && !relationships ? (
           <div className="flex items-center gap-2 py-2 text-caption text-muted-foreground">
-            <Loader2 size={11} className="animate-spin" /> Reading the index…
+            <Loader2 size={14} className="animate-spin" /> Reading the index…
           </div>
         ) : relationshipsError ? (
           <p className="py-1 text-caption leading-4 text-red-300/70">{relationshipsError}</p>
@@ -422,13 +422,13 @@ export default function CodeInspector({
                 {authors.length ? (
                   authors.map((session) => (
                     <UiButton key={session.id} type="button" size="xs" variant="outline" disabled={reviewBusy} onClick={() => onReview({ session: session.id })}>
-                      {reviewBusy ? <Loader2 size={10} className="animate-spin" /> : <GitPullRequest size={10} />}
+                      {reviewBusy ? <Loader2 size={14} className="animate-spin" /> : <GitPullRequest size={14} />}
                       Review session {marks.get(session.id) ?? ""}
                     </UiButton>
                   ))
                 ) : (
                   <UiButton type="button" size="xs" variant="outline" disabled={reviewBusy} onClick={() => onReview({ paths: [node.path] })}>
-                    {reviewBusy ? <Loader2 size={10} className="animate-spin" /> : <GitPullRequest size={10} />}
+                    {reviewBusy ? <Loader2 size={14} className="animate-spin" /> : <GitPullRequest size={14} />}
                     Review this file
                   </UiButton>
                 )}

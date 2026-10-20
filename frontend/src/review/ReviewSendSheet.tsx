@@ -1,5 +1,5 @@
 import { Button as UiButton } from "../components/ui/button";
-import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "../components/ui/sheet";
+import { Sheet, SheetClose, SheetContent, SheetHeader, SheetLede, SheetTitle } from "../components/ui/sheet";
 import { X } from "lucide-react";
 
 import ReviewFeedbackPanel from "./ReviewFeedbackPanel";
@@ -43,18 +43,16 @@ export default function ReviewSendSheet({
     <Sheet open onOpenChange={(open) => { if (!open) onClose(); }}>
       <SheetContent className="w-[min(640px,100%)]">
         <SheetHeader>
-          <div className="min-w-0 flex-1">
-            <SheetTitle>Send feedback</SheetTitle>
-            <SheetDescription>
-              Nothing leaves without your click. Sending does not record a verdict or finish the Review.
-            </SheetDescription>
-          </div>
+          <SheetTitle>Send feedback</SheetTitle>
           <SheetClose asChild>
             <UiButton variant="ghost" size="icon" type="button" aria-label="Close send feedback">
               <X size={14} />
             </UiButton>
           </SheetClose>
         </SheetHeader>
+        <SheetLede>
+          Nothing leaves without your click. Sending does not record a verdict or finish the Review.
+        </SheetLede>
         <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-caption">
           <span className="text-muted-foreground">To:</span>
           <span className="min-w-0 truncate text-foreground" title={feedback.delivery.target_ref}>{label}</span>

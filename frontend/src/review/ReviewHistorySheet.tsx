@@ -1,6 +1,6 @@
 import { Select, SelectItem } from "../components/ui/select";
 import { Button as UiButton } from "../components/ui/button";
-import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
+import { SHEET_LEDE_CLASS, Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
 import { ToggleGroup } from "../components/ui/toggle-group";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bot, CircleDot, GitCompareArrows, UserRound, X } from "lucide-react";
@@ -137,19 +137,17 @@ export default function ReviewHistorySheet({
   return (
     <Sheet open onOpenChange={(open) => { if (!open) onClose(); }}>
       <SheetContent className="w-[min(560px,100%)]">
-        <SheetHeader className="items-center">
-          <div className="min-w-0 flex-1">
-            <SheetTitle>History</SheetTitle>
-            <div className="mt-0.5 text-caption text-muted-foreground">
-              Viewing {selectedRow?.capture_kind === "draft" && !selectedRow.is_published_snapshot ? "working changes" : selectedRow ? `Snapshot ${selectedRow.revision_number}` : `Snapshot ${selectedRevisionNumber}`}{latestSaved && latestSaved.revision_number !== selectedRevisionNumber ? ` · newest saved Snapshot ${latestSaved.revision_number}` : ""}
-            </div>
-          </div>
+        <SheetHeader>
+          <SheetTitle>History</SheetTitle>
           <SheetClose asChild>
             <UiButton variant="ghost" size="icon" type="button" aria-label="Close review history">
               <X size={14} />
             </UiButton>
           </SheetClose>
         </SheetHeader>
+        <div className={SHEET_LEDE_CLASS}>
+          Viewing {selectedRow?.capture_kind === "draft" && !selectedRow.is_published_snapshot ? "working changes" : selectedRow ? `Snapshot ${selectedRow.revision_number}` : `Snapshot ${selectedRevisionNumber}`}{latestSaved && latestSaved.revision_number !== selectedRevisionNumber ? ` · newest saved Snapshot ${latestSaved.revision_number}` : ""}
+        </div>
 
         <div className="flex shrink-0 border-b border-border/70 px-4 py-2">
           <ToggleGroup
@@ -222,7 +220,7 @@ export default function ReviewHistorySheet({
                     <span className="absolute -left-[5px] top-[18px] h-2.5 w-2.5 rounded-full border border-border bg-background" />
                     <div className="flex flex-wrap items-center gap-2">
                       <span className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-caption ${actor.tone}`}>
-                        {actor.icon === "human" ? <UserRound size={10} /> : actor.icon === "agent" ? <Bot size={10} /> : <CircleDot size={10} />}
+                        {actor.icon === "human" ? <UserRound size={14} /> : actor.icon === "agent" ? <Bot size={14} /> : <CircleDot size={14} />}
                         {actor.label}
                       </span>
                       {revisionNumber !== undefined && <span className="font-mono text-caption text-cyan-400/80">Snapshot {revisionNumber}</span>}
@@ -292,7 +290,7 @@ export default function ReviewHistorySheet({
                     {advancedCompareHref ? (
                       <UiButton asChild variant="outline" className="px-3 text-meta">
                         <a href={advancedCompareHref}>
-                          <GitCompareArrows size={11} aria-hidden="true" />
+                          <GitCompareArrows size={14} aria-hidden="true" />
                           Compare
                         </a>
                       </UiButton>
@@ -365,7 +363,7 @@ export default function ReviewHistorySheet({
                         {compareHref && (
                           <UiButton asChild variant="ghost" size="compact" className="text-cyan-300/80">
                             <a href={compareHref}>
-                              <GitCompareArrows size={11} aria-hidden="true" /> Compare to latest
+                              <GitCompareArrows size={14} aria-hidden="true" /> Compare to latest
                             </a>
                           </UiButton>
                         )}

@@ -1,5 +1,5 @@
 import { Button as UiButton } from "../components/ui/button";
-import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
+import { SHEET_LEDE_CLASS, Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
 import { ToggleGroup } from "../components/ui/toggle-group";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -14,7 +14,6 @@ import {
   MessageSquareText,
   Play,
   Undo2,
-  Workflow,
   X,
   XCircle,
 } from "lucide-react";
@@ -56,30 +55,30 @@ function joinNames(contributors: DevelopmentContributor[]): string {
 function eventIcon(event: DevelopmentEvent) {
   switch (event.kind) {
     case "edit":
-      return <FilePenLine size={11} />;
+      return <FilePenLine size={14} />;
     case "revert":
-      return <Undo2 size={11} />;
+      return <Undo2 size={14} />;
     case "test":
     case "validation":
     case "command":
-      return event.status === "pass" ? <CheckCircle2 size={11} /> : event.status === "fail" ? <XCircle size={11} /> : <CircleDashed size={11} />;
+      return event.status === "pass" ? <CheckCircle2 size={14} /> : event.status === "fail" ? <XCircle size={14} /> : <CircleDashed size={14} />;
     case "decision":
     case "fact":
     case "plan":
-      return <GitBranch size={11} />;
+      return <GitBranch size={14} />;
     case "question":
     case "blocker":
-      return <CircleAlert size={11} />;
+      return <CircleAlert size={14} />;
     case "handoff":
-      return <Handshake size={11} />;
+      return <Handshake size={14} />;
     case "task_started":
     case "task_completed":
-      return <Play size={10} />;
+      return <Play size={14} />;
     case "intent":
     case "message":
-      return <MessageSquareText size={11} />;
+      return <MessageSquareText size={14} />;
     default:
-      return <CircleDot size={10} />;
+      return <CircleDot size={14} />;
   }
 }
 
@@ -218,7 +217,7 @@ function Summary({ projection, onOpenPath, onClose }: {
           <ul className="space-y-1.5">
             {failed.map((check) => (
               <li key={`fail-${check.sequence}`} className="flex gap-2 text-body leading-5">
-                <XCircle size={13} className="mt-1 shrink-0 text-red-300" aria-hidden="true" />
+                <XCircle size={14} className="mt-1 shrink-0 text-red-300" aria-hidden="true" />
                 <div className="min-w-0">
                   <span className="text-red-200">{check.summary}</span>
                   <span className="ml-2 text-caption text-muted-foreground">{hostLabel(check.host)} · failed</span>
@@ -229,7 +228,7 @@ function Summary({ projection, onOpenPath, onClose }: {
             ))}
             {projection.open_items.map((item) => (
               <li key={item.id} className="flex gap-2 text-body leading-5">
-                <CircleAlert size={13} className="mt-1 shrink-0 text-amber-300" aria-hidden="true" />
+                <CircleAlert size={14} className="mt-1 shrink-0 text-amber-300" aria-hidden="true" />
                 <div className="min-w-0 text-subtle">
                   {item.summary}
                   <span className="ml-2 text-caption text-muted-foreground">{hostLabel(item.host)} · {item.kind === "blocker" ? "blocker" : "open question"}</span>
@@ -239,7 +238,7 @@ function Summary({ projection, onOpenPath, onClose }: {
             ))}
             {projection.unattributed_paths.length > 0 && (
               <li className="flex gap-2 text-body leading-5">
-                <CircleDashed size={13} className="mt-1 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <CircleDashed size={14} className="mt-1 shrink-0 text-muted-foreground" aria-hidden="true" />
                 <div className="min-w-0 text-subtle">
                   {plural(projection.unattributed_paths.length, "changed file")} with no recorded author
                   <div className="mt-0.5 flex flex-wrap gap-x-1">
@@ -305,7 +304,7 @@ function Verification({ projection }: { projection: DevelopmentProjection }) {
         {visible.map((check) => (
           <li key={`${check.sequence}-${check.name}`} className="flex items-center gap-2 text-label">
             <span className={statusTone(check.status)} aria-label={check.status}>
-              {check.status === "pass" ? <CheckCircle2 size={12} /> : check.status === "fail" ? <XCircle size={12} /> : <CircleDashed size={12} />}
+              {check.status === "pass" ? <CheckCircle2 size={14} /> : check.status === "fail" ? <XCircle size={14} /> : <CircleDashed size={14} />}
             </span>
             <span className="min-w-0 flex-1 truncate font-mono text-subtle" title={check.summary}>{check.summary}</span>
             <span className="shrink-0 text-caption text-muted-foreground">{hostLabel(check.host)}</span>
@@ -394,7 +393,7 @@ function Feedback({ projection, revisionNumber }: { projection: DevelopmentProje
           ].filter(Boolean);
           return (
             <li key={item.causation_id} className="flex gap-2 text-body leading-5">
-              <Handshake size={13} className="mt-1 shrink-0 text-cyan-300" aria-hidden="true" />
+              <Handshake size={14} className="mt-1 shrink-0 text-cyan-300" aria-hidden="true" />
               <div className="min-w-0">
                 <div className="text-foreground">
                   {who} {item.edit_count > 0 ? "addressed" : "received"} {plural(item.annotation_ids.length || 1, "comment")}
@@ -574,7 +573,7 @@ function Timeline({ reviewId, revisionNumber, hasSince, initialScope, onOpenPath
           ) : (
             <li key={row.key} className="relative border-l border-border py-2 pl-5">
               <span className="absolute -left-[10px] top-[9px] inline-flex h-[19px] w-[19px] items-center justify-center rounded-full border border-border bg-background text-muted-foreground" aria-hidden="true">
-                <MessageSquareText size={11} />
+                <MessageSquareText size={14} />
               </span>
               <details className="text-body">
                 <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
@@ -641,20 +640,17 @@ export default function ReviewDevelopmentSheet({
           }
         }}
       >
-        <SheetHeader className="gap-3 px-5 py-3.5">
-          <Workflow size={15} className="mt-0.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-          <div className="min-w-0 flex-1">
-            <SheetTitle className="text-title">Activity</SheetTitle>
-            <p className="mt-0.5 text-label text-muted-foreground">
-              {session ? "Latest recorded conversation" : `Snapshot ${development.revision_number} · ${historical ? "frozen historical record" : "frozen with this Snapshot"}`}
-            </p>
-          </div>
+        <SheetHeader>
+          <SheetTitle>Activity</SheetTitle>
           <SheetClose asChild>
             <UiButton variant="ghost" size="icon" type="button" aria-label="Close activity">
               <X size={14} />
             </UiButton>
           </SheetClose>
         </SheetHeader>
+        <p className={SHEET_LEDE_CLASS}>
+          {session ? "Latest recorded conversation" : `Snapshot ${development.revision_number} · ${historical ? "frozen historical record" : "frozen with this Snapshot"}`}
+        </p>
 
         {newer && !session && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-cyan-900/50 bg-cyan-950/20 px-5 py-2.5 text-body text-cyan-200" role="status">
@@ -685,7 +681,7 @@ export default function ReviewDevelopmentSheet({
         <div hidden={Boolean(session)} className="min-h-0 flex-1 overflow-y-auto">
           {empty ? (
             <div className="px-5 py-10 text-center">
-              <ListChecks size={18} className="mx-auto text-muted-foreground" aria-hidden="true" />
+              <ListChecks size={20} className="mx-auto text-muted-foreground" aria-hidden="true" />
               <p className="mx-auto mt-3 max-w-[46ch] text-body leading-5 text-muted-foreground">
                 {development.reason || "No development evidence is attached to this Snapshot."}
               </p>

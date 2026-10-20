@@ -325,7 +325,6 @@ describe("severity and kind carry state, sources only attribute", () => {
     expect(annotationRail(finding("p0"))).toBe("p0");
     expect(annotationRail(finding("p1"))).toBe("p1");
     expect(annotationRail(finding("p2"))).toBe("p2");
-    expect(annotationRail(finding("suggestion"))).toBe("neutral");
     expect(annotationRail(finding())).toBe("neutral");
     expect(annotationRail(annotation({ kind: "request_change" }))).toBe("p0");
     expect(annotationRail(annotation({ kind: "suggestion" }))).toBe("p2");
@@ -337,7 +336,7 @@ describe("severity and kind carry state, sources only attribute", () => {
     expect(annotationSeverity(annotation({ source: "human", severity: "p1" }))).toBeNull();
     expect(annotationSeverity(annotation({ source: "ai_review", severity: "p1", parent_id: "root" }))).toBeNull();
     expect(severityTone("p0")).toBe("p0");
-    expect(severityTone("suggestion")).toBe("neutral");
+    expect(severityTone("p2")).toBe("p2");
   });
 
   it("uses the violet attribution tone for AI and agents only", () => {

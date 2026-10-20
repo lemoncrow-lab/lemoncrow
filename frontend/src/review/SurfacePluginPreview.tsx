@@ -137,7 +137,7 @@ function ArtifactBody({ display, side, value, label }: { display: string; side: 
         size="xs"
         onClick={() => saveBlobUrl(value.url, value.filename)}
       >
-        <Download size={11} /> Download {side}
+        <Download size={14} /> Download {side}
       </UiButton>
     </div>
   );
@@ -173,7 +173,7 @@ function SidePane({
           <div className="mt-2 flex items-center gap-3 text-caption text-muted-foreground">
             <span>Source review below is unaffected.</span>
             <UiButton type="button" variant="link" onClick={onRetry} className="text-muted-foreground hover:text-foreground">
-              <RotateCw size={10} /> Retry
+              <RotateCw size={14} /> Retry
             </UiButton>
           </div>
         </div>

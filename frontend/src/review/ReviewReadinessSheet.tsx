@@ -1,6 +1,7 @@
 import { Badge } from "../components/ui/badge";
 import { Button as UiButton } from "../components/ui/button";
-import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
+import { SHEET_LEDE_CLASS, Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
+import { cn } from "../lib/utils";
 import type { ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, CircleDot, ExternalLink, X } from "lucide-react";
 
@@ -351,11 +352,11 @@ function followUpText(record: ReviewBreakGlassRecord): string {
 }
 
 function LandingConditionIcon({ condition }: { condition: ReviewLandingCondition }) {
-  if (condition.state === "pass") return <CheckCircle2 size={12} className="mt-0.5 shrink-0 text-emerald-400" />;
-  if (condition.state === "fail") return <AlertTriangle size={12} className="mt-0.5 shrink-0 text-red-400" />;
-  if (condition.state === "not_applicable") return <CircleDot size={11} className="mt-0.5 shrink-0 text-muted-foreground" />;
-  if (condition.state === "waived") return <CircleDot size={11} className="mt-0.5 shrink-0 text-muted-foreground" />;
-  return <CircleDot size={11} className="mt-0.5 shrink-0 text-amber-300" />;
+  if (condition.state === "pass") return <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-emerald-400" />;
+  if (condition.state === "fail") return <AlertTriangle size={14} className="mt-0.5 shrink-0 text-red-400" />;
+  if (condition.state === "not_applicable") return <CircleDot size={14} className="mt-0.5 shrink-0 text-muted-foreground" />;
+  if (condition.state === "waived") return <CircleDot size={14} className="mt-0.5 shrink-0 text-muted-foreground" />;
+  return <CircleDot size={14} className="mt-0.5 shrink-0 text-amber-300" />;
 }
 
 export default function ReviewReadinessSheet({
@@ -429,38 +430,37 @@ export default function ReviewReadinessSheet({
   return (
     <Sheet open onOpenChange={(open) => { if (!open) onClose(); }}>
       <SheetContent className="w-[min(440px,100%)]">
-        <SheetHeader className="items-center">
-          <div className="min-w-0 flex-1">
-            <SheetTitle className="text-body">Review Status</SheetTitle>
-            {landing ? (
-              <div
-                className={`mt-0.5 text-caption ${
-                  landing.landing.state === "merged" || (landing.ready && landing.landing.supported)
-                    ? "text-emerald-300"
-                    : landing.ready
-                      ? "text-muted-foreground"
-                      : "text-amber-300"
-                }`}
-              >
-                {landing.landing.state === "merged"
-                  ? "Merged"
-                  : landing.ready
-                  ? landing.landing.supported
-                    ? "Ready to merge"
-                    : "Review ready · merge unavailable"
-                  : `Not ready · ${landing.blocker_count} condition${landing.blocker_count === 1 ? "" : "s"}`}
-                <span className="ml-2 font-mono text-muted-foreground">Snapshot {landing.snapshot_number}</span>
-              </div>
-            ) : (
-              <div className={`mt-0.5 text-caption ${model.ready ? "text-emerald-300" : "text-muted-foreground"}`} title={model.detail}>{model.label}</div>
-            )}
-          </div>
+        <SheetHeader>
+          <SheetTitle>Review Status</SheetTitle>
           <SheetClose asChild>
             <UiButton variant="ghost" size="icon" type="button" aria-label="Close review status">
               <X size={14} />
             </UiButton>
           </SheetClose>
         </SheetHeader>
+        {landing ? (
+          <div
+            className={cn(
+              SHEET_LEDE_CLASS,
+              landing.landing.state === "merged" || (landing.ready && landing.landing.supported)
+                ? "text-emerald-300"
+                : landing.ready
+                  ? "text-muted-foreground"
+                  : "text-amber-300",
+            )}
+          >
+            {landing.landing.state === "merged"
+              ? "Merged"
+              : landing.ready
+              ? landing.landing.supported
+                ? "Ready to merge"
+                : "Review ready · merge unavailable"
+              : `Not ready · ${landing.blocker_count} condition${landing.blocker_count === 1 ? "" : "s"}`}
+            <span className="ml-2 font-mono text-muted-foreground">Snapshot {landing.snapshot_number}</span>
+          </div>
+        ) : (
+          <div className={cn(SHEET_LEDE_CLASS, model.ready ? "text-emerald-300" : "text-muted-foreground")} title={model.detail}>{model.label}</div>
+        )}
 
         <div className="min-h-0 flex-1 overflow-auto p-4">
           {!landing && landingError && (
@@ -480,7 +480,7 @@ export default function ReviewReadinessSheet({
             </div>
             {yourBlockers.length === 0 ? (
               <div className="flex items-center gap-2 rounded-md border border-emerald-900/35 bg-emerald-950/10 px-3 py-2.5 text-caption text-emerald-300">
-                <CheckCircle2 size={12} />
+                <CheckCircle2 size={14} />
                 No unresolved blockers in your current review.
               </div>
             ) : (
@@ -488,8 +488,8 @@ export default function ReviewReadinessSheet({
                 {yourBlockers.map((item) => (
                   <div key={item.id} className="flex gap-2.5 py-2.5">
                     {item.tone === "rose"
-                      ? <AlertTriangle size={12} className="mt-0.5 shrink-0 text-red-400" />
-                      : <CircleDot size={11} className={`mt-0.5 shrink-0 ${toneClass(item.tone)}`} />}
+                      ? <AlertTriangle size={14} className="mt-0.5 shrink-0 text-red-400" />
+                      : <CircleDot size={14} className={`mt-0.5 shrink-0 ${toneClass(item.tone)}`} />}
                     <div className="min-w-0">
                       <div className={`text-caption font-medium ${toneClass(item.tone)}`}>{item.label}</div>
                       <div className="mt-0.5 text-caption leading-4 text-muted-foreground">{item.detail}</div>
@@ -525,7 +525,7 @@ export default function ReviewReadinessSheet({
                 <div className="divide-y divide-border border-y border-border">
                   {teamBlockers.map((item) => (
                     <div key={item.id} className="flex gap-2.5 py-2.5">
-                      <CircleDot size={11} className={`mt-0.5 shrink-0 ${toneClass(item.tone)}`} />
+                      <CircleDot size={14} className={`mt-0.5 shrink-0 ${toneClass(item.tone)}`} />
                       <div className="min-w-0">
                         <div className={`text-caption font-medium ${toneClass(item.tone)}`}>{item.label}</div>
                         <div className="mt-0.5 text-caption leading-4 text-muted-foreground">{item.detail}</div>
@@ -548,7 +548,7 @@ export default function ReviewReadinessSheet({
                 <div className="divide-y divide-border border-y border-border">
                   {scmFallbackBlockers.map((item) => (
                     <div key={item.id} className="flex gap-2.5 py-2.5">
-                      <CircleDot size={11} className={`mt-0.5 shrink-0 ${toneClass(item.tone)}`} />
+                      <CircleDot size={14} className={`mt-0.5 shrink-0 ${toneClass(item.tone)}`} />
                       <div className="min-w-0">
                         <div className={`text-caption font-medium ${toneClass(item.tone)}`}>{item.label}</div>
                         <div className="mt-0.5 text-caption leading-4 text-muted-foreground">{item.detail}</div>
@@ -576,7 +576,7 @@ export default function ReviewReadinessSheet({
                       )}
                       {webHref(condition.url) && (
                         <a href={webHref(condition.url)} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-meta text-cyan-300 hover:underline">
-                          Open requirement <ExternalLink size={10} />
+                          Open requirement <ExternalLink size={14} />
                         </a>
                       )}
                     </div>
@@ -630,7 +630,7 @@ export default function ReviewReadinessSheet({
                         {webHref(item.url) ? (
                           <a href={webHref(item.url)} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-3 text-meta text-subtle hover:text-foreground">
                             <span className="min-w-0 truncate">{item.title || item.external_id || "Associated work item"}</span>
-                            <span className="flex shrink-0 items-center gap-1 text-muted-foreground">{item.provider || "external"}<ExternalLink size={10} /></span>
+                            <span className="flex shrink-0 items-center gap-1 text-muted-foreground">{item.provider || "external"}<ExternalLink size={14} /></span>
                           </a>
                         ) : (
                           <div className="text-caption text-muted-foreground">{item.title || item.external_id || "Associated work item"}</div>
@@ -670,7 +670,7 @@ export default function ReviewReadinessSheet({
                     )}
                     {webHref(landing.landing.url) && (
                       <a href={webHref(landing.landing.url)} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-meta text-cyan-300 hover:underline">
-                        Open {landing.landing.provider || "provider"} <ExternalLink size={10} />
+                        Open {landing.landing.provider || "provider"} <ExternalLink size={14} />
                       </a>
                     )}
                   </div>
@@ -721,7 +721,7 @@ export default function ReviewReadinessSheet({
                       <div className="text-muted-foreground">{record.reason}</div>
                       {webHref(record.incident_url) && (
                         <a href={webHref(record.incident_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-cyan-300 hover:underline">
-                          Incident <ExternalLink size={10} />
+                          Incident <ExternalLink size={14} />
                         </a>
                       )}
                       <div className={record.follow_up.state === "overdue" ? "text-red-300" : record.follow_up.state === "completed" ? "text-emerald-300" : "text-amber-300"}>

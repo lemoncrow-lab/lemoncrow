@@ -145,7 +145,7 @@ export default function ReviewCodePeek({ projectRoot, path, symbol, line, onJump
                           aria-label={`Open ${reference.path}:L${reference.line} in Code`}
                           tooltip="Open in Code (current index)"
                         >
-                          <Code2 size={11} />
+                          <Code2 size={14} />
                         </UiButton>
                       )}
                     </div>

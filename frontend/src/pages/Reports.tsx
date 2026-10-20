@@ -61,7 +61,7 @@ export default function Reports() {
 
       {list !== null && list.length === 0 && (
         <EmptyState
-          icon={<FileText size={28} />}
+          icon={<FileText size={20} />}
           title="No benchmark reports yet"
           description={
             <>

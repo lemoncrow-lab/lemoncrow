@@ -18,6 +18,12 @@
   --fs-title: 1rem;
 }
 
+/* Icons: one stroke weight (spec 3.8). lucide writes `stroke-width="2"` as an attribute, which any rule beats, so no
+   call site sets it. Sizes are the 14/16/20 scale, enforced by check:ui-primitives. */
+svg.lucide {
+  stroke-width: 1.75;
+}
+
 /* ===== App ramps, derived from the shared tokens (src/design/lc-tokens.css) =====
  * The semantic tokens (--background, --card, --muted, --border, --ring, ...) and the accent come from
  * the shared file. What stays here are the Review app's own names: the neutral ramp (50 = ink end,

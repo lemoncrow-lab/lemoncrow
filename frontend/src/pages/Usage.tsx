@@ -1,6 +1,7 @@
 import { Select, SelectItem } from "../components/ui/select";
 import { Button as UiButton } from "../components/ui/button";
 import {
+  SHEET_LEDE_CLASS,
   Sheet,
   SheetBody,
   SheetClose,
@@ -86,39 +87,37 @@ export default function Usage() {
           className="w-[min(900px,88vw)]"
           aria-describedby={undefined}
         >
-          <SheetHeader className="items-center">
-            <div className="min-w-0 flex-1">
-              <SheetTitle className="text-caption font-mono font-normal uppercase tracking-widest text-muted-foreground">
-                Usage inspector
-              </SheetTitle>
-              <div className="mt-0.5 text-heading font-semibold text-foreground">
-                {INSPECTOR_LABELS[inspectorView]}
-              </div>
-            </div>
-            <Select
-              aria-label="Usage inspector view"
-              value={inspectorView}
-              onValueChange={(value) =>
-                selectInspectorView(value as InspectorView)
-              }
-              uiSize="xs"
-              className="min-w-44"
-            >
-              <SelectItem value="savings">Savings evidence</SelectItem>
-              {hasRuntimeInspectors && <SelectItem value="advisor">Optimization advisor</SelectItem>}
-              {hasRuntimeInspectors && <SelectItem value="benchmarks">Benchmarks</SelectItem>}
-            </Select>
-            <SheetClose asChild>
-              <UiButton
-                type="button"
-                size="icon"
-                variant="ghost"
-                aria-label="Close usage inspector"
+          <SheetHeader>
+            <SheetTitle>Usage inspector</SheetTitle>
+            <div className="flex shrink-0 items-center gap-2">
+              <Select
+                aria-label="Usage inspector view"
+                value={inspectorView}
+                onValueChange={(value) =>
+                  selectInspectorView(value as InspectorView)
+                }
+                uiSize="xs"
+                className="min-w-44"
               >
-                <X size={16} />
-              </UiButton>
-            </SheetClose>
+                <SelectItem value="savings">Savings evidence</SelectItem>
+                {hasRuntimeInspectors && <SelectItem value="advisor">Optimization advisor</SelectItem>}
+                {hasRuntimeInspectors && <SelectItem value="benchmarks">Benchmarks</SelectItem>}
+              </Select>
+              <SheetClose asChild>
+                <UiButton
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  aria-label="Close usage inspector"
+                >
+                  <X size={16} />
+                </UiButton>
+              </SheetClose>
+            </div>
           </SheetHeader>
+          <div className={`${SHEET_LEDE_CLASS} text-heading font-semibold text-foreground`}>
+            {INSPECTOR_LABELS[inspectorView]}
+          </div>
 
           <SheetBody>
             <Suspense fallback={null}>

@@ -2694,7 +2694,38 @@ def register_review_api(
             _annotation_context_payload(session, target, item, by_id=by_id, versions=versions.get(item.id, ()))
             for item in annotations
         ]
+        _with_finding_severity(session, target, annotations, payloads, revisions=tuple(by_id.values()))
         return _with_owning_change(session, target, annotations, payloads)
+
+    def _with_finding_severity(
+        session: ReviewSession,
+        target: ReviewRevision,
+        annotations: Sequence[Annotation],
+        payloads: Sequence[dict[str, Any]],
+        *,
+        revisions: Sequence[ReviewRevision] | None = None,
+    ) -> None:
+        """Give each AI finding its P0/P1/P2, by the product's one severity rule (``review_triage.finding_severities``).
+
+        Optional on the wire: a finding with no severity evidence has none, and a human comment never does (it keeps its
+        kind). Snapshots after *target* are not read, so a historical view rates a finding as it stood then.
+        """
+
+        if not any(item.source == "ai_review" and not item.parent_id for item in annotations):
+            return
+        from lemoncrow.pro.capabilities.review.review_triage import finding_severities
+
+        known = store.list_revisions(session.id) if revisions is None else revisions
+        upto = sorted(
+            (item for item in known if item.revision_number <= target.revision_number),
+            key=lambda item: item.revision_number,
+            reverse=True,
+        )
+        rated = finding_severities(store, annotations, [item.id for item in upto])
+        for annotation, payload in zip(annotations, payloads, strict=True):
+            severity = rated.get(annotation.id)
+            if severity is not None:
+                payload["severity"] = severity
 
     def _with_owning_change(
         session: ReviewSession,
@@ -16645,7 +16676,9 @@ def register_review_api(
             # What was said changed (state changes never do): a summarized thread refreshes.
             await asyncio.to_thread(_refresh_thread_summary, session, updated.id)
         await _enforce_armed_landing(session)
-        return {"annotation": _annotation_payload(updated)}
+        payload = _annotation_payload(updated)
+        _with_finding_severity(session, revision, (updated,), (payload,))
+        return {"annotation": payload}
 
     def _feedback_snapshot(session: ReviewSession, revision: ReviewRevision) -> dict[str, Any]:
         packet = read_packet_json(store, revision)

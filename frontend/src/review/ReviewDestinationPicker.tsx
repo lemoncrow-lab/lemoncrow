@@ -143,7 +143,7 @@ export function ReviewDestinationPicker({
                     disabled={!option.available || current}
                     onSelect={() => void choose(option)}
                   >
-                    <span className="mt-0.5 w-3 shrink-0">{current && <Check size={12} aria-label="current" />}</span>
+                    <span className="mt-0.5 w-3 shrink-0">{current && <Check size={14} aria-label="current" />}</span>
                     <span className="min-w-0 flex-1">
                       <span className="flex items-baseline justify-between gap-2">
                         <span className="block min-w-0 truncate" title={option.label}>{option.kind === "auto" ? `${option.label} · default` : option.label}</span>
@@ -232,7 +232,7 @@ export function ReviewHandoffControls({
           : `Preview feedback for ${label} and choose a review outcome. Nothing is sent until you confirm.`)}
         className="rounded-r-none px-3 review-reader-primary"
       >
-        <Send size={12} aria-hidden="true" />
+        <Send size={14} aria-hidden="true" />
         <span>{action}</span>
       </UiButton>
       <ReviewDestinationPicker reviewId={reviewId} disabled={busy} onChanged={onDestinationChanged}>
@@ -243,7 +243,7 @@ export function ReviewHandoffControls({
           title={`Fixes go to: ${label}`}
           className="rounded-l-none border-l-0 px-1"
         >
-          <ChevronDown size={12} aria-hidden="true" />
+          <ChevronDown size={14} aria-hidden="true" />
         </UiButton>
       </ReviewDestinationPicker>
     </div>

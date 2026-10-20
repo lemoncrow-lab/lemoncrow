@@ -1954,6 +1954,8 @@ def _persist_findings(
                 target_ids=finding.target_ids,
                 title=finding.title,
                 rule_refs=finding.rule_refs,
+                impact=finding.severity,
+                verified=finding.verified,
             )
         )
     record_finding_evidence(store, review_id=revision.review_id, revision_id=revision.id, rows=evidence)

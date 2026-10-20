@@ -160,7 +160,7 @@ export default function ReviewPremergeChecks({
                 {webHref(intent.bound.url) ? (
                   <a href={webHref(intent.bound.url)} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-1 text-subtle hover:text-foreground">
                     <span className="truncate">{intent.bound.title || intent.ref}</span>
-                    <ExternalLink size={10} className="shrink-0" />
+                    <ExternalLink size={14} className="shrink-0" />
                   </a>
                 ) : (
                   <span className="min-w-0 truncate text-subtle">{intent.bound.title || intent.ref}</span>
@@ -195,7 +195,7 @@ export default function ReviewPremergeChecks({
           <div className="divide-y divide-border border-y border-border">
             {trial.map((check) => (
               <div key={check.id} className="flex gap-2.5 py-2">
-                <CircleDot size={11} className="mt-0.5 shrink-0 text-cyan-300" />
+                <CircleDot size={14} className="mt-0.5 shrink-0 text-cyan-300" />
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-x-2">
                     <span className="text-caption font-medium text-subtle">{check.title}</span>
@@ -228,7 +228,7 @@ export default function ReviewPremergeChecks({
 
       {waived.map((check) => check.waiver && (
         <div key={check.id} className="mb-1.5 flex gap-2.5 text-caption leading-4">
-          <CircleDot size={11} className="mt-0.5 shrink-0 text-muted-foreground" />
+          <CircleDot size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
           <div className="min-w-0 text-muted-foreground">
             <span className="text-subtle">{check.title}</span> ({check.status}) waived by {check.waiver.actor} until{" "}
             {instant(check.waiver.expires_at)} · {check.waiver.scope === "review" ? "same-path Snapshots" : "this Snapshot"} · policy{" "}
@@ -238,7 +238,7 @@ export default function ReviewPremergeChecks({
       ))}
       {lapsed.map((check) => (
         <div key={check.id} className="mb-1.5 flex gap-2.5 text-caption leading-4 text-amber-300">
-          <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
           <span>{check.title}: {check.waiver_note}</span>
         </div>
       ))}

@@ -8,9 +8,11 @@ const SymbolsFileIcon = lazy(async () => {
 
 interface FileTypeIconProps {
   path: string;
-  size?: number;
   className?: string;
 }
+
+/** File-type glyphs encode content and keep their colours, but sit on the 14px step of the icon scale. */
+const SIZE = 14;
 
 function basename(path: string): string {
   const normalized = path.replace(/\\/g, "/");
@@ -24,7 +26,7 @@ function basename(path: string): string {
  * such as package.json, Dockerfile, vite.config.*, and README.*. It is loaded
  * as a separate chunk so the icon catalog does not inflate initial bundles.
  */
-export default function FileTypeIcon({ path, size = 14, className = "" }: FileTypeIconProps) {
+export default function FileTypeIcon({ path, className = "" }: FileTypeIconProps) {
   const fileName = basename(path);
   return (
     <span
@@ -32,12 +34,12 @@ export default function FileTypeIcon({ path, size = 14, className = "" }: FileTy
       aria-hidden="true"
       data-file-icon={fileName}
     >
-      <Suspense fallback={<GenericFileIcon width={size} height={size} strokeWidth={1.6} className="text-muted-foreground" />}>
+      <Suspense fallback={<GenericFileIcon width={SIZE} height={SIZE} className="text-muted-foreground" />}>
         <SymbolsFileIcon
           fileName={fileName}
           autoAssign
-          width={size}
-          height={size}
+          width={SIZE}
+          height={SIZE}
         />
       </Suspense>
     </span>

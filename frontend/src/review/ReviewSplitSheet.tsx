@@ -1,5 +1,5 @@
 import { Button as UiButton } from "../components/ui/button";
-import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "../components/ui/sheet";
+import { Sheet, SheetClose, SheetContent, SheetHeader, SheetLede, SheetTitle } from "../components/ui/sheet";
 import { Input as UiInput } from "../components/ui/input";
 import { Textarea as UiTextarea } from "../components/ui/textarea";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -202,18 +202,16 @@ export default function ReviewSplitSheet({
     <Sheet open onOpenChange={(open) => { if (!open) onClose(); }}>
       <SheetContent className="w-[min(640px,100%)]" aria-label="Request split preview">
         <SheetHeader>
-          <div className="min-w-0 flex-1">
-            <SheetTitle>Request split</SheetTitle>
-            <SheetDescription>
-              The authoring agent builds one stacked branch per cohort. Collected layers become Reviews linked to this one; this Review stays open and nothing here closes it.
-            </SheetDescription>
-          </div>
+          <SheetTitle>Request split</SheetTitle>
           <SheetClose asChild>
             <UiButton variant="ghost" size="icon" type="button" aria-label="Close split preview">
               <X size={14} />
             </UiButton>
           </SheetClose>
         </SheetHeader>
+        <SheetLede>
+          The authoring agent builds one stacked branch per cohort. Collected layers become Reviews linked to this one; this Review stays open and nothing here closes it.
+        </SheetLede>
         <div className="min-h-0 flex-1 space-y-4 overflow-auto px-4 py-3 text-label">
           {loading && !preview && (
             <div className="flex items-center gap-2 text-muted-foreground">

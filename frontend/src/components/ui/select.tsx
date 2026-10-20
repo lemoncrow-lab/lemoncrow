@@ -298,7 +298,7 @@ export function Select({
         )}
       >
         <span className="min-w-0 flex-1 truncate">{selected?.children ?? placeholder}</span>
-        <ChevronDown size={12} className={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
+        <ChevronDown size={14} className={cn("shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} />
       </button>
       {open && rect && createPortal(
         <div
@@ -364,7 +364,7 @@ export function Select({
                   )}
                 >
                   <span className="min-w-0 flex-1 truncate">{item.children}</span>
-                  {active && <Check size={12} className="shrink-0" />}
+                  {active && <Check size={14} className="shrink-0" />}
                 </button>
               );
             })}

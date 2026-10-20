@@ -88,7 +88,7 @@ export default function Learnings() {
           value: s.id,
           label: (
             <span className="flex items-center gap-1.5">
-              <s.icon size={12} />
+              <s.icon size={14} />
               <span>{s.label}</span>
             </span>
           ),
@@ -280,7 +280,7 @@ function FailuresSection() {
   if (items.length === 0)
     return (
       <div className="py-6 text-center text-muted-foreground">
-        <Check size={32} className="mx-auto mb-3 text-emerald-300" />
+        <Check size={20} className="mx-auto mb-3 text-emerald-300" />
         <p>No failure clusters detected — agents running smoothly.</p>
       </div>
     );
@@ -413,7 +413,7 @@ function PlansSection() {
   if (items.length === 0)
     return (
       <div className="py-6 text-center text-muted-foreground">
-        <ClipboardList size={32} className="mx-auto mb-3" />
+        <ClipboardList size={20} className="mx-auto mb-3" />
         <p>No plan validation results yet.</p>
       </div>
     );
@@ -484,7 +484,7 @@ function PlansSection() {
                         }`}
                       >
                         <span className="flex-shrink-0 mt-0.5">
-                          {c.passed ? <Check size={12} /> : <X size={12} />}
+                          {c.passed ? <Check size={14} /> : <X size={14} />}
                         </span>
                         <div className="flex-1">
                           <div>{c.name}</div>
@@ -546,11 +546,11 @@ function BlockCard({
       >
         <div className="flex-shrink-0 mt-0.5">
           {block.status === "active" ? (
-            <CircleDot size={18} className="text-emerald-300" />
+            <CircleDot size={16} className="text-emerald-300" />
           ) : block.status === "retired" ? (
-            <CircleDashed size={18} className="text-muted-foreground" />
+            <CircleDashed size={16} className="text-muted-foreground" />
           ) : (
-            <Circle size={18} className="text-red-300" />
+            <Circle size={16} className="text-red-300" />
           )}
         </div>
         <div className="flex-1 min-w-0">
@@ -886,7 +886,7 @@ function MatchHints({ block }: { block: Playbook }) {
         onClick={() => setOpen(!open)}
         className="flex items-center gap-2 text-meta uppercase font-semibold tracking-widest text-muted-foreground hover:text-muted-foreground transition mb-2"
       >
-        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />} Match
+        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />} Match
         hints
       </UiButton>
       {open && (
