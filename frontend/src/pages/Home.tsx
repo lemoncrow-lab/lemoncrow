@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, AlertTriangle, ArrowRight, ClipboardCheck, Play } from "lucide-react";
+import { Activity, AlertTriangle, ArrowRight, ClipboardCheck, PiggyBank, Play } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import {
@@ -9,6 +9,8 @@ import {
   type TraceSummary,
 } from "../api";
 import { Badge, Chip, PageFrame } from "../components/WorkbenchUI";
+import { Button } from "../components/ui/button";
+import { EmptyState } from "../components/ui/empty-state";
 import { Hunk } from "../components/ui/hunk";
 import {
   fetchLocalIntegrations,
@@ -21,6 +23,10 @@ import {
   reviewHref,
 } from "../review/reviewApi";
 import type { ReviewDirectoryRow } from "../review/types";
+
+function sessionCount(count: number): string {
+  return `${count} ${count === 1 ? "session" : "sessions"}`;
+}
 
 function isActiveRun(trace: TraceSummary): boolean {
   const status = trace.status.toLowerCase();
@@ -183,6 +189,40 @@ export default function Home() {
       : Math.max(0, savings.total_naive_tokens - savings.total_actual_tokens)
     : 0;
 
+  // A measure with no evidence is an empty state that says what will appear and where to go, never a "No data" tile.
+  const savingsMissing = savings?.savings_available === false;
+  const spendMissing = savings?.spend_available === false;
+  const savingsEmptyEverywhere = runtimeAvailable && !savingsUnavailable && savings !== null && savingsMissing && spendMissing;
+  const tileClass = (minWidth: string, divider: boolean) =>
+    `${minWidth} flex flex-1 flex-col justify-center ${divider ? "border-r border-border " : ""}px-3 py-2.5`;
+  const savedTile = (
+    <div className={tileClass("min-w-[130px]", true)}>
+      <div className="font-mono text-tag uppercase text-muted-foreground">Saved</div>
+      <div className="mt-0.5 text-heading font-semibold"><span className="text-ok">{fmtUsd(totalSavedUsd)}</span></div>
+    </div>
+  );
+  const reductionTile = (
+    <div className={tileClass("min-w-[130px]", true)}>
+      <div className="font-mono text-tag uppercase text-muted-foreground">Reduction</div>
+      <div className="mt-0.5 text-heading font-semibold text-foreground">{fmtPct(savedPct)}</div>
+    </div>
+  );
+  const costTile = (
+    <div className={tileClass("min-w-[170px]", true)}>
+      <div className="font-mono text-tag uppercase text-muted-foreground">Cost</div>
+      <div className="mt-0.5 text-heading font-semibold text-foreground">
+        {(savings?.spend?.unpriced_rows ?? 0) > 0 ? "≥ " : ""}{fmtUsd(actualCostUsd)}
+        {!savingsMissing && <span className="font-normal text-muted-foreground"> / {fmtUsd(baselineCostUsd)} baseline</span>}
+      </div>
+    </div>
+  );
+  const tokensTile = (divider: boolean) => (
+    <div className={tileClass("min-w-[140px]", divider)}>
+      <div className="font-mono text-tag uppercase text-muted-foreground">Tokens saved</div>
+      <div className="mt-0.5 text-heading font-semibold text-foreground">{fmtTok(savedTokens)}</div>
+    </div>
+  );
+
   return (
     <PageFrame className="space-y-5 text-foreground">
       {error && (
@@ -194,15 +234,29 @@ export default function Home() {
       {runtimeAvailable && (
       <section
         aria-label="Savings summary"
-        className="hunk flex flex-wrap items-stretch"
+        className={savingsEmptyEverywhere ? undefined : "hunk flex flex-wrap items-stretch"}
       >
+        {savingsEmptyEverywhere ? (
+          <EmptyState
+            label={insights ? `Last 7 days · ${sessionCount(insights.session_count)}` : "Last 7 days"}
+            icon={<PiggyBank aria-hidden="true" />}
+            title="No usage or savings recorded yet"
+            description="Saved, reduction, cost and tokens saved appear here once a connected coding agent records them."
+            action={
+              <Button asChild variant="outline">
+                <Link to="/settings/integrations">{integrationIssue ? "Connect a coding agent" : "Open Integrations"}</Link>
+              </Button>
+            }
+          />
+        ) : (
+          <>
         <div className="flex min-w-[150px] flex-1 items-center gap-3 border-b border-border px-3 py-2.5 sm:border-b-0 sm:border-r">
           <div className="min-w-0">
             <div className="font-mono text-tag uppercase text-muted-foreground">
               Last 7 days
             </div>
             <div className="mt-0.5 text-caption text-muted-foreground">
-              {insights ? `${insights.session_count} sessions` : "Current usage"}
+              {insights ? sessionCount(insights.session_count) : "Current usage"}
             </div>
           </div>
         </div>
@@ -212,27 +266,54 @@ export default function Home() {
           </div>
         ) : savings ? (
           <>
-            <div className="min-w-[130px] flex-1 border-r border-border px-3 py-2.5">
-              <div className="font-mono text-tag uppercase text-muted-foreground">Saved</div>
-              <div className="mt-0.5 text-heading font-semibold">{savings.savings_available === false ? <span className="font-normal text-muted-foreground">No data</span> : <span className="text-ok">{fmtUsd(totalSavedUsd)}</span>}</div>
-            </div>
-            <div className="min-w-[130px] flex-1 border-r border-border px-3 py-2.5">
-              <div className="font-mono text-tag uppercase text-muted-foreground">Reduction</div>
-              <div className="mt-0.5 text-heading font-semibold text-foreground">{savings.savings_available === false || savings.spend_available === false ? <span className="font-normal text-muted-foreground">No data</span> : fmtPct(savedPct)}</div>
-            </div>
-            <div className="min-w-[170px] flex-1 border-r border-border px-3 py-2.5">
-              <div className="font-mono text-tag uppercase text-muted-foreground">Cost</div>
-              <div className="mt-0.5 text-heading font-semibold text-foreground">
-                {savings.spend_available === false ? <span className="font-normal text-muted-foreground">No data</span> : <>
-                  {(savings.spend?.unpriced_rows ?? 0) > 0 ? "≥ " : ""}{fmtUsd(actualCostUsd)}
-                  {savings.savings_available !== false && <span className="font-normal text-muted-foreground"> / {fmtUsd(baselineCostUsd)} baseline</span>}
-                </>}
-              </div>
-            </div>
-            <div className="min-w-[140px] flex-1 px-3 py-2.5">
-              <div className="font-mono text-tag uppercase text-muted-foreground">Tokens saved</div>
-              <div className="mt-0.5 text-heading font-semibold text-foreground">{savings.savings_available === false ? <span className="font-normal text-muted-foreground">No data</span> : fmtTok(savedTokens)}</div>
-            </div>
+            {!savingsMissing && !spendMissing && (
+              <>
+                {savedTile}
+                {reductionTile}
+                {costTile}
+                {tokensTile(false)}
+              </>
+            )}
+            {savingsMissing && (
+              <>
+                {costTile}
+                <EmptyState
+                  frame={false}
+                  density="compact"
+                  className="min-w-[260px] flex-[3]"
+                  title="No savings measured yet"
+                  description={
+                    <>
+                      Saved, reduction and tokens saved appear once a task runs with{" "}
+                      <code className="rounded-sm bg-muted px-1 font-mono text-code">lc mcp</code> enabled.
+                    </>
+                  }
+                  action={
+                    <Button asChild variant="outline" size="xs">
+                      <Link to="/usage?inspect=savings">How savings are measured</Link>
+                    </Button>
+                  }
+                />
+              </>
+            )}
+            {spendMissing && (
+              <>
+                {savedTile}
+                {tokensTile(true)}
+                <EmptyState
+                  frame={false}
+                  density="compact"
+                  className="min-w-[260px] flex-[3]"
+                  title="No priced usage yet"
+                  description="Cost and reduction appear once a session records usage for a model with a known price."
+                  action={
+                    <Button asChild variant="outline" size="xs">
+                      <Link to="/usage">Open Usage</Link>
+                    </Button>
+                  }
+                />
+              </>
+            )}
           </>
         ) : (
           <div className="flex min-h-12 flex-[4] items-center px-3 text-body text-muted-foreground">
@@ -245,6 +326,8 @@ export default function Home() {
         >
           Details <ArrowRight size={14} />
         </Link>
+          </>
+        )}
       </section>
       )}
 
