@@ -1,0 +1,386 @@
+"""Fakes for the pull request bot's tests: a git origin, GitHub's REST and GraphQL surface, and a model.
+
+``Origin`` is a real bare repository the CI clone fetches ``refs/pull/N/head`` from, so
+capture, merge-base and diffing run for real. ``FakeGitHub`` answers the exact ``gh``
+calls the bot makes and keeps what a real pull request would hold -- comments, reviews,
+threads, statuses -- so tests assert what GitHub ends up with, not what was sent.
+``FakeModel`` answers the investigator prompt from the code it is shown: a line
+``BUG: <title>`` in the changed source is a confirmed finding, anything else is not.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import subprocess
+from pathlib import Path
+from typing import Any
+
+from lemoncrow.pro.capabilities.review.intelligence_runtime import ModelCallUsage, StructuredExecution
+from lemoncrow.pro.capabilities.review.sources.github import GitHubCliError
+
+SLUG = "acme/widgets"
+NUMBER = 7
+BOT = {"login": "github-actions[bot]", "type": "Bot"}
+PERSON = {"login": "alice", "type": "User"}
+
+
+def git(cwd: Path, *args: str) -> str:
+    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+
+
+class Origin:
+    """A bare origin, the author's clone that pushes the pull request, and the CI checkout that reviews it."""
+
+    def __init__(self, root: Path) -> None:
+        self.origin = root / "origin.git"
+        self.author = root / "author"
+        self.clone = root / "clone"
+        git(root, "init", "--bare", "-q", "-b", "main", str(self.origin))
+        git(root, "clone", "-q", str(self.origin), str(self.author))
+        for key, value in (("user.name", "A"), ("user.email", "a@example.invalid")):
+            git(self.author, "config", key, value)
+        self.head = ""
+
+    def seed_main(self, files: dict[str, str]) -> str:
+        self._write(files)
+        git(self.author, "add", "-A")
+        git(self.author, "commit", "-qm", "base")
+        git(self.author, "push", "-q", "origin", "main")
+        root = self.clone.parent
+        git(root, "clone", "-q", str(self.origin), str(self.clone))
+        git(self.clone, "remote", "set-url", "origin", f"git@github.com:{SLUG}.git")
+        git(self.clone, "config", f"url.{self.origin}.insteadOf", f"git@github.com:{SLUG}.git")
+        git(self.author, "checkout", "-qb", "feature")
+        return self.base_tip
+
+    @property
+    def base_tip(self) -> str:
+        return git(self.author, "rev-parse", "main")
+
+    def _write(self, files: dict[str, str | None]) -> None:
+        for path, content in files.items():
+            target = self.author / path
+            if content is None:
+                target.unlink(missing_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+
+    def push(self, files: dict[str, str | None], message: str = "change") -> str:
+        """Commit *files* onto the pull request branch and publish it as ``refs/pull/7/head``."""
+
+        self._write(files)
+        git(self.author, "add", "-A")
+        git(self.author, "commit", "-qm", message)
+        self.head = git(self.author, "rev-parse", "HEAD")
+        git(self.author, "push", "-q", "-f", "origin", f"HEAD:refs/pull/{NUMBER}/head")
+        return self.head
+
+    def patches(self) -> list[dict[str, Any]]:
+        """GitHub's ``files`` rows for the pull request: path and the diff from its first hunk."""
+
+        rows = []
+        for path in git(self.author, "diff", "--name-only", f"{self.base_tip}...{self.head}").splitlines():
+            diff = git(self.author, "diff", "--no-color", "-U3", f"{self.base_tip}...{self.head}", "--", path)
+            patch = diff[diff.index("@@") :] if "@@" in diff else None
+            rows.append({"filename": path, "patch": patch})
+        return rows
+
+
+class FakeGitHub:
+    """The slice of GitHub the bot talks to, behind ``gh api``."""
+
+    def __init__(self, origin: Origin) -> None:
+        self.origin = origin
+        self.state = "open"
+        self.draft = False
+        self.head_repo: str | None = SLUG
+        self.issue_comments: list[dict[str, Any]] = []
+        self.review_comments: list[dict[str, Any]] = []
+        self.reviews: list[dict[str, Any]] = []
+        self.statuses: list[dict[str, Any]] = []
+        self.threads: dict[int, dict[str, Any]] = {}
+        self.deny_resolve = False
+        self.deny_status = False
+        self.calls: list[tuple[str, str]] = []
+        self.review_posts = 0
+        self._ids = 1000
+
+    # ----- helpers ------------------------------------------------------ #
+
+    def _next(self) -> int:
+        self._ids += 1
+        return self._ids
+
+    @property
+    def api(self) -> str:
+        return f"repos/{SLUG}/pulls/{NUMBER}"
+
+    def summary_comments(self) -> list[dict[str, Any]]:
+        return [row for row in self.issue_comments if "<!-- lemoncrow:summary v1 -->" in row["body"]]
+
+    def inline(self) -> list[dict[str, Any]]:
+        return [row for row in self.review_comments if not row.get("in_reply_to_id")]
+
+    def replies(self) -> list[dict[str, Any]]:
+        return [row for row in self.review_comments if row.get("in_reply_to_id")]
+
+    def last_status(self) -> dict[str, Any]:
+        return self.statuses[-1]
+
+    # ----- the runner --------------------------------------------------- #
+
+    def __call__(self, args: Any, stdin: str | None = None) -> str:
+        call = list(args)
+        if call[:2] == ["pr", "view"]:
+            return self._pr_view(call)
+        assert call[0] == "api", call
+        if call == ["api", "user"]:
+            return json.dumps({"login": "reviewer"})
+        if call[1] == "graphql":
+            return self._graphql(json.loads(stdin or "{}"))
+        if call[1] == "--paginate":
+            self.calls.append(("GET", call[3]))
+            return json.dumps([self._list(call[3])])
+        if call[1] == "--method":
+            method, path = call[2], call[3]
+            self.calls.append((method, path))
+            return self._write(method, path, json.loads(stdin or "{}"))
+        self.calls.append(("GET", call[1]))
+        assert call[1] == self.api, call
+        return json.dumps(self._pull())
+
+    def _pr_view(self, call: list[str]) -> str:
+        assert call[2] == str(NUMBER), call
+        url = f"https://github.com/{SLUG}/pull/{NUMBER}"
+        if call[-1] == "url":
+            return json.dumps({"url": url})
+        return json.dumps(
+            {
+                "url": url,
+                "title": "Widgets",
+                "author": {"login": "alice"},
+                "state": self.state.upper(),
+                "headRefOid": self.origin.head,
+                "baseRefName": "main",
+                "baseRefOid": self.origin.base_tip,
+            }
+        )
+
+    def _pull(self) -> dict[str, Any]:
+        head: dict[str, Any] = {"sha": self.origin.head}
+        head["repo"] = None if self.head_repo is None else {"full_name": self.head_repo}
+        return {
+            "state": self.state,
+            "draft": self.draft,
+            "title": "Widgets",
+            "user": {"login": "alice"},
+            "head": head,
+            "base": {"ref": "main", "repo": {"id": 4242, "full_name": SLUG}},
+            "html_url": f"https://github.com/{SLUG}/pull/{NUMBER}",
+        }
+
+    def _list(self, endpoint: str) -> list[dict[str, Any]]:
+        if endpoint.startswith(f"{self.api}/files"):
+            return self.origin.patches()
+        if endpoint.startswith(f"{self.api}/reviews/"):
+            review_id = int(endpoint.split("/reviews/")[1].split("/")[0])
+            return [row for row in self.review_comments if row.get("pull_request_review_id") == review_id]
+        if endpoint.startswith(f"{self.api}/reviews"):
+            return self.reviews
+        if endpoint.startswith(f"{self.api}/comments"):
+            return self.review_comments
+        if endpoint.startswith(f"repos/{SLUG}/issues/{NUMBER}/comments"):
+            return self.issue_comments
+        raise AssertionError(f"unexpected list: {endpoint}")
+
+    def _write(self, method: str, path: str, body: dict[str, Any]) -> str:
+        if method == "POST" and path == f"{self.api}/reviews":
+            return self._post_review(body)
+        if method == "POST" and path.startswith(f"{self.api}/comments/") and path.endswith("/replies"):
+            parent = int(path.split("/comments/")[1].split("/")[0])
+            reply = {
+                "id": self._next(),
+                "body": body["body"],
+                "user": BOT,
+                "in_reply_to_id": parent,
+                "html_url": f"https://github.com/{SLUG}/pull/{NUMBER}#discussion_r{self._ids}",
+            }
+            self.review_comments.append(reply)
+            return json.dumps(reply)
+        if method == "POST" and path == f"repos/{SLUG}/issues/{NUMBER}/comments":
+            comment = {
+                "id": self._next(),
+                "body": body["body"],
+                "user": BOT,
+                "html_url": f"https://github.com/{SLUG}/pull/{NUMBER}#issuecomment-{self._ids}",
+            }
+            self.issue_comments.append(comment)
+            return json.dumps(comment)
+        if method == "PATCH" and path.startswith(f"repos/{SLUG}/issues/comments/"):
+            comment_id = int(path.rsplit("/", 1)[1])
+            comment = next(row for row in self.issue_comments if row["id"] == comment_id)
+            comment["body"] = body["body"]
+            return json.dumps(comment)
+        if method == "POST" and path.startswith(f"repos/{SLUG}/statuses/"):
+            if self.deny_status:
+                raise GitHubCliError("Resource not accessible by integration (HTTP 403)")
+            self.statuses.append({"sha": path.rsplit("/", 1)[1], **body})
+            return json.dumps(body)
+        raise AssertionError(f"unexpected write: {method} {path}")
+
+    def _post_review(self, body: dict[str, Any]) -> str:
+        self.review_posts += 1
+        assert body["event"] == "COMMENT", body["event"]
+        review_id = self._next()
+        review = {
+            "id": review_id,
+            "user": BOT,
+            "body": body["body"],
+            "commit_id": body["commit_id"],
+            "state": "COMMENTED",
+            "html_url": f"https://github.com/{SLUG}/pull/{NUMBER}#pullrequestreview-{review_id}",
+        }
+        self.reviews.append(review)
+        for row in body["comments"]:
+            comment_id = self._next()
+            self.review_comments.append(
+                {
+                    "id": comment_id,
+                    "path": row["path"],
+                    "line": row["line"],
+                    "body": row["body"],
+                    "user": BOT,
+                    "pull_request_review_id": review_id,
+                    "html_url": f"https://github.com/{SLUG}/pull/{NUMBER}#discussion_r{comment_id}",
+                }
+            )
+            self.threads[comment_id] = {"id": f"PRRT_{comment_id}", "resolved": False}
+        return json.dumps(review)
+
+    def _graphql(self, request: dict[str, Any]) -> str:
+        query = request["query"]
+        if "resolveReviewThread" in query:
+            if self.deny_resolve:
+                return json.dumps({"errors": [{"message": "Resource not accessible by integration"}]})
+            node = request["variables"]["id"]
+            for thread in self.threads.values():
+                if thread["id"] == node:
+                    thread["resolved"] = True
+            return json.dumps({"data": {"resolveReviewThread": {"thread": {"isResolved": True}}}})
+        nodes = [
+            {"id": thread["id"], "isResolved": thread["resolved"], "comments": {"nodes": [{"databaseId": comment_id}]}}
+            for comment_id, thread in self.threads.items()
+        ]
+        page = {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes}
+        return json.dumps({"data": {"repository": {"pullRequest": {"reviewThreads": page}}}})
+
+
+class FakeModel:
+    """A structured executor: confirms a finding when the code it is shown says ``BUG: <title>``."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self.fail = False
+        self.input_tokens: int | None = 1000
+        self.output_tokens: int | None = 200
+        self.model = "gpt-4o-mini"
+
+    def reset(self) -> None:
+        self.calls.clear()
+
+    def paths(self) -> list[str]:
+        return sorted(call["path"] for call in self.calls)
+
+    def __call__(self, **kwargs: Any) -> StructuredExecution:
+        prompt = json.loads(kwargs["prompt"])
+        if "violated" in json.dumps(kwargs["output_schema"]):
+            return self._rule_check(prompt)
+        if "hypotheses" in kwargs["output_schema"].get("properties", {}):
+            return self._hypotheses(prompt)
+        hypothesis = prompt["hypothesis"]["value"]
+        targets: list[str] = hypothesis["target_ids"]
+        source = prompt["snapshot_source"]["value"]
+        text = "\n".join(str(source[target].get("text", "")) for target in targets if target in source)
+        path = str(source[targets[0]]["path"])
+        self.calls.append({"path": path, "targets": targets, "category": hypothesis["category"]})
+        if self.fail:
+            raise RuntimeError("provider unavailable")
+        usage = ModelCallUsage(calls=1, input_tokens=self.input_tokens, output_tokens=self.output_tokens)
+        found = re.search(r"BUG: (.+)", text)
+        if found is None:
+            result: dict[str, Any] = {
+                "status": "not_confirmed",
+                "category": hypothesis["category"],
+                "target_ids": targets,
+                "title": "",
+                "explanation": "",
+                "consequence": "",
+                "evidence_refs": [],
+                "rule_refs": [],
+            }
+        else:
+            rules = prompt.get("trusted_repository_rules") or []
+            result = {
+                "status": "confirmed",
+                "category": hypothesis["category"],
+                "target_ids": targets,
+                "title": found.group(1).strip(),
+                "explanation": f"The change in {path} {found.group(1).strip()}.",
+                "consequence": "Callers can reach the guarded behavior without the check.",
+                "evidence_refs": [f"target:{target}" for target in targets],
+                "rule_refs": [rule["value"]["ref"] for rule in rules],
+            }
+        return StructuredExecution(result=result, driver="openai", model=self.model, usage=usage)
+
+    def _rule_check(self, prompt: dict[str, Any]) -> StructuredExecution:
+        """The per-rule question: violated when a shown target carries a ``BUG:`` line."""
+
+        source = prompt["snapshot_source"]["value"]
+        hits = [target for target, row in source.items() if "BUG: " in str(row.get("text", ""))]
+        first = hits[0] if hits else next(iter(source))
+        self.calls.append({"path": str(source[first]["path"]), "targets": list(source), "category": "rule_check"})
+        if self.fail:
+            raise RuntimeError("provider unavailable")
+        usage = ModelCallUsage(calls=1, input_tokens=self.input_tokens, output_tokens=self.output_tokens)
+        if not hits:
+            result: dict[str, Any] = {
+                "status": "satisfied",
+                "target_ids": [],
+                "title": "",
+                "explanation": "",
+                "consequence": "",
+                "evidence_refs": [],
+            }
+        else:
+            title = re.search(r"BUG: (.+)", str(source[first]["text"]))
+            assert title is not None
+            result = {
+                "status": "violated",
+                "target_ids": [first],
+                "title": title.group(1).strip(),
+                "explanation": f"The change in {source[first]['path']} {title.group(1).strip()}.",
+                "consequence": "The rule no longer holds for this code.",
+                "evidence_refs": [f"target:{first}"],
+            }
+        return StructuredExecution(result=result, driver="openai", model=self.model, usage=usage)
+
+    def _hypotheses(self, prompt: dict[str, Any]) -> StructuredExecution:
+        """The synthesis step (Thorough and Deep): one hypothesis per deterministic candidate."""
+
+        self.calls.append({"path": "(synthesis)", "targets": [], "category": "hypotheses"})
+        rows = [
+            {
+                "category": candidate["category"],
+                "target_ids": candidate["target_ids"],
+                "failure_mode": f"The changed {candidate['category']} path may be unsound.",
+                "investigation_rationale": "The deterministic triage flagged it.",
+                "priority_rationale": "It is on a consequential path.",
+                "evidence_needed": "Trace the changed lines.",
+                "rule_refs": candidate["rule_refs"],
+            }
+            for candidate in prompt["candidates"]["value"]
+        ]
+        usage = ModelCallUsage(calls=1, input_tokens=self.input_tokens, output_tokens=self.output_tokens)
+        return StructuredExecution(result={"hypotheses": rows}, driver="openai", model=self.model, usage=usage)

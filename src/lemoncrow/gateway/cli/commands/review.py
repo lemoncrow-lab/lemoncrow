@@ -190,7 +190,54 @@ class _ReviewCliProgress:
     is_flag=True,
     help="With --pr, post your comments and verdict to the pull request as one GitHub review via your `gh` login.",
 )
-@click.option("--dry-run", "dry_run", is_flag=True, help="With --publish, show what would be posted and post nothing.")
+@click.option(
+    "--dry-run",
+    "dry_run",
+    is_flag=True,
+    help="With --publish or --publish-bot, show what would be posted and post nothing.",
+)
+@click.option(
+    "--ai",
+    "ai_review",
+    is_flag=True,
+    help=(
+        "With --pr, run the AI review headlessly on your own model route (no browser, no server) and print the "
+        "findings. Needs ANTHROPIC_API_KEY or OPENAI_API_KEY, or LEMONCROW_LLM_BACKEND."
+    ),
+)
+@click.option(
+    "--publish-bot",
+    "publish_bot",
+    is_flag=True,
+    help=(
+        "With --pr, post the AI findings to the pull request as a bot: one summary comment and inline comments, "
+        "event COMMENT only. Runs in GitHub Actions with the workflow's GITHUB_TOKEN. Implies --ai."
+    ),
+)
+@click.option(
+    "--depth",
+    type=click.Choice(["auto", "quick", "thorough", "deep"]),
+    default="auto",
+    show_default=True,
+    help="Depth of the --ai review. The hard model-call cap applies at every depth.",
+)
+@click.option(
+    "--fail-on",
+    type=click.Choice(["none", "p0"]),
+    default="none",
+    show_default=True,
+    help="With --publish-bot, fail the LemonCrow Review commit status when a P0 finding is open.",
+)
+@click.option(
+    "--review-drafts/--skip-drafts",
+    default=False,
+    help="With --ai, review draft pull requests too (default: skip them).",
+)
+@click.option(
+    "--on-push/--no-on-push",
+    default=True,
+    help="With --ai, review pushes to an open pull request, not only when it opens (default: on).",
+)
 @click.option(
     "--title",
     "snapshot_title",
@@ -482,6 +529,12 @@ def review_cmd(
     pr_spec: str | None,
     publish_pr: bool,
     dry_run: bool,
+    ai_review: bool,
+    publish_bot: bool,
+    depth: str,
+    fail_on: str,
+    review_drafts: bool,
+    on_push: bool,
     snapshot_title: str | None,
     intent_specs: tuple[str, ...],
     description_file: Path | None,
@@ -578,6 +631,34 @@ def review_cmd(
         raise click.ClickException("--fix and --apply-fix are mutually exclusive")
     if with_conflict_markers and not apply_fix_snapshot:
         raise click.ClickException("--with-conflict-markers requires --apply-fix")
+    if ai_review or publish_bot:
+        _check_ai_review_flags(
+            pr_spec=pr_spec,
+            publish_pr=publish_pr,
+            others=[
+                flag
+                for flag, used in (
+                    ("--current/--resume-author/--list-reviews/--show-review/--open-review", bool(management_actions)),
+                    ("--fix/--apply-fix", bool(fix_actions)),
+                    ("--setup/--write-review-config", setup_mode or write_review_config),
+                    ("--check", check_name is not None or check_command is not None),
+                    ("--reproduce", reproduce_target is not None),
+                    ("--html", html_path is not None),
+                    ("--units/--marks/--comments", show_units or show_marks or show_comments),
+                    ("--mark", bool(mark_targets)),
+                    ("--comment", comment_body is not None),
+                    ("--since-my-review", since_my_review),
+                    ("--feedback", send_feedback),
+                    ("--finish/--reopen-review/--discard-review", finish_review or reopen_review or discard_review),
+                    ("--new/--continue", new_review or bool(continue_review)),
+                    (
+                        "--title/--intent/--description-file",
+                        snapshot_title is not None or bool(intent_specs) or description_file is not None,
+                    ),
+                )
+                if used
+            ],
+        )
     if snapshot_title is not None and (
         management_actions or fix_actions or setup_mode or write_review_config or publish_pr
     ):
@@ -764,8 +845,8 @@ def review_cmd(
         )
     if publish_pr and pr_spec is None:
         raise click.ClickException("--publish needs --pr NUMBER|URL")
-    if dry_run and not publish_pr:
-        raise click.ClickException("--dry-run only applies to --publish")
+    if dry_run and not (publish_pr or publish_bot):
+        raise click.ClickException("--dry-run only applies to --publish or --publish-bot")
     if pr_spec is not None and (rev or base_rev or head_rev or staged or working_tree):
         raise click.ClickException("--pr picks the range itself; drop REV, --base, --head, --staged and --working-tree")
     if pr_spec is not None and (new_review or continue_review):
@@ -775,6 +856,22 @@ def review_cmd(
     if publish_pr:
         assert pr_spec is not None
         _publish_pull_request(client_config, detect_repo_root(repo_root), pr_spec, dry_run=dry_run, as_json=as_json)
+        return
+    if ai_review or publish_bot:
+        assert pr_spec is not None
+        _review_pull_request_with_ai(
+            ctx,
+            repo_root,
+            pr_spec,
+            depth=depth,
+            fail_on=fail_on,
+            review_drafts=review_drafts,
+            on_push=on_push,
+            publish=publish_bot,
+            dry_run=dry_run,
+            with_impact=not no_impact,
+            as_json=as_json,
+        )
         return
     try:
         resolved_root = detect_repo_root(repo_root)
@@ -1019,6 +1116,102 @@ def _intent_payload(repo_root: Path, specs: tuple[str, ...], description_file: P
         title, _newline, body = text.strip().partition("\n")
         payload["description"] = {"title": title.strip().lstrip("#").strip()[:300], "body": body.strip()}
     return payload
+
+
+def _check_ai_review_flags(*, pr_spec: str | None, publish_pr: bool, others: Sequence[str]) -> None:
+    if pr_spec is None:
+        raise click.ClickException("--ai and --publish-bot review a pull request; add --pr NUMBER|URL")
+    if publish_pr:
+        raise click.ClickException(
+            "--publish posts your own review as you; --publish-bot posts AI findings as a bot. Use one of them"
+        )
+    if others:
+        raise click.ClickException(
+            f"--ai and --publish-bot review a pull request on their own; drop {', '.join(others)}"
+        )
+
+
+_WORKFLOW_COMMAND = {"notice": "notice", "warning": "warning", "error": "error"}
+
+
+def _review_pull_request_with_ai(
+    ctx: click.Context,
+    repo_root: Path | None,
+    pr_spec: str,
+    *,
+    depth: str,
+    fail_on: str,
+    review_drafts: bool,
+    on_push: bool,
+    publish: bool,
+    dry_run: bool,
+    with_impact: bool,
+    as_json: bool,
+) -> None:
+    """``--ai`` / ``--publish-bot``: review a pull request headlessly, in process, on your own model route."""
+
+    import os
+
+    from lemoncrow.pro.capabilities.review.gitdiff import detect_repo_root
+    from lemoncrow.pro.capabilities.review.pr_bot.runner import PrReviewError, RunOptions, run_pr_review
+    from lemoncrow.pro.capabilities.review.pr_bot.state import strip_state
+
+    try:
+        root = detect_repo_root(repo_root)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    options = RunOptions(
+        pr=pr_spec,
+        repo_root=root,
+        depth=depth,
+        fail_on=fail_on,
+        review_drafts=review_drafts,
+        on_push=on_push,
+        publish=publish,
+        dry_run=dry_run,
+        with_impact=with_impact,
+    )
+    try:
+        report = run_pr_review(options, progress=lambda message: click.echo(f"  {message}…", err=True))
+    except PrReviewError as exc:
+        raise click.ClickException(str(exc)) from exc
+    in_actions = os.environ.get("GITHUB_ACTIONS") == "true"
+    if report.skipped and report.reason:
+        if in_actions:
+            click.echo(f"::{_WORKFLOW_COMMAND.get(report.level, 'notice')} title=LemonCrow Review::{report.reason}")
+        else:
+            click.echo(report.reason, err=True)
+    for note in report.notes:
+        click.echo(f"  ! {note}", err=True)
+    if as_json:
+        _emit(report.to_wire(), as_json=True)
+    elif not report.skipped:
+        if report.published:
+            _emit_bot_publication(report)
+        else:
+            click.echo(strip_state(report.summary))
+        if dry_run:
+            click.echo(f"\nDry run: would post {len(report.inline_bodies)} inline comment(s) and the summary above.")
+    if report.exit_code:
+        ctx.exit(report.exit_code)
+
+
+def _emit_bot_publication(report: Any) -> None:
+    published = report.published
+    verdict = report.verdict
+    if verdict is not None:
+        click.echo(verdict.headline)
+    if published.get("summary_url"):
+        click.echo(f"Summary comment  {published['summary_url']}")
+    if "inline" in published:
+        click.echo(f"Inline comments  {published['inline']}")
+    if published.get("replied"):
+        click.echo(f"Fixed threads    {published['replied']} replied, {published.get('resolved', 0)} resolved")
+    status = published.get("status")
+    if isinstance(status, dict):
+        click.echo(f"Status           {status['state']}: {status['description']}")
+    if report.noop:
+        click.echo("Nothing changed since the last review; nothing posted.")
 
 
 def _publish_pull_request(config: Any, repo_root: Path, pr_spec: str, *, dry_run: bool, as_json: bool) -> None:

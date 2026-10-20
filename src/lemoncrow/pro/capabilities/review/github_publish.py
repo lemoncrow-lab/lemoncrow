@@ -393,6 +393,57 @@ def load_pull_request_state(pr: PullRequestRef, runner: GhRunner) -> PullRequest
     )
 
 
+def load_bot_pull_request_state(pr: PullRequestRef, runner: GhRunner) -> PullRequestState:
+    """:func:`load_pull_request_state` for the bot publish path, which has no viewer.
+
+    A ``GITHUB_TOKEN`` (or any app token) cannot call ``GET /user``, and the bot has no
+    login to match reviews against. Reviews that already carry a LemonCrow marker are
+    taken from authors GitHub types as ``Bot`` instead, so a retry adopts the bot's own
+    review and a person cannot forge one to suppress it. ``viewer`` stays empty: the
+    bot never approves, so the own-pull-request rule has nothing to decide.
+    """
+
+    pull = gh_json(runner, ["api", pr.api_path])
+    if not isinstance(pull, dict):
+        raise GitHubCliError(f"GitHub returned an unexpected shape for {pr.url}")
+    head = _mapping(pull.get("head"))
+    files = tuple(
+        PullRequestFile(
+            path=str(row.get("filename") or ""),
+            patch=row.get("patch") if isinstance(row.get("patch"), str) else None,
+            previous_path=str(row.get("previous_filename") or ""),
+        )
+        for row in gh_paginated(runner, f"{pr.api_path}/files?per_page=100")
+        if row.get("filename")
+    )
+    reviews = tuple(
+        RemoteReview(
+            id=int(row["id"]),
+            body=str(row.get("body") or ""),
+            commit_id=str(row.get("commit_id") or ""),
+            state=str(row.get("state") or ""),
+            html_url=str(row.get("html_url") or ""),
+        )
+        for row in gh_paginated(runner, f"{pr.api_path}/reviews?per_page=100")
+        if isinstance(row.get("id"), int)
+        and _mapping(row.get("user")).get("type") == "Bot"
+        and _MARKER_PREFIX in str(row.get("body") or "")
+    )
+    repository_id = _mapping(_mapping(pull.get("base")).get("repo")).get("id")
+    return PullRequestState(
+        head_sha=str(head.get("sha") or ""),
+        author=str(_mapping(pull.get("user")).get("login") or ""),
+        viewer="",
+        open=str(pull.get("state") or "") == "open",
+        files=files,
+        viewer_reviews=reviews,
+        repository_id=(
+            str(repository_id) if isinstance(repository_id, int) and not isinstance(repository_id, bool) else ""
+        ),
+        host=_served_host(pull.get("html_url")),
+    )
+
+
 def ensure_current_head(plan: GitHubReviewPlan, state: PullRequestState) -> None:
     if state.head_sha and state.head_sha != plan.commit_id:
         raise GitHubCliError(
@@ -477,6 +528,7 @@ __all__ = [
     "build_plan",
     "ensure_current_head",
     "hunk_ranges",
+    "load_bot_pull_request_state",
     "load_pull_request_state",
     "publish_plan",
 ]

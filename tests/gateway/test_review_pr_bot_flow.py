@@ -1,0 +1,597 @@
+"""The pull request bot end to end: a real git origin, a fake GitHub and a fake model.
+
+Capture, merge base, diffing, the Review API's AI endpoint, the run plan, the hard
+call cap and the intelligence policy are all real. What is faked is only what leaves
+the machine: GitHub's REST and GraphQL surface, and the model.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any
+
+import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from lemoncrow.pro.capabilities.review.api import make_token_dependency, register_review_api
+from lemoncrow.pro.capabilities.review.pr_bot import engine
+from lemoncrow.pro.capabilities.review.pr_bot.runner import PrReviewError, RunOptions, RunReport, run_pr_review
+from lemoncrow.pro.capabilities.review.pr_bot.state import dump_state, parse_state
+from lemoncrow.pro.capabilities.review.sources.github import resolve_pull_request
+from lemoncrow.pro.capabilities.review.sources.local import annotate_machine_finding
+from tests.gateway.pr_bot_support import NUMBER, PERSON, SLUG, FakeGitHub, FakeModel, Origin
+
+BASE = {
+    "src/auth.py": "def authorize(user):\n    return user.is_admin\n",
+    "src/cache.py": "CACHE = {}\n\n\ndef remember(key, value):\n    CACHE[key] = value\n",
+    "src/plain.py": "VALUE = 1\n",
+}
+AUTH_BUGGY = "def authorize(user):\n    if user is None:  # BUG: lets a missing principal through\n        return True\n    return user.is_admin\n"
+AUTH_FIXED = "def authorize(user):\n    if user is None:\n        return False\n    return user.is_admin\n"
+CACHE_BUGGY = "CACHE = {}\n\n\ndef remember(key, value):\n    CACHE.setdefault(key, []).append(value)  # BUG: grows without a bound\n"
+TOKEN_BUGGY = "def verify(token):\n    return token == 'x'  # BUG: compares secrets without a constant-time check\n"
+FIRST_PUSH = {"src/auth.py": AUTH_BUGGY, "src/cache.py": CACHE_BUGGY, "src/plain.py": "VALUE = 2\n"}
+RULE = "rules:\n  - stable_key: no-bug-markers\n    instruction: Source must not carry known defects.\n    paths: [src/auth.py]\n"
+
+
+@dataclass
+class World:
+    origin: Origin
+    github: FakeGitHub
+    model: FakeModel
+    root: Path
+
+    def review(self, **options: Any) -> RunReport:
+        options.setdefault("publish", True)
+        return run_pr_review(
+            RunOptions(pr=str(NUMBER), repo_root=self.origin.clone, **options),
+            runner=self.github,
+            structured_executor=self.model,
+        )
+
+
+def build_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, files: dict[str, str]) -> World:
+    for name in (
+        "LEMONCROW_LLM_BACKEND",
+        "LEMONCROW_OPENAI_MODEL",
+        "LEMONCROW_LITELLM_MODEL",
+        "LEMONCROW_REVIEW_MODEL",
+        "ANTHROPIC_API_KEY",
+        "GITHUB_EVENT_NAME",
+        "GITHUB_EVENT_PATH",
+        "GITHUB_ACTOR",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("LEMONCROW_AST_GREP_BIN", str(tmp_path / "sg"))
+    origin = Origin(tmp_path)
+    origin.seed_main(files)
+    return World(origin, FakeGitHub(origin), FakeModel(), tmp_path)
+
+
+@pytest.fixture
+def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> World:
+    return build_world(tmp_path, monkeypatch, BASE)
+
+
+@pytest.fixture
+def ruled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> World:
+    """A repository whose trusted base carries a rule for ``src/auth.py``: a violation of it is a P0."""
+
+    return build_world(tmp_path, monkeypatch, {**BASE, ".lemoncrow/review.yaml": RULE})
+
+
+def posted_state(world: World) -> Any:
+    (summary,) = world.github.summary_comments()
+    state = parse_state(summary["body"])
+    assert state is not None
+    return state
+
+
+def by_title(report: RunReport) -> dict[str, Any]:
+    return {finding.title: finding for finding in report.findings}
+
+
+# --------------------------------------------------------------------------- #
+# the first review
+# --------------------------------------------------------------------------- #
+
+
+def test_a_first_review_posts_one_summary_and_inline_comments_for_p0_and_p1_only(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    report = world.review()
+
+    assert not report.skipped
+    assert sorted(world.model.paths()) == ["src/auth.py", "src/cache.py"]
+    findings = by_title(report)
+    assert findings["lets a missing principal through"].severity == "p1"
+    assert findings["grows without a bound"].severity == "p2"
+
+    # One atomic review, event COMMENT, with only the P1 inline; the P2 is held back in the summary.
+    assert world.github.review_posts == 1
+    (inline,) = world.github.inline()
+    assert (inline["path"], inline["user"]["type"]) == ("src/auth.py", "Bot")
+    assert inline["body"].startswith("**P1 · should fix** — lets a missing principal through")
+    assert "<!-- lemoncrow:finding finding-" in inline["body"]
+    assert world.github.reviews[0]["body"].strip().startswith("<!-- lemoncrow:op=bot-")
+
+    (summary,) = world.github.summary_comments()
+    assert summary["body"].startswith(
+        "<!-- lemoncrow:summary v1 -->\n**No must-fix findings** · 1 should-fix · 1 optional"
+    )
+    assert "<details><summary>1 low-priority finding held back</summary>" in summary["body"]
+    assert f"[lets a missing principal through](https://github.com/{SLUG}/pull/{NUMBER}#discussion_r" in summary["body"]
+    state = posted_state(world)
+    assert state.head_sha == world.origin.head and state.complete and state.reviews == 1
+    thread = next(f for f in state.findings if f.severity == "p1")
+    assert (thread.thread_id, thread.placement, thread.state) == (inline["id"], "inline", "new")
+
+    pending, final = world.github.statuses
+    assert (pending["state"], final["state"], final["context"]) == ("pending", "success", "LemonCrow Review")
+    assert final["sha"] == world.origin.head and final["target_url"].endswith(f"#issuecomment-{summary['id']}")
+    assert final["description"] == "No must-fix findings; 1 should-fix · 1 optional"
+
+
+def test_the_report_and_the_posted_state_agree(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    report = world.review()
+    state = posted_state(world)
+    assert report.state is not None and state == report.state
+    wire = report.to_wire()
+    assert wire["head_sha"] == world.origin.head and wire["verdict"]["p1"] == 1 and wire["verdict"]["p2"] == 1
+    assert wire["usage"]["calls"] == 2 and wire["status"]["state"] == "success"
+    assert {row["id"] for row in wire["findings"]} == {finding.id for finding in state.findings}
+    json.dumps(wire)  # serializable as is
+
+
+def test_the_bot_never_approves_or_requests_changes(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    world.review()
+    assert world.github.reviews and all(review["state"] == "COMMENTED" for review in world.github.reviews)
+
+
+# --------------------------------------------------------------------------- #
+# the same head again
+# --------------------------------------------------------------------------- #
+
+
+def test_a_rerun_on_the_same_head_posts_no_duplicates_and_calls_no_model(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    first = world.review()
+    body = world.github.summary_comments()[0]["body"]
+    writes = [call for call in world.github.calls if call[0] in {"POST", "PATCH"}]
+    world.model.reset()
+
+    again = world.review()
+    assert again.noop and not again.skipped
+    assert world.model.calls == []
+    assert world.github.review_posts == 1 and len(world.github.inline()) == 1
+    assert len(world.github.summary_comments()) == 1 and world.github.summary_comments()[0]["body"] == body
+    new_writes = [call for call in world.github.calls if call[0] in {"POST", "PATCH"}][len(writes) :]
+    # Only the status is written again (pending, then the same verdict): no comment, review or reply.
+    assert new_writes and all("/statuses/" in path for _, path in new_writes)
+    assert [(f.id, f.state) for f in again.findings] == [(f.id, "carried") for f in first.findings]
+
+
+def test_a_rerun_after_a_crash_before_the_summary_adopts_the_inline_comment_it_already_posted(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    world.review()
+    # The run died after the inline review but before the summary: nothing carries the state.
+    world.github.issue_comments.clear()
+    world.review()
+    assert world.github.review_posts == 1 and len(world.github.inline()) == 1
+    state = posted_state(world)
+    assert next(f for f in state.findings if f.severity == "p1").thread_id == world.github.inline()[0]["id"]
+
+
+# --------------------------------------------------------------------------- #
+# a push
+# --------------------------------------------------------------------------- #
+
+
+def test_a_push_re_reviews_only_the_changed_file_and_carries_the_rest_without_a_model_call(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    first = world.review()
+    summary_id = world.github.summary_comments()[0]["id"]
+    cache_before = next(f for f in first.findings if f.severity == "p2")
+    world.model.reset()
+
+    world.origin.push({"src/auth.py": AUTH_FIXED}, "fix auth")
+    report = world.review()
+
+    assert world.model.paths() == ["src/auth.py"]  # cache.py and plain.py were not shown to the model
+    states = {f.title: f.state for f in report.findings}
+    assert states == {"lets a missing principal through": "fixed", "grows without a bound": "carried"}
+    carried = next(f for f in report.findings if f.state == "carried")
+    assert carried.id == cache_before.id and carried.first_seen == cache_before.first_seen
+
+    # Same summary comment, updated in place; no new inline comment and no second review.
+    assert [row["id"] for row in world.github.summary_comments()] == [summary_id]
+    assert world.github.review_posts == 1 and len(world.github.inline()) == 1
+    body = world.github.summary_comments()[0]["body"]
+    assert "<sub>Re-reviewed " in body and " · 0 new · 1 carried forward · 1 fixed since last review</sub>" in body
+    assert "<details><summary>1 finding fixed since last review</summary>" in body
+    state = posted_state(world)
+    assert state.head_sha == world.origin.head and state.reviews == 2
+    assert state.usage.calls == 1 and state.usage_total.calls == 3
+
+
+def test_a_fixed_finding_gets_a_reply_and_its_thread_is_resolved(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    world.review()
+    (thread,) = world.github.inline()
+    world.origin.push({"src/auth.py": AUTH_FIXED}, "fix auth")
+    world.review()
+
+    (reply,) = world.github.replies()
+    assert reply["in_reply_to_id"] == thread["id"]
+    assert reply["body"].startswith(f"Fixed in {world.origin.head[:7]}.")
+    assert world.github.threads[thread["id"]]["resolved"] is True
+
+    # A later run replies and resolves nothing more.
+    world.origin.push({"src/plain.py": "VALUE = 3\n"}, "touch plain")
+    world.review()
+    assert len(world.github.replies()) == 1
+
+
+def test_if_the_token_cannot_resolve_threads_the_reply_alone_stands(world: World) -> None:
+    world.github.deny_resolve = True
+    world.origin.push(FIRST_PUSH)
+    world.review()
+    world.origin.push({"src/auth.py": AUTH_FIXED}, "fix auth")
+    report = world.review()
+    assert len(world.github.replies()) == 1
+    assert all(not thread["resolved"] for thread in world.github.threads.values())
+    assert any("could not resolve the thread" in note for note in report.notes)
+    assert world.github.last_status()["state"] == "success"
+
+
+def test_a_new_finding_after_a_push_is_posted_once_and_a_carried_one_is_not_posted_again(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    world.review()
+    world.model.reset()
+    world.origin.push({"src/token.py": TOKEN_BUGGY}, "add token check")
+    report = world.review()
+
+    assert world.model.paths() == ["src/token.py"]
+    assert sorted(f.state for f in report.findings) == ["carried", "carried", "new"]
+    inline = world.github.inline()
+    assert [row["path"] for row in inline] == ["src/auth.py", "src/token.py"]
+    assert world.github.review_posts == 2
+    assert "· 1 new · 2 carried forward · 0 fixed since last review" in world.github.summary_comments()[0]["body"]
+
+
+def test_a_changed_depth_re_reviews_everything_because_last_time_meant_something_else(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    world.review()
+    world.model.reset()
+    report = world.review(depth="thorough")
+    assert {"src/auth.py", "src/cache.py"} <= set(world.model.paths())
+    assert report.state is not None and report.state.depth == "thorough" and report.state.complete
+    assert not report.noop
+
+
+def test_a_failed_model_call_is_retried_next_push_even_for_unchanged_code(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    world.model.fail = True
+    broken = world.review()
+    assert broken.state is not None and not broken.state.complete and broken.findings == ()
+    body = world.github.summary_comments()[0]["body"]
+    assert "**Review incomplete: model calls failed; see the workflow log**" in body
+    assert world.github.last_status()["state"] == "success"  # advisory: fail-on is off
+    # Only the file with no risk signal counts as reviewed; the two the model failed on are not.
+    assert len(posted_state(world).reviewed_units) == 1
+
+    world.model.fail = False
+    world.model.reset()
+    fixed = world.review()
+    assert sorted(world.model.paths()) == ["src/auth.py", "src/cache.py"]
+    assert fixed.state is not None and fixed.state.complete and len(fixed.findings) == 2
+    assert len(posted_state(world).reviewed_units) == 3 and world.github.review_posts == 1
+
+
+def test_a_finding_whose_code_changed_but_could_not_be_rechecked_stays_and_is_marked_unverified(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    world.review()
+    world.origin.push({"src/auth.py": AUTH_FIXED}, "fix auth")
+    world.model.fail = True
+    report = world.review()
+    kept = next(f for f in report.findings if f.severity == "p1")
+    assert kept.state == "carried" and kept.unverified
+    assert world.github.replies() == []
+    assert "carried forward, unverified" in world.github.summary_comments()[0]["body"]
+
+
+def test_a_file_that_leaves_the_pull_request_makes_its_finding_stale(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    world.review()
+    world.origin.push({"src/auth.py": BASE["src/auth.py"]}, "revert auth")
+    report = world.review()
+    stale = next(f for f in report.findings if f.severity == "p1")
+    assert stale.state == "stale"
+    (reply,) = world.github.replies()
+    assert reply["body"].startswith(f"No longer applies in {world.origin.head[:7]}")
+
+
+# --------------------------------------------------------------------------- #
+# skipping
+# --------------------------------------------------------------------------- #
+
+
+def test_draft_pull_requests_are_skipped_unless_review_drafts(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    world.github.draft = True
+    skipped = world.review()
+    assert skipped.skipped and "Draft" in skipped.reason and skipped.exit_code == 0
+    assert world.model.calls == [] and world.github.statuses == [] and world.github.issue_comments == []
+    reviewed = world.review(review_drafts=True)
+    assert not reviewed.skipped and len(world.github.summary_comments()) == 1
+
+
+def test_a_push_is_skipped_when_on_push_is_off(world: World, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    world.origin.push(FIRST_PUSH)
+    event = tmp_path / "event.json"
+    event.write_text(
+        json.dumps(
+            {
+                "action": "synchronize",
+                "pull_request": {
+                    "number": NUMBER,
+                    "head": {"repo": {"full_name": SLUG}},
+                    "base": {"repo": {"full_name": SLUG}},
+                },
+            }
+        )
+    )
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
+    off = world.review(on_push=False)
+    assert off.skipped and "on-push" in off.reason and world.model.calls == []
+    assert not world.review(on_push=True).skipped
+
+
+def test_a_closed_pull_request_is_skipped(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    world.github.state = "closed"
+    assert world.review().skipped and world.model.calls == []
+
+
+def test_a_fork_pull_request_exits_zero_with_a_notice_and_touches_nothing(
+    world: World, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    world.origin.push(FIRST_PUSH)
+    event = tmp_path / "event.json"
+    event.write_text(
+        json.dumps(
+            {
+                "action": "opened",
+                "pull_request": {
+                    "number": NUMBER,
+                    "head": {"repo": {"full_name": "mallory/widgets"}},
+                    "base": {"repo": {"full_name": SLUG}},
+                },
+            }
+        )
+    )
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+    monkeypatch.setenv("GITHUB_EVENT_PATH", str(event))
+    report = world.review()
+    assert report.skipped and report.exit_code == 0 and report.level == "notice" and "fork" in report.reason
+    assert world.model.calls == [] and world.github.statuses == [] and world.github.issue_comments == []
+
+
+def test_pull_request_target_is_refused_with_a_failing_exit_code(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    world.origin.push(FIRST_PUSH)
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request_target")
+    report = world.review()
+    assert report.skipped and report.exit_code == 1 and report.level == "error"
+    assert world.model.calls == [] and world.github.statuses == []
+
+
+# --------------------------------------------------------------------------- #
+# the check
+# --------------------------------------------------------------------------- #
+
+
+def test_a_p0_fails_the_status_only_when_fail_on_p0_is_set(ruled: World) -> None:
+    ruled.origin.push(FIRST_PUSH)
+    advisory = ruled.review()
+    assert advisory.verdict is not None and advisory.verdict.state == "must_fix"
+    p0 = next(f for f in advisory.findings if f.severity == "p0")
+    assert p0.category == "critical_rule"
+    final = ruled.github.last_status()
+    assert final["state"] == "success" and final["description"] == "1 must-fix before merge (advisory: fail-on is off)"
+    body = ruled.github.summary_comments()[0]["body"]
+    assert body.split("\n")[1].startswith("**1 must-fix before merge**")
+
+    blocking = ruled.review(fail_on="p0")
+    assert blocking.status == ("failure", "1 must-fix before merge")
+    assert ruled.github.last_status()["state"] == "failure"
+    assert ruled.github.last_status()["description"] == "1 must-fix before merge"
+    # The P0 has an inline comment; verdict, summary line and status all say the same thing.
+    assert any(row["body"].startswith("**P0 · must fix**") for row in ruled.github.inline())
+
+
+def test_no_p0_is_a_success_whatever_fail_on_says(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    report = world.review(fail_on="p0")
+    assert report.status is not None and report.status[0] == "success"
+    assert world.github.last_status()["state"] == "success"
+
+
+def test_a_failure_on_the_way_sets_an_error_status_instead_of_leaving_pending(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    world.github.origin = world.origin
+    original = engine.run_ai_stage
+
+    def boom(*args: Any, **kwargs: Any) -> Any:
+        raise engine.AiStageError("the endpoint refused it")
+
+    engine.run_ai_stage = boom  # type: ignore[assignment]
+    try:
+        with pytest.raises(PrReviewError, match="the endpoint refused it"):
+            world.review()
+    finally:
+        engine.run_ai_stage = original
+    assert [s["state"] for s in world.github.statuses] == ["pending", "error"]
+
+
+def test_without_statuses_permission_the_review_still_completes(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    world.github.deny_status = True
+    report = world.review()
+    assert not report.skipped and len(world.github.summary_comments()) == 1
+    assert any("could not set the commit status" in note for note in report.notes)
+
+
+# --------------------------------------------------------------------------- #
+# dry runs, local runs and the guards
+# --------------------------------------------------------------------------- #
+
+
+def test_a_dry_run_renders_everything_and_writes_nothing(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    report = world.review(dry_run=True)
+    assert report.published == {"dry_run": True} and len(report.inline_bodies) == 1
+    assert report.summary.startswith("<!-- lemoncrow:summary v1 -->")
+    assert world.github.statuses == [] and world.github.issue_comments == [] and world.github.review_posts == 0
+
+
+def test_a_local_ai_review_reads_but_never_writes(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    world.origin.push(FIRST_PUSH)
+    report = world.review(publish=False)
+    assert len(report.findings) == 2 and report.summary
+    assert world.github.statuses == [] and world.github.issue_comments == [] and world.github.review_posts == 0
+    assert all(method == "GET" or path.endswith("graphql") for method, path in world.github.calls)
+
+
+def test_publishing_outside_github_actions_is_refused_because_the_login_would_be_a_person(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    world.origin.push(FIRST_PUSH)
+    with pytest.raises(PrReviewError, match="runs only in GitHub Actions"):
+        world.review()
+    assert world.github.calls == [] and world.model.calls == []
+    assert not world.review(dry_run=True).skipped  # a dry run writes nothing, so it may run anywhere
+
+
+def test_the_kill_switch_stops_the_review_before_anything_is_captured_or_sent(world: World, tmp_path: Path) -> None:
+    world.origin.push(FIRST_PUSH)
+    root = tmp_path / ".lemoncrow"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "plugin_settings.json").write_text(json.dumps({"intelligence.enabled": False}))
+    report = world.review()
+    assert report.skipped and "turned off" in report.reason and report.exit_code == 0
+    assert world.model.calls == [] and world.github.statuses == [] and world.github.issue_comments == []
+
+
+def test_no_model_route_is_an_error_the_person_can_act_on(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY")
+    world.origin.push(FIRST_PUSH)
+    with pytest.raises(PrReviewError, match="ANTHROPIC_API_KEY or OPENAI_API_KEY"):
+        world.review()
+    assert world.github.statuses == []
+
+
+def test_the_model_route_comes_from_the_environment_keys(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    import os
+
+    world.origin.push(FIRST_PUSH)
+    monkeypatch.setenv("LEMONCROW_REVIEW_MODEL", "gpt-4o-mini")
+    world.review(dry_run=True)
+    assert os.environ["LEMONCROW_LLM_BACKEND"] == "openai" and os.environ["LEMONCROW_OPENAI_MODEL"] == "gpt-4o-mini"
+
+
+def test_the_hard_call_cap_still_bounds_the_review(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    world.origin.push(FIRST_PUSH)
+    monkeypatch.setenv("LEMONCROW_REVIEW_INTELLIGENCE_MAX_CALLS", "1")
+    report = world.review()
+    assert len(world.model.calls) == 1
+    assert report.state is not None and not report.state.complete
+    assert "Review incomplete" in world.github.summary_comments()[0]["body"]
+
+
+# --------------------------------------------------------------------------- #
+# the human path stays human
+# --------------------------------------------------------------------------- #
+
+
+def test_the_human_publish_path_still_refuses_ai_annotations(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lemoncrow.pro.capabilities.review.sources import github as github_source
+
+    world.origin.push(FIRST_PUSH)
+    monkeypatch.setattr(github_source, "run_gh", world.github)
+    pull = resolve_pull_request(world.origin.clone, str(NUMBER), runner=world.github)
+    store_root = world.root / "human-store"
+    captured = engine.capture_pull_request(world.origin.clone, pull, store_root)
+    annotate_machine_finding(
+        captured.store,
+        captured.session,
+        captured.revision,
+        path="src/auth.py",
+        start_line=2,
+        end_line=3,
+        body="An AI finding.",
+        source="ai_review",
+        source_id="finding-1",
+        created_by="LemonCrow AI Review",
+        created_by_actor="agent",
+        title="AI finding",
+    )
+    app = FastAPI()
+    register_review_api(
+        app,
+        captured.store,
+        auth_dependency=make_token_dependency("t"),
+        repo_root=world.origin.clone,
+        port=45999,
+        github_publish_enabled=True,
+        live_journal_enabled=False,
+        source_refresh_enabled=False,
+    )
+    client = TestClient(app, base_url="http://127.0.0.1:45999")
+    headers = {"Authorization": "Bearer t"}
+    preview = client.post(f"/api/reviews/{captured.session.id}/github/preview", json={}, headers=headers).json()
+    assert preview["inline"] == [] and preview["folded"] == [] and preview["empty"] is True
+    published = client.post(
+        f"/api/reviews/{captured.session.id}/github/publish",
+        json={
+            "operation_id": "x",
+            "expected_revision_id": captured.revision.id,
+            "expected_plan_hash": preview["plan_hash"],
+        },
+        headers=headers,
+    )
+    assert published.status_code == 409 and "nothing new to publish" in published.json()["detail"]
+    assert world.github.review_posts == 0
+
+    # Contrast: a human comment on the same line is published as a human review.
+    client.post(
+        f"/api/reviews/{captured.session.id}/annotations",
+        json={"path": "src/auth.py", "start_line": 2, "body": "Why?", "expected_revision_id": captured.revision.id},
+        headers=headers,
+    )
+    human = client.post(f"/api/reviews/{captured.session.id}/github/preview", json={}, headers=headers).json()
+    assert len(human["inline"]) == 1 and human["inline"][0]["body"] == "Why?"
+
+
+def test_a_person_cannot_supply_the_state_the_next_run_trusts(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    world.review()
+    real = world.github.summary_comments()[0]
+    state = parse_state(real["body"])
+    assert state is not None
+    # A lower id than the bot's own comment, claiming the review found nothing.
+    forged = real["body"].split("<!-- lemoncrow:state")[0] + dump_state(replace(state, findings=()))
+    world.github.issue_comments.insert(0, {"id": 1, "body": forged, "user": PERSON, "html_url": "https://x/1"})
+    world.model.reset()
+    world.review()
+    bot_state = parse_state(next(row for row in world.github.issue_comments if row["user"]["type"] == "Bot")["body"])
+    assert bot_state is not None and len(bot_state.findings) == 2
+    assert world.model.calls == [] and world.github.review_posts == 1
