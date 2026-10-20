@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import urllib.error
 from collections.abc import Mapping
 from pathlib import Path
 from types import SimpleNamespace
@@ -884,3 +885,171 @@ def test_reconciling_the_same_state_again_changes_nothing() -> None:
 
 def test_module_is_the_one_source_of_the_comment_limit() -> None:
     assert render_module.MAX_COMMENT < 65_536 and render_module.STATUS_CONTEXT == "LemonCrow Review"
+
+
+# --------------------------------------------------------------------------- #
+# a skipped run says so on the head (R6)
+# --------------------------------------------------------------------------- #
+
+HEAD_SHA = "c" * 40
+POSTING: Mapping[str, str] = {
+    **KEYED,
+    "GH_TOKEN": "t0ken",
+    "GITHUB_REPOSITORY": "acme/widgets",
+    "GITHUB_SERVER_URL": "https://github.com",
+    "GITHUB_RUN_ID": "99",
+}
+
+
+def posting_event(**fields: Any) -> dict[str, Any]:
+    event = pull_event(**fields)
+    event["pull_request"]["head"]["sha"] = HEAD_SHA
+    return event
+
+
+@pytest.mark.parametrize(
+    ("env", "event", "kwargs", "reason", "writable"),
+    [
+        ({}, pull_event(head="mallory/widgets"), {}, "pull request from a fork", False),
+        ({}, pull_event(draft=True), {}, "draft pull request", True),
+        (
+            {},
+            pull_event(action="synchronize"),
+            {"on_push": False},
+            "push to an open pull request, on-push is off",
+            True,
+        ),
+        (
+            {"OPENAI_API_KEY": "", "GITHUB_ACTOR": "dependabot[bot]"},
+            pull_event(),
+            {},
+            "Dependabot run without a model key",
+            True,
+        ),
+    ],
+)
+def test_every_skip_that_exits_zero_names_its_reason_for_the_status(
+    env: dict[str, str], event: dict[str, Any], kwargs: dict[str, Any], reason: str, writable: bool
+) -> None:
+    gate = ci_env.decide({**KEYED, **env}, event=event, **kwargs)
+    assert not gate.run and gate.exit_code == 0
+    assert (gate.skip, gate.writable) == (reason, writable)
+
+
+def test_a_run_that_stops_for_another_reason_posts_no_skipped_status() -> None:
+    refused = ci_env.decide({**KEYED, "GITHUB_EVENT_NAME": "pull_request_target"}, event=pull_event())
+    missing = ci_env.decide({"GITHUB_EVENT_NAME": "pull_request"}, event=pull_event())
+    nothing = ci_env.decide(KEYED, event={})
+    assert refused.skip == missing.skip == nothing.skip == ""
+    assert ci_env.post_skip_status(POSTING, nothing) == ""
+
+
+def test_a_skipped_run_posts_success_on_the_pull_requests_head_not_the_merge_commit() -> None:
+    sent: list[tuple[str, dict[str, Any], Mapping[str, str]]] = []
+
+    def send(url: str, body: bytes, headers: Mapping[str, str]) -> None:
+        sent.append((url, json.loads(body), headers))
+
+    gate = ci_env.decide(POSTING, event=posting_event(draft=True))
+    assert ci_env.post_skip_status(POSTING, gate, event=posting_event(draft=True), send=send) == ""
+    ((url, body, headers),) = sent
+    assert url == f"https://api.github.com/repos/acme/widgets/statuses/{HEAD_SHA}"
+    assert body == {
+        "state": "success",
+        "context": "LemonCrow Review",
+        "description": "skipped: draft pull request",
+        "target_url": "https://github.com/acme/widgets/actions/runs/99",
+    }
+    assert headers["Authorization"] == "Bearer t0ken"
+    # A GitHub Enterprise Server host is honoured.
+    sent.clear()
+    ci_env.post_skip_status(
+        {**POSTING, "GITHUB_API_URL": "https://ghe.example/api/v3/"}, gate, event=posting_event(draft=True), send=send
+    )
+    assert sent[0][0] == f"https://ghe.example/api/v3/repos/acme/widgets/statuses/{HEAD_SHA}"
+
+
+def test_a_fork_is_not_even_tried_because_its_token_is_read_only() -> None:
+    def never(url: str, body: bytes, headers: Mapping[str, str]) -> None:
+        raise AssertionError("a fork's read-only token must not be used to attempt a write")
+
+    gate = ci_env.decide(POSTING, event=posting_event(head="mallory/widgets"))
+    note = ci_env.post_skip_status(POSTING, gate, event=posting_event(head="mallory/widgets"), send=never)
+    assert "read-only token" in note and "Required checks and skipped runs" in note
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [urllib.error.HTTPError("u", 403, "Resource not accessible by integration", {}, None), OSError("offline")],  # type: ignore[arg-type]
+)
+def test_a_status_that_cannot_be_posted_is_a_note_never_a_failure(failure: Exception) -> None:
+    def refuse(url: str, body: bytes, headers: Mapping[str, str]) -> None:
+        raise failure
+
+    gate = ci_env.decide(POSTING, event=posting_event(draft=True))
+    note = ci_env.post_skip_status(POSTING, gate, event=posting_event(draft=True), send=refuse)
+    assert "was posted" in note and "statuses: write" in note and "wait for it" in note
+
+
+@pytest.mark.parametrize("env", [{"GH_TOKEN": ""}, {"GITHUB_REPOSITORY": ""}], ids=["no token", "no repository"])
+def test_no_token_repository_or_head_means_no_status_and_a_note(env: dict[str, str]) -> None:
+    gate = ci_env.decide(POSTING, event=posting_event(draft=True))
+    assert "no token, repository or pull request head" in ci_env.post_skip_status(
+        {**POSTING, **env}, gate, event=posting_event(draft=True), send=lambda *_: None
+    )
+    # An event without the head's sha (a hand-written dispatch) has nowhere to put it either.
+    assert "no token" in ci_env.post_skip_status(POSTING, gate, event=pull_event(draft=True), send=lambda *_: None)
+
+
+def test_the_gate_script_posts_the_skipped_status_over_http_and_still_exits_zero(tmp_path: Path) -> None:
+    import http.server
+    import threading
+
+    received: list[tuple[str, dict[str, Any], str]] = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            received.append((self.path, json.loads(self.rfile.read(length)), self.headers.get("Authorization", "")))
+            self.send_response(201)
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, *args: object) -> None:
+            return
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        event = tmp_path / "event.json"
+        event.write_text(json.dumps(posting_event(draft=True)), encoding="utf-8")
+        output = tmp_path / "output"
+        env = {
+            "PATH": "/usr/bin:/bin",
+            "GITHUB_EVENT_NAME": "pull_request",
+            "GITHUB_EVENT_PATH": str(event),
+            "GITHUB_OUTPUT": str(output),
+            "GITHUB_REPOSITORY": "acme/widgets",
+            "GITHUB_API_URL": f"http://127.0.0.1:{server.server_port}",
+            "GH_TOKEN": "t0ken",
+            "OPENAI_API_KEY": "k",
+            "no_proxy": "127.0.0.1",
+        }
+        done = subprocess.run(
+            [sys.executable, "-I", str(Path(ci_env.__file__))], env=env, capture_output=True, text=True, check=False
+        )
+        assert done.returncode == 0 and output.read_text() == "run=false\nextra=\n"
+        assert done.stdout.count("::notice") == 1  # the skip's own notice; the status was posted, so nothing to add
+    finally:
+        server.shutdown()
+    ((path, body, auth),) = received
+    assert path == f"/repos/acme/widgets/statuses/{HEAD_SHA}" and auth == "Bearer t0ken"
+    assert (body["state"], body["description"]) == ("success", "skipped: draft pull request")
+
+    # The same run against a server that refuses: the notice says what was not posted, the job still passes.
+    env["GITHUB_API_URL"] = "http://127.0.0.1:9"
+    done = subprocess.run(
+        [sys.executable, "-I", str(Path(ci_env.__file__))], env=env, capture_output=True, text=True, check=False
+    )
+    assert done.returncode == 0 and "was posted" in done.stdout and "wait for it" in done.stdout

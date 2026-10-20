@@ -69,7 +69,7 @@ Notes on the workflow:
 | `pr-number` | the event's pull request | Set it for `workflow_dispatch` runs. |
 | `working-directory` | `.` | Where the repository is checked out. |
 
-LiteLLM users can set `model-provider: litellm` and the variables LiteLLM already reads for their cloud (`AWS_*`, `AZURE_*`, `VERTEXAI_*`) plus `LEMONCROW_LITELLM_MODEL`. `LEMONCROW_LLM_BACKEND` is respected if you set it yourself. The intelligence policy and its kill switch (`intelligence.enabled` in the LemonCrow settings, `LEMONCROW_ROOT` on a self-hosted runner) apply exactly as they do locally: when AI is off, the run exits 0 and posts nothing.
+LiteLLM users can set `model-provider: litellm` and the variables LiteLLM already reads for their cloud (`AWS_*`, `AZURE_*`, `VERTEXAI_*`) plus `LEMONCROW_LITELLM_MODEL`. `LEMONCROW_LLM_BACKEND` is respected if you set it yourself. The intelligence policy and its kill switch (`intelligence.enabled` in the LemonCrow settings, `LEMONCROW_ROOT` on a self-hosted runner) apply exactly as they do locally: when AI is off, the run exits 0, posts no comment, and sets the `LemonCrow Review` status to `skipped: AI review is turned off`.
 
 ## What the bot posts
 
@@ -134,7 +134,26 @@ The `LemonCrow Review` commit status is set on the reviewed head, with a link to
 | A P0 finding and `fail-on: none` | `success`, described as advisory |
 | Review incomplete (a model call failed, the call budget ran out) | `error` with `fail-on: p0`, otherwise `success` saying it is incomplete |
 
-Add `LemonCrow Review` to your branch protection's required checks if you want it to block.
+Add `LemonCrow Review` to your branch protection's required checks if you want it to block, and read "Required checks and skipped runs" below first.
+
+#### Required checks and skipped runs
+
+A required status check waits for a status with that exact name on the head commit. A run that does not review still has to answer, or the pull request shows `Expected: waiting for status` forever. So whenever the Action skips a pull request, it posts a `success` status with a description that starts `skipped:` on the head commit, when the token can write statuses:
+
+| Skipped because | Status description |
+| --- | --- |
+| A draft (`review-drafts` is off) | `skipped: draft pull request` |
+| A push, with `on-push: false` | `skipped: push to an open pull request, on-push is off` |
+| The pull request is closed | `skipped: pull request is closed` |
+| The intelligence kill switch is off | `skipped: AI review is turned off` |
+| A Dependabot run with no model key | `skipped: Dependabot run without a model key` |
+| A pull request from a fork | **none posted**, see below |
+
+**Fork pull requests cannot be covered this way.** A `pull_request` run from a fork gets a read-only token, so it cannot write a status at all; the Action does not try, and prints a notice saying so. If you require `LemonCrow Review` and accept pull requests from forks, those pull requests will wait on it. Use a path of your own for them: do not make the check required, or let a maintainer run the workflow by hand for the fork's pull request (see "Pull requests from forks"; that run writes the status as the maintainer's workflow), or set the status from a trusted workflow of yours that is allowed to write it. The Action will not do this for you: the safe way to get a write token on a fork's pull request is the `pull_request_target` event, which it refuses.
+
+Dependabot-triggered runs are not covered either by default. They have no access to repository secrets (no model key), and they are understood to get a read-only `GITHUB_TOKEN` as well; that is not something this guide has confirmed against GitHub's documentation, so check GitHub's documentation for Dependabot and GitHub Actions before relying on a status from a Dependabot run. If the token cannot write, the Action posts nothing, prints a notice, and still exits 0; a required check will then wait.
+
+A skipped run is never a failure, and a failed attempt to post the skipped status is never one either.
 
 **A partial review is `success` on purpose.** Auto examines at most two risk signals per run, so failing the check on every pull request with three or more would block merges for something its author cannot fix. What it will not do is look like full coverage: the headline, the check description and the status strip all say `Partially reviewed` and how many signals were reached, the check never says `No must-fix findings` for it, and a P0 found in the signals that were examined still fails the check under `fail-on: p0`. The unexamined signals are still owed: the next run (a push, or a re-run of the job) competes for the cap again until they are all examined. To examine more of them in one run, use `depth: thorough` or `deep`.
 
@@ -265,7 +284,7 @@ on:
 
 LemonCrow fetches the pull request's git objects and sends the diff to your model; it does not run it. Send only pull requests you are willing to show your model provider.
 
-Dependabot runs also have no secrets: add the key under Dependabot secrets to review them, or they are skipped with a notice.
+Dependabot runs also have no repository secrets, so they are skipped with a notice. Adding the model key under Dependabot secrets is necessary to review them, and may not be enough: runs Dependabot triggers are understood to get a read-only `GITHUB_TOKEN`, in which case the review runs but cannot post a comment or a status. That is not confirmed in this guide; check GitHub's documentation for Dependabot and GitHub Actions and your workflow's permissions before relying on it.
 
 ## Try it locally first
 
@@ -288,5 +307,5 @@ LemonCrow is not on PyPI. The Action checks out itself at the ref you named, ins
 
 - **`No model credentials`**: the key reached the workflow but not the step. Pass it in the step's `env:`, as above.
 - **`Resource not accessible by integration`** in the run log: the workflow lacks a permission. The review still completes; the note names what it could not do (a status needs `statuses: write`, comments and thread resolution need `pull-requests: write`).
-- **Nothing happened on a pull request**: check the run's notice. Forks, drafts and `on-push: false` runs say so.
+- **Nothing happened on a pull request**: check the run's notice. Forks, drafts and `on-push: false` runs say so, and all but forks also set the `LemonCrow Review` status to `skipped: <reason>`.
 - **A push posted nothing new**: the changed code produced no new finding. The summary's status strip says what was re-reviewed.

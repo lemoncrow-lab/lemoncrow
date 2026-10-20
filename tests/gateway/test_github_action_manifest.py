@@ -93,6 +93,14 @@ def test_the_steps_run_the_gate_first_and_only_continue_when_it_says_so() -> Non
     assert all(f'f"{name}=' in source for name in read)
 
 
+def test_the_gate_can_post_a_skipped_status_with_the_same_token_the_review_uses() -> None:
+    gate = steps(manifest())[0]
+    assert gate["env"]["GH_TOKEN"] == "${{ inputs.github-token }}"
+    guide = GUIDE.read_text(encoding="utf-8")
+    assert "Required checks and skipped runs" in guide and "skipped: draft pull request" in guide
+    assert "A pull request from a fork | **none posted**" in guide
+
+
 def test_it_installs_from_its_own_checkout_and_lockfile_into_a_private_environment() -> None:
     install = next(step for step in steps(manifest()) if step["name"] == "Install LemonCrow")
     assert "uv sync" in install["run"] and "--frozen" in install["run"] and "--no-dev" in install["run"]

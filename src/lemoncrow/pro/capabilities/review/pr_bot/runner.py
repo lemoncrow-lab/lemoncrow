@@ -174,10 +174,24 @@ def run_pr_review(
         facts = github.pull_facts()
     except GitHubCliError as exc:
         raise PrReviewError(str(exc)) from exc
+    writes = options.publish and not options.dry_run
+
+    def skipped(reason: str, because: str) -> RunReport:
+        # A `LemonCrow Review` required check waits for a status on the head: a skip says so instead of hanging it.
+        report = _skip(name, reason)
+        if writes and facts.head_sha:
+            description = f"skipped: {because}"
+            if _best_effort(
+                lambda: github.set_status(facts.head_sha, "success", description), report.notes, "set the status"
+            ):
+                report.published["status"] = {"state": "success", "description": description[:140]}
+        return report
+
     if not facts.open:
-        return _skip(name, f"{name} is {facts.state or 'not open'}; nothing to review.")
+        state = facts.state or "not open"
+        return skipped(f"{name} is {state}; nothing to review.", f"pull request is {state}")
     if facts.draft and not options.review_drafts:
-        return _skip(name, "Draft pull request: skipped. Set review-drafts to review drafts.")
+        return skipped("Draft pull request: skipped. Set review-drafts to review drafts.", "draft pull request")
 
     route = ci_env.resolve_model_route(environ, options.provider)
     if route is not None:
@@ -185,14 +199,13 @@ def run_pr_review(
         ci_env.apply_model_route(route, os.environ)
     problem, why = engine.route_problem()
     if problem == "disabled":
-        return _skip(name, f"AI review is turned off ({why}); nothing was reviewed.")
+        return skipped(f"AI review is turned off ({why}); nothing was reviewed.", "AI review is turned off")
     if problem:
         raise PrReviewError(
             "no model route is configured: set ANTHROPIC_API_KEY or OPENAI_API_KEY (or LEMONCROW_LLM_BACKEND with "
             f"its provider variables). {why}"
         )
 
-    writes = options.publish and not options.dry_run
     if writes:
         _best_effort(lambda: github.set_status(facts.head_sha, "pending", "Reviewing…"), [], "set the pending status")
     try:

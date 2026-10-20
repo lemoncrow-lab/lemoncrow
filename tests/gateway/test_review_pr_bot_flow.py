@@ -295,9 +295,18 @@ def test_draft_pull_requests_are_skipped_unless_review_drafts(world: World) -> N
     world.github.draft = True
     skipped = world.review()
     assert skipped.skipped and "Draft" in skipped.reason and skipped.exit_code == 0
-    assert world.model.calls == [] and world.github.statuses == [] and world.github.issue_comments == []
+    assert world.model.calls == [] and world.github.issue_comments == []
+    # R6: a required `LemonCrow Review` check must not wait for a review that was never going to run.
+    (status,) = world.github.statuses
+    assert (status["state"], status["description"], status["context"]) == (
+        "success",
+        "skipped: draft pull request",
+        "LemonCrow Review",
+    )
+    assert status["sha"] == world.origin.head and skipped.published["status"]["description"] == status["description"]
     reviewed = world.review(review_drafts=True)
     assert not reviewed.skipped and len(world.github.summary_comments()) == 1
+    assert [row["description"] for row in world.github.statuses][-1] != "skipped: draft pull request"
 
 
 def test_a_push_is_skipped_when_on_push_is_off(world: World, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -322,10 +331,32 @@ def test_a_push_is_skipped_when_on_push_is_off(world: World, monkeypatch: pytest
     assert not world.review(on_push=True).skipped
 
 
-def test_a_closed_pull_request_is_skipped(world: World) -> None:
+def test_a_closed_pull_request_is_skipped_and_says_so_on_the_head(world: World) -> None:
     world.origin.push(FIRST_PUSH)
     world.github.state = "closed"
     assert world.review().skipped and world.model.calls == []
+    (status,) = world.github.statuses
+    assert (status["state"], status["description"], status["sha"]) == (
+        "success",
+        "skipped: pull request is closed",
+        world.origin.head,
+    )
+
+
+def test_a_skip_that_cannot_post_its_status_still_skips_quietly(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    world.github.draft = True
+    world.github.deny_status = True
+    report = world.review()
+    assert report.skipped and report.exit_code == 0 and "status" not in report.published
+    assert any("could not set the status" in note for note in report.notes)
+    assert world.github.statuses == []
+
+
+def test_a_dry_run_skip_writes_no_status(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    world.github.draft = True
+    assert world.review(dry_run=True).skipped and world.github.statuses == []
 
 
 def test_a_fork_pull_request_exits_zero_with_a_notice_and_touches_nothing(
@@ -457,7 +488,10 @@ def test_the_kill_switch_stops_the_review_before_anything_is_captured_or_sent(wo
     (root / "plugin_settings.json").write_text(json.dumps({"intelligence.enabled": False}))
     report = world.review()
     assert report.skipped and "turned off" in report.reason and report.exit_code == 0
-    assert world.model.calls == [] and world.github.statuses == [] and world.github.issue_comments == []
+    assert world.model.calls == [] and world.github.issue_comments == []
+    assert [(row["state"], row["description"]) for row in world.github.statuses] == [
+        ("success", "skipped: AI review is turned off")
+    ]
 
 
 def test_no_model_route_is_an_error_the_person_can_act_on(world: World, monkeypatch: pytest.MonkeyPatch) -> None:

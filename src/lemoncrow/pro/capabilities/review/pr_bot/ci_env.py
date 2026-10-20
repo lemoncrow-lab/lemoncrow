@@ -17,6 +17,12 @@ Gating, in the order it is decided:
   skipped when ``on_push`` is off.
 * With no model credential the run stops. Dependabot runs also have no secrets, so
   they skip quietly; anything else is a misconfiguration and fails loudly.
+
+A skip that exits 0 also posts a ``success`` commit status, ``skipped: <reason>``, on the pull request's head
+when the token can write statuses, so a ``LemonCrow Review`` required check does not wait on "Expected" forever.
+A fork's ``pull_request`` token is read-only, so none is posted for it (:func:`post_skip_status` says so);
+a required check on a repository that accepts fork pull requests needs another path (the setup guide's
+"Required checks and skipped runs").
 """
 
 from __future__ import annotations
@@ -24,7 +30,9 @@ from __future__ import annotations
 import json
 import os
 import sys
-from collections.abc import Mapping, MutableMapping
+import urllib.error
+import urllib.request
+from collections.abc import Callable, Mapping, MutableMapping
 from dataclasses import dataclass
 
 BACKEND_ENV = "LEMONCROW_LLM_BACKEND"
@@ -118,6 +126,11 @@ class Gate:
     reason: str = ""
     level: str = "notice"
     exit_code: int = 0
+    #: For a skip that exits 0: the short reason after ``skipped:`` in the commit status posted for it.
+    #: Empty when the run stops for another reason (nothing to review, a refusal, a misconfiguration).
+    skip: str = ""
+    #: Whether GitHub gives this run a token that can write a commit status (a fork's is read-only).
+    writable: bool = True
 
 
 def _mapping(value: object) -> Mapping[str, object]:
@@ -185,17 +198,28 @@ def decide(
             False,
             "Pull request from a fork: GitHub gives pull_request runs from forks no secrets and a read-only token, "
             "so there is no model key to call and no permission to comment. Skipping.",
+            skip="pull request from a fork",
+            writable=False,
         )
     if pull.get("draft") is True and not review_drafts:
-        return Gate(False, "Draft pull request: skipped. Set review-drafts to review drafts.")
+        return Gate(
+            False, "Draft pull request: skipped. Set review-drafts to review drafts.", skip="draft pull request"
+        )
     if str(payload.get("action") or "") == "synchronize" and not on_push:
-        return Gate(False, "Push to an open pull request: skipped because on-push is off.")
+        return Gate(
+            False,
+            "Push to an open pull request: skipped because on-push is off.",
+            skip="push to an open pull request, on-push is off",
+        )
     if require_credentials and resolve_model_route(env, provider) is None:
         if str(env.get("GITHUB_ACTOR") or "") == "dependabot[bot]":
             return Gate(
                 False,
-                "Dependabot runs cannot read repository secrets, so there is no model key. Skipping; add the key "
-                "under Dependabot secrets to review these.",
+                "Dependabot runs cannot read repository secrets, so there is no model key. Skipping. Adding the key "
+                "under Dependabot secrets may not be enough: runs Dependabot triggers are understood to get a "
+                "read-only GITHUB_TOKEN (not confirmed here; check GitHub's documentation for Dependabot and "
+                "GitHub Actions), and a review that cannot comment or set a status has nowhere to report.",
+                skip="Dependabot run without a model key",
             )
         return Gate(
             False,
@@ -219,6 +243,72 @@ def _truthy(value: str, default: bool) -> bool:
     return text in {"1", "true", "yes", "on"}
 
 
+STATUS_CONTEXT = "LemonCrow Review"
+_STATUS_TIMEOUT = 20
+
+
+def _send_status(url: str, body: bytes, headers: Mapping[str, str]) -> None:
+    """POST *body* to *url*; raises ``OSError`` (``URLError`` is one) on any failure."""
+
+    request = urllib.request.Request(url, data=body, headers=dict(headers), method="POST")
+    with urllib.request.urlopen(request, timeout=_STATUS_TIMEOUT):
+        return
+
+
+def post_skip_status(
+    env: Mapping[str, str],
+    gate: Gate,
+    *,
+    event: Mapping[str, object] | None = None,
+    send: Callable[[str, bytes, Mapping[str, str]], None] = _send_status,
+) -> str:
+    """Post ``success`` / ``skipped: <reason>`` on the pull request's head; return ``""`` or why nothing was posted.
+
+    Best effort and never raising: a skipped run must stay a skipped run. A fork's token is read-only, so none is
+    attempted for it. The status goes on the pull request's head commit, which is what a required check reads, not
+    on the merge commit the job checked out.
+    """
+
+    if not gate.skip:
+        return ""
+    if not gate.writable:
+        return (
+            f"No '{STATUS_CONTEXT}' status was posted: GitHub gives this run a read-only token. "
+            "If you require that check, see 'Required checks and skipped runs' in the setup guide."
+        )
+    token = str(env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or "").strip()
+    repository = str(env.get("GITHUB_REPOSITORY") or "").strip()
+    payload = load_event(env) if event is None else event
+    head = _mapping(_mapping(payload.get("pull_request")).get("head"))
+    sha = str(head.get("sha") or "").strip()
+    if not (token and repository and sha):
+        return f"No '{STATUS_CONTEXT}' status was posted: the run has no token, repository or pull request head."
+    api = str(env.get("GITHUB_API_URL") or "https://api.github.com").rstrip("/")
+    body: dict[str, str] = {
+        "state": "success",
+        "context": STATUS_CONTEXT,
+        "description": f"skipped: {gate.skip}"[:140],
+    }
+    server, run = str(env.get("GITHUB_SERVER_URL") or "").rstrip("/"), str(env.get("GITHUB_RUN_ID") or "")
+    if server and run:
+        body["target_url"] = f"{server}/{repository}/actions/runs/{run}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "Content-Type": "application/json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "lemoncrow-review-gate",
+    }
+    try:
+        send(f"{api}/repos/{repository}/statuses/{sha}", json.dumps(body).encode("utf-8"), headers)
+    except (OSError, ValueError) as exc:
+        return (
+            f"No '{STATUS_CONTEXT}' status was posted ({type(exc).__name__}): the token may lack statuses: write. "
+            "A required check will wait for it."
+        )
+    return ""
+
+
 def main(argv: list[str] | None = None) -> int:
     """Script entry for ``action.yml``: decide, print a workflow command, write ``run=`` and ``extra=`` to ``$GITHUB_OUTPUT``."""
 
@@ -233,6 +323,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     if gate.reason:
         print(f"::{_LEVEL_COMMAND.get(gate.level, 'notice')} title=LemonCrow Review::{gate.reason}")
+    if not gate.run and gate.exit_code == 0:
+        unposted = post_skip_status(env, gate)
+        if unposted:
+            print(f"::notice title=LemonCrow Review::{unposted}")
     output = str(env.get("GITHUB_OUTPUT") or "").strip()
     if output:
         route = resolve_model_route(env, str(env.get(PROVIDER_ENV) or "auto")) if gate.run else None
