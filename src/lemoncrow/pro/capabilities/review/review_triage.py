@@ -41,6 +41,7 @@ from lemoncrow.pro.capabilities.review.criticality import (
     CRITICALITY_RANK,
     CRITICALITY_VALUES,
     DEFAULT_FINDING_THRESHOLD,
+    FINDING_IMPACTS,
     FINDING_SEVERITIES,
     FINDING_THRESHOLDS,
     SEVERITY_LABELS,
@@ -54,6 +55,7 @@ from lemoncrow.pro.capabilities.review.criticality import (
     PolicyState,
     RequiredFocus,
     normalize_finding_severity,
+    severity_for,
     surfaced,
 )
 from lemoncrow.pro.capabilities.review.review_priority import QueueReason
@@ -115,9 +117,15 @@ class FindingEvidence:
     severity: FindingSeverity | None
     target_ids: tuple[str, ...] = ()
     title: str = ""
+    #: The investigator's impact rating (``low | medium | high``) and whether evidence beyond the finding's own
+    #: code backs it: the two inputs, with the category and the rules the annotation cites, that
+    #: :func:`finding_severities` hands to the product's one severity rule. ``""`` and ``False`` when unknown
+    #: (every row written before they were kept, and every Reader run, which does not ask for a rating).
+    impact: str = ""
+    verified: bool = False
 
     def to_wire(self) -> dict[str, Any]:
-        return {
+        wire: dict[str, Any] = {
             "annotation_id": self.annotation_id,
             "finding_id": self.finding_id,
             "source": self.source,
@@ -126,12 +134,19 @@ class FindingEvidence:
             "target_ids": list(self.target_ids),
             "title": self.title,
         }
+        # Only when known, so a row without them stays byte-identical to the rows written before they existed.
+        if self.impact:
+            wire["impact"] = self.impact
+        if self.verified:
+            wire["verified"] = True
+        return wire
 
     @classmethod
     def from_wire(cls, raw: object) -> FindingEvidence | None:
         if not isinstance(raw, Mapping) or not str(raw.get("annotation_id") or ""):
             return None
         severity = raw.get("severity")
+        impact = raw.get("impact")
         return cls(
             annotation_id=str(raw["annotation_id"]),
             finding_id=str(raw.get("finding_id") or ""),
@@ -140,13 +155,26 @@ class FindingEvidence:
             severity=cast(FindingSeverity, severity) if severity in FINDING_SEVERITIES else None,
             target_ids=tuple(str(item) for item in raw.get("target_ids") or () if str(item)),
             title=str(raw.get("title") or ""),
+            impact=impact if impact in FINDING_IMPACTS else "",
+            verified=raw.get("verified") is True,
         )
 
 
 def ai_finding_evidence(
-    annotation_id: str, *, finding_id: str, category: str, target_ids: Sequence[str], title: str
+    annotation_id: str,
+    *,
+    finding_id: str,
+    category: str,
+    target_ids: Sequence[str],
+    title: str,
+    impact: str = "",
+    verified: bool = False,
 ) -> FindingEvidence:
-    """Severity evidence for one confirmed AI finding: policy normalizes its validated category."""
+    """Severity evidence for one confirmed AI finding: policy normalizes its validated category.
+
+    ``impact`` and ``verified`` are kept beside it for :func:`finding_severities`; they do not change the
+    ``severity`` the triage summary, the threshold and the priority read.
+    """
 
     return FindingEvidence(
         annotation_id=annotation_id,
@@ -156,7 +184,55 @@ def ai_finding_evidence(
         severity=normalize_finding_severity("ai_review", category=category),
         target_ids=tuple(target_ids),
         title=title,
+        impact=impact if impact in FINDING_IMPACTS else "",
+        verified=verified is True,
     )
+
+
+def finding_severities(
+    store: Any, annotations: Sequence[Any], revision_ids: Sequence[str]
+) -> dict[str, Literal["p0", "p1", "p2"]]:
+    """The P0/P1/P2 the annotation wire carries for each AI finding among *annotations*, by annotation id.
+
+    The rule is the product's one (:func:`criticality.severity_for`, the same function the pull request bot stores on
+    its findings): the finding's validated category and the investigator's rating and evidence recorded with it, and
+    whether the annotation cites a rule. *revision_ids* are the Snapshots to read, newest first, starting at the one
+    being viewed: a finding is rated by the newest of them that holds severity evidence for it, so the badge is the
+    rating it was last given, also on a Snapshot that did not revalidate it (the triage summary calls that one
+    stale; the badge is not a claim about currency). A historical view passes only the Snapshots up to its own.
+
+    A finding with no evidence row, or whose category is not one the policy knows, is left out: unrated is never
+    guessed, and it is never a low severity. Human comments and replies are never rated; they keep their kind.
+    """
+
+    roots = [
+        item
+        for item in annotations
+        if getattr(item, "source", "") == "ai_review" and not getattr(item, "parent_id", "")
+    ]
+    if not roots or not revision_ids or not hasattr(store, "derived_results"):
+        return {}
+    order = {revision_id: index for index, revision_id in enumerate(revision_ids)}
+    newest: dict[str, tuple[int, FindingEvidence]] = {}
+    for (revision_id, _scope), (_stamp, payload) in store.derived_results(FINDING_EVIDENCE_KIND, revision_ids).items():
+        parsed = FindingEvidence.from_wire(payload)
+        rank = order.get(revision_id)
+        if parsed is None or rank is None or parsed.severity is None:
+            continue
+        if parsed.annotation_id not in newest or rank < newest[parsed.annotation_id][0]:
+            newest[parsed.annotation_id] = (rank, parsed)
+    out: dict[str, Literal["p0", "p1", "p2"]] = {}
+    for item in roots:
+        found = newest.get(item.id)
+        if found is None:
+            continue
+        row = found[1]
+        level = severity_for(
+            row.category, impact=row.impact, verified=row.verified, rule_cited=bool(getattr(item, "rule_refs", ()))
+        )
+        if level in ("p0", "p1", "p2"):
+            out[item.id] = cast(Literal["p0", "p1", "p2"], level)
+    return out
 
 
 def record_finding_evidence(store: Any, *, review_id: str, revision_id: str, rows: Sequence[FindingEvidence]) -> None:

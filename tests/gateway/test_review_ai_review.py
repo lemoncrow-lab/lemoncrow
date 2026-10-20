@@ -190,6 +190,36 @@ def test_consequential_candidate_is_bounded_and_confirmed_becomes_one_ai_annotat
     assert store.list_marks(revision.review_id) == before_marks
 
 
+def test_the_investigators_rating_is_kept_with_the_severity_evidence_for_the_annotation_wire(tmp_path: Path) -> None:
+    from lemoncrow.pro.capabilities.review.review_triage import FINDING_EVIDENCE_KIND, finding_severities
+
+    store, revision = _store(tmp_path)
+
+    def rated(**kwargs: Any) -> StructuredExecution:
+        execution = _confirmed(**kwargs)
+        return _execution({**execution.result, "severity": "high"})
+
+    result = run_independent_review(
+        store=store,
+        revision=revision,
+        targets=(_target(),),
+        repo_root=tmp_path,
+        effort="auto",
+        driver="openai",
+        model="review-model",
+        structured_executor=rated,
+    )
+
+    assert result.confirmed == 1
+    [(_stamp, payload)] = store.derived_results(FINDING_EVIDENCE_KIND, [revision.id]).values()
+    # The category policy the triage summary reads is untouched; the rating rides beside it.
+    assert (payload["severity"], payload["impact"]) == ("p1", "high")
+    assert "verified" not in payload  # the target's own source is not evidence beyond the finding
+    annotations = store.list_annotations(revision.review_id)
+    # A security finding rated high but not corroborated is P1 on the wire, never P0.
+    assert finding_severities(store, annotations, [revision.id]) == {annotations[0].id: "p1"}
+
+
 def test_valid_exact_source_ref_is_accepted_and_prose_stays_out_of_evidence(tmp_path: Path) -> None:
     store, revision = _store(tmp_path)
     captured: dict[str, Any] = {}
