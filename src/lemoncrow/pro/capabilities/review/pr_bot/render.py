@@ -170,7 +170,13 @@ def usage_text(usage: Usage) -> str:
 
 
 def inline_comment(finding: BotFinding) -> str:
-    """A finding as an inline review comment: badge and title, why, the consequence, a suggestion if one exists."""
+    """A finding as an inline review comment: badge and title, why, the consequence, a suggestion if one exists.
+
+    The suggestion is a GitHub ``suggestion`` fence, which replaces exactly the lines the comment covers
+    (:meth:`BotFinding.span`, which is the lines the suggestion was verified for). The model's code is posted as
+    it is: neutralising it would corrupt the edit, so a replacement that holds HTML comment delimiters is refused
+    when it is parsed (``finding_replacement.parse_replacement``).
+    """
 
     badge = f"**{SEVERITY_BADGE[finding.severity]} · {SEVERITY_MEANING[finding.severity]}**"
     lines = [f"{badge} — {clean(finding.title)}"]
@@ -178,7 +184,7 @@ def inline_comment(finding: BotFinding) -> str:
         lines += ["", clean(finding.explanation)]
     if finding.consequence:
         lines += ["", f"**Consequence:** {clean(finding.consequence)}"]
-    if finding.suggestion and finding.line > 0:
+    if finding.has_suggestion:
         fence = fence_for(finding.suggestion)
         lines += ["", f"{fence}suggestion", finding.suggestion.rstrip("\n"), fence]
     lines += ["", "<sub>LemonCrow AI review</sub>", FINDING_MARKER.format(finding_id=finding.id)]
@@ -268,7 +274,8 @@ def _where(finding: BotFinding) -> str:
     path = code(finding.path)
     if finding.line <= 0:
         return path
-    span = f"{finding.line}-{finding.end_line}" if finding.end_line > finding.line else str(finding.line)
+    start, end = finding.span
+    span = f"{start}-{end}" if end > start else str(start)
     return f"{path}:{span}"
 
 
@@ -315,7 +322,24 @@ def agent_prompt(
                 lines.append(f"   Why: {clean(trimmed(finding.explanation, 400))}")
             if finding.consequence:
                 lines.append(f"   Consequence: {clean(trimmed(finding.consequence, 200))}")
+            if finding.has_suggestion:
+                lines += _suggested_edit(finding)
     return "\n".join(lines)
+
+
+def _suggested_edit(finding: BotFinding) -> list[str]:
+    """The checked replacement for a prompt: the lines it covers and what they become, in its own fence."""
+
+    start, end = finding.span
+    fence = fence_for(finding.suggestion)
+    covers = f"lines {start}-{end}" if end > start else f"line {start}"
+    # The code stays at column 0: its indentation is part of the edit.
+    return [
+        f"   Suggested edit, checked against this commit: replace {covers} with",
+        fence,
+        finding.suggestion.rstrip("\n"),
+        fence,
+    ]
 
 
 def _visible(view: SummaryView, state: ReviewState, level: int) -> str:

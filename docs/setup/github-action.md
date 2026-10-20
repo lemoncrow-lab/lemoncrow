@@ -77,10 +77,10 @@ LiteLLM users can set `model-provider: litellm` and the variables LiteLLM alread
 - findings sorted by severity, each linking to its inline thread. **P0** must fix, **P1** should fix, **P2** optional;
 - P2 findings in a collapsed block, `N low-priority findings held back`;
 - on a clean review, a collapsed `What we checked`: files, rules applied, depth;
-- a collapsed `Fix with your agent`: a prompt listing the open findings with `file:line`, to paste into Claude Code, Codex or Cursor;
+- a collapsed `Fix with your agent`: a prompt listing the open findings with `file:line`, and the checked replacement for each finding that has one, to paste into Claude Code, Codex or Cursor;
 - a footer with the model, depth, model calls and tokens, how much of those tokens was repository context (`~3k of it repository context`, see below), and an estimated cost when LemonCrow's local price table knows the model. It never guesses a price: an unknown model shows tokens only.
 
-**Inline comments** for P0 and P1 findings: a title with the badge, why, the consequence, and a GitHub `suggestion` block only when the finding carries replacement text. P2 findings stay in the summary.
+**Inline comments** for P0 and P1 findings: a title with the badge, why, the consequence, and a one-click GitHub `suggestion` block only when the finding carries a fix LemonCrow has checked against the commit (see [Suggested fixes](#suggested-fixes)). P2 findings stay in the summary.
 
 A hidden JSON block closes the summary (see below), and every inline comment carries `<!-- lemoncrow:finding <id> -->`.
 
@@ -88,7 +88,33 @@ Findings are AI output, so they are never posted as an approval or a change requ
 
 ### Severity
 
-Severity comes from the finding's validated category, never from the model's wording. **P0** is a violation of a rule you wrote in `.lemoncrow/review.yaml`; correctness, security, API, concurrency and persistence findings are **P1**; performance and verification findings are **P2**. That makes `fail-on: p0` a gate on your own rules.
+One rule gives each finding its severity, and everything the bot shows reads that one answer: the badge on the inline comment, the verdict line, the held-back block, the `LemonCrow Review` status and `fail-on`. They cannot disagree, because none of them computes its own.
+
+| Level | Meaning | What puts a finding there |
+| --- | --- | --- |
+| **P0** | Must fix before merge: a wrong result, a security hole, data loss | A violation of a rule you wrote in `.lemoncrow/review.yaml` (a critical rule), or a **verified** finding the investigator rated **high** in the `correctness`, `security` or `persistence_migration` category. |
+| **P1** | Should fix | Every other **high** finding (unverified, or in concurrency, API, performance and the like), and **medium** findings that are verified. |
+| **P2** | Optional | Everything else, including every finding rated **low**, and a medium one with nothing but the changed code behind it. |
+
+- **Rated** is the investigator's own `low`, `medium` or `high` for the impact of the defect on the code it cites. It only nominates a finding: it can lower one, and it can never make one P0 on its own. Its wording is never read, so a title that says "critical" changes nothing.
+- **Verified** means a reference beyond the changed code itself backs the finding: the exact source of the commit, a recorded check, an attached artifact or a static-analysis result. A finding that cites only the changed unit, or only a related repository, is not verified. Unverified speculation is never P0.
+- **Unrated** findings (a model that gave no rating) keep the severity of their category: P1 for correctness, security, concurrency, persistence and API findings, P2 for performance and verification. Unrated is never low and never P0.
+- A finding carried forward whose re-check failed on a push is **unverified** until a later check succeeds, so a P0 drops to P1 meanwhile. That review is incomplete, so with `fail-on: p0` the status is `error`, not a pass. A critical rule keeps its P0: your rule, not the model, made it a gate.
+
+The categories that can reach P0 and the rule above are fixed in this release: there is no setting for them yet. `fail-on: p0` therefore gates your own rules and the findings LemonCrow could back with evidence.
+
+### Suggested fixes
+
+When a fix is a small, local and certain edit, the investigator may attach it to its finding: a replacement for up to 10 consecutive lines of the file. LemonCrow does not trust it. Before a finding may carry it, the replacement is checked against the exact commit under review:
+
+- the lines it names exist in the file;
+- they are the lines the model quoted (leading whitespace exact), so a miscounted range or a stale view is caught;
+- they sit inside one hunk of the pull request's diff, the lines GitHub lets a comment attach to;
+- the edit changes something and applies cleanly.
+
+A replacement that fails any check is dropped and the finding stays, as an ordinary comment. A passing one is posted as a GitHub `suggestion` block, on a multi-line comment (`start_line` to `line`, right side) when it replaces more than one line, so the author can commit it with one click. GitHub's own diff gets the same check when the comment is posted. The same edit is listed in the `Fix with your agent` prompt.
+
+Limits: a replacement is never offered for a file with CRLF or other ambiguous line endings, for a deletion, for more than 10 lines or 2,000 characters, or for deleted code. LemonCrow checks that the edit applies, not that it compiles or passes your tests: let CI judge it.
 
 ### The check
 
@@ -123,7 +149,7 @@ The summary ends with `<!-- lemoncrow:state v1 {json} -->`. Read it instead of s
 
 `context_tokens` is LemonCrow's own estimate (four characters per token) of the repository context in the prompts; it is part of `input_tokens`, not on top of it, and it is absent when no context was sent.
 
-A finding's `state` is `new`, `carried`, `fixed` or `stale`. `units` and `units_truncated` hold what the next run compares against. Only a comment from a `Bot` account is trusted as this state.
+A finding's `state` is `new`, `carried`, `fixed` or `stale`. A finding also carries `impact` (the investigator's rating) and `verified` when it has them, and, when it has a checked replacement, `suggestion` with the `suggestion_start` and `suggestion_end` lines it replaces. `units` and `units_truncated` hold what the next run compares against. Only a comment from a `Bot` account is trusted as this state.
 
 ## Pushes cost less
 

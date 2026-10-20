@@ -27,6 +27,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Final
 
+from lemoncrow.pro.capabilities.review.github_placement import index_files, unplaceable_reason
 from lemoncrow.pro.capabilities.review.github_publish import (
     GitHubReviewPlan,
     PublishCandidate,
@@ -246,19 +247,24 @@ class BotGitHub:
         if not findings:
             return InlineOutcome({}, ())
         state = load_bot_pull_request_state(self.pr, self.runner)
-        candidates = [
-            PublishCandidate(
-                annotation_id=finding.id,
-                path=finding.path,
-                side=finding.side,
-                start_line=finding.line,
-                end_line=finding.end_line,
-                kind="comment",
-                body=inline_comment(finding),
+        files = index_files(state.files)
+        candidates = []
+        for finding in findings:
+            if finding.line <= 0:
+                continue
+            finding = self._placeable_suggestion(finding, files)
+            start, end = finding.span
+            candidates.append(
+                PublishCandidate(
+                    annotation_id=finding.id,
+                    path=finding.path,
+                    side=finding.side,
+                    start_line=start,
+                    end_line=end,
+                    kind="comment",
+                    body=inline_comment(finding),
+                )
             )
-            for finding in findings
-            if finding.line > 0
-        ]
         plan = build_plan(
             self.pr, candidates, commit_id=head_sha, outcome="", outcome_summary="", outcome_current=True, state=state
         )
@@ -281,6 +287,25 @@ class BotGitHub:
             for annotation_id, comment_id in result.comment_ids.items()
         }
         return InlineOutcome(posted, unplaced, review_url=result.html_url)
+
+    @staticmethod
+    def _placeable_suggestion(finding: BotFinding, files: dict[str, Any]) -> BotFinding:
+        """*finding*, without its suggestion when GitHub's own diff cannot hold the lines it replaces.
+
+        The suggestion was checked against the captured Snapshot; GitHub only attaches a comment to lines inside a
+        hunk of the diff it serves, so the same rule is applied to its patch. The finding keeps its comment, on
+        its target's lines, and only loses the one-click edit.
+        """
+
+        if not finding.has_suggestion:
+            return finding
+        start, end = finding.span
+        pr_file = files.get(finding.path)
+        if pr_file is None or unplaceable_reason(
+            patch=pr_file.patch, anchor_side=finding.side, start_line=start, end_line=end
+        ):
+            return finding.changed(suggestion="", suggestion_start=0, suggestion_end=0)
+        return finding
 
     @staticmethod
     def operation_id(head_sha: str, finding_ids: Sequence[str]) -> str:

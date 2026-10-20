@@ -22,9 +22,11 @@ from pathlib import Path
 from typing import Any, Literal
 
 from lemoncrow.core.environment import REVIEW_AUTONOMOUS_MCP_TOOLS, REVIEW_AUTONOMOUS_TOOL_POLICY_VERSION
+from lemoncrow.pro.capabilities.review import finding_replacement
 from lemoncrow.pro.capabilities.review.anchors import build_anchor
 from lemoncrow.pro.capabilities.review.ask import exact_revision_sources
 from lemoncrow.pro.capabilities.review.data_governance import process_route_trust
+from lemoncrow.pro.capabilities.review.finding_replacement import Replacement
 from lemoncrow.pro.capabilities.review.intelligence_runtime import (
     IntelligenceRunOutcome,
     IntelligenceRunRequest,
@@ -83,6 +85,12 @@ _CATEGORIES: tuple[FindingCategory, ...] = (
     "critical_rule",
 )
 _CATEGORY_SET = frozenset(_CATEGORIES)
+#: The investigator's impact rating, lowest first (pull request reviews only: ``PR_INVESTIGATION_SCHEMA``).
+_IMPACTS: tuple[str, ...] = ("low", "medium", "high")
+#: Evidence that points at exact bytes or recorded results, not just at the changed unit: the exact Snapshot
+#: source, a recorded check, an attached artifact or a deterministic tool's finding. A finding that cites one of
+#: these is ``verified``; one that cites only ``target:`` (the unit itself) or related-repository context is not.
+_CONCRETE_EVIDENCE = frozenset({"source", "check", "artifact", "static_finding"})
 _CLI_DRIVERS = frozenset({"claude", "codex", "opencode"})
 #: Evidence that can support a finding only alongside a target or source ref of that finding.
 _CORROBORATING_KINDS = frozenset({"cross_repository", "repo_context"})
@@ -246,9 +254,16 @@ class ConfirmedFinding:
     rule_refs: tuple[str, ...]
     driver: str
     model: str
+    #: The investigator's own rating of the defect's impact (``low | medium | high``), ``""`` when it gave none.
+    #: A nomination only: the product's severity rule decides what it is worth (``pr_bot.findings.severity_for``).
+    severity: str = ""
+    #: Whether a ref beyond the bare target pointer backs the finding (see ``_CONCRETE_EVIDENCE``).
+    verified: bool = False
+    #: A suggested fix; usable only once ``verified`` (``finding_replacement.verify_replacement``).
+    replacement: Replacement | None = None
 
     def to_wire(self) -> dict[str, Any]:
-        return {
+        wire: dict[str, Any] = {
             "id": self.id,
             "category": self.category,
             "target_ids": list(self.target_ids),
@@ -258,6 +273,11 @@ class ConfirmedFinding:
             "evidence_refs": list(self.evidence_refs),
             "rule_refs": list(self.rule_refs),
         }
+        if self.severity:
+            wire["severity"] = self.severity
+        if self.replacement is not None and self.replacement.verified:
+            wire["replacement"] = self.replacement.to_wire()
+        return wire
 
 
 @dataclass(frozen=True, slots=True)
@@ -452,6 +472,47 @@ INVESTIGATION_SCHEMA: dict[str, Any] = {
     ],
     "additionalProperties": False,
 }
+
+#: What a pull request review asks of the investigator beyond ``INVESTIGATION_SCHEMA``: how bad the defect is, and
+#: optionally a small fix, which is then proven against the Snapshot before it is used. A separate schema, so the
+#: Reader's and the evaluation corpus's recorded calls (keyed by schema and prompt digests) are untouched;
+#: ``run_independent_review(pr_fields=True)`` selects it.
+PR_INVESTIGATION_SCHEMA: dict[str, Any] = {
+    **INVESTIGATION_SCHEMA,
+    "properties": {
+        **INVESTIGATION_SCHEMA["properties"],
+        "severity": {"type": "string", "enum": list(_IMPACTS)},
+        "replacement": {
+            "anyOf": [
+                {"type": "null"},
+                {
+                    "type": "object",
+                    "properties": {
+                        "start_line": {"type": "integer"},
+                        "end_line": {"type": "integer"},
+                        "original": {"type": "string"},
+                        "text": {"type": "string"},
+                    },
+                    "required": ["start_line", "end_line", "original", "text"],
+                    "additionalProperties": False,
+                },
+            ]
+        },
+    },
+    "required": [*INVESTIGATION_SCHEMA["required"], "severity", "replacement"],
+}
+#: Bump when ``PR_INVESTIGATION_SCHEMA`` or the instructions below change: a pull request review's reusable
+#: results (``pr_bot.engine.policy_digest``) are only valid for the fields it asked for.
+PR_FIELDS_VERSION = 2
+_PR_FIELD_RULES = f"""
+Also return severity: low, medium or high, the defect's impact on the cited code. high means it will break correctness,
+security or stored data in normal use (a crash, a wrong result, data loss, an authorization bypass) and you can point
+at the exact lines; medium, a likely defect with limited impact; low, minor or unlikely. A high rating is only credited
+when evidence_refs include an exact-source (source:) or check ref, not just the target. When unsure, rate lower.
+Also return replacement: null unless the fix is a small, local and certain edit of at most
+{finding_replacement.MAX_LINES} consecutive lines in the file of the first target_ids entry. Then it is an object with
+start_line and end_line (1-based, counted from the excerpt's start_line), original (those lines exactly as shown,
+indentation included) and text (the lines that replace them). A wrong replacement is worse than none."""
 
 DEDUPE_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -1445,6 +1506,8 @@ def _validate_investigation(
             "rule_refs": sorted(rule_refs),
         },
     )
+    # Absent unless a pull request review asked for them (PR_INVESTIGATION_SCHEMA); a result without them is complete.
+    rating = str(raw.get("severity") or "").lower()
     return (
         "confirmed",
         ConfirmedFinding(
@@ -1459,8 +1522,38 @@ def _validate_investigation(
             rule_refs=rule_refs,
             driver=outcome.driver,
             model=outcome.model,
+            severity=rating if rating in _IMPACTS else "",
+            verified=any(registry_by_ref[ref].kind in _CONCRETE_EVIDENCE for ref in evidence_refs),
+            replacement=finding_replacement.parse_replacement(raw.get("replacement")),
         ),
     )
+
+
+def _with_checked_replacement(
+    store: Any, revision: ReviewRevision, target: ReviewTarget | None, finding: ConfirmedFinding | None
+) -> ConfirmedFinding | None:
+    """*finding* with its replacement proven against the exact Snapshot head, or without it when it is not.
+
+    The replacement applies to the first target's file. It survives only when the new-side source has those lines
+    as quoted, inside a hunk of the change (``finding_replacement.verify_replacement``); the finding itself is
+    never dropped for a replacement that fails.
+    """
+
+    if finding is None or finding.replacement is None:
+        return finding
+    checked: Replacement | None = None
+    if target is not None and _target_side(target) == "new":
+        from lemoncrow.pro.capabilities.review.sources.local import read_packet_json
+
+        source = exact_revision_sources(store, revision, paths=(target.path,), side="new").get(target.path)
+        packet = read_packet_json(store, revision) if source is not None else None
+        if source is not None and packet is not None:
+            checked = finding_replacement.verify_replacement(
+                finding.replacement,
+                source=source,
+                hunks=finding_replacement.hunk_headers(packet.get("files"), target.path),
+            )
+    return replace(finding, replacement=checked)
 
 
 def _finding_key(finding: ConfirmedFinding) -> tuple[Any, ...]:
@@ -1858,12 +1951,17 @@ def run_independent_review(
     fresh_action_id: str = "",
     project_knowledge_loader: Callable[[ModelRouteTrust, Sequence[ReviewTarget]], Mapping[str, Any]] | None = None,
     repo_context: RepoContextOptions | None = None,
+    pr_fields: bool = False,
 ) -> IndependentReviewResult:
     """Run deterministic triage plus bounded, policy-filtered Review Intelligence.
 
     ``repo_context`` (G4) gives a model-API route a bounded, deterministic pack of repository context (callers,
     definitions, tests, config of the changed code) in each investigator prompt, since that route has no tools.
     ``None`` sends none (the default, and what an agent-CLI route always gets: it reads the repository itself).
+
+    ``pr_fields`` (the pull request reviewer) also asks each investigator for an impact rating and an optional
+    one-click fix (``PR_INVESTIGATION_SCHEMA``), and proves the fix against the Snapshot head before a finding may
+    carry it. Off, the call is exactly the Reader's.
 
     With ``stage_plan`` the persisted effective run plan is the authority: the
     effort must match it, hypothesis synthesis is permitted only when the plan
@@ -1923,6 +2021,7 @@ def run_independent_review(
             fresh_action_id=fresh_action_id,
             project_knowledge_loader=project_knowledge_loader,
             repo_context=repo_context,
+            pr_fields=pr_fields,
         )
     else:
         # Only rule questions are planned: no investigator stage runs.
@@ -2096,6 +2195,7 @@ def _run_independent_review_stages(
     fresh_action_id: str = "",
     project_knowledge_loader: Callable[[ModelRouteTrust, Sequence[ReviewTarget]], Mapping[str, Any]] | None = None,
     repo_context: RepoContextOptions | None = None,
+    pr_fields: bool = False,
 ) -> IndependentReviewResult:
     """Run deterministic triage plus bounded, policy-filtered Review Intelligence.
 
@@ -2485,6 +2585,8 @@ def _run_independent_review_stages(
             )
             if block is not None:
                 context_tokens[hypothesis.id] = block.tokens()
+            if pr_fields:
+                system += _PR_FIELD_RULES
             outcome = _execute_runtime(
                 store=store,
                 revision=revision,
@@ -2508,7 +2610,7 @@ def _run_independent_review_stages(
                     review_rules=rule_policy,
                     model_content_access=stage_access(hypothesis.target_ids),
                 ),
-                output_schema=INVESTIGATION_SCHEMA,
+                output_schema=PR_INVESTIGATION_SCHEMA if pr_fields else INVESTIGATION_SCHEMA,
                 system=system,
                 prompt=prompt,
                 budget=effective_budget,
@@ -2523,6 +2625,10 @@ def _run_independent_review_stages(
                 evidence_registry,
                 applicable_rules,
             )
+            if pr_fields and finding is not None and finding.target_ids:
+                finding = _with_checked_replacement(
+                    store, revision, candidate_targets.get(finding.target_ids[0]), finding
+                )
             return status, finding, outcome
 
         investigated: list[tuple[str, ConfirmedFinding | None, IntelligenceRunOutcome]] = []
@@ -2619,6 +2725,7 @@ __all__ = [
     "DEDUPE_SCHEMA",
     "HYPOTHESIS_SCHEMA",
     "INVESTIGATION_SCHEMA",
+    "PR_INVESTIGATION_SCHEMA",
     "ConfirmedFinding",
     "IndependentReviewResult",
     "ReviewCandidate",

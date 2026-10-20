@@ -216,7 +216,7 @@ def policy_digest(governance: Any, depth: str) -> str:
     last time's "reviewed" mean something else, so it re-reviews everything.
     """
 
-    from lemoncrow.pro.capabilities.review.ai_review import PROMPT_VERSION, SCHEMA_VERSION
+    from lemoncrow.pro.capabilities.review.ai_review import PR_FIELDS_VERSION, PROMPT_VERSION, SCHEMA_VERSION
     from lemoncrow.pro.capabilities.review.repo_context import CONTEXT_VERSION, repo_context_enabled
 
     document: dict[str, Any] = {
@@ -225,6 +225,7 @@ def policy_digest(governance: Any, depth: str) -> str:
         "depth": depth,
         "prompt": PROMPT_VERSION,
         "schema": SCHEMA_VERSION,
+        "pr_fields": PR_FIELDS_VERSION,
     }
     if repo_context_enabled():
         # Context changes what a reviewed unit's result means (what the model saw): turning it on or off, or a new
@@ -504,6 +505,7 @@ def _execute(
             # A model-API route has no tools; this gives its investigator the callers, definitions, tests and
             # config around what changed. An agent-CLI route reads the repository itself and gets none.
             repo_context=RepoContextOptions(enabled=repo_context_enabled()) if repo_context_enabled() else None,
+            pr_fields=True,
         )
     usage, served = revision_usage(store, session.id, revision.id)
     context = dict(result.repo_context)
