@@ -349,6 +349,7 @@ LemonCrow is not on PyPI. The Action checks out itself at the ref you named, ins
 ## Troubleshooting
 
 - **`No model credentials`**: the key reached the workflow but not the step. Pass it in the step's `env:`, as above.
+- **`model calls failed`** with an Anthropic key: the LiteLLM route reads JSON out of a Markdown fence or surrounding prose and retries once, asking for only JSON, before it gives up, so a failure that persists is the provider's answer (an auth, quota or model-name error) and is in the run log. The Anthropic route has not been run against a live provider yet.
 - **`Resource not accessible by integration`** in the run log: the workflow lacks a permission. The review still completes; the note names what it could not do (a status needs `statuses: write`, comments and thread resolution need `pull-requests: write`).
 - **Nothing happened on a pull request**: check the run's notice. Forks, drafts and `on-push: false` runs say so, and all but forks also set the `LemonCrow Review` status to `skipped: <reason>`.
 - **A push posted nothing new**: the changed code produced no new finding. The summary's status strip says what was re-reviewed.

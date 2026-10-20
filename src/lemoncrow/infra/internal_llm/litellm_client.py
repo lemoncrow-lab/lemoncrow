@@ -26,6 +26,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 from collections.abc import Callable
 from contextlib import redirect_stderr, redirect_stdout
 from typing import Any
@@ -67,6 +68,47 @@ def _content(response: Any) -> str:
         return str(response.choices[0].message.content or "")
     except (AttributeError, IndexError, KeyError, TypeError) as exc:
         raise LiteLLMUnavailable(f"Unexpected LiteLLM response shape: {exc}") from exc
+
+
+#: What a retry says when the first reply to a JSON request held no JSON.
+_JSON_ONLY = (
+    "Your previous reply could not be read as JSON. Reply again with only the JSON object that answers the request: "
+    "no prose before or after it, no Markdown, no code fences."
+)
+_FENCE = re.compile(r"```[A-Za-z0-9_+-]*[ \t]*\r?\n?(.*?)```", re.DOTALL)
+#: Most places in one reply a JSON value is looked for, so a reply full of braces cannot make parsing slow.
+_MAX_JSON_STARTS = 200
+
+
+def _parse_json(content: str) -> tuple[Any, str]:
+    """``(value, "")`` for the JSON in a model reply, or ``(None, why)`` when it holds none.
+
+    Models wrap JSON they were asked for in a Markdown fence or a sentence of prose even in JSON mode, and a
+    provider that rejected ``response_format`` has no such mode at all. So after the strict parse the reply is
+    searched, fenced blocks first: the first JSON object that decodes wins, and a list is taken only when there
+    is no object (a ``[1]`` footnote in front of the answer must not be mistaken for it).
+    """
+
+    text = content.strip()
+    try:
+        return json.loads(text), ""
+    except json.JSONDecodeError as exc:
+        why = str(exc)
+    decoder = json.JSONDecoder()
+    candidates = [match.group(1) for match in _FENCE.finditer(text)] + [text]
+    attempts = 0
+    for opener in ("{", "["):
+        for candidate in candidates:
+            start = candidate.find(opener)
+            while start != -1 and attempts < _MAX_JSON_STARTS:
+                attempts += 1
+                try:
+                    value, _end = decoder.raw_decode(candidate, start)
+                except json.JSONDecodeError:
+                    start = candidate.find(opener, start + 1)
+                    continue
+                return value, ""
+    return None, why
 
 
 def _field(source: Any, name: str) -> Any:
@@ -150,53 +192,71 @@ def chat_with_result(
     if extra_kwargs:
         request_kwargs.update(extra_kwargs)
     request_kwargs = _with_provider_transport(request_kwargs)
-    try:
-        if json_schema is None:
-            response = litellm.completion(**request_kwargs)
-        else:
-            try:
-                response = litellm.completion(
-                    **request_kwargs,
-                    response_format={"type": "json_object"},
-                )
-            except Exception:
-                response = litellm.completion(**request_kwargs)
-    except Exception as exc:
-        if isinstance(exc, LiteLLMUnavailable):
-            raise
-        raise LiteLLMUnavailable(f"LiteLLM completion unavailable: {exc}") from exc
+    json_mode = json_schema is not None
+
+    def complete(kwargs: dict[str, Any]) -> Any:
+        nonlocal json_mode
+        try:
+            if json_mode:
+                try:
+                    return litellm.completion(**kwargs, response_format={"type": "json_object"})
+                except Exception:
+                    json_mode = False  # this provider rejects it; the retry below does not ask again
+            return litellm.completion(**kwargs)
+        except Exception as exc:
+            if isinstance(exc, LiteLLMUnavailable):
+                raise
+            raise LiteLLMUnavailable(f"LiteLLM completion unavailable: {exc}") from exc
+
+    response = complete(request_kwargs)
+    responses = [response]
     content = _content(response)
     parsed_json: dict[str, Any] | None = None
     if json_schema is not None:
-        try:
-            parsed = json.loads(content)
-        except json.JSONDecodeError as exc:
-            raise LiteLLMUnavailable(f"LiteLLM returned invalid JSON: {exc}") from exc
+        parsed, why = _parse_json(content)
+        if why:
+            # One more try, saying so plainly: a reply of prose, or a refusal, often answers a direct instruction.
+            retry = {
+                **request_kwargs,
+                "messages": [*request_kwargs["messages"], {"role": "user", "content": _JSON_ONLY}],
+            }
+            response = complete(retry)
+            responses.append(response)
+            content = _content(response)
+            parsed, why = _parse_json(content)
+            if why:
+                raise LiteLLMUnavailable(f"LiteLLM returned invalid JSON, also after one retry: {why}")
         parsed_json = parsed if isinstance(parsed, dict) else {"value": parsed}
-    usage = _field(response, "usage")
-    hidden = _field(response, "_hidden_params")
-    reported_cost = _field(hidden, "response_cost")
-    provider_cost = (
-        float(reported_cost)
-        if isinstance(reported_cost, (int, float)) and not isinstance(reported_cost, bool) and reported_cost >= 0
-        else None
-    )
+    costs = [_reported_cost(item) for item in responses]
+    provider_cost = None if any(cost is None for cost in costs) else sum(cost for cost in costs if cost is not None)
+    usages = [_field(item, "usage") for item in responses]
     return InternalLLMChatResult(
         content=content,
         parsed_json=parsed_json,
         model=chosen_model,
         reported_model=reported if isinstance(reported := _field(response, "model"), str) else "",
         request_id=str(_field(response, "id") or ""),
-        input_tokens=_token_value(usage, "prompt_tokens"),
-        output_tokens=_token_value(usage, "completion_tokens"),
-        cache_read_input_tokens=_usage_detail(usage, "prompt_tokens_details", "cached_tokens"),
-        cache_write_input_tokens=_token_value(usage, "cache_creation_input_tokens")
-        or _usage_detail(usage, "prompt_tokens_details", "cache_creation_tokens"),
+        # Every call that was made is paid for, so a retry adds to the tokens and the cost of the answer it produced.
+        input_tokens=sum(_token_value(usage, "prompt_tokens") for usage in usages),
+        output_tokens=sum(_token_value(usage, "completion_tokens") for usage in usages),
+        cache_read_input_tokens=sum(_usage_detail(usage, "prompt_tokens_details", "cached_tokens") for usage in usages),
+        cache_write_input_tokens=sum(
+            _token_value(usage, "cache_creation_input_tokens")
+            or _usage_detail(usage, "prompt_tokens_details", "cache_creation_tokens")
+            for usage in usages
+        ),
         cache_capability=_cache_capability(chosen_model=chosen_model, cache_metadata=cache_metadata),
         request_metadata=dict(cache_metadata or {}),
         provider_cost=provider_cost,
         currency="USD",
     )
+
+
+def _reported_cost(response: Any) -> float | None:
+    reported = _field(_field(response, "_hidden_params"), "response_cost")
+    if isinstance(reported, (int, float)) and not isinstance(reported, bool) and reported >= 0:
+        return float(reported)
+    return None
 
 
 def chat(
@@ -249,10 +309,10 @@ def chat_stream(
     content = "".join(chunks)
     if json_schema is None:
         return content
-    try:
-        parsed = json.loads(content)
-    except json.JSONDecodeError as exc:
-        raise LiteLLMUnavailable(f"LiteLLM returned invalid JSON: {exc}") from exc
+    parsed, why = _parse_json(content)
+    if why:
+        # No retry here: the caller has already been shown the deltas of this reply.
+        raise LiteLLMUnavailable(f"LiteLLM returned invalid JSON: {why}")
     return parsed if isinstance(parsed, dict) else {"value": parsed}
 
 
