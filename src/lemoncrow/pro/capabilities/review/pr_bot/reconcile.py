@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from lemoncrow.pro.capabilities.review.pr_bot.findings import (
+    IMPACTS,
     MAX_CONSEQUENCE,
     MAX_EXPLANATION,
     MAX_TITLE,
@@ -74,10 +75,12 @@ def finding_from_confirmed(confirmed: Any, located: Located | None, head: str) -
 
     target_ids = tuple(confirmed.target_ids)
     where = located or Located("", 0, 0)
+    impact = str(getattr(confirmed, "severity", "") or "")
+    verified = getattr(confirmed, "verified", False) is True
     return BotFinding(
         id=confirmed.id,
         fingerprint=fingerprint_for(confirmed.category, target_ids, confirmed.rule_refs),
-        severity=severity_for(confirmed.category),
+        severity=severity_for(confirmed.category, impact=impact, verified=verified),
         category=confirmed.category,
         state="new",
         path=where.path,
@@ -90,6 +93,8 @@ def finding_from_confirmed(confirmed: Any, located: Located | None, head: str) -
         consequence=trimmed(confirmed.consequence, MAX_CONSEQUENCE),
         first_seen=head,
         last_seen=head,
+        impact=impact if impact in IMPACTS else "",
+        verified=verified,
     )
 
 
@@ -163,6 +168,9 @@ def reconcile(
         elif touched <= set(covered):
             result.append(old.changed(state="fixed", resolved_in=head, last_seen=head))
         else:
-            result.append(_moved(old, location_of(old)).changed(state="carried", last_seen=head, unverified=True))
+            # Nothing was proven this run, so whatever verification earned the finding is suspended too.
+            result.append(
+                _moved(old, location_of(old)).changed(state="carried", last_seen=head, unverified=True).rated()
+            )
     result.extend(finding for finding in fresh if finding.id not in used)
     return Reconciled(tuple(result))

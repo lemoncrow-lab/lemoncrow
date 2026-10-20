@@ -7,9 +7,22 @@ the Review dispositions (``session_models.FINDING_DISPOSITIONS``): ``new`` and
 ``carried`` are an *open* finding, ``fixed`` is ``fixed``, ``stale`` is
 ``superseded_stale`` (the code it was about no longer exists).
 
-Severity is the product's own: the validated category decides it
-(``criticality.normalize_finding_severity``), never the model's wording. A finding
-with no rating is shown as P1, because unrated is not low.
+Severity is the product's own, one rule for every surface (:func:`severity_for`):
+
+* **P0, must fix before merge**: a violation of a critical rule the repository wrote, or a
+  *verified* finding the investigator rated ``high`` in the correctness, security or
+  persistence (data-loss) categories. Verified means a ref beyond the bare target pointer
+  backs it (the exact Snapshot source, a recorded check, an attached artifact or a static
+  finding), and a carried finding whose re-check failed is no longer verified.
+* **P1, should fix**: every other ``high`` finding, and ``medium`` findings that are verified.
+  A finding with no rating keeps its category's own severity (P1, or P2 for performance and
+  verification), because unrated is not low.
+* **P2, optional**: everything else, including every ``low`` finding.
+
+The model's rating only nominates; it can lower a finding but never makes one P0 alone, and
+its wording is never read. The verdict line, the badges, the held-back block, the inline
+comments, the commit status and ``fail-on`` all read the severity this rule stored on the
+finding, so none of them can disagree with another.
 """
 
 from __future__ import annotations
@@ -29,6 +42,13 @@ SEVERITY_RANK: Final[Mapping[str, int]] = {"p0": 0, "p1": 1, "p2": 2}
 STATES: Final[tuple[str, ...]] = ("new", "carried", "fixed", "stale")
 OPEN_STATES: Final[frozenset[str]] = frozenset({"new", "carried"})
 PLACEMENTS: Final[tuple[str, ...]] = ("", "inline", "summary")
+#: Investigator impact ratings, lowest first.
+IMPACTS: Final[tuple[str, ...]] = ("low", "medium", "high")
+#: The categories where a verified high-impact finding is a must-fix: wrong results, security holes and
+#: data loss. Concurrency, API and performance findings can be P1 at most, however they are rated.
+# lc-debt: hard-coded; there is no loader for PR-bot settings, only the CLI options and the rules in
+# `.lemoncrow/review.yaml`; upgrade: a `review.pr_bot.p0_categories` key once such a loader exists.
+P0_CATEGORIES: Final[frozenset[str]] = frozenset({"correctness", "security", "persistence_migration"})
 
 #: Text kept per finding. Truncation is marked with an ellipsis and the originals
 #: are bounded by the engine (title 160, explanation 900, consequence 400).
@@ -98,6 +118,10 @@ class BotFinding:
     placement: str = ""
     suggestion: str = ""
     unverified: bool = False
+    #: The investigator's impact rating and whether evidence beyond the target backs the finding: the two
+    #: inputs, with the category, that :func:`severity_for` turns into ``severity``.
+    impact: str = ""
+    verified: bool = False
 
     @property
     def is_open(self) -> bool:
@@ -105,6 +129,13 @@ class BotFinding:
 
     def changed(self, **fields: Any) -> BotFinding:
         return replace(self, **fields)
+
+    def rated(self) -> BotFinding:
+        """This finding with its severity re-derived. A failed re-check removes the verification, and with it any P0 it earned."""
+
+        return self.changed(
+            severity=severity_for(self.category, impact=self.impact, verified=self.verified and not self.unverified)
+        )
 
     def to_wire(self) -> dict[str, Any]:
         wire: dict[str, Any] = {
@@ -132,6 +163,8 @@ class BotFinding:
             ("placement", self.placement),
             ("suggestion", self.suggestion),
             ("unverified", self.unverified),
+            ("impact", self.impact),
+            ("verified", self.verified),
         ):
             if value:
                 wire[key] = value
@@ -176,6 +209,7 @@ def finding_from_wire(raw: object) -> BotFinding | None:
     ):
         return None
     targets = raw.get("targets")
+    impact = raw.get("impact")
     return BotFinding(
         id=identity,
         fingerprint=_text(raw, "fingerprint", 80),
@@ -200,14 +234,30 @@ def finding_from_wire(raw: object) -> BotFinding | None:
         placement=str(placement),
         suggestion=_text(raw, "suggestion", MAX_SUGGESTION),
         unverified=raw.get("unverified") is True,
+        impact=impact if impact in IMPACTS else "",
+        verified=raw.get("verified") is True,
     )
 
 
-def severity_for(category: str) -> str:
-    """P0/P1/P2 for a validated finding category; an unrated category reads as P1, never low."""
+def severity_for(category: str, *, impact: str = "", verified: bool = False) -> str:
+    """The severity of a finding: the one rule behind every badge, verdict and status (see the module docstring).
 
+    ``category`` is the finding's validated category, ``impact`` the investigator's rating (``""`` when it gave
+    none) and ``verified`` whether evidence beyond the bare target backs it. Unverified speculation is never P0:
+    a ``high`` rating without that evidence, or outside :data:`P0_CATEGORIES`, is P1.
+    """
+
+    if category == "critical_rule":
+        return "p0"
+    if impact == "high":
+        return "p0" if verified and category in P0_CATEGORIES else "p1"
+    if impact == "medium":
+        return "p1" if verified else "p2"
+    if impact == "low":
+        return "p2"
+    # Unrated keeps the category's own severity (never P0 from here, never below P2).
     rated = normalize_finding_severity("ai_review", category=category)
-    return rated if rated in SEVERITIES else "p1"
+    return rated if rated in {"p1", "p2"} else "p1"
 
 
 def fingerprint_for(category: str, target_ids: Sequence[str], rule_refs: Sequence[str] = ()) -> str:

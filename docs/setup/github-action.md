@@ -88,7 +88,20 @@ Findings are AI output, so they are never posted as an approval or a change requ
 
 ### Severity
 
-Severity comes from the finding's validated category, never from the model's wording. **P0** is a violation of a rule you wrote in `.lemoncrow/review.yaml`; correctness, security, API, concurrency and persistence findings are **P1**; performance and verification findings are **P2**. That makes `fail-on: p0` a gate on your own rules.
+One rule gives each finding its severity, and everything the bot shows reads that one answer: the badge on the inline comment, the verdict line, the held-back block, the `LemonCrow Review` status and `fail-on`. They cannot disagree, because none of them computes its own.
+
+| Level | Meaning | What puts a finding there |
+| --- | --- | --- |
+| **P0** | Must fix before merge: a wrong result, a security hole, data loss | A violation of a rule you wrote in `.lemoncrow/review.yaml` (a critical rule), or a **verified** finding the investigator rated **high** in the `correctness`, `security` or `persistence_migration` category. |
+| **P1** | Should fix | Every other **high** finding (unverified, or in concurrency, API, performance and the like), and **medium** findings that are verified. |
+| **P2** | Optional | Everything else, including every finding rated **low**, and a medium one with nothing but the changed code behind it. |
+
+- **Rated** is the investigator's own `low`, `medium` or `high` for the impact of the defect on the code it cites. It only nominates a finding: it can lower one, and it can never make one P0 on its own. Its wording is never read, so a title that says "critical" changes nothing.
+- **Verified** means a reference beyond the changed code itself backs the finding: the exact source of the commit, a recorded check, an attached artifact or a static-analysis result. A finding that cites only the changed unit, or only a related repository, is not verified. Unverified speculation is never P0.
+- **Unrated** findings (a model that gave no rating) keep the severity of their category: P1 for correctness, security, concurrency, persistence and API findings, P2 for performance and verification. Unrated is never low and never P0.
+- A finding carried forward whose re-check failed on a push is **unverified** until a later check succeeds, so a P0 drops to P1 meanwhile. That review is incomplete, so with `fail-on: p0` the status is `error`, not a pass. A critical rule keeps its P0: your rule, not the model, made it a gate.
+
+The categories that can reach P0 and the rule above are fixed in this release: there is no setting for them yet. `fail-on: p0` therefore gates your own rules and the findings LemonCrow could back with evidence.
 
 ### The check
 
@@ -121,7 +134,7 @@ The summary ends with `<!-- lemoncrow:state v1 {json} -->`. Read it instead of s
 }
 ```
 
-A finding's `state` is `new`, `carried`, `fixed` or `stale`. `units` and `units_truncated` hold what the next run compares against. Only a comment from a `Bot` account is trusted as this state.
+A finding's `state` is `new`, `carried`, `fixed` or `stale`. A finding also carries `impact` (the investigator's rating) and `verified` when it has them. `units` and `units_truncated` hold what the next run compares against. Only a comment from a `Bot` account is trusted as this state.
 
 ## Pushes cost less
 

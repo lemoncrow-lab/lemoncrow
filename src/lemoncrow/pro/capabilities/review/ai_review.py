@@ -77,6 +77,12 @@ _CATEGORIES: tuple[FindingCategory, ...] = (
     "critical_rule",
 )
 _CATEGORY_SET = frozenset(_CATEGORIES)
+#: The investigator's impact rating, lowest first (pull request reviews only: ``PR_INVESTIGATION_SCHEMA``).
+_IMPACTS: tuple[str, ...] = ("low", "medium", "high")
+#: Evidence that points at exact bytes or recorded results, not just at the changed unit: the exact Snapshot
+#: source, a recorded check, an attached artifact or a deterministic tool's finding. A finding that cites one of
+#: these is ``verified``; one that cites only ``target:`` (the unit itself) or related-repository context is not.
+_CONCRETE_EVIDENCE = frozenset({"source", "check", "artifact", "static_finding"})
 _CLI_DRIVERS = frozenset({"claude", "codex", "opencode"})
 _TRIVIAL_REASON_CODES = frozenset({"routine_formatting_only", "routine_comment_only"})
 _REOPENED_REASON_CODES = frozenset(
@@ -238,9 +244,14 @@ class ConfirmedFinding:
     rule_refs: tuple[str, ...]
     driver: str
     model: str
+    #: The investigator's own rating of the defect's impact (``low | medium | high``), ``""`` when it gave none.
+    #: A nomination only: the product's severity rule decides what it is worth (``pr_bot.findings.severity_for``).
+    severity: str = ""
+    #: Whether a ref beyond the bare target pointer backs the finding (see ``_CONCRETE_EVIDENCE``).
+    verified: bool = False
 
     def to_wire(self) -> dict[str, Any]:
-        return {
+        wire: dict[str, Any] = {
             "id": self.id,
             "category": self.category,
             "target_ids": list(self.target_ids),
@@ -250,6 +261,9 @@ class ConfirmedFinding:
             "evidence_refs": list(self.evidence_refs),
             "rule_refs": list(self.rule_refs),
         }
+        if self.severity:
+            wire["severity"] = self.severity
+        return wire
 
 
 @dataclass(frozen=True, slots=True)
@@ -441,6 +455,27 @@ INVESTIGATION_SCHEMA: dict[str, Any] = {
     ],
     "additionalProperties": False,
 }
+
+#: What a pull request review asks of the investigator beyond ``INVESTIGATION_SCHEMA``: how bad the defect is.
+#: A separate schema, so the Reader's and the evaluation corpus's recorded calls (keyed by schema and prompt
+#: digests) are untouched; ``run_independent_review(pr_fields=True)`` selects it.
+PR_INVESTIGATION_SCHEMA: dict[str, Any] = {
+    **INVESTIGATION_SCHEMA,
+    "properties": {
+        **INVESTIGATION_SCHEMA["properties"],
+        "severity": {"type": "string", "enum": list(_IMPACTS)},
+    },
+    "required": [*INVESTIGATION_SCHEMA["required"], "severity"],
+}
+#: Bump when ``PR_INVESTIGATION_SCHEMA`` or the instructions below change: a pull request review's reusable
+#: results (``pr_bot.engine.policy_digest``) are only valid for the fields it asked for.
+PR_FIELDS_VERSION = 1
+_PR_FIELD_RULES = """
+Also return severity: low, medium or high, the defect's impact on the cited code. high means it will break correctness,
+security or stored data in normal use (a crash, a wrong result, data loss, an authorization bypass) and you can point
+at the exact lines; medium, a likely defect with limited impact; low, minor or unlikely. A high rating is only credited
+when evidence_refs include an exact-source (source:) or check ref, not just the target. When unsure, rate lower.
+"""
 
 DEDUPE_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -1424,6 +1459,8 @@ def _validate_investigation(
             "rule_refs": sorted(rule_refs),
         },
     )
+    # Absent unless a pull request review asked for it (PR_INVESTIGATION_SCHEMA); a result without it is complete.
+    rating = str(raw.get("severity") or "").lower()
     return (
         "confirmed",
         ConfirmedFinding(
@@ -1438,6 +1475,8 @@ def _validate_investigation(
             rule_refs=rule_refs,
             driver=outcome.driver,
             model=outcome.model,
+            severity=rating if rating in _IMPACTS else "",
+            verified=any(registry_by_ref[ref].kind in _CONCRETE_EVIDENCE for ref in evidence_refs),
         ),
     )
 
@@ -1836,8 +1875,12 @@ def run_independent_review(
     stage_plan: AiStagePlan | None = None,
     fresh_action_id: str = "",
     project_knowledge_loader: Callable[[ModelRouteTrust, Sequence[ReviewTarget]], Mapping[str, Any]] | None = None,
+    pr_fields: bool = False,
 ) -> IndependentReviewResult:
     """Run deterministic triage plus bounded, policy-filtered Review Intelligence.
+
+    ``pr_fields`` (the pull request reviewer) also asks each investigator for an impact rating
+    (``PR_INVESTIGATION_SCHEMA``). Off, the call is exactly the Reader's.
 
     With ``stage_plan`` the persisted effective run plan is the authority: the
     effort must match it, hypothesis synthesis is permitted only when the plan
@@ -1896,6 +1939,7 @@ def run_independent_review(
             covered_rule_refs=frozenset(rule_refs),
             fresh_action_id=fresh_action_id,
             project_knowledge_loader=project_knowledge_loader,
+            pr_fields=pr_fields,
         )
     else:
         # Only rule questions are planned: no investigator stage runs.
@@ -2068,6 +2112,7 @@ def _run_independent_review_stages(
     covered_rule_refs: frozenset[str] = frozenset(),
     fresh_action_id: str = "",
     project_knowledge_loader: Callable[[ModelRouteTrust, Sequence[ReviewTarget]], Mapping[str, Any]] | None = None,
+    pr_fields: bool = False,
 ) -> IndependentReviewResult:
     """Run deterministic triage plus bounded, policy-filtered Review Intelligence.
 
@@ -2433,6 +2478,8 @@ def _run_independent_review_stages(
                 stale_static,
                 project_knowledge,
             )
+            if pr_fields:
+                system += _PR_FIELD_RULES
             outcome = _execute_runtime(
                 store=store,
                 revision=revision,
@@ -2455,7 +2502,7 @@ def _run_independent_review_stages(
                     review_rules=rule_policy,
                     model_content_access=stage_access(hypothesis.target_ids),
                 ),
-                output_schema=INVESTIGATION_SCHEMA,
+                output_schema=PR_INVESTIGATION_SCHEMA if pr_fields else INVESTIGATION_SCHEMA,
                 system=system,
                 prompt=prompt,
                 budget=effective_budget,
@@ -2559,6 +2606,7 @@ __all__ = [
     "DEDUPE_SCHEMA",
     "HYPOTHESIS_SCHEMA",
     "INVESTIGATION_SCHEMA",
+    "PR_INVESTIGATION_SCHEMA",
     "ConfirmedFinding",
     "IndependentReviewResult",
     "ReviewCandidate",

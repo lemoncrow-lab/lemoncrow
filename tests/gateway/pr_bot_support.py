@@ -282,10 +282,18 @@ class FakeGitHub:
 
 
 class FakeModel:
-    """A structured executor: confirms a finding when the code it is shown says ``BUG: <title>``."""
+    """A structured executor: confirms a finding when the code it is shown says ``BUG: <title>``.
+
+    A pull request review also asks for a ``severity`` (``PR_INVESTIGATION_SCHEMA``); the fake answers it only for
+    a title it was told about, so every other finding reads as the model gave no rating.
+    """
 
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
+        self.severity: dict[str, str] = {}
+        """``BUG`` title -> the impact rating the model returns for it."""
+        self.cite_source: set[str] = set()
+        """``BUG`` titles whose finding also cites the exact-source refs of its targets, not just the targets."""
         self.fail = False
         self.input_tokens: int | None = 1000
         self.output_tokens: int | None = 200
@@ -326,16 +334,26 @@ class FakeModel:
             }
         else:
             rules = prompt.get("trusted_repository_rules") or []
+            title = found.group(1).strip()
+            refs = [f"target:{target}" for target in targets]
+            if title in self.cite_source:
+                registry = prompt["evidence_registry"]["value"]
+                refs += [
+                    row["ref"] for row in registry if row["kind"] == "source" and set(row["target_ids"]) & set(targets)
+                ]
             result = {
                 "status": "confirmed",
                 "category": hypothesis["category"],
                 "target_ids": targets,
-                "title": found.group(1).strip(),
-                "explanation": f"The change in {path} {found.group(1).strip()}.",
+                "title": title,
+                "explanation": f"The change in {path} {title}.",
                 "consequence": "Callers can reach the guarded behavior without the check.",
-                "evidence_refs": [f"target:{target}" for target in targets],
+                "evidence_refs": refs,
                 "rule_refs": [rule["value"]["ref"] for rule in rules],
             }
+            if "severity" in kwargs["output_schema"]["properties"]:
+                if title in self.severity:
+                    result["severity"] = self.severity[title]
         return StructuredExecution(result=result, driver="openai", model=self.model, usage=usage)
 
     def _rule_check(self, prompt: dict[str, Any]) -> StructuredExecution:

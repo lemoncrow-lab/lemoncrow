@@ -209,7 +209,7 @@ def policy_digest(governance: Any, depth: str) -> str:
     last time's "reviewed" mean something else, so it re-reviews everything.
     """
 
-    from lemoncrow.pro.capabilities.review.ai_review import PROMPT_VERSION, SCHEMA_VERSION
+    from lemoncrow.pro.capabilities.review.ai_review import PR_FIELDS_VERSION, PROMPT_VERSION, SCHEMA_VERSION
 
     document = {
         "rules": sorted(rule.digest for rule in governance.rules),
@@ -217,6 +217,7 @@ def policy_digest(governance: Any, depth: str) -> str:
         "depth": depth,
         "prompt": PROMPT_VERSION,
         "schema": SCHEMA_VERSION,
+        "pr_fields": PR_FIELDS_VERSION,
     }
     return hashlib.sha256(json.dumps(document, sort_keys=True).encode("utf-8")).hexdigest()[:16]
 
@@ -487,6 +488,7 @@ def _execute(
             stage_plan=stage_plan,
             reviewer_candidates=configured_reviewer_routes()[0],
             structured_executor=examined,
+            pr_fields=True,
         )
     usage, served = revision_usage(store, session.id, revision.id)
     candidate_ids = {
