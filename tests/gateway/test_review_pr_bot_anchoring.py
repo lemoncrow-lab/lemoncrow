@@ -18,6 +18,7 @@ from lemoncrow.pro.capabilities.review.ai_review import PR_INVESTIGATION_SCHEMA
 from lemoncrow.pro.capabilities.review.finding_replacement import (
     MAX_CITED_LINES,
     CitedLines,
+    lines_intact,
     parse_cited_lines,
     verify_cited_lines,
 )
@@ -312,3 +313,32 @@ def test_anchor_and_baseline_survive_the_hidden_state() -> None:
     old = finding_from_wire(wire)
     assert old is not None and (old.anchor, old.target_line) == ("", 0)
     assert finding_from_wire({**wire, "anchor": "somewhere"}).anchor == ""  # type: ignore[union-attr]
+
+
+def test_checked_lines_leave_a_digest_that_survives_a_shift_but_not_an_edit() -> None:
+    checked = verify_cited_lines(CitedLines(33, 34), source=SOURCE, hunks=HUNKS, shown=(1, 40))
+    assert checked is not None and checked.digest.startswith("2.")
+    assert lines_intact(SOURCE, checked.digest)
+    assert lines_intact("inserted above\n" + SOURCE, checked.digest), "an edit above only moves the lines"
+    assert lines_intact(
+        SOURCE.replace("line 33\n", "line 33   \n"), checked.digest
+    ), "trailing whitespace is not a change"
+    assert not lines_intact(SOURCE.replace("line 33", "line thirty-three"), checked.digest)
+    assert not lines_intact(SOURCE.replace("line 33\n", "    line 33\n"), checked.digest), "indentation is"
+    assert (
+        not lines_intact(SOURCE, "") and not lines_intact(SOURCE, "nonsense") and not lines_intact("", checked.digest)
+    )
+
+
+def test_the_digest_survives_the_hidden_state_and_a_forged_one_reads_as_none() -> None:
+    from lemoncrow.pro.capabilities.review.pr_bot.findings import finding_from_wire
+
+    item = BotFinding(
+        id="f", fingerprint="fp", severity="p1", category="security", state="new", path="a.py", line=3, end_line=3,
+        anchor="cited", anchor_digest="1.0123456789ab",
+    )  # fmt: skip
+    back = finding_from_wire(item.to_wire())
+    assert back is not None and back.anchor_digest == "1.0123456789ab"
+    for forged in ("short", "1.XYZ", "1.0123456789abcdef", 12, None):
+        read = finding_from_wire({**item.to_wire(), "anchor_digest": forged})
+        assert read is not None and read.anchor_digest == ""

@@ -97,6 +97,12 @@ class AiStage:
     spans: Mapping[str, tuple[tuple[str, int, int], ...]] = field(default_factory=dict)
     #: Targets a model call about them returned: the ones the model was actually asked about.
     examined: tuple[str, ...] = ()
+    #: ``{finding id: still_present | resolved | unclear}``: what the re-check said about each earlier finding it was
+    #: shown. A finding the model was not asked about, or did not answer, has no entry, and an entry is never "fixed".
+    answers: Mapping[str, str] = field(default_factory=dict)
+    #: Ids of the earlier open findings whose cited lines are still in the file, word for word, wherever they now
+    #: sit: the code those findings were about has not changed, whatever else did.
+    intact: tuple[str, ...] = ()
 
     @property
     def ran(self) -> bool:
@@ -405,6 +411,50 @@ class _Examined:
         return set()
 
 
+def _prior_rows(previous: ReviewState | None, changed: Collection[str]) -> tuple[dict[str, Any], ...]:
+    """The earlier open findings about targets that changed, as the re-check prompt shows them.
+
+    The model is asked, per finding id, whether the problem is still there; without them a changed target is
+    re-asked blind, and a model that simply does not repeat itself would read as a fix.
+    """
+
+    if previous is None:
+        return ()
+    return tuple(
+        {
+            "id": old.id,
+            "category": old.category,
+            "target_ids": list(old.target_ids),
+            "title": old.title,
+            "explanation": old.explanation[:300],
+            "consequence": old.consequence[:200],
+        }
+        for old in previous.open_findings()
+        if set(old.target_ids) & set(changed)
+    )
+
+
+def _intact_findings(captured: Captured, previous: ReviewState | None) -> tuple[str, ...]:
+    """Ids of the earlier open findings whose cited lines are still, verbatim, in the file at the new head.
+
+    A finding is only ever marked fixed when the lines it cited changed. Line numbers cannot say so (an edit above
+    shifts them), so the text is looked for: present anywhere means that code is untouched. A finding with no
+    digest (it cited no checked lines) is never intact here, and is never auto-fixed either.
+    """
+
+    if previous is None:
+        return ()
+    from lemoncrow.pro.capabilities.review.ask import exact_revision_sources
+    from lemoncrow.pro.capabilities.review.finding_replacement import lines_intact
+
+    wanted = [old for old in previous.open_findings() if old.anchor_digest and old.side == "new"]
+    if not wanted:
+        return ()
+    paths = tuple(dict.fromkeys(old.path for old in wanted))
+    sources = exact_revision_sources(captured.store, captured.revision, paths=paths, side="new")
+    return tuple(old.id for old in wanted if old.path in sources and lines_intact(sources[old.path], old.anchor_digest))
+
+
 def _candidates_phrase(candidates: int) -> str:
     return f"{candidates} risk candidate" + ("" if candidates == 1 else "s")
 
@@ -468,6 +518,7 @@ def _execute(
 
     changed = tuple(target for target in targets if not unchanged(target))
     locations = {target.target_id: locate_target(target) for target in targets}
+    intact = _intact_findings(captured, previous)
     rules = tuple(rule.stable_key for rule in governance.rules)
     base = AiStage(
         status="nothing_changed",
@@ -483,7 +534,13 @@ def _execute(
     )
     if not changed:
         kept, truncated = cap_units(_tokens(targets, units, pending=()))
-        return replace(base, reviewed_units=kept, units_truncated=truncated, model=previous.model if previous else "")
+        return replace(
+            base,
+            reviewed_units=kept,
+            units_truncated=truncated,
+            model=previous.model if previous else "",
+            intact=intact,
+        )
 
     budget = ModelCallBudget.from_env(max_calls=1)
     examined = _Examined(structured_executor or execute_structured)
@@ -506,6 +563,7 @@ def _execute(
             # config around what changed. An agent-CLI route reads the repository itself and gets none.
             repo_context=RepoContextOptions(enabled=repo_context_enabled()) if repo_context_enabled() else None,
             pr_fields=True,
+            prior_findings=_prior_rows(previous, {target.target_id for target in changed}),
         )
     usage, served = revision_usage(store, session.id, revision.id)
     context = dict(result.repo_context)
@@ -551,4 +609,6 @@ def _execute(
         errors=tuple(result.provider_errors),
         repo_context=context,
         examined=tuple(sorted(examined.targets)),
+        answers=dict(result.prior_answers),
+        intact=intact,
     )

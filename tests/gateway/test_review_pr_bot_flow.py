@@ -159,6 +159,7 @@ def test_a_rerun_after_a_crash_before_the_summary_adopts_the_inline_comment_it_a
 
 
 def test_a_push_re_reviews_only_the_changed_file_and_carries_the_rest_without_a_model_call(world: World) -> None:
+    world.model.cite_lines.add("lets a missing principal through")  # a fix is only claimed for cited lines
     world.origin.push(FIRST_PUSH)
     first = world.review()
     summary_id = world.github.summary_comments()[0]["id"]
@@ -186,6 +187,7 @@ def test_a_push_re_reviews_only_the_changed_file_and_carries_the_rest_without_a_
 
 
 def test_a_fixed_finding_gets_a_reply_and_its_thread_is_resolved(world: World) -> None:
+    world.model.cite_lines.add("lets a missing principal through")  # a fix is only claimed for cited lines
     world.origin.push(FIRST_PUSH)
     world.review()
     (thread,) = world.github.inline()
@@ -204,6 +206,7 @@ def test_a_fixed_finding_gets_a_reply_and_its_thread_is_resolved(world: World) -
 
 
 def test_if_the_token_cannot_resolve_threads_the_reply_alone_stands(world: World) -> None:
+    world.model.cite_lines.add("lets a missing principal through")  # a fix is only claimed for cited lines
     world.github.deny_resolve = True
     world.origin.push(FIRST_PUSH)
     world.review()

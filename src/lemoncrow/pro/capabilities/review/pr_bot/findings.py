@@ -5,7 +5,10 @@ to survive the next push without a model call, so it keeps the fields a comment
 needs and the identity the next run matches on. ``state`` uses the vocabulary of
 the Review dispositions (``session_models.FINDING_DISPOSITIONS``): ``new`` and
 ``carried`` are an *open* finding, ``fixed`` is ``fixed``, ``stale`` is
-``superseded_stale`` (the code it was about no longer exists).
+``superseded_stale`` (the code it was about no longer exists). ``unreported`` is the one state with no Review
+disposition: the code it was about changed and a later review did not find the problem again, but nothing
+showed that it was fixed. It is closed (it blocks nothing), its thread is left open for a person, and it comes
+back as ``carried``, on the same thread, if a later review reports it.
 
 Severity is the product's own, one rule for every surface (:func:`severity_for`):
 
@@ -41,7 +44,7 @@ SEVERITIES: Final[tuple[str, ...]] = ("p0", "p1", "p2")
 SEVERITY_BADGE: Final[Mapping[str, str]] = {"p0": "P0", "p1": "P1", "p2": "P2"}
 SEVERITY_MEANING: Final[Mapping[str, str]] = {"p0": "must fix", "p1": "should fix", "p2": "optional"}
 SEVERITY_RANK: Final[Mapping[str, int]] = {"p0": 0, "p1": 1, "p2": 2}
-STATES: Final[tuple[str, ...]] = ("new", "carried", "fixed", "stale")
+STATES: Final[tuple[str, ...]] = ("new", "carried", "fixed", "stale", "unreported")
 OPEN_STATES: Final[frozenset[str]] = frozenset({"new", "carried"})
 PLACEMENTS: Final[tuple[str, ...]] = ("", "inline", "summary")
 #: Investigator impact ratings, lowest first.
@@ -60,6 +63,7 @@ MAX_CONSEQUENCE: Final[int] = 400
 MAX_SUGGESTION: Final[int] = 4000
 
 _SHA = re.compile(r"^[0-9a-f]{4,40}$")
+_DIGEST = re.compile(r"^[0-9]{1,2}\.[0-9a-f]{12}$")
 
 
 #: Longest span one inline comment covers. A finding about a whole function would
@@ -134,6 +138,9 @@ class BotFinding:
     #: located. The second is the baseline a later push compares against to see that the target's code has moved.
     anchor: str = ""
     target_line: int = 0
+    #: Digest of the text of the lines the investigator cited, when a review checked them
+    #: (``finding_replacement.lines_digest``): what lets a later push tell that the finding's own code changed.
+    anchor_digest: str = ""
 
     @property
     def is_open(self) -> bool:
@@ -211,6 +218,7 @@ class BotFinding:
             ("verified", self.verified),
             ("anchor", self.anchor),
             ("target_line", self.target_line),
+            ("anchor_digest", self.anchor_digest),
         ):
             if value:
                 wire[key] = value
@@ -261,6 +269,7 @@ def finding_from_wire(raw: object) -> BotFinding | None:
     targets = raw.get("targets")
     impact = raw.get("impact")
     anchor = raw.get("anchor")
+    digest = raw.get("anchor_digest")
     # A suggestion is whole or absent: truncating a replacement would post a different, wrong edit.
     suggestion = raw.get("suggestion")
     fix = suggestion if isinstance(suggestion, str) and 0 < len(suggestion) <= MAX_SUGGESTION else ""
@@ -297,6 +306,7 @@ def finding_from_wire(raw: object) -> BotFinding | None:
         suggestion_end=fix_end,
         anchor=anchor if isinstance(anchor, str) and anchor in ANCHORS else "",
         target_line=_count(raw, "target_line"),
+        anchor_digest=digest if isinstance(digest, str) and _DIGEST.match(digest) else "",
     )
 
 

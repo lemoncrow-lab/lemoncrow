@@ -260,6 +260,8 @@ def _review(
         rereviewed=ai.rereviewed,
         covered=ai.covered,
         head=short(head),
+        answers=ai.answers,
+        intact=ai.intact,
     )
     report = RunReport(pr=name, head_sha=head)
     if ai.errors:
@@ -278,7 +280,11 @@ def _review(
         and finding.thread_id == 0
         and not finding.placement
     ]
-    closed = [finding for finding in findings if not finding.is_open and finding.thread_id > 0]
+    # A thread is answered once, in the run that closes its finding; a finding left "no longer reported" stays listed.
+    was_open = {old.id for old in previous.open_findings()} if previous is not None else set()
+    closed = [
+        finding for finding in findings if not finding.is_open and finding.thread_id > 0 and finding.id in was_open
+    ]
     same_head = previous is not None and previous.head_sha == head
     report.noop = bool(ai.status == "nothing_changed" and same_head and previous is not None and previous.complete)
     report.inline_bodies = tuple(inline_comment(finding) for finding in wanted)
@@ -331,6 +337,7 @@ def _review(
             carried=len(_state_is(tracked, "carried")),
             fixed=len(_state_is(tracked, "fixed")),
             stale=len(_state_is(tracked, "stale")),
+            unreported=len(_state_is(tracked, "unreported")),
             complete=ai.complete,
             uninvestigated=uninvestigated,
         ),

@@ -9,9 +9,13 @@ new Snapshot and with what the AI stage just re-examined:
 * a finding whose code changed is looked at again. If the model reports it again
   (by the engine's finding id, else by the looser fingerprint when it is worded
   differently) it is carried and updated -- the same thread, never a second one;
-* if the changed code was re-examined successfully and the finding is gone it is
-  **fixed**; if the re-examination failed it stays carried and is marked
-  ``unverified``, because a failed call proves nothing;
+* if the changed code was re-examined successfully and the model did not report the finding again, absence
+  proves nothing (a model does not repeat itself reliably, and an unrelated edit in the same file re-asks it), so
+  the re-check also asked about it by id. It is **fixed** only when the model says it is resolved *and* the lines
+  the finding cited have changed; **carried** when the model says it is still present; otherwise it is
+  **unreported** ("no longer reported"): closed, so it blocks nothing, with its thread left open for a person. If a
+  later review reports it again it comes back as carried on the same thread. If the re-examination failed it stays
+  carried and is marked ``unverified``, because a failed call proves nothing;
 * a finding whose code left the change altogether is **stale**
   (``superseded_stale``).
 
@@ -66,6 +70,10 @@ class Reconciled:
         return self.with_state("stale")
 
     @property
+    def unreported(self) -> tuple[BotFinding, ...]:
+        return self.with_state("unreported")
+
+    @property
     def open(self) -> tuple[BotFinding, ...]:
         return tuple(finding for finding in self.findings if finding.is_open)
 
@@ -112,6 +120,7 @@ def finding_from_confirmed(confirmed: Any, located: Located | None, head: str) -
         suggestion_end=fix.end_line if fix else 0,
         anchor=anchor,
         target_line=where.line,
+        anchor_digest=cited.digest if cited is not None else "",
     )
 
 
@@ -151,13 +160,17 @@ def reconcile(
     rereviewed: Collection[str],
     covered: Collection[str],
     head: str,
+    answers: Mapping[str, str] | None = None,
+    intact: Collection[str] = (),
 ) -> Reconciled:
     """The findings of this review.
 
     ``locations`` maps every target of the new Snapshot to where its comment goes,
     ``current_targets`` is those ids, ``rereviewed`` the targets the AI stage was
     asked about, ``covered`` the subset whose examination completed. ``head`` is the
-    short sha being reviewed.
+    short sha being reviewed. ``answers`` is what the re-check said about each earlier finding it was asked
+    about (``still_present``, ``resolved`` or ``unclear``) and ``intact`` the earlier findings whose cited lines
+    are still in the file word for word: together they are the only way a finding is declared fixed.
     """
 
     fresh = [
@@ -174,9 +187,10 @@ def reconcile(
     def location_of(finding: BotFinding) -> Located | None:
         return next((locations[target] for target in finding.target_ids if target in locations), None)
 
+    said = answers or {}
     for old in previous.findings if previous is not None else ():
         if not old.is_open:
-            continue  # reported as closed last time; nothing more to say
+            continue  # reported as closed last time; nothing more to say (an unreported one is looked at below)
         targets = set(old.target_ids)
         if not targets & set(current_targets):
             result.append(old.changed(state="stale", resolved_in=head, last_seen=head))
@@ -203,15 +217,53 @@ def reconcile(
             )
             if old.thread_id:
                 carried = carried.changed(
-                    path=old.path, line=old.line, end_line=old.end_line, side=old.side, anchor=old.anchor
+                    path=old.path,
+                    line=old.line,
+                    end_line=old.end_line,
+                    side=old.side,
+                    anchor=old.anchor,
+                    anchor_digest=carried.anchor_digest or old.anchor_digest,
                 )
             result.append(carried)
         elif touched <= set(covered):
-            result.append(old.changed(state="fixed", resolved_in=head, last_seen=head))
+            answer = said.get(old.id, "")
+            if answer == "still_present":
+                result.append(_moved(old, location_of(old)).changed(state="carried", last_seen=head))
+            elif answer == "resolved" and old.anchor_digest and old.id not in intact:
+                result.append(old.changed(state="fixed", resolved_in=head, last_seen=head))
+            else:
+                # Not reported again, but nothing showed it fixed: the model did not say so, or the lines it cited
+                # are still there. Say that, and leave the thread for a person.
+                result.append(old.changed(state="unreported", resolved_in=head, last_seen=head))
         else:
             # Nothing was proven this run, so whatever verification earned the finding is suspended too.
             result.append(
                 _moved(old, location_of(old)).changed(state="carried", last_seen=head, unverified=True).rated()
             )
+    for old in previous.findings if previous is not None else ():
+        if old.state != "unreported" or not set(old.target_ids) & set(current_targets):
+            continue  # (an unreported finding whose code left the change has nothing more to say)
+        match = by_id.get(old.id)
+        if match is None or match.id in used:
+            match = next((item for item in by_fingerprint.get(old.fingerprint, ()) if item.id not in used), None)
+        if match is None:
+            result.append(old)
+            continue
+        used.add(match.id)
+        result.append(
+            match.changed(
+                id=old.id,
+                state="carried",
+                first_seen=old.first_seen or head,
+                thread_id=old.thread_id,
+                thread_url=old.thread_url,
+                placement=old.placement,
+                **(
+                    {"path": old.path, "line": old.line, "end_line": old.end_line, "side": old.side}
+                    if old.thread_id
+                    else {}
+                ),
+            )
+        )
     result.extend(finding for finding in fresh if finding.id not in used)
     return Reconciled(tuple(result))

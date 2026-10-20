@@ -307,6 +307,14 @@ class FakeModel:
         """``BUG`` titles whose finding cites the line its ``BUG:`` marker is really on (a careful model)."""
         self.lines: dict[str, tuple[int, int]] = {}
         """``BUG`` title -> the (start, end) lines the model claims, right or wrong; wins over ``cite_lines``."""
+        self.forget: set[str] = set()
+        """``BUG`` titles the model fails to report even though the code still says so (it does not repeat itself)."""
+        self.answer_prior = True
+        """Whether the model answers the ``prior_findings`` it is shown: ``resolved`` once the ``BUG:`` line is gone."""
+        self.prior: dict[str, str] = {}
+        """Earlier finding title -> the status the model answers for it, instead of reading the code."""
+        self.prior_seen: list[list[dict[str, Any]]] = []
+        """The ``prior_findings`` rows each investigator call was shown (only calls that were shown any)."""
         self.evidence_seen: list[dict[str, Any]] = []
         """The evidence registry each investigator call was offered, with the path of its first target."""
         self.fail = False
@@ -337,6 +345,11 @@ class FakeModel:
             raise RuntimeError("provider unavailable")
         usage = ModelCallUsage(calls=1, input_tokens=self.input_tokens, output_tokens=self.output_tokens)
         found = re.search(r"BUG: (.+)", text)
+        if found is not None and found.group(1).strip() in self.forget:
+            found = None
+        asked = (prompt.get("prior_findings") or {}).get("value") or []
+        if asked:
+            self.prior_seen.append(asked)
         if found is None:
             result: dict[str, Any] = {
                 "status": "not_confirmed",
@@ -378,7 +391,22 @@ class FakeModel:
                     result["severity"] = self.severity[title]
                 result["replacement"] = self.replacements.get(title)
                 result["lines"] = self._claimed_lines(title, source[targets[0]])
+        if "prior_findings" in kwargs["output_schema"]["properties"]:
+            result["prior_findings"] = self._prior_answers(asked, text) if self.answer_prior else []
         return StructuredExecution(result=result, driver="openai", model=self.model, usage=usage)
+
+    def _prior_answers(self, asked: list[dict[str, Any]], text: str) -> list[dict[str, str]]:
+        """Per earlier finding: still_present while its ``BUG: <title>`` line is in the code shown, else resolved."""
+
+        return [
+            {
+                "id": row["id"],
+                "status": self.prior.get(
+                    row["title"], "still_present" if f"BUG: {row['title']}" in text else "resolved"
+                ),
+            }
+            for row in asked
+        ]
 
     def _claimed_lines(self, title: str, excerpt: dict[str, Any]) -> dict[str, int] | None:
         if title in self.lines:

@@ -158,14 +158,15 @@ The summary ends with `<!-- lemoncrow:state v1 {json} -->`. Read it instead of s
 
 `context_tokens` is LemonCrow's own estimate (four characters per token) of the repository context in the prompts; it is part of `input_tokens`, not on top of it, and it is absent when no context was sent.
 
-A finding's `state` is `new`, `carried`, `fixed` or `stale`. A finding also carries `impact` (the investigator's rating), `verified` (evidence from beyond its own changed code backs it), `anchor` (`cited` or `target`, see above) and `target_line` (where its code's change begins, which later pushes compare against) when it has them, and, when it has a checked replacement, `suggestion` with the `suggestion_start` and `suggestion_end` lines it replaces. `units` and `units_truncated` hold what the next run compares against. Only a comment from a `Bot` account is trusted as this state.
+A finding's `state` is `new`, `carried`, `fixed`, `stale` or `unreported` ("no longer reported"). A finding also carries `impact` (the investigator's rating), `verified` (evidence from beyond its own changed code backs it), `anchor` (`cited` or `target`, see above) and `target_line` (where its code's change begins, which later pushes compare against) and `anchor_digest` (a digest of the lines it cited, which a later push uses to tell that they changed) when it has them, and, when it has a checked replacement, `suggestion` with the `suggestion_start` and `suggestion_end` lines it replaces. `units` and `units_truncated` hold what the next run compares against. Only a comment from a `Bot` account is trusted as this state.
 
 ## Pushes cost less
 
 On a push, the Action reads the previous state, compares the new commit with it, and asks the model only about the targets whose code changed:
 
 - findings on untouched code are **carried forward**: no model call, no new comment;
-- a finding on changed code is looked at again; if it is still there it keeps its thread, if the changed code no longer has it, it is **fixed**;
+- a finding on changed code is looked at again, and the model is shown the earlier finding and asked about it by id: still there, resolved, or unclear. If it is still there (reported again, or answered `still_present`) it keeps its thread;
+- a finding is **fixed** only when the model says it is resolved **and** the lines the finding cited have changed (the text of those lines is looked for in the new file, so an edit above that only shifts them does not count). Anything else, such as a model that simply did not repeat itself, a harmless edit elsewhere in the same file, a finding that never cited a checked line, or a change small enough that nobody was asked, is **no longer reported**: it is closed, so it no longer counts toward the verdict or the check, but it is listed in its own block, its thread gets the reply `No longer reported in <short sha>` and stays open for you to resolve. If a later push reports it again it comes back on the same thread, not as a second comment;
 - a fixed finding gets a reply on its thread, `Fixed in <short sha>`, and the thread is resolved when the token allows it (GitHub's `resolveReviewThread`). If it does not, the reply stays and the review still completes;
 - a finding whose code left the pull request is **stale**;
 - if the model call for a changed target fails, the finding stays, marked unverified, and the target is retried on the next push.

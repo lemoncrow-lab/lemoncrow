@@ -22,10 +22,13 @@ The same module holds the other claim an investigator makes about *where*: ``lin
 range of the new file a finding is about. :func:`verify_cited_lines` holds it to the same standard (the lines
 exist in the file at the head, were among the lines the model was shown, and sit inside one right-side hunk),
 so a comment can sit on the line the model found instead of the first line the pull request changed.
+The verified lines also leave a digest of their text, which a later push uses to tell whether the code the
+finding was about has really changed (:func:`lines_intact`).
 """
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Final
@@ -109,9 +112,36 @@ class CitedLines:
     start_line: int
     end_line: int
     verified: bool = False
+    #: :func:`lines_digest` of those lines at the head; set by :func:`verify_cited_lines`.
+    digest: str = ""
 
     def to_wire(self) -> dict[str, int]:
         return {"start_line": self.start_line, "end_line": self.end_line}
+
+
+def lines_digest(lines: Sequence[str]) -> str:
+    """``<count>.<hash>`` of *lines*, as a person would call them equal: trailing whitespace ignored, indentation exact.
+
+    The count rides along so :func:`lines_intact` knows how many lines to look for.
+    """
+
+    joined = "\n".join(line.rstrip() for line in lines)
+    return f"{len(lines)}.{hashlib.sha256(joined.encode('utf-8')).hexdigest()[:12]}"
+
+
+def lines_intact(source: str, digest: str) -> bool:
+    """Whether lines of *source* still have *digest* (:func:`lines_digest`), wherever in the file they now sit.
+
+    This is how a later push learns that the lines a finding cited have really changed: not by line number, which
+    an edit above shifts, but by whether that exact text is still in the file.
+    """
+
+    count_text, _, _ = digest.partition(".")
+    if not count_text.isdigit() or int(count_text) <= 0:
+        return False
+    count = int(count_text)
+    rows = source.splitlines()
+    return any(lines_digest(rows[start : start + count]) == digest for start in range(len(rows) - count + 1))
 
 
 def parse_cited_lines(raw: object) -> CitedLines | None:
@@ -150,7 +180,8 @@ def verify_cited_lines(claim: CitedLines, *, source: str, hunks: str, shown: tup
         return None
     if unplaceable_reason(patch=hunks, anchor_side="new", start_line=claim.start_line, end_line=claim.end_line):
         return None
-    return replace(claim, verified=True)
+    rows = source.splitlines()[claim.start_line - 1 : claim.end_line]
+    return replace(claim, verified=True, digest=lines_digest(rows))
 
 
 def hunk_headers(files: object, path: str) -> str:
@@ -226,6 +257,8 @@ __all__ = [
     "CitedLines",
     "Replacement",
     "hunk_headers",
+    "lines_digest",
+    "lines_intact",
     "parse_cited_lines",
     "parse_replacement",
     "verify_cited_lines",

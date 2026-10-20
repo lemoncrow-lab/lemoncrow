@@ -732,6 +732,8 @@ def run(
     rereviewed: set[str],
     covered: set[str] | None = None,
     current: set[str] | None = None,
+    answers: dict[str, str] | None = None,
+    intact: tuple[str, ...] = (),
 ) -> Any:
     locations = {t: Located(f"src/{t}.py", 3, 4) for t in ("a", "b", "c", "d")}
     return reconcile(
@@ -742,6 +744,8 @@ def run(
         rereviewed=rereviewed,
         covered=rereviewed if covered is None else covered,
         head="abcdef0",
+        answers=answers,
+        intact=intact,
     )
 
 
@@ -785,13 +789,59 @@ def test_a_finding_still_reported_after_its_code_changed_is_the_same_finding_not
     assert result.new == ()
 
 
-def test_a_finding_gone_after_a_successful_re_examination_is_fixed() -> None:
-    previous = review_state((tracked("gone", "a"), tracked("stays", "b")))
-    result = run(previous, [], rereviewed={"a"})
+def test_a_finding_the_model_says_is_resolved_on_lines_that_changed_is_fixed() -> None:
+    previous = review_state(
+        (tracked("gone", "a", anchor="cited", anchor_digest="1.abcdefabcdef"), tracked("stays", "b"))
+    )
+    result = run(previous, [], rereviewed={"a"}, answers={"gone": "resolved"}, intact=())
     by_id = {f.id: f for f in result.findings}
     assert (by_id["gone"].state, by_id["gone"].resolved_in) == ("fixed", "abcdef0")
     assert by_id["stays"].state == "carried"
     assert [f.id for f in result.fixed] == ["gone"] and by_id["gone"].thread_id == 77
+
+
+def test_a_finding_that_is_merely_not_reported_again_is_no_longer_reported_never_fixed() -> None:
+    # R4: absence is not a fix. An unrelated edit in the same file re-asks it, and a model need not repeat itself.
+    previous = review_state((tracked("gone", "a", anchor="cited", anchor_digest="1.abcdefabcdef"),))
+    result = run(previous, [], rereviewed={"a"})
+    (kept,) = result.findings
+    assert (kept.state, kept.resolved_in, kept.is_open, kept.thread_id) == ("unreported", "abcdef0", False, 77)
+    assert result.fixed == () and result.unreported == (kept,)
+
+
+@pytest.mark.parametrize(
+    ("answer", "intact", "digest", "why"),
+    [
+        ("resolved", ("gone",), "1.abcdefabcdef", "the lines it cited are still there word for word"),
+        ("resolved", (), "", "it never cited lines that were checked, so nothing says its own code changed"),
+        ("unclear", (), "1.abcdefabcdef", "the model could not tell"),
+        ("", (), "1.abcdefabcdef", "the model was not asked, or did not answer"),
+    ],
+)
+def test_a_fix_needs_the_models_word_and_changed_lines_together(
+    answer: str, intact: tuple[str, ...], digest: str, why: str
+) -> None:
+    previous = review_state((tracked("gone", "a", anchor="cited", anchor_digest=digest),))
+    result = run(previous, [], rereviewed={"a"}, answers={"gone": answer} if answer else {}, intact=intact)
+    (kept,) = result.findings
+    assert kept.state == "unreported", why
+
+
+def test_a_finding_the_model_says_is_still_present_stays_open_even_if_it_was_not_reconfirmed() -> None:
+    previous = review_state((tracked("there", "a", anchor="cited", anchor_digest="1.abcdefabcdef"),))
+    (kept,) = run(previous, [], rereviewed={"a"}, answers={"there": "still_present"}).findings
+    assert (kept.state, kept.is_open, kept.unverified, kept.last_seen) == ("carried", True, False, "abcdef0")
+
+
+def test_a_finding_that_is_reported_again_after_being_unreported_comes_back_on_its_thread() -> None:
+    gone = tracked("gone", "a").changed(state="unreported", resolved_in="1111111")
+    result = run(review_state((gone,)), [confirmed("reworded", ("a",), title="Back")], rereviewed={"a"})
+    (kept,) = result.findings
+    assert (kept.id, kept.state, kept.thread_id, kept.title) == ("gone", "carried", 77, "Back")
+    assert result.new == ()
+    # Until then it stays listed, and not open; once its code leaves the change there is nothing more to say.
+    assert run(review_state((gone,)), [], rereviewed=set()).unreported[0].id == "gone"
+    assert run(review_state((gone,)), [], rereviewed=set(), current={"b"}).findings == ()
 
 
 def test_a_failed_re_examination_proves_nothing_so_the_finding_stays_unverified() -> None:
@@ -819,7 +869,7 @@ def test_two_findings_do_not_claim_the_same_new_confirmation() -> None:
     previous = review_state((tracked("first", "a"), tracked("second", "a")))
     result = run(previous, [confirmed("n1", ("a",))], rereviewed={"a"})
     states = sorted((f.id, f.state) for f in result.findings)
-    assert states == [("first", "carried"), ("second", "fixed")]
+    assert states == [("first", "carried"), ("second", "unreported")]
 
 
 def test_reconciling_the_same_state_again_changes_nothing() -> None:

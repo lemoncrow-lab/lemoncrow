@@ -220,6 +220,12 @@ def reply_text(finding: BotFinding) -> str:
 
     if finding.state == "fixed":
         text = f"Fixed in {short(finding.resolved_in)}."
+    elif finding.state == "unreported":
+        text = (
+            f"No longer reported in {short(finding.resolved_in)}: the code around it changed and this review did not "
+            "find the problem again, but nothing showed that it was fixed, so this thread is left open for you to "
+            "resolve."
+        )
     else:
         text = f"No longer applies in {short(finding.resolved_in)}: the code it was about changed."
     return f"{text}\n\n<!-- lemoncrow:resolved {finding.id} -->"
@@ -243,6 +249,7 @@ class RunFacts:
     stale: int
     complete: bool = True
     uninvestigated: int = 0
+    unreported: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -287,6 +294,8 @@ def strip_text(facts: RunFacts) -> str:
             f"{facts.carried} carried forward",
             f"{facts.fixed + facts.stale} fixed since last review",
         ]
+    if facts.unreported:
+        parts.append(f"{facts.unreported} no longer reported")
     if facts.uninvestigated:
         parts.append(f"{plural(facts.uninvestigated, 'risk signal')} not investigated yet")
     if not facts.complete:
@@ -308,6 +317,8 @@ def _tag(finding: BotFinding) -> str:
         return "new"
     if finding.state == "carried":
         return "carried forward, unverified" if finding.unverified else "carried forward"
+    if finding.state == "unreported":
+        return f"no longer reported in {short(finding.resolved_in)}, not confirmed fixed"
     return f"fixed in {short(finding.resolved_in)}" if finding.state == "fixed" else "no longer applies"
 
 
@@ -371,7 +382,8 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
 
     findings = sorted(view.findings, key=sort_key)
     opened = [finding for finding in findings if finding.is_open]
-    closed = [finding for finding in findings if not finding.is_open]
+    closed = [finding for finding in findings if not finding.is_open and finding.state != "unreported"]
+    unreported = [finding for finding in findings if finding.state == "unreported"]
     shown = [finding for finding in opened if finding.severity != "p2"]
     held = [finding for finding in opened if finding.severity == "p2"]
     result = verdict(
@@ -402,6 +414,16 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
         lines += ["", f"<details><summary>{plural(len(closed), 'finding')} fixed since last review</summary>", ""]
         lines += [f"- ~~{clean(finding.title)}~~ — `{_where(finding)}` · {_tag(finding)}" for finding in closed]
         lines += ["", "</details>"]
+    if unreported:
+        heading = plural(len(unreported), "finding") + " no longer reported, not confirmed fixed"
+        lines += ["", f"<details><summary>{heading}</summary>", ""]
+        lines += [f"- {clean(finding.title)} — `{_where(finding)}` · {_tag(finding)}" for finding in unreported]
+        lines += [
+            "",
+            "The code around them changed and this review did not find them again. Their threads stay open.",
+            "",
+        ]
+        lines += ["</details>"]
     if opened:
         prompt = agent_prompt(
             opened,

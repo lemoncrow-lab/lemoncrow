@@ -350,6 +350,8 @@ class BotGitHub:
 
         A reply is the contract; resolving is best effort, because ``resolveReviewThread``
         needs a permission a token may not have, and a failed resolve must not fail the run.
+        A finding that is only *no longer reported* gets its reply and keeps its thread open: nothing showed
+        that it was fixed, so closing the conversation is not ours to do.
         """
 
         already = {
@@ -379,6 +381,8 @@ class BotGitHub:
                     json.dumps({"body": reply_text(finding)}, ensure_ascii=False),
                 )
                 replied += 1
+            if finding.state == "unreported":
+                continue
             try:
                 if threads is None:
                     threads = self.review_threads()
