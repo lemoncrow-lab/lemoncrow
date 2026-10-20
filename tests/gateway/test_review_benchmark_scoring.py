@@ -1,4 +1,4 @@
-"""Scoring and the competitor importer: how findings are matched to labels and to another reviewer's comments.
+"""Scoring and the baseline-review importer: how findings are matched to labels and to another reviewer's comments.
 
 Pure functions and fixtures only; no git, no model. The inputs are small enough that the right answer is visible.
 """
@@ -12,9 +12,8 @@ from typing import Any
 
 import pytest
 
-from lemoncrow.pro.capabilities.review.evaluation.competitor import (
-    GREPTILE_LOGINS,
-    CompetitorError,
+from lemoncrow.pro.capabilities.review.evaluation.baseline_reviews import (
+    BaselineError,
     export_comments,
     fetch_pull_comments,
     load_comments,
@@ -235,7 +234,8 @@ def test_the_wilson_interval_is_wide_for_few_trials_and_never_claims_certainty()
 # the importer
 # --------------------------------------------------------------------------- #
 
-BOT = {"login": "greptile-apps[bot]", "type": "Bot"}
+BOT = {"login": "review-bot[bot]", "type": "Bot"}
+BOT_LOGINS = {"review-bot[bot]"}
 HUMAN = {"login": "alice", "type": "User"}
 
 
@@ -253,7 +253,7 @@ def rest_comment(cid: int, user: dict[str, str], body: str, **extra: Any) -> dic
     }
 
 
-def test_the_importer_keeps_the_competitors_root_comments_with_their_lines() -> None:
+def test_the_importer_keeps_the_baseline_reviewers_root_comments_with_their_lines() -> None:
     payload = [
         rest_comment(1, BOT, "**P1** `get_all()` returns the internal dict"),
         rest_comment(2, BOT, "a reply in the thread", in_reply_to_id=1),
@@ -261,7 +261,7 @@ def test_the_importer_keeps_the_competitors_root_comments_with_their_lines() -> 
         rest_comment(4, BOT, "outdated comment", line=None, original_line=30, start_line=None),
         rest_comment(5, BOT, "   "),  # empty: nothing to compare
     ]
-    comments = parse_comments(payload)
+    comments = parse_comments(payload, logins=BOT_LOGINS)
     assert [c.id for c in comments] == ["1", "4"]
     first = comments[0]
     assert (first.path, first.line, first.end_line, first.kind, first.severity) == ("src/x.py", 10, 12, "inline", "P1")
@@ -271,38 +271,41 @@ def test_the_importer_keeps_the_competitors_root_comments_with_their_lines() -> 
 
 def test_a_comment_with_no_file_and_line_is_a_summary_and_is_kept_not_matched() -> None:
     summary = {"id": 9, "user": BOT, "body": "Confidence score: 4/5", "html_url": "u"}
-    (comment,) = parse_comments([summary], default_kind="summary")
+    (comment,) = parse_comments([summary], logins=BOT_LOGINS, default_kind="summary")
     assert comment.kind == "summary" and comment.line == 0 and comment.path == ""
 
 
 def test_a_wrong_login_is_an_error_naming_the_authors_seen_never_an_empty_baseline() -> None:
-    with pytest.raises(CompetitorError, match=r"authors seen: alice \(1\), other\[bot\] \(2\)"):
+    with pytest.raises(BaselineError, match=r"authors seen: alice \(1\), other\[bot\] \(2\)"):
         parse_comments(
             [
                 rest_comment(1, HUMAN, "x"),
                 rest_comment(2, {"login": "other[bot]"}, "y"),
                 rest_comment(3, {"login": "other[bot]"}, "z"),
-            ]
+            ],
+            logins=BOT_LOGINS,
         )
-    assert len(parse_comments([rest_comment(1, {"login": "my-greptile[bot]"}, "y")], logins={"my-greptile[bot]"})) == 1
+    assert (
+        len(parse_comments([rest_comment(1, {"login": "my-review-bot[bot]"}, "y")], logins={"my-review-bot[bot]"})) == 1
+    )
     assert len(parse_comments([rest_comment(1, HUMAN, "y")], logins=None)) == 1
 
 
 def test_an_export_round_trips_and_keeps_a_persons_verdict(tmp_path: Path) -> None:
-    comments = parse_comments([rest_comment(1, BOT, "`get_all()` returns the internal dict")])
+    comments = parse_comments([rest_comment(1, BOT, "`get_all()` returns the internal dict")], logins=BOT_LOGINS)
     export = export_comments(comments, source="github:acme/shop#7")
     export["comments"][0]["verdict"] = "valid"
-    path = tmp_path / "greptile.json"
+    path = tmp_path / "baseline.json"
     path.write_text(json.dumps(export), encoding="utf-8")
     (again,) = load_comments(path, logins=None)
     assert again.verdict == "valid" and again.body == comments[0].body and export["schema"] == 1
     bad = tmp_path / "bad.json"
     bad.write_text('{"schema": 99, "comments": []}', encoding="utf-8")
-    with pytest.raises(CompetitorError, match="unsupported export schema"):
-        load_comments(bad)
+    with pytest.raises(BaselineError, match="unsupported export schema"):
+        load_comments(bad, logins=None)
     bad.write_text("not json", encoding="utf-8")
-    with pytest.raises(CompetitorError):
-        load_comments(bad)
+    with pytest.raises(BaselineError):
+        load_comments(bad, logins=None)
 
 
 def test_fetching_reads_the_three_lists_through_gh() -> None:
@@ -319,7 +322,7 @@ def test_fetching_reads_the_three_lists_through_gh() -> None:
         key = next(name for name in pages if endpoint.endswith(name))
         return json.dumps([pages[key]])
 
-    comments = fetch_pull_comments("acme/shop", 7, runner=runner)
+    comments = fetch_pull_comments("acme/shop", 7, logins=BOT_LOGINS, runner=runner)
     assert sorted(c.id for c in comments) == ["1", "3"]
     assert {c.kind for c in comments} == {"inline", "summary"}
     assert asked == [
@@ -356,7 +359,7 @@ def test_fetching_a_public_pull_request_falls_back_to_plain_https_when_gh_cannot
             return Response([rest_comment(2, BOT, "page two")])
         return Response([])
 
-    import lemoncrow.pro.capabilities.review.evaluation.competitor as module
+    import lemoncrow.pro.capabilities.review.evaluation.baseline_reviews as module
 
     def no_gh(args: Any, stdin: str | None = None) -> str:
         raise GitHubCliError("`gh` is not signed in; run `gh auth login`")
@@ -364,25 +367,35 @@ def test_fetching_a_public_pull_request_falls_back_to_plain_https_when_gh_cannot
     monkeypatch.setattr(module, "run_gh", no_gh)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("GH_TOKEN", raising=False)
-    comments = fetch_pull_comments("acme/shop", 7, opener=opener)
+    comments = fetch_pull_comments("acme/shop", 7, logins=BOT_LOGINS, opener=opener)
     assert sorted(c.id for c in comments) == ["1", "2"]
     assert seen[1] == "https://api.github.com/page2" and len(seen) == 4
 
 
 def test_a_github_error_is_reported_not_swallowed(monkeypatch: pytest.MonkeyPatch) -> None:
-    import lemoncrow.pro.capabilities.review.evaluation.competitor as module
+    import lemoncrow.pro.capabilities.review.evaluation.baseline_reviews as module
 
     monkeypatch.setattr(module, "run_gh", lambda args, stdin=None: (_ for _ in ()).throw(GitHubCliError("no gh")))
 
     def refuse(request: Any) -> Any:
         raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, None)  # type: ignore[arg-type]
 
-    with pytest.raises(CompetitorError, match="404"):
-        fetch_pull_comments("acme/private", 7, opener=refuse)
+    with pytest.raises(BaselineError, match="404"):
+        fetch_pull_comments("acme/private", 7, logins=BOT_LOGINS, opener=refuse)
 
 
-def test_greptiles_known_logins_are_the_documented_default() -> None:
-    assert "greptile-apps[bot]" in GREPTILE_LOGINS
+def test_no_reviewer_login_is_assumed() -> None:
+    """The bot's login is the one thing only the caller knows, so none of the entry points defaults it."""
+
+    import inspect
+
+    from lemoncrow.pro.capabilities.review.evaluation.benchmark import BenchmarkOptions
+    from lemoncrow.pro.capabilities.review.evaluation.corpus_init import init_corpus
+
+    for function in (parse_comments, load_comments, fetch_pull_comments):
+        assert inspect.signature(function).parameters["logins"].default is inspect.Parameter.empty, function
+    assert inspect.signature(init_corpus).parameters["logins"].default == ()
+    assert inspect.signature(BenchmarkOptions).parameters["reviewer_logins"].default == ()
 
 
 # --------------------------------------------------------------------------- #
@@ -412,7 +425,7 @@ def fake_github(
     return runner
 
 
-def test_init_corpus_writes_an_organization_corpus_with_the_competitors_comments(tmp_path: Path) -> None:
+def test_init_corpus_writes_an_organization_corpus_with_the_baseline_reviewers_comments(tmp_path: Path) -> None:
     from lemoncrow.pro.capabilities.review.evaluation.corpus_init import init_corpus
     from lemoncrow.pro.capabilities.review.evaluation.real_prs import load_real_pr_corpus
 
@@ -437,6 +450,7 @@ def test_init_corpus_writes_an_organization_corpus_with_the_competitors_comments
         approved_by="Pat",
         reference="ticket-1",
         approved_at="2026-10-20",
+        logins=BOT_LOGINS,
     )
     assert result.entries == ("shop-7", "shop-9") and "listed twice" in " ".join(result.notes)
     assert [path.name for path in result.comment_files] == ["shop-7.json", "shop-9.json"]
@@ -453,10 +467,10 @@ def test_init_corpus_writes_an_organization_corpus_with_the_competitors_comments
         "b" * 40,
         False,
     )  # the merge base, not the base tip
-    assert first.competitor["greptile"].comments_file == "greptile/shop-7.json"
-    assert second.competitor["greptile"].comments_file == "greptile/shop-9.json"  # silence is a data point too
+    assert first.baseline is not None and first.baseline.comments_file == "baseline/shop-7.json"
+    assert second.baseline is not None and second.baseline.comments_file == "baseline/shop-9.json"  # silence is data
     (exported,) = parse_comments(
-        json.loads((out.parent / "greptile/shop-7.json").read_text(encoding="utf-8")), logins=None
+        json.loads((out.parent / "baseline/shop-7.json").read_text(encoding="utf-8")), logins=None
     )
     assert exported.body == "**P1** retries never stop"  # the human's reply was not kept
 
@@ -486,7 +500,7 @@ def test_init_corpus_refuses_to_guess_who_approved_a_customers_data(tmp_path: Pa
         parse_spec("https://example.com/not-a-pr")
 
 
-def test_init_corpus_notes_a_missing_merge_base_and_a_wrong_competitor_login(tmp_path: Path) -> None:
+def test_init_corpus_notes_a_missing_merge_base_and_a_wrong_reviewer_login(tmp_path: Path) -> None:
     from lemoncrow.pro.capabilities.review.evaluation.corpus_init import init_corpus
 
     pulls = {3: {"title": "T", "state": "open", "head": {"sha": "a" * 40}, "base": {"sha": "c" * 40}}}
@@ -500,10 +514,29 @@ def test_init_corpus_notes_a_missing_merge_base_and_a_wrong_competitor_login(tmp
         approved_by="Pat",
         reference="t",
         approved_at="2026-10-20",
+        logins=BOT_LOGINS,
     )
     text = " ".join(result.notes)
     assert "no merge base from GitHub" in text and "authors seen: someone-else[bot] (1)" in text
     assert result.comment_files == ()
+
+
+def test_init_corpus_needs_the_reviewers_login_to_fetch_comments_and_nothing_to_skip_them(tmp_path: Path) -> None:
+    from lemoncrow.pro.capabilities.review.evaluation.corpus_init import InitError, init_corpus
+
+    pulls = {3: {"title": "T", "state": "open", "head": {"sha": "a" * 40}, "base": {"sha": "c" * 40}}}
+    common: dict[str, Any] = {
+        "out": tmp_path / "c.yaml",
+        "corpus_id": "x",
+        "organization": "acme",
+        "approved_by": "Pat",
+        "reference": "t",
+        "approved_at": "2026-10-20",
+    }
+    with pytest.raises(InitError, match="--reviewer-login"):
+        init_corpus(fake_github(pulls, {}), ["acme/shop#3"], **common)
+    result = init_corpus(fake_github(pulls, {}), ["acme/shop#3"], fetch_comments=False, **common)
+    assert result.comment_files == () and result.entries == ("shop-3",)
 
 
 def test_the_init_command_keeps_a_customers_corpus_out_of_the_checkout() -> None:

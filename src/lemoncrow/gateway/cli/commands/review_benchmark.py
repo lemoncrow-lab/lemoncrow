@@ -8,8 +8,9 @@ The one command the owner runs once a model key is set::
 
 It spends money only with ``--driver live`` (the default) and a ceiling, and refuses to run in CI or under pytest.
 ``--plan`` prints what it would do and calls nothing. ``--driver fake`` checks the harness with a scripted model;
-``--driver replay`` re-reads outputs an earlier run recorded (``--record-dir``). ``import-greptile`` turns a pull
-request's Greptile comments into the JSON the benchmark reads. See ``docs/reference/review-benchmark.md``.
+``--driver replay`` re-reads outputs an earlier run recorded (``--record-dir``). ``import-reviews`` turns a pull
+request's comments from a baseline reviewer (another bot that already reviewed it) into the JSON the benchmark reads.
+See ``docs/reference/review-benchmark.md``.
 """
 
 from __future__ import annotations
@@ -85,7 +86,7 @@ def _plan_text(corpus: RealPrCorpus, depths: tuple[str, ...], driver: str, pushe
     for pr in corpus.prs:
         lines.append(
             f"  {pr.id:<28} {pr.repository}  {'labelled' if pr.labelled else 'unlabelled'} "
-            f"({len(pr.labels)} labels), {len(pr.pushes)} push(es), competitor: {', '.join(sorted(pr.competitor)) or 'none'}"
+            f"({len(pr.labels)} labels), {len(pr.pushes)} push(es), baseline reviewer: {'comments' if pr.baseline else 'none'}"
         )
     return lines
 
@@ -175,23 +176,26 @@ def _plan_text(corpus: RealPrCorpus, depths: tuple[str, ...], driver: str, pushe
     help="Text similarity needed to pair a finding with a comment.",
 )
 @click.option(
-    "--competitor-login", "logins", multiple=True, help="GitHub login the competitor comments as (default: Greptile's)."
+    "--reviewer-login",
+    "logins",
+    multiple=True,
+    help="GitHub login the baseline reviewer comments as (repeatable). Needed with --fetch-baseline; no default.",
 )
 @click.option(
-    "--fetch-greptile",
+    "--fetch-baseline",
     is_flag=True,
-    help="Fetch Greptile's comments from GitHub for every pull request that names a PR number.",
+    help="Fetch the baseline reviewer's comments from GitHub for every pull request that names a PR number.",
 )
 @click.option(
-    "--competitor-usd-per-review",
+    "--baseline-usd-per-review",
     type=float,
     default=None,
-    help="The competitor's price per review, as you know it. Reported as your input.",
+    help="The baseline reviewer's price per review, as you know it. Reported as your input.",
 )
 @click.option(
-    "--competitor-label",
+    "--baseline-label",
     default="",
-    help="What that price is (for example 'Greptile Base, from its pricing page on <date>').",
+    help="What that price is (for example 'Plan X, from its pricing page on <date>').",
 )
 @click.option("--team-prs-per-month", type=int, default=300, show_default=True)
 @click.option("--team-reviews-per-pr", type=float, default=1.2, show_default=True)
@@ -222,9 +226,9 @@ def benchmark(
     line_window: int,
     similarity: float,
     logins: tuple[str, ...],
-    fetch_greptile: bool,
-    competitor_usd_per_review: float | None,
-    competitor_label: str,
+    fetch_baseline: bool,
+    baseline_usd_per_review: float | None,
+    baseline_label: str,
     team_prs_per_month: int,
     team_reviews_per_pr: float,
     team_developers: int,
@@ -245,11 +249,12 @@ def benchmark(
         run_benchmark,
     )
     from lemoncrow.pro.capabilities.review.evaluation.benchmark_report import build_report, render_markdown
-    from lemoncrow.pro.capabilities.review.evaluation.competitor import GREPTILE_LOGINS
     from lemoncrow.pro.capabilities.review.evaluation.corpus import CorpusError, bundled_roots
     from lemoncrow.pro.capabilities.review.evaluation.real_prs import load_real_pr_corpus
     from lemoncrow.pro.capabilities.review.repo_context import CONTEXT_VERSION, repo_context_enabled
 
+    if fetch_baseline and not logins:
+        raise click.UsageError("--fetch-baseline needs --reviewer-login: the bot the baseline reviewer comments as")
     gate_root = _gate_root()
     checkout = _checkout_root(gate_root)
     if corpus_path is None:
@@ -299,8 +304,8 @@ def benchmark(
             output_usd_per_mtok=output_usd_per_mtok,
             line_window=line_window,
             similarity=similarity,
-            competitor_logins=tuple(logins) or tuple(sorted(GREPTILE_LOGINS)),
-            fetch_competitor=fetch_greptile,
+            reviewer_logins=tuple(logins),
+            fetch_baseline=fetch_baseline,
         )
         started = datetime.now(UTC)
         results, ledger, facts = run_benchmark(corpus, options, say=lambda message: click.echo(message, err=True))
@@ -322,8 +327,8 @@ def benchmark(
             "schema_version": ai_review.SCHEMA_VERSION,
             "repo_context": {"enabled": repo_context_enabled(), "version": CONTEXT_VERSION},
         },
-        competitor_usd_per_review=competitor_usd_per_review,
-        competitor_label=competitor_label,
+        baseline_usd_per_review=baseline_usd_per_review,
+        baseline_label=baseline_label,
         team=(team_prs_per_month, team_reviews_per_pr, team_developers),
         generated_at=started.isoformat(timespec="seconds"),
     )
@@ -401,7 +406,7 @@ def _summary(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-@click.command("import-greptile")
+@click.command("import-reviews")
 @click.option(
     "--pr", "pr_spec", default=None, metavar="OWNER/REPO#N|URL", help="Fetch this pull request's comments from GitHub."
 )
@@ -419,24 +424,24 @@ def _summary(report: dict[str, Any]) -> str:
     help="Where to write the normalised export.",
 )
 @click.option(
-    "--competitor-login",
+    "--reviewer-login",
     "logins",
     multiple=True,
-    help="GitHub login Greptile comments as (default: its known App logins).",
+    help="GitHub login the baseline reviewer comments as (repeatable). Required unless --all-authors; no default.",
 )
 @click.option("--all-authors", is_flag=True, help="Keep every author's comments (a file you already filtered).")
-def import_greptile(
+def import_reviews(
     pr_spec: str | None, source_file: Path | None, out: Path, logins: tuple[str, ...], all_authors: bool
 ) -> None:
-    """Fetch or normalise a pull request's Greptile comments for the benchmark.
+    """Fetch or normalise a pull request's comments from a baseline reviewer for the benchmark.
 
-    The output is the competitor baseline: it is compared with LemonCrow's findings and with the labels, and is never
+    The baseline reviewer is the bot named by --reviewer-login, another reviewer that already commented on the pull
+    request. The output is its baseline: it is compared with LemonCrow's findings and with the labels, and is never
     treated as ground truth. Add ``"verdict": "valid"`` or ``"invalid"`` to a comment to record that a person judged it.
     """
 
-    from lemoncrow.pro.capabilities.review.evaluation.competitor import (
-        GREPTILE_LOGINS,
-        CompetitorError,
+    from lemoncrow.pro.capabilities.review.evaluation.baseline_reviews import (
+        BaselineError,
         export_comments,
         fetch_pull_comments,
         parse_comments,
@@ -444,7 +449,11 @@ def import_greptile(
 
     if (pr_spec is None) == (source_file is None):
         raise click.UsageError("name exactly one of --pr or --from-json")
-    chosen = None if all_authors else (set(logins) or GREPTILE_LOGINS)
+    if not logins and not all_authors:
+        raise click.UsageError(
+            "name the baseline reviewer's bot with --reviewer-login (repeatable), or pass --all-authors"
+        )
+    chosen = None if all_authors else set(logins)
     try:
         if source_file is not None:
             comments = parse_comments(json.loads(source_file.read_text(encoding="utf-8")), logins=chosen)
@@ -456,11 +465,17 @@ def import_greptile(
                 raise click.BadParameter("use OWNER/REPO#N or a pull request URL", param_hint="--pr")
             comments = fetch_pull_comments(match["repo"], int(match["number"]), logins=chosen)
             source = f"github:{match['repo']}#{match['number']}"
-    except (CompetitorError, ValueError) as exc:
+    except (BaselineError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(
-        json.dumps(export_comments(comments, source=source), indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        json.dumps(
+            export_comments(comments, source=source, reviewer=", ".join(sorted(logins))),
+            indent=2,
+            ensure_ascii=False,
+        )
+        + "\n",
+        encoding="utf-8",
     )
     inline = sum(1 for comment in comments if comment.kind == "inline")
     authors = sorted({comment.author for comment in comments if comment.author})
@@ -468,9 +483,7 @@ def import_greptile(
         f"{len(comments)} comments ({inline} inline, {len(comments) - inline} summary) by {', '.join(authors) or 'unknown'}"
     )
     click.echo(f"wrote {out}")
-    click.echo(
-        "point a corpus entry at it:  competitor: {greptile: {comments_file: <path relative to the corpus file>}}"
-    )
+    click.echo("point a corpus entry at it:  baseline: {comments_file: <path relative to the corpus file>}")
 
 
 @click.command("derive-label")
@@ -574,12 +587,12 @@ def derive_label_command(
 @click.option("--approved-by", required=True, help="Who at the customer approved using their pull requests.")
 @click.option("--reference", required=True, help="Where that approval is recorded (a ticket, an email thread).")
 @click.option(
-    "--competitor-login",
+    "--reviewer-login",
     "logins",
     multiple=True,
-    help="GitHub login Greptile comments as (default: its known App logins).",
+    help="GitHub login the baseline reviewer comments as (repeatable). Required unless --no-comments; no default.",
 )
-@click.option("--no-comments", is_flag=True, help="Do not fetch the other reviewer's comments.")
+@click.option("--no-comments", is_flag=True, help="Do not fetch the baseline reviewer's comments.")
 def init_corpus_command(
     specs: tuple[str, ...],
     pr_file: Path | None,
@@ -591,14 +604,13 @@ def init_corpus_command(
     logins: tuple[str, ...],
     no_comments: bool,
 ) -> None:
-    """Write a benchmark corpus from a list of pull request URLs, with Greptile's comments beside each.
+    """Write a benchmark corpus from a list of pull request URLs, with the baseline reviewer's comments beside each.
 
-    This is the first run for a customer who still has Greptile's comments on their pull requests. It needs `gh`
-    signed in with read access to those repositories. The result is an organization corpus: nothing is labelled, and it
+    This is the first run for a customer whose pull requests already carry another reviewer's comments (name its bot
+    with --reviewer-login). It needs `gh` signed in with read access to those repositories. The result is an organization corpus: nothing is labelled, and it
     stays outside this checkout.
     """
 
-    from lemoncrow.pro.capabilities.review.evaluation.competitor import GREPTILE_LOGINS
     from lemoncrow.pro.capabilities.review.evaluation.corpus import bundled_roots
     from lemoncrow.pro.capabilities.review.evaluation.corpus_init import InitError, init_corpus
     from lemoncrow.pro.capabilities.review.sources.github import run_gh
@@ -624,7 +636,7 @@ def init_corpus_command(
             approved_by=approved_by,
             reference=reference,
             approved_at=datetime.now(UTC).date().isoformat(),
-            logins=tuple(logins) or GREPTILE_LOGINS,
+            logins=tuple(logins),
             fetch_comments=not no_comments,
         )
     except InitError as exc:
@@ -641,4 +653,4 @@ def init_corpus_command(
     )
 
 
-__all__ = ["EXIT_STOPPED", "benchmark", "derive_label_command", "import_greptile", "init_corpus_command"]
+__all__ = ["EXIT_STOPPED", "benchmark", "derive_label_command", "import_reviews", "init_corpus_command"]

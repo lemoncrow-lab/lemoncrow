@@ -201,7 +201,7 @@ def _push_aggregate(depth: str, results: Sequence[PrResult]) -> dict[str, Any]:
     return out
 
 
-def _competitor_summary(
+def _baseline_summary(
     results: Sequence[PrResult], scores: Mapping[tuple[str, str], Mapping[str, Any]], depths: Sequence[str]
 ) -> dict[str, Any]:
     with_comments = [r for r in results if r.comments]
@@ -237,8 +237,8 @@ def _competitor_summary(
     return out
 
 
-def _competitor_baseline(results: Sequence[PrResult], corpus: RealPrCorpus) -> dict[str, Any]:
-    """The competitor's own catch and noise against the labels, by the same rules as ours (where it has comments)."""
+def _baseline_against_labels(results: Sequence[PrResult], corpus: RealPrCorpus) -> dict[str, Any]:
+    """The baseline's own catch and noise against the labels, by the same rules as ours (where it has comments)."""
 
     expected = caught = noise = comments = 0
     prs = 0
@@ -297,7 +297,7 @@ def _publication(
     ledger: Mapping[str, Any],
     aggregate: Mapping[str, Any],
     results: Sequence[PrResult],
-    competitor: Mapping[str, Any],
+    baseline: Mapping[str, Any],
 ) -> dict[str, Any]:
     repositories = {r.pr.repository for r in results if not r.skipped}
     cost_reasons: list[str] = []
@@ -338,13 +338,13 @@ def _publication(
             "p90_usd": usd["p90"],
             "mean_tokens": (agg["input_tokens"]["mean"] or 0) + (agg["output_tokens"]["mean"] or 0) or None,
         }
-    if competitor.get("prs_with_comments", 0) < MIN_HEAD_TO_HEAD_PRS:
+    if baseline.get("prs_with_comments", 0) < MIN_HEAD_TO_HEAD_PRS:
         h2h_reasons.append(
-            f"{competitor.get('prs_with_comments', 0)} pull requests carry the other reviewer's comments; at least "
+            f"{baseline.get('prs_with_comments', 0)} pull requests carry the other reviewer's comments; at least "
             f"{MIN_HEAD_TO_HEAD_PRS} are needed"
         )
-    if not competitor.get("judged", {}).get("valid") and not competitor.get("judged", {}).get("invalid"):
-        h2h_reasons.append("no competitor comment has a verdict, so its precision is unknown")
+    if not baseline.get("judged", {}).get("valid") and not baseline.get("judged", {}).get("invalid"):
+        h2h_reasons.append("no baseline comment has a verdict, so its precision is unknown")
     quality_reasons.append("catch and noise are rates over a handful of pull requests; quote them with their intervals")
     return {
         "cost_per_review": {"ready": not cost_reasons, "missing": cost_reasons, "figures": per_depth},
@@ -353,7 +353,7 @@ def _publication(
         "always": [
             "name the model and its price list date; the figure is for that model only",
             "state that it is the mean over this corpus, which is not the reader's code",
-            "do not publish a competitor's price from this report: it holds only what you supplied",
+            "do not publish another reviewer's price from this report: it holds only what you supplied",
         ],
     }
 
@@ -373,8 +373,8 @@ def build_report(
     name: str,
     command: str = "",
     code: Mapping[str, Any] | None = None,
-    competitor_usd_per_review: float | None = None,
-    competitor_label: str = "",
+    baseline_usd_per_review: float | None = None,
+    baseline_label: str = "",
     team: tuple[int, float, int] = (300, 1.2, 10),
     generated_at: str | None = None,
 ) -> dict[str, Any]:
@@ -385,15 +385,13 @@ def build_report(
             scores[(result.pr.id, depth)] = score_run(result.pr, run, corpus, result.comments, options)
     aggregate = {depth: _depth_aggregate(depth, results, scores) for depth in options.depths}
     pushes = {depth: _push_aggregate(depth, results) for depth in options.depths}
-    competitor = _competitor_summary(results, scores, options.depths)
-    competitor["baseline_vs_labels"] = _competitor_baseline(results, corpus)
-    if competitor_usd_per_review is not None:
-        competitor["usd_per_review_supplied"] = {"value": competitor_usd_per_review, "label": competitor_label}
-        competitor["usd_ratio_by_depth"] = {
+    baseline = _baseline_summary(results, scores, options.depths)
+    baseline["against_labels"] = _baseline_against_labels(results, corpus)
+    if baseline_usd_per_review is not None:
+        baseline["usd_per_review_supplied"] = {"value": baseline_usd_per_review, "label": baseline_label}
+        baseline["usd_ratio_by_depth"] = {
             depth: (
-                round(competitor_usd_per_review / agg["provider_usd"]["mean"], 2)
-                if agg["provider_usd"]["mean"]
-                else None
+                round(baseline_usd_per_review / agg["provider_usd"]["mean"], 2) if agg["provider_usd"]["mean"] else None
             )
             for depth, agg in aggregate.items()
         }
@@ -430,8 +428,8 @@ def build_report(
                 "labelled": pr.labelled,
                 "labels": [label.to_wire() for label in pr.labels],
                 "skipped": result.skipped,
-                "competitor": {
-                    "note": result.competitor_note,
+                "baseline": {
+                    "note": result.baseline_note,
                     "inline_comments": sum(1 for c in result.comments if c.kind == "inline"),
                     "summary_comments": sum(1 for c in result.comments if c.kind != "inline"),
                     "comments": [c.to_wire() for c in result.comments],
@@ -469,9 +467,9 @@ def build_report(
         "corpus": corpus.summary(),
         "aggregate": aggregate,
         "pushes": pushes,
-        "competitor": competitor,
+        "baseline": baseline,
         "reference_team": _reference_team(aggregate, pushes, team[0], team[1], team[2]),
-        "publication": _publication(mode, ledger_wire, aggregate, results, competitor),
+        "publication": _publication(mode, ledger_wire, aggregate, results, baseline),
         "prs": prs,
     }
 
@@ -684,13 +682,13 @@ def render_markdown(report: Mapping[str, Any]) -> str:
         "",
     ]
 
-    competitor = report["competitor"]
-    if competitor["prs_with_comments"]:
+    baseline = report["baseline"]
+    if baseline["prs_with_comments"]:
         lines += ["## Against the other reviewer", ""]
         lines.append(
-            f"{competitor['prs_with_comments']} pull requests carry its comments "
-            f"({competitor['inline_comments']} inline, {competitor['summary_comments']} summary; "
-            f"{competitor['judged']['valid']} judged valid, {competitor['judged']['invalid']} invalid)."
+            f"{baseline['prs_with_comments']} pull requests carry its comments "
+            f"({baseline['inline_comments']} inline, {baseline['summary_comments']} summary; "
+            f"{baseline['judged']['valid']} judged valid, {baseline['judged']['invalid']} invalid)."
         )
         lines.append("")
         rows = [
@@ -702,20 +700,20 @@ def render_markdown(report: Mapping[str, Any]) -> str:
                 str(row["near_misses"]),
                 _pct(row["share_of_theirs_we_also_raised"]),
             ]
-            for depth, row in competitor["by_depth"].items()
+            for depth, row in baseline["by_depth"].items()
         ]
         lines += _table(
             ["Depth", "Agreed", "Ours only", "Theirs only", "Near misses", "Of theirs, we also raised"], rows
         )
-        base = competitor["baseline_vs_labels"]
+        base = baseline["against_labels"]
         if base["labelled_prs_with_comments"]:
             lines += [
                 "",
                 f"Its own catch against the labels, by the same rules: {base['caught']}/{base['expected']} "
                 f"({_interval(base['rate'], base['ci95'])}), noise {base['unmatched']}/{base['comments']}.",
             ]
-        if "usd_per_review_supplied" in competitor:
-            supplied = competitor["usd_per_review_supplied"]
+        if "usd_per_review_supplied" in baseline:
+            supplied = baseline["usd_per_review_supplied"]
             lines += [
                 "",
                 f"Price per review you supplied: {_usd(supplied['value'])} ({supplied['label'] or 'unlabelled'}). "
@@ -838,8 +836,8 @@ def render_markdown(report: Mapping[str, Any]) -> str:
                 lines.append(f"- {depth}: errors: {'; '.join(row['errors'])[:300]}")
             if row["reason"] and not row["complete"]:
                 lines.append(f"- {depth}: {row['reason']}")
-        if pr["competitor"]["note"]:
-            lines.append(f"- other reviewer: {pr['competitor']['note']}")
+        if pr["baseline"]["note"]:
+            lines.append(f"- other reviewer: {pr['baseline']['note']}")
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 

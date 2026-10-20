@@ -2,7 +2,7 @@
 
 The Gate I harness ([review evaluation](review-evaluation.md)) replays 16 synthetic cases offline and has never seen a real provider. This benchmark is the other half: it runs the pull request reviewer, the one the [GitHub Action](../setup/github-action.md) runs, on real pull requests with a real model, and writes down what it cost and what it found.
 
-**Status: the harness is built and tested end to end with a scripted model. No live run has been done, so this repository holds no cost per review, no catch rate and no comparison with Greptile.** Every number a report prints says which driver made it, and a report from anything but a live run says "do not quote it" at the top.
+**Status: the harness is built and tested end to end with a scripted model. No live run has been done, so this repository holds no cost per review, no catch rate and no comparison with another reviewer.** Every number a report prints says which driver made it, and a report from anything but a live run says "do not quote it" at the top.
 
 ## Run it
 
@@ -102,30 +102,31 @@ uv run lemoncrow dev eval review derive-label --repo ./clone --fix <fix sha> --i
 
 and paste the entry into the corpus. Take the licence from the repository's `LICENSE` file at the reviewed commit. A pull request whose bug you cannot trace this way stays unlabelled (`labelled: false`): it yields cost and findings but no catch or noise rate. A pull request you know to be clean says `labelled: true` with no labels, so that every finding on it counts as noise. Never write a label from a diff you read yourself.
 
-## The first run: the churned customer's pull requests
+## The first run: pull requests another reviewer already commented on
 
-Their pull requests still carry Greptile's comments, so they are a ready-made comparison on the same code. What you need from them is a list of pull request URLs and read access (`gh auth login` with an account that can read those repositories, and `git` able to fetch them, for instance after `gh auth setup-git`), and their agreement to use their pull requests: the corpus is an organization corpus, which records who approved it.
+A customer's pull requests that another reviewer already commented on are a ready-made comparison on the same code: that other reviewer is the **baseline reviewer**. What you need from them is a list of pull request URLs and read access (`gh auth login` with an account that can read those repositories, and `git` able to fetch them, for instance after `gh auth setup-git`), the login the baseline reviewer's bot comments as (for example `review-bot[bot]`; there is no default, it is on the comments), and their agreement to use their pull requests: the corpus is an organization corpus, which records who approved it.
 
 ```bash
 gh auth login
 printf '%s\n' https://github.com/acme/shop/pull/101 https://github.com/acme/shop/pull/118 > ~/acme-prs.txt
 
-# Writes the corpus (pinned heads and merge bases from GitHub) and each pull request's Greptile comments.
+# Writes the corpus (pinned heads and merge bases from GitHub) and each pull request's baseline reviewer comments.
 uv run lemoncrow dev eval review init-corpus --pr-file ~/acme-prs.txt --out ~/acme/acme.yaml \
-    --organization acme --approved-by "Pat Example" --reference "ticket ACME-12"
+    --organization acme --approved-by "Pat Example" --reference "ticket ACME-12" \
+    --reviewer-login 'review-bot[bot]'
 
 uv run lemoncrow dev eval review benchmark --corpus ~/acme/acme.yaml --organization-opt-in acme \
     --out-dir ~/acme/reports --depth auto,deep --max-usd 20 \
-    --competitor-usd-per-review 1.00 --competitor-label "Greptile Base, pricing page of 2026-10-20"
+    --baseline-usd-per-review 1.00 --baseline-label "Plan X, pricing page of 2026-10-20"
 ```
 
 A customer corpus never lives inside this checkout, and its reports go outside it too (`--out-dir` is required).
 
-- **Greptile's login.** The importer keeps comments by `greptile-apps[bot]` and a few other likely App logins. If the pull requests show another, the first import stops and prints the authors it saw; pass the right one with `--competitor-login`. To fetch one pull request by hand: `lc dev eval review import-greptile --pr acme/shop#101 --out greptile/pr-101.json`. To normalise an export you already have: `--from-json export.json`. Public pull requests work without `gh`.
-- **What is compared.** For each LemonCrow finding the importer pairs a Greptile comment on the same file, within `--line-window` lines (default 8), whose text is similar enough (`--similarity`, default 0.2, over content words with identifiers kept whole). That gives `agreed`, `ours only` and `theirs only`; same-file nearby comments that were too different to pair are listed as near misses, for you to settle. The two defaults are a starting point. Look at the near misses before trusting a threshold.
+- **The baseline reviewer's login.** `--reviewer-login` is required (repeatable) and has no default: the importer keeps only comments by the logins you name. If the pull requests show another author, the import stops and prints the authors it saw; pass the right login. To fetch one pull request by hand: `lc dev eval review import-reviews --pr acme/shop#101 --reviewer-login 'review-bot[bot]' --out baseline/pr-101.json`. To normalise an export you already have: `--from-json export.json` (with `--all-authors` instead of a login when you already filtered it). A corpus entry points at the file with `baseline: {comments_file: baseline/pr-101.json}`, or asks the run to fetch it with `baseline: {fetch: true}` and `--reviewer-login`. Public pull requests work without `gh`.
+- **What is compared.** For each LemonCrow finding the importer pairs a baseline comment on the same file, within `--line-window` lines (default 8), whose text is similar enough (`--similarity`, default 0.2, over content words with identifiers kept whole). That gives `agreed`, `ours only` and `theirs only`; same-file nearby comments that were too different to pair are listed as near misses, for you to settle. The two defaults are a starting point. Look at the near misses before trusting a threshold.
 - **Agreement is not accuracy.** Two reviewers can agree and both be wrong. To say which reviewer is right you need someone to judge the comments. Add `"verdict": "valid"` or `"invalid"` to a comment in its JSON file; the report counts judged comments, and the head-to-head claim stays "not ready" until they exist.
-- **Greptile's price per review** is not in any report unless you pass it. It is secondary-sourced and has changed; check the pricing page and pass the number with a label that says where it came from.
-- The seed corpus has no Greptile comments: its pull requests predate Greptile. To compare on public code you would open the same changes as pull requests on a fork with Greptile installed and import those.
+- **The baseline reviewer's price per review** is not in any report unless you pass it (`--baseline-usd-per-review`). It is secondary-sourced and has changed; check the pricing page and pass the number with a label that says where it came from.
+- The seed corpus has no baseline comments. To compare on public code you would open the same changes as pull requests on a fork with the other reviewer installed and import those.
 
 ## Publishing a cost-per-review number
 
@@ -141,10 +142,10 @@ When the cost block says "ready", build the sentence from its figures table and 
 
 - name the model and the date, and state that the figure is the mean (with median and p90) over this corpus, which is not the reader's code, and that it is the model's fees only, on the reader's own key;
 - say which depth, and that a push costs less than a first review (give the carry-forward figure from the report, not a guess);
-- do not publish a competitor's price from the report: it holds only what you supplied, and Greptile's pricing must be checked on its live page;
-- do not publish a catch or noise rate without its interval and its corpus, and do not publish "as good as Greptile" from agreement alone.
+- do not publish another reviewer's price from the report: it holds only what you supplied, and that vendor's pricing must be checked on its live page;
+- do not publish a catch or noise rate without its interval and its corpus, and do not publish "as good as" another reviewer from agreement alone.
 
-Then, and only then, change the landing page's numeric rule (the test in the landing repository, `src/lib/positioning.test.ts`) and the claim rules in `docs/planning/2026-10-20-greptile-replacement-plan.md` section 2. This benchmark changes none of them by itself.
+Then, and only then, change the landing page's numeric rule (the test in the landing repository, `src/lib/positioning.test.ts`) and the claim rules in `docs/planning/2026-10-20-ai-pr-review-plan.md` section 2. This benchmark changes none of them by itself.
 
 ## Recording and replay
 
@@ -160,7 +161,7 @@ Then, and only then, change the landing page's numeric rule (the test in the lan
 | `…/evaluation/label_derivation.py` | `derive-label` |
 | `…/evaluation/benchmark.py` | the run: workspace, drivers, ceiling, reviews, pushes |
 | `…/evaluation/scoring.py` | catch, noise and agreement |
-| `…/evaluation/competitor.py` | the Greptile importer |
+| `…/evaluation/baseline_reviews.py` | the importer for a baseline reviewer's comments |
 | `…/evaluation/corpus_init.py` | `init-corpus` |
 | `…/evaluation/benchmark_report.py` | the JSON and markdown report, and the checklist |
 | `src/lemoncrow/gateway/cli/commands/review_benchmark.py` | the commands |
@@ -172,4 +173,4 @@ Then, and only then, change the landing page's numeric rule (the test in the lan
 - Catch is recall on bugs somebody found and fixed; noise is an upper bound. Neither says how many unknown bugs the reviewer misses.
 - The reviewer's cost depends heavily on triage: a pull request with no risk signal costs nothing and catches nothing. Read cost and catch together, with the `No-call reviews` column.
 - Dollars use the local price table or your rates; a price list changes, so a figure is for a model on a date.
-- The competitor's comments are never ground truth, and the similarity threshold is a judgement.
+- The baseline reviewer's comments are never ground truth, and the similarity threshold is a judgement.

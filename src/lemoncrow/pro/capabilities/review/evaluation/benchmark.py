@@ -41,10 +41,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final, Literal
 
-from lemoncrow.pro.capabilities.review.evaluation.competitor import (
-    GREPTILE_LOGINS,
-    CompetitorComment,
-    CompetitorError,
+from lemoncrow.pro.capabilities.review.evaluation.baseline_reviews import (
+    BaselineComment,
+    BaselineError,
     fetch_pull_comments,
     load_comments,
 )
@@ -119,8 +118,8 @@ class BenchmarkOptions:
     output_usd_per_mtok: float | None = None
     line_window: int = DEFAULT_LINE_WINDOW
     similarity: float = DEFAULT_SIMILARITY
-    competitor_logins: tuple[str, ...] = tuple(sorted(GREPTILE_LOGINS))
-    fetch_competitor: bool = False
+    reviewer_logins: tuple[str, ...] = ()
+    fetch_baseline: bool = False
     provider: str = "auto"
 
     def __post_init__(self) -> None:
@@ -1028,31 +1027,30 @@ class PrResult:
     pr: RealPr
     reviews: dict[str, RunRecord] = field(default_factory=dict)
     pushes: dict[str, dict[str, dict[str, RunRecord | str]]] = field(default_factory=dict)
-    comments: list[CompetitorComment] = field(default_factory=list)
-    competitor_note: str = ""
+    comments: list[BaselineComment] = field(default_factory=list)
+    baseline_note: str = ""
     skipped: str = ""
 
 
 EventSink = Callable[[str], None]
 
 
-def _load_competitor(
-    pr: RealPr, corpus: RealPrCorpus, options: BenchmarkOptions
-) -> tuple[list[CompetitorComment], str]:
-    source = pr.competitor.get("greptile")
-    fetch = bool(pr.pull) and (options.fetch_competitor or (source is not None and source.fetch))
+def _load_baseline(pr: RealPr, corpus: RealPrCorpus, options: BenchmarkOptions) -> tuple[list[BaselineComment], str]:
+    source = pr.baseline
+    fetch = bool(pr.pull) and (options.fetch_baseline or (source is not None and source.fetch))
     if source is None and not fetch:
         return [], ""
-    logins = options.competitor_logins or None
     try:
         if source is not None and source.comments_file:
             path = (corpus.root / source.comments_file).resolve()
             return load_comments(path, logins=None), f"read {source.comments_file}"
         if fetch:
-            comments = fetch_pull_comments(pr.repository, pr.pull, logins=logins)
+            if not options.reviewer_logins:
+                raise BaselineError("name the baseline reviewer's bot login (--reviewer-login) to fetch its comments")
+            comments = fetch_pull_comments(pr.repository, pr.pull, logins=options.reviewer_logins)
             return comments, f"fetched from GitHub ({pr.repository}#{pr.pull})"
-    except CompetitorError as exc:
-        return [], f"competitor comments unavailable: {exc}"
+    except BaselineError as exc:
+        return [], f"baseline comments unavailable: {exc}"
     return [], "no comments file and fetching is off"
 
 
@@ -1163,7 +1161,7 @@ def run_benchmark(
         for pr in corpus.prs:
             result = PrResult(pr)
             results.append(result)
-            result.comments, result.competitor_note = _load_competitor(pr, corpus, options)
+            result.comments, result.baseline_note = _load_baseline(pr, corpus, options)
             workspace = Workspace(pr, options.workdir)
             try:
                 workspace.prepare()
@@ -1254,7 +1252,7 @@ def _skipped(pr: RealPr, depth: str, kind: str, head: str, reason: str) -> RunRe
 
 
 def score_run(
-    pr: RealPr, run: RunRecord, corpus: RealPrCorpus, comments: Sequence[CompetitorComment], options: BenchmarkOptions
+    pr: RealPr, run: RunRecord, corpus: RealPrCorpus, comments: Sequence[BaselineComment], options: BenchmarkOptions
 ) -> dict[str, Any]:
     """Catch, noise and agreement for one review of one pull request."""
 

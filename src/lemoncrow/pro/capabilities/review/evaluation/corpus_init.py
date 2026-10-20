@@ -1,8 +1,8 @@
 """Turn a list of pull request URLs into a benchmark corpus, with the other reviewer's comments beside each one.
 
-This is the first-run path for a customer who still has Greptile's comments on their pull requests: give it their PR
-URLs and it writes a corpus file (pinned head and merge base, from GitHub's API) and, for each pull request, the
-competitor's comments as JSON. Nothing is labelled, because nothing is known: the pull requests yield cost, findings and
+This is the first-run path for a customer whose pull requests already carry another reviewer's comments (the baseline
+reviewer): give it their PR URLs and the baseline reviewer's bot login and it writes a corpus file (pinned head and
+merge base, from GitHub's API) and, for each pull request, that reviewer's comments as JSON. Nothing is labelled, because nothing is known: the pull requests yield cost, findings and
 agreement with the other reviewer, and a person adds labels later (``derive-label``) for the ones whose bugs they know.
 
 A customer's pull requests are customer data. The corpus is an ``organization`` corpus: it needs the organization's
@@ -20,9 +20,8 @@ from typing import Any, Final
 
 import yaml
 
-from lemoncrow.pro.capabilities.review.evaluation.competitor import (
-    GREPTILE_LOGINS,
-    CompetitorError,
+from lemoncrow.pro.capabilities.review.evaluation.baseline_reviews import (
+    BaselineError,
     export_comments,
     fetch_pull_comments,
 )
@@ -115,16 +114,22 @@ def init_corpus(
     approved_by: str,
     reference: str,
     approved_at: str,
-    logins: Collection[str] | None = GREPTILE_LOGINS,
+    logins: Collection[str] = (),
     fetch_comments: bool = True,
     description: str = "",
 ) -> InitResult:
-    """Write ``out`` (the corpus) and ``<out dir>/greptile/<id>.json`` for each pull request in *specs*."""
+    """Write ``out`` (the corpus) and ``<out dir>/baseline/<id>.json`` for each pull request in *specs*.
+
+    *logins* are the baseline reviewer's bot logins; there is no default, and fetching comments without them is an
+    error (a guess would keep a person's comments or none at all).
+    """
 
     if not specs:
         raise InitError("give at least one pull request")
     if not all((organization, approved_by, reference)):
         raise InitError("a customer's pull requests need --organization, --approved-by and --reference")
+    if fetch_comments and not logins:
+        raise InitError("name the baseline reviewer's bot login with --reviewer-login (or pass --no-comments)")
     notes: list[str] = []
     files: list[Path] = []
     entries: list[dict[str, Any]] = []
@@ -156,14 +161,18 @@ def init_corpus(
         if fetch_comments:
             try:
                 comments = fetch_pull_comments(resolved.repository, resolved.number, logins=logins, runner=runner)
-            except CompetitorError as exc:
+            except BaselineError as exc:
                 notes.append(f"{resolved.pr_id}: {exc}")
             else:
-                target = out.parent / "greptile" / f"{resolved.pr_id}.json"
+                target = out.parent / "baseline" / f"{resolved.pr_id}.json"
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(
                     json.dumps(
-                        export_comments(comments, source=f"github:{resolved.repository}#{resolved.number}"),
+                        export_comments(
+                            comments,
+                            source=f"github:{resolved.repository}#{resolved.number}",
+                            reviewer=", ".join(sorted(logins)),
+                        ),
                         indent=2,
                         ensure_ascii=False,
                     )
@@ -171,7 +180,7 @@ def init_corpus(
                     encoding="utf-8",
                 )
                 files.append(target)
-                entry["competitor"] = {"greptile": {"comments_file": f"greptile/{resolved.pr_id}.json"}}
+                entry["baseline"] = {"comments_file": f"baseline/{resolved.pr_id}.json"}
                 inline = sum(1 for comment in comments if comment.kind == "inline")
                 notes.append(f"{resolved.pr_id}: {inline} inline and {len(comments) - inline} summary comments")
         entries.append(entry)

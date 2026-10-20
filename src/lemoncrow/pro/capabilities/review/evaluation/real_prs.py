@@ -36,14 +36,14 @@ Format::
             regions: [{path: src/black/lines.py, lines: [601, 601], role: fix_site}]
             evidence: {fix_commit: <sha>, fix_url: ..., introduced_by: <sha>, attribution: fix_message}
         pushes: [{id: apply-fix, apply_commit: <fix sha>, apply_paths: [src/black/lines.py]}]
-        competitor: {greptile: {comments_file: greptile/black-3564.json}}
+        baseline: {comments_file: baseline/black-3564.json}
 """
 
 from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, Literal, cast
 
@@ -144,8 +144,8 @@ class PushSpec:
 
 
 @dataclass(frozen=True, slots=True)
-class CompetitorSource:
-    """Where one competitor's comments on this pull request come from."""
+class BaselineSource:
+    """Where the baseline reviewer's comments on this pull request come from."""
 
     comments_file: str = ""
     fetch: bool = False
@@ -168,7 +168,7 @@ class RealPr:
     labels: tuple[Label, ...] = ()
     labelled: bool = False
     pushes: tuple[PushSpec, ...] = ()
-    competitor: Mapping[str, CompetitorSource] = field(default_factory=dict)
+    baseline: BaselineSource | None = None
     notes: str = ""
 
     @property
@@ -180,7 +180,7 @@ class RealPr:
         return f"https://github.com/{self.repository}/pull/{self.pull}" if self.pull else ""
 
     def inputs(self) -> dict[str, Any]:
-        """What a recorded model output depends on: the pinned git inputs, never the labels or competitor files."""
+        """What a recorded model output depends on: the pinned git inputs, never the labels or baseline files."""
 
         return {
             "repository": self.repository,
@@ -206,7 +206,7 @@ class RealPr:
             "labelled": self.labelled,
             "labels": [label.to_wire() for label in self.labels],
             "pushes": [push.to_wire() for push in self.pushes],
-            "competitor": {name: source.to_wire() for name, source in sorted(self.competitor.items())},
+            "baseline": self.baseline.to_wire() if self.baseline is not None else None,
         }
 
 
@@ -378,19 +378,13 @@ def _push(raw: object, where: str, problems: list[str]) -> PushSpec | None:
     return PushSpec(push_id, head, apply, tuple(paths), str(raw.get("note") or "")) if push_id else None
 
 
-def _competitors(raw: object, where: str, problems: list[str]) -> dict[str, CompetitorSource]:
+def _baseline(raw: object, where: str, problems: list[str]) -> BaselineSource | None:
     if raw is None:
-        return {}
+        return None
     if not isinstance(raw, Mapping):
-        problems.append(f"{where}: competitor must be a mapping of name to source")
-        return {}
-    out: dict[str, CompetitorSource] = {}
-    for name, item in raw.items():
-        if not isinstance(item, Mapping):
-            problems.append(f"{where}.competitor.{name}: must be a mapping")
-            continue
-        out[str(name)] = CompetitorSource(str(item.get("comments_file") or ""), bool(item.get("fetch", False)))
-    return out
+        problems.append(f"{where}: baseline must be a mapping with comments_file and/or fetch")
+        return None
+    return BaselineSource(str(raw.get("comments_file") or ""), bool(raw.get("fetch", False)))
 
 
 def _provenance(raw: object, where: str, problems: list[str]) -> Provenance | None:
@@ -476,7 +470,7 @@ def parse_pr(raw: object, *, where: str, visibility: CorpusVisibility) -> tuple[
             pushes.append(push)
     if len({push.id for push in pushes}) != len(pushes):
         problems.append(f"{where}: push ids must be unique")
-    competitor = _competitors(raw.get("competitor"), where, problems)
+    baseline = _baseline(raw.get("baseline"), where, problems)
     if problems or provenance is None or not pr_id:
         return None, problems
     return (
@@ -493,7 +487,7 @@ def parse_pr(raw: object, *, where: str, visibility: CorpusVisibility) -> tuple[
             labels=tuple(labels),
             labelled=labelled,
             pushes=tuple(pushes),
-            competitor=competitor,
+            baseline=baseline,
             notes=str(raw.get("notes") or ""),
         ),
         problems,
@@ -611,7 +605,7 @@ __all__ = [
     "CORPUS_VERSION",
     "DEFAULT_LINE_TOLERANCE",
     "MATCH_MODES",
-    "CompetitorSource",
+    "BaselineSource",
     "Label",
     "LabelEvidence",
     "MatchMode",

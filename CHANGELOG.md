@@ -34,8 +34,9 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   pull requests at each depth through the same pipeline as the GitHub Action, replays a
   follow-up push with and without carry-forward, and writes Markdown and JSON reports with
   tokens, provider dollars, model calls, wall time, findings by P0/P1/P2, catch rate against
-  labels, noise rate and the extra cost of a push. `import-greptile` and `init-corpus` bring in
-  another reviewer's comments as a baseline; `derive-label` builds a label from a later fix
+  labels, noise rate and the extra cost of a push. `import-reviews` and `init-corpus` bring in
+  a baseline reviewer's comments (you name its bot with `--reviewer-login`; there is no default);
+  `derive-label` builds a label from a later fix
   commit and never invents one. Live runs need `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, stop
   at `--max-usd` and refuse CI. Nothing is measured yet. See
   [Review benchmark on real pull requests](docs/reference/review-benchmark.md).

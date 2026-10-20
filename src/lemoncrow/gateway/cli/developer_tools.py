@@ -13,7 +13,7 @@ from lemoncrow.gateway.cli.commands.perf import perf_group
 from lemoncrow.gateway.cli.commands.review_benchmark import (
     benchmark,
     derive_label_command,
-    import_greptile,
+    import_reviews,
     init_corpus_command,
 )
 from lemoncrow.gateway.cli.commands.review_eval import review_eval
@@ -29,7 +29,7 @@ def developer_tools(ctx: click.Context, root: Path) -> None:
 
 
 review_eval.add_command(benchmark)
-review_eval.add_command(import_greptile)
+review_eval.add_command(import_reviews)
 review_eval.add_command(derive_label_command)
 review_eval.add_command(init_corpus_command)
 eval_.add_command(review_eval)

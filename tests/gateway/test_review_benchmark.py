@@ -435,11 +435,11 @@ def test_another_reviewers_comments_are_compared_with_our_findings_and_with_the_
     line = 6
     comments = {
         "schema": 1,
-        "competitor": "greptile",
+        "reviewer": "review-bot[bot]",
         "comments": [
             {
                 "id": "11",
-                "author": "greptile-apps[bot]",
+                "author": "review-bot[bot]",
                 "path": "src/api/pricing.py",
                 "line": line,
                 "end_line": line,
@@ -448,7 +448,7 @@ def test_another_reviewers_comments_are_compared_with_our_findings_and_with_the_
             },
             {
                 "id": "12",
-                "author": "greptile-apps[bot]",
+                "author": "review-bot[bot]",
                 "path": "src/api/invoice.py",
                 "line": 9,
                 "end_line": 9,
@@ -456,7 +456,7 @@ def test_another_reviewers_comments_are_compared_with_our_findings_and_with_the_
             },
             {
                 "id": "13",
-                "author": "greptile-apps[bot]",
+                "author": "review-bot[bot]",
                 "path": "",
                 "line": 0,
                 "end_line": 0,
@@ -465,10 +465,10 @@ def test_another_reviewers_comments_are_compared_with_our_findings_and_with_the_
             },
         ],
     }
-    (tmp_path / "greptile").mkdir()
-    (tmp_path / "greptile/shop-12.json").write_text(json.dumps(comments), encoding="utf-8")
+    (tmp_path / "baseline").mkdir()
+    (tmp_path / "baseline/shop-12.json").write_text(json.dumps(comments), encoding="utf-8")
     document = corpus_dict(world.origin)
-    document["prs"][0]["competitor"] = {"greptile": {"comments_file": "greptile/shop-12.json"}}
+    document["prs"][0]["baseline"] = {"comments_file": "baseline/shop-12.json"}
     world.corpus_path.write_text(yaml.safe_dump(document), encoding="utf-8")
 
     results, ledger, facts, options = world.run(depths=("auto",), pushes=False)
@@ -479,22 +479,18 @@ def test_another_reviewers_comments_are_compared_with_our_findings_and_with_the_
         ledger,
         facts,
         name="vs",
-        competitor_usd_per_review=1.0,
-        competitor_label="supplied",
+        baseline_usd_per_review=1.0,
+        baseline_label="supplied",
     )
-    competitor = report["competitor"]
-    assert (
-        competitor["prs_with_comments"] == 1
-        and competitor["inline_comments"] == 2
-        and competitor["summary_comments"] == 1
-    )
-    assert competitor["judged"] == {"valid": 1, "invalid": 0}
-    auto = competitor["by_depth"]["auto"]
+    baseline = report["baseline"]
+    assert baseline["prs_with_comments"] == 1 and baseline["inline_comments"] == 2 and baseline["summary_comments"] == 1
+    assert baseline["judged"] == {"valid": 1, "invalid": 0}
+    auto = baseline["by_depth"]["auto"]
     assert auto["agreed"] == 1 and auto["theirs_only"] == 1 and auto["share_of_theirs_we_also_raised"] == 0.5
-    baseline = competitor["baseline_vs_labels"]
-    assert (baseline["expected"], baseline["caught"], baseline["comments"], baseline["unmatched"]) == (1, 1, 2, 1)
-    assert competitor["usd_per_review_supplied"] == {"value": 1.0, "label": "supplied"}
-    assert competitor["usd_ratio_by_depth"]["auto"] > 1  # your price over ours, both inputs shown
+    own = baseline["against_labels"]
+    assert (own["expected"], own["caught"], own["comments"], own["unmatched"]) == (1, 1, 2, 1)
+    assert baseline["usd_per_review_supplied"] == {"value": 1.0, "label": "supplied"}
+    assert baseline["usd_ratio_by_depth"]["auto"] > 1  # your price over ours, both inputs shown
     markdown = render_markdown(report)
     assert (
         "## Against the other reviewer" in markdown and "It is your input, not something this run found out" in markdown
@@ -505,10 +501,10 @@ def test_another_reviewers_comments_are_compared_with_our_findings_and_with_the_
 def test_a_missing_comments_file_is_noted_not_fatal(tmp_path: Path) -> None:
     world = World(tmp_path)
     document = corpus_dict(world.origin)
-    document["prs"][0]["competitor"] = {"greptile": {"comments_file": "nowhere.json"}}
+    document["prs"][0]["baseline"] = {"comments_file": "nowhere.json"}
     world.corpus_path.write_text(yaml.safe_dump(document), encoding="utf-8")
     results, _l, _f, _o = world.run(depths=("auto",), pushes=False)
-    assert results[0].comments == [] and "competitor comments unavailable" in results[0].competitor_note
+    assert results[0].comments == [] and "baseline comments unavailable" in results[0].baseline_note
 
 
 # --------------------------------------------------------------------------- #
@@ -562,7 +558,7 @@ def test_the_command_is_reachable_where_the_notes_name_it(tmp_path: Path) -> Non
     for path in (["eval", "review", "benchmark"], ["eval", "review-benchmark"]):
         result = CliRunner().invoke(developer_tools, [*path, "--help"], catch_exceptions=False)
         assert result.exit_code == 0 and "--max-usd" in result.output
-    for sub in ("import-greptile", "derive-label"):
+    for sub in ("import-reviews", "derive-label"):
         assert CliRunner().invoke(developer_tools, ["eval", "review", sub, "--help"]).exit_code == 0
 
 
@@ -612,11 +608,11 @@ def test_a_customers_corpus_writes_its_report_outside_the_checkout_only(tmp_path
     assert ok.exit_code == 0 and (tmp_path / "private").is_dir()
 
 
-def test_import_greptile_normalises_an_export_and_reports_the_authors_it_saw(tmp_path: Path) -> None:
+def test_import_reviews_normalises_an_export_and_reports_the_authors_it_saw(tmp_path: Path) -> None:
     raw = [
         {
             "id": 1,
-            "user": {"login": "greptile-apps[bot]"},
+            "user": {"login": "review-bot[bot]"},
             "path": "a.py",
             "line": 3,
             "body": "**P1** bad",
@@ -626,16 +622,18 @@ def test_import_greptile_normalises_an_export_and_reports_the_authors_it_saw(tmp
     ]
     source = tmp_path / "raw.json"
     source.write_text(json.dumps(raw), encoding="utf-8")
-    out = tmp_path / "greptile/pr-1.json"
+    out = tmp_path / "baseline/pr-1.json"
     result = CliRunner().invoke(
         developer_tools,
-        ["eval", "review", "import-greptile", "--from-json", str(source), "--out", str(out)],
+        ["eval", "review", "import-reviews", "--from-json", str(source), "--reviewer-login", "review-bot[bot]",
+         "--out", str(out)],
         catch_exceptions=False,
-    )
-    assert result.exit_code == 0 and "1 comments (1 inline, 0 summary) by greptile-apps[bot]" in result.output
+    )  # fmt: skip
+    assert result.exit_code == 0 and "1 comments (1 inline, 0 summary) by review-bot[bot]" in result.output
     exported = json.loads(out.read_text(encoding="utf-8"))
     assert (
         exported["schema"] == 1
+        and exported["reviewer"] == "review-bot[bot]"
         and exported["comments"][0]["severity"] == "P1"
         and exported["comments"][0]["verdict"] == ""
     )
@@ -645,18 +643,44 @@ def test_import_greptile_normalises_an_export_and_reports_the_authors_it_saw(tmp
         [
             "eval",
             "review",
-            "import-greptile",
+            "import-reviews",
             "--from-json",
             str(source),
             "--out",
             str(out),
-            "--competitor-login",
+            "--reviewer-login",
             "other[bot]",
         ],
     )
     assert wrong.exit_code != 0 and "authors seen" in wrong.output
-    both = CliRunner().invoke(developer_tools, ["eval", "review", "import-greptile", "--out", str(out)])
+    both = CliRunner().invoke(developer_tools, ["eval", "review", "import-reviews", "--out", str(out)])
     assert both.exit_code != 0 and "exactly one of --pr or --from-json" in both.output
+
+
+def test_import_reviews_has_no_default_bot_login(tmp_path: Path) -> None:
+    source = tmp_path / "raw.json"
+    source.write_text(json.dumps([{"id": 1, "user": {"login": "anyone"}, "path": "a.py", "line": 3, "body": "x"}]))
+    out = tmp_path / "out.json"
+    args = ["eval", "review", "import-reviews", "--from-json", str(source), "--out", str(out)]
+    missing = CliRunner().invoke(developer_tools, args)
+    assert missing.exit_code == 2 and "--reviewer-login" in missing.output and not out.exists()
+    everyone = CliRunner().invoke(developer_tools, [*args, "--all-authors"], catch_exceptions=False)
+    assert everyone.exit_code == 0 and "1 comments" in everyone.output and out.exists()
+
+
+def test_fetching_the_baseline_reviewers_comments_needs_its_login(tmp_path: Path) -> None:
+    world = World(tmp_path)
+    refused = CliRunner().invoke(
+        developer_tools,
+        ["eval", "review", "benchmark", "--corpus", str(world.corpus_path), "--driver", "fake", "--fetch-baseline"],
+    )
+    assert refused.exit_code == 2 and "--fetch-baseline needs --reviewer-login" in refused.output
+    # A corpus entry that asks for a fetch without any login is noted, not guessed at.
+    document = corpus_dict(world.origin)
+    document["prs"][0]["baseline"] = {"fetch": True}
+    world.corpus_path.write_text(yaml.safe_dump(document), encoding="utf-8")
+    results, _l, _f, _o = world.run(depths=("auto",), pushes=False)
+    assert results[0].comments == [] and "name the baseline reviewer's bot login" in results[0].baseline_note
 
 
 def test_derive_label_prints_a_corpus_entry_from_git_alone(tmp_path: Path) -> None:
