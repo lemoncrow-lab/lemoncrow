@@ -902,7 +902,7 @@ function MatchHints({ block }: { block: Playbook }) {
             <ChipRow
               label="File patterns"
               items={block.file_patterns}
-              color="bg-brand-950/40 text-brand-300 border-brand-900/40"
+              color="bg-neutral-950/40 text-neutral-300 border-neutral-900/40"
               mono
             />
           )}

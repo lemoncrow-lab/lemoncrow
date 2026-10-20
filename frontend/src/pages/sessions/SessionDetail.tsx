@@ -512,7 +512,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
   if (loading)
     return (
       <div className="flex flex-col items-center justify-center h-full space-y-4 bg-surface">
-        <div className="w-10 h-10 border border-brand-500/20 border-t-brand-500 rounded-full animate-spin" />
+        <div className="w-10 h-10 border border-neutral-500/20 border-t-neutral-500 rounded-full animate-spin" />
         <div className="text-caption text-neutral-400 uppercase tracking-[0.3em] font-mono animate-pulse">
           Reconstructing Ledger...
         </div>
@@ -1031,7 +1031,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                   <SidebarList
                     title="Pinned Logic"
                     items={inspectorData.pinned_blocks}
-                    color="text-brand-400/70"
+                    color="text-neutral-400/70"
                   />
                 )}
               {inspectorData?.recalled_passages &&

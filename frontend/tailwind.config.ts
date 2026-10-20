@@ -1,15 +1,20 @@
 import type { Config } from "tailwindcss";
 import animate from "tailwindcss-animate";
-import plugin from "tailwindcss/plugin";
+
+import preset from "./src/design/lc-preset.cjs";
 
 /** Semantic (shadcn) colour: an alias onto the themed ramps in src/index.css. */
 const token = (name: string) => `rgb(var(--${name}) / <alpha-value>)`;
 
 export default {
+  // Ink and Lemon: tokens, type scale, radii, shadows, widths and motion come from the shared preset
+  // (src/design/, vendored from the repository's design/ directory). This file adds only what is
+  // specific to the Review app: the legacy neutral/surface/hue ramps and the z-index scheme.
+  presets: [preset],
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
-      /* Dense type scale (font-size only, so line-height stays inherited). Keep in sync with lib/utils.ts. */
+      /* Step 1 keeps the pre-shift values; the preset's +1px scale replaces them in the next commit. */
       fontSize: {
         micro: "9px",
         caption: "10px",
@@ -18,40 +23,17 @@ export default {
         heading: "13px",
         title: "14px",
       },
+      borderRadius: { DEFAULT: "0.25rem", sm: "0.125rem" },
       /* Overlays share z-50 and stack by DOM order; only the global request indicator sits above them. */
       zIndex: { indicator: "100" },
-      borderColor: { DEFAULT: token("border") },
-      ringColor: { DEFAULT: token("ring") },
       colors: {
-        background: token("background"),
-        foreground: token("foreground"),
-        card: { DEFAULT: token("card"), foreground: token("card-foreground") },
-        popover: { DEFAULT: token("popover"), foreground: token("popover-foreground") },
-        primary: { DEFAULT: token("primary"), foreground: token("primary-foreground") },
+        // background, foreground, card, popover, primary, muted, accent, border, input and ring come from the
+        // preset. The status pairs and `secondary` are Review-app tokens defined in src/index.css.
         secondary: { DEFAULT: token("secondary"), foreground: token("secondary-foreground") },
-        muted: { DEFAULT: token("muted"), foreground: token("muted-foreground") },
-        accent: { DEFAULT: token("accent"), foreground: token("accent-foreground") },
         destructive: { DEFAULT: token("destructive"), foreground: token("destructive-foreground") },
         success: { DEFAULT: token("success"), foreground: token("success-foreground") },
         warning: { DEFAULT: token("warning"), foreground: token("warning-foreground") },
         info: { DEFAULT: token("info"), foreground: token("info-foreground") },
-        border: token("border"),
-        input: token("input"),
-        ring: token("ring"),
-        brand: {
-          DEFAULT: "rgb(var(--brand-400) / <alpha-value>)",
-          50: "rgb(var(--brand-50) / <alpha-value>)",
-          100: "rgb(var(--brand-100) / <alpha-value>)",
-          200: "rgb(var(--brand-200) / <alpha-value>)",
-          300: "rgb(var(--brand-300) / <alpha-value>)",
-          400: "rgb(var(--brand-400) / <alpha-value>)",
-          500: "rgb(var(--brand-500) / <alpha-value>)",
-          600: "rgb(var(--brand-600) / <alpha-value>)",
-          700: "rgb(var(--brand-700) / <alpha-value>)",
-          800: "rgb(var(--brand-800) / <alpha-value>)",
-          900: "rgb(var(--brand-900) / <alpha-value>)",
-          950: "rgb(var(--brand-950) / <alpha-value>)",
-        },
         neutral: {
           50: "rgb(var(--n-50) / <alpha-value>)",
           100: "rgb(var(--n-100) / <alpha-value>)",
@@ -258,9 +240,6 @@ export default {
       },
     },
   },
-  plugins: [
-    animate,
-    // Touch screens: controls grow to a 44px target (WCAG 2.5.5) without changing desktop density.
-    plugin(({ addVariant }) => addVariant("pointer-coarse", "@media (pointer: coarse)")),
-  ],
+  // The preset registers the pointer-coarse variant (controls grow to a 44px target, WCAG 2.5.5).
+  plugins: [animate],
 } satisfies Config;

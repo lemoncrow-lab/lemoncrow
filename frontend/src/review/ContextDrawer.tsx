@@ -574,7 +574,7 @@ export default function ContextDrawer({
                       const files = Array.from(event.dataTransfer.files);
                       if (files.length > 0) onUploadEvidence(files);
                     }}
-                    className={`block cursor-pointer border border-dashed p-3 text-center focus-within:border-brand-400/35 ${dragging ? "border-sky-600 bg-sky-950/20" : "border-neutral-700"}`}
+                    className={`block cursor-pointer border border-dashed p-3 text-center focus-within:border-neutral-400/35 ${dragging ? "border-sky-600 bg-sky-950/20" : "border-neutral-700"}`}
                   >
                     <UiInput unstyled
                       ref={fileInputRef}

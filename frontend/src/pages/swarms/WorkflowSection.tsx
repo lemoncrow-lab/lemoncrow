@@ -141,7 +141,7 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
           ) : hasSnapshot && summary ? (
             <UiButton unstyled
               type="button"
-              className="w-full border border-brand-500/40 bg-brand-500/10 px-3 py-3 text-left"
+              className="w-full border border-neutral-500/40 bg-neutral-500/10 px-3 py-3 text-left"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0">
@@ -333,7 +333,7 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
                         className={cx(
                           "border bg-background/50 px-4 py-3",
                           summary.current_step === stepId
-                            ? "border-brand-500/40"
+                            ? "border-neutral-500/40"
                             : "border-border"
                         )}
                         open={summary.current_step === stepId}

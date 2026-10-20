@@ -1187,12 +1187,12 @@ export default function CodeMap() {
       )}
       {loading ? (
         <div className="flex min-h-[560px] items-center justify-center gap-3 text-sm text-neutral-300">
-          <Loader2 className="animate-spin text-brand-300" size={18} /> Listing files…
+          <Loader2 className="animate-spin text-neutral-300" size={18} /> Listing files…
         </div>
       ) : !files.length && !error ? (
         <div className="flex min-h-[560px] items-center justify-center px-4">
           <div className="max-w-lg rounded-lg border border-border/70 bg-background/60 p-4 text-center">
-            <Braces className="mx-auto text-brand-300" size={28} />
+            <Braces className="mx-auto text-neutral-300" size={28} />
             <h3 className="mt-4 text-base font-semibold text-foreground">No files in this project yet</h3>
             <p className="mt-2 text-sm leading-6 text-neutral-300">Index the repository, then return here.</p>
             <UiButton type="button" size="xs" variant="outline" className="mt-3" onClick={() => setShowIgnored((value) => !value)}>{showIgnored ? "Hide Git ignored files" : "Show Git ignored files"}</UiButton>

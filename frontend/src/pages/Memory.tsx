@@ -114,7 +114,7 @@ export default function Memory() {
     codex: "text-green-300",
     google: "text-blue-300",
     gemini: "text-blue-300",
-    copilot: "text-brand-400",
+    copilot: "text-neutral-400",
     opencode: "text-cyan-300",
     lemoncode: "text-yellow-300",
   };

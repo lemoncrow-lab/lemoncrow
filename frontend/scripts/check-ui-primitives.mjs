@@ -2,6 +2,8 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
+import { designDrift } from "./sync-design.mjs";
+
 const root = path.resolve(process.cwd(), "src");
 const uiRoot = path.join(root, "components", "ui") + path.sep;
 const reviewRoot = path.join(root, "review") + path.sep;
@@ -63,6 +65,13 @@ async function walk(dir) {
 }
 
 await walk(root);
+
+// src/design/ is a vendored copy of the repository's design/ directory (design/README.md).
+const drift = await designDrift();
+if (drift && drift.length) {
+  console.error(`src/design/ drifted from the canonical design/ directory (run \`npm run sync:design\`):\n  ${drift.join("\n  ")}`);
+  process.exit(1);
+}
 
 if (violations.length) {
   console.error("Native interactive controls are only allowed in src/components/ui/*. Use LemonCrow UI primitives instead:\n");

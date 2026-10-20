@@ -805,7 +805,7 @@ export default function Swarms() {
                 <div className="flex items-end">
                   <Button
                     variant="default"
-                    className="w-full bg-brand-500/20 text-brand-100 hover:bg-brand-500/30 hover:text-brand-50"
+                    className="w-full bg-neutral-500/20 text-neutral-100 hover:bg-neutral-500/30 hover:text-neutral-50"
                     onClick={handleLaunch}
                     disabled={
                       launching ||

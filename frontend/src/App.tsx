@@ -383,7 +383,7 @@ function GlobalRequestIndicator() {
       role="progressbar"
       aria-label="Loading"
     >
-      <div className="h-full w-full animate-pulse bg-brand-400" />
+      <div className="h-full w-full animate-pulse bg-neutral-400" />
     </div>
   );
 }
@@ -412,7 +412,7 @@ function SecondaryNav({ pathname }: { pathname: string }) {
               className={cx(
                 "inline-flex h-9 shrink-0 items-center border-b text-caption font-semibold uppercase tracking-[0.08em] transition",
                 active
-                  ? "border-brand-500 text-neutral-200"
+                  ? "border-neutral-500 text-neutral-200"
                   : "border-transparent text-muted-foreground hover:text-neutral-300",
               )}
             >

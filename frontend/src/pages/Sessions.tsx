@@ -44,7 +44,7 @@ function highlightSearchText(value: string, query: string): ReactNode {
     terms.includes(part.toLowerCase()) ? (
       <mark
         key={i}
-        className="bg-brand-500/30 text-brand-200 rounded-[1px] px-0.5 border border-brand-500/20"
+        className="bg-neutral-500/30 text-neutral-200 rounded-[1px] px-0.5 border border-neutral-500/20"
       >
         {part}
       </mark>
@@ -281,7 +281,7 @@ export default function Sessions() {
                     All time
                   </span>
                   {loadingTraces && (
-                    <span className="text-caption text-brand-400 shrink-0">
+                    <span className="text-caption text-neutral-400 shrink-0">
                       Scanning...
                     </span>
                   )}
@@ -332,7 +332,7 @@ export default function Sessions() {
                   aria-label="Filter by host"
                   value={hostFilter}
                   onValueChange={setHostFilter}
-                  className="flex-1 min-w-0 bg-surface-overlay border border-border px-2 py-1.5 text-caption text-neutral-300 outline-none focus:border-brand-600"
+                  className="flex-1 min-w-0 bg-surface-overlay border border-border px-2 py-1.5 text-caption text-neutral-300 outline-none focus:border-neutral-600"
                 >
                   <SelectItem value="all">All hosts</SelectItem>
                   {availableHosts.map((h) => (
@@ -345,7 +345,7 @@ export default function Sessions() {
                   aria-label="Filter by workspace"
                   value={workspaceFilter}
                   onValueChange={setWorkspaceFilter}
-                  className="flex-1 min-w-0 bg-surface-overlay border border-border px-2 py-1.5 text-caption text-neutral-300 outline-none focus:border-brand-600"
+                  className="flex-1 min-w-0 bg-surface-overlay border border-border px-2 py-1.5 text-caption text-neutral-300 outline-none focus:border-neutral-600"
                 >
                   <SelectItem value="all">All workspaces</SelectItem>
                   {availableWorkspaces.map((w) => (

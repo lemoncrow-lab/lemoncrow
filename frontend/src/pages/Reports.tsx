@@ -66,7 +66,7 @@ export default function Reports() {
           description={
             <>
               Benchmark runs written under{" "}
-              <code className="text-brand-400">reports/benchmark/</code> appear
+              <code className="text-neutral-400">reports/benchmark/</code> appear
               here automatically.
             </>
           }
@@ -124,7 +124,7 @@ export default function Reports() {
                     {content.files.length} artifacts
                   </span>
                 </div>
-                <article className="prose prose-invert prose-sm max-w-none prose-headings:text-neutral-200 prose-p:text-neutral-400 prose-strong:text-neutral-200 prose-code:text-brand-300 prose-a:text-brand-400 prose-table:text-neutral-300 prose-th:text-neutral-300 prose-td:text-neutral-400">
+                <article className="prose prose-invert prose-sm max-w-none prose-headings:text-neutral-200 prose-p:text-neutral-400 prose-strong:text-neutral-200 prose-code:text-neutral-300 prose-a:text-neutral-400 prose-table:text-neutral-300 prose-th:text-neutral-300 prose-td:text-neutral-400">
                   <ReactMarkdown>{content.markdown}</ReactMarkdown>
                 </article>
               </>

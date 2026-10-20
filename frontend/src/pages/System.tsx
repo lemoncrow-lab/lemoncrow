@@ -508,7 +508,7 @@ const NS_META: Record<
   reasoning: {
     icon: Brain,
     label: "reasoning",
-    color: "text-brand-400 border-brand-900/50 bg-brand-950/10",
+    color: "text-neutral-400 border-neutral-900/50 bg-neutral-950/10",
   },
   code_intel: {
     icon: Command,
