@@ -174,6 +174,55 @@ def test_the_samples_start_advisory_and_say_how_to_opt_into_p0() -> None:
     assert step["with"]["fail-on"] == "none" and "set `p0`" in block
 
 
+def test_a_killed_job_cannot_leave_the_check_pending_forever(tmp_path: Path) -> None:
+    """R9: the sample's last step turns a still-pending ``LemonCrow Review`` status into an error, and nothing else."""
+
+    import stat
+    import subprocess
+
+    steps_ = documented_workflow()["jobs"]["review"]["steps"]
+    fallback = steps_[-1]
+    assert fallback["if"] == "failure() || cancelled()"
+    assert "if" not in steps_[1], "the review step itself must not be conditional"
+    assert fallback["env"]["SHA"] == "${{ github.event.pull_request.head.sha }}"
+    script = str(fallback["run"])
+    assert "${{" not in script and 'context="LemonCrow Review"' in script and "state=error" in script
+
+    def run(current: str) -> list[str]:
+        """Run the step's script with a fake ``gh`` that answers the status lookup with *current* and records writes."""
+
+        log = tmp_path / f"calls-{current or 'none'}.txt"
+        shim = tmp_path / f"bin-{current or 'none'}"
+        shim.mkdir()
+        gh = shim / "gh"
+        gh.write_text(
+            "#!/bin/sh\n"
+            'case "$*" in\n'
+            '  *--method*) echo "$*" >> "$LOG" ;;\n'
+            f'  *) echo "{current}" ;;\n'
+            "esac\n",
+            encoding="utf-8",
+        )
+        gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
+        env = {
+            "PATH": f"{shim}:/usr/bin:/bin",
+            "LOG": str(log),
+            "REPO": "acme/widgets",
+            "SHA": "c" * 40,
+            "GITHUB_SERVER_URL": "https://github.com",
+            "GITHUB_RUN_ID": "99",
+            "HOME": str(tmp_path),
+        }
+        done = subprocess.run(["bash", "-e", "-c", script], env=env, capture_output=True, text=True, check=False)
+        assert done.returncode == 0, done.stderr
+        return log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+
+    (posted,) = run("pending")
+    assert f"repos/acme/widgets/statuses/{'c' * 40}" in posted and "state=error" in posted
+    assert "context=LemonCrow Review" in posted and "actions/runs/99" in posted
+    assert run("success") == [] and run("failure") == [] and run("") == [], "only a pending status is touched"
+
+
 def test_the_guide_never_recommends_pull_request_target() -> None:
     text = GUIDE.read_text(encoding="utf-8")
     for block in fenced("yaml"):

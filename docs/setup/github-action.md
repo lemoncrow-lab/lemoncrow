@@ -42,6 +42,24 @@ jobs:
           # pull requests and agree with the P0s it raised, change this to `p0` to fail the "LemonCrow Review"
           # check while a P0 is open (add the check to branch protection if you want it to block merges).
           fail-on: none
+
+      # If the job is killed (timeout) or cancelled before the review finishes, the status it set to `pending` would
+      # stay pending forever. This step runs only then, and turns a still-pending status into an error.
+      - name: Do not leave LemonCrow Review pending
+        if: failure() || cancelled()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          state=$(gh api "repos/$REPO/commits/$SHA/statuses" \
+            --jq '[.[] | select(.context == "LemonCrow Review")][0].state // ""')
+          if [ "$state" = "pending" ]; then
+            gh api --method POST "repos/$REPO/statuses/$SHA" \
+              -f state=error -f context="LemonCrow Review" \
+              -f description="The review job failed or was cancelled before it finished. Re-run it." \
+              -f target_url="$GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID"
+          fi
 ```
 
 3. Open a pull request. The bot posts a summary comment and a `LemonCrow Review` status when the run finishes.
@@ -49,7 +67,8 @@ jobs:
 Notes on the workflow:
 
 - **`permissions`** are the least the Action needs: `pull-requests: write` to comment and resolve threads, `statuses: write` for the status, `contents: read` to fetch the pull request. It posts as `github-actions[bot]` with the workflow's `GITHUB_TOKEN`; keep the default `github-token` input so the comments never come from a person.
-- **`timeout-minutes`** bounds a hung model call; each call has its own 120-second limit, so a review that is not done in a few minutes is stuck.
+- **`timeout-minutes`** bounds a hung model call; each call has its own 120-second limit, so a review that is not done in a few minutes is stuck. A large pull request can also run long: at Deep depth up to ten calls run one after another.
+- **The last step** (`if: failure() || cancelled()`) is the fallback for a killed job. The Action sets `LemonCrow Review` to `pending` when it starts, and a job that is cancelled or times out never gets to replace it, which would leave a required check waiting for good. The step looks at the status on this run's head commit and, only if it is still `pending`, sets it to `error` with a message to re-run. It touches only its own commit, so a run that a newer push cancelled marks its own, older commit and nothing else. It is `error`, not a pass, on purpose: a review that never finished has not approved anything; change `-f state=error` to `success` if you would rather it stay out of the way. GitHub runs a `failure()` or `cancelled()` step after a timeout in the normal case; if the runner itself is lost, nothing can run, and the status stays pending until the next push or a re-run.
 - **`concurrency`** per pull request with `cancel-in-progress` means a newer push cancels the review of an older one instead of queueing behind it.
 - **`fetch-depth: 0`** gives LemonCrow the history to find the merge base. `ready_for_review` is in `types` so a draft is reviewed when it is marked ready.
 - **`v1`** is the major tag cut at release. Before it exists, or to pin exactly what you tested, use a full commit SHA: `lemoncrow-lab/lemoncrow@<sha>`. The Action installs LemonCrow from its own checkout at that ref, so the version you pin is the version that reviews.
