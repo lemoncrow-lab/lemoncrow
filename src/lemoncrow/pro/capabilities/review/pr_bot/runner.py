@@ -22,7 +22,7 @@ import os
 import re
 import tempfile
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -37,11 +37,13 @@ from lemoncrow.pro.capabilities.review.pr_bot.render import (
     Verdict,
     check_status,
     inline_comment,
+    money,
+    plural,
     render_summary,
     short,
     verdict,
 )
-from lemoncrow.pro.capabilities.review.pr_bot.state import ReviewState, cap_findings
+from lemoncrow.pro.capabilities.review.pr_bot.state import ReviewState, Usage, cap_findings
 from lemoncrow.pro.capabilities.review.sources.github import (
     GhRunner,
     GitHubCliError,
@@ -74,6 +76,10 @@ class RunOptions:
     dry_run: bool = False
     provider: str = "auto"
     with_impact: bool = True
+    #: Optional ceilings on one pull request's cumulative review spend, read from the usage the summary's state
+    #: carries. ``None`` is unlimited.
+    max_usd_per_pr: float | None = None
+    max_runs_per_pr: int | None = None
 
 
 @dataclass
@@ -145,6 +151,12 @@ def run_pr_review(
     say = progress or (lambda _message: None)
     if options.fail_on not in FAIL_ON:
         raise PrReviewError(f"fail-on must be one of {', '.join(FAIL_ON)}")
+    if (options.max_usd_per_pr is not None and options.max_usd_per_pr <= 0) or (
+        options.max_runs_per_pr is not None and options.max_runs_per_pr < 1
+    ):
+        raise PrReviewError(
+            "max-usd-per-pr must be above 0 and max-runs-per-pr at least 1; leave them empty for no limit"
+        )
     if options.publish and not options.dry_run and environ.get("GITHUB_ACTIONS") != "true":
         raise PrReviewError(
             "--publish-bot posts as the identity of the token in use and runs only in GitHub Actions, where that is "
@@ -255,6 +267,10 @@ def _review(
     say("Fetching the pull request")
     pull = resolve_pull_request(options.repo_root, options.pr, runner=run)
     head = pull.head_sha
+    spent = budget_reached(options, previous)
+    if previous is not None and spent and not (previous.head_sha == head and previous.complete):
+        return _over_budget(options, ref, github, existing, previous, head, spent, writes)
+    unpriced = options.max_usd_per_pr is not None and previous is not None and previous.usage_total.cost_usd is None
     with tempfile.TemporaryDirectory(prefix="lemoncrow-pr-review-") as scratch:
         say("Capturing the change")
         captured = engine.capture_pull_request(options.repo_root, pull, Path(scratch), with_impact=options.with_impact)
@@ -277,6 +293,11 @@ def _review(
         intact=ai.intact,
     )
     report = RunReport(pr=name, head_sha=head)
+    if unpriced:
+        report.notes.append(
+            "max-usd-per-pr is not enforced: the cost of this pull request's earlier reviews is unknown (the provider "
+            "reported none and the local price table does not know the model); max-runs-per-pr needs no price"
+        )
     if ai.errors:
         report.notes.append("model call errors: " + " | ".join(error[:200] for error in ai.errors))
     findings = list(merged.findings)
@@ -391,6 +412,85 @@ def _review(
                 report.published["summary_url"] = written.url
         elif existing is not None:
             report.published["summary_url"] = existing.url
+        _best_effort(lambda: github.set_status(head, status[0], status[1], link), report.notes, "set the commit status")
+        report.published["status"] = {"state": status[0], "description": status[1]}
+    elif options.dry_run:
+        report.published["dry_run"] = True
+    return report
+
+
+def budget_reached(options: RunOptions, previous: ReviewState | None) -> str:
+    """Why this pull request's review budget is spent (``3 of 3 reviews used``), or ``""``.
+
+    Read from the state the last summary carries: the reviews so far and the cost of their model calls. A review
+    cancelled before it wrote its summary left no trace, so its spend is not counted. A cost is known only when the
+    provider reported it or the local price table knows the model; an unknown cost cannot be held to a dollar cap.
+    """
+
+    if previous is None:
+        return ""
+    reasons: list[str] = []
+    if options.max_runs_per_pr is not None and previous.reviews >= options.max_runs_per_pr:
+        reasons.append(f"{plural(previous.reviews, 'review')} used of {options.max_runs_per_pr} allowed")
+    cost = previous.usage_total.cost_usd
+    if options.max_usd_per_pr is not None and cost is not None and cost >= options.max_usd_per_pr:
+        reasons.append(f"{money(cost)} spent of {money(options.max_usd_per_pr)} allowed")
+    return " and ".join(reasons)
+
+
+def _over_budget(
+    options: RunOptions,
+    ref: PullRequestRef,
+    github: BotGitHub,
+    existing: Remote | None,
+    previous: ReviewState,
+    head: str,
+    spent: str,
+    writes: bool,
+) -> RunReport:
+    """Say the budget is reached instead of reviewing: no model call, no new comment, the findings stand.
+
+    The summary keeps the last review's open findings and state (so a later run with a larger budget carries on
+    from them) and the status goes on the new head as ``success``, a commit status having no neutral state, unless
+    an open P0 from the last review still fails it under ``fail-on: p0``.
+    """
+
+    name = f"{ref.slug}#{ref.number}"
+    kept = tuple(
+        finding.changed(state="carried") if finding.is_open else finding
+        for finding in previous.findings
+        if finding.is_open or finding.state == "unreported"
+    )
+    state = replace(previous, findings=kept, usage=Usage())
+    view = verdict(kept, complete=True, budget=spent)
+    body, posted_state = render_summary(
+        SummaryView(
+            state=state,
+            findings=kept,
+            facts=RunFacts(False, 0, 0, 0, len(_state_is(list(kept), "carried")), 0, 0),
+            receipt=Receipt((), 0, 0, 0, ()),
+            pull_number=ref.number,
+            repository=ref.slug,
+            head_sha=previous.head_sha,
+            commit_url=f"https://{ref.host}/{ref.slug}/commit/{previous.head_sha}",
+            model_label=previous.model,
+            depth_label=previous.depth.capitalize(),
+            fail_on=options.fail_on,
+            budget=spent,
+        )
+    )
+    status = check_status(view, fail_on=options.fail_on)
+    report = RunReport(pr=name, head_sha=head, verdict=view, findings=kept, state=posted_state, summary=body)
+    report.status = status
+    report.notes.append(f"review budget reached ({spent}); nothing was reviewed")
+    if writes:
+        link = existing.url if existing is not None else ""
+        written = _best_effort_value(
+            lambda: github.write_summary(body, existing), report.notes, "write the summary comment"
+        )
+        if written is not None:
+            link = written.url
+            report.published["summary_url"] = written.url
         _best_effort(lambda: github.set_status(head, status[0], status[1], link), report.notes, "set the commit status")
         report.published["status"] = {"state": status[0], "description": status[1]}
     elif options.dry_run:

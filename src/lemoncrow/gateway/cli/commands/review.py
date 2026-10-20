@@ -233,6 +233,26 @@ class _ReviewCliProgress:
     help="With --publish-bot, fail the LemonCrow Review commit status when a P0 finding is open.",
 )
 @click.option(
+    "--max-usd-per-pr",
+    "max_usd_per_pr",
+    type=click.FloatRange(min=0, min_open=True),
+    default=None,
+    metavar="USD",
+    help=(
+        "With --publish-bot, stop reviewing a pull request once its reviews have cost this much in total, read from "
+        "the usage the summary comment carries. Needs a known cost (the provider's, or a model in the local price "
+        "table); a cancelled run's spend is not counted. Default: no limit."
+    ),
+)
+@click.option(
+    "--max-runs-per-pr",
+    "max_runs_per_pr",
+    type=click.IntRange(min=1),
+    default=None,
+    metavar="N",
+    help="With --publish-bot, stop reviewing a pull request after this many reviews of it. Default: no limit.",
+)
+@click.option(
     "--review-drafts/--skip-drafts",
     default=False,
     help="With --ai, review draft pull requests too (default: skip them).",
@@ -537,6 +557,8 @@ def review_cmd(
     publish_bot: bool,
     depth: str,
     fail_on: str,
+    max_usd_per_pr: float | None,
+    max_runs_per_pr: int | None,
     review_drafts: bool,
     on_push: bool,
     snapshot_title: str | None,
@@ -869,6 +891,8 @@ def review_cmd(
             pr_spec,
             depth=depth,
             fail_on=fail_on,
+            max_usd_per_pr=max_usd_per_pr,
+            max_runs_per_pr=max_runs_per_pr,
             review_drafts=review_drafts,
             on_push=on_push,
             publish=publish_bot,
@@ -1145,6 +1169,8 @@ def _review_pull_request_with_ai(
     *,
     depth: str,
     fail_on: str,
+    max_usd_per_pr: float | None,
+    max_runs_per_pr: int | None,
     review_drafts: bool,
     on_push: bool,
     publish: bool,
@@ -1174,6 +1200,8 @@ def _review_pull_request_with_ai(
         publish=publish,
         dry_run=dry_run,
         with_impact=with_impact,
+        max_usd_per_pr=max_usd_per_pr,
+        max_runs_per_pr=max_runs_per_pr,
     )
     try:
         report = run_pr_review(options, progress=lambda message: click.echo(f"  {message}…", err=True))

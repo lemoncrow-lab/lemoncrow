@@ -64,6 +64,8 @@ Notes on the workflow:
 | `model` | the provider's own | Model id (also `LEMONCROW_REVIEW_MODEL`). OpenAI defaults to `gpt-4o-mini`; Anthropic to `claude-sonnet-4-6`. Both are provisional until review cost per catch is measured. |
 | `depth` | `auto` | `auto`, `thorough` or `deep`. `auto` follows `review.effort` in `.lemoncrow/review.yaml` (Auto by default, `quick` if you set it there); the others go deeper for the run. |
 | `fail-on` | `none` | `p0` fails the `LemonCrow Review` status while a P0 finding is open. |
+| `max-usd-per-pr` | none | Stop reviewing a pull request once its reviews have cost this many US dollars in total (a number such as `2.50`). See "A budget per pull request". |
+| `max-runs-per-pr` | none | Stop reviewing a pull request after this many reviews of it (a whole number such as `5`). |
 | `review-drafts` | `false` | Review draft pull requests too. |
 | `on-push` | `true` | Re-review on each push to an open pull request. `false` reviews only when it opens. |
 | `pr-number` | the event's pull request | Set it for `workflow_dispatch` runs. |
@@ -217,6 +219,28 @@ ai_content_access:
 - What leaves your runner is the changed code of the targets the model is asked about, with a few lines of context, plus the repository context described below, sent to the provider whose key you gave. `ai_content_access` keeps paths away from the model; a denied path is still part of the deterministic review.
 
 - A dollar ceiling already exists as `per_review_model_cost_usd` (and the `LEMONCROW_REVIEW_INTELLIGENCE_MAX_COST` variable). It applies to each model call and needs the provider to report cost, which the LiteLLM route (Anthropic) does and the OpenAI route does not: on a route that reports no cost, a ceiling stops every call. Use the call cap there.
+
+### A budget per pull request
+
+The call cap bounds one review, not a pull request: a long-running pull request is reviewed on every push. Two optional inputs cap its total, read from the usage the summary's hidden state already carries (`usage_total` and `reviews`), so there is no counter to host:
+
+```yaml
+        with:
+          max-usd-per-pr: "2.50"   # the pull request's reviews may cost this much in total ...
+          max-runs-per-pr: "6"     # ... and there may be at most this many of them
+```
+
+When either is reached, the next push is **not reviewed**: the model is not called, nothing new is posted, the summary's headline reads `Review budget reached: 6 reviews used of 6 allowed` (or `$2.51 spent of $2.50 allowed`) with a line saying the findings below are from the last review, and the `LemonCrow Review` status on the new commit is a `success` described `Review budget reached: …; this push was not reviewed`. A commit status has no neutral state, so that is the neutral one: a spent budget never blocks a merge by itself. An open P0 from the last review still does, under `fail-on: p0`, because it is still open. Raise the limit and the next run carries on from the last review's state, reviewing what changed since.
+
+Limits to know:
+
+- `max-usd-per-pr` needs a **known cost**: the one the provider reports (the LiteLLM route does), or a model the local price table knows exactly. If the cost is unknown it cannot be held to a dollar figure: the run says so in its notes and does not count it as spent. `max-runs-per-pr` needs no price.
+- The total is what finished runs saved. A run cancelled by `concurrency` before it wrote its summary spent money that no state records, so it is not counted; neither is a pull request whose summary comment was deleted, which starts from zero.
+- A rerun of a commit that was already reviewed is never a budget event: it costs nothing.
+
+### Pin the Action during a trial
+
+A LemonCrow release that changes the review prompt or the checks changes what "reviewed" means, so every open pull request is re-reviewed once on its next push, and a floating tag would do that without you choosing it. During a trial, pin `uses: lemoncrow-lab/lemoncrow@<full commit SHA>` (see "Releasing the Action" for where the SHA comes from), upgrade on purpose, and expect one re-review of each open pull request when you do. The Action installs LemonCrow from its own checkout at that ref, so the SHA pins the prompt, the checks and the dependencies together.
 
 ## Repository context
 

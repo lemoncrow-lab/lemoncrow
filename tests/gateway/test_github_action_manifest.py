@@ -49,6 +49,8 @@ def test_the_inputs_are_the_documented_ones_with_safe_defaults() -> None:
         "model",
         "depth",
         "fail-on",
+        "max-usd-per-pr",
+        "max-runs-per-pr",
         "review-drafts",
         "on-push",
         "pr-number",
@@ -61,6 +63,8 @@ def test_the_inputs_are_the_documented_ones_with_safe_defaults() -> None:
         "auto",
     )
     assert (inputs["review-drafts"]["default"], inputs["on-push"]["default"]) == ("false", "true")
+    # No budget unless the workflow asks for one.
+    assert (inputs["max-usd-per-pr"]["default"], inputs["max-runs-per-pr"]["default"]) == ("", "")
     documented = GUIDE.read_text(encoding="utf-8")
     for name in inputs:
         assert f"`{name}`" in documented, f"input {name} is not documented"
@@ -112,7 +116,16 @@ def test_it_installs_from_its_own_checkout_and_lockfile_into_a_private_environme
 def test_the_review_step_runs_the_headless_command_with_the_workflow_token() -> None:
     review = next(step for step in steps(manifest()) if step["name"] == "Review the pull request")
     assert review["env"]["GH_TOKEN"] == "${{ inputs.github-token }}"
-    for flag in ("--ai", "--publish-bot", "--depth", "--fail-on", "--review-drafts", "--no-on-push"):
+    for flag in (
+        "--ai",
+        "--publish-bot",
+        "--depth",
+        "--fail-on",
+        "--review-drafts",
+        "--no-on-push",
+        "--max-usd-per-pr",
+        "--max-runs-per-pr",
+    ):
         assert flag in review["run"]
 
 

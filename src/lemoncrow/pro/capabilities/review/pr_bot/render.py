@@ -86,8 +86,9 @@ def short(sha: str) -> str:
 
 @dataclass(frozen=True, slots=True)
 class Verdict:
-    """``state`` is ``must_fix`` (an open P0), ``incomplete`` (the review could not finish), ``partial`` (it finished
-    but left risk signals unexamined) or ``clean`` (it examined every risk signal and found nothing to fix first)."""
+    """``state`` is ``must_fix`` (an open P0), ``budget`` (this pull request's review budget is spent, so nothing new
+    was reviewed), ``incomplete`` (the review could not finish), ``partial`` (it finished but left risk signals
+    unexamined) or ``clean`` (it examined every risk signal and found nothing to fix first)."""
 
     state: str
     headline: str
@@ -108,16 +109,20 @@ def verdict(
     reason: str = "",
     signals: int = 0,
     uninvestigated: int = 0,
+    budget: str = "",
 ) -> Verdict:
     """The one verdict line. A review that could not finish, or left risk signals unexamined, never reads as clean.
 
     ``signals`` is how many changed targets carry a risk signal and ``uninvestigated`` how many of them no model
-    call reached; Auto looks at two however many there are. A found P0 still reads as a P0.
+    call reached; Auto looks at two however many there are. ``budget`` is why the pull request's review budget is
+    spent, when it is. A found P0 (even an earlier one nobody could re-check) still reads as a P0.
     """
 
     counts = verdict_counts(list(findings))
     if counts["p0"]:
         return Verdict("must_fix", f"{counts['p0']} must-fix before merge", counts["p0"], counts["p1"], counts["p2"])
+    if budget:
+        return Verdict("budget", f"Review budget reached: {budget}", 0, counts["p1"], counts["p2"])
     if not complete:
         why = f": {reason}" if reason else ""
         return Verdict("incomplete", f"Review incomplete{why}", 0, counts["p1"], counts["p2"])
@@ -148,6 +153,10 @@ def check_status(view: Verdict, *, fail_on: str) -> tuple[str, str]:
     if view.state == "must_fix":
         suffix = "" if gating else " (advisory: fail-on is off)"
         return ("failure" if gating else "success"), trimmed(view.headline + suffix, 140)
+    if view.state == "budget":
+        # Neutral: a commit status has no neutral state, so this is a success that says nothing was reviewed. A review
+        # that stopped because its owner capped it must not block a merge; an earlier open P0 still does (above).
+        return "success", trimmed(f"{view.headline}; this push was not reviewed", 140)
     if view.state == "incomplete":
         return ("error" if gating else "success"), trimmed(view.headline, 140)
     detail = f"; {view.counts}" if view.counts else ""
@@ -287,6 +296,8 @@ class SummaryView:
     depth_label: str = "Auto"
     max_calls: int = 0
     fail_on: str = "none"
+    #: Why this pull request's review budget is spent (``3 of 3 reviews used``); empty when it is not.
+    budget: str = ""
 
 
 def strip_text(facts: RunFacts) -> str:
@@ -398,10 +409,17 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
         reason=view.incomplete_reason,
         signals=view.receipt.candidates,
         uninvestigated=view.facts.uninvestigated,
+        budget=view.budget,
     )
 
     head = f"**{result.headline}**" + (f" · {result.counts}" if result.counts else "")
-    lines = [SUMMARY_MARKER, head, "", f"<sub>{strip_text(view.facts)}</sub>"]
+    strip = (
+        f"This push was not reviewed; the findings below are from the last review, of {short(view.head_sha)}. "
+        "Raise max-usd-per-pr or max-runs-per-pr to continue."
+        if view.budget
+        else strip_text(view.facts)
+    )
+    lines = [SUMMARY_MARKER, head, "", f"<sub>{strip}</sub>"]
     if state.findings_dropped:
         lines += [
             "",

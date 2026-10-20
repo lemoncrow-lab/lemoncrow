@@ -33,6 +33,18 @@ inputs:
     description: >-
       "p0" fails the "LemonCrow Review" commit status while a P0 finding is open; "none" keeps it advisory.
     default: none
+  max-usd-per-pr:
+    description: >-
+      Stop reviewing a pull request once its reviews have cost this many US dollars in total (a number, e.g. 2.50),
+      read from the usage the summary comment carries. When it is reached the summary says so, nothing new is
+      reviewed and the status is a neutral success. Needs a known cost: the provider's, or a model in the local
+      price table. A run cancelled before it saved its summary is not counted. Empty means no limit.
+    default: ""
+  max-runs-per-pr:
+    description: >-
+      Stop reviewing a pull request after this many reviews of it (a whole number, e.g. 5). Same behavior as
+      max-usd-per-pr when reached, and it works whether or not the cost is known. Empty means no limit.
+    default: ""
   review-drafts:
     description: Review draft pull requests too. Drafts are skipped by default.
     default: "false"
@@ -103,12 +115,16 @@ runs:
         INPUT_MODEL: ${{ inputs.model }}
         DEPTH: ${{ inputs.depth }}
         FAIL_ON: ${{ inputs.fail-on }}
+        MAX_USD: ${{ inputs.max-usd-per-pr }}
+        MAX_RUNS: ${{ inputs.max-runs-per-pr }}
         VENV: ${{ runner.temp }}/lemoncrow-venv
       run: |
         set -euo pipefail
         # An input left empty must not hide LEMONCROW_REVIEW_MODEL set on the step that uses this action.
         if [ -n "$INPUT_MODEL" ]; then export LEMONCROW_REVIEW_MODEL="$INPUT_MODEL"; fi
         args=(review --pr "$LEMONCROW_REVIEW_PR" --ai --publish-bot --depth "$DEPTH" --fail-on "$FAIL_ON")
+        if [ -n "$MAX_USD" ]; then args+=(--max-usd-per-pr "$MAX_USD"); fi
+        if [ -n "$MAX_RUNS" ]; then args+=(--max-runs-per-pr "$MAX_RUNS"); fi
         if [ "$LEMONCROW_REVIEW_DRAFTS" = "true" ]; then args+=(--review-drafts); fi
         if [ "$LEMONCROW_REVIEW_ON_PUSH" = "false" ]; then args+=(--no-on-push); fi
         "$VENV/bin/lemoncrow" "${args[@]}"
