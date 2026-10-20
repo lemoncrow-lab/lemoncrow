@@ -1,4 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
@@ -57,6 +57,8 @@ const tokenAllowlist = new Map([
   ["code/CodeTopologyView.tsx", ["hex"]],
   ["pages/Telemetry.tsx", ["hex"]],
   ["pages/Savings.tsx", ["hex"]],
+  // Hosted login: the GitHub and Google brand marks keep their own fills.
+  ["../../enterprise/frontend/src/HostedApp.tsx", ["hex"]],
 ]);
 
 async function walk(dir) {
@@ -98,12 +100,12 @@ async function walk(dir) {
 
 await walk(root);
 
-async function walkTokens(dir) {
+async function walkTokens(dir, rules = tokenRules) {
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (entry.name === "design" || entry.name === "__snapshots__") continue;
-      await walkTokens(full);
+      await walkTokens(full, rules);
       continue;
     }
     if (!entry.isFile() || !/\.(?:tsx?|css)$/.test(entry.name) || /\.test\.tsx?$/.test(entry.name) || entry.name.endsWith(".d.ts")) continue;
@@ -112,8 +114,8 @@ async function walkTokens(dir) {
     const lines = (await readFile(full, "utf8")).split("\n");
     lines.forEach((line, index) => {
       if (/^\s*(?:\/\/|\*|\/\*)/.test(line)) return; // comments may name the retired values
-      for (const rule of tokenRules) {
-        if (allowed.has(rule.id)) continue;
+      for (const rule of rules) {
+        if (rule.id && allowed.has(rule.id)) continue;
         rule.pattern.lastIndex = 0;
         if (rule.pattern.test(line)) styleViolations.push(`${path.relative(process.cwd(), full)}:${index + 1}: ${rule.message}\n  ${line.trim()}`);
         rule.pattern.lastIndex = 0;
@@ -123,6 +125,11 @@ async function walkTokens(dir) {
 }
 
 await walkTokens(root);
+
+// The hosted app (enterprise/frontend, private checkout only) renders these primitives and shares the theme, so
+// its sources follow the same token, type and variant rules. Absent in the public tree: skipped.
+const hostedRoot = path.resolve(root, "..", "..", "enterprise", "frontend", "src");
+if (await stat(hostedRoot).then((info) => info.isDirectory(), () => false)) await walkTokens(hostedRoot, [...tokenRules, ...systemRules]);
 
 // src/design/ is a vendored copy of the repository's design/ directory (design/README.md).
 const drift = await designDrift();

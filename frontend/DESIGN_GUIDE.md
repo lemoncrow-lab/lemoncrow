@@ -24,7 +24,7 @@ table) is `research_notes/LemonCrow strategy memo assessment/design_system_spec.
 6. **One button recipe.** Variants by intent, at most one `brand` per view.
 7. **One badge shape.** 20px, mono, uppercase, `rounded-sm`.
 8. **Two shadows.** `shadow-float` for overlays, `shadow-frame` for the one hero artefact. Cards have none.
-9. **Drift is a build failure.** `npm run check:ui-primitives` enforces the rules below on every `.ts`, `.tsx` and `.css` file.
+9. **Drift is a build failure.** `npm run check:ui-primitives` enforces the rules below on every `.ts`, `.tsx` and `.css` file, and on `enterprise/frontend/src` (the hosted app, private checkout only) when it is present.
 10. **Same system, denser.** 13px body, 28 and 32px controls, 12 to 16px panel padding, `rounded-lg` frames, `rounded-md` controls.
 
 ## Interactive controls
