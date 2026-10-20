@@ -3273,6 +3273,8 @@ def register_review_api(
             config,
             read_base_document=lambda path: _snapshot_base_document(revision, path),
             organization=organization,
+            # Finds nested .greptile/ folders (G10); only a path is taken from this listing, every byte is the trusted base's.
+            base_paths=lambda: _base_tree_paths(revision),
         )
         base_known = config.base_known and governance.base_state != "provisional"
         _bounded_cache_put(_review_governance_cache, revision.id, (governance, base_known))
@@ -12078,6 +12080,7 @@ def register_review_api(
                     stage_plan=stage,
                     reviewer_candidates=configured_reviewer_routes()[0],
                     project_knowledge_loader=_ai_review_knowledge_loader(session, revision, governance.content_access),
+                    project_conventions=governance.imports.conventions if governance.imports is not None else (),
                 )
 
             base_budget = ModelCallBudget.from_env(max_calls=1)

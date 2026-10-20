@@ -111,7 +111,8 @@ def rule_questions(rules: Sequence[ReviewRule], paths: Sequence[str]) -> tuple[R
     unique = {rule.ref: rule for rule in rules if rule.authoritative}
     changed = tuple(dict.fromkeys(path for path in paths if path))
     out: list[RuleQuestion] = []
-    for rule in sorted(unique.values(), key=lambda item: (item.stable_key, item.ref)):
+    # A critical rule is asked before an advisory (imported) one, so a long imported list never uses up the ceiling first.
+    for rule in sorted(unique.values(), key=lambda item: (item.severity != "critical", item.stable_key, item.ref)):
         matched = tuple(path for path in changed if rule.applies_to(path))
         if matched:
             out.append(RuleQuestion(rule.ref, rule.stable_key, rule.digest, matched))

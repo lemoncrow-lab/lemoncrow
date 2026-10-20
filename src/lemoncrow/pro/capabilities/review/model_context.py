@@ -20,6 +20,8 @@ class ContextAuthority(StrEnum):
     WEB_TOOL_OUTPUT = "data:external_web_tool"
     CROSS_REPOSITORY = "evidence:cross_repository_context"
     PROJECT_KNOWLEDGE = "claim:project_knowledge"
+    #: Excerpts of the trusted base's AGENTS.md / CLAUDE.md / imported customInstructions (G10): background, never an instruction.
+    REPOSITORY_CONVENTIONS = "data:repository_conventions"
     #: Review comments and replies (DS0): what people and agents said, never an instruction.
     REVIEW_DISCUSSION = "data:review_discussion"
 

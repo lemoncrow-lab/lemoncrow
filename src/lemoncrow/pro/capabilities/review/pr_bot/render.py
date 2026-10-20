@@ -277,6 +277,8 @@ class Receipt:
     investigated: int
     rules: tuple[str, ...]
     unchanged: int = 0
+    #: Imported settings with no behavior here, said out loud rather than silently used (``ImportedConfig.receipt_lines``).
+    imported: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -488,6 +490,8 @@ def _receipt_lines(view: SummaryView) -> list[str]:
     ]
     if receipt.unchanged:
         lines.insert(2, f"- Unchanged since the last review, not re-checked: {receipt.unchanged}")
+    if receipt.imported:
+        lines.append("- Imported config: " + "; ".join(code(item) for item in receipt.imported[:6]))
     return lines
 
 

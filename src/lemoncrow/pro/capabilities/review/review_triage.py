@@ -57,6 +57,7 @@ from lemoncrow.pro.capabilities.review.criticality import (
     surfaced,
 )
 from lemoncrow.pro.capabilities.review.review_priority import QueueReason
+from lemoncrow.pro.capabilities.review.rules import cites_critical_rule
 from lemoncrow.pro.capabilities.review.session_models import ActorType, ReviewActivityEvent
 
 PriorityLevel = Literal["urgent", "high", "normal", "low"]
@@ -144,16 +145,29 @@ class FindingEvidence:
 
 
 def ai_finding_evidence(
-    annotation_id: str, *, finding_id: str, category: str, target_ids: Sequence[str], title: str
+    annotation_id: str,
+    *,
+    finding_id: str,
+    category: str,
+    target_ids: Sequence[str],
+    title: str,
+    rule_refs: Sequence[str] = (),
 ) -> FindingEvidence:
-    """Severity evidence for one confirmed AI finding: policy normalizes its validated category."""
+    """Severity evidence for one confirmed AI finding: policy normalizes its validated category.
 
+    A rule violation is P0 because the repository wrote a critical rule. A finding that cites only advisory rules
+    (imported from another tool's config, G10) is not one: it is P1, the same as an unrated correctness finding.
+    """
+
+    severity = normalize_finding_severity("ai_review", category=category)
+    if category == "critical_rule" and rule_refs and not cites_critical_rule(rule_refs):
+        severity = "p1"
     return FindingEvidence(
         annotation_id=annotation_id,
         finding_id=finding_id,
         source="ai_review",
         category=category,
-        severity=normalize_finding_severity("ai_review", category=category),
+        severity=severity,
         target_ids=tuple(target_ids),
         title=title,
     )
