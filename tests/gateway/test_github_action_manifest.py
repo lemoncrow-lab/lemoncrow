@@ -319,6 +319,12 @@ def test_the_guide_documents_learning_and_its_limits_and_the_sample_asks_for_no_
         "pull request's **merge base**",
         "cannot be dismissed by a reaction, a reply, a resolved thread or `ignore`",
         "A suppression cannot be undone from a comment yet",
+        # A must-fix is dismissed by a second person, never by the pull request's author (and `CONTRIBUTOR` is not enough).
+        "**Who may dismiss a must-fix (P0).**",
+        "**owner, member or collaborator who did not open the pull request**",
+        "A must-fix on your own pull request needs a reviewer other than the author to dismiss it.",
+        "`CONTRIBUTOR` is on the default allow-list",
+        "This needs a second person.",
     ):
         assert phrase in guide, phrase
     # Reading reactions and resolutions, replying in a thread and rewriting the summary need nothing new.

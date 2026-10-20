@@ -115,7 +115,8 @@ anything.
 - `{handle} recheck`: in a finding's thread, re-examine that finding alone and say whether it still applies.
 - `{handle} ignore <category or words> [in <path glob>]`: stop flagging that on this pull request, for example \
 `ignore verification in tests/**`. In a finding's thread, `ignore` alone dismisses that finding. I confirm what I \
-learned and offer the rule to add to `.lemoncrow/review.yaml`; I never change your repository.
+learned and offer the rule to add to `.lemoncrow/review.yaml`; I never change your repository. A must-fix (P0) stays \
+open unless the person dismissing it is an owner, member or collaborator other than the pull request's author.
 - `{handle} help`: this message.
 
 A thumbs-down on one of my comments, a reply like "not a bug" or "won't fix", or resolving the thread while the code \
@@ -698,7 +699,19 @@ def _ignore(
 
     finding = thread_finding(event, review_comments, previous)
     head = short(facts.head_sha)
-    parsed = learning.parse_ignore(command.text, finding=finding, by=event.author, thread_id=event.root_id, head=head)
+    # A must-fix is dismissed only by an owner, member or collaborator who did not open the pull request.
+    dismisses_p0 = learning.may_dismiss_must_fix(
+        event.author, association=event.association, author=facts.author, kind=event.author_type
+    )
+    parsed = learning.parse_ignore(
+        command.text,
+        finding=finding,
+        by=event.author,
+        thread_id=event.root_id,
+        head=head,
+        dismisses_p0=dismisses_p0,
+        author=facts.author,
+    )
     if parsed.suppression is None:
         return reply(parsed.problem, "clarify")
     row = parsed.suppression
@@ -720,9 +733,13 @@ def _ignore(
             f"{short(previous.head_sha)}, so the verdict and the check change at the next review."
         )
     matched = [f for f in findings if f.state == "suppressed" and f.suppressed_by == row.id and f.id in open_before]
+    stays = [f for f in findings if f.is_open and f.id in open_before and row.declines(f)]
+    own = bool(facts.author) and event.author.lower() == facts.author.lower()
     rule = rule_yaml([learning.suggestion_for(github.pr.slug, [row])])
-    text = learned_reply(row, rule, matched=matched, marker=event.in_thread)
-    return reply(text + (f"\n\n{note}" if note else ""), "ignore", suppression=row.id, held=len(matched))
+    text = learned_reply(row, rule, matched=matched, marker=event.in_thread, stays=stays, own=own)
+    return reply(
+        text + (f"\n\n{note}" if note else ""), "ignore", suppression=row.id, held=len(matched), refused=len(stays)
+    )
 
 
 def _keep_for_the_next_review(

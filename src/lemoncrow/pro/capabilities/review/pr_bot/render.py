@@ -25,6 +25,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.findings import (
     trimmed,
 )
 from lemoncrow.pro.capabilities.review.pr_bot.state import (
+    DECLINED_MARKER,
     FINDING_MARKER,
     FINGERPRINT_MARKER,
     LEARNED_MARKER,
@@ -426,12 +427,51 @@ def how_phrase(row: Suppression) -> str:
     return f"{person} asked for it"
 
 
-def learned_reply(row: Suppression, rule: str, *, matched: Sequence[BotFinding] = (), marker: bool = True) -> str:
+def must_fix_notice(*, own: bool) -> str:
+    """Why a must-fix stays when its author, the bot's own account or someone with less standing dismisses it."""
+
+    if own:
+        return "A must-fix on your own pull request needs a reviewer other than the author to dismiss it."
+    return "A must-fix can be dismissed only by an owner, member or collaborator other than the pull request's author."
+
+
+#: Beside a learned instruction that covers a P0 it may not hold back.
+MUST_FIX_STAYS: Final[str] = (
+    "a must-fix (P0) it covers stays open: only an owner, member or collaborator other than the author can dismiss one"
+)
+
+
+def declined_reply(row: Suppression, *, own: bool) -> str:
+    """The reply in a must-fix's thread when feedback on it was recorded and refused: the P0 and the check stay."""
+
+    return "\n".join(
+        [
+            must_fix_notice(own=own),
+            "",
+            f"Recorded: {how_phrase(row)}. The P0 and the check stay as they are. A different owner, member or "
+            "collaborator can dismiss it with a thumbs-down, a reply that says so, or an `ignore` command.",
+            "",
+            DECLINED_MARKER.format(suppression_id=row.id),
+        ]
+    )
+
+
+def learned_reply(
+    row: Suppression,
+    rule: str,
+    *,
+    matched: Sequence[BotFinding] = (),
+    marker: bool = True,
+    stays: Sequence[BotFinding] = (),
+    own: bool = False,
+) -> str:
     """The "learned" confirmation: what will not be flagged, why, and the rule that would make it permanent.
 
     *rule* is the YAML for ``.lemoncrow/review.yaml`` (:func:`rule_suggestions.rule_yaml`). The bot never writes it: a
     person copies it, and it governs reviews once it is merged to the base branch the Action reads it from. *marker*
-    makes a thread's confirmation say itself once; a reply to a command carries the chat marker instead.
+    makes a thread's confirmation say itself once; a reply to a command carries the chat marker instead. *stays* are
+    the open must-fix findings the instruction covers but its giver may not dismiss (*own*: because they opened the
+    pull request); they are named, and left open.
     """
 
     lines = [
@@ -443,6 +483,14 @@ def learned_reply(row: Suppression, rule: str, *, matched: Sequence[BotFinding] 
         titles = "; ".join(clean(finding.title) for finding in matched[:5])
         more = f" and {len(matched) - 5} more" if len(matched) > 5 else ""
         lines += ["", f"{plural(len(matched), 'open finding')} taken off the verdict: {titles}{more}."]
+    if stays:
+        titles = "; ".join(clean(finding.title) for finding in stays[:5])
+        more = f" and {len(stays) - 5} more" if len(stays) > 5 else ""
+        verb = "stays" if len(stays) == 1 else "stay"
+        lines += [
+            "",
+            f"{plural(len(stays), 'must-fix finding')} it covers {verb} open: {titles}{more}. {must_fix_notice(own=own)}",
+        ]
     fence = fence_for(rule)
     lines += [
         "",
@@ -554,7 +602,8 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
         for finding in dismissed:
             row = by_id.get(finding.suppressed_by)
             why = how_phrase(row) if row is not None else "dismissed by feedback"
-            lines.append(f"- {clean(finding.title)} — `{_where(finding)}` · {why}")
+            badge = f"**{SEVERITY_BADGE[finding.severity]}** " if finding.severity == "p0" else ""
+            lines.append(f"- {badge}{clean(finding.title)} — `{_where(finding)}` · {why}")
         lines += ["", "Held back on this pull request only; they count toward no verdict.", "", "</details>"]
     if unreported:
         heading = plural(len(unreported), "finding") + " no longer reported, not confirmed fixed"
@@ -569,7 +618,12 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
     if state.suppressions and level < 3:
         heading = f"{plural(len(state.suppressions), 'instruction')} learned on this pull request"
         lines += ["", f"<details><summary>{heading}</summary>", ""]
-        lines += [f"- Not flagging {scope_phrase(row)} · {how_phrase(row)}" for row in state.suppressions]
+        must_fix = [finding for finding in opened if finding.severity == "p0"]
+        lines += [
+            f"- Not flagging {scope_phrase(row)} · {how_phrase(row)}"
+            + (f" · {MUST_FIX_STAYS}" if any(row.declines(finding) for finding in must_fix) else "")
+            for row in state.suppressions
+        ]
         lines += ["", "</details>"]
     if view.suggestions and level < MAX_DETAIL:
         from lemoncrow.pro.capabilities.review.rule_suggestions import rule_yaml

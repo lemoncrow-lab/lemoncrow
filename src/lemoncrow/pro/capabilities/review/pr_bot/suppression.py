@@ -13,9 +13,13 @@ A suppression is scoped to this pull request and nothing else. It never changes 
 *suggested rule* the summary offers as YAML to copy into ``.lemoncrow/review.yaml`` (:mod:`learning`), which the
 Action reads from the merge base, so it governs reviews only once a person has merged it.
 
-What can be suppressed is bounded by one rule: a violation of a rule the repository wrote (category ``critical_rule``)
-is never held back by feedback. That rule is the trusted base's, and a comment on a pull request is not allowed to
-loosen it; change the rule instead.
+What can be suppressed is bounded by two rules. A violation of a rule the repository wrote (category ``critical_rule``)
+is never held back by feedback: that rule is the trusted base's, and a comment on a pull request is not allowed to
+loosen it; change the rule instead. And a must-fix (P0) is held back only by a suppression whose giver may dismiss one
+(:attr:`Suppression.dismisses_p0`): an owner, member or collaborator who did not open the pull request. Feedback from
+the author, from the bot's own account and from anyone with less standing is still recorded, and still holds back the
+findings that are not P0, but it leaves a P0 open, because with ``fail-on: p0`` an author who could dismiss the finding
+that blocks their own merge would hold the key to their own gate.
 """
 
 from __future__ import annotations
@@ -52,6 +56,14 @@ CATEGORIES: Final[tuple[str, ...]] = (
     "critical_rule",
 )
 PROTECTED: Final[frozenset[str]] = frozenset({"critical_rule"})
+#: The severity of a must-fix (``findings.SEVERITIES``).
+MUST_FIX: Final[str] = "p0"
+#: The ``author_association`` values that may dismiss a must-fix, when they are also on the feedback allow-list
+#: (``chat-allowed-associations``). ``CONTRIBUTOR`` is deliberately not here, though it is on that list by default: it
+#: means only "has a commit in this repository", with no write access, so it cannot merge, approve a required review or
+#: change what a check blocks. Letting it dismiss a P0 would let an outside contributor, or a friend of one, clear a
+#: must-fix that someone with write access has not looked at. Such a person still teaches the bot about P1 and P2.
+P0_DISMISSERS: Final[frozenset[str]] = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
 #: What people write for a category, to the one it means.
 CATEGORY_WORDS: Final[dict[str, str]] = {
     "bug": "correctness",
@@ -146,6 +158,9 @@ class Suppression:
     title: str = ""
     thread_id: int = 0
     added_in: str = ""
+    #: Whether the person behind it may dismiss a must-fix (:data:`P0_DISMISSERS`, and not the pull request's author).
+    #: Without it the suppression holds back P1 and P2 findings and leaves a P0 open (:meth:`declines`).
+    dismisses_p0: bool = False
 
     @property
     def explicit(self) -> bool:
@@ -154,7 +169,17 @@ class Suppression:
         return self.source in {"command", "reply"} or bool(self.note)
 
     def matches(self, finding: BotFinding) -> bool:
-        """Whether *finding* is one this suppression holds back. A rule violation never is."""
+        """Whether *finding* is one this suppression holds back. A rule violation never is, and a P0 only if its giver may."""
+
+        return self.covers(finding) and (self.dismisses_p0 or finding.severity != MUST_FIX)
+
+    def declines(self, finding: BotFinding) -> bool:
+        """Whether *finding* is a P0 this suppression is about and may not hold back: it is recorded, and the P0 stays."""
+
+        return finding.severity == MUST_FIX and not self.dismisses_p0 and self.covers(finding)
+
+    def covers(self, finding: BotFinding) -> bool:
+        """Whether *finding* is what this suppression is about, whatever its severity. A rule violation never is."""
 
         if finding.category in PROTECTED:
             return False
@@ -182,6 +207,7 @@ class Suppression:
             ("title", self.title),
             ("thread_id", self.thread_id),
             ("added_in", self.added_in),
+            ("p0", self.dismisses_p0),
         ):
             if value:
                 wire[key] = value
@@ -218,6 +244,7 @@ def make_suppression(
     title: str = "",
     thread_id: int = 0,
     added_in: str = "",
+    dismisses_p0: bool = False,
 ) -> Suppression:
     """A suppression with its text made safe and its id derived from what it holds back."""
 
@@ -237,6 +264,7 @@ def make_suppression(
         title=fragment(title, 160),
         thread_id=thread_id,
         added_in=added_in[:12],
+        dismisses_p0=dismisses_p0,
     )
 
 
@@ -273,6 +301,8 @@ def suppression_from_wire(raw: object) -> Suppression | None:
         title=text("title", 160),
         thread_id=thread if isinstance(thread, int) and not isinstance(thread, bool) and thread > 0 else 0,
         added_in=text("added_in", 12),
+        # A row written before the flag existed, or with anything but `true`, cannot hold back a P0.
+        dismisses_p0=raw.get("p0") is True,
     )
     # A row that holds nothing back is not a suppression.
     return suppression if suppression.fingerprint or suppression.category or suppression.pattern else None
@@ -295,17 +325,25 @@ def apply(findings: Sequence[BotFinding], suppressions: Sequence[Suppression], h
 
 
 def merge(existing: Sequence[Suppression], added: Sequence[Suppression]) -> tuple[Suppression, ...]:
-    """The suppressions after adding *added*: one per id (the first said wins), the newest :data:`MAX_SUPPRESSIONS`."""
+    """The suppressions after adding *added*: one per id (the first said wins), the newest :data:`MAX_SUPPRESSIONS`.
+
+    The exception is a row that may hold back a must-fix: when the same instruction was first given by someone who may
+    not (the author, say) and is given again by someone who may, the second is the one kept, in the first's place.
+    """
 
     rows: dict[str, Suppression] = {}
     for row in (*existing, *added):
-        rows.setdefault(row.id, row)
+        held = rows.get(row.id)
+        if held is None or (row.dismisses_p0 and not held.dismisses_p0):
+            rows[row.id] = row
     return tuple(list(rows.values())[-MAX_SUPPRESSIONS:])
 
 
 __all__ = [
     "CATEGORIES",
     "MAX_SUPPRESSIONS",
+    "MUST_FIX",
+    "P0_DISMISSERS",
     "PROTECTED",
     "REASON_WORDS",
     "SOURCES",

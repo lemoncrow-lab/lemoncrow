@@ -48,6 +48,9 @@ FINDING_MARKER_PREFIX: Final[str] = "<!-- lemoncrow:finding "
 FINGERPRINT_MARKER: Final[str] = "<!-- lemoncrow:fingerprint {fingerprint} -->"
 #: On the bot's "learned" reply in a finding's thread: which suppression it confirms, so it is said once per thread (G9).
 LEARNED_MARKER: Final[str] = "<!-- lemoncrow:learned {suppression_id} -->"
+#: On the bot's reply in a finding's thread when feedback on a must-fix was recorded and refused, so it is said once per
+#: thread and suppression, like the "learned" one.
+DECLINED_MARKER: Final[str] = "<!-- lemoncrow:declined {suppression_id} -->"
 STATE_OPEN: Final[str] = "<!-- lemoncrow:state v1\n"
 STATE_CLOSE: Final[str] = "\n-->"
 _STATE = re.compile(r"<!-- lemoncrow:state v1\n(.*?)\n-->", re.DOTALL)

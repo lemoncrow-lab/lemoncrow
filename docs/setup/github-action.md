@@ -99,7 +99,7 @@ Notes on the workflow:
 | `model-provider` | `auto` | `anthropic`, `openai` or `litellm`. `auto` uses `ANTHROPIC_API_KEY`, else `OPENAI_API_KEY`, from the step's environment. |
 | `model` | the provider's own | Model id (also `LEMONCROW_REVIEW_MODEL`). OpenAI defaults to `gpt-4o-mini`; Anthropic to `claude-sonnet-4-6`. Both are provisional until review cost per catch is measured. |
 | `depth` | `auto` | `auto`, `thorough` or `deep`. `auto` follows `review.effort` in `.lemoncrow/review.yaml` (Auto by default, `quick` if you set it there); the others go deeper for the run. |
-| `fail-on` | `none` | `p0` fails the `LemonCrow Review` status while a P0 finding is open. |
+| `fail-on` | `none` | `p0` fails the `LemonCrow Review` status while a P0 finding is open. The pull request's author cannot dismiss a P0 (see "Learning from feedback"). |
 | `max-usd-per-pr` | none | Stop reviewing a pull request once its reviews have cost this many US dollars in total (a number such as `2.50`). See "A budget per pull request". |
 | `max-runs-per-pr` | none | Stop reviewing a pull request after this many reviews of it (a whole number such as `5`). |
 | `review-drafts` | `false` | Review draft pull requests too. |
@@ -283,9 +283,25 @@ Other emoji are neutral. A thumbs-down wins over a reply, a reply over a resolve
 
 **When it takes effect.** GitHub sends no event when someone reacts, so a reaction is read by the next run: a push, a re-run of the workflow, or a `recheck` or `ignore`, which re-render the summary. An `ignore` is a comment event, so with the chat triggers it applies at once (a reply that does not mention the bot is read by the next run, like a reaction): the summary and the `LemonCrow Review` status are re-rendered from the same findings with no model call (a pull request that has moved on since the last review keeps the instruction in the state for the next review instead, and says so). A suppressed finding is closed: it counts toward no verdict and no check, posts no inline comment, and keeps its thread, in a collapsed `N findings dismissed by feedback` block. A later push that reports the same concern, even worded differently, is held back the same way, because a dismissal learned from a reaction is the finding's *fingerprint* (category, code and rules, not its words). That also means a second, different problem in the same function is held back with it; use a reply to say which.
 
-**Who may teach it.** The same `author_association` allow-list as chat (`chat-allowed-associations`, default `OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR`). A reaction carries no association, so the Action takes the one GitHub put on a comment of theirs on this pull request (or the pull request's author association) and otherwise looks up their repository permission (`GET /repos/{owner}/{repo}/collaborators/{user}/permission`): `write`, `maintain` and `admin` count as a collaborator, anything else, and any lookup GitHub refuses, counts for nothing. Bots and apps are never listened to. Reactions, replies and resolutions from anyone else are ignored without a word.
+**Who may teach it.** The same `author_association` allow-list as chat (`chat-allowed-associations`, default `OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR`). A reaction carries no association, so the Action takes the one GitHub put on a comment of theirs on this pull request (or the pull request's author association) and otherwise looks up their repository permission (`GET /repos/{owner}/{repo}/collaborators/{user}/permission`): `write`, `maintain` and `admin` count as a collaborator, anything else, and any lookup GitHub refuses, counts for nothing. Bots and apps are never listened to. Reactions, replies and resolutions from anyone else are ignored without a word. Anyone on the list may dismiss a P1 or a P2, the pull request's author included; a P0 needs more (next paragraph).
 
-**What it will not let a comment do.** A violation of a rule you wrote in `.lemoncrow/review.yaml` (`critical_rule`) cannot be dismissed by a reaction, a reply, a resolved thread or `ignore`: that file is the trusted base's, and a comment on a pull request is not allowed to loosen it. `ignore critical_rule` and `ignore` in such a thread say so and do nothing. Anyone else on the allow-list can dismiss any other finding, a P0 included, and the check follows; if you do not want a pull request's author to be able to do that, narrow `chat-allowed-associations`.
+**Who may dismiss a must-fix (P0).** With `fail-on: p0` a P0 is what blocks the merge, so whoever may dismiss it holds the key to the gate. A P0 is therefore dismissed only by an **owner, member or collaborator who did not open the pull request**, whatever `chat-allowed-associations` says. Feedback on a P0 from anyone else is **recorded but not applied**:
+
+- the pull request's author, by any of the four ways (a thumbs-down, a "won't fix" reply, a resolved thread, an `ignore` command);
+- the bot's own account (the account that wrote the finding's comment, even when a personal access token makes it look like a user);
+- a `CONTRIBUTOR`, a first-time contributor or anyone else on the list below collaborator. `CONTRIBUTOR` is on the default allow-list so that an outside contributor can teach the bot about P1s and P2s, but it only means "has a commit here", with no write access: it cannot merge, approve a required review or change what a check blocks, so it is not allowed to clear a must-fix either. The P0 list is fixed (`OWNER`, `MEMBER`, `COLLABORATOR`): widening `chat-allowed-associations` does not add to it, narrowing it removes from it.
+
+For a P0 that someone in that position gave feedback on, the P0, the verdict and the status stay exactly as they were, and:
+
+- the instruction is kept in the hidden state with who gave it, but without `p0: true`, which is what marks an instruction as able to hold back a must-fix; it is listed in the collapsed `N instructions learned` block, followed by `a must-fix (P0) it covers stays open: only an owner, member or collaborator other than the author can dismiss one`;
+- the finding's thread gets one reply, once, whatever happens next: "A must-fix on your own pull request needs a reviewer other than the author to dismiss it." (for anyone but the author: "A must-fix can be dismissed only by an owner, member or collaborator other than the pull request's author."), then what was recorded and who can dismiss it;
+- when a different owner, member or collaborator then gives the same feedback, that instruction replaces the recorded one and the P0 is dismissed. If both gave feedback before a run, the maintainer's is the one heard, so the author's thumbs-down cannot shadow it.
+
+`@lemoncrow ignore` follows the same rule. From someone who may not dismiss a P0, `ignore` in the thread of an open P0 is refused (the bot answers with the sentence above and records nothing), and `ignore <category or words>` still holds back the P1 and P2 findings it names but leaves the P0 it covers open; the reply lists it (`1 must-fix finding it covers stays open: ...`). A dismissed P0 appears in the `dismissed by feedback` block with a **P0** badge and the login that dismissed it (for example `thumbs-down from maria`), so the summary says who took a must-fix off the verdict.
+
+This needs a second person. Where the pull request's author is the only owner, member or collaborator, nobody can dismiss a P0 by comment: fix the finding, or leave `fail-on` at `none` so the bot stays advisory. (A violation of a rule you wrote is changed or removed in `.lemoncrow/review.yaml` on the base branch, as before.)
+
+**What it will not let a comment do.** A violation of a rule you wrote in `.lemoncrow/review.yaml` (`critical_rule`) cannot be dismissed by a reaction, a reply, a resolved thread or `ignore`, by anyone: that file is the trusted base's, and a comment on a pull request is not allowed to loosen it. `ignore critical_rule` and `ignore` in such a thread say so and do nothing. Any other finding can be dismissed by the people above, a P0 only by the narrower group; if you also want to narrow who may dismiss P1s and P2s, narrow `chat-allowed-associations`.
 
 **The confirmation.** The thread gets one reply, once, whatever the number of later pushes:
 
@@ -298,7 +314,16 @@ file from the pull request's merge base, so the rule takes effect once it is mer
 ▸ Rule for .lemoncrow/review.yaml          (collapsed: the YAML)
 ```
 
-A reply to an `ignore` command is its own confirmation, with how many open findings it took off the verdict and their titles.
+A reply to an `ignore` command is its own confirmation, with how many open findings it took off the verdict and their titles, and the must-fix findings it covers but could not take off.
+
+On a P0 whose dismissal was refused, the thread gets this instead, once (the hidden marker carries the id of the recorded instruction):
+
+```text
+A must-fix on your own pull request needs a reviewer other than the author to dismiss it.
+
+Recorded: thumbs-down from `alice`. The P0 and the check stay as they are. A different owner, member or
+collaborator can dismiss it with a thumbs-down, a reply that says so, or an `ignore` command.
+```
 
 **Suggested rules from feedback.** The summary gets a collapsed `Suggested rules from feedback` block with YAML to copy under `rules:` in `.lemoncrow/review.yaml`, built with the same code that proposes rule adoptions in the Reader, so the repository's rule loader accepts it (the tests load it with that loader). A command is a rule of its own; thumbs-downs and resolves are grouped by category and directory and offered when a person said why in words or when two or more repeat, because one thumbs-down is not yet a pattern. The block is text: the bot writes nothing to your repository, and the Action reads `.lemoncrow/review.yaml` from the pull request's **merge base**, so a suggested rule governs reviews only once a person has merged it, the same trusted-base rule every other rule follows (a copy in the pull request's own branch changes nothing for that pull request).
 
@@ -312,7 +337,7 @@ rules:
 
 There is no `ignore` key in `.lemoncrow/review.yaml`, so a suggestion is a rule, written in words. It is trusted text the investigator reads for the paths it covers, and, like every rule, it can also be asked as a per-rule question where your review settings ask them; read a suggestion before you merge it. Everything a person or a model wrote that goes into a suggestion is cut short and stripped of angle brackets, backticks and link syntax first, and a rule is a quoted YAML string, so it cannot add a key or a row.
 
-**What is stored.** The summary's hidden state carries `suppressions` (at most 40, the newest kept), each with its id, source (`reaction`, `resolved`, `reply`, `command`), what it holds back (a fingerprint, a category or words, and an optional path glob), the person's login, the reason and a short note, and the thread it came from; a held-back finding has state `suppressed` and the id of the suppression that holds it back; a finding that got a thumbs-up has `confirmed`. A feedback line costs no model call. Suppressions live as long as the summary comment: deleting it resets them, and the review budget with them.
+**What is stored.** The summary's hidden state carries `suppressions` (at most 40, the newest kept), each with its id, source (`reaction`, `resolved`, `reply`, `command`), what it holds back (a fingerprint, a category or words, and an optional path glob), the person's login, the reason and a short note, the thread it came from, and `p0: true` when the person may dismiss a must-fix (a row without it, including one written by an older version, holds back P1 and P2 findings only); a held-back finding has state `suppressed` and the id of the suppression that holds it back; a finding that got a thumbs-up has `confirmed`. A feedback line costs no model call. Suppressions live as long as the summary comment: deleting it resets them, and the review budget with them.
 
 **Limits.** A suppression cannot be undone from a comment yet (delete the bot's summary to reset). A reaction cannot take effect before a run that reads it; there is no GitHub event to start one. Feedback is read when a review runs, so a pull request whose budget is spent (`Review budget reached`) applies commands and stored suppressions but does not read new reactions until the budget allows a run. The reaction reader looks at the first 30 comments of a thread and 30 reactions on each, and at 100 threads per page. The reply phrases are English. Whether a teaching reply or reaction was *right* is not checked: it is a person's decision.
 

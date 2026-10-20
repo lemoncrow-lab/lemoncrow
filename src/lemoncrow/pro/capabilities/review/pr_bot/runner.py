@@ -416,6 +416,7 @@ def _review(
                 _known_associations(threads, comments, facts),
                 owner=ref.owner,
                 lookup=github.permission_of,
+                author=facts.author if facts is not None else "",
             )
             reviewed_again, intact = set(ai.rereviewed), set(ai.intact)
             signals = learning.read_signals(
@@ -461,7 +462,17 @@ def _review(
         )
         if told is not None:
             report.published["learned"] = told
-    if writes and (wanted or closed or owed or learned.changed):
+    # A must-fix that someone who may not dismiss it gave feedback on stays open; its thread is told once.
+    refused = learning.refusals(
+        findings, learned.suppressions, comments, author=facts.author if facts is not None else ""
+    )
+    if writes and refused:
+        declined = _best_effort_value(
+            lambda: learning.post_refusals(github, refused), report.notes, "answer feedback on a must-fix"
+        )
+        if declined is not None:
+            report.published["declined"] = declined
+    if writes and (wanted or closed or owed or refused or learned.changed):
         report.noop = False
 
     tracked, dropped = cap_findings(findings)
@@ -534,7 +545,7 @@ def _review(
         depth_label=options.depth.capitalize(),
         max_calls=ai.max_calls,
         fail_on=options.fail_on,
-        suggestions=learning.suggest(ref.slug, learned.suppressions),
+        suggestions=learning.suggest(ref.slug, learned.suppressions, tracked),
     )
     body, posted_state = render_summary(summary_view)
     status = check_status(view, fail_on=options.fail_on)
