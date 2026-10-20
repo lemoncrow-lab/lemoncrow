@@ -342,6 +342,11 @@ class ScriptedExecutor:
     It answers the stages the investigator pipeline asks for (hypotheses, investigation, dedupe) from the prompt alone,
     reports tokens in proportion to the prompt, and prices them at a made-up rate. Its only job is to let the harness be
     tested end to end without a key; a report made with it says so.
+
+    It speaks the pull request fields a real model is asked for: a confirmed finding cites the line that carries the
+    marker, and a re-check (a ``prior_findings`` block) is answered per finding id as a model reading the code would:
+    ``still_present`` while the code it was shown still carries that finding's marker, ``resolved`` once the marker is
+    gone from code it was shown, ``unclear`` when it was not shown the finding's code at all.
     """
 
     def __init__(self, *, report_cost: bool = True, model: str = "scripted") -> None:
@@ -430,8 +435,47 @@ class ScriptedExecutor:
                 explanation=f"The changed code does this: {title}.",
                 consequence="Callers of the changed code are affected.",
                 evidence_refs=[f"target:{target}" for target in targets],
+                lines=ScriptedExecutor._marker_lines(source.get(targets[0]) if targets else None),
             )
+        prior = prompt.get("prior_findings")
+        asked = prior.get("value", []) if isinstance(prior, Mapping) else []
+        result["prior_findings"] = ScriptedExecutor._prior_answers(asked, source)
         return result
+
+    @staticmethod
+    def _marker_lines(row: Mapping[str, Any] | None) -> dict[str, int] | None:
+        """The file line that carries the marker in the excerpt *row*, as the model's ``lines`` claim; else ``None``."""
+
+        if row is None:
+            return None
+        for offset, line in enumerate(str(row.get("text", "")).splitlines()):
+            if _BUG_MARKER.search(line):
+                number = int(row.get("start_line") or 1) + offset
+                return {"start_line": number, "end_line": number}
+        return None
+
+    @staticmethod
+    def _prior_answers(asked: Any, source: Mapping[str, Any]) -> list[dict[str, str]]:
+        """One answer per earlier finding, from the code this investigation was shown."""
+
+        answers: list[dict[str, str]] = []
+        for row in asked if isinstance(asked, list) else ():
+            if not isinstance(row, Mapping):
+                continue
+            shown = [
+                str(source[target].get("text", ""))
+                for target in row.get("target_ids") or ()
+                if isinstance(source.get(target), Mapping)
+            ]
+            title = str(row.get("title", "")).strip()
+            if not any(shown):
+                status = "unclear"  # not shown the finding's code: never "resolved" on that
+            elif any(found.group(1).strip() == title for text in shown for found in _BUG_MARKER.finditer(text)):
+                status = "still_present"
+            else:
+                status = "resolved"
+            answers.append({"id": str(row.get("id", "")), "status": status})
+        return answers
 
 
 class RecordingExecutor:
@@ -923,7 +967,12 @@ def carry_state(pr: RealPr, record: RunRecord, depth: str) -> Any:
 
 
 def push_states(pr: RealPr, previous: Any, record: RunRecord) -> dict[str, int]:
-    """New, carried forward, fixed and stale findings after a push, by the same rules the bot's summary uses."""
+    """New, carried forward, fixed, stale and no-longer-reported findings after a push, by the bot's own rules.
+
+    A finding is ``fixed`` only when the re-check said it is resolved and the lines it cited changed
+    (``record.ai.answers`` and ``.intact``, exactly what the runner hands ``reconcile``); one the review did not
+    report again without that proof is counted as ``unreported``, never as fixed.
+    """
 
     from lemoncrow.pro.capabilities.review.pr_bot.reconcile import reconcile
     from lemoncrow.pro.capabilities.review.pr_bot.render import short
@@ -939,8 +988,10 @@ def push_states(pr: RealPr, previous: Any, record: RunRecord) -> dict[str, int]:
         rereviewed=ai.rereviewed,
         covered=ai.covered,
         head=short(record.head_sha),
+        answers=ai.answers,
+        intact=ai.intact,
     )
-    counts = {"new": 0, "carried": 0, "fixed": 0, "stale": 0}
+    counts = {"new": 0, "carried": 0, "fixed": 0, "stale": 0, "unreported": 0}
     for finding in merged.findings:
         if finding.state in counts:
             counts[finding.state] += 1

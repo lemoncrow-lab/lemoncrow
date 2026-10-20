@@ -8,6 +8,7 @@ tested is the harness, never a model. Nothing here, and nothing it writes, is a 
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 from pathlib import Path
@@ -84,14 +85,23 @@ def shared(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     mp.setenv("LEMONCROW_AST_GREP_BIN", "/nonexistent/sg")
     try:
         world = World(tmp_path_factory.mktemp("bench"))
-        results, ledger, facts, options = world.run()
+        scripted = ScriptedExecutor()
+        options = world.options()
+        results, ledger, facts = run_benchmark(world.corpus(), options, scripted=scripted)
         corpus = world.corpus()
         report = build_report(
             corpus, options, results, ledger, facts, name="scripted", generated_at="2026-10-20T00:00:00+00:00"
         )
     finally:
         mp.undo()
-    return {"world": world, "results": results, "ledger": ledger, "report": report, "markdown": render_markdown(report)}
+    return {
+        "world": world,
+        "results": results,
+        "ledger": ledger,
+        "report": report,
+        "markdown": render_markdown(report),
+        "scripted": scripted,
+    }
 
 
 def pr(report: dict[str, Any], pr_id: str) -> dict[str, Any]:
@@ -174,6 +184,45 @@ def test_a_follow_up_push_costs_less_with_carry_forward_than_re_reviewing_everyt
     cell = pr(shared["report"], "shop-12")["depths"]["deep"]["pushes"]["apply-fix"]
     assert cell["applied"] in {"as written", "three-way merge", "without context"}
     assert cell["extra"]["calls_with_carry_forward"] < cell["extra"]["calls_without"]
+
+
+def test_the_scripted_model_answers_the_re_check_so_the_fixed_finding_is_fixed_not_just_unreported(
+    shared: dict[str, Any],
+) -> None:
+    states = shared["report"]["pushes"]["deep"]["findings_after_push"]
+    assert states["fixed"] >= 1 and states["unreported"] == 0
+    # It spoke the protocol: asked about the finding on the fixed code, it said resolved.
+    asked = [
+        row
+        for prompt in shared["scripted"].prompts
+        if isinstance(prompt.get("prior_findings"), dict)
+        for row in prompt["prior_findings"]["value"]
+    ]
+    assert asked and {row["title"] for row in asked} == {"quote ignores a missing region"}
+
+
+class _SilentOnRecheck(ScriptedExecutor):
+    """A model that does not repeat the finding and does not answer the re-check either."""
+
+    def __call__(self, **kwargs: Any) -> StructuredExecution:
+        execution = super().__call__(**kwargs)
+        return dataclasses.replace(execution, result={**execution.result, "prior_findings": []})
+
+
+def test_a_finding_the_re_check_did_not_answer_is_counted_as_no_longer_reported_never_as_fixed(
+    tmp_path: Path,
+) -> None:
+    world = World(tmp_path)
+    options = world.options(depths=("deep",))
+    corpus = world.corpus()
+    results, ledger, facts = run_benchmark(corpus, options, scripted=_SilentOnRecheck())
+    report = build_report(
+        corpus, options, results, ledger, facts, name="scripted", generated_at="2026-10-20T00:00:00+00:00"
+    )
+    states = report["pushes"]["deep"]["findings_after_push"]
+    assert states["fixed"] == 0 and states["unreported"] >= 1
+    cell = pr(report, "shop-12")["depths"]["deep"]["pushes"]["apply-fix"]
+    assert cell["carry_forward"]["states"]["unreported"] >= 1 and cell["carry_forward"]["states"]["fixed"] == 0
 
 
 def test_the_reference_team_projection_follows_from_the_reports_own_means(shared: dict[str, Any]) -> None:

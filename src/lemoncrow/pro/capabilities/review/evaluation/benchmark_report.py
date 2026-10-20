@@ -193,7 +193,7 @@ def _push_aggregate(depth: str, results: Sequence[PrResult]) -> dict[str, Any]:
             else None
         ),
     }
-    states = {"new": 0, "carried": 0, "fixed": 0, "stale": 0}
+    states = {"new": 0, "carried": 0, "fixed": 0, "stale": 0, "unreported": 0}
     for carry, _full in usable:
         for key in states:
             states[key] += carry.states.get(key, 0)
