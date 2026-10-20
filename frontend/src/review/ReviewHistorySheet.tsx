@@ -1,6 +1,6 @@
 import { Select, SelectItem } from "../components/ui/select";
 import { Button as UiButton } from "../components/ui/button";
-import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
+import { SHEET_LEDE_CLASS, Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
 import { ToggleGroup } from "../components/ui/toggle-group";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Bot, CircleDot, GitCompareArrows, UserRound, X } from "lucide-react";
@@ -137,19 +137,17 @@ export default function ReviewHistorySheet({
   return (
     <Sheet open onOpenChange={(open) => { if (!open) onClose(); }}>
       <SheetContent className="w-[min(560px,100%)]">
-        <SheetHeader className="items-center">
-          <div className="min-w-0 flex-1">
-            <SheetTitle>History</SheetTitle>
-            <div className="mt-0.5 text-caption text-muted-foreground">
-              Viewing {selectedRow?.capture_kind === "draft" && !selectedRow.is_published_snapshot ? "working changes" : selectedRow ? `Snapshot ${selectedRow.revision_number}` : `Snapshot ${selectedRevisionNumber}`}{latestSaved && latestSaved.revision_number !== selectedRevisionNumber ? ` · newest saved Snapshot ${latestSaved.revision_number}` : ""}
-            </div>
-          </div>
+        <SheetHeader>
+          <SheetTitle>History</SheetTitle>
           <SheetClose asChild>
             <UiButton variant="ghost" size="icon" type="button" aria-label="Close review history">
               <X size={14} />
             </UiButton>
           </SheetClose>
         </SheetHeader>
+        <div className={SHEET_LEDE_CLASS}>
+          Viewing {selectedRow?.capture_kind === "draft" && !selectedRow.is_published_snapshot ? "working changes" : selectedRow ? `Snapshot ${selectedRow.revision_number}` : `Snapshot ${selectedRevisionNumber}`}{latestSaved && latestSaved.revision_number !== selectedRevisionNumber ? ` · newest saved Snapshot ${latestSaved.revision_number}` : ""}
+        </div>
 
         <div className="flex shrink-0 border-b border-border/70 px-4 py-2">
           <ToggleGroup

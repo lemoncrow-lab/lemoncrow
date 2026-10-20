@@ -1,5 +1,5 @@
 import { Button as UiButton } from "../components/ui/button";
-import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
+import { SHEET_LEDE_CLASS, Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
 import { ToggleGroup } from "../components/ui/toggle-group";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -14,7 +14,6 @@ import {
   MessageSquareText,
   Play,
   Undo2,
-  Workflow,
   X,
   XCircle,
 } from "lucide-react";
@@ -641,20 +640,17 @@ export default function ReviewDevelopmentSheet({
           }
         }}
       >
-        <SheetHeader className="gap-3 px-5 py-3.5">
-          <Workflow size={16} className="mt-0.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-          <div className="min-w-0 flex-1">
-            <SheetTitle className="text-title">Activity</SheetTitle>
-            <p className="mt-0.5 text-label text-muted-foreground">
-              {session ? "Latest recorded conversation" : `Snapshot ${development.revision_number} · ${historical ? "frozen historical record" : "frozen with this Snapshot"}`}
-            </p>
-          </div>
+        <SheetHeader>
+          <SheetTitle>Activity</SheetTitle>
           <SheetClose asChild>
             <UiButton variant="ghost" size="icon" type="button" aria-label="Close activity">
               <X size={14} />
             </UiButton>
           </SheetClose>
         </SheetHeader>
+        <p className={SHEET_LEDE_CLASS}>
+          {session ? "Latest recorded conversation" : `Snapshot ${development.revision_number} · ${historical ? "frozen historical record" : "frozen with this Snapshot"}`}
+        </p>
 
         {newer && !session && (
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-cyan-900/50 bg-cyan-950/20 px-5 py-2.5 text-body text-cyan-200" role="status">

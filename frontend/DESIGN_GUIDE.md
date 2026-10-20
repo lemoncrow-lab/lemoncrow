@@ -79,7 +79,13 @@ the generic `neutral`, `secondary`, `info`, `success`, `warning`, `destructive`.
 | Expand/collapse | `Collapsible` / `DisclosureCard` |
 | Choose from a list | `Select` |
 | A framed object with a header strip | `Hunk` |
-| Nothing to show | `EmptyState` (one recipe: optional icon, one-line title, one sentence, at most one action) |
+| Nothing to show | `EmptyState` (one recipe: optional icon, one-line title, one sentence, at most one action; `density="compact"` for a slot inside a strip, as on Home's savings band). It says what will appear and the one real route or action that gets there; never "No data" |
+
+A `Sheet` or `Dialog` opens with the Hunk header strip: `DialogHeader` / `SheetHeader` is the 36px mono strip and its `DialogTitle` /
+`SheetTitle` draws as `@@ TITLE @@` (the markers are CSS, so the accessible name is the title text and nothing else). The right slot takes
+at most one meta string, badge or the close button; the one sentence that says what the overlay will and will not do goes in
+`DialogLede` / `SheetLede` under the strip (it is the dialog's description), and a status line that is not a description uses `LEDE_CLASS`.
+A title outside a header strip stays an ordinary heading (the command palette).
 
 Overlays portal into the app shell (`PortalContainerContext`) and stack at `z-50` by DOM order; do not add arbitrary `z-[NN]` layers.
 `Dialog`/`Sheet` trap focus, close on Escape and outside press, hide the page from assistive tech, and return focus to the element that

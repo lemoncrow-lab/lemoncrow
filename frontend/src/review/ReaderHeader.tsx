@@ -1,6 +1,6 @@
 import { Badge } from "../components/ui/badge";
 import { Button as UiButton } from "../components/ui/button";
-import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle, LEDE_CLASS } from "../components/ui/dialog";
 import { Input as UiInput } from "../components/ui/input";
 import { Textarea as UiTextarea } from "../components/ui/textarea";
 import { useRef, useState, type FormEvent, type ReactNode, type Ref } from "react";
@@ -486,16 +486,14 @@ export default function ReaderHeader({
         >
           <form onSubmit={sendProductFeedback}>
             <DialogHeader>
-              <div className="min-w-0 flex-1">
-                <DialogTitle>Make a wish</DialogTitle>
-                <p className="mt-0.5 text-caption text-muted-foreground">What would make Review better?</p>
-              </div>
+              <DialogTitle>Make a wish</DialogTitle>
               <DialogClose asChild>
                 <UiButton variant="ghost" size="icon" aria-label="Close feedback">
                   <X size={14} />
                 </UiButton>
               </DialogClose>
             </DialogHeader>
+            <p className={LEDE_CLASS}>What would make Review better?</p>
             <DialogBody>
               {feedbackState === "sent" ? (
                 <p className="text-body leading-5 text-emerald-400">Sent. Thank you — it’s in the wish backlog.</p>

@@ -128,8 +128,20 @@ export const DialogContent = forwardRef<ElementRef<typeof DialogPrimitive.Conten
 );
 DialogContent.displayName = "DialogContent";
 
+const InHeaderStrip = createContext(false);
+
+/**
+ * The Hunk header strip of a dialog or sheet (spec 3.7): 36px, muted, mono. Its title is the object's name and
+ * draws as `@@ TITLE @@` (the markers are CSS, so the accessible name is the title text and nothing else); the right
+ * slot takes at most one badge, meta string or close button. A sentence of explanation goes in `DialogLede`
+ * below the strip, not inside it. It grows past 36px only for the 44px touch targets of a coarse pointer.
+ */
 export function DialogHeader({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("flex shrink-0 items-start gap-3 border-b border-border bg-muted px-4 py-3", className)} {...props} />;
+  return (
+    <InHeaderStrip.Provider value>
+      <div className={cn("hunk-head h-auto min-h-9 shrink-0 px-4 py-1 pointer-coarse:min-h-12", className)} {...props} />
+    </InHeaderStrip.Provider>
+  );
 }
 
 export function DialogBody({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
@@ -143,9 +155,16 @@ export function DialogFooter({ className, ...props }: HTMLAttributes<HTMLDivElem
 export const DialogTitle = forwardRef<
   ElementRef<typeof DialogPrimitive.Title>,
   ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
->(({ className, ...props }, ref) => (
-  <DialogPrimitive.Title ref={ref} className={cn("text-heading font-semibold text-foreground", className)} {...props} />
-));
+>(({ className, ...props }, ref) => {
+  const inStrip = useContext(InHeaderStrip);
+  return (
+    <DialogPrimitive.Title
+      ref={ref}
+      className={cn(inStrip ? "hunk-label font-medium text-foreground" : "text-heading font-semibold text-foreground", className)}
+      {...props}
+    />
+  );
+});
 DialogTitle.displayName = "DialogTitle";
 
 export const DialogDescription = forwardRef<
@@ -155,3 +174,19 @@ export const DialogDescription = forwardRef<
   <DialogPrimitive.Description ref={ref} className={cn("mt-0.5 text-meta text-muted-foreground", className)} {...props} />
 ));
 DialogDescription.displayName = "DialogDescription";
+
+/** Classes of the line under a header strip. `DialogLede` is the description; a status line that is not one uses these directly. */
+export const LEDE_CLASS = "shrink-0 border-b border-border px-4 py-2.5 text-meta text-muted-foreground";
+
+/** The one sentence under a header strip: why this opened and what it will and will not do. It is the dialog's description. */
+export const DialogLede = forwardRef<
+  ElementRef<typeof DialogPrimitive.Description>,
+  ComponentPropsWithoutRef<typeof DialogPrimitive.Description>
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Description
+    ref={ref}
+    className={cn(LEDE_CLASS, className)}
+    {...props}
+  />
+));
+DialogLede.displayName = "DialogLede";

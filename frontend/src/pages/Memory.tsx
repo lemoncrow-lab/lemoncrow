@@ -4,7 +4,7 @@ import {
   Dialog,
   DialogBody,
   DialogContent,
-  DialogDescription,
+  DialogLede,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -595,10 +595,10 @@ export default function Memory() {
           <DialogContent className="max-w-3xl">
             <DialogHeader>
               <DialogTitle>Review memory block update</DialogTitle>
-              <DialogDescription>
-                Label: {editDraft.block.label}
-              </DialogDescription>
             </DialogHeader>
+            <DialogLede>
+              Label: {editDraft.block.label}
+            </DialogLede>
             <DialogBody>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>

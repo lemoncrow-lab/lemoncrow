@@ -16,7 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "./dropdown-menu";
 import { Select, SelectItem } from "./select";
-import { Sheet, SheetContent, SheetTitle } from "./sheet";
+import { Sheet, SheetClose, SheetContent, SheetHeader, SheetLede, SheetTitle } from "./sheet";
 import { ToggleGroup } from "./toggle-group";
 import { escapeDismissedTooltip } from "./tooltip";
 
@@ -56,6 +56,42 @@ describe("Sheet", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(document.activeElement).toBe(opener);
+  });
+});
+
+describe("Sheet header strip", () => {
+  it("draws the title as a Hunk `@@ LABEL @@` strip without changing the dialog's name or description", () => {
+    render(
+      <Sheet open>
+        <SheetContent>
+          <SheetHeader data-testid="strip">
+            <SheetTitle>Finish review</SheetTitle>
+            <SheetClose asChild>
+              <Button aria-label="Close review outcome">x</Button>
+            </SheetClose>
+          </SheetHeader>
+          <SheetLede>Record your verdict for this Snapshot.</SheetLede>
+        </SheetContent>
+      </Sheet>,
+    );
+    // The accessible name and description are the plain text: the `@@` markers are CSS, not content.
+    const dialog = screen.getByRole("dialog", { name: "Finish review", description: "Record your verdict for this Snapshot." });
+    expect(dialog).toHaveTextContent(/^Finish reviewxRecord your verdict for this Snapshot\.$/);
+    expect(screen.getByTestId("strip").className).toContain("hunk-head");
+    const title = screen.getByRole("heading", { name: "Finish review" });
+    expect(title.className).toContain("hunk-label");
+    expect(screen.getByRole("button", { name: "Close review outcome" })).toBeInTheDocument();
+  });
+
+  it("leaves a title outside a header strip as an ordinary heading", () => {
+    render(
+      <Sheet open>
+        <SheetContent aria-describedby={undefined}>
+          <SheetTitle>Palette</SheetTitle>
+        </SheetContent>
+      </Sheet>,
+    );
+    expect(screen.getByRole("heading", { name: "Palette" }).className).not.toContain("hunk-label");
   });
 });
 

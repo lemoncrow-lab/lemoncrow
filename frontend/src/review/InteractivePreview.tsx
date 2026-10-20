@@ -4,8 +4,8 @@ import { Button as UiButton } from "../components/ui/button";
 import {
   Sheet,
   SheetContent,
-  SheetDescription,
   SheetHeader,
+  SheetLede,
   SheetTitle,
 } from "../components/ui/sheet";
 import {
@@ -75,28 +75,30 @@ function SideBySide({
         className="h-[85dvh]"
         data-testid="interactive-preview-frame"
       >
-        <SheetHeader className="flex-row items-center gap-3">
+        <SheetHeader>
           <SheetTitle>Interactive preview</SheetTitle>
-          <SheetDescription className="min-w-0 flex-1 truncate">
-            Base and head side by side · a human observation, recorded as
-            evidence, never a check result
-          </SheetDescription>
-          <span
-            className="font-mono text-caption text-muted-foreground"
-            data-testid="interactive-preview-remaining"
-          >
-            {ended ? "Time limit reached" : `${clock(left)} left`}
-          </span>
-          <UiButton
-            type="button"
-            size="compact"
-            variant="outline"
-            disabled={stopping}
-            onClick={onStop}
-          >
-            Stop preview
-          </UiButton>
+          <div className="flex shrink-0 items-center gap-3">
+            <span
+              className="font-mono text-caption text-muted-foreground"
+              data-testid="interactive-preview-remaining"
+            >
+              {ended ? "Time limit reached" : `${clock(left)} left`}
+            </span>
+            <UiButton
+              type="button"
+              size="compact"
+              variant="outline"
+              disabled={stopping}
+              onClick={onStop}
+            >
+              Stop preview
+            </UiButton>
+          </div>
         </SheetHeader>
+        <SheetLede className="truncate">
+          Base and head side by side · a human observation, recorded as
+          evidence, never a check result
+        </SheetLede>
         {live.session.limited_by_budget && (
           <div className="px-4 text-micro text-amber-300/80">
             Limited by budget: the time limit was shortened to fit the remaining

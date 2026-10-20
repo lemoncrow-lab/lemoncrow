@@ -3,7 +3,7 @@ import { X } from "lucide-react";
 
 import { Button as UiButton } from "../components/ui/button";
 import { Input as UiInput } from "../components/ui/input";
-import { Sheet, SheetClose, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "../components/ui/sheet";
+import { Sheet, SheetClose, SheetContent, SheetHeader, SheetLede, SheetTitle } from "../components/ui/sheet";
 import { ToggleGroup } from "../components/ui/toggle-group";
 import type {
   DegradedNote,
@@ -134,18 +134,16 @@ export default function FinishSheet({
     <Sheet open onOpenChange={(open) => { if (!open) onClose(); }}>
       <SheetContent onCloseAutoFocus={onCloseAutoFocus}>
         <SheetHeader>
-          <div className="min-w-0 flex-1">
-            <SheetTitle>Finish review</SheetTitle>
-            <SheetDescription>
-              Record your verdict for this Snapshot. Sending pending feedback is a separate explicit choice.
-            </SheetDescription>
-          </div>
+          <SheetTitle>Finish review</SheetTitle>
           <SheetClose asChild>
             <UiButton variant="ghost" size="icon" type="button" aria-label="Close review outcome">
               <X size={14} />
             </UiButton>
           </SheetClose>
         </SheetHeader>
+        <SheetLede>
+          Record your verdict for this Snapshot. Sending pending feedback is a separate explicit choice.
+        </SheetLede>
 
         <div className="min-h-0 flex-1 overflow-auto px-4 py-4">
           <section>

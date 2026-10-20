@@ -9,7 +9,7 @@ import {
 import { Badge } from "../components/ui/badge";
 import { hunkRowVariants } from "../components/ui/hunk";
 import { cn } from "../lib/utils";
-import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
+import { SHEET_LEDE_CLASS, Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, ChevronDown, CornerUpRight, MessageSquareText, RefreshCw, X } from "lucide-react";
@@ -139,31 +139,29 @@ export default function ReviewCommentsSheet({
           closeRef.current?.focus();
         }}
       >
-        <SheetHeader className="items-start px-5 py-5">
-          <div className="min-w-0 flex-1">
-            <SheetTitle className="text-lead tracking-tight">Comments</SheetTitle>
-            <div className="mt-1 text-body text-muted-foreground">
-              {handoffParts.length > 0
-                ? handoffParts.join(" · ")
-                : `${filterCounts.open} open${filterCounts.rereview > 0 ? ` · ${filterCounts.rereview} need re-review` : ""}`}
-            </div>
-            {feedbackStatus && feedbackStatus.open_total > 0 && (
-              <details className="mt-3 text-body leading-5 text-muted-foreground">
-                <summary className="cursor-pointer">How feedback works</summary>
-                <p className="mt-2">
-                {toAgent
-                  ? `Flow: send to ${destination} → agent fixes and verifies → marks addressed → you re-review and resolve.`
-                  : "Flow: copy/export feedback to the author → re-review their response → resolve only after you verify the fix."}
-                </p>
-              </details>
-            )}
-          </div>
+        <SheetHeader>
+          <SheetTitle>Comments</SheetTitle>
           <SheetClose asChild>
             <UiButton ref={closeRef} variant="ghost" size="icon" type="button" aria-label="Close review comments">
               <X size={14} />
             </UiButton>
           </SheetClose>
         </SheetHeader>
+        <div className={SHEET_LEDE_CLASS}>
+          {handoffParts.length > 0
+            ? handoffParts.join(" · ")
+            : `${filterCounts.open} open${filterCounts.rereview > 0 ? ` · ${filterCounts.rereview} need re-review` : ""}`}
+          {feedbackStatus && feedbackStatus.open_total > 0 && (
+            <details className="mt-2 leading-5">
+              <summary className="cursor-pointer">How feedback works</summary>
+              <p className="mt-2">
+              {toAgent
+                ? `Flow: send to ${destination} → agent fixes and verifies → marks addressed → you re-review and resolve.`
+                : "Flow: copy/export feedback to the author → re-review their response → resolve only after you verify the fix."}
+              </p>
+            </details>
+          )}
+        </div>
 
         <Tabs value={filter} onValueChange={(value) => setFilter(value as Filter)} className="contents">
         <div className="review-comments-filters flex items-center gap-2">

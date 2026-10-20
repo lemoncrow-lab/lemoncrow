@@ -1,6 +1,7 @@
 import { Badge } from "../components/ui/badge";
 import { Button as UiButton } from "../components/ui/button";
-import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
+import { SHEET_LEDE_CLASS, Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
+import { cn } from "../lib/utils";
 import type { ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, CircleDot, ExternalLink, X } from "lucide-react";
 
@@ -429,38 +430,37 @@ export default function ReviewReadinessSheet({
   return (
     <Sheet open onOpenChange={(open) => { if (!open) onClose(); }}>
       <SheetContent className="w-[min(440px,100%)]">
-        <SheetHeader className="items-center">
-          <div className="min-w-0 flex-1">
-            <SheetTitle className="text-body">Review Status</SheetTitle>
-            {landing ? (
-              <div
-                className={`mt-0.5 text-caption ${
-                  landing.landing.state === "merged" || (landing.ready && landing.landing.supported)
-                    ? "text-emerald-300"
-                    : landing.ready
-                      ? "text-muted-foreground"
-                      : "text-amber-300"
-                }`}
-              >
-                {landing.landing.state === "merged"
-                  ? "Merged"
-                  : landing.ready
-                  ? landing.landing.supported
-                    ? "Ready to merge"
-                    : "Review ready · merge unavailable"
-                  : `Not ready · ${landing.blocker_count} condition${landing.blocker_count === 1 ? "" : "s"}`}
-                <span className="ml-2 font-mono text-muted-foreground">Snapshot {landing.snapshot_number}</span>
-              </div>
-            ) : (
-              <div className={`mt-0.5 text-caption ${model.ready ? "text-emerald-300" : "text-muted-foreground"}`} title={model.detail}>{model.label}</div>
-            )}
-          </div>
+        <SheetHeader>
+          <SheetTitle>Review Status</SheetTitle>
           <SheetClose asChild>
             <UiButton variant="ghost" size="icon" type="button" aria-label="Close review status">
               <X size={14} />
             </UiButton>
           </SheetClose>
         </SheetHeader>
+        {landing ? (
+          <div
+            className={cn(
+              SHEET_LEDE_CLASS,
+              landing.landing.state === "merged" || (landing.ready && landing.landing.supported)
+                ? "text-emerald-300"
+                : landing.ready
+                  ? "text-muted-foreground"
+                  : "text-amber-300",
+            )}
+          >
+            {landing.landing.state === "merged"
+              ? "Merged"
+              : landing.ready
+              ? landing.landing.supported
+                ? "Ready to merge"
+                : "Review ready · merge unavailable"
+              : `Not ready · ${landing.blocker_count} condition${landing.blocker_count === 1 ? "" : "s"}`}
+            <span className="ml-2 font-mono text-muted-foreground">Snapshot {landing.snapshot_number}</span>
+          </div>
+        ) : (
+          <div className={cn(SHEET_LEDE_CLASS, model.ready ? "text-emerald-300" : "text-muted-foreground")} title={model.detail}>{model.label}</div>
+        )}
 
         <div className="min-h-0 flex-1 overflow-auto p-4">
           {!landing && landingError && (
