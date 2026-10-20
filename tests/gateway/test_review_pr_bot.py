@@ -321,7 +321,18 @@ def test_state_round_trips_through_a_comment_and_cannot_end_its_own_comment() ->
             finding(
                 "f2", "p0", "fixed", resolved_in="abcdef0", thread_id=55, thread_url="https://x/y", placement="inline"
             ),
-            finding("f3", "p2", "stale", resolved_in="abcdef0", suggestion="return False\n", unverified=True),
+            finding(
+                "f3",
+                "p2",
+                "stale",
+                resolved_in="abcdef0",
+                suggestion="return False\n",
+                suggestion_start=13,
+                suggestion_end=14,
+                impact="high",
+                verified=True,
+                unverified=True,
+            ),
         ),
         reviewed_units={"eac6384777e2": "1a2b3c4d5e", "a5f3fe82ccea": "0011223344"},
         model="openai/gpt-4o-mini",
@@ -595,15 +606,19 @@ def test_an_inline_comment_has_a_badge_a_reason_a_consequence_and_a_marker() -> 
     assert inline_comment(finding("abc", "p2")).startswith("**P2 · optional**")
 
 
-def test_a_suggestion_block_appears_only_when_the_finding_has_replacement_text() -> None:
+def test_a_suggestion_block_appears_only_when_the_finding_has_a_checked_replacement() -> None:
     plain = inline_comment(finding("a"))
     assert "```suggestion" not in plain
-    with_fix = inline_comment(finding("a", suggestion="    return False\n"))
+    with_fix = inline_comment(finding("a", suggestion="    return False\n", suggestion_start=13, suggestion_end=13))
     assert "```suggestion\n    return False\n```" in with_fix
-    tricky = inline_comment(finding("a", suggestion="print('```')"))
+    tricky = inline_comment(finding("a", suggestion="print('```')", suggestion_start=13, suggestion_end=13))
     assert "````suggestion\nprint('```')\n````" in tricky
-    # A finding with no line GitHub shows cannot carry a suggestion.
-    assert "suggestion" not in inline_comment(finding("a", line=0, end_line=0, suggestion="x"))
+    # Text with no lines to replace, or lines on the old side of the diff, is not a suggestion.
+    assert "suggestion" not in inline_comment(finding("a", suggestion="x"))
+    assert "suggestion" not in inline_comment(finding("a", suggestion="x", suggestion_start=3, suggestion_end=2))
+    assert "suggestion" not in inline_comment(
+        finding("a", side="old", suggestion="x", suggestion_start=3, suggestion_end=3)
+    )
 
 
 def test_the_summary_always_fits_a_github_comment_and_keeps_its_state() -> None:

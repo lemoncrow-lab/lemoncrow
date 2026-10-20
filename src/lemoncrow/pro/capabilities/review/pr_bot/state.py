@@ -289,7 +289,12 @@ def shrink(state: ReviewState, level: int) -> ReviewState:
         ]
     if level >= 3:
         findings = [
-            f.changed(explanation=f.explanation[:300], consequence=f.consequence[:150], suggestion=f.suggestion[:600])
+            f.changed(
+                explanation=f.explanation[:300],
+                consequence=f.consequence[:150],
+                # Whole or none: a cut replacement is a different edit.
+                suggestion=f.suggestion if len(f.suggestion) <= 600 else "",
+            )
             for f in findings
         ]
     units = dict(state.reviewed_units)

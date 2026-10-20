@@ -122,10 +122,27 @@ class BotFinding:
     #: inputs, with the category, that :func:`severity_for` turns into ``severity``.
     impact: str = ""
     verified: bool = False
+    #: Where ``suggestion`` applies: lines ``suggestion_start..suggestion_end`` of ``path`` at the reviewed head.
+    suggestion_start: int = 0
+    suggestion_end: int = 0
 
     @property
     def is_open(self) -> bool:
         return self.state in OPEN_STATES
+
+    @property
+    def has_suggestion(self) -> bool:
+        """Whether a verified replacement is attached: text, and the new-side lines it replaces."""
+
+        return bool(self.suggestion) and 0 < self.suggestion_start <= self.suggestion_end and self.side == "new"
+
+    @property
+    def span(self) -> tuple[int, int]:
+        """The lines its inline comment covers: the lines a suggestion replaces, else its target's first changed lines."""
+
+        if self.has_suggestion:
+            return self.suggestion_start, self.suggestion_end
+        return self.line, max(self.line, self.end_line)
 
     def changed(self, **fields: Any) -> BotFinding:
         return replace(self, **fields)
@@ -161,13 +178,16 @@ class BotFinding:
             ("thread_id", self.thread_id),
             ("thread_url", self.thread_url),
             ("placement", self.placement),
-            ("suggestion", self.suggestion),
             ("unverified", self.unverified),
             ("impact", self.impact),
             ("verified", self.verified),
         ):
             if value:
                 wire[key] = value
+        if self.has_suggestion:
+            wire["suggestion"] = self.suggestion
+            wire["suggestion_start"] = self.suggestion_start
+            wire["suggestion_end"] = self.suggestion_end
         return wire
 
 
@@ -210,6 +230,12 @@ def finding_from_wire(raw: object) -> BotFinding | None:
         return None
     targets = raw.get("targets")
     impact = raw.get("impact")
+    # A suggestion is whole or absent: truncating a replacement would post a different, wrong edit.
+    suggestion = raw.get("suggestion")
+    fix = suggestion if isinstance(suggestion, str) and 0 < len(suggestion) <= MAX_SUGGESTION else ""
+    fix_start, fix_end = _count(raw, "suggestion_start"), _count(raw, "suggestion_end")
+    if not fix or not 0 < fix_start <= fix_end:
+        fix, fix_start, fix_end = "", 0, 0
     return BotFinding(
         id=identity,
         fingerprint=_text(raw, "fingerprint", 80),
@@ -232,10 +258,12 @@ def finding_from_wire(raw: object) -> BotFinding | None:
         thread_id=_count(raw, "thread_id"),
         thread_url=_text(raw, "thread_url", 300),
         placement=str(placement),
-        suggestion=_text(raw, "suggestion", MAX_SUGGESTION),
+        suggestion=fix,
         unverified=raw.get("unverified") is True,
         impact=impact if impact in IMPACTS else "",
         verified=raw.get("verified") is True,
+        suggestion_start=fix_start,
+        suggestion_end=fix_end,
     )
 
 

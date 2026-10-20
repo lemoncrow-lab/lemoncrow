@@ -109,6 +109,8 @@ class FakeGitHub:
         self.deny_status = False
         self.calls: list[tuple[str, str]] = []
         self.review_posts = 0
+        self.posted_reviews: list[dict[str, Any]] = []
+        """Every ``POST .../reviews`` body exactly as the bot sent it."""
         self._ids = 1000
 
     # ----- helpers ------------------------------------------------------ #
@@ -236,6 +238,7 @@ class FakeGitHub:
 
     def _post_review(self, body: dict[str, Any]) -> str:
         self.review_posts += 1
+        self.posted_reviews.append(body)
         assert body["event"] == "COMMENT", body["event"]
         review_id = self._next()
         review = {
@@ -254,6 +257,8 @@ class FakeGitHub:
                     "id": comment_id,
                     "path": row["path"],
                     "line": row["line"],
+                    # A multi-line comment also carries where it starts, on which side, exactly as sent.
+                    **{key: row[key] for key in ("side", "start_line", "start_side") if key in row},
                     "body": row["body"],
                     "user": BOT,
                     "pull_request_review_id": review_id,
@@ -284,8 +289,8 @@ class FakeGitHub:
 class FakeModel:
     """A structured executor: confirms a finding when the code it is shown says ``BUG: <title>``.
 
-    A pull request review also asks for a ``severity`` (``PR_INVESTIGATION_SCHEMA``); the fake answers it only for
-    a title it was told about, so every other finding reads as the model gave no rating.
+    A pull request review also asks for ``severity`` and ``replacement`` (``PR_INVESTIGATION_SCHEMA``); the fake
+    answers them only for a title it was told about, so every other finding reads as the model gave no rating.
     """
 
     def __init__(self) -> None:
@@ -294,6 +299,8 @@ class FakeModel:
         """``BUG`` title -> the impact rating the model returns for it."""
         self.cite_source: set[str] = set()
         """``BUG`` titles whose finding also cites the exact-source refs of its targets, not just the targets."""
+        self.replacements: dict[str, dict[str, Any]] = {}
+        """``BUG`` title -> the ``replacement`` object the model returns for it."""
         self.fail = False
         self.input_tokens: int | None = 1000
         self.output_tokens: int | None = 200
@@ -354,6 +361,7 @@ class FakeModel:
             if "severity" in kwargs["output_schema"]["properties"]:
                 if title in self.severity:
                     result["severity"] = self.severity[title]
+                result["replacement"] = self.replacements.get(title)
         return StructuredExecution(result=result, driver="openai", model=self.model, usage=usage)
 
     def _rule_check(self, prompt: dict[str, Any]) -> StructuredExecution:

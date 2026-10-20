@@ -242,6 +242,7 @@ src/lemoncrow/pro/capabilities/review/evidence_qualification.py
 src/lemoncrow/pro/capabilities/review/fast_lane.py
 src/lemoncrow/pro/capabilities/review/feedback.py
 src/lemoncrow/pro/capabilities/review/feedback_sync.py
+src/lemoncrow/pro/capabilities/review/finding_replacement.py
 src/lemoncrow/pro/capabilities/review/fix_agent.py
 src/lemoncrow/pro/capabilities/review/flag_matrix.py
 src/lemoncrow/pro/capabilities/review/fresh_rerun.py

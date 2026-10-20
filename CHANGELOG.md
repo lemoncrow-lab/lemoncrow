@@ -11,7 +11,8 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 - **GitHub Action: AI pull request review (early access).** `lemoncrow-lab/lemoncrow@v1`
   reviews each pull request on your own model key and posts one summary comment, inline
   P0/P1 findings and a `LemonCrow Review` status as a bot (event `COMMENT` only). A verified,
-  high-impact correctness, security or data-loss finding is a P0 (must fix before merge). On
+  high-impact correctness, security or data-loss finding is a P0 (must fix before merge), and a
+  small fix LemonCrow has checked against the commit is posted as a one-click `suggestion`. On
   each push it re-reviews only what changed and carries unchanged findings forward without a
   model call. Same engine from the full CLI: `lc review --pr N --ai [--publish-bot]`.
   See [GitHub Action: AI pull request review](docs/setup/github-action.md).

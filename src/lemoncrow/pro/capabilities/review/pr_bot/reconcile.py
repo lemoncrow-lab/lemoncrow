@@ -77,6 +77,9 @@ def finding_from_confirmed(confirmed: Any, located: Located | None, head: str) -
     where = located or Located("", 0, 0)
     impact = str(getattr(confirmed, "severity", "") or "")
     verified = getattr(confirmed, "verified", False) is True
+    fix = getattr(confirmed, "replacement", None)
+    if fix is None or fix.verified is not True or not where.path or where.side != "new":
+        fix = None  # only a replacement checked against the Snapshot head may ever be posted
     return BotFinding(
         id=confirmed.id,
         fingerprint=fingerprint_for(confirmed.category, target_ids, confirmed.rule_refs),
@@ -95,15 +98,30 @@ def finding_from_confirmed(confirmed: Any, located: Located | None, head: str) -
         last_seen=head,
         impact=impact if impact in IMPACTS else "",
         verified=verified,
+        suggestion=fix.text if fix else "",
+        suggestion_start=fix.start_line if fix else 0,
+        suggestion_end=fix.end_line if fix else 0,
     )
 
 
 def _moved(finding: BotFinding, located: Located | None) -> BotFinding:
-    """*finding* at its current lines; unchanged when its target has no location any more."""
+    """*finding* at its current lines; unchanged when its target has no location any more.
+
+    A suggestion was checked against the head it was made on: when its target now sits elsewhere the line
+    numbers it names may mean other code, so it is dropped rather than carried.
+    """
 
     if located is None or not located.path:
         return finding
-    return finding.changed(path=located.path, line=located.line, end_line=located.end_line, side=located.side)
+    moved = finding.changed(path=located.path, line=located.line, end_line=located.end_line, side=located.side)
+    if (located.path, located.line, located.end_line, located.side) != (
+        finding.path,
+        finding.line,
+        finding.end_line,
+        finding.side,
+    ):
+        moved = moved.changed(suggestion="", suggestion_start=0, suggestion_end=0)
+    return moved
 
 
 def reconcile(
