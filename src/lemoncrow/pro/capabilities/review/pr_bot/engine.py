@@ -575,7 +575,8 @@ def _execute(
     locations = {target.target_id: locate_target(target) for target in targets}
     intact = _intact_findings(captured, previous)
     rules = tuple(rule.stable_key for rule in governance.rules)
-    imports = governance.imports  # what the trusted base's Greptile config and AGENTS.md / CLAUDE.md contributed (G10)
+    # What the trusted base's import.rules_files and AGENTS.md / CLAUDE.md contributed (G10).
+    imports = governance.imports
     base = AiStage(
         status="nothing_changed",
         locations=locations,

@@ -33,7 +33,7 @@ ContentAccessMode = Literal["external_allowed", "customer_local_only", "ai_denie
 ModelRouteTrust = Literal["external", "customer_local", "unknown"]
 #: ``critical``: a violation that cites the rule is a P0 (every rule a repository writes in
 #: ``.lemoncrow/review.yaml``). ``advisory``: a violation is a P1 or P2 by the ordinary ladder and never a P0
-#: (every rule imported from another tool's config, unless ``import.critical`` in ``.lemoncrow/review.yaml`` says so).
+#: (every rule imported through ``import.rules_files``, unless ``import.critical`` in ``.lemoncrow/review.yaml`` says so).
 RuleSeverity = Literal["critical", "advisory"]
 #: An advisory rule's ref starts with this, a prefix no critical ref can have (no trust class is called ``advisory``),
 #: so a finding's severity can be read from the rule refs it cites without looking the rules up.
@@ -224,9 +224,9 @@ class ReviewGovernance:
     rule_documents: tuple[str, ...] = ()
     base_state: str = "absent"
     errors: tuple[str, ...] = ()
-    #: What the G10 import read from the trusted base (Greptile config, AGENTS.md / CLAUDE.md); ``None`` when none ran.
-    #: Its rules and exclusions are already merged into ``rules`` and ``content_access``; this keeps their provenance,
-    #: the settings imported but not applied, the warnings, and the conventions context.
+    #: What the G10 import read from the trusted base (``import.rules_files``, AGENTS.md / CLAUDE.md); ``None`` when
+    #: none ran. Its rules are already merged into ``rules``; this keeps their provenance, the warnings, and the
+    #: conventions context.
     imports: ImportedConfig | None = None
 
     def rules_for_path(self, path: str) -> tuple[ReviewRule, ...]:
@@ -617,11 +617,12 @@ def resolve_review_governance(
     """Resolve current rules without ever consulting change/head content.
 
     The native layers (organization policy, ``.lemoncrow/review.yaml`` and its rule documents) come first. Then, from
-    the same trusted base and only when the base is readable, the G10 import adds a team's Greptile config
-    (``.greptile/``, ``greptile.json``) as advisory rules and exclusions, and ``AGENTS.md`` / ``CLAUDE.md`` as
-    conventions context (:mod:`config_import`; opt out with ``import:`` in ``.lemoncrow/review.yaml``). A rule of
-    ``.lemoncrow/review.yaml`` always wins over an imported rule of the same key. ``base_paths`` lists the trusted
-    base's files so nested ``.greptile/`` folders can be found; without it only the root is read.
+    the same trusted base and only when the base is readable, the G10 import adds the rules files that
+    ``import.rules_files`` lists as advisory rules, and ``AGENTS.md`` / ``CLAUDE.md`` as conventions context
+    (:mod:`config_import`; opt out of the conventions with ``import.agent_docs: false`` in ``.lemoncrow/review.yaml``).
+    A rule of ``.lemoncrow/review.yaml`` always wins over an imported rule of the same key. ``base_paths`` lists the
+    trusted base's files so a glob in ``import.rules_files`` can be expanded; without it only the files named by exact
+    path are read.
     """
 
     native = _resolve_native_governance(config, read_base_document=read_base_document, organization=organization)
@@ -639,6 +640,14 @@ def resolve_review_governance(
         base_paths=base_paths,
     )
     return with_imports(native, imported) if imported.active or imported.notes or imported.sources else native
+
+
+def _literal_rules_files(raw: Mapping[str, Any]) -> tuple[str, ...]:
+    """The files ``import.rules_files`` names by exact path (a glob cannot be followed without a listing)."""
+
+    from lemoncrow.pro.capabilities.review.config_import import parse_import_options
+
+    return parse_import_options(raw.get("import")).literal_files
 
 
 def _import_options(config: TrustedBaseDocument) -> Any:
@@ -747,9 +756,6 @@ def _resolve_native_governance(
 
 
 FuturePolicyCategory = Literal["review_policy", "review_rules", "owner_routing", "instruction_context"]
-#: The Greptile files ``config_import`` reads from the trusted base (the same set, spelled out here so the head's edits
-#: to them are reported as future policy without importing the loader).
-_IMPORTED_CONFIG_PATHS: tuple[str, ...] = (".greptile/config.json", ".greptile/rules.md", "greptile.json")
 
 
 @dataclass(frozen=True, slots=True)
@@ -863,6 +869,7 @@ def project_future_policy(
     """Describe policy files changed by the head without granting them authority."""
 
     configured: dict[str, tuple[str, ...]] = {}
+    imported: set[str] = set()
     for content, source in (
         (base_config.content if base_config.state == "present" else "", base_config.path),
         (head_config_content or "", base_config.path),
@@ -873,6 +880,7 @@ def project_future_policy(
             raw = _yaml_mapping(content, source=source)
             for path, paths in _configured_rule_documents(raw.get("rule_documents"), source=source):
                 configured.setdefault(path, paths)
+            imported.update(_literal_rules_files(raw))
         except ValueError:
             continue
 
@@ -884,9 +892,10 @@ def project_future_policy(
         "AGENTS.md": ("instruction_context", ()),
         "CLAUDE.md": ("instruction_context", ()),
         "REVIEW.md": ("instruction_context", ()),
-        # G10: another tool's config the trusted base imports. A head edit to it is future policy, like the files above.
-        **{path: ("instruction_context", ()) for path in _IMPORTED_CONFIG_PATHS},
     }
+    # G10: a rules file `import.rules_files` names by path. A head edit to it is future policy, like the files above.
+    for path in sorted(imported):
+        tracked.setdefault(path, ("instruction_context", ()))
     for path, paths in configured.items():
         tracked[path] = ("review_rules", paths)
 
@@ -925,8 +934,8 @@ def project_future_policy(
                 )
         elif category == "owner_routing":
             effects = ("changes owner routing for later Reviews",)
-        elif path in _IMPORTED_CONFIG_PATHS:
-            effects = ("changes imported Greptile review config (rules, ignore patterns, context) for later Reviews",)
+        elif path in imported:
+            effects = ("changes imported review rules for later Reviews",)
         else:
             effects = ("changes repository instruction/context for later Reviews",)
 

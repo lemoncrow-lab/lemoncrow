@@ -3304,7 +3304,7 @@ def register_review_api(
             config,
             read_base_document=lambda path: _snapshot_base_document(revision, path),
             organization=organization,
-            # Finds nested .greptile/ folders (G10); only a path is taken from this listing, every byte is the trusted base's.
+            # Expands import.rules_files globs (G10); only a path is taken from this listing, every byte is the base's.
             base_paths=lambda: _base_tree_paths(revision),
         )
         base_known = config.base_known and governance.base_state != "provisional"

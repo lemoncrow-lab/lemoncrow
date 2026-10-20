@@ -241,7 +241,7 @@ class ReviewCommand(click.Command):
                     ("data-flow [--base REF] [--json]", "Show where source, code and evidence may travel."),
                     (
                         "config --effective [--dry-run --pr N] [--base REF]",
-                        "Show the merged review rules (review.yaml, .greptile/, greptile.json, AGENTS.md) and what applies.",
+                        "Show the merged review rules (review.yaml, import.rules_files, AGENTS.md) and what applies.",
                     ),
                     (
                         "hosted attach|status|queue|sync|resolve|detach",

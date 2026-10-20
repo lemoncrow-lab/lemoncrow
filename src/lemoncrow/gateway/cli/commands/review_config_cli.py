@@ -3,10 +3,10 @@
 The local surface of the same governance resolver the AI pull request reviewer runs
 (:func:`lemoncrow.pro.capabilities.review.rules.resolve_review_governance`). It reads only the **trusted base** (the
 pull request's merge base for ``--pr``, else ``origin/HEAD`` when known, else ``HEAD``), never the working tree, so what
-it prints is what a review would use: ``.lemoncrow/review.yaml`` first, then ``.greptile/``, then ``greptile.json``, then
-``AGENTS.md`` and ``CLAUDE.md`` as context.
+it prints is what a review would use: ``.lemoncrow/review.yaml`` first, then the rules files ``import.rules_files`` lists,
+then ``AGENTS.md`` and ``CLAUDE.md`` as context.
 
-``--effective`` prints every rule, exclusion, imported-but-not-applied setting and warning with its source file.
+``--effective`` prints every rule, exclusion and warning with its source file.
 ``--dry-run`` takes the files a pull request changes (``--pr``, ``--head`` or ``--files``) and shows which rules would
 apply to each and which files the model would never read. No model is called and nothing is written.
 """
@@ -145,25 +145,11 @@ def render_effective_text(wire: dict[str, Any], base: BaseCommit) -> str:
         out.append(f"  {row['key']}  [{row['severity']}]  scope: {_scope(row['paths'])}")
         out.append(f"      from {row['source']} ({row['origin']})")
         out.append(f"      {_trim(row['instruction'], 160)}")
-    ignore = wire["ignore"]
-    other_rows = [row for row in wire["content_access"] if not row["imported"]]
     out += ["", "AI content access (paths the model may not read)"]
-    if ignore is None and not other_rows:
+    if not wire["content_access"]:
         out.append("  none")
-    if ignore is not None:
-        out.append(
-            f"  ignorePatterns from {ignore['source']} ({len(ignore['globs'])} globs from {len(ignore['patterns'])} patterns)"
-        )
-        out.append("      " + _trim(", ".join(ignore["patterns"]), 200))
-    for row in other_rows:
+    for row in wire["content_access"]:
         out.append(f"  {row['mode']} from {row['source'] or row['origin']}: {_scope(row['paths'])}")
-    out += ["", "Imported, not applied"]
-    if not wire["settings"]:
-        out.append("  none")
-    for row in wire["settings"]:
-        target = f" -> closest {row['mapped_to']}" if row["mapped_to"] else ""
-        out.append(f"  {row['key']} {row['value']}{target}  (from {row['source']})")
-        out.append(f"      {row['reason']}")
     out += ["", "Project conventions (context for the investigator, never a rule)"]
     if not wire["conventions"]:
         out.append("  none")
@@ -173,7 +159,7 @@ def render_effective_text(wire: dict[str, Any], base: BaseCommit) -> str:
             f"  {row['path']}  {row['chars']:,} characters; tokens in a prompt at quick/auto/thorough/deep: {depths}"
         )
     notes = [
-        row for row in wire["notes"] if row["kind"] in {"warning", "not_applied", "overridden", "disabled", "dropped"}
+        row for row in wire["notes"] if row["kind"] in {"warning", "overridden", "disabled", "dropped", "unavailable"}
     ]
     out += ["", f"Notes ({len(notes)})"]
     if not notes:
@@ -278,8 +264,8 @@ def config_cmd(
 ) -> None:
     """Show the effective Review configuration a pull request review would use, and what it would apply to.
 
-    Reads .lemoncrow/review.yaml, then .greptile/ and greptile.json, then AGENTS.md and CLAUDE.md (context only), all from
-    the trusted base. A pull request that adds or edits any of them cannot change its own review.
+    Reads .lemoncrow/review.yaml, then the rules files import.rules_files lists, then AGENTS.md and CLAUDE.md (context
+    only), all from the trusted base. A pull request that adds or edits any of them cannot change its own review.
     """
 
     if not effective and not dry_run:

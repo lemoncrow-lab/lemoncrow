@@ -315,7 +315,7 @@ class Receipt:
     investigated: int
     rules: tuple[str, ...]
     unchanged: int = 0
-    #: Imported settings with no behavior here, said out loud rather than silently used (``ImportedConfig.receipt_lines``).
+    #: Import warnings, said out loud rather than silently dropped (``ImportedConfig.receipt_lines``).
     imported: tuple[str, ...] = ()
 
 

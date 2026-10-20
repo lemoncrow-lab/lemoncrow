@@ -28,8 +28,8 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: "doc",
-          id: "setup/switching-from-greptile",
-          label: "Switching from Greptile",
+          id: "setup/importing-review-rules",
+          label: "Importing review rules",
         },
         {
           type: "doc",

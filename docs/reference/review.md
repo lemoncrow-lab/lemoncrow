@@ -206,12 +206,12 @@ It is separate from `--publish`, which posts *your* judgment as you and still
 refuses every AI annotation.
 
 Rules and context come from the trusted base only: `.lemoncrow/review.yaml`,
-then a switching team's `.greptile/` and `greptile.json`, then `AGENTS.md` and
+then the rules files `import.rules_files` lists, then `AGENTS.md` and
 `CLAUDE.md` as context. An imported rule is advisory unless `import.critical`
 names it. `lc review config --effective` prints the merged result with the file
 each rule came from, and `lc review config --dry-run --pr 123` shows which rules
 would apply to that pull request. See
-[Switching from Greptile](../setup/switching-from-greptile.md).
+[Importing review rules](../setup/importing-review-rules.md).
 
 ## The browser workspace
 
