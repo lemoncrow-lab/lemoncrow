@@ -6,6 +6,27 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ## [Unreleased]
 
+### Changed
+
+- **Session import now reports through the telemetry rollup.** The periodic
+  session import used to POST per-session stats to a separate sync endpoint,
+  a leftover from the project's earlier name. It now sends a count-only
+  rollup for each newly imported session (token total, tool-call count, turn
+  count, duration, host name, under the same SHA-256 install and session keys)
+  to the telemetry destination, `https://lemoncrow.com/api/telemetry/rollup`
+  by default. It follows the rollup's own rules: `DO_NOT_TRACK=1`,
+  `LEMONCROW_TELEMETRY=off`, an administrator policy and
+  `lc rt telemetry remote off` stop it, and a `server` or `custom` destination
+  receives it at its own host instead. Sessions older than 48 hours or already
+  in the savings ledger are skipped, at most 20 are sent per import run, and
+  prompts, titles and paths are never sent. `LEMONCROW_SYNC_URL` and
+  `core/service/sync.py` are removed.
+- **Removed leftover Beseam references.** The example domain ids
+  `beseam.*` in the Claude and Codex integration docs now use the builtin
+  `swe.general` domain, domain bundles default to author `LemonCrow`,
+  `ContextRuntime.run` defaults its agent to `lemoncrow-agent`, and the
+  unrelated Beseam benchmark page is gone.
+
 ## [0.8.0] - 2026-10-18
 
 ### Behaviour changes for local installs
