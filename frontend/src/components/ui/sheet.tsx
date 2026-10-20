@@ -17,7 +17,7 @@ export {
 } from "./dialog";
 
 const sheetVariants = cva(
-  "fixed z-50 flex flex-col overflow-hidden border-border/80 bg-background text-popover-foreground shadow-2xl shadow-black/35 outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-150 data-[state=open]:duration-200",
+  "fixed z-50 flex flex-col overflow-hidden border-border bg-card text-popover-foreground shadow-float outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:duration-150 data-[state=open]:duration-200",
   {
     variants: {
       side: {
@@ -41,7 +41,7 @@ export interface SheetContentProps
 export const SheetContent = forwardRef<ElementRef<typeof DialogPrimitive.Content>, SheetContentProps>(
   ({ side, className, overlayClassName, children, onCloseAutoFocus, ...props }, ref) => (
     <DialogPortal>
-      <DialogOverlay className={cn("bg-black/45 backdrop-blur-0", overlayClassName)} />
+      <DialogOverlay className={cn("bg-foreground/40", overlayClassName)} />
       <DialogPrimitive.Content
         ref={ref}
         aria-modal="true"

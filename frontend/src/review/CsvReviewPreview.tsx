@@ -159,7 +159,7 @@ function TablePane({
   if (parsed.rows.length === 0) {
     return (
       <section className="min-w-0 overflow-hidden rounded border border-border bg-background">
-        <div className="border-b border-border px-3 py-2 text-caption font-medium text-neutral-400">{label}</div>
+        <div className="border-b border-border px-3 py-2 text-caption font-medium text-muted-foreground">{label}</div>
         <div className="p-6 text-center text-label text-muted-foreground">Empty CSV</div>
       </section>
     );
@@ -167,11 +167,11 @@ function TablePane({
   return (
     <section className="min-w-0 overflow-hidden rounded border border-border bg-background">
       <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-caption">
-        <span className="font-medium text-neutral-300">{label}</span>
+        <span className="font-medium text-subtle">{label}</span>
         <span className="ml-auto font-mono text-muted-foreground">{parsed.totalRows} row{parsed.totalRows === 1 ? "" : "s"}</span>
       </div>
       <div className="max-h-[620px] overflow-auto">
-        <table className="min-w-full border-separate border-spacing-0 font-mono text-caption text-neutral-300">
+        <table className="min-w-full border-separate border-spacing-0 font-mono text-caption text-subtle">
           <thead className="sticky top-0 z-10 bg-muted">
             <tr>
               <th className="border-b border-r border-border px-2 py-1.5 text-right font-normal text-muted-foreground">#</th>
@@ -182,7 +182,7 @@ function TablePane({
                   <th
                     key={column}
                     title={cell.truncated ? value : undefined}
-                    className={`max-w-72 border-b border-r border-border px-2 py-1.5 text-left font-medium ${changed ? "bg-amber-950/20 text-amber-200" : "text-neutral-200"}`}
+                    className={`max-w-72 border-b border-r border-border px-2 py-1.5 text-left font-medium ${changed ? "bg-amber-950/20 text-amber-200" : "text-foreground"}`}
                   >
                     <span className="block max-w-72 truncate">{cell.text || `Column ${column + 1}`}</span>
                   </th>
@@ -193,7 +193,7 @@ function TablePane({
           <tbody>
             {body.map((row, rowIndex) => (
               <tr key={rowIndex} className="odd:bg-background even:bg-muted/25">
-                <td className="border-b border-r border-neutral-900 px-2 py-1.5 text-right text-muted-foreground">{rowIndex + 2}</td>
+                <td className="border-b border-r border-border px-2 py-1.5 text-right text-muted-foreground">{rowIndex + 2}</td>
                 {header.map((_header, column) => {
                   const value = row[column] ?? "";
                   const cell = cellText(value);
@@ -204,7 +204,7 @@ function TablePane({
                     <td
                       key={column}
                       title={cell.truncated ? value : undefined}
-                      className={`max-w-72 border-b border-r border-neutral-900 px-2 py-1.5 align-top ${changed ? "bg-amber-950/15 text-amber-100" : ""}`}
+                      className={`max-w-72 border-b border-r border-border px-2 py-1.5 align-top ${changed ? "bg-amber-950/15 text-amber-100" : ""}`}
                     >
                       <span className="block max-w-72 whitespace-pre-wrap break-words">{cell.text}</span>
                     </td>
@@ -242,7 +242,7 @@ export default function CsvReviewPreview({
   const alignment = useMemo(() => alignCsvRows(oldCsv, newCsv), [oldCsv, newCsv]);
   const deleted = status === "deleted";
   const badge = revisionId ? (
-    <div className="border-b border-border bg-background px-3 py-1.5 font-mono text-micro text-violet-300" title={revisionId}>
+    <div className="border-b border-border bg-background px-3 py-1.5 font-mono text-micro text-muted-foreground" title={revisionId}>
       Snapshot {revisionId} · rendered CSV
     </div>
   ) : null;

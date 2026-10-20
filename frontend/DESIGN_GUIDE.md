@@ -4,6 +4,30 @@ LemonCrow's UI layer follows the [shadcn/ui](https://ui.shadcn.com) model: Radix
 color tokens, and `cn()` (clsx + tailwind-merge) for composition. The primitives live in `src/components/ui/*` and are owned by the app
 (copied and adapted, not imported from a package), tuned for a dense developer tool.
 
+The visual language is **Ink and Lemon**, shared with the landing site. The tokens, the Tailwind preset, the Hunk components and the fonts live
+in the repository's `design/` directory (canonical) and are vendored byte-for-byte into `src/design/` (`npm run sync:design`; the UI guard
+fails on drift). Read `design/README.md` before changing any of it. The public mirror carries only the vendored `src/design/`, which is all the
+build needs; the guard skips the drift check when `design/` is absent. The full specification (principles, scale, motif, accent budget, contrast
+table) is `research_notes/LemonCrow strategy memo assessment/design_system_spec.md`; this guide is how it applies to the app.
+
+## The system in ten rules
+
+1. **One motif, the Hunk.** Every container is a hairline frame with an optional mono `@@ LABEL @@` header strip and an optional 3px gutter rail
+   (`Hunk`, `HunkHead`, `HunkLabel`, `HunkBody`, `HunkRow` in `components/ui/hunk.tsx`). The rail carries state (severity, kind, review status),
+   is always redundant with a text badge, and is never decoration. Nest at most two deep.
+2. **One accent: lemon.** `#FFDC00` is a fill or a mark: the one primary action of a view (`Button variant="brand"`), the logo, the active
+   indicator and focus ring on dark surfaces, the native-control accent. Never lemon text on a light surface, never a status colour.
+3. **Every other colour has one job.** Red is P0 and must-fix. Amber is P1 and still-to-do. Cyan is P2 and to-re-check. Green is fixed or
+   success. Violet is AI or agent authorship, only in attribution chips. Ink and paper do everything else.
+4. **Three voices.** Red Hat Display for display (the app barely uses it), Red Hat Text for reading and UI, JetBrains Mono for labels, paths,
+   numbers and badges. Fonts are self-hosted and bundled under `/assets` (the local server serves nothing else).
+5. **One type scale.** No arbitrary sizes, no Tailwind defaults (see Type).
+6. **One button recipe.** Variants by intent, at most one `brand` per view.
+7. **One badge shape.** 20px, mono, uppercase, `rounded-sm`.
+8. **Two shadows.** `shadow-float` for overlays, `shadow-frame` for the one hero artefact. Cards have none.
+9. **Drift is a build failure.** `npm run check:ui-primitives` enforces the rules below on every `.ts`, `.tsx` and `.css` file, and on `enterprise/frontend/src` (the hosted app, private checkout only) when it is present.
+10. **Same system, denser.** 13px body, 28 and 32px controls, 12 to 16px panel padding, `rounded-lg` frames, `rounded-md` controls.
+
 ## Interactive controls
 
 Application code must use LemonCrow UI primitives for interactive controls. Do not render native form controls directly from pages, review
@@ -16,13 +40,30 @@ surfaces, feature components, or tests.
 
 ### Buttons
 
-`Button` variants are named by intent: `default` (primary call to action), `outline` (standard control, the default), `ghost` (quiet
-icon/row actions), `link`, `destructive`, `warning`, `success`. Sizes: `xs` (28px), `sm` (32px, default), `compact` (28px inline row action),
-`icon` (28px square). Use `asChild` to give a router `Link` button styling, and `tooltip=` instead of `title=` for hints.
+`Button` variants are named by intent:
+
+| Variant | Use |
+|---|---|
+| `brand` | The one primary call to action of a view (lemon fill, ink border on light). Reader: Send feedback or the primary action. Settings pages: the form's save. Never two in one viewport. |
+| `solid` | An ink fill for a strong secondary action, and the selected state of a toggle-like button. Sheet and dialog confirmations. |
+| `outline` | The standard control and the default. |
+| `ghost` | Quiet icon and row actions. |
+| `link` | Inline text action. |
+| `destructive`, `warning`, `success` | Tinted actions, using the P0, P1 and ok tokens. |
+
+Sizes: `xs` (28px), `sm` (32px, default), `compact` (28px inline row action), `icon` (28px square). Text is 12px (`text-meta`). Use `asChild`
+to give a router `Link` button styling, and `tooltip=` instead of `title=` for hints. Buttons press with `active:translate-y-px` and show the
+global focus ring.
 
 Prefer a variant plus `className` overrides (tailwind-merge makes overrides deterministic) over `unstyled`. `unstyled` is reserved for
 content-specific controls whose visuals belong to the content: tree/list rows, diff gutters, map nodes, chat bubbles, cards acting as buttons.
 It means the feature owns the visual treatment, never that the feature owns the native element.
+
+### Badges
+
+`Badge` tones: `p0`, `p1`, `p2` (severity; they come first in a row), `new` (ink, never lemon), `carried`, `fixed`, `ai` (attribution only), and
+the generic `neutral`, `secondary`, `info`, `success`, `warning`, `destructive`. A comment's kind uses `KIND_BADGE_TONES` in
+`review/annotationModel.ts`: request change P0, suggestion P2, comment neutral. AI findings show P0, P1 or P2 from their severity.
 
 ### Overlays
 
@@ -37,13 +78,16 @@ It means the feature owns the visual treatment, never that the feature owns the 
 | Views of one region, arrow keys switch immediately | `Tabs` (`segment`, `underline`) |
 | Expand/collapse | `Collapsible` / `DisclosureCard` |
 | Choose from a list | `Select` |
+| A framed object with a header strip | `Hunk` |
+| Nothing to show | `EmptyState` (one recipe: optional icon, one-line title, one sentence, at most one action) |
 
 Overlays portal into the app shell (`PortalContainerContext`) and stack at `z-50` by DOM order; do not add arbitrary `z-[NN]` layers.
 `Dialog`/`Sheet` trap focus, close on Escape and outside press, hide the page from assistive tech, and return focus to the element that
-opened them. Do not hand-roll `role="dialog"`, focus traps, or `<details>` menus.
+opened them. Do not hand-roll `role="dialog"`, focus traps, or `<details>` menus. Overlays use `shadow-float`.
 
 A `Button` with both `disabled` and `tooltip` stays focusable as `aria-disabled` so its reason is reachable; pass `tooltip=""` rather
-than `undefined` for a hint that comes and goes. Controls grow to 44px touch targets under `pointer-coarse:`.
+than `undefined` for a hint that comes and goes. Controls grow to 44px touch targets under `pointer-coarse:`, and text fields go to 16px there
+so iOS does not zoom.
 
 Native `title` remains acceptable for non-interactive truncated text and for per-line controls in very large lists, where a tooltip per row
 would cost too much; icon-only controls still need an `aria-label`.
@@ -55,53 +99,98 @@ surfaces. Centralizing controls also prevents every feature from independently r
 keyboard navigation, theme contrast, and compact sizing.
 
 `npm run check:ui-primitives` runs automatically before frontend tests and production builds. It enforces native-control ownership,
-primitive-owned overlays, the type scale, the contrast floor for text, and a small set of workbench visual invariants.
+primitive-owned overlays, the type scale, the colour tokens, the elevation scale, the weight scale, and that `src/design/` matches `design/`.
+Outside a short allow-list of content and theme files (editor and markdown themes, graph canvases, chart series) it rejects: hex and literal
+`rgb()` colours, raw `neutral-*` and any hue utility outside red, amber, cyan, emerald and violet, arbitrary `text-[…]`, `rounded-[…]`,
+`shadow-[…]` and `tracking-[…]`, Tailwind's default `text-xs` to `text-9xl` and `shadow-sm` to `shadow-2xl`, and `font-bold`.
 
 ## Tokens
 
 ### Color
 
-Use semantic tokens first; they alias the themed ramps in `src/index.css`, so one class works in light and dark.
+Use the semantic tokens; they are RGB triplets defined once per theme in `src/design/lc-tokens.css` (`:root` is light, `.dark` is dark; the
+app puts one class on `<html>`), so one class works in both themes and takes alpha (`bg-brand/10`).
 
 | Token | Use |
 |---|---|
-| `background` / `foreground` | page surface / primary text |
-| `card`, `popover` (+ `-foreground`) | raised panels / floating surfaces |
-| `primary` (+ `-foreground`) | primary action |
-| `secondary` (+ `-foreground`) | standard control surface |
-| `muted` / `muted-foreground` | subtle surface / secondary text (≥4.5:1 on every page surface) |
+| `background` / `foreground` | page surface (paper `#F8F6F1`, ink `#0A0A0A`) / primary text |
+| `card`, `popover` (+ `-foreground`) | raised panels and Hunk bodies / floating surfaces |
+| `muted` / `muted-foreground` | sunken surface, Hunk header strips, table heads / muted text (at least 4.5:1 on every page surface) |
+| `subtle` | secondary text |
 | `accent` (+ `-foreground`) | hover and selected surface |
-| `destructive`, `warning`, `success`, `info` (+ `-foreground`) | status |
-| `border`, `input`, `ring` | dividers / field borders / focus ring |
+| `border`, `input`, `ring`, `indicator` | hairlines / form-field border (3:1) / focus ring and active indicator (ink on light, lemon on dark) |
+| `primary` (+ `-foreground`) | the ink fill (`Button solid`) |
+| `brand` (+ `-foreground`, `-hover`, `-border`) | the lemon accent group; `brand-700` or darker for text on a light surface |
+| `p0`, `p1`, `p2`, `ok`, `ai` (+ `-bg`, `-line`, `-solid`) | severity, success and attribution: text, tint, hairline and rail colour |
 
-Raw neutrals (`neutral-200`…`neutral-400`) are fine for text hierarchy between `foreground` and `muted-foreground`. Never use
-`text-neutral-600`/`700` for text: they fall below WCAG AA contrast.
+The app's `neutral-*`, `surface-*` and hue ramps (`red`, `amber`, `cyan`, `emerald`, `violet`) still exist in `src/index.css` for
+the utilities already in code, but new code uses the semantic tokens. Raw `neutral-*` and the other hues are rejected by the guard.
 
-Color is semantic. Tones on `Badge`, `Card`, `Alert`, `ToggleGroup` and `Chip` are `neutral | info | success | warning | destructive`, not
-color names. Do not use purple/violet as a generic global accent or selected state; it is allowed for explicitly differentiated
-AI/chat/runtime annotations where the color carries meaning.
+**The accent is one token group** and can be swapped for purple by loading `design/lc-accent-purple.css` (see `design/README.md`). This guide
+used to forbid purple as a global accent; it now forbids any accent other than the group above: lemon is the brand, violet is attribution.
+
+**Where lemon is allowed** (the budget, exhaustive for the app): the one `brand` Button per view, the logo, the active indicator and focus ring
+on dark surfaces, `::selection`, the native checkbox and radio accent. Forbidden: lemon text on a light surface, lemon as a severity or "new"
+colour, as a link colour, as a border on light surfaces except the brand button's ink border, in gradients, or as a large background.
+
+Colour is semantic. Tones on `Badge`, `Card`, `Alert`, `ToggleGroup` and `Chip` are `neutral | info | success | warning | destructive`
+(plus the severity tones on `Badge`), not colour names. Sources (human, author, LemonCrow, AI review) are neutral chips; only AI and
+agent authorship uses `ai`.
 
 ### Type
 
-Use the dense scale instead of arbitrary `text-[Npx]`: `text-micro` (9px), `text-caption` (10px), `text-label` (11px), `text-body` (12px),
-`text-heading` (13px), `text-title` (14px). The scale sets font size only; line height is inherited.
+One scale, in `src/design/lc-preset.cjs`. The app uses the dense names, one pixel up from the old scale:
+
+| Class | Size | Use |
+|---|---|---|
+| `text-micro` | 10px | uppercase mono badges only, never sentences |
+| `text-caption` | 11px | mono meta, counts, dense secondary text |
+| `text-label` | 12px | captions, hints, dense UI text |
+| `text-body` | 13px | the app's body size |
+| `text-heading` | 14px | panel and section titles |
+| `text-title` | 16px | page titles, the Brief headline |
+| `text-tag`, `text-meta`, `text-ui`, `text-small`, `text-copy`, `text-lead`, `text-h3`, `text-h2`, `text-display`, `text-code` | | the marketing and shared names; `text-tag` is the 11px mono eyebrow (uppercase, +0.12em), `text-meta` 12px, `text-ui` 13px, `text-lead` 18px |
+
+Nothing interactive or primary is below 12px: buttons, inputs, tabs, menu items and nav are `text-meta` (12) or `text-ui` (13). The scale sets
+font size only; line height is inherited. Use `font-mono tabular-nums` for numbers in tables and counters. Weights are 400, 500 and 600; 700 is
+retired. A page opens with `PageHeader` (mono eyebrow, `text-title` title, one `text-body` lede); a Hunk opens with `HunkLabel`.
+
+For the few CSS rules that cannot use a utility, `src/index.css` exposes `--fs-micro` to `--fs-title`.
+
+### Motion
+
+120ms colour transitions on hover and press, 200ms disclosure and tab indicator. No bounce, no scale above 1.02, no looping animation other
+than a spinner. `prefers-reduced-motion` drops every transition and animation globally (the preset's base layer), and the typed wordmark
+completes instantly.
 
 ## Visual system
 
-The `/r` Review/Reader visual system is the canonical LemonCrow application language. Workbench routes must use the same neutral surfaces,
+The `/r` Review/Reader visual system is the canonical LemonCrow application language. Workbench routes must use the same surfaces,
 density, typography, focus treatment, control sizes, and light/dark behavior.
 
-- Panels, menus, sheets, and cards use subtle neutral borders and `rounded-lg`.
-- Controls and compact actions use `rounded-md`, with 28px compact and 32px normal heights.
+- Panels, menus, sheets, and cards use hairline `border-border` and `rounded-lg`.
+- Controls and compact actions use `rounded-md`, with 28px compact and 32px normal heights. Badges and chips are `rounded-sm`.
 - Use 12–16px panel padding and 12–16px section gaps by default.
-- Do not use decorative gradients, hard-coded dark backgrounds, or large shadows to create page identity. Floating menus/sheets may use the
-  same restrained elevation as Review.
-- Prefer semantic and `surface-*` tokens over `bg-black`, hard-coded hex neutrals, or duplicated light/dark values.
-- Normal routed pages use `PageFrame`; full-canvas tools may opt out but still inherit the same control and surface language.
-- Motion is short and functional; `prefers-reduced-motion` disables it globally.
+- No gradients, no hard-coded dark backgrounds, no shadows on cards. Floating menus and sheets use `shadow-float`.
+- Prefer semantic tokens over `bg-black`, hex, or duplicated light/dark values.
+- Normal routed pages use `PageFrame` and open with `PageHeader`; full-canvas tools may opt out but still inherit the same control and surface
+  language.
+- Icons are lucide, in `currentColor`, muted by default. File-type glyphs in the diff outline keep their colours because they encode content.
+- Motion is short and functional.
+
+The diff body (`@pierre/diffs`), Monaco, CodeMirror, the markdown preview, the graph canvases and the chart series keep their own palettes: they
+are content, not chrome. Restyle the chrome around them only.
 
 When a workbench pattern and a Review pattern disagree, align the workbench to Review unless the difference is required by the content type
 (for example diff semantics, charts, graph nodes, or chat bubbles).
+
+## Finding and comment cards
+
+A thread is one Hunk (`AnnotationCard`): a neutral header strip with the severity badge first (AI findings), then the kind badge (human
+request change or suggestion), then a neutral source chip, the file or symbol, the Snapshot and the date; the body in `text-heading`; the actions
+as ghost buttons. The 3px rail is `annotationRail()`: AI findings by severity, human comments by kind. The server rates each AI finding
+(`criticality.normalize_finding_severity`) but the annotation wire carries only counts, so the Reader fills `severity` in client-side only when
+`projection.triage` makes it exact (`markFindingSeverity`); an AI finding with no known level shows no severity badge rather than a guess.
 
 ## Review UX gate
 
@@ -113,8 +202,8 @@ Place an expert action in this order: command palette, then the target context m
 must say why the other three are not enough. A new persistent view or header control needs an explicit UX review.
 
 The rendered Reader also holds these invariants: one right rail, one blocking banner, one status authority (the Status control), and one
-primary action. On a phone the composition is Back, title, More; then Brief, Code, Map; then content with a bottom dock holding the primary
-action. Text fields in phone Review surfaces stay at 16px so iOS does not zoom.
+primary action, which is the one `brand` button. On a phone the composition is Back, title, More; then Brief, Code, Map; then content with a
+bottom dock holding the primary action. Text fields in phone Review surfaces stay at 16px so iOS does not zoom.
 
 The Reader records local-only friction metrics in this browser's `localStorage` under `lc.review.friction.v1`: at most 50 sessions, none
 older than 30 days, holding counters and durations only (no paths, symbols, comment or Ask text). Nothing is sent anywhere. To read them,

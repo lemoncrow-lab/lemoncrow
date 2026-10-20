@@ -73,7 +73,7 @@ function SplitRecordRow({
   return (
     <li className="rounded-md border border-border/70 px-2 py-1.5" data-testid="review-split-record">
       <div className="flex items-baseline gap-2">
-        <span className="min-w-0 flex-1 text-neutral-200">
+        <span className="min-w-0 flex-1 text-foreground">
           {`${record.plan.layers.length} stacked layers · ${STATUS_TEXT[record.status] ?? record.status}`}
         </span>
         {collectable && (
@@ -102,7 +102,7 @@ function SplitRecordRow({
         <ul className="mt-1 space-y-0.5">
           {record.children.map((child) => (
             <li key={child.review_id} className="truncate text-caption">
-              <a className="text-sky-300 hover:underline" href={reviewHref(child.review_id)}>
+              <a className="text-cyan-300 hover:underline" href={reviewHref(child.review_id)}>
                 {child.title || `Layer ${child.layer}`}
               </a>
               <span className="ml-1 font-mono text-muted-foreground">{child.branch}</span>
@@ -250,7 +250,7 @@ export default function ReviewSplitSheet({
                   {preview.plan.layers.map((layer) => (
                     <li key={layer.branch} data-testid="review-split-layer">
                       <div className="flex items-baseline gap-2">
-                        <span className="min-w-0 flex-1 truncate text-neutral-200">{`${layer.index}. ${layer.title}`}</span>
+                        <span className="min-w-0 flex-1 truncate text-foreground">{`${layer.index}. ${layer.title}`}</span>
                         <span className="shrink-0 text-caption text-muted-foreground">{`${layer.paths.length} file${layer.paths.length === 1 ? "" : "s"}`}</span>
                       </div>
                       <div className="truncate font-mono text-caption text-muted-foreground" title={layer.paths.join("\n")}>
@@ -268,7 +268,7 @@ export default function ReviewSplitSheet({
                       const selected = route_?.tier === candidate.tier;
                       return (
                         <li key={candidate.tier}>
-                          <label className={`flex items-start gap-2 rounded-md border px-2 py-1.5 ${selected ? "border-sky-800 bg-sky-950/20" : "border-border/70"} ${candidate.available ? "" : "opacity-60"}`}>
+                          <label className={`flex items-start gap-2 rounded-md border px-2 py-1.5 ${selected ? "border-cyan-800 bg-cyan-950/20" : "border-border/70"} ${candidate.available ? "" : "opacity-60"}`}>
                             <UiInput
                               unstyled
                               type="radio"
@@ -282,7 +282,7 @@ export default function ReviewSplitSheet({
                               }}
                             />
                             <span className="min-w-0 flex-1">
-                              <span className="block text-neutral-200">{TIER_LABELS[candidate.tier]}</span>
+                              <span className="block text-foreground">{TIER_LABELS[candidate.tier]}</span>
                               <span className="block text-caption text-muted-foreground">
                                 {candidate.available ? routeTarget(candidate) : candidate.reason || "unavailable"}
                               </span>
@@ -313,9 +313,9 @@ export default function ReviewSplitSheet({
               )}
             </>
           )}
-          {error && <div role="alert" className="text-caption text-rose-300">{error}</div>}
+          {error && <div role="alert" className="text-caption text-red-300">{error}</div>}
         </div>
-        <div className="flex items-center gap-2 border-t border-neutral-900 px-4 py-2">
+        <div className="flex items-center gap-2 border-t border-border px-4 py-2">
           {preview && !preview.collect_available && (
             <span className="min-w-0 truncate text-caption text-muted-foreground" title={preview.collect_reason}>
               Collect the branches from your local Review.
@@ -323,11 +323,11 @@ export default function ReviewSplitSheet({
           )}
           <span className="flex-1" />
           {stale && preview ? (
-            <UiButton variant="default" size="xs" type="button" disabled={loading} onClick={() => void load(route, directive)}>
+            <UiButton variant="solid" size="xs" type="button" disabled={loading} onClick={() => void load(route, directive)}>
               Update preview
             </UiButton>
           ) : (
-            <UiButton variant="default" size="xs" type="button" disabled={!canStart} onClick={() => void start()}>
+            <UiButton variant="solid" size="xs" type="button" disabled={!canStart} onClick={() => void start()}>
               {busy && <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}
               {preview ? primaryLabel(preview) : "Request split"}
             </UiButton>

@@ -6,6 +6,7 @@ import FileTypeIcon from "../components/FileTypeIcon";
 import { selectedEditor } from "../lib/editorPreference";
 import { setVisibleInterval } from "../lib/visibleInterval";
 import { Button as UiButton } from "../components/ui/button";
+import { EmptyState } from "../components/ui/empty-state";
 import { Input as UiInput } from "../components/ui/input";
 import { Select, SelectItem } from "../components/ui/select";
 import { currentReturnPath, returnPathFrom, withReturnPath } from "../lib/codeLinks";
@@ -985,7 +986,7 @@ export default function CodeMap() {
   }, []);
 
   return (
-    <section className="flex min-h-[calc(100vh-80px)] flex-col bg-surface-sunken text-neutral-200 xl:h-[calc(100dvh-41px)] xl:min-h-0 xl:overflow-hidden">
+    <section className="flex min-h-[calc(100vh-80px)] flex-col bg-surface-sunken text-foreground xl:h-[calc(100dvh-41px)] xl:min-h-0 xl:overflow-hidden">
       <div className="border-b border-border bg-background/75 px-3 lg:px-4">
         <div className="flex h-10 items-center gap-1.5 overflow-x-auto whitespace-nowrap">
           {returnTo && (
@@ -1054,17 +1055,17 @@ export default function CodeMap() {
                   {navigator.platform?.toLowerCase().includes("mac") ? "⌘K" : "Ctrl K"}
                 </span>
               )}
-              {searching && <Loader2 size={11} className="absolute right-2 top-2.5 animate-spin text-neutral-400" />}
+              {searching && <Loader2 size={11} className="absolute right-2 top-2.5 animate-spin text-muted-foreground" />}
               {query.trim().length >= 2 && !searching && searchError && (
-                <div className="absolute right-0 top-9 z-30 w-full rounded-lg border border-red-900/60 bg-background px-3 py-2.5 text-label text-red-300 shadow-2xl">{searchError}</div>
+                <div className="absolute right-0 top-9 z-30 w-full rounded-lg border border-red-900/60 bg-background px-3 py-2.5 text-label text-red-300 shadow-float">{searchError}</div>
               )}
               {query.trim().length >= 2 && !searching && !searchError && searchResults.length === 0 && (
-                <div className="absolute right-0 top-9 z-30 w-full rounded-lg border border-border/80 bg-background px-3 py-2.5 text-label text-muted-foreground shadow-2xl">
+                <div className="absolute right-0 top-9 z-30 w-full rounded-lg border border-border/80 bg-background px-3 py-2.5 text-label text-muted-foreground shadow-float">
                   No matching files, symbols, or text.
                 </div>
               )}
               {searchResults.length > 0 && (
-                <div id="code-search-results" className="absolute right-0 top-9 z-30 max-h-96 w-full overflow-y-auto rounded-lg border border-border/80 bg-background p-1 shadow-2xl">
+                <div id="code-search-results" className="absolute right-0 top-9 z-30 max-h-96 w-full overflow-y-auto rounded-lg border border-border/80 bg-background p-1 shadow-float">
                   {searchResults.map((result, index) => {
                     const label = result.type === "text" ? result.match.text || query.trim() : result.node.label;
                     const path = result.type === "text" ? result.match.path : result.node.path;
@@ -1082,7 +1083,7 @@ export default function CodeMap() {
                       >
                         <span className="flex items-center gap-2">
                           <FileTypeIcon path={path} size={13} />
-                          <span className="min-w-0 flex-1 truncate text-xs text-foreground">{label}</span>
+                          <span className="min-w-0 flex-1 truncate text-body text-foreground">{label}</span>
                           <span className="shrink-0 text-micro font-semibold uppercase tracking-wider text-muted-foreground">{badge}</span>
                         </span>
                         <span className="mt-0.5 block truncate pl-[21px] text-caption text-muted-foreground">
@@ -1111,7 +1112,7 @@ export default function CodeMap() {
                 onClick={() => changeSurface("source")}
                 aria-pressed={surface === "source"}
                 style={{ borderRadius: 0 }}
-                className={`inline-flex h-full items-center gap-1.5 border-0 px-2 ${surface === "source" ? "bg-accent text-foreground" : "text-neutral-400 hover:text-foreground"}`}
+                className={`inline-flex h-full items-center gap-1.5 border-0 text-label px-2 ${surface === "source" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
               >
                 <FileCode2 size={11} /> Source
               </UiButton>
@@ -1121,7 +1122,7 @@ export default function CodeMap() {
                 onClick={() => changeSurface("map")}
                 aria-pressed={surface === "map"}
                 style={{ borderRadius: 0 }}
-                className={`inline-flex h-full items-center gap-1.5 border-0 border-l border-border px-2 ${surface === "map" ? "bg-accent text-foreground" : "text-neutral-400 hover:text-foreground"}`}
+                className={`inline-flex h-full items-center gap-1.5 border-0 text-label border-l border-border px-2 ${surface === "map" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
               >
                 <Network size={11} /> Map
               </UiButton>
@@ -1131,7 +1132,7 @@ export default function CodeMap() {
                 onClick={() => changeSurface("2d")}
                 aria-pressed={surface === "2d"}
                 style={{ borderRadius: 0 }}
-                className={`inline-flex h-full items-center gap-1.5 border-0 border-l border-border px-2 ${surface === "2d" ? "bg-accent text-foreground" : "text-neutral-400 hover:text-foreground"}`}
+                className={`inline-flex h-full items-center gap-1.5 border-0 text-label border-l border-border px-2 ${surface === "2d" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
               >
                 <Share2 size={11} /> 2D
               </UiButton>
@@ -1141,7 +1142,7 @@ export default function CodeMap() {
                 onClick={() => changeSurface("3d")}
                 aria-pressed={surface === "3d"}
                 style={{ borderRadius: 0 }}
-                className={`inline-flex h-full items-center gap-1.5 border-0 border-l border-border px-2 ${surface === "3d" ? "bg-accent text-foreground" : "text-neutral-400 hover:text-foreground"}`}
+                className={`inline-flex h-full items-center gap-1.5 border-0 text-label border-l border-border px-2 ${surface === "3d" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
               >
                 <Boxes size={11} /> 3D
               </UiButton>
@@ -1165,12 +1166,12 @@ export default function CodeMap() {
               unstyled
               type="button"
               onClick={() => setLiveEnabled((enabled) => !enabled)}
-              className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-border/80 bg-background px-2 text-caption tabular-nums text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-border/80 bg-background px-2 text-meta tabular-nums text-muted-foreground hover:bg-muted hover:text-foreground"
               aria-pressed={liveEnabled}
               aria-label={`Live activity: ${liveSessionCount} active ${liveSessionCount === 1 ? "session" : "sessions"}. Click to turn live overlay ${liveEnabled ? "off" : "on"}.`}
               title={activitySessions.length ? `${liveSessionCount} live of ${activitySessions.length} recent sessions` : "No agent session in this worktree yet"}
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${liveEnabled && activityStatus !== "offline" && liveSessionCount > 0 ? "bg-emerald-400" : "bg-neutral-600"}`} />
+              <span className={`h-1.5 w-1.5 rounded-full ${liveEnabled && activityStatus !== "offline" && liveSessionCount > 0 ? "bg-emerald-400" : "bg-muted-foreground"}`} />
               {liveSessionCount}
             </UiButton>
           </div>
@@ -1186,18 +1187,19 @@ export default function CodeMap() {
         </div>
       )}
       {loading ? (
-        <div className="flex min-h-[560px] items-center justify-center gap-3 text-sm text-neutral-300">
-          <Loader2 className="animate-spin text-brand-300" size={18} /> Listing files…
+        <div className="flex min-h-[560px] items-center justify-center gap-3 text-heading text-subtle">
+          <Loader2 className="animate-spin text-subtle" size={18} /> Listing files…
         </div>
       ) : !files.length && !error ? (
         <div className="flex min-h-[560px] items-center justify-center px-4">
-          <div className="max-w-lg rounded-lg border border-border/70 bg-background/60 p-4 text-center">
-            <Braces className="mx-auto text-brand-300" size={28} />
-            <h3 className="mt-4 text-base font-semibold text-foreground">No files in this project yet</h3>
-            <p className="mt-2 text-sm leading-6 text-neutral-300">Index the repository, then return here.</p>
-            <UiButton type="button" size="xs" variant="outline" className="mt-3" onClick={() => setShowIgnored((value) => !value)}>{showIgnored ? "Hide Git ignored files" : "Show Git ignored files"}</UiButton>
-            <code className="mt-4 inline-block rounded-md border border-border/70 bg-surface-code px-3 py-1.5 font-mono text-label text-emerald-300">{fullCode ? "lc code index" : "lc runtime index"}</code>
-          </div>
+          <EmptyState
+            label="No files"
+            className="w-full max-w-lg"
+            icon={<Braces aria-hidden="true" />}
+            title="No files in this project yet"
+            description={<>Index the repository, then return here: <code className="rounded-sm bg-muted px-1 font-mono text-code text-foreground">{fullCode ? "lc code index" : "lc runtime index"}</code></>}
+            action={<UiButton type="button" size="xs" variant="outline" onClick={() => setShowIgnored((value) => !value)}>{showIgnored ? "Hide Git ignored files" : "Show Git ignored files"}</UiButton>}
+          />
         </div>
       ) : (
         <div style={{ "--explorer-width": `min(${explorerWidth}px, 45vw)` } as CSSProperties} className={`relative grid min-h-[650px] flex-1 grid-cols-1 xl:min-h-0 xl:overflow-hidden ${askOpen ? "xl:grid-cols-[var(--explorer-width)_minmax(0,1fr)_400px]" : "xl:grid-cols-[var(--explorer-width)_minmax(0,1fr)_320px]"}`}>
@@ -1284,7 +1286,7 @@ export default function CodeMap() {
             />
           )}
           {askOpen && codeAskTransport ? (
-            <div className="absolute inset-y-0 right-0 z-30 w-[min(400px,92vw)] min-h-0 border-l border-border bg-background shadow-[-18px_0_40px_rgba(0,0,0,0.3)] xl:static xl:w-auto xl:shadow-none">
+            <div className="absolute inset-y-0 right-0 z-30 w-[min(400px,92vw)] min-h-0 border-l border-border bg-background shadow-float xl:static xl:w-auto xl:shadow-none">
               <Suspense fallback={null}>
                 <ReviewAskDrawer
                   reviewId={projectUrlReference ?? ""}

@@ -108,13 +108,13 @@ export function groupTimeline(events: DevelopmentEvent[]): TimelineRow[] {
 function SectionHeading({ children, meta }: { children: React.ReactNode; meta?: React.ReactNode }) {
   return (
     <div className="mb-2.5 flex items-baseline gap-2">
-      <h3 className="text-body font-semibold text-neutral-200">{children}</h3>
+      <h3 className="text-body font-semibold text-foreground">{children}</h3>
       {meta && <span className="text-label tabular-nums text-muted-foreground">{meta}</span>}
     </div>
   );
 }
 
-function PathButton({ path, onOpenPath, onClose, tone = "text-neutral-400" }: {
+function PathButton({ path, onOpenPath, onClose, tone = "text-muted-foreground" }: {
   path: string;
   onOpenPath?(path: string): void;
   onClose(): void;
@@ -160,13 +160,13 @@ function ContributorRow({ item, recent, onOpenPath, onClose }: {
             {item.active && <span className="review-live-dot shrink-0" data-active="true" aria-label="working now" />}
             <span className="break-words">{title}</span>
           </div>
-          <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-label text-neutral-400">
+          <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-label text-muted-foreground">
             <span>Driver: {item.host.toLowerCase() === "claude" ? "Claude Code" : hostLabel(item.host)}</span>
             {item.model && <span>Model: {item.model}</span>}
             <span className="text-muted-foreground">{ROLE_LABEL[item.role] ?? item.role}</span>
             <span className="text-muted-foreground">{item.active ? "Working now" : recent ? "Updated since Snapshot" : item.status === "done" ? "Completed" : "Recorded"}</span>
           </div>
-          {detail && <p className="mt-1.5 line-clamp-2 text-label leading-5 text-neutral-400">{detail}</p>}
+          {detail && <p className="mt-1.5 line-clamp-2 text-label leading-5 text-muted-foreground">{detail}</p>}
         </div>
         <OpenDevelopmentSession host={item.host} sessionId={item.session_id} />
       </div>
@@ -205,7 +205,7 @@ function Summary({ projection, onOpenPath, onClose }: {
           <p className="text-body text-muted-foreground">No summary was recorded.</p>
         )}
         {facts.length > 0 && (
-          <p className="mt-2 text-label tabular-nums text-neutral-400">{facts.join(" · ")}</p>
+          <p className="mt-2 text-label tabular-nums text-muted-foreground">{facts.join(" · ")}</p>
         )}
         {projection.source === "legacy_journal" && (
           <p className="mt-2 text-caption text-muted-foreground">From the author journal frozen with this Snapshot.</p>
@@ -218,9 +218,9 @@ function Summary({ projection, onOpenPath, onClose }: {
           <ul className="space-y-1.5">
             {failed.map((check) => (
               <li key={`fail-${check.sequence}`} className="flex gap-2 text-body leading-5">
-                <XCircle size={13} className="mt-1 shrink-0 text-rose-300" aria-hidden="true" />
+                <XCircle size={13} className="mt-1 shrink-0 text-red-300" aria-hidden="true" />
                 <div className="min-w-0">
-                  <span className="text-rose-200">{check.summary}</span>
+                  <span className="text-red-200">{check.summary}</span>
                   <span className="ml-2 text-caption text-muted-foreground">{hostLabel(check.host)} · failed</span>
                   {check.detail && <div className="truncate text-label text-muted-foreground" title={check.detail}>{check.detail}</div>}
                   <OpenDevelopmentSession host={check.host} sessionId={check.session_id} context={check.summary} />
@@ -230,7 +230,7 @@ function Summary({ projection, onOpenPath, onClose }: {
             {projection.open_items.map((item) => (
               <li key={item.id} className="flex gap-2 text-body leading-5">
                 <CircleAlert size={13} className="mt-1 shrink-0 text-amber-300" aria-hidden="true" />
-                <div className="min-w-0 text-neutral-300">
+                <div className="min-w-0 text-subtle">
                   {item.summary}
                   <span className="ml-2 text-caption text-muted-foreground">{hostLabel(item.host)} · {item.kind === "blocker" ? "blocker" : "open question"}</span>
                   <OpenDevelopmentSession host={item.host} sessionId={item.session_id} context={item.summary} />
@@ -239,8 +239,8 @@ function Summary({ projection, onOpenPath, onClose }: {
             ))}
             {projection.unattributed_paths.length > 0 && (
               <li className="flex gap-2 text-body leading-5">
-                <CircleDashed size={13} className="mt-1 shrink-0 text-neutral-400" aria-hidden="true" />
-                <div className="min-w-0 text-neutral-300">
+                <CircleDashed size={13} className="mt-1 shrink-0 text-muted-foreground" aria-hidden="true" />
+                <div className="min-w-0 text-subtle">
                   {plural(projection.unattributed_paths.length, "changed file")} with no recorded author
                   <div className="mt-0.5 flex flex-wrap gap-x-1">
                     {projection.unattributed_paths.slice(0, 6).map((path) => (
@@ -294,7 +294,7 @@ function Verification({ projection }: { projection: DevelopmentProjection }) {
           <>
             <span className="text-emerald-300/90">{verification.pass} passed</span>
             {" · "}
-            <span className={verification.fail ? "text-rose-300" : ""}>{verification.fail} failed</span>
+            <span className={verification.fail ? "text-red-300" : ""}>{verification.fail} failed</span>
             {verification.pending > 0 && <> · <span className="text-amber-300">{verification.pending} pending</span></>}
           </>
         )}
@@ -307,14 +307,14 @@ function Verification({ projection }: { projection: DevelopmentProjection }) {
             <span className={statusTone(check.status)} aria-label={check.status}>
               {check.status === "pass" ? <CheckCircle2 size={12} /> : check.status === "fail" ? <XCircle size={12} /> : <CircleDashed size={12} />}
             </span>
-            <span className="min-w-0 flex-1 truncate font-mono text-neutral-300" title={check.summary}>{check.summary}</span>
+            <span className="min-w-0 flex-1 truncate font-mono text-subtle" title={check.summary}>{check.summary}</span>
             <span className="shrink-0 text-caption text-muted-foreground">{hostLabel(check.host)}</span>
             <OpenDevelopmentSession host={check.host} sessionId={check.session_id} context={check.summary} />
           </li>
         ))}
       </ul>
       {verification.checks.length > 5 && (
-        <UiButton variant="link" type="button" onClick={() => setExpanded((value) => !value)} className="mt-2 text-label text-muted-foreground hover:text-neutral-200">
+        <UiButton variant="link" type="button" onClick={() => setExpanded((value) => !value)} className="mt-2 text-label text-muted-foreground hover:text-foreground">
           {expanded ? "Show fewer" : `Show all ${verification.checks.length}`}
         </UiButton>
       )}
@@ -334,10 +334,10 @@ function OutsideWorkspace({ projection }: { projection: DevelopmentProjection })
         <ul className="mt-2 space-y-1" data-testid="development-approval-decisions">
           {decisions.slice(0, 12).map((item) => (
             <li key={item.id || `${item.sequence}`} className="flex min-w-0 items-baseline gap-2 text-caption">
-              <span className={`shrink-0 font-medium ${item.status === "approved" ? "text-emerald-300" : "text-rose-300"}`}>
+              <span className={`shrink-0 font-medium ${item.status === "approved" ? "text-emerald-300" : "text-red-300"}`}>
                 {item.status === "approved" ? "Pre-approved" : "Denied"}
               </span>
-              <span className="min-w-0 flex-1 truncate text-neutral-300" title={item.detail}>{item.summary}</span>
+              <span className="min-w-0 flex-1 truncate text-subtle" title={item.detail}>{item.summary}</span>
               <span className="shrink-0 text-muted-foreground">
                 {hostLabel(item.host)}
                 {item.at ? ` · ${shortTime(item.at)}` : ""}
@@ -357,7 +357,7 @@ function Decisions({ projection }: { projection: DevelopmentProjection }) {
       <SectionHeading meta={projection.decisions.length || undefined}>Decisions & facts</SectionHeading>
       <ul className="space-y-2">
         {projection.decisions.slice(0, 8).map((item) => (
-          <li key={item.id} className="text-body leading-5 text-neutral-300">
+          <li key={item.id} className="text-body leading-5 text-subtle">
             {item.summary}
             <span className="ml-2 text-caption text-muted-foreground">
               {hostLabel(item.host)}{item.role === "investigator" ? " · accepted finding" : ""}
@@ -368,8 +368,8 @@ function Decisions({ projection }: { projection: DevelopmentProjection }) {
       </ul>
       {projection.plan && (
         <details className="mt-3 text-label text-muted-foreground">
-          <summary className="w-fit cursor-pointer hover:text-neutral-200">Latest plan · {hostLabel(projection.plan.host)}</summary>
-          <div className="mt-1.5 whitespace-pre-wrap leading-5 text-neutral-400">{projection.plan.detail}</div>
+          <summary className="w-fit cursor-pointer hover:text-foreground">Latest plan · {hostLabel(projection.plan.host)}</summary>
+          <div className="mt-1.5 whitespace-pre-wrap leading-5 text-muted-foreground">{projection.plan.detail}</div>
           <OpenDevelopmentSession host={projection.plan.host} sessionId={projection.plan.session_id} context={projection.plan.summary} />
         </details>
       )}
@@ -394,9 +394,9 @@ function Feedback({ projection, revisionNumber }: { projection: DevelopmentProje
           ].filter(Boolean);
           return (
             <li key={item.causation_id} className="flex gap-2 text-body leading-5">
-              <Handshake size={13} className="mt-1 shrink-0 text-sky-300" aria-hidden="true" />
+              <Handshake size={13} className="mt-1 shrink-0 text-cyan-300" aria-hidden="true" />
               <div className="min-w-0">
-                <div className="text-neutral-200">
+                <div className="text-foreground">
                   {who} {item.edit_count > 0 ? "addressed" : "received"} {plural(item.annotation_ids.length || 1, "comment")}
                 </div>
                 <div className="text-label text-muted-foreground">{parts.join(" · ")}</div>
@@ -423,14 +423,14 @@ function ChangedPaths({ projection, onOpenPath, onClose }: {
       <ul className="grid gap-x-3 gap-y-0.5 sm:grid-cols-2">
         {rows.map((row) => (
           <li key={row.path} className="flex min-w-0 items-center gap-1.5">
-            <PathButton path={row.path} onOpenPath={onOpenPath} onClose={onClose} tone={row.status === "reverted" ? "text-muted-foreground line-through" : "text-neutral-400"} />
+            <PathButton path={row.path} onOpenPath={onOpenPath} onClose={onClose} tone={row.status === "reverted" ? "text-muted-foreground line-through" : "text-muted-foreground"} />
             {row.in_snapshot === false && <span className="shrink-0 text-caption text-muted-foreground">not in Snapshot</span>}
             {row.sessions.length > 1 && <span className="shrink-0 text-caption text-muted-foreground">{row.sessions.length} agents</span>}
           </li>
         ))}
       </ul>
       {projection.changed_paths.length > 12 && (
-        <UiButton variant="link" type="button" onClick={() => setExpanded((value) => !value)} className="mt-2 text-label text-muted-foreground hover:text-neutral-200">
+        <UiButton variant="link" type="button" onClick={() => setExpanded((value) => !value)} className="mt-2 text-label text-muted-foreground hover:text-foreground">
           {expanded ? "Show fewer" : `Show all ${projection.changed_paths.length}`}
         </UiButton>
       )}
@@ -453,22 +453,22 @@ function TimelineEvent({ event, onOpenPath, onClose }: { event: DevelopmentEvent
         {eventIcon(event)}
       </span>
       <div className="flex min-w-0 items-baseline gap-2">
-        <span className="min-w-0 flex-1 text-body leading-5 text-neutral-200">{event.summary}</span>
+        <span className="min-w-0 flex-1 text-body leading-5 text-foreground">{event.summary}</span>
         <time className="shrink-0 text-caption tabular-nums text-muted-foreground" dateTime={event.at}>{shortTime(event.at)}</time>
       </div>
       <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 text-caption text-muted-foreground">
         <span>{hostLabel(event.host)}{event.role && event.role !== "author" ? ` · ${ROLE_LABEL[event.role] ?? event.role}` : ""}</span>
         <span>{event.kind.replace("_", " ")}</span>
         {event.status && event.status !== "changed" && <span className={statusTone(event.status)}>{event.status}</span>}
-        {event.causation_id && <span className="text-sky-300/80">review follow-up</span>}
+        {event.causation_id && <span className="text-cyan-300/80">review follow-up</span>}
         <OpenDevelopmentSession host={event.host} sessionId={event.session_id} context={event.summary} />
         {event.path && event.kind !== "edit" && event.kind !== "revert" && (
-          <PathButton path={event.path} onOpenPath={onOpenPath} onClose={onClose} tone="text-sky-300/70" />
+          <PathButton path={event.path} onOpenPath={onOpenPath} onClose={onClose} tone="text-cyan-300/70" />
         )}
       </div>
       {event.detail && event.detail !== event.summary && (
         <details className="mt-1 text-label text-muted-foreground">
-          <summary className="w-fit cursor-pointer hover:text-neutral-300">Details</summary>
+          <summary className="w-fit cursor-pointer hover:text-subtle">Details</summary>
           <div className="mt-1 max-h-36 overflow-auto whitespace-pre-wrap break-words leading-5">{event.detail}</div>
         </details>
       )}
@@ -537,7 +537,7 @@ function Timeline({ reviewId, revisionNumber, hasSince, initialScope, onOpenPath
   return (
     <section className="px-5 py-4" aria-label="Activity timeline">
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h3 className="mr-auto text-body font-semibold text-neutral-200">Timeline</h3>
+        <h3 className="mr-auto text-body font-semibold text-foreground">Timeline</h3>
         {hasSince && (
           <ToggleGroup
             variant="segment"
@@ -561,7 +561,7 @@ function Timeline({ reviewId, revisionNumber, hasSince, initialScope, onOpenPath
       {state === "loading" && events.length === 0 ? (
         <div className="py-6 text-center text-label text-muted-foreground" role="status">Loading development activity…</div>
       ) : state === "failed" ? (
-        <div className="rounded-md border border-rose-900/50 bg-rose-950/15 px-3 py-2 text-label text-rose-200" role="alert">
+        <div className="rounded-md border border-red-900/50 bg-red-950/15 px-3 py-2 text-label text-red-200" role="alert">
           Timeline unavailable: {error}
           <UiButton variant="link" type="button" onClick={() => void load(null)} className="ml-2 underline underline-offset-2">Retry</UiButton>
         </div>
@@ -577,13 +577,13 @@ function Timeline({ reviewId, revisionNumber, hasSince, initialScope, onOpenPath
                 <MessageSquareText size={11} />
               </span>
               <details className="text-body">
-                <summary className="cursor-pointer text-neutral-400 hover:text-neutral-200">
+                <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
                   {plural(row.events.length, "progress update")} from {hostLabel(row.events[0].host)}
                   <span className="ml-2 text-caption tabular-nums text-muted-foreground">{shortTime(row.events[row.events.length - 1].at)}–{shortTime(row.events[0].at)}</span>
                 </summary>
                 <ul className="mt-1.5 space-y-1.5">
                   {row.events.map((event) => (
-                    <li key={event.id} className="text-label leading-5 text-neutral-400">{event.summary}</li>
+                    <li key={event.id} className="text-label leading-5 text-muted-foreground">{event.summary}</li>
                   ))}
                 </ul>
               </details>
@@ -642,7 +642,7 @@ export default function ReviewDevelopmentSheet({
         }}
       >
         <SheetHeader className="gap-3 px-5 py-3.5">
-          <Workflow size={15} className="mt-0.5 shrink-0 text-neutral-400" aria-hidden="true" />
+          <Workflow size={15} className="mt-0.5 shrink-0 text-muted-foreground" aria-hidden="true" />
           <div className="min-w-0 flex-1">
             <SheetTitle className="text-title">Activity</SheetTitle>
             <p className="mt-0.5 text-label text-muted-foreground">
@@ -657,10 +657,10 @@ export default function ReviewDevelopmentSheet({
         </SheetHeader>
 
         {newer && !session && (
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-sky-900/50 bg-sky-950/20 px-5 py-2.5 text-body text-sky-200" role="status">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-cyan-900/50 bg-cyan-950/20 px-5 py-2.5 text-body text-cyan-200" role="status">
             <span className="review-live-dot" data-active={newer.active ? "true" : "false"} aria-hidden="true" />
             <span className="font-semibold">{newer.active ? "Working now" : "Since this Snapshot"}</span>
-            <span className="min-w-0 flex-1 truncate text-sky-300/80" title={newer.narrative?.join(" ") || undefined}>
+            <span className="min-w-0 flex-1 truncate text-cyan-300/80" title={newer.narrative?.join(" ") || undefined}>
               {[
                 newer.contributors.length > 0 && joinNames(newer.contributors),
                 newerPaths > 0 && `${plural(newerPaths, "newer file")}`,
@@ -675,7 +675,7 @@ export default function ReviewDevelopmentSheet({
                 setEvidenceOpen(true);
                 setTimelineScope((value) => (value === "since" ? "snapshot" : "since"));
               }}
-              className="review-context-action border-sky-800/60 text-sky-200 hover:bg-sky-950/30"
+              className="review-context-action border-cyan-800/60 text-cyan-200 hover:bg-cyan-950/30"
             >
               {timelineScope === "since" ? "View Snapshot activity" : "View newer activity"}
             </UiButton>
@@ -686,7 +686,7 @@ export default function ReviewDevelopmentSheet({
           {empty ? (
             <div className="px-5 py-10 text-center">
               <ListChecks size={18} className="mx-auto text-muted-foreground" aria-hidden="true" />
-              <p className="mx-auto mt-3 max-w-[46ch] text-body leading-5 text-neutral-400">
+              <p className="mx-auto mt-3 max-w-[46ch] text-body leading-5 text-muted-foreground">
                 {development.reason || "No development evidence is attached to this Snapshot."}
               </p>
               <p className="mx-auto mt-1.5 max-w-[46ch] text-label leading-5 text-muted-foreground">
@@ -707,15 +707,15 @@ export default function ReviewDevelopmentSheet({
                   type="button"
                   aria-expanded={evidenceOpen}
                   onClick={() => setEvidenceOpen((open) => !open)}
-                  className="w-full border-b border-border/70 px-5 py-3 text-left text-body font-medium text-neutral-300 hover:bg-muted/40 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-400"
+                  className="w-full border-b border-border/70 px-5 py-3 text-left text-body font-medium text-subtle hover:bg-muted/40 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400"
                 >
                   {evidenceOpen ? "Hide" : "Show"} checks, decisions, files and activity
                 </UiButton>
                 {evidenceOpen && (
                   <>
                     {(snapshot.intent || snapshot.narrative?.length) && (
-                      <div className="border-b border-border/70 px-5 py-4 text-body leading-5 text-neutral-400">
-                        {snapshot.intent && <p><span className="font-medium text-neutral-300">Asked: </span><span>{snapshot.intent}</span></p>}
+                      <div className="border-b border-border/70 px-5 py-4 text-body leading-5 text-muted-foreground">
+                        {snapshot.intent && <p><span className="font-medium text-subtle">Asked: </span><span>{snapshot.intent}</span></p>}
                         {snapshot.narrative?.length ? <p className="mt-2" data-testid="development-narrative">{snapshot.narrative.join(" ")}</p> : null}
                       </div>
                     )}

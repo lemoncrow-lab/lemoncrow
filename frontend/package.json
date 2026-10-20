@@ -19,6 +19,7 @@
     "test:perf:product": "playwright test -c playwright.perf.product.config.ts",
     "typecheck:e2e": "tsc -p e2e/tsconfig.json",
     "check:ui-primitives": "node ./scripts/check-ui-primitives.mjs",
+    "sync:design": "node ./scripts/sync-design.mjs",
     "pretest": "npm run check:ui-primitives",
     "prebuild": "npm run check:ui-primitives"
   },

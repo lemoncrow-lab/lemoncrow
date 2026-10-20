@@ -195,10 +195,10 @@ export function attentionState({
 }
 
 const BAR_TONE_CLASSES: Record<AttentionState["tone"], string> = {
-  neutral: "border-border bg-muted/45 text-neutral-300",
-  amber: "border-amber-900/55 bg-amber-950/20 text-amber-200",
-  sky: "border-sky-900/55 bg-sky-950/20 text-sky-200",
-  emerald: "border-emerald-900/55 bg-emerald-950/15 text-emerald-200",
+  neutral: "border-border bg-muted text-subtle",
+  amber: "border-p1-line bg-p1-bg text-p1",
+  sky: "border-p2-line bg-p2-bg text-p2",
+  emerald: "border-ok-line bg-ok-bg text-ok",
 };
 
 /** Readiness blockers beyond ordinary unfinished review coverage. */
@@ -233,12 +233,12 @@ export function readinessControl(
   return {
     text: includeProgress ? `${progress.reviewed}/${progress.target_count} reviewed · ${statusText}` : statusText,
     className: readiness.ready
-      ? "text-emerald-300 hover:text-emerald-200"
+      ? "text-ok"
       : readiness.failedChecks > 0 || readiness.outcome?.outcome === "changes_requested"
-        ? "text-rose-300 hover:text-rose-200"
+        ? "text-p0"
         : needsAttention
-          ? "text-amber-300 hover:text-amber-200"
-          : "text-neutral-400 hover:text-neutral-200",
+          ? "text-p1"
+          : "text-muted-foreground",
   };
 }
 
@@ -271,7 +271,7 @@ export default function ReviewAttentionBar(props: ReviewAttentionBarProps) {
         tooltip={props.readiness.detail}
         className={`h-6 ${control.className}`}
       >
-        <ShieldCheck size={11} />
+        <ShieldCheck size={12} />
         <span>{control.text}</span>
       </UiButton>
       {props.openCommentCount > 0 && (
@@ -283,7 +283,7 @@ export default function ReviewAttentionBar(props: ReviewAttentionBarProps) {
           className="h-6"
           aria-label={`Open ${props.openCommentCount} review comments`}
         >
-          <MessageSquareText size={11} />
+          <MessageSquareText size={12} />
           <span className="font-mono text-caption">{props.openCommentCount}</span>
         </UiButton>
       )}

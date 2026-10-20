@@ -31,13 +31,13 @@ export function DisclosureCard({
       open={open}
       onOpenChange={onToggle}
       className={cn(
-        "overflow-hidden rounded-lg border border-border/70 bg-muted/50 transition-colors",
+        "overflow-hidden rounded-lg border border-border bg-card transition-colors duration-fast",
         className
       )}
     >
       <CollapsibleTrigger
         className={cn(
-          "w-full px-4 py-3 text-left transition-colors hover:bg-accent/50",
+          "w-full px-4 py-3 text-left transition-colors duration-fast hover:bg-accent/60",
           triggerClassName
         )}
       >
@@ -45,7 +45,7 @@ export function DisclosureCard({
       </CollapsibleTrigger>
       <CollapsibleContent
         className={cn(
-          "border-t border-border bg-background/50 px-4 py-3",
+          "border-t border-border bg-muted/50 px-4 py-3",
           contentClassName
         )}
       >

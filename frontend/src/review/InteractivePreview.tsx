@@ -119,7 +119,7 @@ function SideBySide({
               key={side}
               className="flex min-h-0 flex-col rounded-md border border-border/70"
             >
-              <figcaption className="border-b border-border/60 px-2 py-1 text-caption text-neutral-300">
+              <figcaption className="border-b border-border/60 px-2 py-1 text-caption text-subtle">
                 {label}
               </figcaption>
               {ended || !live.urls[side] ? (
@@ -260,7 +260,7 @@ export default function InteractivePreviewPanel({
       data-testid={`interactive-preview-${openedFrom}`}
     >
       <div className="flex items-center gap-2">
-        <span className="font-medium text-neutral-200">
+        <span className="font-medium text-foreground">
           Interactive preview
         </span>
         <span className="flex-1" />
@@ -322,7 +322,7 @@ export default function InteractivePreviewPanel({
         </div>
       )}
       {message && (
-        <div className="mt-0.5 text-micro text-neutral-300" role="status">
+        <div className="mt-0.5 text-micro text-subtle" role="status">
           {message}
         </div>
       )}

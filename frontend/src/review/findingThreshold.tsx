@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import type { Annotation } from "./types";
+import type { Annotation, ReviewTriage } from "./types";
 
 /**
  * Finding threshold surfacing (Phase 9 item 11).
@@ -22,6 +22,32 @@ export function markBelowThreshold(annotations: Annotation[], hiddenIds: readonl
     if (below === Boolean(item.below_threshold)) return item;
     changed = true;
     return { ...item, below_threshold: below };
+  });
+  return changed ? marked : annotations;
+}
+
+const SEVERITY_LEVELS = ["p0", "p1", "p2", "suggestion"] as const;
+
+/**
+ * Gives the AI findings their severity when the triage summary makes it exact.
+ *
+ * The server rates each AI finding (p0 | p1 | p2 | suggestion, from its validated category) but sends
+ * only the counts per source. When every AI finding of this Review falls in one rated level and none is
+ * unrated or stale, each of them has exactly that level, so the badge cannot lie. In any other mix the
+ * findings stay unbadged rather than guessed. A `severity` already on the annotation always wins.
+ */
+export function markFindingSeverity(annotations: Annotation[], triage: ReviewTriage | null | undefined): Annotation[] {
+  const row = triage?.severity_summary.by_source?.ai_review;
+  if (!row || row.unrated > 0 || row.stale > 0) return annotations;
+  const rated = SEVERITY_LEVELS.filter((level) => row[level] > 0);
+  const roots = annotations.filter((item) => item.source === "ai_review" && !item.parent_id && item.state !== "obsolete");
+  if (rated.length !== 1 || roots.length === 0 || roots.length !== row[rated[0]]) return annotations;
+  const level = rated[0];
+  let changed = false;
+  const marked = annotations.map((item) => {
+    if (item.source !== "ai_review" || item.parent_id || item.severity) return item;
+    changed = true;
+    return { ...item, severity: level };
   });
   return changed ? marked : annotations;
 }
@@ -48,8 +74,8 @@ export function BelowThresholdList<T extends Annotation>({
     <>
       {shown.map(render)}
       {below.length > 0 && (
-        <details data-testid="below-threshold" className="py-1 text-caption text-muted-foreground">
-          <summary className="cursor-pointer select-none">{below.length} below threshold</summary>
+        <details data-testid="below-threshold" className="group rounded-md border border-border py-1 text-meta text-muted-foreground">
+          <summary className="flex min-h-7 cursor-pointer select-none items-center gap-2 px-3">{below.length} below threshold</summary>
           {below.map(render)}
         </details>
       )}

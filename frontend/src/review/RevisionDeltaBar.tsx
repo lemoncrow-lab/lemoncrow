@@ -15,7 +15,7 @@ interface RevisionDeltaBarProps {
 function Queue({
   title,
   rows,
-  tone = "text-neutral-300",
+  tone = "text-subtle",
   onSelectTarget,
   interactive = true,
 }: {
@@ -28,14 +28,14 @@ function Queue({
   if (rows.length === 0) return null;
   return (
     <div>
-      <div className={`pb-1 text-caption uppercase tracking-[0.14em] ${tone}`}>{title} · {rows.length}</div>
+      <div className={`pb-1 text-caption uppercase tracking-tag ${tone}`}>{title} · {rows.length}</div>
       <div className="space-y-0.5">
         {rows.slice(0, 8).map((row) => interactive ? (
           <UiButton unstyled
             key={row.target_id}
             type="button"
             onClick={() => onSelectTarget(row.target_id)}
-            className="block w-full truncate py-0.5 text-left font-mono text-caption text-neutral-400 hover:text-neutral-50"
+            className="block w-full truncate py-0.5 text-left font-mono text-meta text-muted-foreground hover:text-foreground"
             title={row.label}
           >
             {row.label}
@@ -64,13 +64,13 @@ export default function RevisionDeltaBar({
   if (!delta) {
     if (discarded.length === 0) return null;
     return (
-      <div className="shrink-0 border-b border-rose-900/40 bg-rose-950/10 px-3 py-1.5 text-caption" data-testid="discarded-verdicts">
+      <div className="shrink-0 border-b border-red-900/40 bg-red-950/10 px-3 py-1.5 text-caption" data-testid="discarded-verdicts">
         <details>
-          <summary className="cursor-pointer text-rose-300">Past judgments no longer apply · {discarded.length}</summary>
+          <summary className="cursor-pointer text-red-300">Past judgments no longer apply · {discarded.length}</summary>
           <div className="mt-1 space-y-1">
             {discarded.map((item) => (
               <div key={item.unit_key}>
-                <span className="font-mono text-rose-200">{item.label}</span>
+                <span className="font-mono text-red-200">{item.label}</span>
                 <span className="pl-2 text-muted-foreground">{item.state} · {item.reason}</span>
               </div>
             ))}
@@ -94,72 +94,72 @@ export default function RevisionDeltaBar({
   );
 
   return (
-    <div className="shrink-0 border-b border-sky-900/50 bg-sky-950/15 text-caption text-sky-100" data-testid="revision-delta" role="status" aria-live="polite">
+    <div className="shrink-0 border-b border-cyan-900/50 bg-cyan-950/15 text-caption text-cyan-100" data-testid="revision-delta" role="status" aria-live="polite">
       <div className="flex items-center gap-2 px-3 py-1.5">
         <span className="font-medium">Snapshot {info.revision_number}</span>
         {reopened + added > 0 ? (
-          <span className="text-sky-300/80">{reopened + added} returned</span>
+          <span className="text-cyan-300/80">{reopened + added} returned</span>
         ) : (
-          <span className="text-sky-300/80">No work returned</span>
+          <span className="text-cyan-300/80">No work returned</span>
         )}
         {reopened > 0 && <span className="text-amber-300/80">{reopened} changed</span>}
-        {added > 0 && <span className="text-violet-300/80">{added} new</span>}
-        {carriedPending > 0 && <span className="text-neutral-400">{carriedPending} still pending</span>}
+        {added > 0 && <span className="text-muted-foreground">{added} new</span>}
+        {carriedPending > 0 && <span className="text-muted-foreground">{carriedPending} still pending</span>}
         {(info.rebased ?? 0) > 0 && (
           <span
-            className="text-neutral-400"
+            className="text-muted-foreground"
             title="Only the base moved under these review areas (rebase or merge-base); their authored change is equivalent, so your judgments were kept."
             data-testid="revision-delta-base-only"
           >
             {info.rebased} base-only, kept
           </span>
         )}
-        {appliedProposals.length > 0 && <span className="text-violet-300/80">{appliedProposals.length} proposal{appliedProposals.length === 1 ? "" : "s"} captured</span>}
+        {appliedProposals.length > 0 && <span className="text-muted-foreground">{appliedProposals.length} proposal{appliedProposals.length === 1 ? "" : "s"} captured</span>}
         <span className="flex-1" />
         {focused && active > 0 && (
           <UiButton unstyled
             type="button"
             onClick={onShowAll}
-            className="border border-sky-800 px-2 py-0.5 text-sky-200 hover:bg-sky-950/40 hover:text-sky-100"
+            className="border border-cyan-800 px-2 py-0.5 text-cyan-200 hover:bg-cyan-950/40 hover:text-cyan-100"
           >
             Show all
           </UiButton>
         )}
         <Popover>
           <PopoverTrigger asChild>
-            <UiButton unstyled type="button" className="text-sky-400/80 hover:text-sky-200">Details</UiButton>
+            <UiButton unstyled type="button" className="text-cyan-400/80 hover:text-cyan-200">Details</UiButton>
           </PopoverTrigger>
-          <PopoverContent align="end" aria-label="Snapshot delta details" className="w-[420px] max-w-[85vw] border-neutral-700 p-3">
+          <PopoverContent align="end" aria-label="Snapshot delta details" className="w-[420px] max-w-[85vw] border-border p-3">
             <div className="grid grid-cols-2 gap-x-4 gap-y-3">
               <Queue title="Changed since review" rows={delta.reopened} tone="text-amber-300" onSelectTarget={onSelectTarget} />
-              <Queue title="New" rows={delta.added} tone="text-violet-300" onSelectTarget={onSelectTarget} />
+              <Queue title="New" rows={delta.added} tone="text-muted-foreground" onSelectTarget={onSelectTarget} />
               <Queue title="Removed" rows={delta.removed} tone="text-muted-foreground" onSelectTarget={onSelectTarget} interactive={false} />
               {carriedPending > 0 && (
                 <div>
-                  <div className="pb-1 text-caption uppercase tracking-[0.14em] text-neutral-400">Still pending · {carriedPending}</div>
+                  <div className="pb-1 text-caption uppercase tracking-tag text-muted-foreground">Still pending · {carriedPending}</div>
                   <div className="text-caption leading-relaxed text-muted-foreground">These already needed review before this Snapshot and still do. No prior reviewed judgment was invalidated here.</div>
                 </div>
               )}
               {preserved > 0 && (
                 <div>
-                  <div className="pb-1 text-caption uppercase tracking-[0.14em] text-emerald-400/70">Still reviewed · {preserved}</div>
+                  <div className="pb-1 text-caption uppercase tracking-tag text-emerald-400/70">Still reviewed · {preserved}</div>
                   <div className="text-caption leading-relaxed text-muted-foreground">These targets did not change, so your previous reviewed judgment still applies.</div>
                 </div>
               )}
             </div>
             {appliedProposals.length > 0 && (
-              <div className="mt-3 border-t border-violet-900/40 pt-2">
-                <div className="pb-1 text-caption uppercase tracking-[0.14em] text-violet-300">Reviewer source proposals</div>
+              <div className="mt-3 border-t border-border pt-2">
+                <div className="pb-1 text-caption uppercase tracking-tag text-muted-foreground">Reviewer source proposals</div>
                 {appliedProposals.map((proposal) => (
                   <div key={proposal.id} className="py-1 text-caption">
-                    <div className="font-mono text-neutral-300">{proposal.path}:{proposal.start_line}{proposal.end_line !== proposal.start_line ? `-${proposal.end_line}` : ""}</div>
+                    <div className="font-mono text-subtle">{proposal.path}:{proposal.start_line}{proposal.end_line !== proposal.start_line ? `-${proposal.end_line}` : ""}</div>
                     {proposal.result_target_ids.length > 0 ? (
                       <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5">
                         {proposal.result_target_ids.map((targetId) => (
                           <UiButton unstyled
                             key={targetId}
                             type="button"
-                            className="text-violet-300/80 hover:text-violet-100"
+                            className="text-muted-foreground hover:text-foreground"
                             aria-label={`Proposal result: ${targetsById.get(targetId)?.label ?? targetId}`}
                             onClick={() => onSelectTarget(targetId)}
                           >
@@ -176,16 +176,16 @@ export default function RevisionDeltaBar({
             )}
             {info.notes.length > 0 && (
               <div className="mt-3 border-t border-border pt-2">
-                <div className="pb-1 text-caption uppercase tracking-[0.14em] text-amber-300">Why judgments changed</div>
-                {info.notes.map((note) => <div key={note} className="text-caption leading-relaxed text-neutral-400">{note}</div>)}
+                <div className="pb-1 text-caption uppercase tracking-tag text-amber-300">Why judgments changed</div>
+                {info.notes.map((note) => <div key={note} className="text-caption leading-relaxed text-muted-foreground">{note}</div>)}
               </div>
             )}
             {discarded.length > 0 && (
-              <div className="mt-3 border-t border-rose-900/50 pt-2">
-                <div className="pb-1 text-caption uppercase tracking-[0.14em] text-rose-300">Past judgments no longer apply · {discarded.length}</div>
+              <div className="mt-3 border-t border-red-900/50 pt-2">
+                <div className="pb-1 text-caption uppercase tracking-tag text-red-300">Past judgments no longer apply · {discarded.length}</div>
                 {discarded.map((item) => (
                   <div key={item.unit_key} className="py-1 text-caption leading-relaxed">
-                    <div className="font-mono text-rose-200">{item.label}</div>
+                    <div className="font-mono text-red-200">{item.label}</div>
                     <div className="text-muted-foreground">{item.state} · {item.reason}</div>
                   </div>
                 ))}
@@ -193,7 +193,7 @@ export default function RevisionDeltaBar({
             )}
           </PopoverContent>
         </Popover>
-        <UiButton unstyled type="button" onClick={onDismiss} className="text-sky-500/70 hover:text-sky-200" aria-label="Dismiss Snapshot delta">×</UiButton>
+        <UiButton unstyled type="button" onClick={onDismiss} className="text-cyan-500/70 hover:text-cyan-200" aria-label="Dismiss Snapshot delta">×</UiButton>
       </div>
     </div>
   );

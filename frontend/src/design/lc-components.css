@@ -1,0 +1,56 @@
+/*
+ * LemonCrow structural components: the eyebrow and the Hunk. CANONICAL SOURCE.
+ *
+ * The Hunk is a hairline frame with an optional mono `@@ LABEL @@` header strip
+ * and an optional 3px severity rail (`border-l-rail border-l-p0-solid`, set on
+ * a row, never decorative). The `@@` markers are generated here with empty alt
+ * text so assistive technology does not announce them; a browser that cannot
+ * parse the second `content` declaration keeps the first.
+ *
+ * Consumers need Tailwind with design/lc-preset.cjs (these rules use its tokens).
+ */
+@layer components {
+  .eyebrow {
+    @apply font-mono text-tag uppercase text-muted-foreground;
+  }
+  .eyebrow::before {
+    content: "@@ ";
+    content: "@@ " / "";
+    @apply text-foreground;
+  }
+  .eyebrow::after {
+    content: " @@";
+    content: " @@" / "";
+    @apply text-foreground;
+  }
+  .eyebrow[data-index]::before {
+    content: "@@ " attr(data-index) " · ";
+    content: "@@ " attr(data-index) " · " / "";
+  }
+
+  .hunk {
+    @apply overflow-hidden rounded-lg border border-border bg-card text-card-foreground;
+  }
+  .hunk-head {
+    @apply flex h-9 items-center justify-between gap-3 border-b border-border bg-muted px-3 font-mono text-tag uppercase text-muted-foreground;
+  }
+  .hunk-label {
+    @apply min-w-0 truncate;
+  }
+  .hunk-label::before {
+    content: "@@ ";
+    content: "@@ " / "";
+  }
+  .hunk-label::after {
+    content: " @@";
+    content: " @@" / "";
+  }
+  .hunk-foot {
+    @apply border-t border-border bg-muted px-3 py-2 text-meta text-muted-foreground;
+  }
+
+  /* Flat highlighter: one phrase per page, light surfaces only. */
+  .marker {
+    background-image: linear-gradient(transparent 62%, rgb(var(--brand)) 62%);
+  }
+}

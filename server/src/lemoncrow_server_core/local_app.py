@@ -1849,6 +1849,8 @@ class LocalServerApp(CoreServerRoutes):
                 app.add_routes(
                     [
                         web.get("/home", ui),
+                        web.get("/activity", ui),
+                        web.get("/activity/{tail:.*}", ui),
                         web.get("/runs", ui),
                         web.get("/runs/{tail:.*}", ui),
                         web.get("/code", ui),

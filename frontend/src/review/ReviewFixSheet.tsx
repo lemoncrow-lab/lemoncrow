@@ -151,7 +151,7 @@ export default function ReviewFixSheet({
                     const selected = route_?.tier === candidate.tier;
                     return (
                       <li key={candidate.tier}>
-                        <label className={`flex items-start gap-2 rounded-md border px-2 py-1.5 ${selected ? "border-sky-800 bg-sky-950/20" : "border-border/70"} ${candidate.available ? "" : "opacity-60"}`}>
+                        <label className={`flex items-start gap-2 rounded-md border px-2 py-1.5 ${selected ? "border-cyan-800 bg-cyan-950/20" : "border-border/70"} ${candidate.available ? "" : "opacity-60"}`}>
                           <UiInput
                             unstyled
                             type="radio"
@@ -165,7 +165,7 @@ export default function ReviewFixSheet({
                             }}
                           />
                           <span className="min-w-0 flex-1">
-                            <span className="block text-neutral-200">{TIER_LABELS[candidate.tier]}</span>
+                            <span className="block text-foreground">{TIER_LABELS[candidate.tier]}</span>
                             <span className="block text-caption text-muted-foreground">
                               {candidate.available ? routeTarget(candidate) : candidate.reason || "unavailable"}
                             </span>
@@ -197,7 +197,7 @@ export default function ReviewFixSheet({
                   <ul className="mt-1 space-y-1">
                     {preview.excluded.map((item) => (
                       <li key={`${item.subject_id}:${item.code}`} className="text-caption">
-                        <span className="text-neutral-300">{item.title || item.subject_id}</span>
+                        <span className="text-subtle">{item.title || item.subject_id}</span>
                         <span className="text-muted-foreground"> — {item.reason}</span>
                       </li>
                     ))}
@@ -225,19 +225,19 @@ export default function ReviewFixSheet({
               )}
             </>
           )}
-          {error && <div role="alert" className="text-caption text-rose-300">{error}</div>}
+          {error && <div role="alert" className="text-caption text-red-300">{error}</div>}
         </div>
-        <div className="flex items-center gap-2 border-t border-neutral-900 px-4 py-2">
+        <div className="flex items-center gap-2 border-t border-border px-4 py-2">
           {route_?.mode === "copy" && (
             <span className="text-caption text-muted-foreground">The next Snapshot is linked as unattributed.</span>
           )}
           <span className="flex-1" />
           {stale && preview ? (
-            <UiButton variant="default" size="xs" type="button" disabled={loading} onClick={() => void load(route, directive)}>
+            <UiButton variant="solid" size="xs" type="button" disabled={loading} onClick={() => void load(route, directive)}>
               Update preview
             </UiButton>
           ) : (
-            <UiButton variant="default" size="xs" type="button" disabled={!canStart} onClick={() => void start()}>
+            <UiButton variant="solid" size="xs" type="button" disabled={!canStart} onClick={() => void start()}>
               {starting && <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />}
               {preview ? primaryLabel(preview) : title}
             </UiButton>

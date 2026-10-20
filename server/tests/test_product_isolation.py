@@ -126,7 +126,17 @@ async def _exercise_review_only(tmp_path: Path) -> None:
         await server.stop()
 
 
-_RUNTIME_DASHBOARD_PAGES = ("/home", "/runs", "/runs/run_1", "/code", "/knowledge", "/knowledge/memory", "/usage")
+_RUNTIME_DASHBOARD_PAGES = (
+    "/home",
+    "/activity",
+    "/activity/run_1",
+    "/runs",
+    "/runs/run_1",
+    "/code",
+    "/knowledge",
+    "/knowledge/memory",
+    "/usage",
+)
 
 
 def _spa_bundle(tmp_path: Path) -> Path:

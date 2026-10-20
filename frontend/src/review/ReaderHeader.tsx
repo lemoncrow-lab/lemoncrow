@@ -1,3 +1,4 @@
+import { Badge } from "../components/ui/badge";
 import { Button as UiButton } from "../components/ui/button";
 import { Dialog, DialogBody, DialogClose, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import { Input as UiInput } from "../components/ui/input";
@@ -265,13 +266,13 @@ export default function ReaderHeader({
           aria-pressed={developmentOpen}
           aria-label={development.label}
           tooltip={development.label}
-          className={developmentOpen ? "border-sky-800/70 bg-sky-950/30 text-sky-200" : ""}
+          className={developmentOpen ? "bg-accent text-foreground" : ""}
           data-testid="reader-development-action"
         >
           <Workflow size={13} aria-hidden="true" />
           <span className="review-tool-label hidden lg:inline">Activity</span>
           {development.contributors > 0 && (
-            <span className="font-mono text-caption text-neutral-400">{development.contributors}</span>
+            <Badge>{development.contributors}</Badge>
           )}
           {development.newerEvents > 0 && (
             <span className="review-live-dot" data-active={development.active ? "true" : "false"} aria-hidden="true" />
@@ -290,7 +291,7 @@ export default function ReaderHeader({
       >
         <MessageSquareText size={13} />
         <span className="review-tool-label hidden lg:inline">Comments</span>
-        {commentState === "ready" && openCommentCount > 0 && <span className="font-mono text-caption text-neutral-400">{openCommentCount}</span>}
+        {commentState === "ready" && openCommentCount > 0 && <Badge>{openCommentCount}</Badge>}
         {commentState !== "ready" && <span className="font-mono text-caption text-muted-foreground">—</span>}
       </UiButton>
       {readiness && onShowReadiness && (
@@ -306,7 +307,7 @@ export default function ReaderHeader({
         >
           <ShieldCheck size={13} aria-hidden="true" />
           <span>{docked ? readiness.shortText ?? readiness.text : readiness.text}</span>
-          {uncertain > 0 && <span className="text-caption text-amber-400" aria-hidden="true">· {docked ? `${uncertain}?` : `${uncertain} uncertain`}</span>}
+          {uncertain > 0 && <span className="text-caption text-p1" aria-hidden="true">· {docked ? `${uncertain}?` : `${uncertain} uncertain`}</span>}
         </UiButton>
       )}
       {onShowAsk && (
@@ -318,7 +319,7 @@ export default function ReaderHeader({
           aria-pressed={askOpen}
           aria-label="Ask about this review"
           tooltip="Ask about this change"
-          className={askOpen ? "border-violet-800/70 bg-violet-950/30 text-violet-200" : ""}
+          className={askOpen ? "bg-accent text-foreground" : ""}
         >
           <Sparkles size={13} />
           <span className="review-tool-label hidden lg:inline">Ask</span>
@@ -333,7 +334,7 @@ export default function ReaderHeader({
       {handoffControls}
       {!handoffControls && !hidePrimaryAction && (
         <UiButton
-          variant="default"
+          variant="brand"
           ref={finishButtonRef}
           type="button"
           disabled={busy || primaryAction.disabled}
@@ -405,7 +406,7 @@ export default function ReaderHeader({
 
         <nav className="flex shrink-0 items-center gap-1" aria-label="Review workspace">
           {onViewChange && (
-            <div role="group" aria-label="Review views" className="review-reader-views mr-1 inline-flex overflow-hidden rounded-md border border-border/80">
+            <div role="group" aria-label="Review views" className="review-reader-views mr-1 inline-flex gap-0.5 rounded-md border border-border bg-muted p-0.5">
               {REVIEW_VIEWS.filter(({ value }) => availableViews.includes(value)).map(({ value, label, hint, icon: Icon }) => (
                 <UiButton
                   key={value}
@@ -416,7 +417,7 @@ export default function ReaderHeader({
                   aria-pressed={view === value || (view === "tour" && value === "brief")}
                   aria-label={label}
                   tooltip={hint}
-                  className={`rounded-none border-0 ${(view === value || (view === "tour" && value === "brief")) ? "bg-accent text-foreground" : "text-neutral-400"}`}
+                  className={`h-6 rounded-sm ${(view === value || (view === "tour" && value === "brief")) ? "border-border bg-card text-foreground" : "text-muted-foreground"}`}
                 >
                   <Icon size={13} aria-hidden="true" />
                   <span className="review-tool-label hidden lg:inline">{label}</span>
@@ -546,7 +547,7 @@ export default function ReaderHeader({
               </DialogClose>
               {feedbackState !== "sent" && (
                 <UiButton
-                  variant="default"
+                  variant="solid"
                   type="submit"
                   disabled={!feedbackText.trim() || feedbackState === "sending"}
                 >

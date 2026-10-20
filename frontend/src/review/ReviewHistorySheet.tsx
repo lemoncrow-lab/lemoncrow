@@ -44,13 +44,13 @@ function actorPresentation(event: ReviewActivityEvent): { label: string; tone: s
   if (event.actor_type === "agent") {
     return {
       label: event.actor_id || "Agent",
-      tone: "border-violet-900/70 bg-violet-950/15 text-violet-300",
+      tone: "border-border bg-muted text-muted-foreground",
       icon: "agent",
     };
   }
   return {
     label: event.actor_id || "LemonCrow",
-    tone: "border-border bg-muted/50 text-neutral-400",
+    tone: "border-border bg-muted/50 text-muted-foreground",
     icon: "system",
   };
 }
@@ -189,8 +189,8 @@ export default function ReviewHistorySheet({
           {tab === "revisions" && isMutableReview(rangeMode) && (
             <div className="mt-1" data-testid="history-review-base">
               {reviewBaseSha?.trim()
-                ? <span title={`Recorded Review base ${reviewBaseSha}`}>Review base <span className="font-mono text-neutral-300">{shortBase(reviewBaseSha.trim())}</span> · each Snapshot may use a later integration base</span>
-                : <span className="font-medium text-neutral-300">Base not frozen · captures may compare against a different HEAD</span>}
+                ? <span title={`Recorded Review base ${reviewBaseSha}`}>Review base <span className="font-mono text-subtle">{shortBase(reviewBaseSha.trim())}</span> · each Snapshot may use a later integration base</span>
+                : <span className="font-medium text-subtle">Base not frozen · captures may compare against a different HEAD</span>}
             </div>
           )}
         </div>
@@ -199,10 +199,10 @@ export default function ReviewHistorySheet({
             <div className="py-8 text-center text-caption text-muted-foreground" role="status">Loading history…</div>
           )}
           {error && (
-            <div className="flex items-start gap-3 border-y border-rose-900/45 bg-rose-950/10 px-3 py-2.5">
+            <div className="flex items-start gap-3 border-y border-red-900/45 bg-red-950/10 px-3 py-2.5">
               <div className="min-w-0 flex-1">
-                <div className="text-caption font-medium text-rose-300">Could not load history</div>
-                <details className="mt-1 text-caption text-muted-foreground"><summary className="cursor-pointer">Error details</summary><div className="mt-1 font-mono text-rose-300/75">{error}</div></details>
+                <div className="text-caption font-medium text-red-300">Could not load history</div>
+                <details className="mt-1 text-meta text-muted-foreground"><summary className="cursor-pointer">Error details</summary><div className="mt-1 font-mono text-red-300/75">{error}</div></details>
               </div>
               <UiButton size="xs" type="button" disabled={loading} onClick={() => void loadHistory()}>Retry</UiButton>
             </div>
@@ -219,19 +219,19 @@ export default function ReviewHistorySheet({
                 const reason = eventReason(event);
                 return (
                   <div key={event.id} className="relative border-l border-border/70 py-3.5 pl-5">
-                    <span className="absolute -left-[5px] top-[18px] h-2.5 w-2.5 rounded-full border border-neutral-700 bg-background" />
+                    <span className="absolute -left-[5px] top-[18px] h-2.5 w-2.5 rounded-full border border-border bg-background" />
                     <div className="flex flex-wrap items-center gap-2">
                       <span className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-caption ${actor.tone}`}>
                         {actor.icon === "human" ? <UserRound size={10} /> : actor.icon === "agent" ? <Bot size={10} /> : <CircleDot size={10} />}
                         {actor.label}
                       </span>
-                      {revisionNumber !== undefined && <span className="font-mono text-caption text-sky-400/80">Snapshot {revisionNumber}</span>}
+                      {revisionNumber !== undefined && <span className="font-mono text-caption text-cyan-400/80">Snapshot {revisionNumber}</span>}
                       <span className="text-caption text-muted-foreground">{event.created_at ? new Date(event.created_at).toLocaleString() : ""}</span>
                     </div>
-                    <div className="mt-1 text-label leading-relaxed text-neutral-200">{event.summary || "Review activity"}</div>
+                    <div className="mt-1 text-label leading-relaxed text-foreground">{event.summary || "Review activity"}</div>
                     {reason && <div className="mt-1 text-caption leading-relaxed text-muted-foreground">{reason}</div>}
-                    <details className="mt-1.5 text-caption text-muted-foreground">
-                      <summary className="w-fit cursor-pointer select-none hover:text-neutral-50">Technical details</summary>
+                    <details className="mt-1.5 text-meta text-muted-foreground">
+                      <summary className="w-fit cursor-pointer select-none hover:text-foreground">Technical details</summary>
                       <div className="mt-1 flex flex-wrap gap-x-2 border-l border-border pl-2 font-mono">
                         <span>{event.kind}</span>
                         {event.subject_id && <span className="truncate">{event.subject_id}</span>}
@@ -257,11 +257,11 @@ export default function ReviewHistorySheet({
               </UiButton>
               {visibleRows.length > 1 && (
                 <details className="mb-3 rounded-md border border-border/80 bg-muted/20">
-                  <summary className="cursor-pointer list-none px-2.5 py-2 text-caption font-medium text-muted-foreground hover:text-neutral-200 [&::-webkit-details-marker]:hidden">
+                  <summary className="cursor-pointer list-none px-2.5 py-2 text-meta font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
                     Advanced comparison
                   </summary>
                   <div className="flex flex-wrap items-end gap-2 border-t border-border/70 px-2.5 py-2.5">
-                    <label className="min-w-[130px] flex-1 text-micro uppercase tracking-[0.08em] text-muted-foreground">
+                    <label className="min-w-[130px] flex-1 text-micro uppercase tracking-tag text-muted-foreground">
                       From
                       <Select
                         aria-label="Compare from Snapshot"
@@ -275,7 +275,7 @@ export default function ReviewHistorySheet({
                         ))}
                       </Select>
                     </label>
-                    <label className="min-w-[130px] flex-1 text-micro uppercase tracking-[0.08em] text-muted-foreground">
+                    <label className="min-w-[130px] flex-1 text-micro uppercase tracking-tag text-muted-foreground">
                       To
                       <Select
                         aria-label="Compare to Snapshot"
@@ -290,7 +290,7 @@ export default function ReviewHistorySheet({
                       </Select>
                     </label>
                     {advancedCompareHref ? (
-                      <UiButton asChild variant="default" className="px-3 text-caption">
+                      <UiButton asChild variant="outline" className="px-3 text-meta">
                         <a href={advancedCompareHref}>
                           <GitCompareArrows size={11} aria-hidden="true" />
                           Compare
@@ -316,13 +316,13 @@ export default function ReviewHistorySheet({
                     <div className="flex min-w-0 items-start gap-2">
                       <a href={href} className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono text-label font-medium text-neutral-200">{captureLabel}</span>
-                          {row.title && <span className="max-w-[26rem] truncate text-caption text-neutral-300">{row.title}</span>}
+                          <span className="font-mono text-label font-medium text-foreground">{captureLabel}</span>
+                          {row.title && <span className="max-w-[26rem] truncate text-caption text-subtle">{row.title}</span>}
                           {row.capture_kind === "commit" && <span className="text-caption text-muted-foreground">Commit {row.commit_number ?? ""}{row.commit_sha ? ` · ${row.commit_sha.slice(0, 8)}` : ""}</span>}
-                          {row.id === latestSaved?.id && <span className="text-caption text-sky-400">Newest saved</span>}
+                          {row.id === latestSaved?.id && <span className="text-caption text-cyan-400">Newest saved</span>}
                           {isLatest && runningDraft && <span className="text-caption text-muted-foreground">Running draft</span>}
                           {row.is_last_reviewed && <span className="text-caption text-emerald-400/80">Last reviewed</span>}
-                          {hasFeedback && <span className="text-caption text-violet-400/80">{row.is_last_commented ? "Latest feedback" : "Review feedback"}</span>}
+                          {hasFeedback && <span className="text-caption text-muted-foreground">{row.is_last_commented ? "Latest feedback" : "Review feedback"}</span>}
                           {row.capture_kind === "commit" && row.commit_state === "superseded" && (
                             <span className="text-caption text-amber-400/80">Rewritten</span>
                           )}
@@ -332,7 +332,7 @@ export default function ReviewHistorySheet({
                         <div className="mt-1 flex flex-wrap gap-x-3 text-caption text-muted-foreground">
                           <span>{row.created_at ? new Date(row.created_at).toLocaleString() : "Captured Snapshot"}</span>
                           {row.base_moved && row.semantic_changed === false && (
-                            <span className="text-sky-400/80">Base moved · review areas unchanged</span>
+                            <span className="text-cyan-400/80">Base moved · review areas unchanged</span>
                           )}
                           {row.base_moved && row.semantic_changed === true && (
                             <span className="text-muted-foreground">Base moved · review areas also changed</span>
@@ -363,7 +363,7 @@ export default function ReviewHistorySheet({
                           <a href={href} aria-label={`Open ${captureLabel}`}>Open</a>
                         </UiButton>
                         {compareHref && (
-                          <UiButton asChild variant="ghost" size="compact" className="text-sky-300/80">
+                          <UiButton asChild variant="ghost" size="compact" className="text-cyan-300/80">
                             <a href={compareHref}>
                               <GitCompareArrows size={11} aria-hidden="true" /> Compare to latest
                             </a>

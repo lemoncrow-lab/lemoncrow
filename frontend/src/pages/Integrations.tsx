@@ -51,7 +51,7 @@ function IntegrationDetails({ host }: { host: LocalIntegrationHost }) {
           <div className="text-micro font-semibold uppercase tracking-wide text-muted-foreground">
             Host CLI
           </div>
-          <div className="mt-1 text-neutral-200">
+          <div className="mt-1 text-foreground">
             {host.detected ? "Detected on this machine" : "Not detected on PATH"}
           </div>
         </div>
@@ -59,7 +59,7 @@ function IntegrationDetails({ host }: { host: LocalIntegrationHost }) {
           <div className="text-micro font-semibold uppercase tracking-wide text-muted-foreground">
             Live integration evidence
           </div>
-          <div className="mt-1 text-neutral-200">
+          <div className="mt-1 text-foreground">
             {components.length > 0
               ? `${presentCount}/${components.length} surfaces present`
               : "No surfaces detected"}
@@ -81,7 +81,7 @@ function IntegrationDetails({ host }: { host: LocalIntegrationHost }) {
               )}
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                  <div className="text-caption font-medium text-neutral-200">{component.label}</div>
+                  <div className="text-caption font-medium text-foreground">{component.label}</div>
                   <span
                     className={
                       component.present
@@ -133,7 +133,7 @@ export default function Integrations() {
 
   if (!runtimeCapabilities.localIntegrations) {
     return (
-      <PageFrame className="space-y-4 text-neutral-200">
+      <PageFrame className="space-y-4 text-foreground">
         <section className="max-w-2xl space-y-3">
           <div>
             <h2 className="text-heading font-semibold text-foreground">Developer connections</h2>
@@ -167,15 +167,15 @@ export default function Integrations() {
   };
 
   return (
-    <PageFrame className="space-y-4 text-neutral-200">
+    <PageFrame className="space-y-4 text-foreground">
       {error && (
-        <div className="border border-rose-900/50 bg-rose-950/15 px-3 py-2 text-label text-rose-300">
+        <div className="border border-red-900/50 bg-red-950/15 px-3 py-2 text-label text-red-300">
           Could not load integrations · {error}
         </div>
       )}
 
       {!data && !error && (
-        <div className="border-y border-neutral-900 py-6 text-center text-label text-muted-foreground">
+        <div className="border-y border-border py-6 text-center text-label text-muted-foreground">
           Loading integrations…
         </div>
       )}
@@ -185,7 +185,7 @@ export default function Integrations() {
           <section>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h2 className="text-caption font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+                <h2 className="text-caption font-semibold uppercase tracking-tag text-muted-foreground">
                   Coding hosts
                 </h2>
                 <p className="mt-1 text-caption text-muted-foreground">
@@ -198,7 +198,7 @@ export default function Integrations() {
                   className={`rounded-md border px-2 py-1 text-caption ${
                     data.dispatcher_available
                       ? "border-emerald-900/60 bg-emerald-950/20 text-emerald-300"
-                      : "border-rose-900/60 bg-rose-950/20 text-rose-300"
+                      : "border-red-900/60 bg-red-950/20 text-red-300"
                   }`}
                 >
                   Connection {data.dispatcher_available ? "ready" : "unavailable"}
@@ -229,7 +229,7 @@ export default function Integrations() {
                       <div className="flex items-start gap-3">
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <div className="truncate text-body font-semibold text-neutral-200">
+                            <div className="truncate text-body font-semibold text-foreground">
                               {host.label}
                             </div>
                             {isComingSoon(host) && <Chip tone="info">Coming soon</Chip>}

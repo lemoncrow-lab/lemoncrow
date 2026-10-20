@@ -17,10 +17,10 @@ export const DropdownMenuSub = DropdownMenuPrimitive.Sub;
 export const DropdownMenuRadioGroup = DropdownMenuPrimitive.RadioGroup;
 
 const menuSurface =
-  "z-50 min-w-[10rem] overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg shadow-black/20 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95";
+  "z-50 min-w-[10rem] overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-float data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95";
 
 const menuItem =
-  "relative flex w-full cursor-default select-none items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-label text-neutral-300 outline-none transition-colors data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-40 [&_svg]:shrink-0";
+  "relative flex w-full cursor-default select-none items-center gap-1.5 min-h-8 rounded-md px-2 py-1.5 text-left text-ui text-foreground outline-none transition-colors duration-fast data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-40 [&_svg]:shrink-0";
 
 export const DropdownMenuContent = forwardRef<
   ElementRef<typeof DropdownMenuPrimitive.Content>,
@@ -85,7 +85,7 @@ export const DropdownMenuLabel = forwardRef<
 >(({ className, inset, ...props }, ref) => (
   <DropdownMenuPrimitive.Label
     ref={ref}
-    className={cn("px-2 pb-1.5 pt-2 text-label font-semibold text-neutral-400", inset && "pl-7", className)}
+    className={cn("px-2 pb-1.5 pt-2 text-meta font-medium text-muted-foreground", inset && "pl-7", className)}
     {...props}
   />
 ));

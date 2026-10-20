@@ -111,16 +111,16 @@ export class ErrorBoundary extends Component<
           <CardHeader className="flex flex-row items-start gap-3">
             <AlertTriangle size={18} className="mt-0.5 shrink-0 text-red-300" />
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-red-100">
+              <div className="text-heading font-semibold text-red-100">
                 {this.props.label
                   ? `${this.props.label} failed to render`
                   : "Something went wrong"}
               </div>
-              <div className="mt-1 text-xs leading-relaxed text-red-200/80">
+              <div className="mt-1 text-body leading-relaxed text-red-200/80">
                 {error.message || "An unexpected error occurred."}
               </div>
               {chunkFailure && (
-                <div className="mt-1 text-xs leading-relaxed text-red-200/80">
+                <div className="mt-1 text-body leading-relaxed text-red-200/80">
                   LemonCrow was probably updated while this tab was open. Reload the page to load the new version.
                 </div>
               )}
@@ -141,7 +141,7 @@ export class ErrorBoundary extends Component<
               </Button>
             )}
             {import.meta.env.DEV && this.state.errorInfo && (
-              <details className="min-w-0 flex-1 text-caption text-red-200/60">
+              <details className="min-w-0 flex-1 text-meta text-red-200/60">
                 <summary className="cursor-pointer select-none">
                   Stack trace
                 </summary>

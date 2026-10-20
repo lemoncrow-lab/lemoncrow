@@ -26,7 +26,7 @@ function stateTone(entry: ReviewProjectContextEntry): string {
   if (entry.stale_for_snapshot) return "text-amber-300";
   if (entry.state === "superseded" || entry.state === "historical") return "text-muted-foreground";
   if (entry.state === "uncertain") return "text-amber-200";
-  return "text-sky-300";
+  return "text-cyan-300";
 }
 
 export function ProjectHistoryEntry({ entry }: { entry: ReviewProjectContextEntry }) {
@@ -35,7 +35,7 @@ export function ProjectHistoryEntry({ entry }: { entry: ReviewProjectContextEntr
   return (
     <li className="flex flex-col gap-0.5" data-testid="project-history-entry" data-state={entry.state}>
       <div className="flex flex-wrap items-baseline gap-x-2">
-        <span className="text-caption text-neutral-200">{entry.summary}</span>
+        <span className="text-caption text-foreground">{entry.summary}</span>
       </div>
       <div className="flex flex-wrap items-center gap-x-2 text-micro">
         <span className={stateTone(entry)} data-testid="project-history-freshness">{entry.freshness_label}</span>
@@ -51,7 +51,7 @@ export function ProjectHistoryEntry({ entry }: { entry: ReviewProjectContextEntr
           {entry.history.superseded_by && <li>{`Superseded: ${eventLabel(entry.history.superseded_by)}`}</li>}
           {reviewLinks.map((citation) => (
             <li key={citation.ref}>
-              <a className="text-sky-300 underline-offset-2 hover:underline" href={reviewHref(citation.review_id ?? "")}>
+              <a className="text-cyan-300 underline-offset-2 hover:underline" href={reviewHref(citation.review_id ?? "")}>
                 {citation.label ?? "Open Review"}
               </a>
             </li>
@@ -99,7 +99,7 @@ export default function BriefProjectContext({ load }: { load: () => Promise<Revi
   if (!context || !context.available || context.entries.length + context.narration.length === 0) return null;
   return (
     <section aria-label="Relevant history" className="flex flex-col gap-1.5 border-t border-border/70 py-3" data-testid="brief-project-context">
-      <div className="flex items-center gap-2 text-label font-medium text-neutral-200">
+      <div className="flex items-center gap-2 text-label font-medium text-foreground">
         <History size={14} aria-hidden="true" className="text-muted-foreground" />
         <span>Relevant history</span>
         <span className="text-micro font-normal text-muted-foreground">Landed history · advisory, not evidence for this Snapshot</span>

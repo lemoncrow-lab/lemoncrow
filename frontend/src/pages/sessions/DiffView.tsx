@@ -357,7 +357,7 @@ function SideBySideBody({ rows }: { rows: SBSRow[] }) {
           >
             {row.left && (
               <>
-                <span className="w-9 flex-shrink-0 text-right pr-2 py-0.5 text-neutral-400 select-none text-caption leading-5 border-r border-border/20">
+                <span className="w-9 flex-shrink-0 text-right pr-2 py-0.5 text-muted-foreground select-none text-caption leading-5 border-r border-border/20">
                   {row.left.num}
                 </span>
                 <span
@@ -365,7 +365,7 @@ function SideBySideBody({ rows }: { rows: SBSRow[] }) {
                     "flex-1 py-0.5 pl-2 whitespace-pre-wrap break-all leading-5",
                     row.left.type === "remove"
                       ? "text-red-300"
-                      : "text-neutral-400"
+                      : "text-muted-foreground"
                   )}
                 >
                   {row.left.type === "remove" && (
@@ -389,7 +389,7 @@ function SideBySideBody({ rows }: { rows: SBSRow[] }) {
           >
             {row.right && (
               <>
-                <span className="w-9 flex-shrink-0 text-right pr-2 py-0.5 text-neutral-400 select-none text-caption leading-5 border-r border-border/20">
+                <span className="w-9 flex-shrink-0 text-right pr-2 py-0.5 text-muted-foreground select-none text-caption leading-5 border-r border-border/20">
                   {row.right.num}
                 </span>
                 <span
@@ -397,7 +397,7 @@ function SideBySideBody({ rows }: { rows: SBSRow[] }) {
                     "flex-1 py-0.5 pl-2 whitespace-pre-wrap break-all leading-5",
                     row.right.type === "insert"
                       ? "text-emerald-300"
-                      : "text-neutral-400"
+                      : "text-muted-foreground"
                   )}
                 >
                   {row.right.type === "insert" && (
@@ -417,7 +417,7 @@ function SideBySideBody({ rows }: { rows: SBSRow[] }) {
 // Sticky column labels used by both diff surfaces
 function SBSLabels() {
   return (
-    <div className="flex sticky top-0 z-10 bg-surface-code border-b border-border/40 font-mono text-caption uppercase tracking-widest text-neutral-400">
+    <div className="flex sticky top-0 z-10 bg-surface-code border-b border-border/40 font-mono text-caption uppercase tracking-widest text-muted-foreground">
       <div className="w-1/2 px-3 py-1.5 border-r border-border/40">
         Before
       </div>
@@ -538,14 +538,14 @@ function DiffShell({
     <div className="w-full border border-emerald-900/25 bg-background/60 overflow-hidden rounded-lg">
       <div className="flex items-center justify-between px-4 py-2.5 bg-surface-code">
         <div className="flex items-center gap-3 min-w-0 flex-1">
-          <span className="text-caption font-black uppercase tracking-[0.2em] text-emerald-600/80 border border-emerald-800/40 bg-emerald-950/30 px-1.5 py-0.5 flex-shrink-0">
+          <span className="text-caption font-semibold uppercase tracking-tag text-emerald-600/80 border border-emerald-800/40 bg-emerald-950/30 px-1.5 py-0.5 flex-shrink-0">
             FILE_EDIT
           </span>
-          <span className="text-xs font-mono text-neutral-400 truncate">
+          <span className="text-body font-mono text-muted-foreground truncate">
             {path || "(unknown path)"}
           </span>
           {(addCount > 0 || delCount > 0) && (
-            <div className="flex items-center gap-1.5 text-caption font-mono font-black flex-shrink-0">
+            <div className="flex items-center gap-1.5 text-caption font-mono font-semibold flex-shrink-0">
               {addCount > 0 && (
                 <span className="text-emerald-600">+{addCount}</span>
               )}
@@ -562,7 +562,7 @@ function DiffShell({
                 href={api.fileProjectionInspectUrl(path, { view: "compact" })}
                 target="_blank"
                 rel="noreferrer"
-                className="text-caption text-neutral-400 hover:text-cyan-300 font-black uppercase tracking-widest transition-colors"
+                className="text-meta text-muted-foreground hover:text-cyan-300 font-semibold uppercase tracking-widest transition-colors"
                 title="Inspect compact projection metadata"
               >
                 Projection
@@ -571,7 +571,7 @@ function DiffShell({
                 href={apiUrl(`/v1/files/content?path=${encodeURIComponent(path)}`)}
                 target="_blank"
                 rel="noreferrer"
-                className="text-caption text-neutral-400 hover:text-emerald-300 font-black uppercase tracking-widest transition-colors flex items-center gap-1"
+                className="text-meta text-muted-foreground hover:text-emerald-300 font-semibold uppercase tracking-widest transition-colors flex items-center gap-1"
               >
                 View <ExternalLink size={10} />
               </a>
@@ -580,7 +580,7 @@ function DiffShell({
           {!forceExpand && (
             <UiButton unstyled
               onClick={onToggle}
-              className="text-caption text-neutral-400 hover:text-neutral-300 font-black uppercase tracking-widest transition-colors border-l border-border/60 pl-3 flex items-center gap-1.5"
+              className="text-meta text-muted-foreground hover:text-subtle font-semibold uppercase tracking-widest transition-colors border-l border-border/60 pl-3 flex items-center gap-1.5"
             >
               {expanded ? (
                 <>
@@ -628,16 +628,16 @@ export function FileDetail({
 
   return (
     <div className="overflow-hidden rounded-lg border border-border/70 bg-background/60 group/file">
-      <div className="flex items-center justify-between p-4 hover:bg-neutral-800/20 transition-all">
+      <div className="flex items-center justify-between p-4 hover:bg-accent/20 transition-all">
         <UiButton unstyled
           onClick={() => setInternalExpanded(!internalExpanded)}
           className="flex-1 flex items-center gap-4 min-w-0 text-left"
         >
-          <span className="text-xs font-mono text-neutral-400 group-hover/file:text-foreground transition-colors tracking-wide truncate">
+          <span className="text-body font-mono text-muted-foreground group-hover/file:text-foreground transition-colors tracking-wide truncate">
             {path}
           </span>
           {diff && (addCount > 0 || delCount > 0) && (
-            <div className="flex items-center gap-1.5 text-caption font-mono font-black flex-shrink-0">
+            <div className="flex items-center gap-1.5 text-caption font-mono font-semibold flex-shrink-0">
               {addCount > 0 && (
                 <span className="text-emerald-600">+{addCount}</span>
               )}
@@ -654,7 +654,7 @@ export function FileDetail({
                 href={api.fileProjectionInspectUrl(path, { view: "compact" })}
                 target="_blank"
                 rel="noreferrer"
-                className="text-caption text-neutral-400 font-black tracking-widest hover:text-cyan-300 transition-colors uppercase"
+                className="text-meta text-muted-foreground font-semibold tracking-widest hover:text-cyan-300 transition-colors uppercase"
                 title="Inspect compact projection metadata"
               >
                 Projection
@@ -663,7 +663,7 @@ export function FileDetail({
                 href={apiUrl(`/v1/files/content?path=${encodeURIComponent(path)}`)}
                 target="_blank"
                 rel="noreferrer"
-                className="text-caption text-neutral-400 font-black tracking-widest hover:text-emerald-300 transition-colors uppercase flex items-center gap-1"
+                className="text-meta text-muted-foreground font-semibold tracking-widest hover:text-emerald-300 transition-colors uppercase flex items-center gap-1"
                 title="View raw file content"
               >
                 Raw <ExternalLink size={10} />
@@ -672,7 +672,7 @@ export function FileDetail({
           )}
           <UiButton unstyled
             onClick={() => setInternalExpanded(!internalExpanded)}
-            className="text-caption text-neutral-400 font-black tracking-widest group-hover/file:text-neutral-300 transition-colors uppercase pl-2 border-l border-border flex items-center gap-1.5"
+            className="text-meta text-muted-foreground font-semibold tracking-widest group-hover/file:text-subtle transition-colors uppercase pl-2 border-l border-border flex items-center gap-1.5"
           >
             {expanded ? (
               <>

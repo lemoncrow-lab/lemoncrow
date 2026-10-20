@@ -2665,6 +2665,12 @@ export interface Annotation {
    * "N below threshold" disclosure; counts and readiness still include it.
    */
   below_threshold?: boolean;
+  /**
+   * P0/P1/P2 of an AI finding, normalized by the server from the validated category
+   * (`criticality.normalize_finding_severity`). The annotation wire does not carry it yet: the Reader fills it
+   * in client-side only when the triage summary makes it exact (`markFindingSeverity`).
+   */
+  severity?: "p0" | "p1" | "p2" | "suggestion";
   created_at: string;
   updated_at: string;
   anchor_method: string;

@@ -27,7 +27,7 @@ const MAX_ROWS = 5;
 function ProblemRow({ problem }: { problem: ProductionProblem }) {
   return (
     <li className="text-caption leading-4">
-      <span className={problem.advisory ? "text-amber-300" : "text-rose-300"}>{problem.title}</span>
+      <span className={problem.advisory ? "text-amber-300" : "text-red-300"}>{problem.title}</span>
       {problem.advisory && <span className="text-muted-foreground"> · advisory, correlation is not a cause</span>}
     </li>
   );
@@ -35,7 +35,7 @@ function ProblemRow({ problem }: { problem: ProductionProblem }) {
 
 function LinkRow({ link }: { link: ProductionChangeLink }) {
   return (
-    <li className="text-caption leading-4 text-neutral-300">
+    <li className="text-caption leading-4 text-subtle">
       {LINK_LABELS[link.relation] ?? link.relation} <span className="font-mono">{link.title || link.target_review_id}</span>
     </li>
   );
@@ -105,7 +105,7 @@ export default function ReviewProductionSection({ reviewId, variant }: { reviewI
     <section className="mt-5" aria-labelledby={headingId}>
       <div id={headingId} className="review-kicker mb-1">Production</div>
       {observations.length > 0 && observed?.status_line && (
-        <div className="text-label leading-5 text-neutral-200" data-testid="production-status-line">{observed.status_line}</div>
+        <div className="text-label leading-5 text-foreground" data-testid="production-status-line">{observed.status_line}</div>
       )}
       {problems.length > 0 && (
         <ul className="mt-1.5 space-y-1" aria-label="Production problems">

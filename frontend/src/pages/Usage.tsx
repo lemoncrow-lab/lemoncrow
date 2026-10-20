@@ -91,7 +91,7 @@ export default function Usage() {
               <SheetTitle className="text-caption font-mono font-normal uppercase tracking-widest text-muted-foreground">
                 Usage inspector
               </SheetTitle>
-              <div className="mt-0.5 text-sm font-semibold text-foreground">
+              <div className="mt-0.5 text-heading font-semibold text-foreground">
                 {INSPECTOR_LABELS[inspectorView]}
               </div>
             </div>

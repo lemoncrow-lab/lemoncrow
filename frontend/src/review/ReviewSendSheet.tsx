@@ -55,9 +55,9 @@ export default function ReviewSendSheet({
             </UiButton>
           </SheetClose>
         </SheetHeader>
-        <div className="flex items-center gap-2 border-b border-neutral-900 px-4 py-2 text-caption">
+        <div className="flex items-center gap-2 border-b border-border px-4 py-2 text-caption">
           <span className="text-muted-foreground">To:</span>
-          <span className="min-w-0 truncate text-neutral-200" title={feedback.delivery.target_ref}>{label}</span>
+          <span className="min-w-0 truncate text-foreground" title={feedback.delivery.target_ref}>{label}</span>
           {feedback.delivery.fallback && (
             <span className="truncate text-amber-300/80" title={feedback.delivery.reason}>· no exact author session</span>
           )}

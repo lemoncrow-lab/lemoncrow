@@ -1,4 +1,4 @@
-import { Button as UiButton } from "./components/ui/button";
+import { Button as UiButton, buttonVariants } from "./components/ui/button";
 import ReviewPreparation from "./review/ReviewPreparation";
 import { retryableLazy } from "./review/retryableLazy";
 import { ReviewPreparationProvider } from "./review/reviewPreparationContext";
@@ -16,7 +16,6 @@ import { Link, NavLink, Navigate, Route, Routes, useLocation, useSearchParams } 
 import {
   Activity,
   ClipboardCheck,
-  ChevronRight,
   House,
   Loader2,
   Moon,
@@ -31,6 +30,8 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { PortalContainerContext } from "./components/ui/portal-container";
 import { isChunkLoadFailure } from "./lib/chunkLoad";
 import { applyTheme, getInitialTheme, type Theme } from "./lib/theme";
+import lemonCrowMark from "./assets/lemoncrow-mark.svg";
+import { Badge } from "./components/ui/badge";
 import { useTimeRange, TIME_RANGE_OPTIONS } from "./lib/TimeRangeContext";
 
 // Every page is its own chunk: the entry bundle carried all of them (~350 KB
@@ -135,11 +136,11 @@ export function NotificationBanner({
   if (dismissed) return null;
 
   return (
-    <div className="border-b border-border bg-muted/60 px-4 py-2.5 text-label text-neutral-300">
+    <div className="border-b border-border bg-muted px-4 py-2.5 text-label text-subtle">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>{children}</div>
         <Button
-          variant="default"
+          variant="outline"
           size="sm"
           onClick={() => {
             setDismissed(true);
@@ -205,7 +206,9 @@ function LemonCrowBrand({ className }: { className?: string }) {
   }, [active]);
 
   const visibleWord = BRAND_WORD.slice(0, typed);
-  const brandWidth = active ? "14.5ch" : "2.5ch";
+  // Collapsed: the lemon mark alone (24px). Active: mark, gap, and the typed wordmark (9 letters plus the cursor,
+  // each one mono advance plus the 0.14em wordmark tracking).
+  const brandWidth = active ? "calc(1.5rem + 0.5rem + 10 * (1ch + 0.14em))" : "1.5rem";
 
   return (
     <NavLink
@@ -216,18 +219,18 @@ function LemonCrowBrand({ className }: { className?: string }) {
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
       className={cx(
-        "z-20 flex h-7 shrink-0 items-center gap-0.5 overflow-visible font-mono text-heading font-semibold tracking-[0.04em] text-foreground transition-[width] duration-100 ease-out",
+        "z-20 flex h-7 shrink-0 items-center gap-2 overflow-visible rounded-md font-mono text-small font-semibold uppercase tracking-wordmark text-foreground transition-[width] duration-fast ease-out",
         className,
       )}
       style={{ width: brandWidth }}
     >
-      <ChevronRight aria-hidden="true" size={14} strokeWidth={2} className="relative -top-px shrink-0" />
+      <img src={lemonCrowMark} alt="" aria-hidden="true" width={24} height={24} className="size-6 shrink-0 rounded-md" />
       <span
         aria-hidden="true"
         data-testid="lemoncrow-brand-mark"
         className="whitespace-nowrap"
       >
-        {active ? `${visibleWord}${cursorVisible ? "_" : ""}` : "_"}
+        {active ? `${visibleWord}${cursorVisible ? "_" : ""}` : ""}
       </span>
     </NavLink>
   );
@@ -242,10 +245,9 @@ function MobilePrimaryNav({ pathname, items }: { pathname: string; items: readon
           aria-label="Open navigation"
           size="icon"
           variant="ghost"
-          className="z-20 h-8 w-9 shrink-0 gap-0.5 rounded-md font-mono text-heading font-semibold tracking-[0.04em] text-foreground md:hidden"
+          className="z-20 h-8 w-9 shrink-0 text-foreground md:hidden"
         >
-          <ChevronRight aria-hidden="true" size={14} strokeWidth={2} className="relative -top-px shrink-0" />
-          <span aria-hidden="true">_</span>
+          <img src={lemonCrowMark} alt="" aria-hidden="true" width={24} height={24} className="size-6 shrink-0 rounded-md" />
         </UiButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -262,7 +264,7 @@ function MobilePrimaryNav({ pathname, items }: { pathname: string; items: readon
                 to={item.to}
                 aria-current={active ? "page" : undefined}
                 className={cx(
-                  "flex h-10 items-center gap-2.5 px-2.5 text-caption font-medium",
+                  "flex h-10 items-center gap-2.5 px-2.5 text-ui font-medium",
                   active && "bg-accent text-foreground",
                 )}
               >
@@ -270,12 +272,9 @@ function MobilePrimaryNav({ pathname, items }: { pathname: string; items: readon
                 <span className="relative">
                   {item.label}
                   {item.annotation && (
-                    <span
-                      aria-hidden="true"
-                      className="ml-1.5 font-serif text-micro font-medium italic tracking-wide text-red-500/80"
-                    >
+                    <Badge aria-hidden="true" className={cx("ml-1.5 h-4 px-1 text-micro", active && "text-subtle")}>
                       {item.annotation}
-                    </span>
+                    </Badge>
                   )}
                 </span>
               </Link>
@@ -310,7 +309,7 @@ function ThemeToggle() {
 
 function ReviewFallback({ label }: { label: string }) {
   return (
-    <div className="flex min-h-[560px] items-center justify-center gap-2 text-sm text-neutral-400">
+    <div className="flex min-h-[560px] items-center justify-center gap-2 text-heading text-muted-foreground">
       <Loader2 size={15} className="animate-spin" />
       {label}
     </div>
@@ -327,16 +326,16 @@ function ReviewRouteFailure({ error, retry }: { error: Error; retry: () => void 
   }, [error]);
 
   return (
-    <div className="flex h-dvh min-h-[560px] items-center justify-center bg-background px-6 text-neutral-300">
-      <div className="w-full max-w-md rounded-lg border border-rose-900/60 bg-background/95 p-4 shadow-2xl shadow-black/30" role="alert">
-        <div className="text-caption font-semibold uppercase tracking-[0.16em] text-rose-400">LemonCrow Review</div>
+    <div className="flex h-dvh min-h-[560px] items-center justify-center bg-background px-6 text-subtle">
+      <div className="w-full max-w-md rounded-lg border border-p0-line bg-card p-4 shadow-float" role="alert">
+        <div className="font-mono text-tag uppercase text-p0">LemonCrow Review</div>
         <div className="mt-3 text-title font-semibold text-foreground">Review couldn't load</div>
         <p className="mt-1.5 text-caption leading-5 text-muted-foreground">
           The Review page started but the Reader failed before it could render. Your Review data remains on the server.
         </p>
-        <details className="mt-3 text-caption text-muted-foreground">
-          <summary className="cursor-pointer hover:text-neutral-300">Error details</summary>
-          <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-rose-300/80">{error.message || String(error)}</pre>
+        <details className="mt-3 text-meta text-muted-foreground">
+          <summary className="cursor-pointer hover:text-subtle">Error details</summary>
+          <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-p0">{error.message || String(error)}</pre>
         </details>
         <div className="mt-4 flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={retry}>Retry</Button>
@@ -383,7 +382,7 @@ function GlobalRequestIndicator() {
       role="progressbar"
       aria-label="Loading"
     >
-      <div className="h-full w-full animate-pulse bg-brand-400" />
+      <div className="h-full w-full animate-pulse bg-muted-foreground" />
     </div>
   );
 }
@@ -400,8 +399,8 @@ function SecondaryNav({ pathname }: { pathname: string }) {
 
   if (!items) return null;
   return (
-    <div className="border-b border-neutral-900 bg-background/70 px-5">
-      <nav className="flex h-9 items-center gap-4 overflow-x-auto">
+    <div className="border-b border-border bg-background px-4">
+      <nav aria-label="Settings sections" className="flex h-10 items-end gap-1 overflow-x-auto">
         {items.map((item) => {
           const active = pathMatches(pathname, item.match) || (item.match === "/settings/advanced" && pathMatches(pathname, "/system"));
           return (
@@ -410,10 +409,10 @@ function SecondaryNav({ pathname }: { pathname: string }) {
               to={item.to}
               aria-current={active ? "page" : undefined}
               className={cx(
-                "inline-flex h-9 shrink-0 items-center border-b text-caption font-semibold uppercase tracking-[0.08em] transition",
+                "relative inline-flex h-9 shrink-0 items-center px-3 text-ui font-medium transition-colors duration-fast",
                 active
-                  ? "border-brand-500 text-neutral-200"
-                  : "border-transparent text-muted-foreground hover:text-neutral-300",
+                  ? "text-foreground shadow-indicator"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
               {item.label}
@@ -432,14 +431,14 @@ function ProductUnavailable({ product }: { product: Exclude<ProductId, "core"> }
   const status = state.installed ? "not available" : "not installed";
   if (capabilities.products.core.mode === "hosted") {
     return (
-      <div className="flex min-h-[420px] items-center justify-center px-6 py-12 text-neutral-200" role="status">
+      <div className="flex min-h-[420px] items-center justify-center px-6 py-12 text-foreground" role="status">
         <div className="w-full max-w-lg rounded-lg border border-border bg-muted/20 p-4">
-          <div className="text-micro font-semibold uppercase tracking-[0.16em] text-muted-foreground">{label}</div>
+          <div className="font-mono text-tag uppercase text-muted-foreground">{label}</div>
           <h1 className="mt-2 text-title font-semibold text-foreground">{label} isn't enabled for your organization</h1>
           <p className="mt-2 text-body leading-6 text-muted-foreground">
             Your organization doesn't have {label}. Ask your LemonCrow workspace administrator for access.
           </p>
-          <Link className="mt-4 inline-flex text-caption font-medium text-neutral-300 hover:text-foreground" to="/account">
+          <Link className="mt-4 inline-flex text-meta font-medium text-subtle hover:text-foreground" to="/account">
             View your products
           </Link>
         </div>
@@ -447,14 +446,14 @@ function ProductUnavailable({ product }: { product: Exclude<ProductId, "core"> }
     );
   }
   return (
-    <div className="flex min-h-[420px] items-center justify-center px-6 py-12 text-neutral-200" role="status">
+    <div className="flex min-h-[420px] items-center justify-center px-6 py-12 text-foreground" role="status">
       <div className="w-full max-w-lg rounded-lg border border-border bg-muted/20 p-4">
-        <div className="text-micro font-semibold uppercase tracking-[0.16em] text-muted-foreground">{label}</div>
+        <div className="font-mono text-tag uppercase text-muted-foreground">{label}</div>
         <h1 className="mt-2 text-title font-semibold text-foreground">{label} is {status}</h1>
         <p className="mt-2 text-body leading-6 text-muted-foreground">
           This page belongs to {label}. Other installed LemonCrow products are unaffected.
         </p>
-        <Link className="mt-4 inline-flex text-caption font-medium text-neutral-300 hover:text-foreground" to="/settings/products">
+        <Link className="mt-4 inline-flex text-meta font-medium text-subtle hover:text-foreground" to="/settings/products">
           View installed products
         </Link>
       </div>
@@ -464,14 +463,14 @@ function ProductUnavailable({ product }: { product: Exclude<ProductId, "core"> }
 
 function HostedOnlyPage() {
   return (
-    <div className="flex min-h-[420px] items-center justify-center px-6 py-12 text-neutral-200" role="status">
+    <div className="flex min-h-[420px] items-center justify-center px-6 py-12 text-foreground" role="status">
       <div className="w-full max-w-lg rounded-lg border border-border bg-muted/20 p-4">
-        <div className="text-micro font-semibold uppercase tracking-[0.16em] text-muted-foreground">LemonCrow Dashboard</div>
+        <div className="font-mono text-tag uppercase text-muted-foreground">LemonCrow Dashboard</div>
         <h1 className="mt-2 text-title font-semibold text-foreground">This page is available on LemonCrow hosted</h1>
         <p className="mt-2 text-body leading-6 text-muted-foreground">
           The local Dashboard shows sessions, usage, savings, settings and system.
         </p>
-        <Link className="mt-4 inline-flex text-caption font-medium text-neutral-300 hover:text-foreground" to="/home">
+        <Link className="mt-4 inline-flex text-meta font-medium text-subtle hover:text-foreground" to="/home">
           Back to Home
         </Link>
       </div>
@@ -616,14 +615,14 @@ export default function App({
         ref={setShellRoot}
         className={
           fullScreenReview
-            ? "review-app min-h-full text-neutral-200"
-            : "workbench-shell min-h-full bg-background text-neutral-200"
+            ? "review-app min-h-full text-foreground"
+            : "workbench-shell min-h-full bg-background text-foreground"
         }
       >
         <GlobalRequestIndicator />
         {!fullScreenReview && (
           <>
-            <header className="border-b border-border bg-background/95">
+            <header className="border-b border-border bg-background/95 backdrop-blur">
               <div className="flex h-10 items-center gap-2 px-3 sm:gap-4 sm:px-4">
                 <MobilePrimaryNav pathname={location.pathname} items={primaryNav} />
                 <LemonCrowBrand className="hidden md:flex" />
@@ -638,22 +637,19 @@ export default function App({
                         to={item.to}
                         aria-current={active ? "page" : undefined}
                         className={cx(
-                          "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-caption font-medium transition",
+                          "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-ui font-medium transition-colors duration-fast",
                           active
-                            ? "bg-neutral-800/80 text-foreground"
-                            : "text-muted-foreground hover:bg-muted hover:text-neutral-200",
+                            ? "bg-accent text-foreground"
+                            : "text-muted-foreground hover:bg-accent hover:text-foreground",
                         )}
                       >
-                        <item.icon size={12} />
-                        <span className="relative">
+                        <item.icon size={14} />
+                        <span className="flex items-center">
                           {item.label}
                           {item.annotation && (
-                            <span
-                              aria-hidden="true"
-                              className="absolute -right-3 -top-2 whitespace-nowrap font-serif text-micro font-medium italic tracking-wide text-red-500/80"
-                            >
+                            <Badge aria-hidden="true" className={cx("ml-1.5 h-4 px-1 text-micro", active && "text-subtle")}>
                               {item.annotation}
-                            </span>
+                            </Badge>
                           )}
                         </span>
                       </Link>
@@ -663,7 +659,7 @@ export default function App({
                 <div className="min-w-0 flex-1 md:hidden" aria-hidden="true" />
                 {showRunType && (
                   <div className="flex shrink-0 items-center gap-2">
-                    <span className="text-micro font-semibold uppercase tracking-widest text-muted-foreground">View</span>
+                    <span className="font-mono text-tag uppercase text-muted-foreground">View</span>
                     <Select value={runType} onValueChange={setRunType} uiSize="xs" aria-label="Activity view">
                       <SelectItem value="sessions">Sessions</SelectItem>
                       <SelectItem value="swarms">Swarms</SelectItem>
@@ -672,14 +668,14 @@ export default function App({
                 )}
                 {showWindow && (
                   <div className="hidden h-8 items-center gap-2 rounded-md border border-border bg-muted/40 px-2 lg:flex">
-                    <span className="text-micro font-bold uppercase tracking-widest text-muted-foreground">
+                    <span className="font-mono text-tag uppercase text-muted-foreground">
                       Window
                     </span>
                     <Select
                       value={range}
                       onValueChange={(value) => setRange(value as typeof range)}
                       uiSize="xs"
-                      className="border-0 bg-transparent px-0 py-0 text-caption text-neutral-300"
+                      className="border-0 bg-transparent px-0 py-0 text-meta text-subtle"
                       aria-label="Global time window"
                     >
                       {TIME_RANGE_OPTIONS.map((option) => (
@@ -695,11 +691,10 @@ export default function App({
                     to={settingsPath}
                     aria-label="Settings"
                     className={cx(
-                      "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition",
-                      pathMatches(location.pathname, "/settings") ||
-                        pathMatches(location.pathname, "/system")
-                        ? "border-border bg-neutral-800/80 text-foreground"
-                        : "border-border bg-muted/40 text-muted-foreground hover:text-neutral-200",
+                      buttonVariants({ variant: "outline", size: "icon" }),
+                      (pathMatches(location.pathname, "/settings") ||
+                        pathMatches(location.pathname, "/system")) &&
+                        "bg-accent text-foreground",
                     )}
                   >
                     <Settings size={14} />

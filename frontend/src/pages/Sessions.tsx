@@ -44,7 +44,7 @@ function highlightSearchText(value: string, query: string): ReactNode {
     terms.includes(part.toLowerCase()) ? (
       <mark
         key={i}
-        className="bg-brand-500/30 text-brand-200 rounded-[1px] px-0.5 border border-brand-500/20"
+        className="bg-muted-foreground/30 text-foreground rounded-sm px-0.5 border border-input/20"
       >
         {part}
       </mark>
@@ -264,7 +264,7 @@ export default function Sessions() {
             >
               <ChevronRight size={14} />
             </UiButton>
-            <span className="text-caption font-bold uppercase tracking-[0.3em] text-neutral-400 [writing-mode:vertical-lr]">
+            <span className="text-caption font-semibold uppercase tracking-tag text-muted-foreground [writing-mode:vertical-lr]">
               History
             </span>
           </div>
@@ -274,14 +274,14 @@ export default function Sessions() {
             <div className="p-4 border-b border-border space-y-4 bg-surface-raised">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
-                  <h2 className="text-caption font-bold uppercase tracking-widest text-neutral-400 whitespace-nowrap">
+                  <h2 className="text-caption font-semibold uppercase tracking-widest text-muted-foreground whitespace-nowrap">
                     History
                   </h2>
-                  <span className="text-caption text-neutral-400 shrink-0">
+                  <span className="text-caption text-muted-foreground shrink-0">
                     All time
                   </span>
                   {loadingTraces && (
-                    <span className="text-caption text-brand-400 shrink-0">
+                    <span className="text-caption text-muted-foreground shrink-0">
                       Scanning...
                     </span>
                   )}
@@ -332,7 +332,7 @@ export default function Sessions() {
                   aria-label="Filter by host"
                   value={hostFilter}
                   onValueChange={setHostFilter}
-                  className="flex-1 min-w-0 bg-surface-overlay border border-border px-2 py-1.5 text-caption text-neutral-300 outline-none focus:border-brand-600"
+                  className="flex-1 min-w-0 bg-surface-overlay border border-border px-2 py-1.5 text-meta text-subtle outline-none focus:border-input"
                 >
                   <SelectItem value="all">All hosts</SelectItem>
                   {availableHosts.map((h) => (
@@ -345,7 +345,7 @@ export default function Sessions() {
                   aria-label="Filter by workspace"
                   value={workspaceFilter}
                   onValueChange={setWorkspaceFilter}
-                  className="flex-1 min-w-0 bg-surface-overlay border border-border px-2 py-1.5 text-caption text-neutral-300 outline-none focus:border-brand-600"
+                  className="flex-1 min-w-0 bg-surface-overlay border border-border px-2 py-1.5 text-meta text-subtle outline-none focus:border-input"
                 >
                   <SelectItem value="all">All workspaces</SelectItem>
                   {availableWorkspaces.map((w) => (
@@ -376,7 +376,7 @@ export default function Sessions() {
                   const sessionModel = resolveSessionModel(summary, t);
                   const host = extractHost(t);
                   const hostTextClass =
-                    HOST_COLORS[host]?.split(" ")[1] || "text-neutral-400";
+                    HOST_COLORS[host]?.split(" ")[1] || "text-muted-foreground";
                   // _live sessions are still running in the RunLedger and
                   // haven't committed a final status to SQLite yet.
                   const displayStatus = t._live ? "running" : t.status;
@@ -395,7 +395,7 @@ export default function Sessions() {
                         )
                       }
                       className={cx(
-                        "w-full border-b border-border p-3.5 text-left transition-all hover:bg-neutral-800/40 group/card",
+                        "w-full border-b border-border p-3.5 text-left transition-all hover:bg-accent/40 group/card",
                         isActive
                           ? "bg-muted/45 border-r-2 border-r-neutral-500"
                           : ""
@@ -409,7 +409,7 @@ export default function Sessions() {
                           />
                           <span
                             className={cx(
-                              "shrink-0 text-caption font-mono uppercase tracking-[0.18em]",
+                              "shrink-0 text-caption font-mono uppercase tracking-tag",
                               hostTextClass
                             )}
                             title={host}
@@ -418,7 +418,7 @@ export default function Sessions() {
                           </span>
                           {sessionModel && (
                             <span
-                              className="min-w-0 truncate text-caption font-mono text-sky-200"
+                              className="min-w-0 truncate text-caption font-mono text-cyan-200"
                               title={sessionModel}
                             >
                               {sessionModel}
@@ -427,13 +427,13 @@ export default function Sessions() {
                         </div>
                         <div className="flex items-center gap-2">
                           <span
-                            className="shrink-0 text-caption font-mono text-neutral-400"
+                            className="shrink-0 text-caption font-mono text-muted-foreground"
                             title={fmtDate(t.created_at)}
                           >
                             {fmtRelativeTime(t.created_at)}
                           </span>
                           <span
-                            className="shrink-0 text-caption font-mono text-neutral-400"
+                            className="shrink-0 text-caption font-mono text-muted-foreground"
                             title={
                               summary
                                 ? String(
@@ -455,10 +455,10 @@ export default function Sessions() {
 
                       <p
                         className={cx(
-                          "mb-2 text-xs font-mono line-clamp-2 leading-relaxed",
+                          "mb-2 text-body font-mono line-clamp-2 leading-relaxed",
                           isActive
-                            ? "text-foreground font-bold"
-                            : "text-neutral-400 group-hover/card:text-neutral-300"
+                            ? "text-foreground font-semibold"
+                            : "text-muted-foreground group-hover/card:text-subtle"
                         )}
                       >
                         {highlightSearchText(t.task || "Untitled Task", query)}
@@ -487,12 +487,12 @@ export default function Sessions() {
                             key={label}
                             className="flex items-center justify-between gap-2 rounded-md border border-border/50 bg-background/40 px-2 py-1.5"
                           >
-                            <div className="truncate text-caption font-mono tracking-[0.18em] uppercase text-neutral-400 leading-none">
+                            <div className="truncate text-caption font-mono tracking-tag uppercase text-muted-foreground leading-none">
                               {label}
                             </div>
                             <div
                               className={cx(
-                                "shrink-0 text-caption font-black font-mono leading-none",
+                                "shrink-0 text-caption font-semibold font-mono leading-none",
                                 valCls
                               )}
                             >
@@ -595,7 +595,7 @@ function EmptyState({ summaries }: { summaries: SessionSummary[] | null }) {
 
       <div className="rounded-lg border border-border/70 bg-background/60 p-4 text-center">
         <Terminal size={28} className="mx-auto mb-3 text-muted-foreground" />
-        <h3 className="mb-1 text-xs font-semibold text-neutral-300">
+        <h3 className="mb-1 text-body font-semibold text-subtle">
           Select a session
         </h3>
         <p className="mx-auto max-w-sm text-label leading-relaxed text-muted-foreground">

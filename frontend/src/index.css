@@ -1,60 +1,52 @@
+/* Ink and Lemon: shared tokens, components and self-hosted fonts, vendored from design/ (see design/README.md). */
+@import "./design/lc-fonts.css";
+@import "./design/lc-tokens.css";
+@import "./design/lc-components.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* ===== Design tokens (themed via a root class: default dark, .light overrides) ===== */
+/* The type scale as variables for the few CSS rules that cannot use a utility (keep in step with the preset's
+   fontSize: the +1px shift of the dense scale; micro only for uppercase mono badges). */
 :root {
-  color-scheme: dark;
+  --fs-micro: 0.625rem;
+  --fs-caption: 0.6875rem;
+  --fs-label: 0.75rem;
+  --fs-body: 0.8125rem;
+  --fs-heading: 0.875rem;
+  --fs-title: 1rem;
+}
 
-  /* neutral ramp — dark */
-  --n-50: 250 250 250;
-  --n-100: 245 245 245;
-  --n-200: 229 229 229;
-  --n-300: 212 212 212;
-  --n-400: 163 163 163;
-  --n-500: 135 135 135; /* muted text: ≥4.5:1 on n-950…n-900 */
-  --n-600: 82 82 82;
-  --n-700: 64 64 64;
-  --n-800: 38 38 38;
-  --n-900: 23 23 23;
-  --n-950: 10 10 10;
+/* ===== App ramps, derived from the shared tokens (src/design/lc-tokens.css) =====
+ * The semantic tokens (--background, --card, --muted, --border, --ring, ...) and the accent come from
+ * the shared file. What stays here are the Review app's own names: the neutral ramp (50 = ink end,
+ * 950 = page; it inverts in light so one class reads in both themes), the surface ramp, and the
+ * status tokens. New code uses the semantic tokens; these exist for the utilities already in use.
+ * `:root` is light; `.dark` is the dark theme (lib/theme.ts puts one class on <html>). */
+:root,
+.light {
+  --n-50: 10 10 10;
+  --n-100: 23 23 23;
+  --n-200: 38 38 38;
+  --n-300: 64 64 64;
+  --n-400: var(--subtle-foreground);
+  --n-500: var(--muted-foreground); /* muted text: >= 4.5:1 on paper, white and the sunken surface */
+  --n-600: 163 160 150;
+  --n-700: 211 207 195;
+  --n-800: var(--border);
+  --n-900: var(--muted);
+  --n-950: var(--background);
 
-  /* global accent follows the Review neutral system; keep the token names for compatibility */
-  --brand-50: var(--n-50);
-  --brand-100: var(--n-100);
-  --brand-200: var(--n-200);
-  --brand-300: var(--n-300);
-  --brand-400: var(--n-400);
-  --brand-500: var(--n-500);
-  --brand-600: var(--n-600);
-  --brand-700: var(--n-700);
-  --brand-800: var(--n-800);
-  --brand-900: var(--n-900);
-  --brand-950: var(--n-950);
-  /* surfaces — dark */
-  --surface: 10 10 10;
-  --surface-sunken: 7 7 7;
-  --surface-code: 8 8 8;
-  --surface-raised: 13 13 13;
-  --surface-tint: 15 15 15;
-  --surface-overlay: 20 20 20;
+  --surface: var(--card);
+  --surface-sunken: var(--muted);
+  --surface-code: 250 249 245;
+  --surface-raised: var(--card);
+  --surface-tint: 250 248 244;
+  --surface-overlay: var(--popover);
 
-  /* shadcn semantic tokens — aliases onto the themed ramps, so one set serves both themes. */
-  --background: var(--n-950);
-  --foreground: var(--n-100);
-  --card: var(--surface-raised);
-  --card-foreground: var(--n-100);
-  /* anchored floating layers (menus, selects, popovers, tooltips) sit one step above the page */
-  --popover: var(--surface-overlay);
-  --popover-foreground: var(--n-200);
-  --primary: var(--n-100);
-  --primary-foreground: var(--n-950);
-  --secondary: var(--n-900);
-  --secondary-foreground: var(--n-300);
-  --muted: var(--n-900);
-  --muted-foreground: var(--n-500);
-  --accent: var(--n-800);
-  --accent-foreground: var(--n-50);
+  --secondary: var(--muted);
+  --secondary-foreground: var(--subtle-foreground);
   --destructive: var(--red-500);
   --destructive-foreground: var(--red-200);
   --success: var(--emerald-500);
@@ -63,34 +55,27 @@
   --warning-foreground: var(--amber-200);
   --info: var(--cyan-500);
   --info-foreground: var(--cyan-200);
-  --border: var(--n-800);
-  --input: var(--n-700);
-  --ring: var(--n-500);
 }
 
-:root.light {
-  color-scheme: light;
+.dark {
+  --n-50: 250 248 243;
+  --n-100: var(--foreground);
+  --n-200: 229 227 220;
+  --n-300: var(--subtle-foreground);
+  --n-400: 187 184 174;
+  --n-500: var(--muted-foreground); /* muted text: >= 4.5:1 on every dark surface */
+  --n-600: 98 97 92;
+  --n-700: 66 67 71;
+  --n-800: var(--border);
+  --n-900: var(--muted);
+  --n-950: var(--background);
 
-  /* neutral ramp — inverted (preserves every fg/bg contrast pairing on light; n-500 is tuned per theme for AA muted text) */
-  --n-50: 10 10 10;
-  --n-100: 23 23 23;
-  --n-200: 38 38 38;
-  --n-300: 64 64 64;
-  --n-400: 82 82 82;
-  --n-500: 107 107 107; /* muted text: ≥4.5:1 on n-950…n-900 */
-  --n-600: 163 163 163;
-  --n-700: 212 212 212;
-  --n-800: 229 229 229;
-  --n-900: 245 245 245;
-  --n-950: 250 250 250;
-
-  /* surfaces — light */
-  --surface: 255 255 255;
-  --surface-sunken: 244 244 245;
-  --surface-code: 247 247 248;
-  --surface-raised: 255 255 255;
-  --surface-tint: 250 250 250;
-  --surface-overlay: 255 255 255;
+  --surface: var(--card);
+  --surface-sunken: var(--muted);
+  --surface-code: var(--background);
+  --surface-raised: var(--card);
+  --surface-tint: var(--muted);
+  --surface-overlay: var(--popover);
 }
 
 html,
@@ -101,10 +86,9 @@ body,
 
 /* Base body */
 body {
-  background-color: rgb(var(--n-950));
-  color: rgb(var(--n-200));
-  font-family:
-    ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background-color: rgb(var(--background));
+  color: rgb(var(--foreground));
+  font-family: "Red Hat Text", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 /* Custom scrollbar */
@@ -114,7 +98,7 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: rgb(var(--n-900));
+  background: rgb(var(--muted));
 }
 
 ::-webkit-scrollbar-thumb {
@@ -127,41 +111,25 @@ body {
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgb(var(--n-700)) rgb(var(--n-900));
+  scrollbar-color: rgb(var(--n-700)) rgb(var(--muted));
 }
 
 html {
   scroll-behavior: smooth;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
-  }
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-
-::selection {
-  background-color: rgb(var(--n-500) / 0.22);
-  color: rgb(var(--n-100));
-}
+/* prefers-reduced-motion and ::selection are handled once, in the preset's base layer. */
 
 /* The Review visual system is the global application chrome. */
 .workbench-shell {
-  --workbench-ui-font: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --workbench-code-font: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --workbench-ui-font: "Red Hat Text", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --workbench-code-font: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-family: var(--workbench-ui-font);
   font-feature-settings: "kern" 1, "liga" 1;
-  font-size: 12px;
+  font-size: var(--fs-body); /* text-ui: the app's body size */
   line-height: 1.4;
-  accent-color: rgb(var(--brand-400));
-  caret-color: rgb(var(--brand-400));
+  accent-color: rgb(var(--brand));
+  caret-color: rgb(var(--foreground));
 }
 
 .workbench-shell input,
@@ -178,25 +146,8 @@ html {
   font-family: var(--workbench-code-font);
 }
 
-/* Review-like focus: controls get a quiet neutral outline; text fields keep their own border treatment. */
-.workbench-shell :where(
-  button,
-  a,
-  summary,
-  [role="button"],
-  [role="menuitem"],
-  [role="option"],
-  [role="tab"],
-  [role="combobox"],
-  [role="listbox"],
-  [role="switch"],
-  [role="checkbox"],
-  [role="radio"]
-):focus-visible {
-  outline: 2px solid rgb(var(--ring));
-  outline-offset: 2px;
-}
-
+/* Focus: the preset's global :focus-visible draws a 2px ring-token outline (ink on light, lemon on dark).
+   Two exceptions follow: highlighted menu items and text fields already show focus themselves. */
 /* A highlighted menu item already shows focus through its background; no second ring. */
 .workbench-shell [role="menuitem"][data-highlighted]:focus-visible {
   outline: none;
@@ -224,47 +175,15 @@ html {
 .workbench-shell table,
 .workbench-shell th,
 .workbench-shell td {
-  border-color: rgb(var(--n-800));
+  border-color: rgb(var(--border));
 }
 
 #root {
-  background-color: rgb(var(--n-950));
+  background-color: rgb(var(--background));
 }
 
-/* Legacy class kept for compatibility, but rendered in the same neutral panel language as Review. */
-.terminal-card {
-  border: 1px solid rgb(var(--n-800) / 0.7);
-  border-radius: 0.5rem;
-  background: rgb(var(--n-950) / 0.95);
-}
-
-.terminal-card:hover {
-  border-color: rgb(var(--n-700));
-}
-
-/* Status indicator styles */
-.status-active::before {
-  content: "● ";
-  color: rgb(var(--emerald-500));
-}
-
-.status-inactive::before {
-  content: "◦ ";
-  color: rgb(var(--n-500));
-}
-
-.status-error::before {
-  content: "✗ ";
-  color: rgb(var(--red-500));
-}
-
-.status-warning::before {
-  content: "⚠ ";
-  color: rgb(var(--amber-500));
-}
-
-/* ===== Accent palettes (themed: dark = native ramp, light = inverted) ===== */
-:root {
+/* ===== Hue ramps (themed: dark = native ramp, light = inverted) ===== */
+.dark {
   --emerald-50: 236 253 245;
   --emerald-100: 209 250 229;
   --emerald-200: 167 243 208;
@@ -320,112 +239,16 @@ html {
   --violet-800: 91 33 182;
   --violet-900: 76 29 149;
   --violet-950: 46 16 101;
-  --blue-50: 239 246 255;
-  --blue-100: 219 234 254;
-  --blue-200: 191 219 254;
-  --blue-300: 147 197 253;
-  --blue-400: 96 165 250;
-  --blue-500: 59 130 246;
-  --blue-600: 37 99 235;
-  --blue-700: 29 78 216;
-  --blue-800: 30 64 175;
-  --blue-900: 30 58 138;
-  --blue-950: 23 37 84;
-  --sky-50: 240 249 255;
-  --sky-100: 224 242 254;
-  --sky-200: 186 230 253;
-  --sky-300: 125 211 252;
-  --sky-400: 56 189 248;
-  --sky-500: 14 165 233;
-  --sky-600: 2 132 199;
-  --sky-700: 3 105 161;
-  --sky-800: 7 89 133;
-  --sky-900: 12 74 110;
-  --sky-950: 8 47 73;
-  --orange-50: 255 247 237;
-  --orange-100: 255 237 213;
-  --orange-200: 254 215 170;
-  --orange-300: 253 186 116;
-  --orange-400: 251 146 60;
-  --orange-500: 249 115 22;
-  --orange-600: 234 88 12;
-  --orange-700: 194 65 12;
-  --orange-800: 154 52 18;
-  --orange-900: 124 45 18;
-  --orange-950: 67 20 7;
-  --green-50: 240 253 244;
-  --green-100: 220 252 231;
-  --green-200: 187 247 208;
-  --green-300: 134 239 172;
-  --green-400: 74 222 128;
-  --green-500: 34 197 94;
-  --green-600: 22 163 74;
-  --green-700: 21 128 61;
-  --green-800: 22 101 52;
-  --green-900: 20 83 45;
-  --green-950: 5 46 22;
-  --yellow-50: 254 252 232;
-  --yellow-100: 254 249 195;
-  --yellow-200: 254 240 138;
-  --yellow-300: 253 224 71;
-  --yellow-400: 250 204 21;
-  --yellow-500: 234 179 8;
-  --yellow-600: 202 138 4;
-  --yellow-700: 161 98 7;
-  --yellow-800: 133 77 14;
-  --yellow-900: 113 63 18;
-  --yellow-950: 66 32 6;
-  --rose-50: 255 241 242;
-  --rose-100: 255 228 230;
-  --rose-200: 254 205 211;
-  --rose-300: 253 164 175;
-  --rose-400: 251 113 133;
-  --rose-500: 244 63 94;
-  --rose-600: 225 29 72;
-  --rose-700: 190 18 60;
-  --rose-800: 159 18 57;
-  --rose-900: 136 19 55;
-  --rose-950: 76 5 25;
-  --teal-50: 240 253 250;
-  --teal-100: 204 251 241;
-  --teal-200: 153 246 228;
-  --teal-300: 94 234 212;
-  --teal-400: 45 212 191;
-  --teal-500: 20 184 166;
-  --teal-600: 13 148 136;
-  --teal-700: 15 118 110;
-  --teal-800: 17 94 89;
-  --teal-900: 19 78 74;
-  --teal-950: 4 47 46;
-  --indigo-50: 238 242 255;
-  --indigo-100: 224 231 255;
-  --indigo-200: 199 210 254;
-  --indigo-300: 165 180 252;
-  --indigo-400: 129 140 248;
-  --indigo-500: 99 102 241;
-  --indigo-600: 79 70 229;
-  --indigo-700: 67 56 202;
-  --indigo-800: 55 48 163;
-  --indigo-900: 49 46 129;
-  --indigo-950: 30 27 75;
-  --fuchsia-50: 253 244 255;
-  --fuchsia-100: 250 232 255;
-  --fuchsia-200: 245 208 254;
-  --fuchsia-300: 240 171 252;
-  --fuchsia-400: 232 121 249;
-  --fuchsia-500: 217 70 239;
-  --fuchsia-600: 192 38 211;
-  --fuchsia-700: 162 28 175;
-  --fuchsia-800: 134 25 143;
-  --fuchsia-900: 112 26 117;
-  --fuchsia-950: 74 4 78;
 }
 
-:root.light {
+/* In light the 100 to 300 steps (the text steps of every themed ramp) are the token text colour, so a legacy
+   `text-amber-300` and the `p1` token render the same AA-checked colour in both themes. */
+:root,
+.light {
   --emerald-50: 2 44 34;
-  --emerald-100: 6 78 59;
-  --emerald-200: 6 78 59;
-  --emerald-300: 6 95 70;
+  --emerald-100: 4 120 87;
+  --emerald-200: 4 120 87;
+  --emerald-300: 4 120 87;
   --emerald-400: 4 120 87;
   --emerald-500: 16 185 129;
   --emerald-600: 52 211 153;
@@ -434,9 +257,9 @@ html {
   --emerald-900: 209 250 229;
   --emerald-950: 236 253 245;
   --amber-50: 69 26 3;
-  --amber-100: 120 53 15;
-  --amber-200: 120 53 15;
-  --amber-300: 146 64 14;
+  --amber-100: 180 83 9;
+  --amber-200: 180 83 9;
+  --amber-300: 180 83 9;
   --amber-400: 180 83 9;
   --amber-500: 245 158 11;
   --amber-600: 251 191 36;
@@ -445,9 +268,9 @@ html {
   --amber-900: 254 243 199;
   --amber-950: 255 251 235;
   --red-50: 69 10 10;
-  --red-100: 127 29 29;
-  --red-200: 127 29 29;
-  --red-300: 153 27 27;
+  --red-100: 185 28 28;
+  --red-200: 185 28 28;
+  --red-300: 185 28 28;
   --red-400: 185 28 28;
   --red-500: 239 68 68;
   --red-600: 248 113 113;
@@ -456,9 +279,9 @@ html {
   --red-900: 254 226 226;
   --red-950: 254 242 242;
   --cyan-50: 8 51 68;
-  --cyan-100: 22 78 99;
-  --cyan-200: 22 78 99;
-  --cyan-300: 21 94 117;
+  --cyan-100: 14 116 144;
+  --cyan-200: 14 116 144;
+  --cyan-300: 14 116 144;
   --cyan-400: 14 116 144;
   --cyan-500: 6 182 212;
   --cyan-600: 34 211 238;
@@ -467,9 +290,9 @@ html {
   --cyan-900: 207 250 254;
   --cyan-950: 236 254 255;
   --violet-50: 46 16 101;
-  --violet-100: 76 29 149;
-  --violet-200: 76 29 149;
-  --violet-300: 91 33 182;
+  --violet-100: 109 40 217;
+  --violet-200: 109 40 217;
+  --violet-300: 109 40 217;
   --violet-400: 109 40 217;
   --violet-500: 139 92 246;
   --violet-600: 167 139 250;
@@ -477,103 +300,4 @@ html {
   --violet-800: 221 214 254;
   --violet-900: 237 233 254;
   --violet-950: 245 243 255;
-  --blue-50: 23 37 84;
-  --blue-100: 30 58 138;
-  --blue-200: 30 58 138;
-  --blue-300: 30 64 175;
-  --blue-400: 29 78 216;
-  --blue-500: 59 130 246;
-  --blue-600: 96 165 250;
-  --blue-700: 147 197 253;
-  --blue-800: 191 219 254;
-  --blue-900: 219 234 254;
-  --blue-950: 239 246 255;
-  --sky-50: 8 47 73;
-  --sky-100: 12 74 110;
-  --sky-200: 12 74 110;
-  --sky-300: 7 89 133;
-  --sky-400: 3 105 161;
-  --sky-500: 14 165 233;
-  --sky-600: 56 189 248;
-  --sky-700: 125 211 252;
-  --sky-800: 186 230 253;
-  --sky-900: 224 242 254;
-  --sky-950: 240 249 255;
-  --orange-50: 67 20 7;
-  --orange-100: 124 45 18;
-  --orange-200: 124 45 18;
-  --orange-300: 154 52 18;
-  --orange-400: 194 65 12;
-  --orange-500: 249 115 22;
-  --orange-600: 251 146 60;
-  --orange-700: 253 186 116;
-  --orange-800: 254 215 170;
-  --orange-900: 255 237 213;
-  --orange-950: 255 247 237;
-  --green-50: 5 46 22;
-  --green-100: 20 83 45;
-  --green-200: 20 83 45;
-  --green-300: 22 101 52;
-  --green-400: 21 128 61;
-  --green-500: 34 197 94;
-  --green-600: 74 222 128;
-  --green-700: 134 239 172;
-  --green-800: 187 247 208;
-  --green-900: 220 252 231;
-  --green-950: 240 253 244;
-  --yellow-50: 66 32 6;
-  --yellow-100: 113 63 18;
-  --yellow-200: 113 63 18;
-  --yellow-300: 133 77 14;
-  --yellow-400: 161 98 7;
-  --yellow-500: 234 179 8;
-  --yellow-600: 250 204 21;
-  --yellow-700: 253 224 71;
-  --yellow-800: 254 240 138;
-  --yellow-900: 254 249 195;
-  --yellow-950: 254 252 232;
-  --rose-50: 76 5 25;
-  --rose-100: 136 19 55;
-  --rose-200: 136 19 55;
-  --rose-300: 159 18 57;
-  --rose-400: 190 18 60;
-  --rose-500: 244 63 94;
-  --rose-600: 251 113 133;
-  --rose-700: 253 164 175;
-  --rose-800: 254 205 211;
-  --rose-900: 255 228 230;
-  --rose-950: 255 241 242;
-  --teal-50: 4 47 46;
-  --teal-100: 19 78 74;
-  --teal-200: 19 78 74;
-  --teal-300: 17 94 89;
-  --teal-400: 15 118 110;
-  --teal-500: 20 184 166;
-  --teal-600: 45 212 191;
-  --teal-700: 94 234 212;
-  --teal-800: 153 246 228;
-  --teal-900: 204 251 241;
-  --teal-950: 240 253 250;
-  --indigo-50: 30 27 75;
-  --indigo-100: 49 46 129;
-  --indigo-200: 49 46 129;
-  --indigo-300: 55 48 163;
-  --indigo-400: 67 56 202;
-  --indigo-500: 99 102 241;
-  --indigo-600: 129 140 248;
-  --indigo-700: 165 180 252;
-  --indigo-800: 199 210 254;
-  --indigo-900: 224 231 255;
-  --indigo-950: 238 242 255;
-  --fuchsia-50: 74 4 78;
-  --fuchsia-100: 112 26 117;
-  --fuchsia-200: 112 26 117;
-  --fuchsia-300: 134 25 143;
-  --fuchsia-400: 162 28 175;
-  --fuchsia-500: 217 70 239;
-  --fuchsia-600: 232 121 249;
-  --fuchsia-700: 240 171 252;
-  --fuchsia-800: 245 208 254;
-  --fuchsia-900: 250 232 255;
-  --fuchsia-950: 253 244 255;
 }

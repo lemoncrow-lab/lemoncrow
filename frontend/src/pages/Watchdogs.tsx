@@ -36,7 +36,7 @@ export default function Watchdogs() {
                 className="rounded-lg border border-border/70 bg-background/60 p-3"
               >
                 <div className="flex items-center gap-2">
-                  <div className="text-sm font-semibold text-foreground">
+                  <div className="text-heading font-semibold text-foreground">
                     {monitor.title}
                   </div>
                   <Chip
@@ -45,7 +45,7 @@ export default function Watchdogs() {
                     {monitor.severity}
                   </Chip>
                 </div>
-                <div className="mt-1 text-xs text-neutral-400">
+                <div className="mt-1 text-body text-muted-foreground">
                   {monitor.description}
                 </div>
               </div>

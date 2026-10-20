@@ -35,7 +35,7 @@ export default function ScreenshotEvidenceCompare({ before, after }: { before: R
   return (
     <section className="space-y-2" aria-label={`Screenshot diff ${after.title || after.path || after.id}`}>
       <div className="flex items-center gap-2 text-caption">
-        <span className="font-medium text-neutral-300">Screenshot diff</span>
+        <span className="font-medium text-subtle">Screenshot diff</span>
         <span className="min-w-0 truncate text-muted-foreground">{after.title || after.path}</span>
       </div>
       {urls ? (

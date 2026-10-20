@@ -23,7 +23,7 @@ export const PopoverContent = forwardRef<
         sideOffset={sideOffset}
         collisionPadding={collisionPadding}
         className={cn(
-          "z-50 w-72 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg shadow-black/20 outline-none",
+          "z-50 w-72 max-h-[var(--radix-popover-content-available-height)] overflow-y-auto rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-float outline-none",
           "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
           className
         )}

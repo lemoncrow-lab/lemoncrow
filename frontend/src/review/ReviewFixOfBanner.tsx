@@ -48,7 +48,7 @@ export default function ReviewFixOfBanner({ reviewId }: { reviewId: string }) {
         {fixLineChip(fixOf)}
       </span>
       <a
-        className="text-sky-300/80 hover:underline"
+        className="text-cyan-300/80 hover:underline"
         href={reviewHref(fixOf.review_id)}
       >
         Back to the Review

@@ -90,8 +90,8 @@ export function HostedQueuePanel({ reviewId, hosted, status, error = "", onStatu
 
   return (
     <div className="space-y-2 text-label leading-5" data-testid="hosted-queue-panel">
-      <p className="text-neutral-300">
-        Hosted <a className="text-sky-300 hover:underline" href={hosted.url}>{hosted.reference}</a> owns comments,
+      <p className="text-subtle">
+        Hosted <a className="text-cyan-300 hover:underline" href={hosted.url}>{hosted.reference}</a> owns comments,
         judgments and outcomes. What you do here queues for it, bound to the hosted Snapshot you saw, and applies
         when you run <code>lc review hosted sync</code>.
       </p>
@@ -103,10 +103,10 @@ export function HostedQueuePanel({ reviewId, hosted, status, error = "", onStatu
           {unresolved.map((action) => (
             <li key={action.id} className="rounded-md border border-border/70 px-2 py-1.5" data-state={action.state}>
               <div className="flex items-start gap-2">
-                <span className={action.state === "conflict" ? "text-amber-300" : "text-sky-300"}>
+                <span className={action.state === "conflict" ? "text-amber-300" : "text-cyan-300"}>
                   {action.state === "conflict" ? "Conflict" : "Queued"}
                 </span>
-                <span className="min-w-0 flex-1 break-words text-neutral-200">{hostedActionSummary(action)}</span>
+                <span className="min-w-0 flex-1 break-words text-foreground">{hostedActionSummary(action)}</span>
               </div>
               {action.state === "conflict" && (
                 <p className="text-muted-foreground">
@@ -132,7 +132,7 @@ export function HostedQueuePanel({ reviewId, hosted, status, error = "", onStatu
           ))}
         </ul>
       )}
-      {failure && <p role="alert" className="text-rose-300">{failure}</p>}
+      {failure && <p role="alert" className="text-red-300">{failure}</p>}
       <div className="flex items-center justify-between gap-2 border-t border-border/60 pt-2">
         <span className="text-muted-foreground">
           {conflicts > 0 ? `${conflicts} conflict${conflicts === 1 ? "" : "s"} need you` : "Detach to work locally again"}

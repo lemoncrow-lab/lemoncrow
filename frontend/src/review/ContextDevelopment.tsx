@@ -66,7 +66,7 @@ export default function ContextDevelopment({ reviewId, development, path, onOpen
           <ul className="space-y-1.5">
             {contributors.map((item) => (
               <li key={item.key} className="flex min-w-0 items-baseline gap-2 text-label">
-                <span className="shrink-0 text-neutral-200" title={`${item.host}:${item.session_id}`}>{hostLabel(item.host)}</span>
+                <span className="shrink-0 text-foreground" title={`${item.host}:${item.session_id}`}>{hostLabel(item.host)}</span>
                 {item.model && <span className="min-w-0 truncate font-mono text-micro text-muted-foreground">{item.model}</span>}
                 <span className="ml-auto shrink-0 text-caption text-muted-foreground">{ROLE_LABEL[item.role] ?? item.role}</span>
               </li>
@@ -88,16 +88,16 @@ export default function ContextDevelopment({ reviewId, development, path, onOpen
       </section>
 
       {newer && (
-        <p className="border-l border-sky-800/70 pl-2 text-caption leading-relaxed text-sky-300/90" role="status">
+        <p className="border-l border-cyan-800/70 pl-2 text-caption leading-relaxed text-cyan-300/90" role="status">
           Changed again after this Snapshot by {[...new Set(newer.sessions.map((key) => hostLabel(key.split(":")[0] ?? "")))].join(", ") || "an agent"}
           {newer.edits > 0 && ` · ${newer.edits} edit${newer.edits === 1 ? "" : "s"}`}
         </p>
       )}
 
       {feedback.length > 0 && (
-        <section className="border-t border-neutral-900 pt-3">
+        <section className="border-t border-border pt-3">
           <div className="review-kicker mb-2">Review feedback</div>
-          <ul className="space-y-1.5 text-caption leading-relaxed text-neutral-300">
+          <ul className="space-y-1.5 text-caption leading-relaxed text-subtle">
             {feedback.map((item) => (
               <li key={item.causation_id}>
                 {item.summary || "Review feedback"}
@@ -110,10 +110,10 @@ export default function ContextDevelopment({ reviewId, development, path, onOpen
         </section>
       )}
 
-      <section className="border-t border-neutral-900 pt-3">
+      <section className="border-t border-border pt-3">
         <div className="review-kicker mb-2">File activity</div>
         {error ? (
-          <p className="text-caption text-rose-300/85" title={error}>Could not load this file's development activity.</p>
+          <p className="text-caption text-red-300/85" title={error}>Could not load this file's development activity.</p>
         ) : events === null ? (
           <p className="text-caption text-muted-foreground">Loading activity…</p>
         ) : events.length === 0 ? (
@@ -123,7 +123,7 @@ export default function ContextDevelopment({ reviewId, development, path, onOpen
             {events.map((event) => (
               <li key={event.id} className="border-l border-border pl-2 text-caption">
                 <div className="flex min-w-0 items-baseline gap-2">
-                  <span className="min-w-0 flex-1 truncate text-neutral-300" title={event.summary}>{event.summary}</span>
+                  <span className="min-w-0 flex-1 truncate text-subtle" title={event.summary}>{event.summary}</span>
                   {event.status && <span className={`shrink-0 ${statusTone(event.status)}`}>{event.status}</span>}
                 </div>
                 <div className="mt-0.5 text-micro text-muted-foreground">
@@ -137,7 +137,7 @@ export default function ContextDevelopment({ reviewId, development, path, onOpen
       </section>
 
       {outside.length > 0 && (
-        <section className="border-t border-neutral-900 pt-3" data-testid="context-outside-workspace">
+        <section className="border-t border-border pt-3" data-testid="context-outside-workspace">
           <div className="review-kicker mb-2">Outside the repository</div>
           <AgentActionList rows={outside} limit={6} />
         </section>
@@ -149,7 +149,7 @@ export default function ContextDevelopment({ reviewId, development, path, onOpen
         </UiButton>
       )}
 
-      <div className="border-t border-neutral-900 pt-2 text-micro leading-relaxed text-muted-foreground">
+      <div className="border-t border-border pt-2 text-micro leading-relaxed text-muted-foreground">
         Observable development evidence only: edits, checks, decisions and visible messages. Hidden reasoning is not captured.
       </div>
     </div>

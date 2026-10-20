@@ -15,7 +15,7 @@ export function InspectorSection({ title, aside, children }: { title: ReactNode;
   return (
     <section className="border-t border-border/70 px-4 py-3.5">
       <div className="mb-2 flex items-baseline justify-between gap-3">
-        <h3 className="text-label font-semibold text-neutral-200">{title}</h3>
+        <h3 className="text-label font-semibold text-foreground">{title}</h3>
         {aside ? <span className="text-caption tabular-nums text-muted-foreground">{aside}</span> : null}
       </div>
       {children}
