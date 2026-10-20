@@ -7,6 +7,17 @@
 @tailwind components;
 @tailwind utilities;
 
+/* The type scale as variables for the few CSS rules that cannot use a utility (keep in step with the preset's
+   fontSize: the +1px shift of the dense scale; micro only for uppercase mono badges). */
+:root {
+  --fs-micro: 0.625rem;
+  --fs-caption: 0.6875rem;
+  --fs-label: 0.75rem;
+  --fs-body: 0.8125rem;
+  --fs-heading: 0.875rem;
+  --fs-title: 1rem;
+}
+
 /* ===== App ramps, derived from the shared tokens (src/design/lc-tokens.css) =====
  * The semantic tokens (--background, --card, --muted, --border, --ring, ...) and the accent come from
  * the shared file. What stays here are the Review app's own names: the neutral ramp (50 = ink end,
@@ -115,7 +126,7 @@ html {
   --workbench-code-font: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-family: var(--workbench-ui-font);
   font-feature-settings: "kern" 1, "liga" 1;
-  font-size: 0.8125rem; /* text-ui: the app's body size */
+  font-size: var(--fs-body); /* text-ui: the app's body size */
   line-height: 1.4;
   accent-color: rgb(var(--brand));
   caret-color: rgb(var(--foreground));

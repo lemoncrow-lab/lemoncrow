@@ -5,6 +5,7 @@ import FileTypeIcon from "../components/FileTypeIcon";
 import FileContentViewer, { fileNeedsText, fileRenderKind } from "../components/code/FileContentViewer";
 import type { ChangedLines } from "../components/code/ReadOnlyCodeViewer";
 import { Button as UiButton } from "../components/ui/button";
+import { EmptyState } from "../components/ui/empty-state";
 import { Input as UiInput } from "../components/ui/input";
 import {
   api,
@@ -170,13 +171,12 @@ export default function CodeSourceView({
   if (!selectedNode) {
     return (
       <main className="flex min-h-[560px] min-w-0 items-center justify-center bg-surface-code p-4 xl:min-h-0">
-        <div className="max-w-xl text-center">
-          <FileCode2 size={28} className="mx-auto text-cyan-300" />
-          <h2 className="mt-4 text-title font-semibold text-foreground">Open a file or symbol</h2>
-          <p className="mt-2 text-heading leading-6 text-neutral-400">
-            Browse the repository on the left or use the search above. Symbol selections open the full file and highlight the exact range.
-          </p>
-        </div>
+        <EmptyState
+          frame={false}
+          icon={<FileCode2 aria-hidden="true" />}
+          title="Open a file or symbol"
+          description="Browse the repository on the left or use the search above. Symbol selections open the full file and highlight the exact range."
+        />
       </main>
     );
   }

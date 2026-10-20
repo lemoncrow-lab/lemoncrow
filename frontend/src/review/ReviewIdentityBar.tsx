@@ -15,6 +15,11 @@ import { revisionShortLabel } from "./revisionLabel";
 import ReviewBaseIdentity from "./ReviewBaseIdentity";
 import type { ReviewLandingReadiness, ReviewOverview, ReviewStackInfo, ReviewStackMember } from "./types";
 
+/** The checkout's own name: the last path segment. The full path stays in the title and the accessible name. */
+function workspaceName(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() || path;
+}
+
 function stackMemberName(member: ReviewStackMember): string {
   if (member.provider !== "git" && member.external_id) return member.external_id;
   if (member.change_ref) return member.change_ref.slice(0, 10);
@@ -133,7 +138,7 @@ function ChangeSetLabel({ reviewId, links, landing }: { reviewId: string; links:
   const label = unavailable ? "Change set unavailable" : `Change set · ${CHANGE_SET_STATE[state ?? ""] ?? state ?? "blocked"}`;
   return (
     <span
-      className="review-reader-source-context ml-2 max-w-[220px] truncate border-l border-border pl-2 font-medium text-amber-300/80"
+      className="review-reader-source-context ml-2 max-w-[220px] truncate border-l border-border pl-2 font-medium text-p1"
       title={summary?.title ?? "The change set could not be loaded; its readiness fails closed."}
       aria-label={"Change set: " + label}
       data-testid="review-change-set"
@@ -188,7 +193,7 @@ export default function ReviewIdentityBar({
   const workspaceContext = contextOverride?.label
     ? contextOverride
     : resolvedEnvironment.review.local_workspace && overview.workspace_root
-      ? { label: overview.workspace_root, title: `Workspace ${overview.workspace_root}` }
+      ? { label: overview.workspace_root, title: `Workspace ${overview.workspace_root}`, display: workspaceName(overview.workspace_root) }
       : null;
 
   return (
@@ -207,12 +212,12 @@ export default function ReviewIdentityBar({
           {authorship && (authorship.prefix || authorship.label) && (
             <span>
               {authorship.prefix && <span className="review-reader-author">{authorship.prefix} </span>}
-              <span className="review-reader-author font-medium text-neutral-400">{authorship.label}</span>
+              <span className="review-reader-author font-medium text-subtle">{authorship.label}</span>
             </span>
           )}
           {stack && overview.change?.stack && stackNeedsHeaderAttention(overview.change.stack) && (
             <span
-              className="review-reader-source-context ml-2 max-w-[260px] truncate border-l border-border pl-2 font-medium text-amber-300/80"
+              className="review-reader-source-context ml-2 max-w-[260px] truncate border-l border-border pl-2 font-medium text-p1"
               title={stack.title}
               aria-label={"Stack needs attention: " + stack.label}
               data-testid="review-stack-layer"
@@ -238,7 +243,7 @@ export default function ReviewIdentityBar({
                 href={webHref(workItem.url)}
                 target="_blank"
                 rel="noreferrer"
-                className="review-reader-source-context ml-2 max-w-[180px] truncate border-l border-border pl-2 font-medium text-muted-foreground hover:text-neutral-300 hover:underline"
+                className="review-reader-source-context ml-2 max-w-[180px] truncate border-l border-border pl-2 font-medium text-muted-foreground hover:text-foreground hover:underline"
                 title={workItem.title || workItem.external_id}
                 aria-label={`Open associated work item ${workItemLabel}`}
               >
@@ -266,7 +271,7 @@ export default function ReviewIdentityBar({
               title={workspaceContext.title || workspaceContext.label}
               aria-label={contextOverride?.label ? `Review context: ${workspaceContext.label}` : `Review workspace: ${workspaceContext.label}`}
             >
-              {workspaceContext.label}
+              {"display" in workspaceContext ? workspaceContext.display : workspaceContext.label}
             </span>
           )}
           <ReviewBaseIdentity overview={overview} />

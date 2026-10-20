@@ -154,7 +154,7 @@ export function HostsSection() {
 
   return (
     <section className="space-y-3">
-      <h2 className="text-body uppercase tracking-widest text-neutral-400">
+      <h2 className="font-mono text-tag uppercase text-muted-foreground">
         Hosts
       </h2>
       <p className="text-body text-neutral-400">
@@ -166,7 +166,6 @@ export function HostsSection() {
         <EmptyState
           title="No supported hosts found"
           description="Host configs are loaded from LemonCrow's integration catalog."
-          className="p-4"
         />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
@@ -241,7 +240,7 @@ export function AgentsSection() {
   if (agents === null) {
     return (
       <section className="space-y-3">
-        <h2 className="text-body uppercase tracking-widest text-neutral-400">
+        <h2 className="font-mono text-tag uppercase text-muted-foreground">
           Agents
         </h2>
         <p className="text-body text-neutral-400">Loading…</p>
@@ -251,7 +250,7 @@ export function AgentsSection() {
 
   return (
     <section className="space-y-3">
-      <h2 className="text-body uppercase tracking-widest text-neutral-400">
+      <h2 className="font-mono text-tag uppercase text-muted-foreground">
         Agents
       </h2>
       <div className="grid gap-2 sm:grid-cols-2">
@@ -379,7 +378,7 @@ export function SkillsSection() {
 
   return (
     <section className="space-y-3">
-      <h2 className="text-body uppercase tracking-widest text-neutral-400">
+      <h2 className="font-mono text-tag uppercase text-muted-foreground">
         Skills
       </h2>
       <p className="text-body text-neutral-400 mb-3">
@@ -389,7 +388,7 @@ export function SkillsSection() {
       </p>
       <div className="grid gap-2 sm:grid-cols-2">
         {visibleSkills.length === 0 ? (
-          <EmptyState title="Loading skills..." className="p-4 sm:col-span-2" />
+          <EmptyState title="Loading skills..." className="sm:col-span-2" />
         ) : (
           visibleSkills.map((s) => (
             <SkillCard
@@ -579,10 +578,10 @@ export function ToolsSection() {
 
   return (
     <section className="space-y-3">
-      <h2 className="text-body uppercase tracking-widest text-neutral-400">
+      <h2 className="font-mono text-tag uppercase text-muted-foreground">
         Tools
       </h2>
-      {!mcpTools && <EmptyState title="Loading tools…" className="p-4" />}
+      {!mcpTools && <EmptyState title="Loading tools…" />}
       {mcpTools &&
         (() => {
           const seen = new Set<string>();
@@ -799,7 +798,7 @@ function HealthSection() {
 
   return (
     <section className="space-y-3">
-      <h2 className="text-body uppercase tracking-widest text-neutral-400">
+      <h2 className="font-mono text-tag uppercase text-muted-foreground">
         Health
       </h2>
       <p className="text-body text-neutral-400">
@@ -823,7 +822,7 @@ function HealthSection() {
         />
       </div>
       {hosts && hosts.length === 0 ? (
-        <EmptyState title="No host adapters found" className="p-4" />
+        <EmptyState title="No host adapters found" />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           {(hosts ?? []).map((host) => (

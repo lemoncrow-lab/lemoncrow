@@ -265,13 +265,13 @@ function Row({
 }) {
   return (
     <div className="grid gap-1 py-2.5 sm:grid-cols-[200px_minmax(0,1fr)] sm:gap-3">
-      <dt className="text-caption font-medium text-muted-foreground">
+      <dt className="text-meta font-medium text-muted-foreground">
         {label}
       </dt>
-      <dd className="min-w-0 text-caption text-foreground">
+      <dd className="min-w-0 text-ui text-foreground">
         <div className="break-words">{value}</div>
         {detail ? (
-          <div className="mt-0.5 break-words text-muted-foreground">
+          <div className="mt-0.5 break-words text-meta text-muted-foreground">
             {detail}
           </div>
         ) : null}
@@ -502,21 +502,19 @@ export function IntelligenceOverview({
   const locus = route.data_locus;
   return (
     <section
-      className="space-y-4"
+      className="hunk"
       aria-labelledby="intelligence-overview-title"
       data-testid="intelligence-overview"
     >
-      <div>
-        <h2
-          id="intelligence-overview-title"
-          className="text-title font-semibold text-foreground"
-        >
+      <div className="hunk-head">
+        <h2 id="intelligence-overview-title" className="hunk-label">
           AI route and background intelligence
         </h2>
-        <p className="mt-1 max-w-2xl text-caption leading-5 text-muted-foreground">
-          {lifetime}
-        </p>
       </div>
+      <div className="space-y-4 p-4">
+      <p className="max-w-2xl text-meta text-muted-foreground">
+        {lifetime}
+      </p>
       <dl className="divide-y divide-border border-y border-border">
         <Row
           label="AI route"
@@ -548,14 +546,14 @@ export function IntelligenceOverview({
         usageHref={usageHref}
       />
       <p
-        className="max-w-2xl text-caption leading-5 text-muted-foreground"
+        className="max-w-2xl text-meta text-muted-foreground"
         data-testid="intelligence-edit-source"
       >
         {scope === "local" && route.editable
           ? "Update this machine's AI preferences above. Provider credentials stay in your environment."
           : `Read-only here. These values come from ${route.edit_source}.`}
       </p>
-      <details className="rounded-md border border-border/80 px-3 py-2 text-caption">
+      <details className="rounded-md border border-border px-3 py-2 text-meta">
         <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
           Advanced route details
         </summary>
@@ -607,6 +605,7 @@ export function IntelligenceOverview({
           ) : null}
         </dl>
       </details>
+      </div>
     </section>
   );
 }

@@ -11,7 +11,7 @@ const forbidden = ["button", "input", "textarea", "select", "option"];
 const pattern = new RegExp(`<(?:${forbidden.join("|")})\\b`, "g");
 const workbenchStyleRules = [
   { pattern: /rounded-(?:xl|2xl|3xl)/g, message: "Use rounded-lg panels or rounded-md controls; larger radii are Review/content-specific." },
-  { pattern: /rounded-(?:sm|none)/g, message: "Use the Reader radius scale: rounded-lg panels and rounded-md controls." },
+  { pattern: /rounded-none/g, message: "Use the radius scale: rounded-lg panels, rounded-md controls, rounded-sm badges and chips." },
   { pattern: /\bp-(?:5|8|10|12|16|20|24)\b/g, message: "Use the Reader density scale (normally p-3/p-4; p-6 is reserved for compact empty states)." },
   { pattern: /(?:slate|gray|zinc|stone)-\d{2,3}/g, message: "Use neutral-* theme tokens so workbench chrome follows light/dark mode." },
   { pattern: /bg-\[#[0-9a-fA-F]{3,8}\]/g, message: "Use neutral/surface theme tokens instead of hard-coded background colors." },

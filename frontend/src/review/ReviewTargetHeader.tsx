@@ -32,11 +32,11 @@ function stateLabel(target: ReviewTarget): string {
 }
 
 function stateDot(target: ReviewTarget): string {
-  if (target.state === "reviewed") return "bg-emerald-400";
-  if (target.state === "changed_since_review") return "bg-sky-400";
-  if (target.state === "needs_changes") return "bg-rose-400";
-  if (target.state === "unknown") return "bg-amber-400";
-  return "bg-neutral-600";
+  if (target.state === "reviewed") return "bg-ok-solid";
+  if (target.state === "changed_since_review") return "bg-p2-solid";
+  if (target.state === "needs_changes") return "bg-p0-solid";
+  if (target.state === "unknown") return "bg-p1-solid";
+  return "bg-muted-foreground/60";
 }
 
 function spanRange(spans: ReviewTarget["spans"]): string {
@@ -115,28 +115,30 @@ export default function ReviewTargetHeader({
   const showStickyFilename = Boolean(stickyFilename && label !== stickyPath && label !== stickyFilename);
   const coverage = coverageLabel(target);
   const scopeTone = reviewScopeTone(target);
+  // The per-hunk strip is the canonical hunk header: neutral strip, mono label, and a 3px rail that carries
+  // state only (judgment first, otherwise the kind of change). Badges repeat it in words.
   const scopeToneClass = scopeTone === "added"
-    ? "border-border/80 bg-emerald-950/8 shadow-[inset_2px_0_0_rgba(52,211,153,0.42)] hover:bg-emerald-950/12"
+    ? "border-border border-l-rail border-l-ok-solid bg-muted hover:bg-accent/60"
     : scopeTone === "deleted"
-      ? "border-border/80 bg-rose-950/8 shadow-[inset_2px_0_0_rgba(251,113,133,0.42)] hover:bg-rose-950/12"
-      : "border-border/80 bg-sky-950/8 shadow-[inset_2px_0_0_rgba(56,189,248,0.38)] hover:bg-sky-950/10";
+      ? "border-border border-l-rail border-l-p0-solid bg-muted hover:bg-accent/60"
+      : "border-border border-l-rail border-l-p2-solid bg-muted hover:bg-accent/60";
   const judgmentToneClass = target.state === "reviewed"
-    ? "border-emerald-700/60 bg-emerald-950/15 shadow-[inset_3px_0_0_rgba(52,211,153,0.5)]"
+    ? "border-border border-l-rail border-l-ok-solid bg-muted"
     : target.state === "needs_changes"
-      ? "border-rose-700/60 bg-rose-950/15 shadow-[inset_3px_0_0_rgba(251,113,133,0.5)]"
+      ? "border-border border-l-rail border-l-p0-solid bg-muted"
       : target.state === "changed_since_review"
-        ? "border-sky-700/55 bg-sky-950/15 shadow-[inset_3px_0_0_rgba(56,189,248,0.45)]"
+        ? "border-border border-l-rail border-l-p2-solid bg-muted"
         : target.state === "unknown"
-          ? "border-amber-700/55 bg-amber-950/15 shadow-[inset_3px_0_0_rgba(251,191,36,0.45)]"
+          ? "border-border border-l-rail border-l-p1-solid bg-muted"
           : "";
   const stateBadge = target.state === "reviewed"
-    ? { label: "Reviewed", title: "Still reviewed; this review area did not change after your judgment.", tone: "border-emerald-800/70 bg-emerald-950/45 text-emerald-200" }
+    ? { label: "Reviewed", title: "Still reviewed; this review area did not change after your judgment.", tone: "border-ok-line bg-ok-bg text-ok" }
     : target.state === "needs_changes"
-      ? { label: "Needs changes", title: "You asked for this review area to be changed.", tone: "border-rose-800/70 bg-rose-950/45 text-rose-200" }
+      ? { label: "Needs changes", title: "You asked for this review area to be changed.", tone: "border-p0-line bg-p0-bg text-p0" }
       : target.state === "changed_since_review"
-        ? { label: "Changed · re-review", title: "Changed since you reviewed; your earlier judgment no longer covers this review area.", tone: "border-sky-800/70 bg-sky-950/45 text-sky-200" }
+        ? { label: "Changed · re-review", title: "Changed since you reviewed; your earlier judgment no longer covers this review area.", tone: "border-p2-line bg-p2-bg text-p2" }
         : target.state === "unknown"
-          ? { label: "State uncertain", title: "LemonCrow could not safely carry your earlier judgment forward; review this area again.", tone: "border-amber-800/70 bg-amber-950/45 text-amber-200" }
+          ? { label: "State uncertain", title: "LemonCrow could not safely carry your earlier judgment forward; review this area again.", tone: "border-p1-line bg-p1-bg text-p1" }
           : null;
   const stateExplanation = active && target.state === "changed_since_review"
     ? "Changed since you reviewed · your earlier judgment no longer covers this review area."
@@ -160,10 +162,10 @@ export default function ReviewTargetHeader({
         data-review-target-folded="true"
         role="group"
         aria-label={`${label} review area · ${needsChanges ? "needs changes" : "reviewed"} · folded`}
-        className={`review-target-header group/target my-0.5 flex min-h-7 items-center rounded border px-1.5 text-caption transition-colors ${
+        className={`review-target-header group/target my-0.5 flex min-h-7 items-center rounded-md border px-1.5 text-caption transition-colors duration-fast ${
           needsChanges
-            ? "border-rose-900/45 bg-rose-950/8 text-rose-200/85 hover:bg-rose-950/15"
-            : "border-neutral-900 bg-background/40 text-muted-foreground hover:bg-muted/35 hover:text-neutral-300"
+            ? "border-p0-line bg-p0-bg text-p0 hover:bg-p0-bg/70"
+            : "border-border bg-muted text-muted-foreground hover:bg-accent/60 hover:text-foreground"
         }`}
       >
         <UiButton unstyled
@@ -177,21 +179,21 @@ export default function ReviewTargetHeader({
           className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left"
         >
           {needsChanges
-            ? <X size={11} strokeWidth={1.8} className="shrink-0 text-rose-400/85" />
-            : <Check size={11} strokeWidth={1.8} className="shrink-0 text-emerald-400/75" />}
+            ? <X size={12} strokeWidth={1.8} className="shrink-0 text-p0" />
+            : <Check size={12} strokeWidth={1.8} className="shrink-0 text-ok" />}
           {showStickyFilename && (
             <>
-              <span className="max-w-36 shrink-0 truncate font-mono text-micro font-normal text-muted-foreground" title={stickyPath}>{stickyFilename}</span>
+              <span className="max-w-36 shrink-0 truncate font-mono text-caption font-normal text-muted-foreground" title={stickyPath}>{stickyFilename}</span>
               <span className="shrink-0 text-muted-foreground/60">·</span>
             </>
           )}
-          <span className="min-w-0 truncate font-mono font-medium text-neutral-300">{label}</span>
-          <span className={needsChanges ? "shrink-0 text-rose-300/75" : "shrink-0 text-muted-foreground"}>
+          <span className="hunk-label font-mono font-medium text-foreground">{label}</span>
+          <span className="shrink-0">
             · {needsChanges ? "Needs changes" : "Reviewed"}
           </span>
           {commentCount > 0 && <span className="shrink-0 text-muted-foreground">· {commentCount} comment{commentCount === 1 ? "" : "s"}</span>}
           {coverage && <span className="min-w-0 truncate text-muted-foreground">· {coverage}</span>}
-          <ChevronDown size={12} className="ml-auto shrink-0 text-muted-foreground group-hover/target:text-neutral-400" />
+          <ChevronDown size={12} className="ml-auto shrink-0 text-muted-foreground group-hover/target:text-foreground" />
         </UiButton>
       </div>
     );
@@ -205,14 +207,14 @@ export default function ReviewTargetHeader({
       className={[
         "review-target-header",
         scopeTop
-          ? "group/target my-0.5 flex min-h-8 items-center gap-2 rounded-md border px-2 py-1 text-caption transition-[border-color,background-color] duration-150 ease-out"
-          : "group/target my-0.5 flex min-h-8 items-center gap-2 rounded-md border px-2 py-1 text-caption transition-colors",
+          ? "group/target my-0.5 flex min-h-8 items-center gap-2 rounded-md border px-2 py-1 text-caption transition-[border-color,background-color] duration-fast ease-out"
+          : "group/target my-0.5 flex min-h-8 items-center gap-2 rounded-md border px-2 py-1 text-caption transition-colors duration-fast",
         judgmentToneClass
           || (scopeTop
             ? scopeToneClass
             : active
-              ? "border-sky-900/60 bg-sky-950/12"
-              : "border-neutral-900 bg-background/45 hover:bg-muted/25"),
+              ? "border-input bg-accent/50"
+              : "border-border bg-muted hover:bg-accent/60"),
       ].join(" ")}
       onFocus={onFocus}
     >
@@ -227,7 +229,7 @@ export default function ReviewTargetHeader({
           )}
           {showStickyFilename && (
             <>
-              <span className="max-w-36 shrink-0 truncate font-mono text-micro text-muted-foreground" title={stickyPath}>{stickyFilename}</span>
+              <span className="max-w-36 shrink-0 truncate font-mono text-caption text-muted-foreground" title={stickyPath}>{stickyFilename}</span>
               <span className="shrink-0 text-muted-foreground/60">·</span>
             </>
           )}
@@ -238,7 +240,7 @@ export default function ReviewTargetHeader({
             aria-label={`${label} ${target.kind}`}
             className="min-w-0 truncate text-left"
           >
-            <span className={`font-mono font-medium ${target.state === "reviewed" ? "text-emerald-200" : "text-neutral-200"}`}>
+            <span className="hunk-label font-mono font-medium text-foreground">
               {label}
             </span>
           </UiButton>
@@ -249,7 +251,7 @@ export default function ReviewTargetHeader({
           )}
           {!comparisonMode && stateBadge && (
             <span
-              className={`inline-flex shrink-0 items-center rounded border px-1.5 py-0.5 text-micro font-semibold ${stateBadge.tone}`}
+              className={`inline-flex h-5 shrink-0 items-center rounded-sm border px-1.5 font-mono text-tag font-medium uppercase leading-none ${stateBadge.tone}`}
               title={stateBadge.title}
             >
               {stateBadge.label}
@@ -257,7 +259,7 @@ export default function ReviewTargetHeader({
           )}
           {!comparisonMode && target.movement === "base_only" && (
             <span
-              className="inline-flex shrink-0 items-center rounded border border-border px-1.5 py-0.5 text-micro font-medium text-muted-foreground"
+              className="inline-flex h-5 shrink-0 items-center rounded-sm border border-border px-1.5 font-mono text-tag font-medium uppercase leading-none text-muted-foreground"
               title="Only the base moved under this review area (rebase or merge-base). The authored change is equivalent, so your judgment was kept."
               data-testid="target-base-only"
             >
@@ -274,21 +276,21 @@ export default function ReviewTargetHeader({
               <UiButton unstyled
                 type="button"
                 onClick={() => onContext(reasonTab)}
-                className="min-w-0 truncate text-amber-400/75 hover:text-amber-300"
+                className="min-w-0 truncate text-p1 hover:text-foreground"
                 tooltip={reason}
               >
                 {reason}
               </UiButton>
             )}
             {(target.verification.fail > 0 || target.verification.unknown > 0) && (
-              <UiButton unstyled type="button" onClick={() => onContext("checks")} className="shrink-0 text-rose-300/80 hover:text-rose-200">
+              <UiButton unstyled type="button" onClick={() => onContext("checks")} className="shrink-0 text-p0 hover:text-foreground">
                 {target.verification.fail > 0
                   ? `${target.verification.fail} failed`
                   : `${target.verification.unknown} unknown`}
               </UiButton>
             )}
             {target.annotation_counts.addressed_needs_rereview > 0 && (
-              <UiButton unstyled type="button" onClick={() => onContext("discussion")} className="shrink-0 text-sky-300 hover:text-sky-200">
+              <UiButton unstyled type="button" onClick={() => onContext("discussion")} className="shrink-0 text-p2 hover:text-foreground">
                 marked addressed · re-review
               </UiButton>
             )}
@@ -305,7 +307,7 @@ export default function ReviewTargetHeader({
             aria-label={`Fold ${label}`}
             tooltip="Fold completed review area"
             onClick={onToggleFold}
-            className="h-6 w-6 text-muted-foreground hover:text-neutral-300"
+            className="h-6 w-6 text-muted-foreground hover:text-foreground"
           >
             <ChevronUp size={12} strokeWidth={1.8} />
           </UiButton>
@@ -319,8 +321,8 @@ export default function ReviewTargetHeader({
           disabled={busy || target.state === "reviewed"}
           onClick={() => onMark("reviewed", true)}
           className={target.state === "reviewed"
-            ? "h-6 w-6 border-emerald-600/70 bg-emerald-900/40 text-emerald-100 disabled:opacity-100"
-            : "h-6 w-6 hover:bg-emerald-950/30 hover:text-emerald-300"}
+            ? "h-6 w-6 border-ok-line bg-ok-bg text-ok disabled:opacity-100"
+            : "h-6 w-6 hover:bg-ok-bg hover:text-ok"}
         >
           <Check size={13} strokeWidth={1.8} />
           {target.state === "reviewed" && <span className="sr-only">✓ Reviewed</span>}
@@ -334,8 +336,8 @@ export default function ReviewTargetHeader({
           disabled={busy}
           onClick={() => onMark("needs_changes")}
           className={target.state === "needs_changes"
-            ? "h-6 w-6 border-rose-600/70 bg-rose-900/40 text-rose-100"
-            : "h-6 w-6 hover:bg-rose-950/30 hover:text-rose-300"}
+            ? "h-6 w-6 border-p0-line bg-p0-bg text-p0"
+            : "h-6 w-6 hover:bg-p0-bg hover:text-p0"}
         >
           <X size={13} strokeWidth={1.8} />
         </UiButton>
@@ -347,7 +349,7 @@ export default function ReviewTargetHeader({
           tooltip={lock || "Add comment"}
           disabled={busy}
           onClick={onComment}
-          className="h-6 w-6 hover:text-sky-300"
+          className="h-6 w-6 hover:text-foreground"
         >
           <MessageSquareText size={12} strokeWidth={1.8} />
         </UiButton>
@@ -360,7 +362,7 @@ export default function ReviewTargetHeader({
             tooltip={lock || "Ask about this code"}
             disabled={busy}
             onClick={onAsk}
-            className="h-6 gap-1 px-1.5 text-micro text-violet-300 hover:text-violet-200"
+            className="h-6 gap-1 px-1.5 text-meta"
           >
             <Sparkles size={11} strokeWidth={1.8} />
             Ask

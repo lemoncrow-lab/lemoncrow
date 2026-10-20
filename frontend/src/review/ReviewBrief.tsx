@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 
+import { Badge } from "../components/ui/badge";
 import { Button as UiButton } from "../components/ui/button";
 import { Input as UiInput } from "../components/ui/input";
 
@@ -96,15 +97,15 @@ function targetLabel(target: ReviewTarget | undefined, fallback: string): string
   return target.symbol ? `${target.path} · ${target.symbol}` : target.path;
 }
 
+/** A Brief section is one Hunk: hairline frame, mono `@@ TITLE @@` header strip, rows inside. */
 function Section({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
   return (
-    <section className="border-t border-border/70 py-3" aria-label={title}>
-      <div className="mb-2 flex items-center gap-2">
-        <h3 className="text-caption font-semibold uppercase tracking-wide text-neutral-400">{title}</h3>
-        <span className="flex-1" />
+    <section className="hunk" aria-label={title}>
+      <div className="hunk-head">
+        <h3 className="hunk-label">{title}</h3>
         {action}
       </div>
-      <div className="flex flex-col gap-2">{children}</div>
+      <div className="flex flex-col gap-2 p-3">{children}</div>
     </section>
   );
 }
@@ -413,7 +414,7 @@ function AiReviewLine({
   return (
     <div className="space-y-2" data-testid="brief-ai-review">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-medium text-neutral-300">AI Review · {statusLabel}</span>
+        <Badge tone="neutral" className="text-foreground">AI Review · {statusLabel}</Badge>
         {waitReason && (
           <span data-testid="ai-wait-reason" className="rounded-full border border-neutral-700 px-2 text-neutral-400">
             {waitReason}
@@ -432,8 +433,9 @@ function AiReviewLine({
           </span>
         )}
         {!busy && unavailable && (
-          <span className="inline-flex flex-wrap gap-x-1 text-amber-300/90">
-            <span>{unavailable}</span>
+          <span className="inline-flex flex-wrap items-center gap-x-1.5 text-meta text-muted-foreground">
+            {/* The provider's own message, without its exception class name; the Review itself is unaffected. */}
+            <span title={unavailable}>{unavailable.replace(/^[A-Za-z]+Error:\s*/, "")}</span>
             <span>· deterministic Review remains available</span>
           </span>
         )}
@@ -1178,12 +1180,18 @@ export default function ReviewBrief({
 
   return (
     <div
-      className="mx-auto flex w-full max-w-3xl flex-col px-4 py-4 outline-none"
+      className="mx-auto flex w-full max-w-3xl flex-col gap-3 px-4 py-4 outline-none"
       data-testid="review-brief"
       data-review-view-root="brief"
       tabIndex={-1}
     >
-      <header className="flex flex-col gap-1 pb-3">
+      <div className="hunk">
+        <div className="hunk-head">
+          <span className="hunk-label">{projection.snapshot_number !== null ? `Snapshot ${projection.snapshot_number}` : "Change"}</span>
+          {projection.historical && <Badge>Historical</Badge>}
+        </div>
+        <div className="flex flex-col gap-3 p-4">
+      <header className="flex flex-col gap-1 empty:hidden">
         {!projection.summary && projection.plan.intents.map((intent) => (
           <div key={intent.producer}>
             <p className="text-body text-neutral-100">{intent.intent}</p>
@@ -1199,18 +1207,15 @@ export default function ReviewBrief({
             <span>{`Code: ${reviewedCode} of ${codeTargets.length} reviewed${scopeFocused ? " in your request" : ""}`}</span>
           </p>
         )}
-        {projection.snapshot_number !== null && (
-          <p className="text-caption text-muted-foreground">Snapshot {projection.snapshot_number}{projection.historical ? " · historical" : ""}</p>
-        )}
-        {deltaLine(projection) && <p className="text-caption text-amber-200/90">{deltaLine(projection)}</p>}
+        {deltaLine(projection) && <p className="text-meta text-p1">{deltaLine(projection)}</p>}
       </header>
 
       {projection.summary && (
-        <section aria-label="Change summary" className="flex flex-col gap-3 pb-4">
+        <section aria-label="Change summary" className="flex flex-col gap-3">
           {projection.summary.statements?.length
-            ? projection.summary.statements.map((statement) => (
+            ? projection.summary.statements.map((statement, index) => (
                 <div key={statement.text}>
-                  <p className="max-w-prose text-body leading-relaxed text-foreground">{statement.text}</p>
+                  <p className={index === 0 ? "max-w-prose text-title font-semibold leading-snug text-foreground" : "max-w-prose text-ui leading-relaxed text-foreground"}>{statement.text}</p>
                   {statement.origin === "inferred" && statement.target_ids.length > 0 && (
                     <div className="mt-0.5 text-micro text-muted-foreground">
                       {"AI statement · " + statement.target_ids.length + " exact target" + (statement.target_ids.length === 1 ? "" : "s")}
@@ -1218,28 +1223,32 @@ export default function ReviewBrief({
                   )}
                 </div>
               ))
-            : projection.summary.paragraphs.map((paragraph) => (
-                <p key={paragraph} className="max-w-prose text-body leading-relaxed text-foreground">{paragraph}</p>
+            : projection.summary.paragraphs.map((paragraph, index) => (
+                <p key={paragraph} className={index === 0 ? "max-w-prose text-title font-semibold leading-snug text-foreground" : "max-w-prose text-ui leading-relaxed text-foreground"}>{paragraph}</p>
               ))}
-          <p className="text-caption text-muted-foreground">
+          <div className="flex flex-col gap-1">
+          <p className="text-meta text-muted-foreground">
             {projection.summary.origin === "inferred" ? "AI summary · intent inferred" : projection.summary.origin === "mixed" ? "Author context and AI explanations" : projection.summary.origin === "author" ? "From author context" : "From the changed files"}
           </p>
-          <p className="text-caption text-neutral-300">{projection.summary.verification}</p>
-          {projection.summary.attention && <p className="text-caption text-amber-200">{projection.summary.attention}</p>}
-          <p className="text-caption text-muted-foreground">{projection.summary.scope}</p>
+          <p className="text-ui text-subtle">{projection.summary.verification}</p>
+          {projection.summary.attention && <p className="text-ui text-p1">{projection.summary.attention}</p>}
+          <p className="text-meta text-muted-foreground">{projection.summary.scope}</p>
           {projection.material && projection.material.total_changed_lines > 0 && (
-            <p className="text-caption text-muted-foreground" data-testid="review-change-size">
+            <p className="text-meta text-muted-foreground" data-testid="review-change-size">
               {projection.material.implementation_changed_lines === projection.material.total_changed_lines
                 ? `${projection.material.total_changed_lines} changed implementation lines`
                 : `${projection.material.implementation_changed_lines} implementation lines · ${projection.material.total_changed_lines} total changed lines`}
             </p>
           )}
-          <div className="flex flex-wrap gap-1.5">
-            {onOpenTour && (projection.tour?.step_count ?? 0) > 0 && <UiButton variant="solid" size="compact" onClick={onOpenTour}>Start guided review</UiButton>}
-            <UiButton variant={onOpenTour && (projection.tour?.step_count ?? 0) > 0 ? "outline" : "solid"} size="compact" onClick={onOpenFiles}>Open code</UiButton>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {onOpenTour && (projection.tour?.step_count ?? 0) > 0 && <UiButton variant="solid" size="sm" onClick={onOpenTour}>Start guided review</UiButton>}
+            <UiButton variant={onOpenTour && (projection.tour?.step_count ?? 0) > 0 ? "outline" : "solid"} size="sm" onClick={onOpenFiles}>Open code</UiButton>
           </div>
         </section>
       )}
+        </div>
+      </div>
 
       {/* §5.1 item 2: large changes defer Map projection until explicit interest so it cannot compete with first-useful paint. */}
       {loadArchitectureDelta && onOpenArchitecture && (
@@ -1253,7 +1262,7 @@ export default function ReviewBrief({
       {/* PK2: landed history, shown only when Project Knowledge has something relevant. */}
       {loadProjectContext && <BriefProjectContext load={loadProjectContext} />}
 
-      {!projection.historical && productionOutcomes && <div className="border-t border-border/70 py-3 empty:hidden">{productionOutcomes}</div>}
+      {!projection.historical && productionOutcomes && <div className="empty:hidden">{productionOutcomes}</div>}
 
       {requiredChecks.length > 0 && (
         <Section title={`Required checks · ${requiredChecks.length}`}>
@@ -1269,7 +1278,7 @@ export default function ReviewBrief({
         </Section>
       )}
 
-      {!projection.historical && agentApprovals && <div className="border-t border-border/70 py-3 empty:hidden">{agentApprovals}</div>}
+      {!projection.historical && agentApprovals && <div className="empty:hidden">{agentApprovals}</div>}
 
       {behavior && (
         <Section title={behavior.total > 0 ? `Behavior changes · ${behavior.total}` : "Behavior changes"}>
@@ -1372,8 +1381,12 @@ export default function ReviewBrief({
         </Section>
       )}
 
-      <footer className="flex flex-col gap-1 border-t border-border/70 pt-3 text-caption text-muted-foreground">
-        <details data-testid="review-detail-options" className="rounded border border-border/70 px-2 py-1">
+      <footer className="hunk text-meta text-muted-foreground">
+        <div className="hunk-head">
+          <span className="hunk-label">Coverage and checks</span>
+        </div>
+        <div className="flex flex-col gap-2 p-3">
+        <details data-testid="review-detail-options" className="rounded-md border border-border px-2 py-1">
           <summary className="cursor-pointer select-none text-neutral-400">
             View options · {detailLevel === "compact" ? "Compact" : detailLevel === "detailed" ? "Detailed" : "Standard"}
           </summary>
@@ -1396,7 +1409,7 @@ export default function ReviewBrief({
           </div>
         </details>
         {collapsedSupport.length > 0 && (
-          <details data-testid="supporting-material" className="rounded border border-border/70 px-2 py-1">
+          <details data-testid="supporting-material" className="rounded-md border border-border px-2 py-1">
             <summary className="cursor-pointer select-none text-neutral-400">
               Supporting material · {plural(collapsedSupport.length, "file")}
             </summary>
@@ -1484,6 +1497,7 @@ export default function ReviewBrief({
           <UiButton variant="outline" size="compact" type="button" onClick={onOpenFiles}>Open files</UiButton>
           {/* Spec §8: the full inventory stays one explicit step away, never the default. */}
           <UiButton variant="ghost" size="compact" type="button" onClick={() => onInspectEvidence(null)}>All evidence</UiButton>
+        </div>
         </div>
       </footer>
     </div>

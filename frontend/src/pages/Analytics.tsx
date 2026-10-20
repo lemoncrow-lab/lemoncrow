@@ -517,7 +517,7 @@ export default function Analytics({
           {/* Timeline */}
           <div className="space-y-4">
               {dashLoading ? (
-                <EmptyState title="Loading…" className="p-4" />
+                <EmptyState title="Loading…" />
               ) : dashboard ? (
                 <>
                   <SpendTimelineChart

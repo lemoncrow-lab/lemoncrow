@@ -297,7 +297,7 @@ function DrillSheet({
           {error ? (
             <Alert tone="destructive" description={error} />
           ) : !drill ? (
-            <EmptyState title="Loading records…" className="p-4" />
+            <EmptyState title="Loading records…" />
           ) : (
             <div className="space-y-3" data-testid="review-analytics-drill">
               <p className="text-label text-muted-foreground">
@@ -740,14 +740,14 @@ export function ReviewAnalyticsSection({ mode }: { mode: string }) {
       {error ? (
         <Alert tone="destructive" title="Review analytics are unavailable" description={error} />
       ) : !report ? (
-        <EmptyState title={loading ? "Loading Review analytics…" : "No Review analytics"} className="p-4" />
+        <EmptyState title={loading ? "Loading Review analytics…" : "No Review analytics"} />
       ) : (
         <>
           {notices.map((notice) => (
             <Alert key={notice} tone="warning" description={notice} />
           ))}
           {report.volume.reviews.count === 0 ? (
-            <EmptyState title="No Reviews in this period" description="Try a longer period or clear the filters." className="p-4" />
+            <EmptyState title="No Reviews in this period" description="Try a longer period or clear the filters." />
           ) : (
             <Report report={report} onDrill={(key, label) => setTarget({ key, label })} />
           )}

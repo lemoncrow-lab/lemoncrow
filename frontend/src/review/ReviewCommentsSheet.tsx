@@ -6,13 +6,16 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "../components/ui/dropdown-menu";
+import { Badge } from "../components/ui/badge";
+import { hunkRowVariants } from "../components/ui/hunk";
+import { cn } from "../lib/utils";
 import { Sheet, SheetClose, SheetContent, SheetHeader, SheetTitle } from "../components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { useMemo, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, ChevronDown, CornerUpRight, MessageSquareText, RefreshCw, X } from "lucide-react";
 
 import "./reviewUi.css";
-import { annotationIdentityColor, annotationIdentityLabel, annotationProducerDetail, annotationProducerTitle, annotationSource, isUnanchoredComment } from "./annotationModel";
+import { annotationIdentityLabel, annotationProducerDetail, annotationProducerTitle, annotationRail, annotationSeverity, annotationSource, annotationSourceTone, isUnanchoredComment, KIND_BADGE_TONES, KIND_LABELS, SEVERITY_LABELS, severityTone } from "./annotationModel";
 import { BelowThresholdList } from "./findingThreshold";
 import { handoffDestinationLabel, handoffToCodingAgent } from "./reviewPrimaryAction";
 import type { Annotation, FeedbackDeliveryCapability, FeedbackStatus } from "./types";
@@ -139,7 +142,7 @@ export default function ReviewCommentsSheet({
         <SheetHeader className="items-start px-5 py-5">
           <div className="min-w-0 flex-1">
             <SheetTitle className="text-lead tracking-tight">Comments</SheetTitle>
-            <div className="mt-1 text-body text-neutral-400">
+            <div className="mt-1 text-body text-muted-foreground">
               {handoffParts.length > 0
                 ? handoffParts.join(" · ")
                 : `${filterCounts.open} open${filterCounts.rereview > 0 ? ` · ${filterCounts.rereview} need re-review` : ""}`}
@@ -205,7 +208,7 @@ export default function ReviewCommentsSheet({
 
         <TabsContent value={filter} className="min-h-0 flex-1 overflow-auto px-5 py-2">
           {visible.length === 0 && <div className="review-comments-empty"><MessageSquareText size={24} strokeWidth={1.5} aria-hidden="true" /><p>No matching comments.</p></div>}
-          <div className="divide-y divide-neutral-800/70">
+          <div className="divide-y divide-border">
             <BelowThresholdList items={visible} render={(item) => {
               const canJump = item.anchored && item.state !== "orphaned" && Boolean(item.path);
               const orphaned = isUnanchoredComment(item);
@@ -213,20 +216,20 @@ export default function ReviewCommentsSheet({
               const replyCount = replies.get(item.id) ?? 0;
               const StateIcon = orphaned ? AlertTriangle : reReview ? RefreshCw : item.state === "resolved" ? CheckCircle2 : MessageSquareText;
               const stateTone = orphaned
-                ? "border-amber-900/50 bg-amber-950/15 text-amber-300"
+                ? "border-p1-line bg-p1-bg text-p1"
                 : reReview
-                  ? "border-sky-900/55 bg-sky-950/15 text-sky-300"
+                  ? "border-p2-line bg-p2-bg text-p2"
                   : item.state === "resolved"
-                    ? "border-emerald-900/45 bg-emerald-950/10 text-emerald-400"
-                    : "border-border bg-muted/35 text-neutral-400";
+                    ? "border-ok-line bg-ok-bg text-ok"
+                    : "border-border bg-muted text-muted-foreground";
+              const severity = annotationSeverity(item);
               return (
-                <article key={item.id} className="review-comment-list-item py-5">
+                <article key={item.id} className={cn("review-comment-list-item py-5 pl-3", hunkRowVariants({ rail: annotationRail(item) }))}>
                   <div className="flex flex-wrap items-center gap-2 text-body">
-                    <span className="font-medium text-neutral-200" title={annotationProducerTitle(item)}>{annotationProducerDetail(item) || "unknown"}</span>
-                    <span className={`rounded-full border border-border bg-muted/50 px-1.5 py-0.5 text-micro font-semibold tracking-[0.08em] ${annotationIdentityColor(item)}`}>
-                      {annotationIdentityLabel(item)}
-                    </span>
-                    {item.kind !== "comment" && <span className="capitalize text-muted-foreground">{item.kind.replace("_", " ")}</span>}
+                    {severity && <Badge tone={severityTone(severity)}>{SEVERITY_LABELS[severity]}</Badge>}
+                    {item.kind !== "comment" && <Badge tone={KIND_BADGE_TONES[item.kind]}>{KIND_LABELS[item.kind]}</Badge>}
+                    <Badge tone={annotationSourceTone(item)}>{annotationIdentityLabel(item)}</Badge>
+                    <span className="font-medium text-foreground" title={annotationProducerTitle(item)}>{annotationProducerDetail(item) || "unknown"}</span>
                     {item.origin_revision_number != null && (
                       <span
                         className="font-mono text-caption text-muted-foreground"
@@ -236,8 +239,8 @@ export default function ReviewCommentsSheet({
                       </span>
                     )}
                     {orphaned || reReview || item.state === "resolved" ? (
-                      <span className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 font-medium ${stateTone}`}>
-                        <StateIcon size={9} aria-hidden="true" />
+                      <span className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 font-medium ${stateTone}`}>
+                        <StateIcon size={12} aria-hidden="true" />
                         {orphaned ? "orphaned" : reReview ? "re-review" : "resolved"}
                       </span>
                     ) : null}
@@ -259,7 +262,7 @@ export default function ReviewCommentsSheet({
                     </details>
                   )}
                   {reReview && (
-                    <div className="mt-2 rounded-md border border-sky-900/35 bg-sky-950/10 px-2.5 py-1.5 text-caption text-sky-300/85">
+                    <div className="mt-2 rounded-md border border-p2-line bg-p2-bg px-2.5 py-1.5 text-meta text-p2">
                       {/* Who claimed it is a fact of the record (the exact agent session
                           that marked it), not of whether the current Snapshot can be
                           sent to an agent, which changes as comments are resolved. */}
@@ -275,11 +278,11 @@ export default function ReviewCommentsSheet({
                         : ""}
                     </span>
                     {canJump ? (
-                      <UiButton variant="ghost" size="compact" type="button" onClick={() => onJump(item)} className="text-sky-400 hover:text-sky-300">
+                      <UiButton variant="ghost" size="compact" type="button" onClick={() => onJump(item)}>
                         Show in review
                       </UiButton>
                     ) : (
-                      item.comment_scope !== "change" && <span className="text-amber-500/80">Not anchored in the current Snapshot</span>
+                      item.comment_scope !== "change" && <span className="text-p1">Not anchored in the current Snapshot</span>
                     )}
                     {orphaned && onSetAnnotationState && item.state !== "obsolete" && (
                       <UiButton

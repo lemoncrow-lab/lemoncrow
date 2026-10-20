@@ -96,15 +96,15 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-border/70 bg-background/60 p-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div className="flex items-center gap-2">
-          <h2 className="text-lead font-semibold text-foreground">{title}</h2>
+    <section className="hunk">
+      <div className="hunk-head">
+        <div className="flex min-w-0 items-center gap-2">
+          <h2 className="hunk-label">{title}</h2>
           {hint && <HintButton label={`${title} hint`} hint={hint} />}
         </div>
         {action}
       </div>
-      <div className="mt-5">{children}</div>
+      <div className="p-4">{children}</div>
     </section>
   );
 }

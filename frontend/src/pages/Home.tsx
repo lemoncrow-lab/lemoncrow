@@ -8,7 +8,8 @@ import {
   type SavingsSummaryV2,
   type TraceSummary,
 } from "../api";
-import { Card, Chip, PageFrame } from "../components/WorkbenchUI";
+import { Badge, Chip, PageFrame } from "../components/WorkbenchUI";
+import { Hunk } from "../components/ui/hunk";
 import {
   fetchLocalIntegrations,
   type LocalIntegrations,
@@ -185,7 +186,7 @@ export default function Home() {
   return (
     <PageFrame className="space-y-5 text-neutral-200">
       {error && (
-        <div className="border border-rose-900/50 bg-rose-950/15 px-3 py-2 text-body text-rose-300">
+        <div className="rounded-lg border border-p0-line bg-p0-bg px-3 py-2 text-body text-p0">
           {error}
         </div>
       )}
@@ -193,11 +194,11 @@ export default function Home() {
       {runtimeAvailable && (
       <section
         aria-label="Savings summary"
-        className="flex flex-wrap items-stretch overflow-hidden rounded-lg border border-border/70 bg-muted/20"
+        className="hunk flex flex-wrap items-stretch"
       >
         <div className="flex min-w-[150px] flex-1 items-center gap-3 border-b border-border px-3 py-2.5 sm:border-b-0 sm:border-r">
           <div className="min-w-0">
-            <div className="text-micro font-semibold uppercase tracking-widest text-muted-foreground">
+            <div className="font-mono text-tag uppercase text-muted-foreground">
               Last 7 days
             </div>
             <div className="mt-0.5 text-caption text-muted-foreground">
@@ -206,31 +207,31 @@ export default function Home() {
           </div>
         </div>
         {savingsUnavailable ? (
-          <div className="flex min-h-12 flex-[4] items-center px-3 text-body text-amber-300">
+          <div className="flex min-h-12 flex-[4] items-center px-3 text-body text-p1">
             Savings data is unavailable. Usage details may still be available.
           </div>
         ) : savings ? (
           <>
             <div className="min-w-[130px] flex-1 border-r border-border px-3 py-2.5">
-              <div className="text-micro font-semibold uppercase tracking-widest text-muted-foreground">Saved</div>
-              <div className="mt-0.5 text-heading font-semibold text-emerald-400">{savings.savings_available === false ? "No data" : fmtUsd(totalSavedUsd)}</div>
+              <div className="font-mono text-tag uppercase text-muted-foreground">Saved</div>
+              <div className="mt-0.5 text-heading font-semibold">{savings.savings_available === false ? <span className="font-normal text-muted-foreground">No data</span> : <span className="text-ok">{fmtUsd(totalSavedUsd)}</span>}</div>
             </div>
             <div className="min-w-[130px] flex-1 border-r border-border px-3 py-2.5">
-              <div className="text-micro font-semibold uppercase tracking-widest text-muted-foreground">Reduction</div>
-              <div className="mt-0.5 text-heading font-semibold text-neutral-200">{savings.savings_available === false || savings.spend_available === false ? "No data" : fmtPct(savedPct)}</div>
+              <div className="font-mono text-tag uppercase text-muted-foreground">Reduction</div>
+              <div className="mt-0.5 text-heading font-semibold text-foreground">{savings.savings_available === false || savings.spend_available === false ? <span className="font-normal text-muted-foreground">No data</span> : fmtPct(savedPct)}</div>
             </div>
             <div className="min-w-[170px] flex-1 border-r border-border px-3 py-2.5">
-              <div className="text-micro font-semibold uppercase tracking-widest text-muted-foreground">Cost</div>
-              <div className="mt-0.5 text-heading font-semibold text-neutral-200">
-                {savings.spend_available === false ? "No data" : <>
+              <div className="font-mono text-tag uppercase text-muted-foreground">Cost</div>
+              <div className="mt-0.5 text-heading font-semibold text-foreground">
+                {savings.spend_available === false ? <span className="font-normal text-muted-foreground">No data</span> : <>
                   {(savings.spend?.unpriced_rows ?? 0) > 0 ? "≥ " : ""}{fmtUsd(actualCostUsd)}
                   {savings.savings_available !== false && <span className="font-normal text-muted-foreground"> / {fmtUsd(baselineCostUsd)} baseline</span>}
                 </>}
               </div>
             </div>
             <div className="min-w-[140px] flex-1 px-3 py-2.5">
-              <div className="text-micro font-semibold uppercase tracking-widest text-muted-foreground">Tokens saved</div>
-              <div className="mt-0.5 text-heading font-semibold text-neutral-200">{savings.savings_available === false ? "No data" : fmtTok(savedTokens)}</div>
+              <div className="font-mono text-tag uppercase text-muted-foreground">Tokens saved</div>
+              <div className="mt-0.5 text-heading font-semibold text-foreground">{savings.savings_available === false ? <span className="font-normal text-muted-foreground">No data</span> : fmtTok(savedTokens)}</div>
             </div>
           </>
         ) : (
@@ -240,7 +241,7 @@ export default function Home() {
         )}
         <Link
           to="/usage?inspect=savings"
-          className="flex min-h-12 items-center gap-1 border-l border-border px-3 text-caption font-semibold uppercase tracking-wider text-muted-foreground hover:bg-muted/60 hover:text-neutral-200"
+          className="flex min-h-12 items-center gap-1 border-l border-border px-3 font-mono text-tag uppercase text-muted-foreground transition-colors duration-fast hover:bg-accent hover:text-foreground"
         >
           Details <ArrowRight size={12} />
         </Link>
@@ -266,14 +267,14 @@ export default function Home() {
         </div>
 
         {attentionCount === 0 ? (
-          <div className="border border-border bg-muted/20 px-4 py-4 text-body text-muted-foreground">
+          <div className="rounded-lg border border-border bg-card px-4 py-4 text-body text-muted-foreground">
             {attentionIncomplete ? "Attention data is incomplete because a source is unavailable." : "Nothing needs attention right now."}
           </div>
         ) : (
           <div className="grid gap-3 xl:grid-cols-2">
             {reviewAvailable && (
-            <Card className="overflow-hidden p-0">
-              <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-caption font-semibold uppercase tracking-widest text-muted-foreground">
+            <Hunk>
+              <div className="hunk-head justify-start">
                 <ClipboardCheck size={12} /> Reviews
               </div>
               {reviewsUnavailable ? (
@@ -285,7 +286,7 @@ export default function Home() {
                   <a
                     key={`${review.repo_id}:${review.id}`}
                     href={reviewHref(review.ref || review.id)}
-                    className="flex min-h-11 items-center gap-3 border-b border-neutral-900 px-3 py-2 last:border-0 hover:bg-muted/55"
+                    className="flex min-h-11 items-center gap-3 border-b border-border px-3 py-2 last:border-0 transition-colors duration-fast hover:bg-accent/40"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-body font-medium text-neutral-200">
@@ -299,12 +300,12 @@ export default function Home() {
                   </a>
                 ))
               )}
-            </Card>
+            </Hunk>
             )}
 
             {runtimeAvailable && (
-            <Card className="overflow-hidden p-0">
-              <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-caption font-semibold uppercase tracking-widest text-muted-foreground">
+            <Hunk>
+              <div className="hunk-head justify-start">
                 <AlertTriangle size={12} /> Failed runs
               </div>
               {runsUnavailable ? (
@@ -316,7 +317,7 @@ export default function Home() {
                   <Link
                     key={run.id}
                     to={runHref(run)}
-                    className="flex min-h-11 items-center gap-3 border-b border-neutral-900 px-3 py-2 last:border-0 hover:bg-muted/55"
+                    className="flex min-h-11 items-center gap-3 border-b border-border px-3 py-2 last:border-0 transition-colors duration-fast hover:bg-accent/40"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-body font-medium text-neutral-200">
@@ -326,21 +327,21 @@ export default function Home() {
                         {run.host || run.agent || "agent"} · {fmtRelativeTime(run.created_at)}
                       </div>
                     </div>
-                    <span className="text-caption uppercase text-rose-300">{run.status}</span>
+                    <Badge tone="p0">{run.status}</Badge>
                   </Link>
                 ))
               )}
-            </Card>
+            </Hunk>
             )}
 
             {integrationIssue && (
-              <Card className="overflow-hidden p-0">
-                <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-caption font-semibold uppercase tracking-widest text-muted-foreground">
+              <Hunk>
+                <div className="hunk-head justify-start">
                   <AlertTriangle size={12} /> Setup
                 </div>
                 <Link
                   to="/settings/integrations"
-                  className="flex min-h-16 items-center gap-3 px-3 py-3 hover:bg-muted/55"
+                  className="flex min-h-16 items-center gap-3 px-3 py-3 transition-colors duration-fast hover:bg-accent/40"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="text-body font-medium text-neutral-200">
@@ -354,7 +355,7 @@ export default function Home() {
                   </div>
                   <ArrowRight size={13} className="shrink-0 text-muted-foreground" />
                 </Link>
-              </Card>
+              </Hunk>
             )}
           </div>
         )}
@@ -370,23 +371,23 @@ export default function Home() {
               Coding work LemonCrow can currently see.
             </p>
           </div>
-          <Link to="/activity" className="text-caption font-semibold uppercase tracking-wider text-muted-foreground hover:text-neutral-200">
+          <Link to="/activity" className="font-mono text-tag uppercase text-muted-foreground transition-colors duration-fast hover:text-foreground">
             All activity →
           </Link>
         </div>
         {runsUnavailable ? (
-          <div className="rounded-lg border border-border bg-muted/20 px-4 py-4 text-body text-muted-foreground">Coding-agent activity is unavailable.</div>
+          <div className="rounded-lg border border-border bg-card px-4 py-4 text-body text-muted-foreground">Coding-agent activity is unavailable.</div>
         ) : activeRuns.length === 0 ? (
-          <div className="border border-border bg-muted/20 px-4 py-4 text-body text-muted-foreground">
+          <div className="rounded-lg border border-border bg-card px-4 py-4 text-body text-muted-foreground">
             No active runs.
           </div>
         ) : (
           <div className="grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
             {activeRuns.map((run) => (
               <Link key={run.id} to={runHref(run)} className="block">
-                <Card className="h-full p-3 transition hover:bg-muted/50">
+                <Hunk className="h-full p-3 transition-colors duration-fast hover:border-input">
                   <div className="flex items-start gap-2">
-                    <Play size={12} className="mt-0.5 shrink-0 text-emerald-400" />
+                    <Play size={12} className="mt-0.5 shrink-0 text-ok" />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-body font-medium text-neutral-200">
                         {runLabel(run)}
@@ -396,9 +397,9 @@ export default function Home() {
                         {run.model ? ` · ${run.model}` : ""}
                       </div>
                     </div>
-                    <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" />
+                    <span className="h-2 w-2 shrink-0 rounded-full bg-ok-solid" />
                   </div>
-                </Card>
+                </Hunk>
               </Link>
             ))}
           </div>
@@ -409,12 +410,12 @@ export default function Home() {
       {(reviewAvailable || runtimeAvailable) && (
       <section className="grid gap-4 xl:grid-cols-2">
         {reviewAvailable && (
-        <Card className="overflow-hidden p-0">
-          <div className="flex items-center justify-between border-b border-border px-3 py-2">
-            <div className="flex items-center gap-2 text-caption font-semibold uppercase tracking-widest text-muted-foreground">
+        <Hunk>
+          <div className="hunk-head">
+            <div className="flex items-center gap-2">
               <ClipboardCheck size={12} /> Recent reviews
             </div>
-            <Link to="/reviews" className="text-caption text-muted-foreground hover:text-neutral-300">View all</Link>
+            <Link to="/reviews" className="text-meta text-muted-foreground transition-colors duration-fast hover:text-foreground">View all</Link>
           </div>
           {reviewsUnavailable ? (
             <div className="px-3 py-4 text-body text-muted-foreground">Review data is unavailable.</div>
@@ -425,7 +426,7 @@ export default function Home() {
               <a
                 key={`${review.repo_id}:${review.id}`}
                 href={reviewHref(review.ref || review.id)}
-                className="flex items-center gap-3 border-b border-neutral-900 px-3 py-2 last:border-0 hover:bg-muted/55"
+                className="flex items-center gap-3 border-b border-border px-3 py-2 last:border-0 transition-colors duration-fast hover:bg-accent/40"
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-body text-neutral-300">{review.title || review.source_ref}</div>
@@ -435,16 +436,16 @@ export default function Home() {
               </a>
             ))
           )}
-        </Card>
+        </Hunk>
         )}
 
         {runtimeAvailable && (
-        <Card className="overflow-hidden p-0">
-          <div className="flex items-center justify-between border-b border-border px-3 py-2">
-            <div className="flex items-center gap-2 text-caption font-semibold uppercase tracking-widest text-muted-foreground">
+        <Hunk>
+          <div className="hunk-head">
+            <div className="flex items-center gap-2">
               <Activity size={12} /> Recent sessions
             </div>
-            <Link to="/activity" className="text-caption text-muted-foreground hover:text-neutral-300">View all</Link>
+            <Link to="/activity" className="text-meta text-muted-foreground transition-colors duration-fast hover:text-foreground">View all</Link>
           </div>
           {runsUnavailable ? (
             <div className="px-3 py-4 text-body text-muted-foreground">Session history is unavailable.</div>
@@ -455,7 +456,7 @@ export default function Home() {
               <Link
                 key={run.id}
                 to={runHref(run)}
-                className="flex items-center gap-3 border-b border-neutral-900 px-3 py-2 last:border-0 hover:bg-muted/55"
+                className="flex items-center gap-3 border-b border-border px-3 py-2 last:border-0 transition-colors duration-fast hover:bg-accent/40"
               >
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-body text-neutral-300">{runLabel(run)}</div>
@@ -467,7 +468,7 @@ export default function Home() {
               </Link>
             ))
           )}
-        </Card>
+        </Hunk>
         )}
       </section>
       )}

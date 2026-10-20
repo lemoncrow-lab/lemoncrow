@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Card, PageFrame } from "../components/WorkbenchUI";
+import { Card, PageFrame, PageHeader } from "../components/WorkbenchUI";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Select, SelectItem } from "../components/ui/select";
@@ -195,16 +195,16 @@ export default function ReviewDevices() {
   return (
     <PageFrame className="space-y-5">
       <header className="max-w-3xl space-y-2">
-        <h2 className="text-heading font-semibold text-foreground">Review connections</h2>
-        <p className="text-body text-muted-foreground">
-          Pair a laptop, VPS or agent sandbox once. The machine connects outbound to Hosted Review,
-          independently of LemonCrow Runtime and MCP.
-        </p>
-        <p className="text-caption text-muted-foreground">
+        <PageHeader
+          eyebrow="Settings"
+          title="Review connections"
+          description="Pair a laptop, VPS or agent sandbox once. The machine connects outbound to Hosted Review, independently of LemonCrow Runtime and MCP."
+        />
+        <p className="text-meta text-muted-foreground">
           Connection does not imply that an executor is online or that checks are independently verified.
           Those capabilities require separately qualified workers.
         </p>
-        <p className="text-caption text-muted-foreground">
+        <p className="text-meta text-muted-foreground">
           Not available yet: unattended agent execution on a connected machine, external sandbox
           providers as a supported execution target, and model tasks billed by LemonCrow.
         </p>

@@ -6,6 +6,7 @@ import FileTypeIcon from "../components/FileTypeIcon";
 import { selectedEditor } from "../lib/editorPreference";
 import { setVisibleInterval } from "../lib/visibleInterval";
 import { Button as UiButton } from "../components/ui/button";
+import { EmptyState } from "../components/ui/empty-state";
 import { Input as UiInput } from "../components/ui/input";
 import { Select, SelectItem } from "../components/ui/select";
 import { currentReturnPath, returnPathFrom, withReturnPath } from "../lib/codeLinks";
@@ -1191,13 +1192,14 @@ export default function CodeMap() {
         </div>
       ) : !files.length && !error ? (
         <div className="flex min-h-[560px] items-center justify-center px-4">
-          <div className="max-w-lg rounded-lg border border-border/70 bg-background/60 p-4 text-center">
-            <Braces className="mx-auto text-neutral-300" size={28} />
-            <h3 className="mt-4 text-title font-semibold text-foreground">No files in this project yet</h3>
-            <p className="mt-2 text-heading leading-6 text-neutral-300">Index the repository, then return here.</p>
-            <UiButton type="button" size="xs" variant="outline" className="mt-3" onClick={() => setShowIgnored((value) => !value)}>{showIgnored ? "Hide Git ignored files" : "Show Git ignored files"}</UiButton>
-            <code className="mt-4 inline-block rounded-md border border-border/70 bg-surface-code px-3 py-1.5 font-mono text-label text-emerald-300">{fullCode ? "lc code index" : "lc runtime index"}</code>
-          </div>
+          <EmptyState
+            label="No files"
+            className="w-full max-w-lg"
+            icon={<Braces aria-hidden="true" />}
+            title="No files in this project yet"
+            description={<>Index the repository, then return here: <code className="rounded-sm bg-muted px-1 font-mono text-code text-foreground">{fullCode ? "lc code index" : "lc runtime index"}</code></>}
+            action={<UiButton type="button" size="xs" variant="outline" onClick={() => setShowIgnored((value) => !value)}>{showIgnored ? "Hide Git ignored files" : "Show Git ignored files"}</UiButton>}
+          />
         </div>
       ) : (
         <div style={{ "--explorer-width": `min(${explorerWidth}px, 45vw)` } as CSSProperties} className={`relative grid min-h-[650px] flex-1 grid-cols-1 xl:min-h-0 xl:overflow-hidden ${askOpen ? "xl:grid-cols-[var(--explorer-width)_minmax(0,1fr)_400px]" : "xl:grid-cols-[var(--explorer-width)_minmax(0,1fr)_320px]"}`}>

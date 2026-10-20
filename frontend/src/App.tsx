@@ -1,4 +1,4 @@
-import { Button as UiButton } from "./components/ui/button";
+import { Button as UiButton, buttonVariants } from "./components/ui/button";
 import ReviewPreparation from "./review/ReviewPreparation";
 import { retryableLazy } from "./review/retryableLazy";
 import { ReviewPreparationProvider } from "./review/reviewPreparationContext";
@@ -136,7 +136,7 @@ export function NotificationBanner({
   if (dismissed) return null;
 
   return (
-    <div className="border-b border-border bg-muted/60 px-4 py-2.5 text-label text-neutral-300">
+    <div className="border-b border-border bg-muted px-4 py-2.5 text-label text-subtle">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>{children}</div>
         <Button
@@ -264,7 +264,7 @@ function MobilePrimaryNav({ pathname, items }: { pathname: string; items: readon
                 to={item.to}
                 aria-current={active ? "page" : undefined}
                 className={cx(
-                  "flex h-10 items-center gap-2.5 px-2.5 text-caption font-medium",
+                  "flex h-10 items-center gap-2.5 px-2.5 text-ui font-medium",
                   active && "bg-accent text-foreground",
                 )}
               >
@@ -327,15 +327,15 @@ function ReviewRouteFailure({ error, retry }: { error: Error; retry: () => void 
 
   return (
     <div className="flex h-dvh min-h-[560px] items-center justify-center bg-background px-6 text-neutral-300">
-      <div className="w-full max-w-md rounded-lg border border-rose-900/60 bg-background/95 p-4 shadow-2xl shadow-black/30" role="alert">
-        <div className="text-caption font-semibold uppercase tracking-[0.16em] text-rose-400">LemonCrow Review</div>
+      <div className="w-full max-w-md rounded-lg border border-p0-line bg-card p-4 shadow-float" role="alert">
+        <div className="font-mono text-tag uppercase text-p0">LemonCrow Review</div>
         <div className="mt-3 text-title font-semibold text-foreground">Review couldn't load</div>
         <p className="mt-1.5 text-caption leading-5 text-muted-foreground">
           The Review page started but the Reader failed before it could render. Your Review data remains on the server.
         </p>
         <details className="mt-3 text-caption text-muted-foreground">
           <summary className="cursor-pointer hover:text-neutral-300">Error details</summary>
-          <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-rose-300/80">{error.message || String(error)}</pre>
+          <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-p0">{error.message || String(error)}</pre>
         </details>
         <div className="mt-4 flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={retry}>Retry</Button>
@@ -399,8 +399,8 @@ function SecondaryNav({ pathname }: { pathname: string }) {
 
   if (!items) return null;
   return (
-    <div className="border-b border-neutral-900 bg-background/70 px-5">
-      <nav className="flex h-9 items-center gap-4 overflow-x-auto">
+    <div className="border-b border-border bg-background px-4">
+      <nav aria-label="Settings sections" className="flex h-10 items-end gap-1 overflow-x-auto">
         {items.map((item) => {
           const active = pathMatches(pathname, item.match) || (item.match === "/settings/advanced" && pathMatches(pathname, "/system"));
           return (
@@ -409,10 +409,10 @@ function SecondaryNav({ pathname }: { pathname: string }) {
               to={item.to}
               aria-current={active ? "page" : undefined}
               className={cx(
-                "inline-flex h-9 shrink-0 items-center border-b text-caption font-semibold uppercase tracking-[0.08em] transition",
+                "relative inline-flex h-9 shrink-0 items-center px-3 text-ui font-medium transition-colors duration-fast",
                 active
-                  ? "border-neutral-500 text-neutral-200"
-                  : "border-transparent text-muted-foreground hover:text-neutral-300",
+                  ? "text-foreground shadow-indicator"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
               {item.label}
@@ -433,7 +433,7 @@ function ProductUnavailable({ product }: { product: Exclude<ProductId, "core"> }
     return (
       <div className="flex min-h-[420px] items-center justify-center px-6 py-12 text-neutral-200" role="status">
         <div className="w-full max-w-lg rounded-lg border border-border bg-muted/20 p-4">
-          <div className="text-micro font-semibold uppercase tracking-[0.16em] text-muted-foreground">{label}</div>
+          <div className="font-mono text-tag uppercase text-muted-foreground">{label}</div>
           <h1 className="mt-2 text-title font-semibold text-foreground">{label} isn't enabled for your organization</h1>
           <p className="mt-2 text-body leading-6 text-muted-foreground">
             Your organization doesn't have {label}. Ask your LemonCrow workspace administrator for access.
@@ -448,7 +448,7 @@ function ProductUnavailable({ product }: { product: Exclude<ProductId, "core"> }
   return (
     <div className="flex min-h-[420px] items-center justify-center px-6 py-12 text-neutral-200" role="status">
       <div className="w-full max-w-lg rounded-lg border border-border bg-muted/20 p-4">
-        <div className="text-micro font-semibold uppercase tracking-[0.16em] text-muted-foreground">{label}</div>
+        <div className="font-mono text-tag uppercase text-muted-foreground">{label}</div>
         <h1 className="mt-2 text-title font-semibold text-foreground">{label} is {status}</h1>
         <p className="mt-2 text-body leading-6 text-muted-foreground">
           This page belongs to {label}. Other installed LemonCrow products are unaffected.
@@ -465,7 +465,7 @@ function HostedOnlyPage() {
   return (
     <div className="flex min-h-[420px] items-center justify-center px-6 py-12 text-neutral-200" role="status">
       <div className="w-full max-w-lg rounded-lg border border-border bg-muted/20 p-4">
-        <div className="text-micro font-semibold uppercase tracking-[0.16em] text-muted-foreground">LemonCrow Dashboard</div>
+        <div className="font-mono text-tag uppercase text-muted-foreground">LemonCrow Dashboard</div>
         <h1 className="mt-2 text-title font-semibold text-foreground">This page is available on LemonCrow hosted</h1>
         <p className="mt-2 text-body leading-6 text-muted-foreground">
           The local Dashboard shows sessions, usage, savings, settings and system.
@@ -622,7 +622,7 @@ export default function App({
         <GlobalRequestIndicator />
         {!fullScreenReview && (
           <>
-            <header className="border-b border-border bg-background/95">
+            <header className="border-b border-border bg-background/95 backdrop-blur">
               <div className="flex h-10 items-center gap-2 px-3 sm:gap-4 sm:px-4">
                 <MobilePrimaryNav pathname={location.pathname} items={primaryNav} />
                 <LemonCrowBrand className="hidden md:flex" />
@@ -637,13 +637,13 @@ export default function App({
                         to={item.to}
                         aria-current={active ? "page" : undefined}
                         className={cx(
-                          "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-caption font-medium transition",
+                          "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-ui font-medium transition-colors duration-fast",
                           active
-                            ? "bg-neutral-800/80 text-foreground"
-                            : "text-muted-foreground hover:bg-muted hover:text-neutral-200",
+                            ? "bg-accent text-foreground"
+                            : "text-muted-foreground hover:bg-accent hover:text-foreground",
                         )}
                       >
-                        <item.icon size={12} />
+                        <item.icon size={14} />
                         <span className="flex items-center">
                           {item.label}
                           {item.annotation && (
@@ -659,7 +659,7 @@ export default function App({
                 <div className="min-w-0 flex-1 md:hidden" aria-hidden="true" />
                 {showRunType && (
                   <div className="flex shrink-0 items-center gap-2">
-                    <span className="text-micro font-semibold uppercase tracking-widest text-muted-foreground">View</span>
+                    <span className="font-mono text-tag uppercase text-muted-foreground">View</span>
                     <Select value={runType} onValueChange={setRunType} uiSize="xs" aria-label="Activity view">
                       <SelectItem value="sessions">Sessions</SelectItem>
                       <SelectItem value="swarms">Swarms</SelectItem>
@@ -668,14 +668,14 @@ export default function App({
                 )}
                 {showWindow && (
                   <div className="hidden h-8 items-center gap-2 rounded-md border border-border bg-muted/40 px-2 lg:flex">
-                    <span className="text-micro font-bold uppercase tracking-widest text-muted-foreground">
+                    <span className="font-mono text-tag uppercase text-muted-foreground">
                       Window
                     </span>
                     <Select
                       value={range}
                       onValueChange={(value) => setRange(value as typeof range)}
                       uiSize="xs"
-                      className="border-0 bg-transparent px-0 py-0 text-caption text-neutral-300"
+                      className="border-0 bg-transparent px-0 py-0 text-meta text-subtle"
                       aria-label="Global time window"
                     >
                       {TIME_RANGE_OPTIONS.map((option) => (
@@ -691,11 +691,10 @@ export default function App({
                     to={settingsPath}
                     aria-label="Settings"
                     className={cx(
-                      "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition",
-                      pathMatches(location.pathname, "/settings") ||
-                        pathMatches(location.pathname, "/system")
-                        ? "border-border bg-neutral-800/80 text-foreground"
-                        : "border-border bg-muted/40 text-muted-foreground hover:text-neutral-200",
+                      buttonVariants({ variant: "outline", size: "icon" }),
+                      (pathMatches(location.pathname, "/settings") ||
+                        pathMatches(location.pathname, "/system")) &&
+                        "bg-accent text-foreground",
                     )}
                   >
                     <Settings size={14} />
