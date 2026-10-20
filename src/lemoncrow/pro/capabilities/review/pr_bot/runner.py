@@ -28,7 +28,7 @@ from typing import Any
 
 from lemoncrow.pro.capabilities.review.pr_bot import ci_env
 from lemoncrow.pro.capabilities.review.pr_bot.findings import BotFinding
-from lemoncrow.pro.capabilities.review.pr_bot.github import BotGitHub, Remote
+from lemoncrow.pro.capabilities.review.pr_bot.github import BotGitHub, Remote, with_backoff
 from lemoncrow.pro.capabilities.review.pr_bot.reconcile import reconcile
 from lemoncrow.pro.capabilities.review.pr_bot.render import (
     Receipt,
@@ -162,7 +162,8 @@ def run_pr_review(
             "--publish-bot posts as the identity of the token in use and runs only in GitHub Actions, where that is "
             "the workflow's bot token. Locally, use --ai to read the findings, or add --dry-run to see the comments."
         )
-    run = runner or (lambda args, stdin: run_gh(args, stdin, cwd=options.repo_root))
+    # Every GitHub call of the run goes through one wrapper that waits out a rate limit a few times (and only that).
+    run = with_backoff(runner or (lambda args, stdin: run_gh(args, stdin, cwd=options.repo_root)))
     # Gate on the event alone first: a fork, a draft or a refused event costs no network call. A URL or
     # OWNER/REPO#N names its pull request by itself, so only a bare number needs the event to carry one.
     bare = re.fullmatch(r"#?(\d+)", options.pr.strip())

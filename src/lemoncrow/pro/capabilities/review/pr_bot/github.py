@@ -23,6 +23,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Final
@@ -52,8 +53,6 @@ from lemoncrow.pro.capabilities.review.sources.github import (
     gh_paginated,
 )
 
-# lc-debt: no retry or backoff on GitHub's secondary rate limits; a failed write is noted and the next push repeats it;
-# upgrade: back off on 403/429 with Retry-After.
 BOT_TYPE: Final[str] = "Bot"
 _FINDING_MARKER = re.compile(r"<!-- lemoncrow:finding (\S+) -->")
 _FINGERPRINT_MARKER = re.compile(r"<!-- lemoncrow:fingerprint (fp-[0-9a-f]{16}) -->")
@@ -69,6 +68,83 @@ _RESOLVE_MUTATION: Final[str] = "mutation($id:ID!){resolveReviewThread(input:{th
 
 def _mapping(value: object) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+# --------------------------------------------------------------------------- #
+# GitHub's rate limits
+# --------------------------------------------------------------------------- #
+
+#: What ``gh`` prints when GitHub throttles a request (HTTP 403 or 429). A 403 for any other reason ("Resource not
+#: accessible by integration") is a missing permission, which waiting cannot fix, so it never matches.
+_RATE_LIMITED = re.compile(
+    r"secondary rate limit|rate limit exceeded|abuse detection|too many requests|\(HTTP 429\)", re.IGNORECASE
+)
+_THROTTLED_403 = re.compile(r"\(HTTP 403\)")
+#: A wait GitHub asked for, when the error text carries it (``Retry-After: 30``, ``try again in 30 seconds``).
+_RETRY_AFTER = re.compile(r"retry[- ]after:?\s*(\d+)|(?:try again|wait) (?:in |for )?(\d+) seconds?", re.IGNORECASE)
+#: Seconds to wait before each retry when GitHub does not say how long, and how many retries that is at most.
+BACKOFF_DELAYS: Final[tuple[float, ...]] = (5.0, 15.0, 45.0)
+#: One wait never exceeds this, whatever GitHub asks for, and one run never waits longer than the budget in total:
+#: a CI job has a timeout, and a limit that lasts longer than this is for the next push to meet.
+MAX_WAIT_S: Final[float] = 60.0
+WAIT_BUDGET_S: Final[float] = 120.0
+
+
+def _retry_after(message: str) -> float | None:
+    found = _RETRY_AFTER.search(message)
+    if found is None:
+        return None
+    return float(next(group for group in found.groups() if group is not None))
+
+
+def _is_rate_limited(message: str) -> bool:
+    return bool(_RATE_LIMITED.search(message)) or (
+        bool(_THROTTLED_403.search(message)) and _retry_after(message) is not None
+    )
+
+
+def with_backoff(
+    runner: GhRunner,
+    *,
+    delays: Sequence[float] = BACKOFF_DELAYS,
+    max_wait: float = MAX_WAIT_S,
+    budget: float = WAIT_BUDGET_S,
+) -> GhRunner:
+    """*runner* that waits and tries again when GitHub throttles a call, a bounded number of times.
+
+    Only a rate limit (403 or 429) is retried, never a permission error, a timeout or a bad request, none of
+    which waiting changes. The wait is the one GitHub asked for when the error says (capped at *max_wait*), else
+    the next of *delays*. Each call retries at most ``len(delays)`` times and the run as a whole waits at most
+    *budget* seconds, so a limit that outlasts a CI job fails the one write (noted, and repeated by the next push)
+    instead of holding the job. A throttled write was refused, so retrying it cannot post twice.
+    """
+
+    waited = 0.0
+
+    def run(args: Sequence[str], stdin: str | None = None) -> str:
+        nonlocal waited
+        retries = 0
+        while True:
+            try:
+                return runner(args, stdin)
+            except GitHubCliError as exc:
+                message = str(exc)
+                if not _is_rate_limited(message):
+                    raise
+                hinted = _retry_after(message)
+                wait = min(
+                    hinted if hinted is not None else (delays[retries] if retries < len(delays) else 0), max_wait
+                )
+                if retries >= len(delays) or waited + wait > budget:
+                    raise GitHubCliError(
+                        f"{message} (still rate limited after {retries} "
+                        f"{'retry' if retries == 1 else 'retries'} and {waited:.0f}s of waiting)"
+                    ) from exc
+                time.sleep(wait)
+                waited += wait
+                retries += 1
+
+    return run
 
 
 @dataclass(frozen=True)
@@ -550,4 +626,4 @@ class BotGitHub:
         )
 
 
-__all__ = ["BotGitHub", "InlineOutcome", "PullFacts", "PullRequestState", "Remote", "ThreadOutcome"]
+__all__ = ["BotGitHub", "InlineOutcome", "PullFacts", "PullRequestState", "Remote", "ThreadOutcome", "with_backoff"]

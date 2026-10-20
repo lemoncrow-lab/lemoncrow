@@ -113,6 +113,20 @@ def test_it_installs_from_its_own_checkout_and_lockfile_into_a_private_environme
     assert (ROOT / "uv.lock").is_file() and (ROOT / "pyproject.toml").is_file()
 
 
+def test_every_action_the_manifest_uses_is_pinned_to_a_sha_or_marked_as_not_yet() -> None:
+    """R11: a tag can move, and orgs that require SHA-pinned actions reject it; never invent the SHA, say it is owed."""
+
+    lines = ACTION.read_text(encoding="utf-8").splitlines()
+    uses = [(index, line) for index, line in enumerate(lines) if re.match(r"\s*uses:\s*\S+@\S+", line)]
+    assert uses, "the Action installs uv with a third-party action"
+    for index, line in uses:
+        ref = line.split("@", 1)[1].split()[0]
+        pinned = re.fullmatch(r"[0-9a-f]{40}", ref) is not None
+        owed = any("TODO(sha-pin)" in earlier for earlier in lines[max(0, index - 8) : index])
+        assert pinned or owed, f"{line.strip()} is neither pinned to a full commit SHA nor marked TODO(sha-pin)"
+    assert "TODO(sha-pin)" in GUIDE.read_text(encoding="utf-8")
+
+
 def test_the_review_step_runs_the_headless_command_with_the_workflow_token() -> None:
     review = next(step for step in steps(manifest()) if step["name"] == "Review the pull request")
     assert review["env"]["GH_TOKEN"] == "${{ inputs.github-token }}"
