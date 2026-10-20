@@ -72,7 +72,7 @@ def probe_stdio_server(*, host: str = "claude", timeout: float = 30.0) -> dict[s
     probe_env.setdefault("LEMONCROW_REQUEST_TIMEOUT_S", str(timeout))
     try:
         completed = subprocess.run(
-            [executable, "mcp", "--host", host],
+            [executable, "runtime", "mcp", "--host", host],
             input=requests + "\n",
             capture_output=True,
             text=True,

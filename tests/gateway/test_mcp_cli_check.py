@@ -156,6 +156,6 @@ def test_probe_stdio_server_falls_back_to_lc_entrypoint(monkeypatch) -> None:
     result = mcp.probe_stdio_server()
 
     assert result["ok"] is True
-    assert commands == [["/home/user/.local/bin/lc", "mcp", "--host", "claude"]]
+    assert commands == [["/home/user/.local/bin/lc", "runtime", "mcp", "--host", "claude"]]
     assert environments[0]["LEMONCROW_STARTUP_BUDGET_S"] == "30.0"
     assert environments[0]["LEMONCROW_REQUEST_TIMEOUT_S"] == "30.0"

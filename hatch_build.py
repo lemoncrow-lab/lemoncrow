@@ -188,6 +188,9 @@ _SKIP_PATHS = {
     "lemoncrow/gateway/openai_gateway/adapter.py",
     "lemoncrow/gateway/openai_gateway/app.py",
     "lemoncrow/gateway/cli/runtime.py",
+    # Compiled, a usage error raised from a Redirect(click.UsageError) subclass segfaults
+    # in __init__ (`lc mcp` exits 139 instead of printing the hint).
+    "lemoncrow/gateway/cli/style.py",
     "lemoncrow/infra/code_intel/zoekt/server.py",  # clang 21 ICE on mypyc-generated C
     # Must stay interpreted: mypyc-native classes have no __weakref__ slot, and
     # this holder exists precisely to be a weakref target for the native engine.
