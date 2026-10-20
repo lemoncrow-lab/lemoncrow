@@ -18,6 +18,7 @@ from typing import Any
 
 import click
 
+from lemoncrow.gateway.cli.commands.review_config_cli import config_cmd
 from lemoncrow.gateway.cli.commands.review_data_flow_cli import data_flow_cmd
 from lemoncrow.gateway.cli.commands.review_diagnostics_cli import diagnostics_cmd
 from lemoncrow.gateway.cli.commands.review_hosted_cli import hosted_group
@@ -200,6 +201,7 @@ REVIEW_SUBCOMMANDS: dict[str, click.Command] = {
     "verify-record": verify_record_cmd,
     "record-key": record_key_group,
     "data-flow": data_flow_cmd,
+    "config": config_cmd,
     "hosted": hosted_group,
     "diagnostics": diagnostics_cmd,
     "observation-worker": observation_worker_group,
@@ -210,7 +212,7 @@ class ReviewCommand(click.Command):
     """``lc review`` with a few named subcommands ahead of its optional REV argument.
 
     A first argument naming a subcommand (``verify-record``, ``record-key``,
-    ``data-flow``, ``hosted``, ``diagnostics``, ``observation-worker``) dispatches
+    ``data-flow``, ``config``, ``hosted``, ``diagnostics``, ``observation-worker``) dispatches
     to it; anything else is parsed exactly as before.
     """
 
@@ -237,6 +239,10 @@ class ReviewCommand(click.Command):
                     ("verify-record FILE", "Verify a signed review record offline (exit 0/1/2/3)."),
                     ("record-key init|public", "Opt in to signing local review records with a personal key."),
                     ("data-flow [--base REF] [--json]", "Show where source, code and evidence may travel."),
+                    (
+                        "config --effective [--dry-run --pr N] [--base REF]",
+                        "Show the merged review rules (review.yaml, .greptile/, greptile.json, AGENTS.md) and what applies.",
+                    ),
                     (
                         "hosted attach|status|queue|sync|resolve|detach",
                         "Attach a local Review to a hosted one; queue offline actions and sync them.",
