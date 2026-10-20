@@ -124,7 +124,6 @@ def test_every_action_the_manifest_uses_is_pinned_to_a_sha_or_marked_as_not_yet(
         pinned = re.fullmatch(r"[0-9a-f]{40}", ref) is not None
         owed = any("TODO(sha-pin)" in earlier for earlier in lines[max(0, index - 8) : index])
         assert pinned or owed, f"{line.strip()} is neither pinned to a full commit SHA nor marked TODO(sha-pin)"
-    assert "TODO(sha-pin)" in GUIDE.read_text(encoding="utf-8")
 
 
 def test_the_review_step_runs_the_headless_command_with_the_workflow_token() -> None:

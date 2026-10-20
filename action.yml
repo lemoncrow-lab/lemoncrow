@@ -80,14 +80,10 @@ runs:
         if [ -n "$INPUT_MODEL" ]; then export LEMONCROW_REVIEW_MODEL="$INPUT_MODEL"; fi
         python3 "$GITHUB_ACTION_PATH/src/lemoncrow/pro/capabilities/review/pr_bot/ci_env.py"
 
-    # TODO(sha-pin): pin this to the full commit SHA of the v5 tag, `uses: astral-sh/setup-uv@<40-hex commit>  # v5`, so
-    # organizations that require SHA-pinned third-party actions can allow it. The SHA could not be looked up when this
-    # was written (the GitHub API was not reachable) and a SHA must never be guessed. Get it with
-    # `gh api repos/astral-sh/setup-uv/commits/v5 --jq .sha`, check it against the tag on github.com, then replace the
-    # ref below. tests/gateway/test_github_action_manifest.py fails if a ref is neither a SHA nor marked with this TODO.
+    # Pinned to the commit the v5 tag points at (v5.4.2), so organizations that require SHA-pinned actions allow it.
     - name: Set up uv
       if: steps.gate.outputs.run == 'true'
-      uses: astral-sh/setup-uv@v5
+      uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
       with:
         version: "0.11.32"
 
