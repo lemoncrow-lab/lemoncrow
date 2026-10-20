@@ -14,6 +14,14 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   push it re-reviews only what changed and carries unchanged findings forward without a
   model call. Same engine from the full CLI: `lc review --pr N --ai [--publish-bot]`.
   See [GitHub Action: AI pull request review](docs/setup/github-action.md).
+- **Repository context for AI review on a model-API route.** A reviewer reached through
+  an API key has no tools, so it could not see a caller in another file. Before each
+  investigation it now gets a small deterministic pack from the pull request snapshot:
+  callers of the changed or removed symbols (files the pull request did not touch first),
+  definitions the changed code uses, tests and configuration. The pack has a token ceiling
+  per depth (1,500 at Quick, 3,000 at Auto, 5,000 at Thorough, 8,000 at Deep, estimated),
+  adds no model call, skips credential files, honours `ai_content_access`, and is counted
+  in the summary footer. `LEMONCROW_REVIEW_REPO_CONTEXT=0` turns it off.
 
 ### Changed
 

@@ -62,12 +62,19 @@ def unit_token(unit_key: str, content_fingerprint: str) -> tuple[str, str]:
 
 @dataclass(frozen=True, slots=True)
 class Usage:
-    """Model usage. ``None`` means a call did not report it; it is never read as zero."""
+    """Model usage. ``None`` means a call did not report it; it is never read as zero.
+
+    ``context_tokens`` is LemonCrow's own estimate of the repository context (callers, definitions, tests,
+    configuration) it put in the prompts. It is *part of* ``input_tokens`` when the provider reports them, and is
+    shown beside them so the cost of context is visible; it is an estimate (four characters per token), never a
+    provider count, and it is 0 when no context was sent.
+    """
 
     calls: int = 0
     input_tokens: int | None = 0
     output_tokens: int | None = 0
     cost_usd: float | None = 0.0
+    context_tokens: int = 0
 
     def plus(self, other: Usage) -> Usage:
         def add(left: int | None, right: int | None) -> int | None:
@@ -79,6 +86,7 @@ class Usage:
             add(self.input_tokens, other.input_tokens),
             add(self.output_tokens, other.output_tokens),
             cost,
+            self.context_tokens + other.context_tokens,
         )
 
     def to_wire(self) -> dict[str, Any]:
@@ -87,6 +95,8 @@ class Usage:
             "input_tokens": self.input_tokens,
             "output_tokens": self.output_tokens,
             "cost_usd": self.cost_usd,
+            # Absent when no context was sent, so a state written before G4 round-trips unchanged.
+            **({"context_tokens": self.context_tokens} if self.context_tokens else {}),
         }
 
     @classmethod
@@ -101,7 +111,13 @@ class Usage:
         cost = raw.get("cost_usd")
         known = isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost >= 0
         calls = count("calls")
-        return cls(calls or 0, count("input_tokens"), count("output_tokens"), float(cost) if known else None)  # type: ignore[arg-type]
+        return cls(
+            calls or 0,
+            count("input_tokens"),
+            count("output_tokens"),
+            float(cost) if known else None,  # type: ignore[arg-type]
+            count("context_tokens") or 0,
+        )
 
 
 @dataclass(frozen=True, slots=True)

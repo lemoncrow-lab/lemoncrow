@@ -147,7 +147,7 @@ def money(value: float) -> str:
 
 
 def usage_text(usage: Usage) -> str:
-    """``2 model calls, 14.2k tokens, est. $0.003`` -- the cost only when a price is known, tokens only otherwise."""
+    """``2 model calls, 14.2k tokens, ~3k of it repository context, est. $0.003`` -- the cost only when a price is known."""
 
     if usage.calls == 0:
         return "no model calls"
@@ -156,6 +156,9 @@ def usage_text(usage: Usage) -> str:
         parts.append("tokens not reported")
     else:
         parts.append(f"{compact_count(usage.input_tokens + usage.output_tokens)} tokens")
+    if usage.context_tokens:
+        # The context is already inside the input tokens above (or unreported); this says how much of it there was.
+        parts.append(f"~{compact_count(usage.context_tokens)} of it repository context")
     if usage.cost_usd is not None:
         parts.append(f"est. {money(usage.cost_usd)}")
     return ", ".join(parts)

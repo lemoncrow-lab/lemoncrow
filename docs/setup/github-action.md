@@ -78,7 +78,7 @@ LiteLLM users can set `model-provider: litellm` and the variables LiteLLM alread
 - P2 findings in a collapsed block, `N low-priority findings held back`;
 - on a clean review, a collapsed `What we checked`: files, rules applied, depth;
 - a collapsed `Fix with your agent`: a prompt listing the open findings with `file:line`, to paste into Claude Code, Codex or Cursor;
-- a footer with the model, depth, model calls and tokens, and an estimated cost when LemonCrow's local price table knows the model. It never guesses a price: an unknown model shows tokens only.
+- a footer with the model, depth, model calls and tokens, how much of those tokens was repository context (`~3k of it repository context`, see below), and an estimated cost when LemonCrow's local price table knows the model. It never guesses a price: an unknown model shows tokens only.
 
 **Inline comments** for P0 and P1 findings: a title with the badge, why, the consequence, and a GitHub `suggestion` block only when the finding carries replacement text. P2 findings stay in the summary.
 
@@ -116,10 +116,12 @@ The summary ends with `<!-- lemoncrow:state v1 {json} -->`. Read it instead of s
   "verdict": {"p0": 0, "p1": 1, "p2": 1},
   "findings": [{"id": "finding-…", "fingerprint": "fp-…", "severity": "p1", "state": "new",
                 "path": "src/auth.py", "line": 2, "end_line": 4, "title": "…", "thread_id": 1002}],
-  "usage": {"calls": 2, "input_tokens": 12000, "output_tokens": 800, "cost_usd": 0.004},
-  "usage_total": {"calls": 5, "input_tokens": 30000, "output_tokens": 2000, "cost_usd": 0.01}
+  "usage": {"calls": 2, "input_tokens": 12000, "output_tokens": 800, "cost_usd": 0.004, "context_tokens": 5200},
+  "usage_total": {"calls": 5, "input_tokens": 30000, "output_tokens": 2000, "cost_usd": 0.01, "context_tokens": 11800}
 }
 ```
+
+`context_tokens` is LemonCrow's own estimate (four characters per token) of the repository context in the prompts; it is part of `input_tokens`, not on top of it, and it is absent when no context was sent.
 
 A finding's `state` is `new`, `carried`, `fixed` or `stale`. `units` and `units_truncated` hold what the next run compares against. Only a comment from a `Bot` account is trusted as this state.
 
@@ -157,9 +159,51 @@ ai_content_access:
     paths: ["secrets/**", "**/*.pem"]
 ```
 
-- What leaves your runner is the changed code of the targets the model is asked about, with a few lines of context, sent to the provider whose key you gave. `ai_content_access` keeps paths away from the model; a denied path is still part of the deterministic review.
+- What leaves your runner is the changed code of the targets the model is asked about, with a few lines of context, plus the repository context described below, sent to the provider whose key you gave. `ai_content_access` keeps paths away from the model; a denied path is still part of the deterministic review.
 
 - A dollar ceiling already exists as `per_review_model_cost_usd` (and the `LEMONCROW_REVIEW_INTELLIGENCE_MAX_COST` variable). It applies to each model call and needs the provider to report cost, which the LiteLLM route (Anthropic) does and the OpenAI route does not: on a route that reports no cost, a ceiling stops every call. Use the call cap there.
+
+## Repository context
+
+A model reached through an API key (OpenAI, LiteLLM, Ollama) gets one prompt and no tools, so on its own it sees the changed lines and a few lines around them. A bug in a *different* file, such as a function whose signature changed while a caller was not updated, is invisible to it. So before each investigation LemonCrow adds a small, deterministic **context pack** for the changed code, found by searching the exact pull request snapshot (no index to build, no extra model call):
+
+| Kind | What it is |
+| --- | --- |
+| `caller` | code elsewhere that uses a changed or removed function, class or constant; files the pull request did not touch come first |
+| `definition` | where the functions, types and constants the changed code uses are defined, when that is not already in the lines the model sees |
+| `test` | tests that use the changed symbols, or are named after the changed module |
+| `config` | configuration files that mention an environment variable the changed code reads |
+
+The pack is cut to a token budget that grows with the depth, the same ladder as the investigator calls. These are **ceilings in estimated tokens per investigator call**, not measurements:
+
+| Depth | Investigator calls (at most) | Context per call (at most) | Excerpts (callers / definitions / tests / config) |
+| --- | --- | --- | --- |
+| `quick` | 1 | 1,500 | 3 / 3 / 1 / 1 |
+| `auto` | 2 | 3,000 | 5 / 5 / 2 / 2 |
+| `thorough` | 4 | 5,000 | 8 / 8 / 3 / 3 |
+| `deep` | 8 | 8,000 | 12 / 12 / 4 / 4 |
+
+The 1/2/5/9 call ladder counts one synthesis call at `thorough` and `deep`; that call does not get a pack.
+
+So context adds at most `investigator calls × ceiling` input tokens to a review (6,000 at `auto`, 20,000 at `thorough`, 64,000 at `deep`, and usually far less), and **never a model call**: the 1/2/5/9 investigator ladder and the 20-call cap are unchanged. When a pack is cut, the prompt says how many excerpts were left out, and the model is told that an absent caller proves nothing. The summary footer shows how much of the tokens was context, and the hidden state carries it as `usage.context_tokens`.
+
+What it will not do:
+
+- **Read secrets.** Files named like credentials (`.env`, `*.pem`, `*.key`, `id_rsa`, `credentials.*`, `secrets/`, `.aws/`, `.ssh/`), files holding a private key, symlinks and anything outside the checkout are never read; excerpts go through the credential redactor. `.env.example` style templates are read.
+- **Bypass your content-access policy.** Every file is checked against `ai_content_access` for the model route in use. A path you deny, or mark `customer_local_only` on an external route, is neither searched nor shown.
+- **Search build output.** `node_modules`, virtual environments, `dist`, `build` and `vendor` are skipped. A very large repository is searched nearest-first up to a file and size limit, and the pack says when it stopped.
+- **Run on an agent CLI route.** `LEMONCROW_LLM_BACKEND=claude|codex|opencode` reads the repository itself with read-only tools, so it gets no pack.
+
+Controls, as environment variables on the step:
+
+| Variable | Effect |
+| --- | --- |
+| `LEMONCROW_REVIEW_REPO_CONTEXT=0` | no pack; the review is as it was before context existed |
+| `LEMONCROW_REVIEW_REPO_CONTEXT_TOKENS=1200` | lower (or raise) the per-call ceiling for every depth |
+
+Turning the pack on or off, or changing how it is selected, counts as a change to the review policy: the next push re-reviews everything once, because last time's result was reached with different information.
+
+Limits to know: the search is textual, with tree-sitter to find the enclosing function, so it matches by name and can miss a caller reached through a dynamic dispatch or a re-export under another name; the per-rule questions (`rules:` in `.lemoncrow/review.yaml`) do not get a pack; and a change that touches one function can appear as several review targets (the symbol, the lines it replaced, the module declarations), all of which share the same callers, so the same problem can be reported once per target.
 
 ## Pull requests from forks
 

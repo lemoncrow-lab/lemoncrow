@@ -90,6 +90,8 @@ class AiStage:
     max_calls: int = 0
     complete: bool = True
     errors: tuple[str, ...] = ()
+    #: What the repository context pack did (G4): status, estimated tokens, item counts, paths. Empty: no pack.
+    repo_context: Mapping[str, Any] = field(default_factory=dict)
 
     @property
     def ran(self) -> bool:
@@ -210,14 +212,19 @@ def policy_digest(governance: Any, depth: str) -> str:
     """
 
     from lemoncrow.pro.capabilities.review.ai_review import PROMPT_VERSION, SCHEMA_VERSION
+    from lemoncrow.pro.capabilities.review.repo_context import CONTEXT_VERSION, repo_context_enabled
 
-    document = {
+    document: dict[str, Any] = {
         "rules": sorted(rule.digest for rule in governance.rules),
         "content_access": sorted(json.dumps(row.to_wire(), sort_keys=True) for row in governance.content_access),
         "depth": depth,
         "prompt": PROMPT_VERSION,
         "schema": SCHEMA_VERSION,
     }
+    if repo_context_enabled():
+        # Context changes what a reviewed unit's result means (what the model saw): turning it on or off, or a new
+        # selection rule, re-reviews once. Left out when off, so a repository that opts out keeps its digest.
+        document["repo_context"] = CONTEXT_VERSION
     return hashlib.sha256(json.dumps(document, sort_keys=True).encode("utf-8")).hexdigest()[:16]
 
 
@@ -426,6 +433,7 @@ def _execute(
         execute_structured,
     )
     from lemoncrow.pro.capabilities.review.planned_execution import persisted_plan
+    from lemoncrow.pro.capabilities.review.repo_context import RepoContextOptions, repo_context_enabled
     from lemoncrow.pro.capabilities.review.run_plan import ai_stage_plan
 
     store, session, revision = captured.store, captured.session, captured.revision
@@ -487,8 +495,15 @@ def _execute(
             stage_plan=stage_plan,
             reviewer_candidates=configured_reviewer_routes()[0],
             structured_executor=examined,
+            # A model-API route has no tools; this gives its investigator the callers, definitions, tests and
+            # config around what changed. An agent-CLI route reads the repository itself and gets none.
+            repo_context=RepoContextOptions(enabled=repo_context_enabled()) if repo_context_enabled() else None,
         )
     usage, served = revision_usage(store, session.id, revision.id)
+    context = dict(result.repo_context)
+    context_tokens = context.get("estimated_tokens")
+    if isinstance(context_tokens, int) and context_tokens > 0:
+        usage = replace(usage, context_tokens=context_tokens)
     candidate_ids = {
         target_id
         for candidate in generate_candidates(changed, rules=tuple(governance.rules))
@@ -526,4 +541,5 @@ def _execute(
         max_calls=result.calls_max,
         complete=complete,
         errors=tuple(result.provider_errors),
+        repo_context=context,
     )
