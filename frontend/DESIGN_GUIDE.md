@@ -63,7 +63,7 @@ It means the feature owns the visual treatment, never that the feature owns the 
 
 `Badge` tones: `p0`, `p1`, `p2` (severity; they come first in a row), `new` (ink, never lemon), `carried`, `fixed`, `ai` (attribution only), and
 the generic `neutral`, `secondary`, `info`, `success`, `warning`, `destructive`. A comment's kind uses `KIND_BADGE_TONES` in
-`review/annotationModel.ts`: request change P0, suggestion P2, comment neutral. AI findings show P0, P1 or P2 from their severity.
+`review/annotationModel.ts`: request change P0, suggestion P2, comment neutral. AI findings show P0, P1 or P2 from the `severity` the server sends.
 
 ### Overlays
 
@@ -188,9 +188,10 @@ When a workbench pattern and a Review pattern disagree, align the workbench to R
 
 A thread is one Hunk (`AnnotationCard`): a neutral header strip with the severity badge first (AI findings), then the kind badge (human
 request change or suggestion), then a neutral source chip, the file or symbol, the Snapshot and the date; the body in `text-heading`; the actions
-as ghost buttons. The 3px rail is `annotationRail()`: AI findings by severity, human comments by kind. The server rates each AI finding
-(`criticality.normalize_finding_severity`) but the annotation wire carries only counts, so the Reader fills `severity` in client-side only when
-`projection.triage` makes it exact (`markFindingSeverity`); an AI finding with no known level shows no severity badge rather than a guess.
+as ghost buttons. The 3px rail is `annotationRail()`: AI findings by severity, human comments by kind. The server rates each AI finding with the product's one
+severity rule (`criticality.severity_for`, the function the PR bot uses) and sends it as the optional `severity` (`p0 | p1 | p2`) on the
+annotation wire; a finding with no severity evidence, an older server, and every human comment send none, and the card then shows no severity
+badge and a neutral rail rather than a guess. The Reader never derives it client-side.
 
 ## Review UX gate
 

@@ -2666,11 +2666,11 @@ export interface Annotation {
    */
   below_threshold?: boolean;
   /**
-   * P0/P1/P2 of an AI finding, normalized by the server from the validated category
-   * (`criticality.normalize_finding_severity`). The annotation wire does not carry it yet: the Reader fills it
-   * in client-side only when the triage summary makes it exact (`markFindingSeverity`).
+   * P0/P1/P2 of an AI finding, from the server's one severity rule (`criticality.severity_for`, the same
+   * function the pull request bot uses). Present only on AI findings that have severity evidence; a human
+   * comment never carries it (it keeps its `kind`) and an older server omits it. Never guess it client-side.
    */
-  severity?: "p0" | "p1" | "p2" | "suggestion";
+  severity?: "p0" | "p1" | "p2";
   created_at: string;
   updated_at: string;
   anchor_method: string;

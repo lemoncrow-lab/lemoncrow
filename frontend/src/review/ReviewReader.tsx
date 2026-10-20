@@ -85,7 +85,7 @@ import {
 import { withTransientRetry } from "./transientRetry";
 import { useReviewEnvironment, type ReviewDeploymentMode } from "./reviewEnvironment";
 import type { Draft } from "./annotationModel";
-import { markBelowThreshold, markFindingSeverity } from "./findingThreshold";
+import { markBelowThreshold } from "./findingThreshold";
 import { selectedNewSideTextFromPatch } from "./selectedNewSideText";
 import { getInitialDiffStylePreference, nextDiffStylePreference, persistDiffStylePreference, type DiffOverflow, type DiffStylePreference } from "./diffModel";
 import {
@@ -2367,7 +2367,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   );
   // Lists fold below-threshold findings behind a disclosure; counts and readiness keep reading displayAnnotations.
   const surfacedAnnotations = useMemo(
-    () => markFindingSeverity(markBelowThreshold(displayAnnotations, projection?.triage?.hidden_finding_ids), projection?.triage),
+    () => markBelowThreshold(displayAnnotations, projection?.triage?.hidden_finding_ids),
     [displayAnnotations, projection?.triage],
   );
   const conceptSearchText = useMemo(() => projectionSearchTextByTarget(projection), [projection]);

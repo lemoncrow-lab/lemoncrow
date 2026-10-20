@@ -4,8 +4,8 @@ import userEvent from "@testing-library/user-event";
 
 import { Discussion } from "./ContextSections";
 import { deriveReviewReadiness } from "./ReviewReadinessSheet";
-import { BelowThresholdList, markBelowThreshold, markFindingSeverity } from "./findingThreshold";
-import type { Annotation, ReviewTriage } from "./types";
+import { BelowThresholdList, markBelowThreshold } from "./findingThreshold";
+import type { Annotation } from "./types";
 
 function annotation(id: string, overrides: Partial<Annotation> = {}): Annotation {
   return {
@@ -112,44 +112,5 @@ describe("finding threshold surfacing", () => {
     expect(screen.getByText("title p2-finding")).toBeVisible();
     expect(screen.getByText("1 below threshold")).toBeVisible();
     expect(screen.getByText("title suggestion")).not.toBeVisible();
-  });
-});
-
-
-function triageWith(row: Partial<Record<"p0" | "p1" | "p2" | "suggestion" | "unrated" | "stale", number>>): ReviewTriage {
-  return {
-    severity_summary: {
-      p0: 0, p1: 0, p2: 0, suggestion: 0, unrated: 0, stale: 0, below_threshold: 0, highest: null,
-      by_source: { ai_review: { p0: 0, p1: 0, p2: 0, suggestion: 0, unrated: 0, stale: 0, ...row } },
-    },
-  } as unknown as ReviewTriage;
-}
-
-describe("markFindingSeverity", () => {
-  it("gives every AI finding the one level the triage summary counts for them", () => {
-    const items = [annotation("a"), annotation("b"), annotation("reply", { parent_id: "a" })];
-    const marked = markFindingSeverity(items, triageWith({ p1: 2 }));
-    expect(marked.filter((item) => item.severity === "p1").map((item) => item.id)).toEqual(["a", "b"]);
-    expect(marked.find((item) => item.id === "reply")?.severity).toBeUndefined();
-  });
-
-  it("never guesses: a mix of levels, an unrated or stale finding, or a count that does not match leaves them unbadged", () => {
-    const items = [annotation("a"), annotation("b")];
-    expect(markFindingSeverity(items, triageWith({ p0: 1, p1: 1 }))).toBe(items);
-    expect(markFindingSeverity(items, triageWith({ p1: 2, unrated: 1 }))).toBe(items);
-    expect(markFindingSeverity(items, triageWith({ p1: 2, stale: 1 }))).toBe(items);
-    expect(markFindingSeverity(items, triageWith({ p1: 3 }))).toBe(items);
-    expect(markFindingSeverity(items, null)).toBe(items);
-  });
-
-  it("keeps a severity the annotation already carries", () => {
-    const items = [annotation("a", { severity: "p0" }), annotation("b")];
-    const marked = markFindingSeverity(items, triageWith({ p2: 2 }));
-    expect(marked.map((item) => item.severity)).toEqual(["p0", "p2"]);
-  });
-
-  it("ignores human comments", () => {
-    const items = [annotation("a", { source: "human", created_by_actor: "human" })];
-    expect(markFindingSeverity(items, triageWith({ p1: 1 }))).toBe(items);
   });
 });

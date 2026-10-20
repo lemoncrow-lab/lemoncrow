@@ -118,22 +118,21 @@ export const KIND_BADGE_TONES: Record<AnnotationKind, BadgeTone> = {
   looks_good: "success",
 };
 
-/** Severity of an AI finding, normalized by the server to the vocabulary the triage summary counts. */
-export type FindingSeverityLevel = "p0" | "p1" | "p2" | "suggestion";
+/** Severity of an AI finding, as the annotation wire carries it. */
+export type FindingSeverityLevel = NonNullable<Annotation["severity"]>;
 
 export const SEVERITY_LABELS: Record<FindingSeverityLevel, string> = {
   p0: "P0",
   p1: "P1",
   p2: "P2",
-  suggestion: "Suggestion",
 };
 
-/** Badge tone for a severity; a suggestion is below P2 and stays neutral. */
+/** Badge tone for a severity: the severity tones are named after the levels. */
 export function severityTone(severity: FindingSeverityLevel): BadgeTone {
-  return severity === "suggestion" ? "neutral" : severity;
+  return severity;
 }
 
-/** The severity an AI finding carries, if the server (or an exact triage match) gave it one. */
+/** The severity an AI finding carries, if the server gave it one. A reply never has one. */
 export function annotationSeverity(annotation: Annotation): FindingSeverityLevel | null {
   return annotation.source === "ai_review" && !annotation.parent_id ? annotation.severity ?? null : null;
 }
@@ -145,8 +144,7 @@ export function annotationSeverity(annotation: Annotation): FindingSeverityLevel
  */
 export function annotationRail(annotation: Annotation): HunkRail {
   if (annotation.source === "ai_review") {
-    const severity = annotationSeverity(annotation);
-    return severity && severity !== "suggestion" ? severity : "neutral";
+    return annotationSeverity(annotation) ?? "neutral";
   }
   const byKind: Record<AnnotationKind, HunkRail> = { comment: "neutral", request_change: "p0", suggestion: "p2", looks_good: "ok" };
   return byKind[annotation.kind];
