@@ -144,6 +144,8 @@ frontend/src/shared.ts
 frontend/src/vite-env.d.ts
 frontend/src/code/
 frontend/src/components/
+frontend/src/assets/
+frontend/src/design/
 frontend/src/control/
 frontend/src/lib/
 frontend/src/map/

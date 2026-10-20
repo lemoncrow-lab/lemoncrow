@@ -51,7 +51,10 @@ FRONTEND_DIST="${LEMONCROW_REVIEW_ENGINE_FRONTEND_DIR:-frontend/dist}"
 if [[ -z "${LEMONCROW_REVIEW_ENGINE_FRONTEND_DIR:-}" ]]; then
     frontend_stale=1
     if [[ -f frontend/dist/index.html ]]; then
-        frontend_changed="$(find frontend \
+        # design/ holds the canonical tokens that frontend/src/design vendors (absent in the public mirror).
+        frontend_inputs=(frontend)
+        [[ -d design ]] && frontend_inputs+=(design)
+        frontend_changed="$(find "${frontend_inputs[@]}" \
             -type d \( -name node_modules -o -name dist -o -name .git \) -prune -o \
             -type f ! -name '*.tsbuildinfo' -newer frontend/dist/index.html -print -quit)"
         [[ -n "$frontend_changed" ]] || frontend_stale=0

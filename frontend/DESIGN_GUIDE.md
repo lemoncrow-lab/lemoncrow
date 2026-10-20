@@ -6,7 +6,8 @@ color tokens, and `cn()` (clsx + tailwind-merge) for composition. The primitives
 
 The visual language is **Ink and Lemon**, shared with the landing site. The tokens, the Tailwind preset, the Hunk components and the fonts live
 in the repository's `design/` directory (canonical) and are vendored byte-for-byte into `src/design/` (`npm run sync:design`; the UI guard
-fails on drift). Read `design/README.md` before changing any of it. The full specification (principles, scale, motif, accent budget, contrast
+fails on drift). Read `design/README.md` before changing any of it. The public mirror carries only the vendored `src/design/`, which is all the
+build needs; the guard skips the drift check when `design/` is absent. The full specification (principles, scale, motif, accent budget, contrast
 table) is `research_notes/LemonCrow strategy memo assessment/design_system_spec.md`; this guide is how it applies to the app.
 
 ## The system in ten rules

@@ -268,7 +268,7 @@ release: release-prepared ## Push, mirror and tag the exact commit release-quali
 _stale = $(if $(FAST),$(shell [ -f $(1) ] && [ -z "$$(find $(2) scripts/build_*.sh server/review-engine-files.txt -type f -newer $(1) -not -path '*/node_modules/*' -not -path '*/__pycache__/*' -print -quit 2>/dev/null)" ] && echo fresh),)
 
 release-stage: ## Stage release assets (scripts/stage_release.sh) in RELEASE_STAGE; FAST=1 reuses fresh artifacts
-	@$(if $(call _stale,dist/lemoncrow-review-engine.tar.gz,src client/src server/src frontend/src),$(call _log,info,fast: review engine fresh),$(MAKE) --no-print-directory review-engine-build)
+	@$(if $(call _stale,dist/lemoncrow-review-engine.tar.gz,src client/src server/src frontend/src $(wildcard design)),$(call _log,info,fast: review engine fresh),$(MAKE) --no-print-directory review-engine-build)
 	@$(if $(call _stale,dist/lemoncrow-review-client.tar.gz,src client/src),$(call _log,info,fast: review client fresh),$(MAKE) --no-print-directory review-client-build)
 	@$(if $(call _stale,dist/lemoncrow-runtime-client.tar.gz,src client/src),$(call _log,info,fast: runtime client fresh),$(MAKE) --no-print-directory runtime-client-build)
 	@bash scripts/stage_release.sh "$(RELEASE_STAGE)"
