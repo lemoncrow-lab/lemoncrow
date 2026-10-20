@@ -209,6 +209,7 @@ class RunFacts:
     fixed: int
     stale: int
     complete: bool = True
+    uninvestigated: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,7 +218,8 @@ class Receipt:
 
     files: tuple[str, ...]
     targets: int
-    examined: int
+    candidates: int
+    investigated: int
     rules: tuple[str, ...]
     unchanged: int = 0
 
@@ -252,6 +254,8 @@ def strip_text(facts: RunFacts) -> str:
             f"{facts.carried} carried forward",
             f"{facts.fixed + facts.stale} fixed since last review",
         ]
+    if facts.uninvestigated:
+        parts.append(f"{plural(facts.uninvestigated, 'risk signal')} not investigated yet")
     if not facts.complete:
         parts.append("incomplete")
     return " · ".join(parts)
@@ -373,7 +377,9 @@ def _receipt_lines(view: SummaryView) -> list[str]:
     rules = ", ".join(f"`{code(rule)}`" for rule in receipt.rules[:10]) or "none configured"
     lines = [
         f"- Files: {plural(len(receipt.files), 'file')}" + (f" ({shown}{more})" if receipt.files else ""),
-        f"- Targets in this change: {receipt.targets}; examined by the model: {receipt.examined}",
+        f"- Targets in this change: {receipt.targets}; risk signals: {receipt.candidates}; "
+        f"investigated by the model: {receipt.investigated}"
+        + (" (the depth limit)" if receipt.investigated < receipt.candidates else ""),
         f"- Rules applied: {rules}",
         f"- Depth: {view.depth_label}" + (f", up to {plural(view.max_calls, 'model call')}" if view.max_calls else ""),
     ]

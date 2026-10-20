@@ -99,6 +99,10 @@ def apply_model_route(route: ModelRoute, env: MutableMapping[str, str]) -> None:
     """Point the review drivers at *route*. A backend or driver model the user already set is kept."""
 
     env.setdefault(BACKEND_ENV, route.backend)
+    if route.backend == "litellm":
+        # LiteLLM waits 6000 s for a response unless told otherwise; the review gives each call 120 s everywhere
+        # else, and a hung connection must not hold a CI job for hours.
+        env.setdefault("REQUEST_TIMEOUT", "120")
     variable = _MODEL_VARIABLE.get(route.backend)
     if variable is None or not route.model:
         return

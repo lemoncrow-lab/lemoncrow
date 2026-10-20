@@ -94,7 +94,7 @@ def view(findings: tuple[BotFinding, ...], **fields: Any) -> SummaryView:
         "state": review_state(findings),
         "findings": findings,
         "facts": RunFacts(True, 38, 3, len([f for f in findings if f.state == "new"]), 0, 0, 0),
-        "receipt": Receipt(("src/a.py", "src/b.py"), targets=4, examined=2, rules=("api-auth",)),
+        "receipt": Receipt(("src/a.py", "src/b.py"), targets=4, candidates=3, investigated=2, rules=("api-auth",)),
         "pull_number": 7,
         "repository": "acme/widgets",
         "head_sha": HEAD,
@@ -154,7 +154,11 @@ def test_applying_a_route_keeps_what_the_user_already_set() -> None:
     route = ci_env.resolve_model_route({"ANTHROPIC_API_KEY": "k"})
     assert route is not None
     ci_env.apply_model_route(route, env)
-    assert env == {"LEMONCROW_LLM_BACKEND": "litellm", "LEMONCROW_LITELLM_MODEL": route.model}
+    # LiteLLM's own default wait is 6000 s: the route bounds it like every other call's 120 s.
+    assert env == {"LEMONCROW_LLM_BACKEND": "litellm", "LEMONCROW_LITELLM_MODEL": route.model, "REQUEST_TIMEOUT": "120"}
+    patient: dict[str, str] = {"REQUEST_TIMEOUT": "30"}
+    ci_env.apply_model_route(route, patient)
+    assert patient["REQUEST_TIMEOUT"] == "30"
 
     chosen: dict[str, str] = {"LEMONCROW_LLM_BACKEND": "openai", "LEMONCROW_OPENAI_MODEL": "mine"}
     openai = ci_env.resolve_model_route({"OPENAI_API_KEY": "k"})
@@ -493,7 +497,7 @@ def test_a_clean_review_carries_a_what_we_checked_receipt() -> None:
     assert "**No must-fix findings**" in body
     assert "<details><summary>What we checked</summary>" in body
     assert "Files: 2 files (`src/a.py`, `src/b.py`)" in body
-    assert "Targets in this change: 4; examined by the model: 2" in body
+    assert "Targets in this change: 4; risk signals: 3; investigated by the model: 2 (the depth limit)" in body
     assert "Rules applied: `api-auth`" in body and "Depth: Auto" in body
     assert "Fix with your agent" not in body
 
@@ -569,7 +573,7 @@ def test_model_text_cannot_forge_markers_mentions_images_or_block_tags() -> None
 def test_a_hostile_file_name_cannot_break_out_of_its_code_span() -> None:
     name = "src/a`![x](https://evil.example/p.png)`.py\nnext line"
     row = finding("p", "p1", path=name)
-    body, _ = render_summary(view((row,), receipt=Receipt((name,), 1, 0, ("r`ule",))))
+    body, _ = render_summary(view((row,), receipt=Receipt((name,), 1, 0, 0, ("r`ule",))))
     visible = strip_state(body)
     assert "![x](" not in visible and "](https://evil" not in visible  # the image and link syntax is broken
     assert all(line.count("`") % 2 == 0 for line in visible.splitlines() if line.startswith(("- ", "  -")))

@@ -28,6 +28,7 @@ concurrency:
 jobs:
   review:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -45,6 +46,7 @@ jobs:
 Notes on the workflow:
 
 - **`permissions`** are the least the Action needs: `pull-requests: write` to comment and resolve threads, `statuses: write` for the status, `contents: read` to fetch the pull request. It posts as `github-actions[bot]` with the workflow's `GITHUB_TOKEN`; keep the default `github-token` input so the comments never come from a person.
+- **`timeout-minutes`** bounds a hung model call; each call has its own 120-second limit, so a review that is not done in a few minutes is stuck.
 - **`concurrency`** per pull request with `cancel-in-progress` means a newer push cancels the review of an older one instead of queueing behind it.
 - **`fetch-depth: 0`** gives LemonCrow the history to find the merge base. `ready_for_review` is in `types` so a draft is reviewed when it is marked ready.
 - **`v1`** is the major tag cut at release. Before it exists, or to pin exactly what you tested, use a full commit SHA: `lemoncrow-lab/lemoncrow@<sha>`. The Action installs LemonCrow from its own checkout at that ref, so the version you pin is the version that reviews.
@@ -130,6 +132,7 @@ On a push, the Action reads the previous state, compares the new commit with it,
 - a fixed finding gets a reply on its thread, `Fixed in <short sha>`, and the thread is resolved when the token allows it (GitHub's `resolveReviewThread`). If it does not, the reply stays and the review still completes;
 - a finding whose code left the pull request is **stale**;
 - if the model call for a changed target fails, the finding stays, marked unverified, and the target is retried on the next push.
+- Auto investigates at most two hypotheses per run, however many risk signals a large change has. One it did not reach is **pending**, not reviewed: the status strip says `N risk signals not investigated yet`, and the next push competes for the cap again. Ask for `depth: thorough` to investigate more of them in one run.
 
 A push that changes nothing LemonCrow reviews makes no model call and posts nothing. A changed depth, rule set, content-access policy or review prompt re-reviews everything once, because last time's result no longer means the same thing.
 

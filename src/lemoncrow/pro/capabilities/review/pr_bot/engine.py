@@ -80,7 +80,8 @@ class AiStage:
     changed_files: int = 0
     files: tuple[str, ...] = ()
     unchanged: int = 0
-    examined: int = 0
+    candidates: int = 0
+    investigated: int = 0
     rules: tuple[str, ...] = ()
     policy: str = ""
     usage: Usage = field(default_factory=Usage)
@@ -354,6 +355,43 @@ def run_ai_stage(
     return stage
 
 
+class _Examined:
+    """Wraps the model executor to learn which targets a model call actually looked at.
+
+    The engine reports which targets it *planned* (``checked_target_ids``), not which a hypothesis or rule
+    question reached: Auto investigates at most two hypotheses however many candidates there are. A target counts
+    as examined only when a call about it returned, so a failed call, a spent budget or the depth limit leave it
+    pending. A prompt this cannot read counts for nothing: unknown means not examined, never examined.
+    """
+
+    def __init__(self, inner: Callable[..., StructuredExecution]) -> None:
+        self.inner = inner
+        self.targets: set[str] = set()
+
+    def __call__(self, **kwargs: Any) -> StructuredExecution:
+        execution = self.inner(**kwargs)
+        self.targets.update(self._targets(kwargs.get("prompt")))
+        return execution
+
+    @staticmethod
+    def _targets(prompt: object) -> set[str]:
+        try:
+            blocks = json.loads(str(prompt))
+        except ValueError:
+            return set()
+        if not isinstance(blocks, dict):
+            return set()
+        hypothesis = blocks.get("hypothesis")
+        if isinstance(hypothesis, dict) and isinstance(hypothesis.get("value"), dict):
+            ids = hypothesis["value"].get("target_ids")
+            return {item for item in ids if isinstance(item, str)} if isinstance(ids, list) else set()
+        if "question" in blocks:  # a per-rule question: the targets under that rule's paths
+            source = blocks.get("snapshot_source")
+            value = source.get("value") if isinstance(source, dict) else None
+            return {key for key in value if isinstance(key, str)} if isinstance(value, dict) else set()
+        return set()
+
+
 def _candidates_phrase(candidates: int) -> str:
     return f"{candidates} risk candidate" + ("" if candidates == 1 else "s")
 
@@ -433,6 +471,7 @@ def _execute(
         return replace(base, reviewed_units=kept, units_truncated=truncated, model=previous.model if previous else "")
 
     budget = ModelCallBudget.from_env(max_calls=1)
+    examined = _Examined(structured_executor or execute_structured)
     with bound_intelligence_policy(review_intelligence_policy(policy)):
         result: IndependentReviewResult = run_independent_review(
             store=store,
@@ -447,7 +486,7 @@ def _execute(
             persist_annotations=False,
             stage_plan=stage_plan,
             reviewer_candidates=configured_reviewer_routes()[0],
-            structured_executor=structured_executor or execute_structured,
+            structured_executor=examined,
         )
     usage, served = revision_usage(store, session.id, revision.id)
     candidate_ids = {
@@ -455,14 +494,13 @@ def _execute(
         for candidate in generate_candidates(changed, rules=tuple(governance.rules))
         for target_id in candidate.target_ids
     }
-    # A target the model was meant to look at but did not (a failed call, a spent budget,
-    # a Quick run that cannot cover them) is not "reviewed": it is retried next push.
-    # lc-debt: a candidate counts as reviewed once the AI stage planned it, not once a model examined it, so a
-    # candidate past Auto's two-investigation cap is not retried while unchanged; upgrade: record examined targets per run.
+    # Reviewed means a model call about the target returned (or it carried no risk signal). A candidate no call
+    # reached -- a failed call, a spent budget, Auto's cap on investigations -- is pending: it is retried on the next
+    # push and competes for the cap again, so a large pull request is covered over its pushes, never silently skipped.
     uncovered = result.status == "skipped_unnecessary" and result.candidates > 0
     complete = result.status in {"completed", "skipped_unnecessary"} and not result.provider_errors
     complete = complete and not result.skipped_by_budget and not uncovered
-    pending = set() if complete else candidate_ids
+    pending = candidate_ids - examined.targets
     why = ""
     if result.skipped_by_budget:
         why = "the model-call budget ran out"
@@ -481,7 +519,8 @@ def _execute(
         units_truncated=truncated,
         changed_lines=sum(target.additions + target.deletions for target in changed),
         changed_files=len({target.path for target in changed}),
-        examined=len(result.checked_target_ids),
+        candidates=len(candidate_ids),
+        investigated=len(candidate_ids & examined.targets),
         usage=usage,
         model=served or (f"{result.driver}/{result.model}" if result.driver else ""),
         max_calls=result.calls_max,

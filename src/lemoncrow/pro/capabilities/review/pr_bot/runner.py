@@ -19,6 +19,7 @@ comment from a person's login is exactly the confusion this path exists to avoid
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -150,21 +151,24 @@ def run_pr_review(
             "the workflow's bot token. Locally, use --ai to read the findings, or add --dry-run to see the comments."
         )
     run = runner or (lambda args, stdin: run_gh(args, stdin, cwd=options.repo_root))
-    try:
-        ref = pull_request_ref(options.repo_root, options.pr, runner=run)
-    except (GitHubCliError, ValueError) as exc:
-        raise PrReviewError(str(exc)) from exc
-    name = f"{ref.slug}#{ref.number}"
+    # Gate on the event alone first: a fork, a draft or a refused event costs no network call. A URL or
+    # OWNER/REPO#N names its pull request by itself, so only a bare number needs the event to carry one.
+    bare = re.fullmatch(r"#?(\d+)", options.pr.strip())
     gate = ci_env.decide(
         environ,
         review_drafts=options.review_drafts,
         on_push=options.on_push,
         provider=options.provider,
-        pr_number=ref.number,
+        pr_number=int(bare[1]) if bare else 1,
         require_credentials=False,
     )
     if not gate.run:
-        return _skip(name, gate.reason, level=gate.level, exit_code=gate.exit_code)
+        return _skip(options.pr, gate.reason, level=gate.level, exit_code=gate.exit_code)
+    try:
+        ref = pull_request_ref(options.repo_root, options.pr, runner=run)
+    except (GitHubCliError, ValueError) as exc:
+        raise PrReviewError(str(exc)) from exc
+    name = f"{ref.slug}#{ref.number}"
     github = BotGitHub(ref, run)
     try:
         facts = github.pull_facts()
@@ -327,9 +331,15 @@ def _review(
             fixed=len(_state_is(tracked, "fixed")),
             stale=len(_state_is(tracked, "stale")),
             complete=ai.complete,
+            uninvestigated=max(ai.candidates - ai.investigated, 0),
         ),
         receipt=Receipt(
-            files=ai.files, targets=len(ai.target_ids), examined=ai.examined, rules=ai.rules, unchanged=ai.unchanged
+            files=ai.files,
+            targets=len(ai.target_ids),
+            candidates=ai.candidates,
+            investigated=ai.investigated,
+            rules=ai.rules,
+            unchanged=ai.unchanged,
         ),
         pull_number=ref.number,
         repository=ref.slug,

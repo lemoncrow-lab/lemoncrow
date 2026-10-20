@@ -23,6 +23,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.state import dump_state, parse_sta
 from lemoncrow.pro.capabilities.review.sources.github import resolve_pull_request
 from lemoncrow.pro.capabilities.review.sources.local import annotate_machine_finding
 from tests.gateway.pr_bot_support import (
+    AUTH_BUGGY,
     AUTH_FIXED,
     BASE,
     CACHE_BUGGY,
@@ -346,6 +347,7 @@ def test_a_fork_pull_request_exits_zero_with_a_notice_and_touches_nothing(
     report = world.review()
     assert report.skipped and report.exit_code == 0 and report.level == "notice" and "fork" in report.reason
     assert world.model.calls == [] and world.github.statuses == [] and world.github.issue_comments == []
+    assert world.github.calls == []  # decided from the event alone: not even a GET
 
 
 def test_pull_request_target_is_refused_with_a_failing_exit_code(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -504,6 +506,41 @@ def test_a_depth_that_cannot_cover_the_candidates_says_so_instead_of_passing(
     # Nothing candidate-bearing counted as reviewed, so asking for more depth examines both.
     world.review(depth="deep")
     assert sorted(world.model.paths())[-2:] == ["src/cache.py", "src/query.py"]
+
+
+def test_a_risk_candidate_beyond_autos_cap_is_said_so_and_investigated_on_a_later_push(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Auto investigates at most two hypotheses. With three risk candidates the third is not looked at, and the
+    # summary must not let that read as reviewed; the next push competes for the cap again, then nothing is owed.
+    base = {**BASE, "src/token.py": "def verify(token):\n    return True\n"}
+    world = build_world(tmp_path, monkeypatch, base)
+    world.origin.push({"src/auth.py": AUTH_BUGGY, "src/cache.py": CACHE_BUGGY, "src/token.py": TOKEN_BUGGY})
+    first = world.review()
+    assert world.model.paths() == ["(synthesis)", "src/auth.py", "src/token.py"]
+    assert {f.title for f in first.findings} == {
+        "lets a missing principal through",
+        "compares secrets without a constant-time check",
+    }
+    assert "1 risk signal not investigated yet" in world.github.summary_comments()[0]["body"]
+
+    world.model.reset()
+    world.origin.push({"src/plain.py": "VALUE = 3\n"}, "touch an unrelated file")
+    second = world.review()
+    assert world.model.paths() == ["src/cache.py"]  # auth.py and token.py were reviewed and are carried
+    states = {f.title: f.state for f in second.findings}
+    assert states == {
+        "lets a missing principal through": "carried",
+        "compares secrets without a constant-time check": "carried",
+        "grows without a bound": "new",
+    }
+    assert "not investigated yet" not in world.github.summary_comments()[0]["body"]
+
+    world.model.reset()
+    world.origin.push({"src/plain.py": "VALUE = 4\n"}, "touch it again")
+    third = world.review()
+    assert world.model.calls == [] and {f.state for f in third.findings} == {"carried"}
+    assert len(world.github.inline()) == 2  # the two P1s, once each; the P2 found on push two is held back
 
 
 # --------------------------------------------------------------------------- #
