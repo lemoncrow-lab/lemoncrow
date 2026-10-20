@@ -108,7 +108,7 @@ RESULT=$(curl -sf -X POST "http://127.0.0.1:${PORT}/v1/reasoning/context" \
     -H "Content-Type: application/json" \
     -d '{
         "task": "Update Shopify product description",
-        "domain": "beseam.shopify.publish",
+        "domain": "swe.general",
         "tools": ["shopify.product.update"]
     }')
 echo "$RESULT"

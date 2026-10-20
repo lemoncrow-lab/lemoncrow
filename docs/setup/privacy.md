@@ -47,12 +47,19 @@ with `lc rt telemetry remote off`, or set `DO_NOT_TRACK=1` or
 - **Global kill switch:** set `DO_NOT_TRACK=1` or `LEMONCROW_TELEMETRY=off` in
   your environment; remote telemetry is then never emitted regardless of config.
 
-Two anonymous daily rollups are sent, and both are deliberately minimal:
+Two kinds of anonymous rollup are sent, and both are deliberately minimal:
 
 - **Savings rollup** — aggregate counts, bucketed durations, and dollar
   estimates, plus a SHA-256 install key, a SHA-256 session key, the LemonCrow
   version, the host source, the retrieval domain, and a timestamp. The exact
   payload is `_payload` in `src/lemoncrow/core/service/telemetry/public_rollup.py`.
+  It goes out once per elapsed UTC day and, for agent sessions the periodic
+  session import picks up (Claude Code, Codex, OpenCode and the other importable
+  hosts), once per session: only the session's token total, tool-call count,
+  turn count, duration and host name, under the same hashed keys, and never its
+  prompt, title, paths or raw id. Sessions older than 48 hours, and sessions the
+  savings ledger already covers in the daily rollup, are skipped, and at most 20
+  go out per import run. A session is resent only if its counts changed.
 - **Event counts** — once per elapsed UTC day, how many times each product
   event happened, grouped by low-cardinality labels only: the event name, the
   command or MCP tool name, the agent host, the outcome (`ok`, an exception
@@ -92,7 +99,7 @@ offers an email instead.
 ### Where telemetry goes
 
 Local events and the local UI (**Settings → Telemetry**) never leave the machine.
-Only the two daily rollups go to the **destination**, which you pick in that page
+Only the two rollups go to the **destination**, which you pick in that page
 or with `lc rt telemetry destination`:
 
 | Destination | Sends to |
@@ -109,8 +116,11 @@ lc rt telemetry destination custom https://telemetry.corp.example --token "$TOKE
 lc rt telemetry destination off
 ```
 
-The per-event PostHog export and the usage sync are LemonCrow's own services, so
-they run only when the destination is `lemoncrow`.
+The per-event PostHog export is LemonCrow's own service, so it runs only when the
+destination is `lemoncrow`. Per-session usage reports are part of the savings
+rollup and follow the destination, the opt-outs and the administrator policy
+like the daily one: with a `server` or `custom` destination they go to that
+host, never to `lemoncrow.com`.
 
 **Administrators** can fix the destination for every user of a machine with a
 policy file at `/etc/lemoncrow/telemetry.toml` (macOS:

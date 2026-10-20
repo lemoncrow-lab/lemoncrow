@@ -32,7 +32,7 @@ def test_mcp_stdio_smoke() -> None:
                 "name": "context",
                 "arguments": {
                     "task": "Update Shopify product metafields",
-                    "domain": "beseam.shopify.publish",
+                    "domain": "swe.general",
                     "tools": ["shopify.update_metafield"],
                 },
             },

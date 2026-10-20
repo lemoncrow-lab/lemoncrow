@@ -2,5 +2,5 @@
   "trace_id": "trace-golden-001",
   "context_id": "ctx-golden-001",
   "task": "Update Shopify product metafields",
-  "project_id": "beseam-main"
+  "project_id": "lemoncrow-main"
 }
