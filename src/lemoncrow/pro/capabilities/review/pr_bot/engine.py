@@ -92,6 +92,11 @@ class AiStage:
     errors: tuple[str, ...] = ()
     #: What the repository context pack did (G4): status, estimated tokens, item counts, paths. Empty: no pack.
     repo_context: Mapping[str, Any] = field(default_factory=dict)
+    #: ``{target id: ((side, first line, last line), ...)}`` for every target, so a caller can say which changed
+    #: lines a finding is about (the review benchmark scores a finding by them).
+    spans: Mapping[str, tuple[tuple[str, int, int], ...]] = field(default_factory=dict)
+    #: Targets a model call about them returned: the ones the model was actually asked about.
+    examined: tuple[str, ...] = ()
 
     @property
     def ran(self) -> bool:
@@ -466,6 +471,7 @@ def _execute(
     base = AiStage(
         status="nothing_changed",
         locations=locations,
+        spans={t.target_id: tuple((span.side, span.start_line, span.end_line) for span in t.spans) for t in targets},
         target_ids=tuple(target.target_id for target in targets),
         unchanged=len(targets) - len(changed),
         files=tuple(sorted({target.path for target in targets})),
@@ -542,4 +548,5 @@ def _execute(
         complete=complete,
         errors=tuple(result.provider_errors),
         repo_context=context,
+        examined=tuple(sorted(examined.targets)),
     )
