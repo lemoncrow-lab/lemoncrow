@@ -188,7 +188,7 @@ export default function ProjectionInspector() {
               autoComplete="off"
             />
             {suggestionsOpen && suggestions.length > 0 && (
-              <div id="projection-path-suggestions" className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-md border border-border bg-background p-1 shadow-lg">
+              <div id="projection-path-suggestions" className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-md border border-border bg-background p-1 shadow-float">
                 {suggestions.map((file, index) => (
                   <Button
                     key={file.path}
@@ -314,7 +314,7 @@ export default function ProjectionInspector() {
 
           {segmentPreview.length > 0 && (
             <Card className="space-y-3 p-4">
-              <div className="text-body font-black uppercase tracking-[0.2em] text-neutral-400">
+              <div className="text-body font-semibold uppercase tracking-tag text-muted-foreground">
                 Segment preview
               </div>
               <div className="space-y-2 font-mono text-body">
@@ -323,7 +323,7 @@ export default function ProjectionInspector() {
                     key={segment.segment_id}
                     className="grid gap-2 rounded-md border border-border/70 bg-background/60 p-3 md:grid-cols-[auto_auto_1fr]"
                   >
-                    <span className="text-neutral-400">
+                    <span className="text-muted-foreground">
                       {segment.segment_id}
                     </span>
                     <span
@@ -333,7 +333,7 @@ export default function ProjectionInspector() {
                     >
                       {segment.kind}
                     </span>
-                    <span className="text-neutral-300">
+                    <span className="text-subtle">
                       projected {segment.projected_start}-
                       {segment.projected_end} · source L
                       {segment.source.start_line}-L{segment.source.end_line}
@@ -345,10 +345,10 @@ export default function ProjectionInspector() {
           )}
 
           <Card className="space-y-3 p-4">
-            <div className="text-body font-black uppercase tracking-[0.2em] text-neutral-400">
+            <div className="text-body font-semibold uppercase tracking-tag text-muted-foreground">
               Content preview
             </div>
-            <pre className="max-h-[32rem] overflow-auto whitespace-pre-wrap rounded-lg border border-border/70 bg-surface-code p-4 text-heading text-neutral-200">
+            <pre className="max-h-[32rem] overflow-auto whitespace-pre-wrap rounded-lg border border-border/70 bg-surface-code p-4 text-heading text-foreground">
               {payload.content || "(no body content for this view)"}
             </pre>
           </Card>
@@ -356,7 +356,7 @@ export default function ProjectionInspector() {
           {payload.projection.view === "compact" && !comparison && (
             <Card className="space-y-3 p-4">
               <div className="flex items-center justify-between gap-3">
-                <div className="text-body font-black uppercase tracking-[0.2em] text-neutral-400">
+                <div className="text-body font-semibold uppercase tracking-tag text-muted-foreground">
                   Exact comparison
                 </div>
                 <Button
@@ -380,7 +380,7 @@ export default function ProjectionInspector() {
 
           {comparison && (
             <Card className="space-y-3 p-4">
-              <div className="text-body font-black uppercase tracking-[0.2em] text-neutral-400">
+              <div className="text-body font-semibold uppercase tracking-tag text-muted-foreground">
                 Exact comparison
               </div>
               <div className="flex flex-wrap gap-2">
@@ -415,7 +415,7 @@ export default function ProjectionInspector() {
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border border-border/70 bg-background/60 p-3">
-      <div className="text-caption font-black uppercase tracking-[0.2em] text-neutral-400">
+      <div className="text-caption font-semibold uppercase tracking-tag text-muted-foreground">
         {label}
       </div>
       <div className="mt-1 text-heading text-foreground">{value}</div>
@@ -436,17 +436,17 @@ function ComparisonPane({
   side: "compact" | "exact";
 }) {
   return (
-    <div className="max-h-[24rem] overflow-auto border border-border bg-surface-code font-mono text-heading text-neutral-200">
+    <div className="max-h-[24rem] overflow-auto border border-border bg-surface-code font-mono text-heading text-foreground">
       {rows.map((row) => (
         <div
           key={`${side}-${row.line}`}
           className={
             row.changed
               ? "grid grid-cols-[auto_1fr] gap-3 border-b border-border bg-amber-950/20 px-3 py-1.5"
-              : "grid grid-cols-[auto_1fr] gap-3 border-b border-neutral-900/60 px-3 py-1.5"
+              : "grid grid-cols-[auto_1fr] gap-3 border-b border-border/60 px-3 py-1.5"
           }
         >
-          <span className="text-neutral-400">{row.line}</span>
+          <span className="text-muted-foreground">{row.line}</span>
           <span>
             {side === "compact" ? row.compact || " " : row.exact || " "}
           </span>

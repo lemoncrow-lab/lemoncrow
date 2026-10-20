@@ -132,7 +132,7 @@ export default function ReviewCommandPalette({ mode, actions, onClose }: ReviewC
         }}
       >
         <div className="flex items-center gap-3 border-b border-border/80 px-3.5 py-3">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-muted/60 text-neutral-400">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-muted/60 text-muted-foreground">
             <Command size={13} aria-hidden="true" />
           </div>
           <div className="min-w-0 flex-1">
@@ -144,7 +144,7 @@ export default function ReviewCommandPalette({ mode, actions, onClose }: ReviewC
             </DialogDescription>
           </div>
           <DialogClose asChild>
-            <UiButton ref={closeRef} type="button" aria-label="Close review commands" className="h-7 px-2 font-mono text-caption">
+            <UiButton ref={closeRef} type="button" aria-label="Close review commands" className="h-7 px-2 font-mono text-meta">
               Esc
             </UiButton>
           </DialogClose>
@@ -192,7 +192,7 @@ export default function ReviewCommandPalette({ mode, actions, onClose }: ReviewC
                   className={`flex w-full items-center gap-3 rounded-md px-2.5 py-2 text-left transition-colors disabled:opacity-35 ${index === selected ? "bg-accent text-accent-foreground" : ""}`}
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="text-label text-neutral-200">{action.label}</div>
+                    <div className="text-label text-foreground">{action.label}</div>
                     {action.detail && <div className="mt-0.5 truncate text-caption text-muted-foreground">{action.detail}</div>}
                   </div>
                   {action.shortcut && <kbd className="shrink-0 border border-border px-1.5 py-0.5 font-mono text-caption text-muted-foreground">{action.shortcut}</kbd>}
@@ -204,11 +204,11 @@ export default function ReviewCommandPalette({ mode, actions, onClose }: ReviewC
           <div className="grid max-h-[60vh] gap-5 overflow-y-auto p-4 sm:grid-cols-2">
             {SHORTCUT_GROUPS.map((group) => (
               <div key={group.title} data-shortcut-scope={group.scope}>
-                <div className="mb-2 text-caption font-medium uppercase tracking-[0.14em] text-muted-foreground">{group.title}</div>
+                <div className="mb-2 text-caption font-medium uppercase tracking-tag text-muted-foreground">{group.title}</div>
                 <div className="space-y-2">
                   {group.rows.map(([keys, label]) => (
                     <div key={keys} className="flex items-start gap-2 text-caption">
-                      <kbd className="min-w-12 shrink-0 border border-border px-1.5 py-0.5 text-center font-mono text-neutral-300">{keys}</kbd>
+                      <kbd className="min-w-12 shrink-0 border border-border px-1.5 py-0.5 text-center font-mono text-subtle">{keys}</kbd>
                       <span className="leading-4 text-muted-foreground">{label}</span>
                     </div>
                   ))}

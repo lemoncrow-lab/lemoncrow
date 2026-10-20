@@ -193,10 +193,10 @@ export default function ReviewFeedbackPanel({
               <span>{title}</span>
               <Badge tone="secondary" data-testid="feedback-lifecycle">{lifecycle}</Badge>
               {!sent && !queued && unsent > 0 && <Badge tone="secondary">{unsent} {toAuthor ? "to copy" : toPullRequest ? "to publish" : "to send"}</Badge>}
-              {status.addressed > 0 && <Badge tone="secondary" className="border-sky-900/50 text-sky-300">{status.addressed} re-review</Badge>}
+              {status.addressed > 0 && <Badge tone="secondary" className="border-cyan-900/50 text-cyan-300">{status.addressed} re-review</Badge>}
               {feedback.orphaned > 0 && <Badge tone="secondary" className="border-amber-900/50 text-amber-300">{feedback.orphaned} orphaned</Badge>}
             </div>
-            <p className="mt-1 max-w-[75ch] text-body leading-5 text-neutral-400" title={detail}>{detail}</p>
+            <p className="mt-1 max-w-[75ch] text-body leading-5 text-muted-foreground" title={detail}>{detail}</p>
           </div>
         </div>
         {open && !recordsCopy && (
@@ -242,7 +242,7 @@ export default function ReviewFeedbackPanel({
       </div>
 
       {open && (
-        <div className="flex items-center gap-2 border-t border-neutral-900 px-3 py-1.5 text-caption text-muted-foreground">
+        <div className="flex items-center gap-2 border-t border-border px-3 py-1.5 text-caption text-muted-foreground">
           {recordsCopy ? (
             <span>Copy for the author · recorded only once copied</span>
           ) : toPullRequest ? (
@@ -282,11 +282,11 @@ export default function ReviewFeedbackPanel({
       )}
 
       {open && (
-        <details open className="border-t border-neutral-900">
-          <summary className="cursor-pointer list-none px-3 py-1.5 text-caption font-medium text-muted-foreground hover:bg-muted/40 hover:text-neutral-50 [&::-webkit-details-marker]:hidden">
+        <details open className="border-t border-border">
+          <summary className="cursor-pointer list-none px-3 py-1.5 text-meta font-medium text-muted-foreground hover:bg-muted/40 hover:text-foreground [&::-webkit-details-marker]:hidden">
             {reachable && !toAuthor ? "Preview exact handoff" : "Preview feedback"}
           </summary>
-          <pre className="max-h-56 overflow-auto whitespace-pre-wrap border-0 border-t border-neutral-900 bg-background px-4 py-3 text-caption leading-5 text-neutral-400">
+          <pre className="max-h-56 overflow-auto whitespace-pre-wrap border-0 border-t border-border bg-background px-4 py-3 text-caption leading-5 text-muted-foreground">
             {feedback.markdown}
           </pre>
         </details>

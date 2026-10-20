@@ -558,7 +558,7 @@ export default function ReviewMapSheet({
     >
       <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-border/80 bg-background px-4 py-2.5">
         <div className="flex min-w-0 flex-1 items-center gap-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/60 text-neutral-300"><Network size={15} aria-hidden="true" /></div>
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/60 text-subtle"><Network size={15} aria-hidden="true" /></div>
           <div className="min-w-0">
             <nav aria-label="Review map location" className="flex min-w-0 items-center gap-1 text-heading">
               <h2 id="review-map-title" className="shrink-0 text-heading font-semibold tracking-tight">Review Map</h2>
@@ -566,9 +566,9 @@ export default function ReviewMapSheet({
                 <span key={item.level + item.nodeId} className="flex min-w-0 items-center gap-1">
                   <ChevronRight size={13} className="shrink-0 text-muted-foreground" aria-hidden="true" />
                   {index === stack.length - 1 ? (
-                    <span className="truncate font-medium text-neutral-200" aria-current="location">{item.label}</span>
+                    <span className="truncate font-medium text-foreground" aria-current="location">{item.label}</span>
                   ) : (
-                    <Button unstyled className="truncate rounded px-1 text-neutral-400 transition-colors hover:bg-muted hover:text-foreground" onClick={() => goTo(index)}>
+                    <Button unstyled className="truncate rounded px-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground" onClick={() => goTo(index)}>
                       {item.label}
                     </Button>
                   )}
@@ -594,7 +594,7 @@ export default function ReviewMapSheet({
                       hiddenRelated ? `${plural(hiddenRelated, "related file")} not shown` : "",
                     ].filter(Boolean).join(" · ")
                 : `Snapshot ${revisionNumber}`}
-              {indexing && <span className="ml-1 inline-flex items-center gap-1 text-neutral-400"><Loader2 size={10} className="animate-spin" aria-hidden="true" />indexing</span>}
+              {indexing && <span className="ml-1 inline-flex items-center gap-1 text-muted-foreground"><Loader2 size={10} className="animate-spin" aria-hidden="true" />indexing</span>}
             </div>
           </div>
         </div>
@@ -647,12 +647,12 @@ export default function ReviewMapSheet({
                 aria-controls="review-map-search-results"
               />
               {query ? (
-                <Button unstyled onClick={() => setQuery("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-neutral-200" aria-label="Clear map search"><X size={11} /></Button>
+                <Button unstyled onClick={() => setQuery("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" aria-label="Clear map search"><X size={11} /></Button>
               ) : (
                 <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border px-1 text-caption text-muted-foreground">/</kbd>
               )}
               {query.trim() && (
-                <div id="review-map-search-results" role="listbox" className="absolute left-0 top-[36px] z-50 w-[360px] max-w-[calc(100vw-48px)] overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-lg shadow-black/20">
+                <div id="review-map-search-results" role="listbox" className="absolute left-0 top-[36px] z-50 w-[360px] max-w-[calc(100vw-48px)] overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-float">
                   {hits.length ? hits.map((hit, index) => (
                     <Button
                       unstyled
@@ -721,7 +721,7 @@ export default function ReviewMapSheet({
         )}
       </header>
 
-      {error && <div role="alert" className="shrink-0 border-b border-rose-900/60 bg-rose-950/20 px-4 py-2 text-label text-rose-200">{error}</div>}
+      {error && <div role="alert" className="shrink-0 border-b border-red-900/60 bg-red-950/20 px-4 py-2 text-label text-red-200">{error}</div>}
 
       <div className="relative flex min-h-0 flex-1">
         <div className={"relative min-w-0 flex-1 transition-opacity duration-150 " + (loading && payload ? "opacity-60" : "")}>
@@ -742,7 +742,7 @@ export default function ReviewMapSheet({
           ) : payload ? (
             <div className="flex h-full flex-col items-center justify-center bg-surface-sunken px-6 text-center">
               <Network size={22} className="mb-3 text-muted-foreground" aria-hidden="true" />
-              <div className="text-heading font-medium text-neutral-200">
+              <div className="text-heading font-medium text-foreground">
                 {payload.graph.nodes.length ? "Every file on this map is hidden" : "No map facts are available for this Snapshot"}
               </div>
               <div className="mt-1.5 max-w-sm text-label leading-5 text-muted-foreground">
@@ -756,11 +756,11 @@ export default function ReviewMapSheet({
         {askPanel ? (
           <div data-review-map-ask-panel className={inspectorDocked
             ? "w-[400px] shrink-0 border-l border-border"
-            : "absolute inset-y-0 right-0 z-30 w-[min(400px,92vw)] border-l border-border shadow-[-24px_0_56px_rgba(0,0,0,0.3)]"}>
+            : "absolute inset-y-0 right-0 z-30 w-[min(400px,92vw)] border-l border-border shadow-float"}>
             {askPanel}
           </div>
         ) : showInspector && payload && (
-          <div className={inspectorDocked ? "w-[360px] shrink-0" : "absolute inset-y-0 right-0 z-30 w-[min(360px,92vw)] shadow-[-24px_0_56px_rgba(0,0,0,0.3)]"}>
+          <div className={inspectorDocked ? "w-[360px] shrink-0" : "absolute inset-y-0 right-0 z-30 w-[min(360px,92vw)] shadow-float"}>
             <ReviewMapInspector
               payload={payload}
               overview={overview}

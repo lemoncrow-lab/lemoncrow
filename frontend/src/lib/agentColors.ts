@@ -7,12 +7,12 @@ const ROLE_COLORS: Record<string, string> = {
 
 const PALETTE: Record<string, { text: string; background: string }> = {
   purple: { text: "text-violet-300", background: "bg-violet-500/15" },
-  blue: { text: "text-blue-200", background: "bg-blue-500/15" },
-  yellow: { text: "text-yellow-200", background: "bg-yellow-500/15" },
+  blue: { text: "text-cyan-200", background: "bg-cyan-500/15" },
+  yellow: { text: "text-amber-200", background: "bg-amber-500/15" },
   cyan: { text: "text-cyan-200", background: "bg-cyan-500/15" },
-  teal: { text: "text-teal-200", background: "bg-teal-500/15" },
-  green: { text: "text-green-200", background: "bg-green-500/15" },
-  orange: { text: "text-orange-200", background: "bg-orange-500/15" },
+  teal: { text: "text-emerald-200", background: "bg-emerald-500/15" },
+  green: { text: "text-emerald-200", background: "bg-emerald-500/15" },
+  orange: { text: "text-amber-200", background: "bg-amber-500/15" },
   red: { text: "text-red-200", background: "bg-red-500/15" },
   lime: { text: "text-lime-200 [.light_&]:text-lime-800", background: "bg-lime-500/15" },
   pink: { text: "text-pink-200 [.light_&]:text-pink-800", background: "bg-pink-500/15" },

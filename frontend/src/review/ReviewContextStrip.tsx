@@ -30,25 +30,25 @@ export interface ContextSignal {
 }
 
 const ROW_TONE: Record<ContextSignalTone, string> = {
-  rose: "border-rose-900/60 bg-rose-950/35 text-rose-200",
+  rose: "border-red-900/60 bg-red-950/35 text-red-200",
   amber: "border-amber-700/65 bg-amber-950/55 text-amber-100",
-  sky: "border-sky-900/60 bg-sky-950/25 text-sky-200",
-  neutral: "border-border/80 bg-muted/45 text-neutral-300",
+  sky: "border-cyan-900/60 bg-cyan-950/25 text-cyan-200",
+  neutral: "border-border/80 bg-muted/45 text-subtle",
 };
 
 // Full-strength tones: a translucent tint drops below 4.5:1 on the light theme's tinted strip.
 const DETAIL_TONE: Record<ContextSignalTone, string> = {
-  rose: "text-rose-300",
+  rose: "text-red-300",
   amber: "text-amber-300",
-  sky: "text-sky-300",
+  sky: "text-cyan-300",
   neutral: "text-muted-foreground",
 };
 
 const CHIP_TONE: Record<ContextSignalTone, string> = {
-  rose: "border-rose-800/60 text-rose-200 hover:bg-rose-950/30",
+  rose: "border-red-800/60 text-red-200 hover:bg-red-950/30",
   amber: "border-amber-800/60 text-amber-200 hover:bg-amber-950/30",
-  sky: "border-sky-800/60 text-sky-200 hover:bg-sky-950/30",
-  neutral: "border-neutral-700/70 text-neutral-300 hover:bg-muted/60",
+  sky: "border-cyan-800/60 text-cyan-200 hover:bg-cyan-950/30",
+  neutral: "border-border/70 text-subtle hover:bg-muted/60",
 };
 
 export function ContextChip({ signal }: { signal: ContextSignal }) {

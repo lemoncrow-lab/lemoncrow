@@ -602,7 +602,7 @@ export default function ReviewDirectory() {
   };
 
   return (
-    <div ref={directoryRef} role="region" aria-label="Reviews" tabIndex={-1} className="min-h-full bg-background text-neutral-200" data-testid="review-directory">
+    <div ref={directoryRef} role="region" aria-label="Reviews" tabIndex={-1} className="min-h-full bg-background text-foreground" data-testid="review-directory">
       <PageFrame className="space-y-3">
         <Hunk>
           <HunkHead>

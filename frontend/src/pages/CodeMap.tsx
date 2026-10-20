@@ -986,7 +986,7 @@ export default function CodeMap() {
   }, []);
 
   return (
-    <section className="flex min-h-[calc(100vh-80px)] flex-col bg-surface-sunken text-neutral-200 xl:h-[calc(100dvh-41px)] xl:min-h-0 xl:overflow-hidden">
+    <section className="flex min-h-[calc(100vh-80px)] flex-col bg-surface-sunken text-foreground xl:h-[calc(100dvh-41px)] xl:min-h-0 xl:overflow-hidden">
       <div className="border-b border-border bg-background/75 px-3 lg:px-4">
         <div className="flex h-10 items-center gap-1.5 overflow-x-auto whitespace-nowrap">
           {returnTo && (
@@ -1055,17 +1055,17 @@ export default function CodeMap() {
                   {navigator.platform?.toLowerCase().includes("mac") ? "⌘K" : "Ctrl K"}
                 </span>
               )}
-              {searching && <Loader2 size={11} className="absolute right-2 top-2.5 animate-spin text-neutral-400" />}
+              {searching && <Loader2 size={11} className="absolute right-2 top-2.5 animate-spin text-muted-foreground" />}
               {query.trim().length >= 2 && !searching && searchError && (
-                <div className="absolute right-0 top-9 z-30 w-full rounded-lg border border-red-900/60 bg-background px-3 py-2.5 text-label text-red-300 shadow-2xl">{searchError}</div>
+                <div className="absolute right-0 top-9 z-30 w-full rounded-lg border border-red-900/60 bg-background px-3 py-2.5 text-label text-red-300 shadow-float">{searchError}</div>
               )}
               {query.trim().length >= 2 && !searching && !searchError && searchResults.length === 0 && (
-                <div className="absolute right-0 top-9 z-30 w-full rounded-lg border border-border/80 bg-background px-3 py-2.5 text-label text-muted-foreground shadow-2xl">
+                <div className="absolute right-0 top-9 z-30 w-full rounded-lg border border-border/80 bg-background px-3 py-2.5 text-label text-muted-foreground shadow-float">
                   No matching files, symbols, or text.
                 </div>
               )}
               {searchResults.length > 0 && (
-                <div id="code-search-results" className="absolute right-0 top-9 z-30 max-h-96 w-full overflow-y-auto rounded-lg border border-border/80 bg-background p-1 shadow-2xl">
+                <div id="code-search-results" className="absolute right-0 top-9 z-30 max-h-96 w-full overflow-y-auto rounded-lg border border-border/80 bg-background p-1 shadow-float">
                   {searchResults.map((result, index) => {
                     const label = result.type === "text" ? result.match.text || query.trim() : result.node.label;
                     const path = result.type === "text" ? result.match.path : result.node.path;
@@ -1112,7 +1112,7 @@ export default function CodeMap() {
                 onClick={() => changeSurface("source")}
                 aria-pressed={surface === "source"}
                 style={{ borderRadius: 0 }}
-                className={`inline-flex h-full items-center gap-1.5 border-0 px-2 ${surface === "source" ? "bg-accent text-foreground" : "text-neutral-400 hover:text-foreground"}`}
+                className={`inline-flex h-full items-center gap-1.5 border-0 text-label px-2 ${surface === "source" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
               >
                 <FileCode2 size={11} /> Source
               </UiButton>
@@ -1122,7 +1122,7 @@ export default function CodeMap() {
                 onClick={() => changeSurface("map")}
                 aria-pressed={surface === "map"}
                 style={{ borderRadius: 0 }}
-                className={`inline-flex h-full items-center gap-1.5 border-0 border-l border-border px-2 ${surface === "map" ? "bg-accent text-foreground" : "text-neutral-400 hover:text-foreground"}`}
+                className={`inline-flex h-full items-center gap-1.5 border-0 text-label border-l border-border px-2 ${surface === "map" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
               >
                 <Network size={11} /> Map
               </UiButton>
@@ -1132,7 +1132,7 @@ export default function CodeMap() {
                 onClick={() => changeSurface("2d")}
                 aria-pressed={surface === "2d"}
                 style={{ borderRadius: 0 }}
-                className={`inline-flex h-full items-center gap-1.5 border-0 border-l border-border px-2 ${surface === "2d" ? "bg-accent text-foreground" : "text-neutral-400 hover:text-foreground"}`}
+                className={`inline-flex h-full items-center gap-1.5 border-0 text-label border-l border-border px-2 ${surface === "2d" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
               >
                 <Share2 size={11} /> 2D
               </UiButton>
@@ -1142,7 +1142,7 @@ export default function CodeMap() {
                 onClick={() => changeSurface("3d")}
                 aria-pressed={surface === "3d"}
                 style={{ borderRadius: 0 }}
-                className={`inline-flex h-full items-center gap-1.5 border-0 border-l border-border px-2 ${surface === "3d" ? "bg-accent text-foreground" : "text-neutral-400 hover:text-foreground"}`}
+                className={`inline-flex h-full items-center gap-1.5 border-0 text-label border-l border-border px-2 ${surface === "3d" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
               >
                 <Boxes size={11} /> 3D
               </UiButton>
@@ -1166,12 +1166,12 @@ export default function CodeMap() {
               unstyled
               type="button"
               onClick={() => setLiveEnabled((enabled) => !enabled)}
-              className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-border/80 bg-background px-2 text-caption tabular-nums text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-border/80 bg-background px-2 text-meta tabular-nums text-muted-foreground hover:bg-muted hover:text-foreground"
               aria-pressed={liveEnabled}
               aria-label={`Live activity: ${liveSessionCount} active ${liveSessionCount === 1 ? "session" : "sessions"}. Click to turn live overlay ${liveEnabled ? "off" : "on"}.`}
               title={activitySessions.length ? `${liveSessionCount} live of ${activitySessions.length} recent sessions` : "No agent session in this worktree yet"}
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${liveEnabled && activityStatus !== "offline" && liveSessionCount > 0 ? "bg-emerald-400" : "bg-neutral-600"}`} />
+              <span className={`h-1.5 w-1.5 rounded-full ${liveEnabled && activityStatus !== "offline" && liveSessionCount > 0 ? "bg-emerald-400" : "bg-muted-foreground"}`} />
               {liveSessionCount}
             </UiButton>
           </div>
@@ -1187,8 +1187,8 @@ export default function CodeMap() {
         </div>
       )}
       {loading ? (
-        <div className="flex min-h-[560px] items-center justify-center gap-3 text-heading text-neutral-300">
-          <Loader2 className="animate-spin text-neutral-300" size={18} /> Listing files…
+        <div className="flex min-h-[560px] items-center justify-center gap-3 text-heading text-subtle">
+          <Loader2 className="animate-spin text-subtle" size={18} /> Listing files…
         </div>
       ) : !files.length && !error ? (
         <div className="flex min-h-[560px] items-center justify-center px-4">
@@ -1286,7 +1286,7 @@ export default function CodeMap() {
             />
           )}
           {askOpen && codeAskTransport ? (
-            <div className="absolute inset-y-0 right-0 z-30 w-[min(400px,92vw)] min-h-0 border-l border-border bg-background shadow-[-18px_0_40px_rgba(0,0,0,0.3)] xl:static xl:w-auto xl:shadow-none">
+            <div className="absolute inset-y-0 right-0 z-30 w-[min(400px,92vw)] min-h-0 border-l border-border bg-background shadow-float xl:static xl:w-auto xl:shadow-none">
               <Suspense fallback={null}>
                 <ReviewAskDrawer
                   reviewId={projectUrlReference ?? ""}

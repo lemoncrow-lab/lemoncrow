@@ -43,15 +43,15 @@
 }
 
 .review-shell {
-  @apply bg-background text-neutral-200;
+  @apply bg-background text-foreground;
 }
 
 .review-panel {
-  @apply rounded-lg border border-border/70 bg-background/95 shadow-[0_16px_48px_rgba(0,0,0,0.22)];
+  @apply rounded-lg border border-border bg-card shadow-float;
 }
 
 .review-panel-raised {
-  @apply rounded-lg border border-border/70 bg-muted/65 shadow-[0_18px_54px_rgba(0,0,0,0.28)];
+  @apply rounded-lg border border-border bg-muted shadow-float;
 }
 
 .review-divider {
@@ -59,16 +59,16 @@
 }
 
 .review-kicker {
-  @apply text-label font-semibold text-neutral-400;
+  @apply text-label font-semibold text-muted-foreground;
 }
 
 .review-muted {
-  @apply text-body leading-5 text-neutral-400;
+  @apply text-body leading-5 text-muted-foreground;
 }
 
 /* Buttons, menus, segments, pills and sheets are UI primitives now (src/components/ui). */
 .review-field {
-  @apply rounded-md border border-input bg-secondary/90 px-2.5 py-1.5 text-body text-neutral-200 placeholder:text-muted-foreground transition-[color,border-color,box-shadow];
+  @apply rounded-md border border-input bg-card px-2.5 py-1.5 text-ui text-foreground placeholder:text-muted-foreground transition-[color,border-color,box-shadow];
   outline: none;
   box-shadow: none;
 }
@@ -627,7 +627,7 @@
   flex-shrink: 0;
 }
 .review-context-strip[data-signal="source"][data-tone="amber"] {
-  box-shadow: inset 0 1px 0 rgb(251 191 36 / 0.08), inset 3px 0 0 rgb(245 158 11 / 0.55);
+  box-shadow: inset 3px 0 0 rgb(var(--p1-solid));
 }
 .review-context-label { flex-shrink: 0; display: inline-flex; align-items: baseline; gap: 5px; font-weight: 650; white-space: nowrap; }
 .review-context-detail { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -815,7 +815,7 @@
     z-index: 45;
     width: min(300px, calc(100% - 40px));
     max-width: none;
-    box-shadow: 12px 0 28px rgb(0 0 0 / 0.2);
+    @apply shadow-float;
   }
 
   .review-target-label { flex-wrap: wrap; }
@@ -1038,7 +1038,6 @@
   overscroll-behavior-x: contain;
   scrollbar-color: rgb(var(--n-600)) rgb(var(--n-900) / 0.96);
   scrollbar-width: auto;
-  box-shadow: 0 -1px 0 rgb(255 255 255 / 0.025);
 }
 
 .review-horizontal-scrollbar::-webkit-scrollbar {

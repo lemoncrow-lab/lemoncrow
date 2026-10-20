@@ -386,7 +386,7 @@ export function BackgroundBudgetPanel({
           detail={statusDetail}
         />
       </dl>
-      <details className="rounded-md border border-border/80 px-3 py-2 text-caption">
+      <details className="rounded-md border border-border/80 px-3 py-2 text-meta">
         <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
           Advanced budget details
         </summary>

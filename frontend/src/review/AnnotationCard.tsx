@@ -161,7 +161,7 @@ function Composer({
   return (
     <div className="review-composer" aria-busy={busy}>
       <div className="review-composer-heading">
-        <MessageSquareText size={16} className="text-neutral-400" aria-hidden="true" />
+        <MessageSquareText size={16} className="text-muted-foreground" aria-hidden="true" />
         <span>Draft · {label}</span>
       </div>
       <UiTextarea
@@ -228,7 +228,7 @@ function Composer({
               <UiButton unstyled
                 type="button"
                 onClick={onSuggestEdit}
-                className="review-composer-kind review-composer-kind-source border-violet-900/70 text-violet-300"
+                className="review-composer-kind review-composer-kind-source border-border text-muted-foreground"
                 tooltip="Save a concrete patch without changing the working source"
               >
                 <PencilLine size={11} aria-hidden="true" />
@@ -239,7 +239,7 @@ function Composer({
               <UiButton unstyled
                 type="button"
                 onClick={onEditSource}
-                className="review-composer-kind review-composer-kind-source border-sky-900/70 text-sky-300"
+                className="review-composer-kind review-composer-kind-source border-cyan-900/70 text-cyan-300"
                 tooltip="Edit the trusted working source through the guarded proposal path"
               >
                 Edit source
@@ -257,7 +257,7 @@ function Composer({
                 setMarkTarget(event.target.checked);
                 if (parentId === "") onDraftChange?.({ markTarget: event.target.checked });
               }}
-              className="accent-rose-500"
+              className="accent-red-500"
             />
             Also mark target needs changes
           </label>

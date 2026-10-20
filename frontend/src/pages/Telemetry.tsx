@@ -144,7 +144,7 @@ function FilterSelect({
   children: React.ReactNode;
 }) {
   return (
-    <label className="flex items-center gap-3 text-caption font-mono uppercase tracking-[0.22em] text-neutral-400">
+    <label className="flex items-center gap-3 text-caption font-mono uppercase tracking-tag text-muted-foreground">
       <span className="whitespace-nowrap">{label}</span>
       <Select
         aria-label={label}
@@ -167,13 +167,13 @@ function CountBars({
 }) {
   const max = Math.max(1, ...items.map((item) => item.count));
   if (items.length === 0) {
-    return <div className="text-heading text-neutral-400">{emptyLabel}</div>;
+    return <div className="text-heading text-muted-foreground">{emptyLabel}</div>;
   }
   return (
     <div className="space-y-3">
       {items.slice(0, 8).map((item) => (
         <div key={item.name}>
-          <div className="mb-1 flex justify-between gap-3 text-body text-neutral-400">
+          <div className="mb-1 flex justify-between gap-3 text-body text-muted-foreground">
             <span className="truncate">{item.name}</span>
             <span>{fmt.format(item.count)}</span>
           </div>
@@ -256,7 +256,7 @@ function TimelineChart({
 }) {
   if (points.length === 0) {
     return (
-      <div className="flex min-h-[280px] items-center justify-center border border-dashed border-border bg-background/60 text-heading text-neutral-400">
+      <div className="flex min-h-[280px] items-center justify-center border border-dashed border-border bg-background/60 text-heading text-muted-foreground">
         {emptyLabel}
       </div>
     );
@@ -426,18 +426,18 @@ function EventRow({
             {hostName && <Chip tone="info">{hostName}</Chip>}
             {item.exported && <Chip tone="success">Exported</Chip>}
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-body text-neutral-400">
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-body text-muted-foreground">
             <span>{formatTimestamp(item.ts, rangeSeconds ?? undefined)}</span>
             <span>{formatRelative(item.ts)}</span>
             {item.session_id && <span>session {item.session_id}</span>}
           </div>
         </div>
-        <span className="pt-0.5 text-caption font-mono uppercase tracking-[0.22em] text-neutral-400">
+        <span className="pt-0.5 text-caption font-mono uppercase tracking-tag text-muted-foreground">
           JSON
         </span>
       </summary>
       <div className="border-t border-border px-4 py-4">
-        <pre className="overflow-x-auto bg-background p-4 text-body leading-relaxed text-neutral-300">
+        <pre className="overflow-x-auto bg-background p-4 text-body leading-relaxed text-subtle">
           {JSON.stringify(
             {
               id: item.id,
@@ -647,7 +647,7 @@ export default function Telemetry() {
   }
 
   if (!summary || !schema) {
-    return <div className="text-neutral-400">Loading...</div>;
+    return <div className="text-muted-foreground">Loading...</div>;
   }
 
   const liveHint =
@@ -812,7 +812,7 @@ export default function Telemetry() {
       >
         <div className="space-y-3">
           {recentEvents.length === 0 ? (
-            <div className="text-heading text-neutral-400">
+            <div className="text-heading text-muted-foreground">
               No telemetry rows match the current filters.
             </div>
           ) : (
@@ -835,7 +835,7 @@ export default function Telemetry() {
         <div className="overflow-auto">
           <table className="min-w-full border-collapse text-left text-heading">
             <thead>
-              <tr className="border-b border-border text-body uppercase tracking-widest text-neutral-400">
+              <tr className="border-b border-border text-body uppercase tracking-widest text-muted-foreground">
                 <th className="py-2 pr-4">Event</th>
                 <th className="py-2 pr-4">Allowlisted properties</th>
                 <th className="py-2">Example payload</th>
@@ -845,18 +845,18 @@ export default function Telemetry() {
               {Object.entries(schema.events).map(([eventName, spec]) => (
                 <tr
                   key={eventName}
-                  className="border-b border-neutral-900 align-top"
+                  className="border-b border-border align-top"
                 >
                   <td className="py-3 pr-4 font-mono text-cyan-300">
                     {eventName}
                   </td>
-                  <td className="py-3 pr-4 text-neutral-300">
+                  <td className="py-3 pr-4 text-subtle">
                     {spec.props.join(", ")}
                   </td>
                   <td className="py-3">
                     <code
                       className={cx(
-                        "whitespace-pre-wrap text-body text-neutral-400"
+                        "whitespace-pre-wrap text-body text-muted-foreground"
                       )}
                     >
                       {JSON.stringify(spec.example)}

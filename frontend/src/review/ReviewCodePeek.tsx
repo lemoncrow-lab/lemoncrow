@@ -68,7 +68,7 @@ export default function ReviewCodePeek({ projectRoot, path, symbol, line, onJump
 
   if (!runtimeCode) return null;
   return (
-    <section className="border-t border-neutral-900 pt-3" data-testid="review-code-peek">
+    <section className="border-t border-border pt-3" data-testid="review-code-peek">
       <div className="review-kicker mb-1.5">Code Peek</div>
       <p className="text-micro leading-4 text-muted-foreground">
         Current index context · navigation only · not Snapshot-exact Review evidence.
@@ -82,7 +82,7 @@ export default function ReviewCodePeek({ projectRoot, path, symbol, line, onJump
       ) : (
         <div className="mt-2 space-y-2">
           <div className="rounded border border-border/70 px-2 py-1.5">
-            <div className="text-caption font-medium text-neutral-300">{definition.qualified_name || definition.label}</div>
+            <div className="text-caption font-medium text-subtle">{definition.qualified_name || definition.label}</div>
             <div className="font-mono text-micro text-muted-foreground">{definition.path}:L{definition.line}</div>
             <div className="mt-1 flex flex-wrap gap-x-3">
               {onJump && (
@@ -90,7 +90,7 @@ export default function ReviewCodePeek({ projectRoot, path, symbol, line, onJump
                   variant="link"
                   size="compact"
                   type="button"
-                  className="px-0 text-caption"
+                  className="px-0 text-meta"
                   onClick={() => onJump({ path: definition.path, line: definition.line, endLine: definition.end_line })}
                 >
                   Go to definition
@@ -101,7 +101,7 @@ export default function ReviewCodePeek({ projectRoot, path, symbol, line, onJump
                   variant="link"
                   size="compact"
                   type="button"
-                  className={"px-0 text-caption" + (onJump ? " text-muted-foreground" : "")}
+                  className={"px-0 text-meta" + (onJump ? " text-muted-foreground" : "")}
                   onClick={() => onOpenInCode({ path: definition.path, line: definition.line, endLine: definition.end_line })}
                 >
                   Open definition in Code
@@ -110,7 +110,7 @@ export default function ReviewCodePeek({ projectRoot, path, symbol, line, onJump
             </div>
           </div>
           <div>
-            <div className="text-caption text-neutral-400">
+            <div className="text-caption text-muted-foreground">
               Usages{references ? " · " + references.reference_count : ""}
             </div>
             {shownReferences.length === 0 ? (
@@ -130,7 +130,7 @@ export default function ReviewCodePeek({ projectRoot, path, symbol, line, onJump
                         className="block min-w-0 flex-1 rounded px-1.5 py-1 text-left hover:bg-muted disabled:cursor-default"
                       >
                         <div className="flex min-w-0 gap-2 text-caption">
-                          <span className="min-w-0 flex-1 truncate font-mono text-neutral-300">{reference.path}</span>
+                          <span className="min-w-0 flex-1 truncate font-mono text-subtle">{reference.path}</span>
                           <span className="shrink-0 font-mono text-muted-foreground">L{reference.line}</span>
                         </div>
                         {reference.snippet && <div className="truncate font-mono text-micro text-muted-foreground">{reference.snippet.trim()}</div>}

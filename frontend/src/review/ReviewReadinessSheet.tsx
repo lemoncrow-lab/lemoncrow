@@ -270,17 +270,17 @@ export function deriveReviewReadiness({
 }
 
 function toneClass(tone: ReviewReadinessModel["blockers"][number]["tone"]): string {
-  if (tone === "rose") return "text-rose-300";
-  if (tone === "sky") return "text-sky-300";
+  if (tone === "rose") return "text-red-300";
+  if (tone === "sky") return "text-cyan-300";
   if (tone === "amber") return "text-amber-300";
-  return "text-neutral-300";
+  return "text-subtle";
 }
 
 function landingConditionClass(condition: ReviewLandingCondition): string {
   if (condition.state === "pass") return "text-emerald-300";
-  if (condition.state === "fail") return "text-rose-300";
+  if (condition.state === "fail") return "text-red-300";
   if (condition.state === "not_applicable") return "text-muted-foreground";
-  if (condition.state === "waived") return "text-neutral-300";
+  if (condition.state === "waived") return "text-subtle";
   return "text-amber-300";
 }
 
@@ -352,9 +352,9 @@ function followUpText(record: ReviewBreakGlassRecord): string {
 
 function LandingConditionIcon({ condition }: { condition: ReviewLandingCondition }) {
   if (condition.state === "pass") return <CheckCircle2 size={12} className="mt-0.5 shrink-0 text-emerald-400" />;
-  if (condition.state === "fail") return <AlertTriangle size={12} className="mt-0.5 shrink-0 text-rose-400" />;
+  if (condition.state === "fail") return <AlertTriangle size={12} className="mt-0.5 shrink-0 text-red-400" />;
   if (condition.state === "not_applicable") return <CircleDot size={11} className="mt-0.5 shrink-0 text-muted-foreground" />;
-  if (condition.state === "waived") return <CircleDot size={11} className="mt-0.5 shrink-0 text-neutral-400" />;
+  if (condition.state === "waived") return <CircleDot size={11} className="mt-0.5 shrink-0 text-muted-foreground" />;
   return <CircleDot size={11} className="mt-0.5 shrink-0 text-amber-300" />;
 }
 
@@ -438,7 +438,7 @@ export default function ReviewReadinessSheet({
                   landing.landing.state === "merged" || (landing.ready && landing.landing.supported)
                     ? "text-emerald-300"
                     : landing.ready
-                      ? "text-neutral-400"
+                      ? "text-muted-foreground"
                       : "text-amber-300"
                 }`}
               >
@@ -472,7 +472,7 @@ export default function ReviewReadinessSheet({
           <section aria-labelledby="your-review-status">
             <div id="your-review-status" className="review-kicker mb-1">Your review</div>
             <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-muted-foreground">
-              <span className="font-mono text-neutral-300">{model.reviewedTargets}/{model.targetCount} reviewed</span>
+              <span className="font-mono text-subtle">{model.reviewedTargets}/{model.targetCount} reviewed</span>
               {model.changedSinceReview > 0 && <span>{model.changedSinceReview} changed since your review</span>}
               {model.baseOnlyNote && <span data-testid="readiness-base-only">{model.baseOnlyNote}</span>}
               {model.needsChanges > 0 && <span>{model.needsChanges} need changes</span>}
@@ -484,11 +484,11 @@ export default function ReviewReadinessSheet({
                 No unresolved blockers in your current review.
               </div>
             ) : (
-              <div className="divide-y divide-neutral-900 border-y border-neutral-900">
+              <div className="divide-y divide-border border-y border-border">
                 {yourBlockers.map((item) => (
                   <div key={item.id} className="flex gap-2.5 py-2.5">
                     {item.tone === "rose"
-                      ? <AlertTriangle size={12} className="mt-0.5 shrink-0 text-rose-400" />
+                      ? <AlertTriangle size={12} className="mt-0.5 shrink-0 text-red-400" />
                       : <CircleDot size={11} className={`mt-0.5 shrink-0 ${toneClass(item.tone)}`} />}
                     <div className="min-w-0">
                       <div className={`text-caption font-medium ${toneClass(item.tone)}`}>{item.label}</div>
@@ -502,14 +502,14 @@ export default function ReviewReadinessSheet({
               <div className="mt-3 rounded-md border border-border/70 bg-muted/25 px-3 py-2.5">
                 <div className="flex items-center gap-2 text-caption">
                   <span className="text-muted-foreground">Latest outcome</span>
-                  <span className="font-medium capitalize text-neutral-200">{model.outcome.outcome.replaceAll("_", " ")}</span>
+                  <span className="font-medium capitalize text-foreground">{model.outcome.outcome.replaceAll("_", " ")}</span>
                   {model.outcome.stale && <Badge tone="secondary" className="text-amber-300">older Snapshot</Badge>}
                 </div>
                 {model.outcome.summary && <div className="mt-1 text-caption leading-4 text-muted-foreground">{model.outcome.summary}</div>}
               </div>
             )}
             <div className="mt-4">
-              <div className="mb-1 text-caption font-semibold text-neutral-300">Verification</div>
+              <div className="mb-1 text-caption font-semibold text-subtle">Verification</div>
               <div className="mb-2 text-caption leading-4 text-muted-foreground">
                 Only completed checks count as passing; checks that did not run or could not be read stay unresolved.
               </div>
@@ -522,7 +522,7 @@ export default function ReviewReadinessSheet({
             <section className="mt-5" aria-labelledby="team-review-status">
               <div id="team-review-status" className="review-kicker mb-1">Team review</div>
               {teamBlockers.length > 0 && (
-                <div className="divide-y divide-neutral-900 border-y border-neutral-900">
+                <div className="divide-y divide-border border-y border-border">
                   {teamBlockers.map((item) => (
                     <div key={item.id} className="flex gap-2.5 py-2.5">
                       <CircleDot size={11} className={`mt-0.5 shrink-0 ${toneClass(item.tone)}`} />
@@ -545,7 +545,7 @@ export default function ReviewReadinessSheet({
                 <div data-testid="readiness-blocking" className="mb-2 text-caption font-medium leading-4 text-amber-300">{blocking}</div>
               )}
               {!landing && scmFallbackBlockers.length > 0 && (
-                <div className="divide-y divide-neutral-900 border-y border-neutral-900">
+                <div className="divide-y divide-border border-y border-border">
                   {scmFallbackBlockers.map((item) => (
                     <div key={item.id} className="flex gap-2.5 py-2.5">
                       <CircleDot size={11} className={`mt-0.5 shrink-0 ${toneClass(item.tone)}`} />
@@ -557,7 +557,7 @@ export default function ReviewReadinessSheet({
                   ))}
                 </div>
               )}
-              {landing && <div className="divide-y divide-neutral-900 border-y border-neutral-900">
+              {landing && <div className="divide-y divide-border border-y border-border">
                 {landing.conditions.map((condition) => (
                   <div key={condition.id} className="flex gap-2.5 py-2.5">
                     <LandingConditionIcon condition={condition} />
@@ -568,14 +568,14 @@ export default function ReviewReadinessSheet({
                         {condition.state === "waived" && <Badge tone="secondary" className="text-amber-300/80">waived by a human</Badge>}
                       </div>
                       {conditionLabel(condition) !== condition.label && (
-                        <div className="mt-0.5 text-caption text-neutral-400">{condition.label}</div>
+                        <div className="mt-0.5 text-caption text-muted-foreground">{condition.label}</div>
                       )}
                       <div className="mt-0.5 text-caption leading-4 text-muted-foreground">{condition.detail}</div>
                       {conditionFreshness(condition) && (
                         <div className="mt-0.5 font-mono text-caption leading-4 text-muted-foreground">{conditionFreshness(condition)}</div>
                       )}
                       {webHref(condition.url) && (
-                        <a href={webHref(condition.url)} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-caption text-sky-300 hover:underline">
+                        <a href={webHref(condition.url)} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-meta text-cyan-300 hover:underline">
                           Open requirement <ExternalLink size={10} />
                         </a>
                       )}
@@ -587,7 +587,7 @@ export default function ReviewReadinessSheet({
               {approvalText && (
                 <div data-testid="readiness-auto-approval" className="mt-3 rounded-md border border-border/70 bg-muted/15 px-3 py-2 text-caption">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold text-neutral-300">Policy approval</span>
+                    <span className="font-semibold text-subtle">Policy approval</span>
                     {landing?.landing.auto_approval?.state && landing.landing.auto_approval.state !== "none" && (
                       <Badge tone="secondary" className={landing.landing.auto_approval.state === "approved" ? "text-emerald-300" : "text-amber-300"}>
                         {landing.landing.auto_approval.state}
@@ -599,8 +599,8 @@ export default function ReviewReadinessSheet({
               )}
 
               {landing?.policy_generation && (
-                <details data-testid="review-policy-details" className="mt-3 rounded-md border border-border/70 bg-muted/15 px-3 py-2 text-caption">
-                  <summary className="cursor-pointer select-none text-neutral-300">
+                <details data-testid="review-policy-details" className="mt-3 rounded-md border border-border/70 bg-muted/15 px-3 py-2 text-meta">
+                  <summary className="cursor-pointer select-none text-subtle">
                     Policy details{landing.policy_generation.authority === "provisional" ? " · provisional" : ""}
                   </summary>
                   <div className="mt-2 space-y-1 text-muted-foreground" title={policyTitle(landing)}>
@@ -615,25 +615,25 @@ export default function ReviewReadinessSheet({
               )}
 
               {landing?.premerge && (
-                <details data-testid="review-premerge-details" className="mt-3 rounded-md border border-border/70 bg-muted/15 px-3 py-2 text-caption">
-                  <summary className="cursor-pointer select-none text-neutral-300">Pre-merge check details</summary>
+                <details data-testid="review-premerge-details" className="mt-3 rounded-md border border-border/70 bg-muted/15 px-3 py-2 text-meta">
+                  <summary className="cursor-pointer select-none text-subtle">Pre-merge check details</summary>
                   <ReviewPremergeChecks premerge={landing.premerge} readOnly={readOnly} actions={premergeActions} />
                 </details>
               )}
 
               {landing && landing.work_items.length > 0 && (
                 <div className="mt-4">
-                  <div className="mb-2 text-caption font-semibold text-neutral-300">Work item</div>
+                  <div className="mb-2 text-caption font-semibold text-subtle">Work item</div>
                   <div className="space-y-1.5">
                     {landing.work_items.map((item) => (
                       <div key={item.id} className="rounded-md border border-border/70 bg-muted/20 px-3 py-2">
                         {webHref(item.url) ? (
-                          <a href={webHref(item.url)} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-3 text-caption text-neutral-300 hover:text-neutral-50">
+                          <a href={webHref(item.url)} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-3 text-meta text-subtle hover:text-foreground">
                             <span className="min-w-0 truncate">{item.title || item.external_id || "Associated work item"}</span>
                             <span className="flex shrink-0 items-center gap-1 text-muted-foreground">{item.provider || "external"}<ExternalLink size={10} /></span>
                           </a>
                         ) : (
-                          <div className="text-caption text-neutral-400">{item.title || item.external_id || "Associated work item"}</div>
+                          <div className="text-caption text-muted-foreground">{item.title || item.external_id || "Associated work item"}</div>
                         )}
                       </div>
                     ))}
@@ -644,7 +644,7 @@ export default function ReviewReadinessSheet({
               {landing && <div className="mt-4 rounded-md border border-border/80 bg-muted/25 p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="text-caption font-semibold text-neutral-200">Merge when ready</div>
+                    <div className="text-caption font-semibold text-foreground">Merge when ready</div>
                     <div className="mt-1 text-caption leading-4 text-muted-foreground">
                       {landing.landing.supported
                         ? `When enabled, ${landing.landing.provider || "the connected provider"} merges after its remaining requirements pass. LemonCrow does not merge or rebase Git itself.`
@@ -669,7 +669,7 @@ export default function ReviewReadinessSheet({
                       </div>
                     )}
                     {webHref(landing.landing.url) && (
-                      <a href={webHref(landing.landing.url)} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-caption text-sky-300 hover:underline">
+                      <a href={webHref(landing.landing.url)} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-meta text-cyan-300 hover:underline">
                         Open {landing.landing.provider || "provider"} <ExternalLink size={10} />
                       </a>
                     )}
@@ -707,24 +707,24 @@ export default function ReviewReadinessSheet({
                     )}
                   </div>
                 )}
-                {landingError && <div className="mt-2 text-caption text-rose-300">{landingError}</div>}
+                {landingError && <div className="mt-2 text-caption text-red-300">{landingError}</div>}
               </div>}
 
               {breakGlass.length > 0 && (
-                <div data-testid="readiness-break-glass" className="mt-3 rounded-md border border-rose-900/40 bg-rose-950/10 px-3 py-2 text-caption">
-                  <div className="font-semibold text-rose-300">Break-glass</div>
+                <div data-testid="readiness-break-glass" className="mt-3 rounded-md border border-red-900/40 bg-red-950/10 px-3 py-2 text-caption">
+                  <div className="font-semibold text-red-300">Break-glass</div>
                   {breakGlass.map((record) => (
                     <div key={record.id} className="mt-1.5 leading-4">
-                      <div className="text-neutral-200">
+                      <div className="text-foreground">
                         {record.actor_id} bypassed {record.bypassed.map((row) => row.label || row.id).join(", ") || "no condition"}
                       </div>
                       <div className="text-muted-foreground">{record.reason}</div>
                       {webHref(record.incident_url) && (
-                        <a href={webHref(record.incident_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sky-300 hover:underline">
+                        <a href={webHref(record.incident_url)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-cyan-300 hover:underline">
                           Incident <ExternalLink size={10} />
                         </a>
                       )}
-                      <div className={record.follow_up.state === "overdue" ? "text-rose-300" : record.follow_up.state === "completed" ? "text-emerald-300" : "text-amber-300"}>
+                      <div className={record.follow_up.state === "overdue" ? "text-red-300" : record.follow_up.state === "completed" ? "text-emerald-300" : "text-amber-300"}>
                         {followUpText(record)}
                       </div>
                     </div>
@@ -735,7 +735,7 @@ export default function ReviewReadinessSheet({
           )}
           {automation && (
             <details data-testid="review-automation-details" className="mt-5 rounded-md border border-border/70 bg-muted/15 px-3 py-2">
-              <summary className="cursor-pointer select-none text-caption font-medium text-neutral-300">Automation</summary>
+              <summary className="cursor-pointer select-none text-meta font-medium text-subtle">Automation</summary>
               {automation}
             </details>
           )}
@@ -743,7 +743,7 @@ export default function ReviewReadinessSheet({
 
           {recordSection && (
             <details data-testid="review-record-details" className="mt-5 rounded-md border border-border/70 bg-muted/15 px-3 py-2">
-              <summary className="cursor-pointer select-none text-caption font-medium text-neutral-300">Review record</summary>
+              <summary className="cursor-pointer select-none text-meta font-medium text-subtle">Review record</summary>
               <section aria-label="Review record" className="pt-2">{recordSection}</section>
             </details>
           )}

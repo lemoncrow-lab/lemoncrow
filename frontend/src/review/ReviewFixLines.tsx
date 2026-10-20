@@ -81,7 +81,7 @@ export default function ReviewFixLines({
           Fix in worktree
         </UiButton>
         {error && (
-          <div className="mt-1 text-caption text-rose-400">{error}</div>
+          <div className="mt-1 text-caption text-red-400">{error}</div>
         )}
       </div>
     );
@@ -143,7 +143,7 @@ export default function ReviewFixLines({
         {line.snapshots.map((item) => (
           <a
             key={item.id}
-            className="font-mono text-sky-300/80 hover:underline"
+            className="font-mono text-cyan-300/80 hover:underline"
             href={historicalReviewHref(
               line.child_review_id,
               item.display_number,
@@ -299,7 +299,7 @@ export default function ReviewFixLines({
       )}
 
       {dirty && (
-        <div className="mt-2 rounded-md border border-rose-500/40 p-2 text-caption">
+        <div className="mt-2 rounded-md border border-red-500/40 p-2 text-caption">
           <div>The fix worktree has uncommitted work that will be lost:</div>
           <ul className="font-mono">
             {dirty.files.map((path) => (
@@ -331,7 +331,7 @@ export default function ReviewFixLines({
       )}
 
       {error && (
-        <div className="mt-1 text-caption text-rose-400">{error}</div>
+        <div className="mt-1 text-caption text-red-400">{error}</div>
       )}
     </div>
   );

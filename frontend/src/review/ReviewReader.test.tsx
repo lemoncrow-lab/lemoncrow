@@ -6096,7 +6096,7 @@ it("says which file is opening and lets only the latest navigation scroll", asyn
     const bar = await screen.findByTestId("review-proposals");
     expect(bar).toHaveTextContent("1 ready");
     expect(bar).toHaveTextContent("1 awaiting update");
-    expect(bar.className).toContain("border-sky-900/45");
+    expect(bar.className).toContain("border-cyan-900/45");
     expect(bar).not.toHaveTextContent("need attention");
     expect(bar).not.toHaveTextContent("from older Snapshot");
   });
@@ -7297,8 +7297,8 @@ describe("ReviewReader 8F in-Review backtrail and residual presentation", () => 
     // §5.1 item 2: directly after "What changed".
     const sections = [...brief.querySelectorAll("section[aria-label]")].map((section) => section.getAttribute("aria-label"));
     expect(sections.slice(0, 2)).toEqual(["Change summary", "Architecture delta"]);
-    // Still one primary CTA in the Brief: the summary's own.
-    expect([...brief.querySelectorAll("button.bg-primary")].map((button) => button.textContent)).toEqual(["Open code"]);
+    // The Brief body adds no second filled CTA: the view's one primary action lives in the header.
+    expect([...brief.querySelectorAll("button.bg-primary, button.bg-brand")].map((button) => button.textContent)).toEqual([]);
     expect(within(card).getByRole("button", { name: "Open architecture view" }).className).not.toContain("bg-primary");
 
     briefScrollRoot().scrollTop = 240;

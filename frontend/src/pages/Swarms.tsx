@@ -80,7 +80,7 @@ function HoverHint({ text }: { text: string }) {
       <span
         tabIndex={0}
         aria-label={text}
-        className="inline-flex items-center text-muted-foreground transition hover:text-neutral-300"
+        className="inline-flex items-center text-muted-foreground transition hover:text-subtle"
       >
         <CircleHelp className="h-3.5 w-3.5" />
       </span>
@@ -517,7 +517,7 @@ export default function Swarms() {
       </div>
 
       {error ? (
-        <Card className="border-rose-500/30 bg-rose-500/10 p-3 text-heading text-rose-100">
+        <Card className="border-red-500/30 bg-red-500/10 p-3 text-heading text-red-100">
           {error}
         </Card>
       ) : null}
@@ -526,7 +526,7 @@ export default function Swarms() {
         <Card className="space-y-4 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-heading font-semibold uppercase tracking-[0.2em] text-neutral-400">
+              <h2 className="text-heading font-semibold uppercase tracking-tag text-muted-foreground">
                 Launch swarms
               </h2>
             </div>
@@ -562,7 +562,7 @@ export default function Swarms() {
                 {worktreeHint ? (
                   <p className="text-body text-muted-foreground">
                     Swarms working directory:{" "}
-                    <code className="text-neutral-200">{worktreeHint}</code>
+                    <code className="text-foreground">{worktreeHint}</code>
                   </p>
                 ) : null}
               </div>
@@ -817,7 +817,7 @@ export default function Swarms() {
                   </Button>
                 </div>
               </div>
-              <div className="space-y-2 text-heading text-neutral-400">
+              <div className="space-y-2 text-heading text-muted-foreground">
                 <label className="inline-flex items-center gap-2">
                   <UiInput unstyled
                     type="checkbox"
@@ -864,7 +864,7 @@ export default function Swarms() {
         <Card className="w-full flex-shrink-0 space-y-3 p-4 md:w-80 lg:w-96">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-heading font-semibold uppercase tracking-[0.2em] text-neutral-400">
+              <h2 className="text-heading font-semibold uppercase tracking-tag text-muted-foreground">
                 Swarms
               </h2>
               <p className="text-heading text-muted-foreground">
@@ -886,7 +886,7 @@ export default function Swarms() {
                   className={cx(
                     "w-full rounded-lg border px-3 py-3 text-left transition-colors",
                     selectedRunId === run.run_id
-                      ? "border-border bg-neutral-800/70"
+                      ? "border-border bg-accent/70"
                       : "border-border/70 bg-background/60 hover:bg-muted/70"
                   )}
                 >
@@ -901,13 +901,13 @@ export default function Swarms() {
                           {run.current_wave}/{run.max_runs}
                         </Chip>
                       </div>
-                      <p className="mt-1 text-body text-neutral-400">
+                      <p className="mt-1 text-body text-muted-foreground">
                         {run.repo_label} · {run.runner_name}
                         {run.runner_model ? ` / ${run.runner_model}` : ""}
                         {run.launch_effort ? ` · ${run.launch_effort}` : ""}
                       </p>
                       {run.spec_excerpt ? (
-                        <p className="mt-2 line-clamp-2 text-heading text-neutral-300">
+                        <p className="mt-2 line-clamp-2 text-heading text-subtle">
                           {compactExcerpt(run.spec_excerpt)}
                         </p>
                       ) : null}
@@ -952,7 +952,7 @@ export default function Swarms() {
                         {detail.run.planning_mode || detail.run.mode}
                       </Chip>
                     </div>
-                    <p className="mt-1 text-heading text-neutral-400">
+                    <p className="mt-1 text-heading text-muted-foreground">
                       {selectedRun.repo_label} · {detail.run.run_id} ·{" "}
                       {fmtDate(detail.run.updated_at)}
                     </p>
@@ -980,7 +980,7 @@ export default function Swarms() {
 
                 <div className="grid gap-3 lg:grid-cols-4">
                   <Card className="p-3">
-                    <div className="text-body uppercase tracking-[0.2em] text-muted-foreground">
+                    <div className="text-body uppercase tracking-tag text-muted-foreground">
                       Wave
                     </div>
                     <div className="mt-2 text-lead font-semibold text-foreground">
@@ -989,7 +989,7 @@ export default function Swarms() {
                     </div>
                   </Card>
                   <Card className="p-3">
-                    <div className="text-body uppercase tracking-[0.2em] text-muted-foreground">
+                    <div className="text-body uppercase tracking-tag text-muted-foreground">
                       Accepted
                     </div>
                     <div className="mt-2 text-lead font-semibold text-foreground">
@@ -997,7 +997,7 @@ export default function Swarms() {
                     </div>
                   </Card>
                   <Card className="p-3">
-                    <div className="text-body uppercase tracking-[0.2em] text-muted-foreground">
+                    <div className="text-body uppercase tracking-tag text-muted-foreground">
                       Children
                     </div>
                     <div className="mt-2 text-lead font-semibold text-foreground">
@@ -1005,7 +1005,7 @@ export default function Swarms() {
                     </div>
                   </Card>
                   <Card className="p-3">
-                    <div className="text-body uppercase tracking-[0.2em] text-muted-foreground">
+                    <div className="text-body uppercase tracking-tag text-muted-foreground">
                       Winner
                     </div>
                     <div className="mt-2 truncate text-heading font-medium text-foreground">
@@ -1018,7 +1018,7 @@ export default function Swarms() {
               <Card className="space-y-3 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-heading font-semibold uppercase tracking-[0.2em] text-neutral-400">
+                    <h3 className="text-heading font-semibold uppercase tracking-tag text-muted-foreground">
                       Frozen spec snapshot
                     </h3>
                     <p className="text-heading text-muted-foreground">
@@ -1043,7 +1043,7 @@ export default function Swarms() {
               <div className="grid gap-4 xl:grid-cols-2">
                 <Card className="space-y-3 p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <h3 className="text-heading font-semibold uppercase tracking-[0.2em] text-neutral-400">
+                    <h3 className="text-heading font-semibold uppercase tracking-tag text-muted-foreground">
                       Accepted commits
                     </h3>
                     <Chip tone="success">
@@ -1065,7 +1065,7 @@ export default function Swarms() {
                               #{commit.order} · {commitLabel(commit)}
                             </span>
                           </div>
-                          <p className="mt-2 text-heading text-neutral-400">
+                          <p className="mt-2 text-heading text-muted-foreground">
                             {artifactSummary(commit.artifacts)}
                           </p>
                         </div>
@@ -1089,7 +1089,7 @@ export default function Swarms() {
                 <Card className="space-y-3 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-heading font-semibold uppercase tracking-[0.2em] text-neutral-400">
+                      <h3 className="text-heading font-semibold uppercase tracking-tag text-muted-foreground">
                         Child logs
                       </h3>
                       <p className="text-heading text-muted-foreground">
@@ -1147,7 +1147,7 @@ export default function Swarms() {
         header={
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-heading font-semibold uppercase tracking-[0.2em] text-neutral-400">
+              <h2 className="text-heading font-semibold uppercase tracking-tag text-muted-foreground">
                 Workflow (advanced)
               </h2>
               <p className="text-heading text-muted-foreground">

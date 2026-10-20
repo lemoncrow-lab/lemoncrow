@@ -31,14 +31,14 @@ export default function ReviewBaseIdentity({ overview }: { overview: ReviewOverv
       {frozen ? (
         <>
           <span>Review base</span>
-          <span className="font-mono text-neutral-300">{shortBase(recorded)}</span>
+          <span className="font-mono text-subtle">{shortBase(recorded)}</span>
           <span aria-hidden="true">·</span>
           <span>Snapshot base</span>
-          <span className="font-mono text-neutral-300">{effective ? shortBase(effective) : "unavailable"}</span>
+          <span className="font-mono text-subtle">{effective ? shortBase(effective) : "unavailable"}</span>
         </>
       ) : (
         <>
-          <span className="font-medium text-neutral-300">Base not frozen</span>
+          <span className="font-medium text-subtle">Base not frozen</span>
           {effective && (
             <>
               <span aria-hidden="true">·</span>

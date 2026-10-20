@@ -349,11 +349,11 @@ function EntryCard({
         <span className="min-w-0 break-all font-medium text-foreground">{entry.subject.key}</span>
         <span className="text-muted-foreground">{entry.knowledge_kind}</span>
       </div>
-      <p className="whitespace-pre-wrap break-words text-body text-neutral-200">
+      <p className="whitespace-pre-wrap break-words text-body text-foreground">
         {entry.body}
         {entry.body_truncated && <span className="text-muted-foreground"> …</span>}
       </p>
-      <details className="text-caption">
+      <details className="text-meta">
         <summary className="cursor-pointer text-muted-foreground">Sources</summary>
         <ul className="mt-1 space-y-0.5" data-testid="project-knowledge-sources">
           {[...entry.source_refs, ...entry.review_refs, ...entry.merge_refs].map((ref) => (

@@ -122,13 +122,13 @@ function ArtifactBody({ display, side, value, label }: { display: string; side: 
   }
   if (display === "text" || display === "json") {
     return (
-      <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap p-3 font-mono text-label leading-5 text-neutral-300">
+      <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap p-3 font-mono text-label leading-5 text-subtle">
         {display === "json" ? prettyJsonText(value.text) : value.text}
       </pre>
     );
   }
   return (
-    <div className="flex items-center gap-3 p-3 text-label text-neutral-400">
+    <div className="flex items-center gap-3 p-3 text-label text-muted-foreground">
       <span className="min-w-0 flex-1 truncate font-mono">{value.filename}</span>
       <span className="text-muted-foreground">{value.mediaType} · {formatBytes(value.size)}</span>
       <UiButton
@@ -159,7 +159,7 @@ function SidePane({
   return (
     <div className="min-w-0 overflow-hidden rounded border border-border bg-background" data-testid={`plugin-preview-side:${side}`}>
       <div className="flex items-center gap-2 border-b border-border px-2.5 py-1.5 text-micro">
-        <span className="font-medium text-neutral-300">{SIDE_LABEL[side]}</span>
+        <span className="font-medium text-subtle">{SIDE_LABEL[side]}</span>
         {value?.state === "ready" && <span className="ml-auto font-mono text-muted-foreground">{value.filename}</span>}
       </div>
       {!value || value.state === "loading" ? (
@@ -168,11 +168,11 @@ function SidePane({
         </div>
       ) : value.state === "error" ? (
         <div className="min-h-40 p-3 text-label" role="alert">
-          <div className="font-medium text-rose-300">Preview unavailable</div>
+          <div className="font-medium text-red-300">Preview unavailable</div>
           <pre className="mt-1 max-h-52 overflow-auto whitespace-pre-wrap font-mono text-caption leading-4 text-muted-foreground">{value.message}</pre>
           <div className="mt-2 flex items-center gap-3 text-caption text-muted-foreground">
             <span>Source review below is unaffected.</span>
-            <UiButton type="button" variant="link" onClick={onRetry} className="text-neutral-400 hover:text-foreground">
+            <UiButton type="button" variant="link" onClick={onRetry} className="text-muted-foreground hover:text-foreground">
               <RotateCw size={10} /> Retry
             </UiButton>
           </div>
@@ -199,7 +199,7 @@ function DescriptorPreview({ surface, descriptor, revisionId, mode }: {
     return (
       <div className="rounded border border-amber-900/50 bg-amber-950/10 p-3 text-label" role="alert">
         <div className="font-medium text-amber-300">{label} unavailable</div>
-        <div className="mt-1 text-caption text-neutral-400">{descriptor.reason || "The preview renderer is unavailable."}</div>
+        <div className="mt-1 text-caption text-muted-foreground">{descriptor.reason || "The preview renderer is unavailable."}</div>
         <div className="mt-1 text-caption text-muted-foreground">Source review below is unaffected.</div>
       </div>
     );
@@ -257,7 +257,7 @@ function RunPane({ side, result }: { side: Side; result?: ReviewSurfaceRunResult
       </div>
     );
   }
-  const tone = result.status === "passed" ? "text-emerald-300" : result.status === "failed" ? "text-rose-300" : "text-amber-300";
+  const tone = result.status === "passed" ? "text-emerald-300" : result.status === "failed" ? "text-red-300" : "text-amber-300";
   return (
     <div className="min-w-0 rounded border border-border">
       <div className="flex items-center gap-2 border-b border-border px-2.5 py-1.5 text-caption">
@@ -265,9 +265,9 @@ function RunPane({ side, result }: { side: Side; result?: ReviewSurfaceRunResult
         <span className={tone}>{result.status}</span>
         <span className="ml-auto font-mono text-muted-foreground">{result.duration_ms} ms</span>
       </div>
-      <div className="px-2.5 py-1.5 text-caption text-neutral-400">{result.summary}</div>
+      <div className="px-2.5 py-1.5 text-caption text-muted-foreground">{result.summary}</div>
       {result.output && (
-        <pre className="max-h-52 overflow-auto whitespace-pre-wrap border-t border-neutral-900 p-2.5 font-mono text-caption leading-4 text-muted-foreground">{result.output}</pre>
+        <pre className="max-h-52 overflow-auto whitespace-pre-wrap border-t border-border p-2.5 font-mono text-caption leading-4 text-muted-foreground">{result.output}</pre>
       )}
     </div>
   );
@@ -291,17 +291,17 @@ function GenericSurfaceFacts({ surface, mode, run, running, onRun, onOpenPath }:
   return (
     <div className="space-y-3 text-label">
       <div className="text-caption text-muted-foreground">
-        No preview is declared for <span className="font-mono text-neutral-300">{surface.kind}</span>; showing the surface as its provider described it. Source review below is unaffected.
+        No preview is declared for <span className="font-mono text-subtle">{surface.kind}</span>; showing the surface as its provider described it. Source review below is unaffected.
       </div>
       <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1 text-caption">
-        <dt className="text-muted-foreground">Provider</dt><dd className="font-mono text-neutral-300">{surface.provider}</dd>
-        <dt className="text-muted-foreground">Locator</dt><dd className="break-all font-mono text-neutral-300">{surface.locator || surface.id}</dd>
-        <dt className="text-muted-foreground">Runtime</dt><dd className="font-mono text-neutral-300">{surface.runtime || "none bound"}</dd>
-        <dt className="text-muted-foreground">Capabilities</dt><dd className="font-mono text-neutral-300">{surface.capabilities.join(" · ") || "none"}</dd>
+        <dt className="text-muted-foreground">Provider</dt><dd className="font-mono text-subtle">{surface.provider}</dd>
+        <dt className="text-muted-foreground">Locator</dt><dd className="break-all font-mono text-subtle">{surface.locator || surface.id}</dd>
+        <dt className="text-muted-foreground">Runtime</dt><dd className="font-mono text-subtle">{surface.runtime || "none bound"}</dd>
+        <dt className="text-muted-foreground">Capabilities</dt><dd className="font-mono text-subtle">{surface.capabilities.join(" · ") || "none"}</dd>
         {metadata.map(([key, value]) => (
           <div key={key} className="contents">
             <dt className="text-muted-foreground">{key}</dt>
-            <dd className="break-all font-mono text-neutral-400">{metadataValue(value)}</dd>
+            <dd className="break-all font-mono text-muted-foreground">{metadataValue(value)}</dd>
           </div>
         ))}
       </dl>
@@ -312,7 +312,7 @@ function GenericSurfaceFacts({ surface, mode, run, running, onRun, onOpenPath }:
               key={path}
               type="button"
               onClick={() => onOpenPath?.(path)}
-              className="rounded border border-border px-1.5 py-0.5 font-mono text-caption text-neutral-400 hover:text-foreground"
+              className="rounded border border-border px-1.5 py-0.5 font-mono text-meta text-muted-foreground hover:text-foreground"
             >
               {path}
             </UiButton>
@@ -330,7 +330,7 @@ function GenericSurfaceFacts({ surface, mode, run, running, onRun, onOpenPath }:
               {mode === "compare" ? "Run compare" : "Run"}
             </UiButton>
             {running && <span className="text-caption text-amber-400/70" role="status">Running…</span>}
-            {run?.error && <span className="text-caption text-rose-300" role="alert">{run.error}</span>}
+            {run?.error && <span className="text-caption text-red-300" role="alert">{run.error}</span>}
           </div>
           <div className={mode === "compare" ? "grid gap-3 lg:grid-cols-2" : ""}>
             {mode === "compare" && <RunPane side="old" result={run?.old} />}

@@ -23,10 +23,41 @@ const systemRules = [
   { pattern: /\btext-\[\d+(?:\.\d+)?(?:px|rem|em)\]/g, message: "Use the type scale: text-micro/caption/label/body/heading/title (or tag/meta/ui/small/copy/lead/h3/h2/display/code)." },
   { pattern: /\btext-(?:xs|sm|base|lg|xl|[2-9]xl)\b/g, message: "Tailwind's default sizes are retired: use text-meta/ui/small/copy/lead or the app aliases text-label/body/heading/title." },
   { pattern: /\bz-\[\d+\]/g, message: "Overlays portal at z-50; use z-10/z-20 for in-flow stacking." },
+  { pattern: /\bvariant="default"/g, message: "Button has no default variant any more: use brand (the one primary action of a view), solid, outline or ghost." },
   { pattern: /(?<!disabled:)\btext-neutral-(?:600|700)\b/g, message: "Below WCAG AA contrast for text; use text-muted-foreground." },
 ];
 const violations = [];
 const styleViolations = [];
+
+// Design-token drift (design/README.md). These run over every .ts, .tsx and .css file outside src/design/ and
+// tests: colours come from the tokens, not from hex or raw palette utilities, and the type, weight and
+// elevation scales are closed.
+const HUE_UTILITY = /\b(?:text|bg|border|ring|divide|fill|stroke|from|to|via|outline|accent|decoration|placeholder|caret|shadow)-(?:rose|sky|blue|teal|orange|yellow|green|indigo|fuchsia|slate|gray|zinc|stone|purple|pink|lime)-\d/;
+const tokenRules = [
+  { id: "hex", pattern: /(?<![\w&#-])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b(?![\w-])/g, message: "Use a colour token (bg-card, text-subtle, text-p0, rgb(var(--border))), not a hex colour." },
+  { id: "rgb", pattern: /\brgba?\(\s*\d/g, message: "Use a colour token (rgb(var(--border) / .5)), not a literal rgb() colour." },
+  { id: "arbitrary", pattern: /\b(?:text|rounded|shadow|tracking)-\[/g, message: "No arbitrary text, radius, shadow or tracking values: use the scales (text-ui, rounded-lg, shadow-float, tracking-tag)." },
+  { id: "shadow", pattern: /(?<![\w:-])shadow-(?:sm|md|lg|xl|2xl|inner|black)\b/g, message: "Two shadows exist: shadow-float (overlays) and shadow-frame (the hero artefact). Cards have none." },
+  { id: "weight", pattern: /\bfont-(?:bold|extrabold|black)\b/g, message: "Weight 700 is retired: headings are font-semibold, labels font-medium." },
+  { id: "neutral", pattern: /\b(?:text|bg|border|ring|divide|fill|stroke|from|to|via|outline)-neutral-\d/g, message: "Raw neutral-* is retired: use foreground, subtle, muted-foreground, border, input, muted, accent or background." },
+  { id: "hue", pattern: HUE_UTILITY, message: "Only red, amber, cyan, emerald and violet ramps exist (P0, P1, P2, ok, ai); use those or the p0/p1/p2/ok/ai tokens." },
+];
+// Content and theme files whose colours are data, not chrome: editor and markdown themes, graph canvases, chart
+// series and the per-agent palette. Everything else must use tokens.
+const tokenAllowlist = new Map([
+  ["components/code/monaco.ts", ["hex"]],
+  ["components/code/ReadOnlyCodeViewer.tsx", ["rgb"]],
+  ["review/EditableCodeEditor.tsx", ["hex", "rgb"]],
+  ["review/MarkdownReviewPreview.css", ["hex", "rgb"]],
+  ["review/cssColorSwatches.ts", ["rgb"]],
+  ["lib/graphColors.ts", ["hex"]],
+  ["lib/agentColors.ts", ["hue"]],
+  ["code/CodeGraph2D.tsx", ["hex", "rgb"]],
+  ["code/CodeGraph3D.tsx", ["hex"]],
+  ["code/CodeTopologyView.tsx", ["hex"]],
+  ["pages/Telemetry.tsx", ["hex"]],
+  ["pages/Savings.tsx", ["hex"]],
+]);
 
 async function walk(dir) {
   for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -66,6 +97,32 @@ async function walk(dir) {
 }
 
 await walk(root);
+
+async function walkTokens(dir) {
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === "design" || entry.name === "__snapshots__") continue;
+      await walkTokens(full);
+      continue;
+    }
+    if (!entry.isFile() || !/\.(?:tsx?|css)$/.test(entry.name) || /\.test\.tsx?$/.test(entry.name) || entry.name.endsWith(".d.ts")) continue;
+    const relative = path.relative(root, full).split(path.sep).join("/");
+    const allowed = new Set(tokenAllowlist.get(relative) ?? []);
+    const lines = (await readFile(full, "utf8")).split("\n");
+    lines.forEach((line, index) => {
+      if (/^\s*(?:\/\/|\*|\/\*)/.test(line)) return; // comments may name the retired values
+      for (const rule of tokenRules) {
+        if (allowed.has(rule.id)) continue;
+        rule.pattern.lastIndex = 0;
+        if (rule.pattern.test(line)) styleViolations.push(`${path.relative(process.cwd(), full)}:${index + 1}: ${rule.message}\n  ${line.trim()}`);
+        rule.pattern.lastIndex = 0;
+      }
+    });
+  }
+}
+
+await walkTokens(root);
 
 // src/design/ is a vendored copy of the repository's design/ directory (design/README.md).
 const drift = await designDrift();

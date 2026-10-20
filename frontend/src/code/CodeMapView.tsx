@@ -213,7 +213,7 @@ export default function CodeMapView({
             <span key={`${crumb.label}-${index}`} className="flex min-w-0 items-center gap-1">
               {index > 0 && <ChevronRight size={11} className="shrink-0 text-muted-foreground" />}
               {index === crumbs.length - 1 ? (
-                <span className="truncate font-medium text-neutral-200" aria-current="location">
+                <span className="truncate font-medium text-foreground" aria-current="location">
                   {crumb.label}
                 </span>
               ) : (

@@ -184,7 +184,7 @@ export default function Home() {
     : 0;
 
   return (
-    <PageFrame className="space-y-5 text-neutral-200">
+    <PageFrame className="space-y-5 text-foreground">
       {error && (
         <div className="rounded-lg border border-p0-line bg-p0-bg px-3 py-2 text-body text-p0">
           {error}
@@ -241,7 +241,7 @@ export default function Home() {
         )}
         <Link
           to="/usage?inspect=savings"
-          className="flex min-h-12 items-center gap-1 border-l border-border px-3 font-mono text-tag uppercase text-muted-foreground transition-colors duration-fast hover:bg-accent hover:text-foreground"
+          className="flex min-h-12 items-center gap-1 border-l border-border px-3 font-mono text-label uppercase tracking-tag text-muted-foreground transition-colors duration-fast hover:bg-accent hover:text-foreground"
         >
           Details <ArrowRight size={12} />
         </Link>
@@ -289,7 +289,7 @@ export default function Home() {
                     className="flex min-h-11 items-center gap-3 border-b border-border px-3 py-2 last:border-0 transition-colors duration-fast hover:bg-accent/40"
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-body font-medium text-neutral-200">
+                      <div className="truncate text-body font-medium text-foreground">
                         {review.title || "Untitled review"}
                       </div>
                       <div className="mt-0.5 truncate text-caption text-muted-foreground">
@@ -320,7 +320,7 @@ export default function Home() {
                     className="flex min-h-11 items-center gap-3 border-b border-border px-3 py-2 last:border-0 transition-colors duration-fast hover:bg-accent/40"
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-body font-medium text-neutral-200">
+                      <div className="truncate text-body font-medium text-foreground">
                         {runLabel(run)}
                       </div>
                       <div className="mt-0.5 truncate text-caption text-muted-foreground">
@@ -344,7 +344,7 @@ export default function Home() {
                   className="flex min-h-16 items-center gap-3 px-3 py-3 transition-colors duration-fast hover:bg-accent/40"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="text-body font-medium text-neutral-200">
+                    <div className="text-body font-medium text-foreground">
                       {!integrations?.dispatcher_available
                         ? "Agent connection is unavailable"
                         : "Connect a coding agent"}
@@ -371,7 +371,7 @@ export default function Home() {
               Coding work LemonCrow can currently see.
             </p>
           </div>
-          <Link to="/activity" className="font-mono text-tag uppercase text-muted-foreground transition-colors duration-fast hover:text-foreground">
+          <Link to="/activity" className="font-mono text-label uppercase tracking-tag text-muted-foreground transition-colors duration-fast hover:text-foreground">
             All activity →
           </Link>
         </div>
@@ -389,7 +389,7 @@ export default function Home() {
                   <div className="flex items-start gap-2">
                     <Play size={12} className="mt-0.5 shrink-0 text-ok" />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-body font-medium text-neutral-200">
+                      <div className="truncate text-body font-medium text-foreground">
                         {runLabel(run)}
                       </div>
                       <div className="mt-1 text-caption text-muted-foreground">
@@ -429,7 +429,7 @@ export default function Home() {
                 className="flex items-center gap-3 border-b border-border px-3 py-2 last:border-0 transition-colors duration-fast hover:bg-accent/40"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-body text-neutral-300">{review.title || review.source_ref}</div>
+                  <div className="truncate text-body text-subtle">{review.title || review.source_ref}</div>
                   <div className="mt-0.5 text-caption text-muted-foreground">{review.repo_id}</div>
                 </div>
                 <span className="text-caption capitalize text-muted-foreground">{review.status === "open" ? "needs review" : review.status}</span>
@@ -459,7 +459,7 @@ export default function Home() {
                 className="flex items-center gap-3 border-b border-border px-3 py-2 last:border-0 transition-colors duration-fast hover:bg-accent/40"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-body text-neutral-300">{runLabel(run)}</div>
+                  <div className="truncate text-body text-subtle">{runLabel(run)}</div>
                   <div className="mt-0.5 text-caption text-muted-foreground">
                     {run.host || run.agent || "agent"} · {fmtRelativeTime(run.created_at)}
                   </div>

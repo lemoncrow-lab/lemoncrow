@@ -107,7 +107,7 @@ function BinaryPreview({
         <img
           src={objectUrl}
           alt={path}
-          className="max-h-full max-w-full object-contain shadow-2xl"
+          className="max-h-full max-w-full object-contain shadow-frame"
         />
       </div>
     );

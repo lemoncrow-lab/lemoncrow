@@ -32,7 +32,7 @@ function CheckRow({ check }: { check: AutomationCheck }) {
         ? <CheckCircle2 size={11} className="mt-0.5 shrink-0 text-emerald-400" aria-label="holds" />
         : <XCircle size={11} className="mt-0.5 shrink-0 text-amber-300" aria-label="does not hold" />}
       <span className="min-w-0">
-        <span className={check.passed ? "text-neutral-300" : "text-amber-300"}>{check.name}</span>
+        <span className={check.passed ? "text-subtle" : "text-amber-300"}>{check.name}</span>
         <span className="text-muted-foreground"> · {check.detail}</span>
       </span>
     </li>
@@ -90,13 +90,13 @@ export default function ReviewAutomationSection({ reviewId, readOnly = false }: 
           No organization automation rule applies. State-changing follow-ups need an explicit human action.
         </div>
       ) : (
-        <ul className="divide-y divide-neutral-900 border-y border-neutral-900" aria-label="Automation rules">
+        <ul className="divide-y divide-border border-y border-border" aria-label="Automation rules">
           {view.policy.rules.map((rule) => {
             const evaluation = evaluations.get(rule.id);
             return (
               <li key={rule.id} className="py-2.5">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="text-caption font-medium text-neutral-200">{rule.action_label}</span>
+                  <span className="text-caption font-medium text-foreground">{rule.action_label}</span>
                   <span className="font-mono text-caption text-muted-foreground">{rule.id}</span>
                   {rule.reserved && <Badge tone="secondary" className="text-muted-foreground">evaluated only</Badge>}
                   {!rule.enabled && <Badge tone="secondary" className="text-muted-foreground">disabled</Badge>}
@@ -111,7 +111,7 @@ export default function ReviewAutomationSection({ reviewId, readOnly = false }: 
                 </div>
                 {evaluation && (
                   <>
-                    <div className="mt-0.5 text-caption leading-4 text-neutral-400">{evaluation.reason}</div>
+                    <div className="mt-0.5 text-caption leading-4 text-muted-foreground">{evaluation.reason}</div>
                     <ul className="mt-1 space-y-0.5" aria-label={`Checks for ${rule.id}`}>
                       {[...evaluation.guards, ...evaluation.conditions].map((check) => (
                         <CheckRow key={`${check.kind}:${check.name}`} check={check} />
@@ -130,7 +130,7 @@ export default function ReviewAutomationSection({ reviewId, readOnly = false }: 
       )}
 
       <div className="mt-3 rounded-md border border-border/70 bg-muted/20 px-3 py-2" aria-label="Provider branch protection">
-        <div className="text-caption font-semibold text-neutral-300">Provider branch protection</div>
+        <div className="text-caption font-semibold text-subtle">Provider branch protection</div>
         <div className="mt-0.5 text-caption leading-4 text-muted-foreground">
           Requirements {PROTECTION_LABEL[protection.requirements]} · required reviews {PROTECTION_LABEL[protection.required_reviews]}
           {protection.changes_requested ? " · changes requested" : ""}
@@ -141,7 +141,7 @@ export default function ReviewAutomationSection({ reviewId, readOnly = false }: 
       </div>
 
       <div className="mt-3">
-        <div className="text-caption font-semibold text-neutral-300">After merge</div>
+        <div className="text-caption font-semibold text-subtle">After merge</div>
         <div className="mt-0.5 text-caption leading-4 text-muted-foreground">
           {view.post_merge.reason} Never part of readiness.
         </div>
@@ -151,7 +151,7 @@ export default function ReviewAutomationSection({ reviewId, readOnly = false }: 
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2 text-caption">
                   <CircleDot size={10} className="shrink-0 text-muted-foreground" />
-                  <span className="font-medium text-neutral-200">{kind.label}</span>
+                  <span className="font-medium text-foreground">{kind.label}</span>
                   {kind.latest && (
                     <Badge tone="secondary" className={kind.latest.status === "completed" ? "text-emerald-300" : "text-amber-300"}>
                       {kind.latest.status}
@@ -182,7 +182,7 @@ export default function ReviewAutomationSection({ reviewId, readOnly = false }: 
           ))}
         </ul>
       </div>
-      {error && <div role="alert" className="mt-2 text-caption text-rose-300">{error}</div>}
+      {error && <div role="alert" className="mt-2 text-caption text-red-300">{error}</div>}
     </section>
   );
 }

@@ -291,7 +291,7 @@ export default function ReviewIdentityBar({
         }
       >
         <Clock3 size={12} />
-        <span className="font-mono text-caption">{revisionShortLabel(overview.revision)}</span>
+        <span className="font-mono text-label">{revisionShortLabel(overview.revision)}</span>
       </UiButton>
     </div>
   );

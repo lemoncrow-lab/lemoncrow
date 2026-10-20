@@ -141,7 +141,7 @@ export class ErrorBoundary extends Component<
               </Button>
             )}
             {import.meta.env.DEV && this.state.errorInfo && (
-              <details className="min-w-0 flex-1 text-caption text-red-200/60">
+              <details className="min-w-0 flex-1 text-meta text-red-200/60">
                 <summary className="cursor-pointer select-none">
                   Stack trace
                 </summary>

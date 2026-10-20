@@ -91,7 +91,7 @@ export default function TelemetryDestinationPanel() {
         {error}
       </div>
     ) : (
-      <div className="text-heading text-neutral-400">Loading...</div>
+      <div className="text-heading text-muted-foreground">Loading...</div>
     );
   }
 
@@ -152,10 +152,10 @@ export default function TelemetryDestinationPanel() {
           </Button>
         )}
       </div>
-      <p className="text-heading text-neutral-400">{optionHelp(setting, config)}</p>
+      <p className="text-heading text-muted-foreground">{optionHelp(setting, config)}</p>
       {setting === "custom" && !locked && (
         <div className="grid gap-3 md:grid-cols-2">
-          <label className="space-y-1 text-body text-neutral-400">
+          <label className="space-y-1 text-body text-muted-foreground">
             <span>Base URL</span>
             <Input
               aria-label="Custom telemetry URL"
@@ -164,7 +164,7 @@ export default function TelemetryDestinationPanel() {
               onChange={(event) => setEndpoint(event.target.value)}
             />
           </label>
-          <label className="space-y-1 text-body text-neutral-400">
+          <label className="space-y-1 text-body text-muted-foreground">
             <span>Bearer token (optional)</span>
             <Input
               aria-label="Custom telemetry token"
@@ -181,7 +181,7 @@ export default function TelemetryDestinationPanel() {
       )}
       <p className="text-heading text-foreground">{describeDestination(config)}</p>
       {locked && config.policy_path && (
-        <p className="text-body text-neutral-500">Set by {config.policy_path}.</p>
+        <p className="text-body text-muted-foreground">Set by {config.policy_path}.</p>
       )}
       {error && (
         <div role="alert" className="text-heading text-red-300">

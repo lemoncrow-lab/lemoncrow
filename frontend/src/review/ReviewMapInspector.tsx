@@ -106,13 +106,13 @@ function RelationshipList({
                 title={group.other?.path}
               >
                 {group.other ? <NodeGlyph node={group.other} /> : <span className="h-[15px] w-[15px]" />}
-                <span className="min-w-0 flex-1 truncate text-body text-neutral-200">{group.other ? nodeName(group.other) : group.otherId}</span>
+                <span className="min-w-0 flex-1 truncate text-body text-foreground">{group.other ? nodeName(group.other) : group.otherId}</span>
               </InspectorRow>
               {group.links.map((row, linkIndex) => (
                 <Button
                   unstyled
                   key={row.edge.id}
-                  className={(group.links.length > 1 ? (linkIndex === 0 ? "-mt-1 ml-7 " : "-mt-1 ") : "") + "flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1.5 text-caption tabular-nums text-muted-foreground transition-colors hover:bg-muted hover:text-neutral-200"}
+                  className={(group.links.length > 1 ? (linkIndex === 0 ? "-mt-1 ml-7 " : "-mt-1 ") : "") + "flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1.5 text-meta tabular-nums text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"}
                   onClick={() => onSelectEdge(row.edge.id)}
                   aria-label={`Inspect ${EDGE_KIND_LABEL[row.kind]} link${group.other ? " with " + nodeName(group.other) : ""}`}
                 >
@@ -245,7 +245,7 @@ function ArchitectureDeltaGuide({
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 className="text-title font-semibold text-foreground">Architecture delta</h2>
-            <p className="mt-1.5 text-body leading-5 text-neutral-400">
+            <p className="mt-1.5 text-body leading-5 text-muted-foreground">
               {delta.status === "unavailable"
                 ? delta.reason || "Exact base-to-Snapshot architecture comparison is unavailable."
                 : summary.material
@@ -256,9 +256,9 @@ function ArchitectureDeltaGuide({
           {overlay && <Button variant="ghost" size="icon" className="-mr-1.5 -mt-1" onClick={onClear} aria-label="Close architecture delta guide"><X size={13} /></Button>}
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5 text-caption">
-          <span className="rounded-md border border-border bg-muted/60 px-2 py-1 text-neutral-300">{summary.added_edges} added</span>
-          <span className="rounded-md border border-border bg-muted/60 px-2 py-1 text-neutral-300">{summary.removed_edges} removed</span>
-          <span className="rounded-md border border-border bg-muted/60 px-2 py-1 text-neutral-300">{summary.modified_edges} changed</span>
+          <span className="rounded-md border border-border bg-muted/60 px-2 py-1 text-subtle">{summary.added_edges} added</span>
+          <span className="rounded-md border border-border bg-muted/60 px-2 py-1 text-subtle">{summary.removed_edges} removed</span>
+          <span className="rounded-md border border-border bg-muted/60 px-2 py-1 text-subtle">{summary.modified_edges} changed</span>
           {summary.context_only_edges > 0 && <span className="rounded-md border border-border bg-muted/60 px-2 py-1 text-muted-foreground">{summary.context_only_edges} current-index context</span>}
         </div>
       </div>
@@ -270,7 +270,7 @@ function ArchitectureDeltaGuide({
               <li key={node.id}>
                 <InspectorRow onClick={() => onSelectNode(node.id)} aria-label={`Select ${nodeName(node)}`}>
                   <span className="rm-kind-tag">{node.delta_status}</span>
-                  <span className="min-w-0 flex-1 truncate font-mono text-label text-neutral-200">{node.path}</span>
+                  <span className="min-w-0 flex-1 truncate font-mono text-label text-foreground">{node.path}</span>
                 </InspectorRow>
               </li>
             ))}
@@ -280,10 +280,10 @@ function ArchitectureDeltaGuide({
 
       {changedComponents.length > 0 && (
         <Section title="Components" aside={`${changedComponents.length} changed`}>
-          <ul className="space-y-1.5 text-label text-neutral-400">
+          <ul className="space-y-1.5 text-label text-muted-foreground">
             {changedComponents.slice(0, 12).map((component) => (
               <li key={component.id} className="flex items-center justify-between gap-3">
-                <span className="min-w-0 truncate font-mono text-caption text-neutral-300">{component.label}</span>
+                <span className="min-w-0 truncate font-mono text-caption text-subtle">{component.label}</span>
                 <span className="shrink-0 text-caption text-muted-foreground">{component.delta_status} · {component.base_file_count}→{component.snapshot_file_count}</span>
               </li>
             ))}
@@ -292,8 +292,8 @@ function ArchitectureDeltaGuide({
       )}
 
       <Section title="Relationship evidence">
-        <p className="text-label leading-5 text-neutral-400">
-          Added, removed, and changed links are computed from deterministic reference graphs over the immutable base and Snapshot. Snapshot-only facts without comparable base evidence stay <span className="text-neutral-200">unknown</span>; live index links stay <span className="text-neutral-200">context only</span>.
+        <p className="text-label leading-5 text-muted-foreground">
+          Added, removed, and changed links are computed from deterministic reference graphs over the immutable base and Snapshot. Snapshot-only facts without comparable base evidence stay <span className="text-foreground">unknown</span>; live index links stay <span className="text-foreground">context only</span>.
         </p>
       </Section>
 
@@ -315,19 +315,19 @@ function ArchitectureDeltaGuide({
             {architectureExplainLoading ? "Explaining…" : "Explain exact delta"}
           </Button>
         )}
-        {architectureExplainError && <p role="alert" className="mt-2 text-caption leading-4 text-rose-300">{architectureExplainError}</p>}
+        {architectureExplainError && <p role="alert" className="mt-2 text-caption leading-4 text-red-300">{architectureExplainError}</p>}
       </Section>
 
       {architectureExplanation && (
         <Section title="AI explanation" aside={architectureExplanation.exactness === "inferred" ? "inferred" : architectureExplanation.exactness}>
-          <p className="text-label leading-5 text-neutral-300">{architectureExplanation.summary}</p>
+          <p className="text-label leading-5 text-subtle">{architectureExplanation.summary}</p>
           {architectureExplanation.why_it_matters.length > 0 && (
-            <ul className="mt-2 list-disc space-y-1 pl-4 text-caption leading-4 text-neutral-400">
+            <ul className="mt-2 list-disc space-y-1 pl-4 text-caption leading-4 text-muted-foreground">
               {architectureExplanation.why_it_matters.map((item, index) => <li key={index}>{item}</li>)}
             </ul>
           )}
           {architectureExplanation.flow.length > 0 && (
-            <ul className="mt-2 space-y-1 text-caption leading-4 text-neutral-400">
+            <ul className="mt-2 space-y-1 text-caption leading-4 text-muted-foreground">
               {architectureExplanation.flow.map((item) => <li key={item.edge_id}><span className="font-mono text-muted-foreground">{item.edge_id}</span> · {item.explanation}</li>)}
             </ul>
           )}
@@ -373,7 +373,7 @@ function ChangeGuide({ payload, onSelectNode, onClear, overlay }: InspectorProps
           <h2 className="text-title font-semibold text-foreground">This change</h2>
           {overlay && <Button variant="ghost" size="icon" className="-mr-1.5 -mt-1" onClick={onClear} aria-label="Close map guide"><X size={13} /></Button>}
         </div>
-        <p className="mt-1.5 text-body leading-5 text-neutral-400">
+        <p className="mt-1.5 text-body leading-5 text-muted-foreground">
           {summary}{" "}
           {affected
             ? `${plural(affected, "unchanged file")} ${affected === 1 ? "is" : "are"} reached by it.`
@@ -414,12 +414,12 @@ function ChangeGuide({ payload, onSelectNode, onClear, overlay }: InspectorProps
       </Section>
 
       <Section title="Reading the map">
-        <ul className="space-y-1.5 text-label leading-4 text-neutral-400">
-          <li><span className="text-neutral-200">Changed</span> files sit in the middle, grouped by folder and ordered by review priority.</li>
-          <li><span className="text-neutral-200">Used by</span> (left) is code that depends on the change; <span className="text-neutral-200">Uses</span> (right) is code the change depends on.</li>
-          <li>Hover or select a file to trace its links. Double-click to map one file; press <kbd className="rounded border border-neutral-700 px-1 font-mono text-caption">o</kbd> to open it in the diff.</li>
+        <ul className="space-y-1.5 text-label leading-4 text-muted-foreground">
+          <li><span className="text-foreground">Changed</span> files sit in the middle, grouped by folder and ordered by review priority.</li>
+          <li><span className="text-foreground">Used by</span> (left) is code that depends on the change; <span className="text-foreground">Uses</span> (right) is code the change depends on.</li>
+          <li>Hover or select a file to trace its links. Double-click to map one file; press <kbd className="rounded border border-border px-1 font-mono text-caption">o</kbd> to open it in the diff.</li>
         </ul>
-        <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-caption text-neutral-400">
+        <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-caption text-muted-foreground">
           <span className="flex items-center gap-1.5"><KindSwatch kind="impacts" />affects (Snapshot)</span>
           <span className="flex items-center gap-1.5"><KindSwatch kind="calls" />calls</span>
           <span className="flex items-center gap-1.5"><KindSwatch kind="imports" />imports</span>
@@ -431,8 +431,8 @@ function ChangeGuide({ payload, onSelectNode, onClear, overlay }: InspectorProps
         {verification.pass + verification.fail + verification.not_run + verification.unknown === 0 ? (
           <p className="text-label text-muted-foreground">No verification was recorded for this Snapshot.</p>
         ) : (
-          <p className="text-label tabular-nums text-neutral-400">
-            <span className={verification.fail ? "text-rose-400" : ""}>{plural(verification.fail, "failing check")}</span>
+          <p className="text-label tabular-nums text-muted-foreground">
+            <span className={verification.fail ? "text-red-400" : ""}>{plural(verification.fail, "failing check")}</span>
             {" · "}{verification.pass} passing
             {verification.not_run + verification.unknown > 0 ? ` · ${verification.not_run + verification.unknown} not run or unknown` : ""}
           </p>
@@ -502,10 +502,10 @@ function NodeDetails({
         onClose={onClear}
         closeLabel="Close map inspector"
       >
-        <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-label text-neutral-400">
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-label text-muted-foreground">
           <span>{statusLine(node)}</span>
           {(node.additions || node.deletions) ? (
-            <span className="tabular-nums"><span className="text-emerald-400">+{node.additions ?? 0}</span> <span className="text-rose-400">−{node.deletions ?? 0}</span></span>
+            <span className="tabular-nums"><span className="text-emerald-400">+{node.additions ?? 0}</span> <span className="text-red-400">−{node.deletions ?? 0}</span></span>
           ) : null}
           {node.delta_status && <span className="text-muted-foreground">· architecture {node.delta_status.replace(/_/g, " ")}</span>}
           {node.exactness === "current_index" && <span className="text-muted-foreground">· current index</span>}
@@ -546,21 +546,21 @@ function NodeDetails({
 
       {(reasons.length || node.important_public_contract || node.boundaries.length || node.uncertain) ? (
         <Section title="Why it matters">
-          <ul className="space-y-1 text-label leading-5 text-neutral-300">
+          <ul className="space-y-1 text-label leading-5 text-subtle">
             {node.important_public_contract && !reasons.some((reason) => reason.toLowerCase().includes("public contract")) && <li>Public contract changed</li>}
             {reasons.map((reason) => <li key={reason} className="first-letter:uppercase">{reason}</li>)}
             {node.boundaries.map((boundary) => <li key={boundary}>Touches a {boundary}-sensitive path</li>)}
-            {node.uncertain && <li className="text-neutral-400">{node.uncertainty || "Impact is a candidate, not a confirmed fact"}</li>}
+            {node.uncertain && <li className="text-muted-foreground">{node.uncertainty || "Impact is a candidate, not a confirmed fact"}</li>}
           </ul>
         </Section>
       ) : null}
 
       {review && review.targets > 0 && (
         <Section title="Your review" aside={`${review.reviewed}/${review.targets} marked`}>
-          <div className="h-1 overflow-hidden rounded-full bg-neutral-800" aria-hidden="true">
+          <div className="h-1 overflow-hidden rounded-full bg-accent" aria-hidden="true">
             <div className="h-full rounded-full bg-emerald-400" style={{ width: `${Math.round((review.reviewed / review.targets) * 100)}%` }} />
           </div>
-          <p className="mt-2 text-label text-neutral-400">
+          <p className="mt-2 text-label text-muted-foreground">
             {[
               `${review.reviewed} of ${plural(review.targets, "target")} reviewed`,
               review.needs_changes ? `${review.needs_changes} ${review.needs_changes === 1 ? "needs" : "need"} changes` : "",
@@ -574,11 +574,11 @@ function NodeDetails({
       {level === "symbol" && node.id === payload.graph.focus && (
         <Section title="Symbol">
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-label">
-            {node.kind && <><dt className="text-muted-foreground">Kind</dt><dd className="text-neutral-300" title={node.kind}>{symbolKindLabel(node.kind)}</dd></>}
-            {node.qualified_name && <><dt className="text-muted-foreground">Name</dt><dd className="break-all font-mono text-caption text-neutral-300">{node.qualified_name}</dd></>}
-            {node.line > 0 && <><dt className="text-muted-foreground">Lines</dt><dd className="tabular-nums text-neutral-300">{node.line}{node.end_line > node.line ? `–${node.end_line}` : ""}</dd></>}
-            {typeof node.caller_count === "number" && node.caller_count >= 0 && <><dt className="text-muted-foreground">Callers</dt><dd className="tabular-nums text-neutral-300">{node.caller_count} at capture</dd></>}
-            {typeof node.centrality_rank === "number" && <><dt className="text-muted-foreground">Centrality</dt><dd className="tabular-nums text-neutral-300">#{node.centrality_rank} in the repository</dd></>}
+            {node.kind && <><dt className="text-muted-foreground">Kind</dt><dd className="text-subtle" title={node.kind}>{symbolKindLabel(node.kind)}</dd></>}
+            {node.qualified_name && <><dt className="text-muted-foreground">Name</dt><dd className="break-all font-mono text-caption text-subtle">{node.qualified_name}</dd></>}
+            {node.line > 0 && <><dt className="text-muted-foreground">Lines</dt><dd className="tabular-nums text-subtle">{node.line}{node.end_line > node.line ? `–${node.end_line}` : ""}</dd></>}
+            {typeof node.caller_count === "number" && node.caller_count >= 0 && <><dt className="text-muted-foreground">Callers</dt><dd className="tabular-nums text-subtle">{node.caller_count} at capture</dd></>}
+            {typeof node.centrality_rank === "number" && <><dt className="text-muted-foreground">Centrality</dt><dd className="tabular-nums text-subtle">#{node.centrality_rank} in the repository</dd></>}
           </dl>
         </Section>
       )}
@@ -633,8 +633,8 @@ function NodeDetails({
 
       {exact && node.provenance?.host && (
         <Section title="Written by">
-          <p className="text-label text-neutral-400">
-            <span className="text-neutral-200">{node.provenance.host}</span>
+          <p className="text-label text-muted-foreground">
+            <span className="text-foreground">{node.provenance.host}</span>
             {node.provenance.model ? ` · ${node.provenance.model}` : ""}
             {node.provenance.certainty ? ` · ${node.provenance.certainty} attribution` : ""}
           </p>
@@ -642,7 +642,7 @@ function NodeDetails({
       )}
       {node.architecture_provenance && (
         <Section title="Architecture provenance">
-          <p className="text-label leading-5 text-neutral-400">{node.architecture_provenance.note}</p>
+          <p className="text-label leading-5 text-muted-foreground">{node.architecture_provenance.note}</p>
         </Section>
       )}
       <ExactnessNote exactness={node.exactness} subject={subject} deltaStatus={node.delta_status} provenance={node.architecture_provenance} />
@@ -669,7 +669,7 @@ function SymbolList({ symbols, onOpenSymbol }: { symbols: ReviewMapMemberSymbol[
               title={symbol.qualified_name || symbol.label}
             >
               <span className="rm-kind-tag" title={symbol.kind || undefined}>{symbolKindLabel(symbol.kind)}</span>
-              <span className="min-w-0 flex-1 truncate font-mono text-label text-neutral-200">{symbol.label}</span>
+              <span className="min-w-0 flex-1 truncate font-mono text-label text-foreground">{symbol.label}</span>
               <span className="shrink-0 text-caption tabular-nums text-muted-foreground">
                 {symbol.change && symbol.change !== "modified" ? symbol.change + " · " : ""}
                 {symbol.caller_count >= 0 ? plural(symbol.caller_count, "caller") : `L${symbol.line}`}
@@ -745,7 +745,7 @@ function EdgeDetails({ payload, edge, onSelectNode, onClear, onAskSelection, sel
               aria-label={`Select ${nodeName(node)}`}
             >
               <NodeGlyph node={node} />
-              <span className="min-w-0 flex-1 truncate text-body text-neutral-200">{nodeName(node)}</span>
+              <span className="min-w-0 flex-1 truncate text-body text-foreground">{nodeName(node)}</span>
               {index === 0 && <ArrowRight size={12} className="shrink-0 text-muted-foreground" aria-hidden="true" />}
             </InspectorRow>
           ))}
@@ -754,8 +754,8 @@ function EdgeDetails({ payload, edge, onSelectNode, onClear, onAskSelection, sel
 
       {edge.delta_status && (edge.base_weight !== undefined || edge.snapshot_weight !== undefined) && (
         <Section title="Base → Snapshot">
-          <p className="text-label tabular-nums text-neutral-400">
-            Relationship weight {edge.base_weight ?? 0} → {edge.snapshot_weight ?? 0} · <span className="text-neutral-200">{edge.delta_status.replace(/_/g, " ")}</span>
+          <p className="text-label tabular-nums text-muted-foreground">
+            Relationship weight {edge.base_weight ?? 0} → {edge.snapshot_weight ?? 0} · <span className="text-foreground">{edge.delta_status.replace(/_/g, " ")}</span>
           </p>
         </Section>
       )}
@@ -764,7 +764,7 @@ function EdgeDetails({ payload, edge, onSelectNode, onClear, onAskSelection, sel
         <Section title={kind === "impacts" ? "Changed names it reaches" : "Names it lands on"}>
           <div className="flex flex-wrap gap-1.5">
             {names.map((item) => (
-              <span key={item.name} className="rounded-md border border-border bg-muted/60 px-1.5 py-0.5 font-mono text-caption text-neutral-300">
+              <span key={item.name} className="rounded-md border border-border bg-muted/60 px-1.5 py-0.5 font-mono text-caption text-subtle">
                 {item.name}{item.count > 1 ? <span className="ml-1 text-muted-foreground">×{item.count}</span> : null}
               </span>
             ))}
@@ -778,13 +778,13 @@ function EdgeDetails({ payload, edge, onSelectNode, onClear, onAskSelection, sel
             {evidence.map((item, index) => (
               <li key={item.path + ":" + item.line + ":" + index} className="text-label">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="truncate font-mono text-caption text-neutral-300" title={item.path}>{item.path}{item.line > 0 ? ":" + item.line : ""}</span>
+                  <span className="truncate font-mono text-caption text-subtle" title={item.path}>{item.path}{item.line > 0 ? ":" + item.line : ""}</span>
                   {item.uncertainty && <span className="shrink-0 text-caption text-amber-300">uncertain</span>}
                 </div>
                 <div className="mt-0.5 text-caption text-muted-foreground">
                   {item.kind.replace(/_/g, " ")}{item.symbol ? ` · ${item.symbol}` : ""}
                 </div>
-                {item.snippet && <code className="mt-1 block truncate rounded bg-muted/70 px-1.5 py-1 text-caption text-neutral-300">{item.snippet}</code>}
+                {item.snippet && <code className="mt-1 block truncate rounded bg-muted/70 px-1.5 py-1 text-caption text-subtle">{item.snippet}</code>}
               </li>
             ))}
           </ul>
@@ -792,7 +792,7 @@ function EdgeDetails({ payload, edge, onSelectNode, onClear, onAskSelection, sel
       )}
       {edge.architecture_provenance && (
         <Section title="Architecture provenance">
-          <p className="text-label leading-5 text-neutral-400">{edge.architecture_provenance.note}</p>
+          <p className="text-label leading-5 text-muted-foreground">{edge.architecture_provenance.note}</p>
         </Section>
       )}
       <ExactnessNote exactness={edge.exactness} subject="link" deltaStatus={edge.delta_status} provenance={edge.architecture_provenance} />

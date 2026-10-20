@@ -276,7 +276,7 @@ export default function ReviewDevices() {
               One-time pairing code · expires {date(code.expires_at)}
             </p>
             <Input aria-label="One-time pairing code" readOnly value={code.pairing_code}
-              className="w-full rounded border border-border bg-background p-2 font-mono text-caption text-foreground" />
+              className="w-full rounded border border-border bg-background p-2 font-mono text-meta text-foreground" />
             <p className="text-caption text-muted-foreground">
               On the machine, run <code>lcr connect</code> and paste the code. Then run <code>lcr watch</code> to capture changes and report paired machine presence. For presence without capture, use <code>lcr device online</code>. It works only once,
               and is cleared when this page closes or the code expires.

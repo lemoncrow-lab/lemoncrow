@@ -26,7 +26,7 @@ function proposalState(proposal: ReviewChangeProposal): { label: string; tone: s
   if (proposal.state === "applied") {
     return {
       label: "Awaiting review update",
-      tone: "border-sky-900/60 bg-sky-950/15 text-sky-300",
+      tone: "border-cyan-900/60 bg-cyan-950/15 text-cyan-300",
       detail: "Applied to the working source. Update the review to capture it as an immutable Snapshot.",
     };
   }
@@ -41,7 +41,7 @@ function proposalState(proposal: ReviewChangeProposal): { label: string; tone: s
   }
   return {
     label: "Ready to apply",
-    tone: "border-violet-900/60 bg-violet-950/15 text-violet-300",
+    tone: "border-border bg-muted text-muted-foreground",
     detail: "Saved against this exact Snapshot and source identity.",
   };
 }
@@ -124,8 +124,8 @@ export default function ReviewChangeProposalComposer({
         aria-busy={busy || loading}
       >
         <div className="review-quick-edit-heading">
-          <FilePenLine size={12} className="text-sky-300" aria-hidden="true" />
-          <span className="font-medium text-neutral-300">Quick edit</span>
+          <FilePenLine size={12} className="text-cyan-300" aria-hidden="true" />
+          <span className="font-medium text-subtle">Quick edit</span>
           {location && <span className="review-source-location" title={location}>{location}</span>}
           {proposal && state && <span className={`review-source-state ${state.tone}`}>{state.label}</span>}
           <span className="flex-1" />
@@ -156,7 +156,7 @@ export default function ReviewChangeProposalComposer({
             </Suspense>
             <div className="review-quick-edit-footer">
               <span className="review-composer-shortcut"><kbd>Ctrl/⌘</kbd>+<kbd>Enter</kbd> suggest{allowApply ? " · Shift to apply" : ""}</span>
-              <UiButton variant="ghost" size="compact" className="h-6 px-2 text-caption" type="button" onClick={onClose}>Cancel</UiButton>
+              <UiButton variant="ghost" size="compact" className="h-6 px-2 text-meta" type="button" onClick={onClose}>Cancel</UiButton>
               <UiButton size="compact" type="button" disabled={!canSubmit} onClick={save}>
                 {busy ? <LoaderCircle size={11} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <PencilLine size={11} aria-hidden="true" />}
                 Suggest
@@ -173,12 +173,12 @@ export default function ReviewChangeProposalComposer({
           <div className="review-quick-edit-footer">
             <span className="min-w-0 flex-1 truncate text-caption text-muted-foreground">{state?.detail}</span>
             {allowApply && proposal.can_apply && (
-              <UiButton variant="solid" size="compact" className="h-6 px-2 text-caption" type="button" disabled={busy} onClick={onApply}>
+              <UiButton variant="solid" size="compact" className="h-6 px-2 text-meta" type="button" disabled={busy} onClick={onApply}>
                 {busy ? <LoaderCircle size={11} className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <FilePenLine size={11} aria-hidden="true" />}
                 Apply
               </UiButton>
             )}
-            <UiButton variant="ghost" size="compact" className="h-6 px-2 text-caption" type="button" onClick={onClose}>Close</UiButton>
+            <UiButton variant="ghost" size="compact" className="h-6 px-2 text-meta" type="button" onClick={onClose}>Close</UiButton>
           </div>
         )}
       </section>
@@ -193,8 +193,8 @@ export default function ReviewChangeProposalComposer({
     >
       <div className="review-composer-heading review-source-composer-heading">
         {directEdit
-          ? <FilePenLine size={15} className="text-sky-300" aria-hidden="true" />
-          : <PencilLine size={15} className="text-violet-300" aria-hidden="true" />}
+          ? <FilePenLine size={15} className="text-cyan-300" aria-hidden="true" />
+          : <PencilLine size={15} className="text-muted-foreground" aria-hidden="true" />}
         <span>{directEdit ? "Edit source" : "Suggested change"}</span>
         {location && <span className="review-source-location" title={location}>{location}</span>}
         {state && <span className={`review-source-state ${state.tone}`}>{state.label}</span>}
@@ -228,7 +228,7 @@ export default function ReviewChangeProposalComposer({
               <pre className="review-source-original">{selection.text}</pre>
             </div>
             <div className="review-source-pane">
-              <div className={`review-source-pane-label ${directEdit ? "text-sky-300/80" : "text-violet-300/80"}`}>{directEdit ? "Replace with" : "Suggested replacement"}</div>
+              <div className={`review-source-pane-label ${directEdit ? "text-cyan-300/80" : "text-muted-foreground"}`}>{directEdit ? "Replace with" : "Suggested replacement"}</div>
               <Suspense fallback={<div className="p-3 text-label text-muted-foreground" role="status">Loading editor…</div>}>
                 <EditableCodeEditor
                   path={selection.path}

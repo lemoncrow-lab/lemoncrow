@@ -110,7 +110,7 @@ function RelationshipRows({
                 title={`${row.path}${row.lines.length ? `:${row.lines.join(", ")}` : ""}\n${kinds}`}
               >
                 <Icon size={11} className={`shrink-0 ${direction === "in" ? "text-violet-300" : "text-cyan-300"}`} />
-                <span className="min-w-0 flex-1 truncate text-label text-neutral-300">
+                <span className="min-w-0 flex-1 truncate text-label text-subtle">
                   {row.path.split("/").pop()}
                   {row.symbols.length > 0 && <span className="text-muted-foreground"> · {row.symbols.slice(0, 2).join(", ")}</span>}
                 </span>
@@ -137,7 +137,7 @@ function ModuleRows({ rows, direction, onSelect }: { rows: ModuleLink[]; directi
         <li key={row.id}>
           <InspectorRow onClick={() => onSelect(row.id)} title={row.id || "Repository root"}>
             <Icon size={11} className={`shrink-0 ${direction === "in" ? "text-violet-300" : "text-cyan-300"}`} />
-            <span className="min-w-0 flex-1 truncate text-label text-neutral-300">{row.label}</span>
+            <span className="min-w-0 flex-1 truncate text-label text-subtle">{row.label}</span>
             <span className="shrink-0 text-micro tabular-nums text-muted-foreground">×{row.weight}</span>
           </InspectorRow>
         </li>
@@ -169,7 +169,7 @@ function ReferenceList({ payload, loading, error, onOpen }: { payload: CodeMapRe
             >
               <div className="flex min-w-0 items-center gap-2">
                 <Search size={10} className="shrink-0 text-amber-300/70" />
-                <span className="min-w-0 flex-1 truncate text-caption text-neutral-300">{reference.path}</span>
+                <span className="min-w-0 flex-1 truncate text-caption text-subtle">{reference.path}</span>
                 <span className="shrink-0 font-mono text-micro tabular-nums text-amber-300/70">L{reference.line}</span>
               </div>
               {reference.snippet && <code className="mt-1 block truncate font-mono text-micro text-muted-foreground">{reference.snippet.trim()}</code>}
@@ -252,7 +252,7 @@ export default function CodeInspector({
   if (!subject) {
     return (
       <aside className="border-t border-border bg-background/60 p-4 xl:border-l xl:border-t-0" aria-label="Inspector">
-        <div className="text-caption font-semibold uppercase tracking-widest text-neutral-400">Inspector</div>
+        <div className="text-caption font-semibold uppercase tracking-widest text-muted-foreground">Inspector</div>
         <p className="mt-2 text-body leading-5 text-muted-foreground">Select a file, symbol, or module to see what uses it, what it uses, and who is working on it.</p>
       </aside>
     );
@@ -268,7 +268,7 @@ export default function CodeInspector({
             {module.changed ? ` · ${module.changed} uncommitted` : ""}
           </div>
           {module.purpose && (
-            <p className="mt-2 text-label leading-4 text-neutral-400">
+            <p className="mt-2 text-label leading-4 text-muted-foreground">
               {module.purpose}
               <span className="block text-micro text-muted-foreground" title={module.purpose_evidence?.join("\n")}>
                 {purposeOrigin(module)}
@@ -308,7 +308,7 @@ export default function CodeInspector({
                 <li key={path}>
                   <InspectorRow onClick={() => onOpenPath(path)} title={path}>
                     <FileTypeIcon path={path} size={12} />
-                    <span className="min-w-0 flex-1 truncate text-label text-neutral-300">{path.split("/").pop()}</span>
+                    <span className="min-w-0 flex-1 truncate text-label text-subtle">{path.split("/").pop()}</span>
                   </InspectorRow>
                 </li>
               ))}
@@ -382,7 +382,7 @@ export default function CodeInspector({
 
       <Section title="Activity" aside={activityHost ? `following ${activityHost}` : undefined}>
         {hotspot && (
-          <p className="pb-1.5 text-label leading-4 text-neutral-400" title={hotspot.sessions.join("\n")}>
+          <p className="pb-1.5 text-label leading-4 text-muted-foreground" title={hotspot.sessions.join("\n")}>
             Agents edited this file {hotspot.edits} times {windowPhrase(hotspotDays)}, in {hotspot.sessions.length}{" "}
             {hotspot.sessions.length === 1 ? "session" : "sessions"}; the last {lastEdit(hotspot.last_at)}.
           </p>
@@ -393,7 +393,7 @@ export default function CodeInspector({
               <li key={event.id}>
                 <InspectorRow className="py-1" onClick={() => onOpenActivity(event)}>
                   <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${ACTIVITY_TONE[event.kind].dot}`} />
-                  <span className="min-w-0 flex-1 truncate text-label text-neutral-300">
+                  <span className="min-w-0 flex-1 truncate text-label text-subtle">
                     {event.label}
                     {event.line ? ` · L${event.line}` : ""}
                   </span>
@@ -412,7 +412,7 @@ export default function CodeInspector({
       <Section title="Changes">
         {change ? (
           <div className="space-y-2">
-            <p className="text-label leading-4 text-neutral-400">
+            <p className="text-label leading-4 text-muted-foreground">
               {authors.length
                 ? `Edited by ${authors.map((session) => `${marks.get(session.id) ?? ""} ${sessionLabel(session)}`.trim()).join(", ")}.`
                 : "No session recorded editing this file."}

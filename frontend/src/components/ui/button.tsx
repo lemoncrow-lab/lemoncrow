@@ -24,6 +24,8 @@ export const buttonVariants = cva(
         brand: "border-brand-border bg-brand text-brand-foreground hover:bg-brand-hover",
         /** Ink fill: a strong secondary action (never two next to each other). */
         solid: "border-primary bg-primary text-primary-foreground hover:bg-primary/90",
+        /** @deprecated The old filled primary, kept as an alias of `solid` because the hosted app still passes it. The UI guard rejects it in this tree. */
+        default: "border-primary bg-primary text-primary-foreground hover:bg-primary/90",
         /** Standard bordered control (the default). */
         outline: "border-input bg-transparent text-foreground hover:bg-accent",
         /** Quiet control that gains a surface on hover (icon and row actions). */

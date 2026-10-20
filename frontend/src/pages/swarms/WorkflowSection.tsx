@@ -117,7 +117,7 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
       </div>
 
       {error ? (
-        <Card className="border-rose-500/30 bg-rose-500/10 p-3 text-heading text-rose-100">
+        <Card className="border-red-500/30 bg-red-500/10 p-3 text-heading text-red-100">
           {error}
         </Card>
       ) : null}
@@ -126,7 +126,7 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
         <Card className="space-y-3 p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-heading font-semibold uppercase tracking-[0.2em] text-neutral-400">
+              <h2 className="text-heading font-semibold uppercase tracking-tag text-muted-foreground">
                 Snapshot
               </h2>
               <p className="text-heading text-muted-foreground">
@@ -141,20 +141,20 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
           ) : hasSnapshot && summary ? (
             <UiButton unstyled
               type="button"
-              className="w-full border border-neutral-500/40 bg-neutral-500/10 px-3 py-3 text-left"
+              className="w-full border border-input/40 bg-muted-foreground/10 px-3 py-3 text-left"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0">
                   <div className="truncate text-heading font-semibold text-foreground">
                     {summary.workflow_id || "Current workflow"}
                   </div>
-                  <div className="mt-1 text-body text-neutral-400">
+                  <div className="mt-1 text-body text-muted-foreground">
                     run_id: {summary.run_id}
                   </div>
                 </div>
                 <Chip tone={statusChipTone(summary.status)}>{summary.status}</Chip>
               </div>
-              <div className="mt-3 grid gap-2 text-body text-neutral-400">
+              <div className="mt-3 grid gap-2 text-body text-muted-foreground">
                 <div>current step: {summary.current_step || "—"}</div>
                 <div>
                   progress: {summary.completed_steps}/{summary.step_count}
@@ -209,7 +209,7 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
               <Card className="space-y-4 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <h2 className="text-heading font-semibold uppercase tracking-[0.2em] text-neutral-400">
+                    <h2 className="text-heading font-semibold uppercase tracking-tag text-muted-foreground">
                       Actions
                     </h2>
                     <p className="text-heading text-muted-foreground">
@@ -314,7 +314,7 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
               <Card className="space-y-3 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h2 className="text-heading font-semibold uppercase tracking-[0.2em] text-neutral-400">
+                    <h2 className="text-heading font-semibold uppercase tracking-tag text-muted-foreground">
                       Step outputs
                     </h2>
                     <p className="text-heading text-muted-foreground">
@@ -333,7 +333,7 @@ export function WorkflowSection({ projectRoot }: { projectRoot?: string }) {
                         className={cx(
                           "border bg-background/50 px-4 py-3",
                           summary.current_step === stepId
-                            ? "border-neutral-500/40"
+                            ? "border-input/40"
                             : "border-border"
                         )}
                         open={summary.current_step === stepId}

@@ -45,7 +45,7 @@ export default function Watchdogs() {
                     {monitor.severity}
                   </Chip>
                 </div>
-                <div className="mt-1 text-body text-neutral-400">
+                <div className="mt-1 text-body text-muted-foreground">
                   {monitor.description}
                 </div>
               </div>

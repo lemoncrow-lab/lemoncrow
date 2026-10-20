@@ -110,7 +110,7 @@ describe("cn", () => {
     expect(cn("h-9 px-3 text-xs", "h-8 text-caption")).toBe("px-3 h-8 text-caption");
     // The dense type scale is a font size, never a colour: both survive a merge.
     expect(cn("text-label text-muted-foreground", false, undefined, "text-caption")).toBe("text-muted-foreground text-caption");
-    expect(cn("text-xs", "text-neutral-400")).toBe("text-xs text-neutral-400");
+    expect(cn("text-xs", "text-muted-foreground")).toBe("text-xs text-muted-foreground");
   });
 });
 

@@ -666,7 +666,7 @@ export default function CodeGraph3D({
 
   if (failed) {
     return (
-      <div className="flex h-full min-h-[420px] items-center justify-center bg-surface-sunken p-4 text-heading text-neutral-300">
+      <div className="flex h-full min-h-[420px] items-center justify-center bg-surface-sunken p-4 text-heading text-subtle">
         WebGL is unavailable, so the 3D map can’t render. Switch to the 2D view.
       </div>
     );
@@ -677,14 +677,14 @@ export default function CodeGraph3D({
       <div ref={containerRef} className="absolute inset-0" />
       <div
         ref={tooltipRef}
-        className="pointer-events-none absolute z-30 hidden max-w-xs truncate rounded-lg border border-border bg-background/95 px-2 py-1 text-caption text-foreground shadow-lg"
+        className="pointer-events-none absolute z-30 hidden max-w-xs truncate rounded-lg border border-border bg-background/95 px-2 py-1 text-caption text-foreground shadow-float"
       />
       <UiButton
         type="button"
         onClick={fit}
         size="icon"
         variant="outline"
-        className="absolute bottom-4 left-4 shadow-lg"
+        className="absolute bottom-4 left-4 shadow-float"
         aria-label="Fit graph"
       >
         <Focus size={15} />

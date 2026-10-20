@@ -309,7 +309,7 @@ function ThemeToggle() {
 
 function ReviewFallback({ label }: { label: string }) {
   return (
-    <div className="flex min-h-[560px] items-center justify-center gap-2 text-heading text-neutral-400">
+    <div className="flex min-h-[560px] items-center justify-center gap-2 text-heading text-muted-foreground">
       <Loader2 size={15} className="animate-spin" />
       {label}
     </div>
@@ -326,15 +326,15 @@ function ReviewRouteFailure({ error, retry }: { error: Error; retry: () => void 
   }, [error]);
 
   return (
-    <div className="flex h-dvh min-h-[560px] items-center justify-center bg-background px-6 text-neutral-300">
+    <div className="flex h-dvh min-h-[560px] items-center justify-center bg-background px-6 text-subtle">
       <div className="w-full max-w-md rounded-lg border border-p0-line bg-card p-4 shadow-float" role="alert">
         <div className="font-mono text-tag uppercase text-p0">LemonCrow Review</div>
         <div className="mt-3 text-title font-semibold text-foreground">Review couldn't load</div>
         <p className="mt-1.5 text-caption leading-5 text-muted-foreground">
           The Review page started but the Reader failed before it could render. Your Review data remains on the server.
         </p>
-        <details className="mt-3 text-caption text-muted-foreground">
-          <summary className="cursor-pointer hover:text-neutral-300">Error details</summary>
+        <details className="mt-3 text-meta text-muted-foreground">
+          <summary className="cursor-pointer hover:text-subtle">Error details</summary>
           <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-p0">{error.message || String(error)}</pre>
         </details>
         <div className="mt-4 flex items-center gap-2">
@@ -382,7 +382,7 @@ function GlobalRequestIndicator() {
       role="progressbar"
       aria-label="Loading"
     >
-      <div className="h-full w-full animate-pulse bg-neutral-400" />
+      <div className="h-full w-full animate-pulse bg-muted-foreground" />
     </div>
   );
 }
@@ -431,14 +431,14 @@ function ProductUnavailable({ product }: { product: Exclude<ProductId, "core"> }
   const status = state.installed ? "not available" : "not installed";
   if (capabilities.products.core.mode === "hosted") {
     return (
-      <div className="flex min-h-[420px] items-center justify-center px-6 py-12 text-neutral-200" role="status">
+      <div className="flex min-h-[420px] items-center justify-center px-6 py-12 text-foreground" role="status">
         <div className="w-full max-w-lg rounded-lg border border-border bg-muted/20 p-4">
           <div className="font-mono text-tag uppercase text-muted-foreground">{label}</div>
           <h1 className="mt-2 text-title font-semibold text-foreground">{label} isn't enabled for your organization</h1>
           <p className="mt-2 text-body leading-6 text-muted-foreground">
             Your organization doesn't have {label}. Ask your LemonCrow workspace administrator for access.
           </p>
-          <Link className="mt-4 inline-flex text-caption font-medium text-neutral-300 hover:text-foreground" to="/account">
+          <Link className="mt-4 inline-flex text-meta font-medium text-subtle hover:text-foreground" to="/account">
             View your products
           </Link>
         </div>
@@ -446,14 +446,14 @@ function ProductUnavailable({ product }: { product: Exclude<ProductId, "core"> }
     );
   }
   return (
-    <div className="flex min-h-[420px] items-center justify-center px-6 py-12 text-neutral-200" role="status">
+    <div className="flex min-h-[420px] items-center justify-center px-6 py-12 text-foreground" role="status">
       <div className="w-full max-w-lg rounded-lg border border-border bg-muted/20 p-4">
         <div className="font-mono text-tag uppercase text-muted-foreground">{label}</div>
         <h1 className="mt-2 text-title font-semibold text-foreground">{label} is {status}</h1>
         <p className="mt-2 text-body leading-6 text-muted-foreground">
           This page belongs to {label}. Other installed LemonCrow products are unaffected.
         </p>
-        <Link className="mt-4 inline-flex text-caption font-medium text-neutral-300 hover:text-foreground" to="/settings/products">
+        <Link className="mt-4 inline-flex text-meta font-medium text-subtle hover:text-foreground" to="/settings/products">
           View installed products
         </Link>
       </div>
@@ -463,14 +463,14 @@ function ProductUnavailable({ product }: { product: Exclude<ProductId, "core"> }
 
 function HostedOnlyPage() {
   return (
-    <div className="flex min-h-[420px] items-center justify-center px-6 py-12 text-neutral-200" role="status">
+    <div className="flex min-h-[420px] items-center justify-center px-6 py-12 text-foreground" role="status">
       <div className="w-full max-w-lg rounded-lg border border-border bg-muted/20 p-4">
         <div className="font-mono text-tag uppercase text-muted-foreground">LemonCrow Dashboard</div>
         <h1 className="mt-2 text-title font-semibold text-foreground">This page is available on LemonCrow hosted</h1>
         <p className="mt-2 text-body leading-6 text-muted-foreground">
           The local Dashboard shows sessions, usage, savings, settings and system.
         </p>
-        <Link className="mt-4 inline-flex text-caption font-medium text-neutral-300 hover:text-foreground" to="/home">
+        <Link className="mt-4 inline-flex text-meta font-medium text-subtle hover:text-foreground" to="/home">
           Back to Home
         </Link>
       </div>
@@ -615,8 +615,8 @@ export default function App({
         ref={setShellRoot}
         className={
           fullScreenReview
-            ? "review-app min-h-full text-neutral-200"
-            : "workbench-shell min-h-full bg-background text-neutral-200"
+            ? "review-app min-h-full text-foreground"
+            : "workbench-shell min-h-full bg-background text-foreground"
         }
       >
         <GlobalRequestIndicator />

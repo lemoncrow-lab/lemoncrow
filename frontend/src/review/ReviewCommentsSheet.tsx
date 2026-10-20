@@ -148,7 +148,7 @@ export default function ReviewCommentsSheet({
                 : `${filterCounts.open} open${filterCounts.rereview > 0 ? ` · ${filterCounts.rereview} need re-review` : ""}`}
             </div>
             {feedbackStatus && feedbackStatus.open_total > 0 && (
-              <details className="mt-3 text-body leading-5 text-neutral-400">
+              <details className="mt-3 text-body leading-5 text-muted-foreground">
                 <summary className="cursor-pointer">How feedback works</summary>
                 <p className="mt-2">
                 {toAgent
@@ -183,7 +183,7 @@ export default function ReviewCommentsSheet({
                 <UiButton
                   size="xs"
                   aria-label={`Comment source: ${sourceFilters.find((item) => item.id === sourceFilter)?.label ?? "All sources"}`}
-                  className="min-w-[132px] justify-between gap-2 bg-muted/70 font-medium shadow-sm"
+                  className="min-w-[132px] justify-between gap-2 bg-muted/70 font-medium"
                 >
                   <span className="min-w-0 flex-1 truncate text-left">
                     {sourceFilters.find((item) => item.id === sourceFilter)?.label ?? "All sources"}
@@ -254,7 +254,7 @@ export default function ReviewCommentsSheet({
                   {item.title && <h3 className="mt-3 text-title font-semibold text-foreground">{item.title}</h3>}
                   <div className="review-thread-body mt-2">{item.body}</div>
                   {item.rule_refs && item.rule_refs.length > 0 && (
-                    <details className="mt-2 text-caption text-muted-foreground">
+                    <details className="mt-2 text-meta text-muted-foreground">
                       <summary className="cursor-pointer">Review rules · {item.rule_refs.length}</summary>
                       <div className="mt-1 space-y-0.5 pl-2 font-mono text-micro">
                         {item.rule_refs.map((ref) => <div key={ref} className="break-all">{ref}</div>)}
@@ -272,7 +272,7 @@ export default function ReviewCommentsSheet({
                     </div>
                   )}
                   <div className="mt-3 flex min-w-0 flex-wrap items-center gap-2 text-label">
-                    <span className="min-w-0 flex-1 truncate font-mono text-neutral-400" title={item.path}>
+                    <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground" title={item.path}>
                       {item.comment_scope === "change" ? (item.revision_id ? "Change discussion" : "Draft discussion") : item.path || "No current path"}{item.start_line > 0
                         ? `:${item.start_line}${item.end_line > item.start_line ? `-${item.end_line}` : ""}`
                         : ""}

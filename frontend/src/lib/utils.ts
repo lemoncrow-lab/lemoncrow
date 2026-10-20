@@ -15,6 +15,7 @@ const twMerge = extendTailwindMerge({
       shadow: [{ shadow: ["float", "frame", "indicator"] }],
       "border-w-l": [{ "border-l": ["rail"] }],
       duration: [{ duration: ["fast", "base", "slow"] }],
+      tracking: [{ tracking: ["tag", "wordmark"] }],
     },
   },
 });

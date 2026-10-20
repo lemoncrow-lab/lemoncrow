@@ -186,14 +186,14 @@ function RowsTable({
         <tbody>
           {rows.map((row) => (
             <tr key={row.drill} className="border-t border-border/50">
-              <td className="max-w-[22rem] truncate py-1 pr-3 text-neutral-200" title={row.label}>
+              <td className="max-w-[22rem] truncate py-1 pr-3 text-foreground" title={row.label}>
                 {row.label}
               </td>
               <td className="py-1 pr-3 text-right">
                 <DrillCount row={row} onDrill={onDrill} />
               </td>
-              <td className="py-1 pr-3 text-right font-mono text-neutral-400">{row.reviews}</td>
-              {extra && <td className="py-1 text-right font-mono text-neutral-300">{extra.cell(row)}</td>}
+              <td className="py-1 pr-3 text-right font-mono text-muted-foreground">{row.reviews}</td>
+              {extra && <td className="py-1 text-right font-mono text-subtle">{extra.cell(row)}</td>}
             </tr>
           ))}
         </tbody>
@@ -230,7 +230,7 @@ function LaneRows({ lanes, onDrill }: { lanes: Array<[string, EscalationLane]>; 
         <tbody>
           {lanes.map(([label, lane]) => (
             <tr key={label} className="border-t border-border/50">
-              <td className="py-1 pr-3 text-neutral-200">{label}</td>
+              <td className="py-1 pr-3 text-foreground">{label}</td>
               <td className="py-1 pr-3 text-right">
                 <DrillCount row={lane.reviews} onDrill={onDrill} />
               </td>
@@ -242,7 +242,7 @@ function LaneRows({ lanes, onDrill }: { lanes: Array<[string, EscalationLane]>; 
                   {formatNumber(lane.ai_model_calls.value ?? 0, 0)}
                 </DrillCount>
               </td>
-              <td className="py-1 text-right font-mono text-neutral-300">{formatNumber(lane.model_calls_per_useful)}</td>
+              <td className="py-1 text-right font-mono text-subtle">{formatNumber(lane.model_calls_per_useful)}</td>
             </tr>
           ))}
         </tbody>
@@ -313,7 +313,7 @@ function DrillSheet({
                     <li key={`${record.repo_id}:${record.review_id}:${record.record_kind}:${record.record_id}`} className="py-2">
                       <div className="flex items-baseline justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="truncate text-label text-neutral-200">
+                          <div className="truncate text-label text-foreground">
                             {record.review_title || record.review_id}
                           </div>
                           <div className="truncate text-caption text-muted-foreground">
@@ -501,7 +501,7 @@ function Report({ report, onDrill }: { report: ReviewAnalyticsReport; onDrill: O
                     return (
                       <tr key={`${row.kind}:${row.name}`} className="border-t border-border/50">
                         <td className="max-w-[20rem] py-1 pr-3">
-                          <div className="truncate font-mono text-neutral-200" title={row.name}>
+                          <div className="truncate font-mono text-foreground" title={row.name}>
                             {row.name}
                           </div>
                           {row.detail && <div className="truncate text-caption text-muted-foreground">{row.detail}</div>}
@@ -578,10 +578,10 @@ function Report({ report, onDrill }: { report: ReviewAnalyticsReport; onDrill: O
               <ul className="space-y-1 text-label">
                 {perUseful.map((row) => (
                   <li key={`${row.measure}:${row.cost_class}:${row.currency ?? ""}`} className="flex justify-between gap-3">
-                    <span className="text-neutral-300">
+                    <span className="text-subtle">
                       {COST_CLASS_LABELS[row.cost_class] ?? row.cost_class} · {measureLabel[row.measure]}
                     </span>
-                    <span className="font-mono text-neutral-200">
+                    <span className="font-mono text-foreground">
                       {formatNumber(row.per_useful_finding, 2)}
                       {row.currency ? ` ${row.currency}` : ""}
                     </span>
@@ -603,7 +603,7 @@ function Report({ report, onDrill }: { report: ReviewAnalyticsReport; onDrill: O
             rows={[loops.started, loops.snapshot_recorded, loops.re_reviewed, loops.in_flight, loops.failed, loops.cancelled]}
             onDrill={onDrill}
           />
-          <p className="text-label text-neutral-300">
+          <p className="text-label text-subtle">
             Re-reviewed after the fix: <span className="font-mono">{formatRate(loops.completion_rate)}</span> of finished fix requests.
           </p>
         </Panel>
@@ -632,7 +632,7 @@ function Report({ report, onDrill }: { report: ReviewAnalyticsReport; onDrill: O
               {report.drift.items.map((item) => (
                 <li key={`${item.repo_id}:${item.review_id}:${item.revision_id}:${item.title}`} className="flex items-baseline justify-between gap-3 py-1.5">
                   <div className="min-w-0">
-                    <div className="truncate text-neutral-200">
+                    <div className="truncate text-foreground">
                       {item.critical && <Badge tone="warning" className="mr-1">Critical</Badge>}
                       {item.title}
                     </div>

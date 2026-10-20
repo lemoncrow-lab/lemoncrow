@@ -66,7 +66,7 @@ export default function Reports() {
           description={
             <>
               Benchmark runs written under{" "}
-              <code className="text-neutral-400">reports/benchmark/</code> appear
+              <code className="text-muted-foreground">reports/benchmark/</code> appear
               here automatically.
             </>
           }
@@ -85,7 +85,7 @@ export default function Reports() {
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="truncate font-semibold text-neutral-200">
+                    <span className="truncate font-semibold text-foreground">
                       {report.suite}
                     </span>
                     <span className="text-caption text-muted-foreground">
@@ -124,7 +124,7 @@ export default function Reports() {
                     {content.files.length} artifacts
                   </span>
                 </div>
-                <article className="prose prose-invert prose-sm max-w-none prose-headings:text-neutral-200 prose-p:text-neutral-400 prose-strong:text-neutral-200 prose-code:text-neutral-300 prose-a:text-neutral-400 prose-table:text-neutral-300 prose-th:text-neutral-300 prose-td:text-neutral-400">
+                <article className="prose prose-invert prose-sm max-w-none prose-headings:text-foreground prose-p:text-muted-foreground prose-strong:text-foreground prose-code:text-subtle prose-a:text-muted-foreground prose-table:text-subtle prose-th:text-subtle prose-td:text-muted-foreground">
                   <ReactMarkdown>{content.markdown}</ReactMarkdown>
                 </article>
               </>

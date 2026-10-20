@@ -189,7 +189,7 @@ export default function CodeSourceView({
           <div className="flex min-w-0 items-center gap-1 text-caption text-muted-foreground">
             {selectedNode.path.split("/").map((part, index, parts) => (
               <span key={`${part}-${index}`} className="flex min-w-0 items-center gap-1">
-                <span className={index === parts.length - 1 ? "truncate text-neutral-300" : "truncate"}>{part}</span>
+                <span className={index === parts.length - 1 ? "truncate text-subtle" : "truncate"}>{part}</span>
                 {index < parts.length - 1 && <span>/</span>}
               </span>
             ))}
@@ -208,7 +208,7 @@ export default function CodeSourceView({
           {selectedNode.node_type !== "file" && (
             <>
               <span className="shrink-0 text-muted-foreground">·</span>
-              <span className="max-w-64 truncate text-caption font-medium text-neutral-300">{selectedNode.qualified_name || selectedNode.label}</span>
+              <span className="max-w-64 truncate text-caption font-medium text-subtle">{selectedNode.qualified_name || selectedNode.label}</span>
             </>
           )}
           {change && (
@@ -227,7 +227,7 @@ export default function CodeSourceView({
               type="button"
               onClick={() => setViewerMode("preview")}
               aria-pressed={viewerMode === "preview"}
-              className={`inline-flex h-full items-center gap-1 px-2 text-caption ${viewerMode === "preview" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-neutral-200"}`}
+              className={`inline-flex h-full items-center gap-1 px-2 text-meta ${viewerMode === "preview" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
             >
               <Eye size={10} /> Preview
             </UiButton>
@@ -236,7 +236,7 @@ export default function CodeSourceView({
               type="button"
               onClick={() => setViewerMode("source")}
               aria-pressed={viewerMode === "source"}
-              className={`inline-flex h-full items-center gap-1 border-l border-border px-2 text-caption ${viewerMode === "source" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-neutral-200"}`}
+              className={`inline-flex h-full items-center gap-1 border-l border-border px-2 text-meta ${viewerMode === "source" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
             >
               <FileCode2 size={10} /> Source
             </UiButton>
@@ -259,9 +259,9 @@ export default function CodeSourceView({
             onChange={(event) => setLineInput(event.target.value)}
             placeholder="Line"
             aria-label="Go to line"
-            className="w-14 bg-transparent px-2 text-caption tabular-nums text-neutral-300 outline-none placeholder:text-muted-foreground"
+            className="w-14 bg-transparent px-2 text-meta tabular-nums text-subtle outline-none placeholder:text-muted-foreground"
           />
-          <UiButton unstyled type="submit" aria-label="Open source line" className="border-l border-border px-2 text-caption text-muted-foreground hover:text-foreground">
+          <UiButton unstyled type="submit" aria-label="Open source line" className="border-l border-border px-2 text-meta text-muted-foreground hover:text-foreground">
             Go
           </UiButton>
         </form>

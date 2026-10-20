@@ -172,7 +172,7 @@ describe("CommandDetail exit-code styling", () => {
       <CommandDetail command={{ command: "echo hi" }} forceExpand={false} />
     );
     const badge = screen.getByText("EXIT_?");
-    expect(badge).toHaveClass("text-neutral-400");
+    expect(badge).toHaveClass("text-muted-foreground");
     expect(badge).not.toHaveClass("text-red-600");
   });
 

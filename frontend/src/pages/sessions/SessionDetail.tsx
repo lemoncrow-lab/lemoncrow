@@ -46,19 +46,19 @@ function HeaderStat({
       className="group flex min-w-0 items-center justify-between gap-3 rounded-md border border-border/70 bg-background/60 px-2.5 py-1.5 transition-colors hover:bg-muted/50"
       title={title}
     >
-      <div className="truncate text-caption text-neutral-400 uppercase font-black tracking-[0.18em] group-hover:text-neutral-400 transition-colors">
+      <div className="truncate text-caption text-muted-foreground uppercase font-semibold tracking-tag group-hover:text-muted-foreground transition-colors">
         {label}
       </div>
       <div
         className={cx(
-          "truncate text-caption font-bold font-mono leading-none",
+          "truncate text-caption font-semibold font-mono leading-none",
           tone === "warning"
             ? "text-amber-300"
             : tone === "success"
               ? "text-emerald-300"
               : tone === "neutral"
-                ? "text-violet-300"
-                : "text-neutral-400"
+                ? "text-ai"
+                : "text-muted-foreground"
         )}
       >
         {value}
@@ -74,7 +74,7 @@ function HeaderStat({
 function SidebarMetric({
   label,
   value,
-  color = "text-neutral-400",
+  color = "text-muted-foreground",
 }: {
   label: string;
   value: string;
@@ -82,10 +82,10 @@ function SidebarMetric({
 }) {
   return (
     <div className="flex items-center justify-between gap-4">
-      <span className="text-caption text-neutral-400 font-mono uppercase font-bold">
+      <span className="text-caption text-muted-foreground font-mono uppercase font-semibold">
         {label}
       </span>
-      <span className={cx("text-caption font-mono font-black", color)}>
+      <span className={cx("text-caption font-mono font-semibold", color)}>
         {value}
       </span>
     </div>
@@ -95,7 +95,7 @@ function SidebarMetric({
 function SidebarList({
   title,
   items,
-  color = "text-neutral-400",
+  color = "text-muted-foreground",
 }: {
   title: string;
   items: Array<string | { path: string; artifact_id?: string }>;
@@ -132,7 +132,7 @@ function SidebarList({
 
   return (
     <section className="space-y-3">
-      <h3 className="text-caption font-black uppercase tracking-widest text-neutral-400">
+      <h3 className="text-caption font-semibold uppercase tracking-widest text-muted-foreground">
         {title}
       </h3>
       <div className="space-y-1.5 font-mono text-caption">
@@ -168,14 +168,14 @@ function SidebarList({
                   href={fileUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="truncate flex-1 hover:text-neutral-200 hover:underline decoration-dotted underline-offset-2"
+                  className="truncate flex-1 hover:text-foreground hover:underline decoration-dotted underline-offset-2"
                   title={`Open ${p}`}
                 >
                   {p}
                 </a>
               ) : (
                 <span
-                  className="truncate flex-1 hover:text-neutral-300 cursor-default"
+                  className="truncate flex-1 hover:text-subtle cursor-default"
                   title={p}
                 >
                   {p}
@@ -186,10 +186,10 @@ function SidebarList({
                   type="button"
                   onClick={() => copyToClipboard(p)}
                   className={cx(
-                    "text-caption uppercase font-black flex items-center gap-1",
+                    "text-meta uppercase font-semibold flex items-center gap-1",
                     justCopied
                       ? "text-emerald-300"
-                      : "text-neutral-400 hover:text-sky-300"
+                      : "text-muted-foreground hover:text-cyan-300"
                   )}
                   title={`Copy path: ${p}`}
                 >
@@ -200,7 +200,7 @@ function SidebarList({
                     href={projectionUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-caption text-neutral-400 hover:text-cyan-300 uppercase font-black"
+                    className="text-meta text-muted-foreground hover:text-cyan-300 uppercase font-semibold"
                     title="Inspect compact projection metadata"
                   >
                     Projection
@@ -211,7 +211,7 @@ function SidebarList({
                     href={rawUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="text-caption text-neutral-400 hover:text-emerald-300 uppercase font-black flex items-center gap-1"
+                    className="text-meta text-muted-foreground hover:text-emerald-300 uppercase font-semibold flex items-center gap-1"
                     title="View raw content"
                   >
                     Raw <ExternalLink size={10} />
@@ -246,20 +246,20 @@ function MetaPill({
   const [copied, setCopied] = useState(false);
   const toneClass =
     tone === "neutral"
-      ? "border-violet-900/40 bg-background/60 text-violet-300"
+      ? "border-ai-line bg-background/60 text-ai"
       : tone === "warning"
         ? "border-amber-900/40 bg-background/60 text-amber-300"
-        : "border-border bg-background/60 text-neutral-400";
+        : "border-border bg-background/60 text-muted-foreground";
 
   if (copyValue === undefined) {
     return (
       <span
         className={cx(
-          "inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-caption font-mono uppercase tracking-[0.2em]",
+          "inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-caption font-mono uppercase tracking-tag",
           toneClass
         )}
       >
-        <span className="text-neutral-400">{label}</span>
+        <span className="text-muted-foreground">{label}</span>
         <span className="normal-case tracking-normal text-current">
           {value}
         </span>
@@ -283,11 +283,11 @@ function MetaPill({
       onClick={handleCopy}
       title={`Copy: ${copyValue}`}
       className={cx(
-        "inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-caption font-mono uppercase tracking-[0.2em] transition hover:bg-muted/50",
+        "inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-meta font-mono uppercase tracking-tag transition hover:bg-muted/50",
         toneClass
       )}
     >
-      <span className="text-neutral-400">{label}</span>
+      <span className="text-muted-foreground">{label}</span>
       <span className="normal-case tracking-normal text-current">
         {copied ? "Copied" : truncateMiddle(value)}
       </span>
@@ -512,8 +512,8 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
   if (loading)
     return (
       <div className="flex flex-col items-center justify-center h-full space-y-4 bg-surface">
-        <div className="w-10 h-10 border border-neutral-500/20 border-t-neutral-500 rounded-full animate-spin" />
-        <div className="text-caption text-neutral-400 uppercase tracking-[0.3em] font-mono animate-pulse">
+        <div className="w-10 h-10 border border-input/20 border-t-neutral-500 rounded-full animate-spin" />
+        <div className="text-caption text-muted-foreground uppercase tracking-tag font-mono animate-pulse">
           Reconstructing Ledger...
         </div>
       </div>
@@ -523,10 +523,10 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
     return (
       <div className="h-full flex items-center justify-center bg-surface px-6 py-8 text-center">
         <div className="max-w-xs space-y-3">
-          <div className="text-red-300 text-heading font-mono font-bold uppercase tracking-widest">
+          <div className="text-red-300 text-heading font-mono font-semibold uppercase tracking-widest">
             Load Failure
           </div>
-          <div className="text-neutral-400 text-body font-mono leading-relaxed">
+          <div className="text-muted-foreground text-body font-mono leading-relaxed">
             {err}
           </div>
         </div>
@@ -540,7 +540,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
         <div className="space-y-2">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
             <div className="min-w-0 flex-1 space-y-1.5">
-              <h1 className="text-heading font-bold tracking-wide text-foreground truncate uppercase">
+              <h1 className="text-heading font-semibold tracking-wide text-foreground truncate uppercase">
                 {trace && (
                   <span
                     className="inline-flex items-center px-1"
@@ -579,7 +579,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                     href={apiUrl(`/raw-artifacts/${report.raw_artifact_ids[0]}/content`)}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/80 bg-muted/55 px-2.5 text-caption font-medium text-neutral-400 transition-colors hover:bg-neutral-800/80 hover:text-foreground"
+                    className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/80 bg-muted/55 px-2.5 text-meta font-medium text-muted-foreground transition-colors hover:bg-accent/80 hover:text-foreground"
                   >
                     <ExternalLink size={10} />
                     Raw Link
@@ -697,10 +697,10 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
             <div className="space-y-4 p-4 pb-16">
               <section className="space-y-4">
                 <div className="flex items-center gap-3">
-                  <h2 className="whitespace-nowrap text-caption font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  <h2 className="whitespace-nowrap text-caption font-semibold uppercase tracking-tag text-muted-foreground">
                     Execution Flow
                   </h2>
-                  <div className="h-px w-full bg-neutral-800/80" />
+                  <div className="h-px w-full bg-accent/80" />
                 </div>
 
                 <div className="space-y-4">
@@ -732,13 +732,13 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                     <div className="space-y-4">
                       {trace?.reasoning && trace.reasoning.length > 0 && (
                         <div className="space-y-4">
-                          <h3 className="text-caption font-bold uppercase tracking-widest text-neutral-400 px-1">
+                          <h3 className="text-caption font-semibold uppercase tracking-widest text-muted-foreground px-1">
                             Strategy
                           </h3>
                           {trace.reasoning.map((r, i) => (
                             <div
                               key={i}
-                              className="rounded-lg border border-border/70 bg-background/60 p-3 font-mono text-label leading-relaxed text-neutral-400 whitespace-pre-wrap"
+                              className="rounded-lg border border-border/70 bg-background/60 p-3 font-mono text-label leading-relaxed text-muted-foreground whitespace-pre-wrap"
                             >
                               {r}
                             </div>
@@ -746,7 +746,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                         </div>
                       )}
                       <div className="space-y-4">
-                        <h3 className="text-caption font-bold uppercase tracking-widest text-neutral-400 px-1">
+                        <h3 className="text-caption font-semibold uppercase tracking-widest text-muted-foreground px-1">
                           Events
                         </h3>
                         <div className="space-y-2">
@@ -774,10 +774,10 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
               {ledgerFilesTouched.length > 0 && (
                 <section className="space-y-4 border-t border-border/70 pt-4">
                   <div className="flex items-center gap-3">
-                    <h2 className="whitespace-nowrap text-caption font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    <h2 className="whitespace-nowrap text-caption font-semibold uppercase tracking-tag text-muted-foreground">
                       File Changes
                     </h2>
-                    <div className="h-px w-full bg-neutral-800/80" />
+                    <div className="h-px w-full bg-accent/80" />
                     <span className="flex-shrink-0 font-mono text-caption font-medium text-muted-foreground">
                       {ledgerFilesTouched.length} file
                       {ledgerFilesTouched.length !== 1 ? "s" : ""} · from
@@ -802,7 +802,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
           {rightPanelOpen && (
             <aside className="w-96 flex-shrink-0 space-y-4 overflow-y-auto border-l border-border/70 bg-background/70 p-4 custom-scrollbar animate-in slide-in-from-right duration-300">
               <section className="space-y-4">
-                <h3 className="border-b border-border pb-2 text-caption font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                <h3 className="border-b border-border pb-2 text-caption font-semibold uppercase tracking-tag text-muted-foreground">
                   Session Blueprint
                 </h3>
                 <div className="grid gap-3">
@@ -869,7 +869,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
 
               {report && (
                 <section className="space-y-4">
-                  <h3 className="border-b border-border pb-2 text-caption font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  <h3 className="border-b border-border pb-2 text-caption font-semibold uppercase tracking-tag text-muted-foreground">
                     Measurement
                   </h3>
                   <div className="grid gap-3">
@@ -904,7 +904,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
               {report?.top_tools_by_cost &&
                 report.top_tools_by_cost.length > 0 && (
                   <section className="space-y-4">
-                    <h3 className="border-b border-border pb-2 text-caption font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    <h3 className="border-b border-border pb-2 text-caption font-semibold uppercase tracking-tag text-muted-foreground">
                       Tool Breakdown
                     </h3>
                     <div className="space-y-2">
@@ -913,10 +913,10 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                           key={i}
                           className="flex items-center justify-between text-caption font-mono border-b border-border/40 pb-1 last:border-0"
                         >
-                          <span className="text-blue-300 truncate pr-4">
+                          <span className="text-cyan-300 truncate pr-4">
                             {t.tool} ({t.calls})
                           </span>
-                          <span className="text-neutral-400">
+                          <span className="text-muted-foreground">
                             {fmtUsd(t.cost_usd)}
                           </span>
                         </div>
@@ -927,7 +927,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
 
               {report?.tool_savings && report.tool_savings.length > 0 && (
                 <section className="space-y-4">
-                  <h3 className="border-b border-border pb-2 text-caption font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  <h3 className="border-b border-border pb-2 text-caption font-semibold uppercase tracking-tag text-muted-foreground">
                     Context Savings by Tool
                   </h3>
                   <div className="space-y-2">
@@ -939,7 +939,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                         <span className="text-emerald-300 truncate pr-4">
                           {row.tool}
                         </span>
-                        <span className="text-neutral-400">
+                        <span className="text-muted-foreground">
                           {(row.tokens_saved / 1000).toFixed(1)}k tok ·{" "}
                           {fmtUsd(row.cost_saved_usd)}
                         </span>
@@ -952,7 +952,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
               {report?.models_used &&
                 Object.keys(report.models_used).length > 0 && (
                   <section className="space-y-4">
-                    <h3 className="border-b border-border pb-2 text-caption font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    <h3 className="border-b border-border pb-2 text-caption font-semibold uppercase tracking-tag text-muted-foreground">
                       Models Involved
                     </h3>
                     <div className="space-y-2 text-caption font-mono">
@@ -962,10 +962,10 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                             key={i}
                             className="flex items-center justify-between border-b border-border/40 pb-1 last:border-0"
                           >
-                            <span className="text-violet-300 truncate pr-4">
+                            <span className="text-ai truncate pr-4">
                               {model}
                             </span>
-                            <span className="text-neutral-400">
+                            <span className="text-muted-foreground">
                               {count} calls
                             </span>
                           </div>
@@ -978,7 +978,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
               {report?.agent_settings &&
                 Object.keys(report.agent_settings).length > 0 && (
                   <section className="space-y-4">
-                    <h3 className="border-b border-border pb-2 text-caption font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    <h3 className="border-b border-border pb-2 text-caption font-semibold uppercase tracking-tag text-muted-foreground">
                       Agent Config
                     </h3>
                     <div className="space-y-2 text-caption font-mono">
@@ -988,10 +988,10 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                             key={i}
                             className="flex flex-col border-b border-border/40 pb-1 last:border-0 gap-0.5"
                           >
-                            <span className="text-neutral-400 uppercase font-bold tracking-tighter text-caption">
+                            <span className="text-muted-foreground uppercase font-semibold tracking-tighter text-caption">
                               {key}
                             </span>
-                            <span className="text-neutral-400 truncate">
+                            <span className="text-muted-foreground truncate">
                               {String(val)}
                             </span>
                           </div>
@@ -1023,7 +1023,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                       path: `${artifact.label || (artifact.scope === "subagent" ? "subagent" : "main")} · ${artifact.relative_path.split("/").pop() || artifact.relative_path}`,
                       artifact_id: artifact.id,
                     }))}
-                    color="text-sky-300"
+                    color="text-cyan-300"
                   />
                 )}
               {inspectorData?.pinned_blocks &&
@@ -1031,7 +1031,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                   <SidebarList
                     title="Pinned Logic"
                     items={inspectorData.pinned_blocks}
-                    color="text-neutral-400/70"
+                    color="text-muted-foreground/70"
                   />
                 )}
               {inspectorData?.recalled_passages &&
@@ -1044,25 +1044,25 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                 )}
 
               <section className="space-y-3 opacity-60 hover:opacity-100 transition-opacity pt-4 border-t border-border">
-                <h3 className="text-caption font-black uppercase tracking-widest text-neutral-400">
+                <h3 className="text-caption font-semibold uppercase tracking-widest text-muted-foreground">
                   Audit Telemetry
                 </h3>
-                <div className="space-y-1.5 text-caption font-mono text-neutral-400">
+                <div className="space-y-1.5 text-caption font-mono text-muted-foreground">
                   {report?.telemetry &&
                     Object.entries(report.telemetry).map(([key, val], i) => (
                       <div
                         key={i}
                         className="flex justify-between border-b border-border/20 pb-0.5 last:border-0"
                       >
-                        <span className="uppercase text-caption font-bold">
+                        <span className="uppercase text-caption font-semibold">
                           {key}
                         </span>
-                        <span className="text-neutral-400">{String(val)}</span>
+                        <span className="text-muted-foreground">{String(val)}</span>
                       </div>
                     ))}
                   {inspectorData?.summarized_events_count ? (
                     <div className="flex justify-between border-b border-border/20 pb-0.5 last:border-0">
-                      <span className="uppercase text-caption font-bold text-amber-600/80">
+                      <span className="uppercase text-caption font-semibold text-amber-600/80">
                         Compressed_Events
                       </span>
                       <span className="text-amber-300">
@@ -1072,17 +1072,17 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                   ) : null}
                   {inspectorData?.tokens_pre && (
                     <div className="flex justify-between border-b border-border/20 pb-0.5 last:border-0">
-                      <span className="uppercase text-caption font-bold">
+                      <span className="uppercase text-caption font-semibold">
                         Context_Pre
                       </span>
-                      <span className="text-neutral-400">
+                      <span className="text-muted-foreground">
                         {fmtTok(inspectorData.tokens_pre)}
                       </span>
                     </div>
                   )}
                   {inspectorData?.tokens_post && (
                     <div className="flex justify-between border-b border-border/20 pb-0.5 last:border-0">
-                      <span className="uppercase text-caption font-bold text-emerald-600/80">
+                      <span className="uppercase text-caption font-semibold text-emerald-600/80">
                         Context_Post
                       </span>
                       <span className="text-emerald-300">
