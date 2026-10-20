@@ -22,6 +22,16 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   per depth (1,500 at Quick, 3,000 at Auto, 5,000 at Thorough, 8,000 at Deep, estimated),
   adds no model call, skips credential files, honours `ai_content_access`, and is counted
   in the summary footer. `LEMONCROW_REVIEW_REPO_CONTEXT=0` turns it off.
+- **Review benchmark on real pull requests.** `lc dev eval review benchmark --corpus
+  evals/review/real_prs.yaml --depth quick,auto,deep --max-usd 20` reviews pinned public
+  pull requests at each depth through the same pipeline as the GitHub Action, replays a
+  follow-up push with and without carry-forward, and writes Markdown and JSON reports with
+  tokens, provider dollars, model calls, wall time, findings by P0/P1/P2, catch rate against
+  labels, noise rate and the extra cost of a push. `import-greptile` and `init-corpus` bring in
+  another reviewer's comments as a baseline; `derive-label` builds a label from a later fix
+  commit and never invents one. Live runs need `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, stop
+  at `--max-usd` and refuse CI. Nothing is measured yet. See
+  [Review benchmark on real pull requests](docs/reference/review-benchmark.md).
 
 ### Changed
 

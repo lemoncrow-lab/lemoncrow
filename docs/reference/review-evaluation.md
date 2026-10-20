@@ -17,6 +17,8 @@ uv run lc dev eval review record --synthetic           # re-author fixtures with
 uv run lc dev eval review record --live --max-calls 40 [--max-usd 2]   # real provider, budget-capped, never in CI
 ```
 
+Gate I measures the reviewer on synthetic Changes. Quality and cost on real pull requests, with a cost per review and a comparison with another reviewer's comments, are a separate harness: see [Review benchmark on real pull requests](review-benchmark.md) (`lc dev eval review benchmark`). It reuses this corpus format, the live budget and the matching rules, and its reports are not Gate I results.
+
 `run` exits 1 when a fixture is stale or missing. `gate` exits 0 in report mode whatever it finds; in enforce mode it exits 1 unless the result is `pass` or `accepted`. On the built-in corpus a full `run` or `gate` takes about 10 to 15 seconds on a developer machine (55 Reviews: 11 cases under 5 selections).
 
 ## Layout
