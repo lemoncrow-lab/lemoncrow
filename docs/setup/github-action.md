@@ -146,7 +146,7 @@ One rule gives each finding its severity, and everything the bot shows reads tha
 - **Verified** means evidence from beyond the finding's own changed code backs it, evidence the model did not write: a recorded check, an attached artifact, a static-analysis result, or an excerpt of a *different* file from the repository context pack (a caller the change breaks, a test, a definition). The finding's own changed unit and the exact source of that same unit do **not** count, because every changed unit comes with both and the model is shown those bytes anyway; neither does an excerpt of the finding's own file, or a related repository. A model's rating of `high` with nothing but the changed code behind it is therefore a **P1**, never a P0, and so never fails the check. What the Action can corroborate today is mostly the pack: it runs no scanner and records no checks of its own, so a P0 needs a finding whose cause the pack shows in another file (the stale caller of a function whose behavior the change broke), or a rule you wrote. Expect P0 to be rare; that is the point.
 - **Unrated** findings (a model that gave no rating) keep the severity of their category: P1 for correctness, security, concurrency, persistence and API findings, P2 for performance and verification. Unrated is never low and never P0.
 - A finding carried forward whose re-check failed on a push is **unverified** until a later check succeeds, so a P0 drops to P1 meanwhile. That review is incomplete, so with `fail-on: p0` the status is `error`, not a pass. A critical rule keeps its P0: your rule, not the model, made it a gate.
-- **Rules**: every rule in `.lemoncrow/review.yaml` is a critical rule today (there is no per-rule severity yet), and a violation is P0 only when the finding cites the rule it violates, which the Action requires of every rule finding. A finding that names no rule is held to the ordinary ladder, P1 at most.
+- **Rules**: every rule you write in `.lemoncrow/review.yaml` is a critical rule, and a violation is P0 only when the finding cites the rule it violates, which the Action requires of every rule finding. A rule imported from a Greptile config is **advisory**: its violation is P1 or P2 and never P0, unless `import.critical` in `.lemoncrow/review.yaml` lists it (see [Switching from Greptile](#switching-from-greptile)). A finding that names no rule is held to the ordinary ladder, P1 at most.
 
 The categories that can reach P0 and the rule above are fixed in this release: there is no setting for them yet. `fail-on: p0` therefore gates your own rules and the findings LemonCrow could back with evidence. Start with `fail-on: none` (the sample's default), read the P0s for a few weeks, and switch to `p0` when you trust them.
 
@@ -400,10 +400,26 @@ Controls, as environment variables on the step:
 | --- | --- |
 | `LEMONCROW_REVIEW_REPO_CONTEXT=0` | no pack; the review is as it was before context existed |
 | `LEMONCROW_REVIEW_REPO_CONTEXT_TOKENS=1200` | lower (or raise) the per-call ceiling for every depth |
+| `LEMONCROW_REVIEW_CONVENTIONS_TOKENS=500` | lower (or raise) the per-call ceiling of the `AGENTS.md` / `CLAUDE.md` excerpt for every depth (see [Switching from Greptile](#switching-from-greptile)) |
 
 Turning the pack on or off, or changing how it is selected, counts as a change to the review policy: the next push re-reviews everything once, because last time's result was reached with different information.
 
 Limits to know: the search is textual, with tree-sitter to find the enclosing function, so it matches by name and can miss a caller reached through a dynamic dispatch or a re-export under another name; the per-rule questions (`rules:` in `.lemoncrow/review.yaml`) do not get a pack; and a change that touches one function can appear as several review targets (the symbol, the lines it replaced, the module declarations), all of which share the same callers, so the same problem can be reported once per target.
+
+## Switching from Greptile
+
+A team coming from Greptile keeps its rules. From the pull request's **merge base**, the same trusted source as `.lemoncrow/review.yaml`, the Action reads `.greptile/` (`config.json`, `rules.md`), the legacy `greptile.json`, and `AGENTS.md` / `CLAUDE.md`. A pull request that adds or edits them cannot change its own review. Precedence, highest first: `.lemoncrow/review.yaml`, `.greptile/`, `greptile.json`, then `AGENTS.md` / `CLAUDE.md` as context only.
+
+| Greptile | In LemonCrow |
+| --- | --- |
+| `rules[]` with `scope`, `rules.md` | Review rules scoped to those path globs, **advisory** (P1 or P2, never P0 unless `import.critical` in `.lemoncrow/review.yaml` says so) |
+| `ignorePatterns` | Paths the model never reads (`ai_content_access: ai_denied`) |
+| `customInstructions`, `AGENTS.md`, `CLAUDE.md` | Project conventions: a token-budgeted excerpt in the investigator's prompt, never a rule, never content the access policy denies |
+| `strictness`, `commentTypes` | Imported, **not applied**: the receipt and the effective view say so |
+| `triggerOnUpdates`, `triggerOnDrafts`, `skipReview` | The `on-push` and `review-drafts` inputs and your workflow's triggers |
+| Any other key | Ignored, with a warning |
+
+`lc review config --effective` prints the merged rules with the file each came from, and `lc review config --dry-run --pr N` shows which would apply to a pull request's files. The full mapping, the budgets and the limits are in [Switching from Greptile](switching-from-greptile.md).
 
 ## Pull requests from forks
 

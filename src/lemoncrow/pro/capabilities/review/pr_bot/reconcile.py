@@ -42,6 +42,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.findings import (
     trimmed,
 )
 from lemoncrow.pro.capabilities.review.pr_bot.state import ReviewState
+from lemoncrow.pro.capabilities.review.rules import cites_critical_rule
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,7 +100,11 @@ def finding_from_confirmed(confirmed: Any, located: Located | None, head: str) -
         id=confirmed.id,
         fingerprint=fingerprint_for(confirmed.category, target_ids, confirmed.rule_refs),
         severity=severity_for(
-            confirmed.category, impact=impact, verified=verified, rule_cited=bool(tuple(confirmed.rule_refs))
+            # An imported (advisory) rule never makes a P0; only a critical rule does (G10).
+            confirmed.category,
+            impact=impact,
+            verified=verified,
+            rule_cited=cites_critical_rule(tuple(confirmed.rule_refs)),
         ),
         category=confirmed.category,
         state="new",

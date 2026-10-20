@@ -28,6 +28,11 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: "doc",
+          id: "setup/switching-from-greptile",
+          label: "Switching from Greptile",
+        },
+        {
+          type: "doc",
           id: "setup/hosted-review",
           label: "Hosted Review: administrator guide",
         },

@@ -521,6 +521,7 @@ def _review(
             investigated=ai.investigated,
             rules=ai.rules,
             unchanged=ai.unchanged,
+            imported=ai.imported,
         ),
         pull_number=ref.number,
         repository=ref.slug,

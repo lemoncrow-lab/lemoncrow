@@ -137,6 +137,8 @@ lc review --resume-author
 lc review --pr 123
 lc review --pr 123 --ai --depth auto   # AI review in the terminal or CI; --publish-bot posts it as a bot
 lc review data-flow
+lc review config --effective            # the merged review rules (review.yaml, .greptile/, greptile.json) and their sources
+lc review config --dry-run --pr 123   # which rules would apply to that pull request's files
 lc review diagnostics
 lc review observation-worker check --server URL --pins pins.json
 ```

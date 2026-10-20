@@ -83,6 +83,8 @@ class AiStage:
     candidates: int = 0
     investigated: int = 0
     rules: tuple[str, ...] = ()
+    #: Settings imported from another tool's config that have no behavior here ("strictness 3: imported, not applied").
+    imported: tuple[str, ...] = ()
     policy: str = ""
     usage: Usage = field(default_factory=Usage)
     model: str = ""
@@ -573,6 +575,7 @@ def _execute(
     locations = {target.target_id: locate_target(target) for target in targets}
     intact = _intact_findings(captured, previous)
     rules = tuple(rule.stable_key for rule in governance.rules)
+    imports = governance.imports  # what the trusted base's Greptile config and AGENTS.md / CLAUDE.md contributed (G10)
     base = AiStage(
         status="nothing_changed",
         locations=locations,
@@ -581,6 +584,7 @@ def _execute(
         unchanged=len(targets) - len(changed),
         files=tuple(sorted({target.path for target in targets})),
         rules=rules,
+        imported=imports.receipt_lines() if imports is not None else (),
         policy=previous.policy if narrow and previous is not None else digest,
         depth=depth,
         max_calls=stage_plan.max_review_calls or ModelCallBudget.from_env(max_calls=1).max_review_calls,
@@ -619,6 +623,7 @@ def _execute(
             repo_context=RepoContextOptions(enabled=repo_context_enabled()) if repo_context_enabled() else None,
             pr_fields=True,
             prior_findings=_prior_rows(previous, {target.target_id for target in changed}),
+            project_conventions=imports.conventions if imports is not None else (),
         )
     usage, served = revision_usage(store, session.id, revision.id)
     context = dict(result.repo_context)
