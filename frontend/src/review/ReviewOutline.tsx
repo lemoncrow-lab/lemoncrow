@@ -243,7 +243,7 @@ function VirtualOutlineRows({
             tooltip={[row.path, page ? `Page ${page}` : "", reason].filter(Boolean).join(" · ")}
             className={[
               "review-outline-file flex w-full items-center gap-1.5 rounded-md border border-transparent px-2 text-left transition-colors",
-              active ? "border-border bg-muted/85 " : "hover:bg-muted/45",
+              active ? "border-border bg-muted " : "hover:bg-muted/45",
               complete ? "opacity-60" : "",
             ].join(" ")}
             style={{ height: VIRTUAL_ROW_HEIGHT, marginBottom: VIRTUAL_ROW_GAP }}
@@ -654,7 +654,7 @@ export default function ReviewOutline({
                                 className={[
                                   "review-outline-file block w-full rounded-md border border-transparent px-2 py-1.5 text-left transition-colors",
                                   active
-                                    ? "border-border bg-muted/85 "
+                                    ? "border-border bg-muted "
                                     : "hover:bg-muted/45",
                                   complete ? "opacity-60" : "",
                                 ].join(" ")}

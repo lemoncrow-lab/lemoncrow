@@ -15,11 +15,6 @@ import { revisionShortLabel } from "./revisionLabel";
 import ReviewBaseIdentity from "./ReviewBaseIdentity";
 import type { ReviewLandingReadiness, ReviewOverview, ReviewStackInfo, ReviewStackMember } from "./types";
 
-/** The checkout's own name: the last path segment. The full path stays in the title and the accessible name. */
-function workspaceName(path: string): string {
-  return path.split(/[\\/]/).filter(Boolean).pop() || path;
-}
-
 function stackMemberName(member: ReviewStackMember): string {
   if (member.provider !== "git" && member.external_id) return member.external_id;
   if (member.change_ref) return member.change_ref.slice(0, 10);
@@ -193,7 +188,7 @@ export default function ReviewIdentityBar({
   const workspaceContext = contextOverride?.label
     ? contextOverride
     : resolvedEnvironment.review.local_workspace && overview.workspace_root
-      ? { label: overview.workspace_root, title: `Workspace ${overview.workspace_root}`, display: workspaceName(overview.workspace_root) }
+      ? { label: overview.workspace_root, title: `Workspace ${overview.workspace_root}` }
       : null;
 
   return (
@@ -271,7 +266,7 @@ export default function ReviewIdentityBar({
               title={workspaceContext.title || workspaceContext.label}
               aria-label={contextOverride?.label ? `Review context: ${workspaceContext.label}` : `Review workspace: ${workspaceContext.label}`}
             >
-              {"display" in workspaceContext ? workspaceContext.display : workspaceContext.label}
+              {workspaceContext.label}
             </span>
           )}
           <ReviewBaseIdentity overview={overview} />

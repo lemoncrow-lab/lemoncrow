@@ -272,7 +272,7 @@ function MobilePrimaryNav({ pathname, items }: { pathname: string; items: readon
                 <span className="relative">
                   {item.label}
                   {item.annotation && (
-                    <Badge aria-hidden="true" className="ml-1.5 h-4 px-1 text-micro">
+                    <Badge aria-hidden="true" className={cx("ml-1.5 h-4 px-1 text-micro", active && "text-subtle")}>
                       {item.annotation}
                     </Badge>
                   )}
@@ -647,7 +647,7 @@ export default function App({
                         <span className="flex items-center">
                           {item.label}
                           {item.annotation && (
-                            <Badge aria-hidden="true" className="ml-1.5 h-4 px-1 text-micro">
+                            <Badge aria-hidden="true" className={cx("ml-1.5 h-4 px-1 text-micro", active && "text-subtle")}>
                               {item.annotation}
                             </Badge>
                           )}

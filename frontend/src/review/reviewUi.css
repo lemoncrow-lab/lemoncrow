@@ -192,7 +192,7 @@
 
 .review-outline-file[aria-current="location"] {
   border-color: rgb(var(--n-400) / 0.3);
-  background: rgb(var(--n-400) / 0.08);
+  background: rgb(var(--n-400) / 0.05);
   box-shadow: none;
 }
 
