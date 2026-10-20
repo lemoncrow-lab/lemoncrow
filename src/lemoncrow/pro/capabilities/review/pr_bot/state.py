@@ -145,9 +145,26 @@ class ReviewState:
     findings_dropped: int = 0
     usage: Usage = field(default_factory=Usage)
     usage_total: Usage = field(default_factory=Usage)
+    #: Chat answers given on this pull request (G6) and what their model calls cost. They are kept apart from
+    #: ``reviews`` and ``usage_total`` so a review and a chat answer, which can run at the same time, never overwrite
+    #: each other's numbers; both count toward the pull request's budget (:attr:`runs`, :attr:`spent`).
+    chats: int = 0
+    chat_usage: Usage = field(default_factory=Usage)
 
     def open_findings(self) -> tuple[BotFinding, ...]:
         return tuple(finding for finding in self.findings if finding.is_open)
+
+    @property
+    def runs(self) -> int:
+        """Model-using runs on this pull request so far: reviews and chat answers. ``max-runs-per-pr`` caps this."""
+
+        return self.reviews + self.chats
+
+    @property
+    def spent(self) -> Usage:
+        """Everything this pull request has cost so far, reviews and chat answers. ``max-usd-per-pr`` caps its cost."""
+
+        return self.usage_total.plus(self.chat_usage)
 
 
 def verdict_counts(findings: tuple[BotFinding, ...] | list[BotFinding]) -> dict[str, int]:
@@ -193,6 +210,8 @@ def state_wire(state: ReviewState) -> dict[str, Any]:
         "units_truncated": state.units_truncated,
         "usage": state.usage.to_wire(),
         "usage_total": state.usage_total.to_wire(),
+        # Absent until the first chat answer, so a state written before G6 round-trips unchanged.
+        **({"chats": state.chats, "chat_usage": state.chat_usage.to_wire()} if state.chats else {}),
     }
 
 
@@ -249,6 +268,7 @@ def parse_state(body: str) -> ReviewState | None:
 
     reviews = raw.get("reviews")
     dropped = raw.get("findings_dropped")
+    chats = raw.get("chats")
     return ReviewState(
         head_sha=head,
         base_sha=_sha(raw, "base_sha"),
@@ -265,7 +285,19 @@ def parse_state(body: str) -> ReviewState | None:
         findings_dropped=dropped if isinstance(dropped, int) and not isinstance(dropped, bool) and dropped > 0 else 0,
         usage=Usage.from_wire(raw.get("usage")),
         usage_total=Usage.from_wire(raw.get("usage_total")),
+        chats=chats if isinstance(chats, int) and not isinstance(chats, bool) and 0 < chats < 1_000_000 else 0,
+        chat_usage=Usage.from_wire(raw.get("chat_usage")),
     )
+
+
+def with_state(body: str, state: ReviewState) -> str:
+    """*body* with its hidden state block replaced by *state*'s; the readable part is untouched.
+
+    For a change to the state that does not change what the comment says (a chat answer's bookkeeping): the visible
+    summary was rendered from facts the state does not hold, so it is not re-rendered from the state.
+    """
+
+    return _STATE.sub(lambda _match: dump_state(state), body, count=1)
 
 
 # --------------------------------------------------------------------------- #

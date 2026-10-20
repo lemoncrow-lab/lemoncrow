@@ -111,6 +111,8 @@ class FakeGitHub:
         self.review_posts = 0
         self.posted_reviews: list[dict[str, Any]] = []
         """Every ``POST .../reviews`` body exactly as the bot sent it."""
+        self.associations: dict[str, str] = {"alice": "MEMBER"}
+        """``author_association`` GitHub reports for a login; any other login is ``NONE``."""
         self._ids = 1000
 
     # ----- helpers ------------------------------------------------------ #
@@ -134,6 +136,58 @@ class FakeGitHub:
 
     def last_status(self) -> dict[str, Any]:
         return self.statuses[-1]
+
+    def bot_replies(self) -> list[dict[str, Any]]:
+        """Replies in review threads that the bot wrote."""
+
+        return [row for row in self.replies() if row["user"] == BOT]
+
+    def chat_replies(self) -> list[dict[str, Any]]:
+        """Every comment the bot wrote in answer to a mention, inline or in the conversation."""
+
+        return [row for row in (*self.review_comments, *self.issue_comments) if "<!-- lemoncrow:chat " in row["body"]]
+
+    def add_review_comment(
+        self,
+        body: str,
+        *,
+        user: dict[str, str] = PERSON,
+        in_reply_to: int = 0,
+        path: str = "",
+        line: int = 0,
+        association: str | None = None,
+    ) -> dict[str, Any]:
+        """A comment a person (or another bot) wrote on a diff line or in a thread, as GitHub would hold it."""
+
+        row: dict[str, Any] = {
+            "id": self._next(),
+            "body": body,
+            "user": user,
+            "author_association": association or self.associations.get(user["login"], "NONE"),
+            "path": path,
+            "html_url": f"https://github.com/{SLUG}/pull/{NUMBER}#discussion_r{self._ids}",
+        }
+        if line:
+            row["line"] = line
+        if in_reply_to:
+            row["in_reply_to_id"] = in_reply_to
+        else:
+            self.threads[row["id"]] = {"id": f"PRRT_{row['id']}", "resolved": False}
+        self.review_comments.append(row)
+        return row
+
+    def add_issue_comment(
+        self, body: str, *, user: dict[str, str] = PERSON, association: str | None = None
+    ) -> dict[str, Any]:
+        row: dict[str, Any] = {
+            "id": self._next(),
+            "body": body,
+            "user": user,
+            "author_association": association or self.associations.get(user["login"], "NONE"),
+            "html_url": f"https://github.com/{SLUG}/pull/{NUMBER}#issuecomment-{self._ids}",
+        }
+        self.issue_comments.append(row)
+        return row
 
     # ----- the runner --------------------------------------------------- #
 
@@ -182,6 +236,7 @@ class FakeGitHub:
             "draft": self.draft,
             "title": "Widgets",
             "user": {"login": "alice"},
+            "author_association": self.associations.get("alice", "NONE"),
             "head": head,
             "base": {"ref": "main", "repo": {"id": 4242, "full_name": SLUG}},
             "html_url": f"https://github.com/{SLUG}/pull/{NUMBER}",
@@ -318,6 +373,11 @@ class FakeModel:
         self.evidence_seen: list[dict[str, Any]] = []
         """The evidence registry each investigator call was offered, with the path of its first target."""
         self.fail = False
+        self.chats: list[dict[str, Any]] = []
+        """Every chat call: the system prompt, the prompt as the model was shown it, and the other call arguments."""
+        self.chat_answer: str | Any = "The guard is missing for a None principal; see src/auth.py:2."
+        """What the model answers a chat question: text, or a function of the parsed prompt."""
+        self.chat_input_tokens: int | None = 800
         self.input_tokens: int | None = 1000
         self.output_tokens: int | None = 200
         self.model = "gpt-4o-mini"
@@ -328,7 +388,24 @@ class FakeModel:
     def paths(self) -> list[str]:
         return sorted(call["path"] for call in self.calls)
 
+    def _chat(self, kwargs: dict[str, Any]) -> StructuredExecution:
+        prompt = json.loads(kwargs["prompt"])
+        self.chats.append(
+            {
+                "system": kwargs["system"],
+                "prompt": prompt,
+                "args": {k: v for k, v in kwargs.items() if k not in {"system", "prompt"}},
+            }
+        )
+        if self.fail:
+            raise RuntimeError("provider unavailable")
+        answer = self.chat_answer(prompt) if callable(self.chat_answer) else self.chat_answer
+        usage = ModelCallUsage(calls=1, input_tokens=self.chat_input_tokens, output_tokens=120)
+        return StructuredExecution(result={"answer": answer}, driver="openai", model=self.model, usage=usage)
+
     def __call__(self, **kwargs: Any) -> StructuredExecution:
+        if "answer" in kwargs["output_schema"].get("properties", {}):
+            return self._chat(kwargs)
         prompt = json.loads(kwargs["prompt"])
         if "violated" in json.dumps(kwargs["output_schema"]):
             return self._rule_check(prompt)
@@ -495,6 +572,8 @@ class World:
     github: FakeGitHub
     model: FakeModel
     root: Path
+    monkeypatch: pytest.MonkeyPatch
+    last_event: tuple[str, Path] = ("", Path())
 
     def review(self, **options: Any) -> RunReport:
         options.setdefault("publish", True)
@@ -503,6 +582,83 @@ class World:
             runner=self.github,
             structured_executor=self.model,
         )
+
+    def chat(
+        self,
+        body: str,
+        *,
+        thread: int | None = None,
+        anchor: tuple[str, int] | None = None,
+        author: str = "alice",
+        user_type: str = "User",
+        association: str | None = None,
+        action: str = "created",
+        fork: bool = False,
+        env: dict[str, str] | None = None,
+        **options: Any,
+    ) -> RunReport:
+        """A person comments *body* and the workflow runs on the comment event.
+
+        ``thread`` is the id of the first comment of a review thread to reply in; ``anchor`` is ``(path, line)`` for a
+        comment that starts a thread of its own; neither is a comment in the pull request's conversation.
+        """
+
+        user = {"login": author, "type": user_type}
+        if thread is not None or anchor is not None:
+            comment = self.github.add_review_comment(
+                body,
+                user=user,
+                in_reply_to=thread or 0,
+                path=anchor[0] if anchor else "",
+                line=anchor[1] if anchor else 0,
+                association=association,
+            )
+            name = "pull_request_review_comment"
+            payload: dict[str, Any] = {
+                "action": action,
+                "comment": {
+                    **comment,
+                    "diff_hunk": "@@ -1,2 +1,4 @@\n def authorize(user):\n+    if user is None:",
+                    "in_reply_to_id": thread,
+                },
+                "pull_request": {
+                    "number": NUMBER,
+                    "head": {"sha": self.origin.head, "repo": {"full_name": "mallory/widgets" if fork else SLUG}},
+                    "base": {"repo": {"full_name": SLUG}},
+                },
+            }
+            if thread is None:
+                del payload["comment"]["in_reply_to_id"]
+        else:
+            comment = self.github.add_issue_comment(body, user=user, association=association)
+            name = "issue_comment"
+            payload = {
+                "action": action,
+                "issue": {
+                    "number": NUMBER,
+                    "pull_request": {"url": f"https://api.github.com/repos/{SLUG}/pulls/{NUMBER}"},
+                },
+                "comment": comment,
+            }
+        payload["sender"] = user
+        path = self.root / f"event-{comment['id']}.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        self.last_event = (name, path)
+        return self.rerun_event(env=env, **options)
+
+    def rerun_event(self, *, env: dict[str, str] | None = None, **options: Any) -> RunReport:
+        """Run the job again for the last comment event, as "Re-run jobs" does."""
+
+        name, path = self.last_event
+        self.monkeypatch.setenv("GITHUB_EVENT_NAME", name)
+        self.monkeypatch.setenv("GITHUB_EVENT_PATH", str(path))
+        for key, value in (env or {}).items():
+            self.monkeypatch.setenv(key, value)
+        try:
+            return self.review(**options)
+        finally:
+            self.monkeypatch.delenv("GITHUB_EVENT_NAME", raising=False)
+            self.monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
 
 
 def build_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, files: dict[str, str]) -> World:
@@ -517,6 +673,8 @@ def build_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, files: dict[str
         "GITHUB_EVENT_NAME",
         "GITHUB_EVENT_PATH",
         "GITHUB_ACTOR",
+        "LEMONCROW_REVIEW_MENTIONS",
+        "LEMONCROW_REVIEW_CHAT_ASSOCIATIONS",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
@@ -524,4 +682,4 @@ def build_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, files: dict[str
     monkeypatch.setenv("LEMONCROW_AST_GREP_BIN", str(tmp_path / "sg"))
     origin = Origin(tmp_path)
     origin.seed_main(files)
-    return World(origin, FakeGitHub(origin), FakeModel(), tmp_path)
+    return World(origin, FakeGitHub(origin), FakeModel(), tmp_path, monkeypatch)

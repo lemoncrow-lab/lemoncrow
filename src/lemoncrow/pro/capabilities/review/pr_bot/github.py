@@ -70,6 +70,18 @@ def _mapping(value: object) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def finding_id_of(comment: Remote) -> str:
+    """The id of the finding an inline comment of the bot's carries in its marker; ``""`` for any other comment.
+
+    Only a comment typed ``Bot`` counts, the rule the summary comment follows: a person can write a marker too.
+    """
+
+    if not comment.by_bot:
+        return ""
+    found = _FINDING_MARKER.search(comment.body)
+    return found[1] if found is not None else ""
+
+
 # --------------------------------------------------------------------------- #
 # GitHub's rate limits
 # --------------------------------------------------------------------------- #
@@ -160,6 +172,8 @@ class PullFacts:
     head_repo: str
     base_repo: str
     html_url: str
+    #: GitHub's ``author_association`` of the pull request's author, for the people-checks of chat and learning.
+    author_association: str = ""
 
     @property
     def open(self) -> bool:
@@ -184,6 +198,8 @@ class Remote:
     path: str = ""
     line: int = 0
     start_line: int = 0
+    #: GitHub's ``author_association`` for the commenter (``OWNER``, ``MEMBER``, ``COLLABORATOR``, ``CONTRIBUTOR``, ...).
+    association: str = ""
 
     @property
     def by_bot(self) -> bool:
@@ -215,6 +231,7 @@ def _remote(row: dict[str, Any]) -> Remote | None:
         path=str(row.get("path") or ""),
         line=last,
         start_line=number("start_line", "original_start_line") or last,
+        association=str(row.get("author_association") or "").upper(),
     )
 
 
@@ -264,6 +281,7 @@ class BotGitHub:
             head_repo=str(_mapping(_mapping(_mapping(pull.get("head")).get("repo"))).get("full_name") or ""),
             base_repo=str(_mapping(_mapping(_mapping(pull.get("base")).get("repo"))).get("full_name") or ""),
             html_url=str(pull.get("html_url") or self.pr.url),
+            author_association=str(pull.get("author_association") or "").upper(),
         )
 
     def _issue_path(self) -> str:
@@ -287,6 +305,48 @@ class BotGitHub:
     def review_comments(self) -> list[Remote]:
         rows = gh_paginated(self.runner, f"{self.pr.api_path}/comments?per_page=100")
         return [comment for comment in (_remote(row) for row in rows) if comment is not None]
+
+    def issue_comments(self) -> list[Remote]:
+        """The pull request's conversation comments (not the inline ones), oldest first."""
+
+        rows = gh_paginated(self.runner, f"{self._issue_path()}/comments?per_page=100")
+        return sorted(
+            (comment for comment in (_remote(row) for row in rows) if comment is not None), key=lambda c: c.id
+        )
+
+    # ----- chat ---------------------------------------------------------- #
+
+    def reply_in_thread(self, root_id: int, body: str) -> Remote:
+        """Reply in the review thread whose first comment is *root_id* (GitHub takes replies to a thread's root only)."""
+
+        written = _remote(
+            _mapping(
+                gh_json(
+                    self.runner,
+                    ["api", "--method", "POST", f"{self.pr.api_path}/comments/{root_id}/replies", "--input", "-"],
+                    json.dumps({"body": body}, ensure_ascii=False),
+                )
+            )
+        )
+        if written is None:
+            raise GitHubCliError(f"GitHub did not return the reply on thread {root_id} of {self.pr.url}")
+        return replace(written, body=body)
+
+    def post_comment(self, body: str) -> Remote:
+        """A new comment in the pull request's conversation."""
+
+        written = _remote(
+            _mapping(
+                gh_json(
+                    self.runner,
+                    ["api", "--method", "POST", f"{self._issue_path()}/comments", "--input", "-"],
+                    json.dumps({"body": body}, ensure_ascii=False),
+                )
+            )
+        )
+        if written is None:
+            raise GitHubCliError(f"GitHub did not return the comment on {self.pr.url}")
+        return replace(written, body=body)
 
     # ----- the summary comment ------------------------------------------ #
 
@@ -626,4 +686,13 @@ class BotGitHub:
         )
 
 
-__all__ = ["BotGitHub", "InlineOutcome", "PullFacts", "PullRequestState", "Remote", "ThreadOutcome", "with_backoff"]
+__all__ = [
+    "BotGitHub",
+    "InlineOutcome",
+    "PullFacts",
+    "PullRequestState",
+    "Remote",
+    "ThreadOutcome",
+    "finding_id_of",
+    "with_backoff",
+]

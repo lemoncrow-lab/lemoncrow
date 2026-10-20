@@ -246,6 +246,30 @@ def reply_text(finding: BotFinding) -> str:
     return f"{text}\n\n<!-- lemoncrow:resolved {finding.id} -->"
 
 
+CHAT_MARKER: Final[str] = "<!-- lemoncrow:chat {comment_id} -->"
+#: The longest chat answer posted; the model is asked to be brief, this is what holds when it is not.
+MAX_CHAT_ANSWER: Final[int] = 3_000
+
+
+def chat_reply(answer: str, *, comment_id: int, usage: Usage | None = None, note: str = "") -> str:
+    """A chat answer as a comment: neutralised text, a one-line cost, and the marker that makes a re-run answer once.
+
+    *comment_id* is the comment being answered. The text is whatever a model (or this module) wrote about code and
+    comments that came from other people, so it goes through :func:`clean`: no marker, mention, image, link target or
+    HTML block it wrote survives. The only marker in the comment is the one added here.
+    """
+
+    text = clean(answer.strip())
+    if len(text) > MAX_CHAT_ANSWER:
+        text = text[: MAX_CHAT_ANSWER - 1].rstrip() + "…"
+    lines = [text]
+    footer = " · ".join(part for part in (note, usage_text(usage) if usage is not None and usage.calls else "") if part)
+    if footer:
+        lines += ["", f"<sub>{clean(footer)}</sub>"]
+    lines.append(CHAT_MARKER.format(comment_id=comment_id))
+    return "\n".join(lines)
+
+
 # --------------------------------------------------------------------------- #
 # the summary comment
 # --------------------------------------------------------------------------- #
@@ -491,18 +515,46 @@ def _receipt_lines(view: SummaryView) -> list[str]:
     return lines
 
 
-def _footer(view: SummaryView) -> str:
-    state = view.state
-    reviewed = f"[{short(view.head_sha)}]({view.commit_url})" if view.commit_url else short(view.head_sha)
+def footer_text(state: ReviewState, *, model_label: str, depth_label: str, head_sha: str, commit_url: str) -> str:
+    """The summary's last line. Everything in it is held by the state, so a chat answer can rewrite it in place."""
+
+    reviewed = f"[{short(head_sha)}]({commit_url})" if commit_url else short(head_sha)
     parts = [
-        clean(view.model_label) or "model not reported",
-        view.depth_label,
+        clean(model_label) or "model not reported",
+        depth_label,
         f"this review: {usage_text(state.usage)}",
     ]
     if state.reviews > 1:
         parts.append(f"all {state.reviews} reviews: {usage_text(state.usage_total)}")
+    if state.chats:
+        parts.append(f"{plural(state.chats, 'chat answer')}: {usage_text(state.chat_usage)}")
     parts.append(f"reviewed {reviewed}")
     return " · ".join(parts)
+
+
+def _footer(view: SummaryView) -> str:
+    return footer_text(
+        view.state,
+        model_label=view.model_label,
+        depth_label=view.depth_label,
+        head_sha=view.head_sha,
+        commit_url=view.commit_url,
+    )
+
+
+_FOOTER_OPEN = "\n---\n<sub>"
+
+
+def with_footer(body: str, footer: str) -> str:
+    """*body* with its footer line replaced by *footer*; *body* itself when it has no footer (a cut comment)."""
+
+    start = body.rfind(_FOOTER_OPEN)
+    if start < 0:
+        return body
+    end = body.find("</sub>", start)
+    if end < 0:
+        return body
+    return f"{body[: start + len(_FOOTER_OPEN)]}{footer}{body[end:]}"
 
 
 def render_summary(view: SummaryView) -> tuple[str, ReviewState]:

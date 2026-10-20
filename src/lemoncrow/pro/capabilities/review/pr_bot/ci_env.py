@@ -18,6 +18,12 @@ Gating, in the order it is decided:
 * With no model credential the run stops. Dependabot runs also have no secrets, so
   they skip quietly; anything else is a misconfiguration and fails loudly.
 
+Chat (G6) is a second mode of the same Action, picked from ``GITHUB_EVENT_NAME``: ``issue_comment`` and
+``pull_request_review_comment`` runs are decided by :func:`decide_chat` instead, with its own rules: the comment must
+address the bot, come from a person whose ``author_association`` is allowed, and (for a review comment, which GitHub
+runs without secrets on a fork) not from a fork. A chat skip never posts a commit status, because a comment is not a
+push and has no check to answer.
+
 A skip that exits 0 also posts a ``success`` commit status, ``skipped: <reason>``, on the pull request's head
 when the token can write statuses, so a ``LemonCrow Review`` required check does not wait on "Expected" forever.
 A fork's ``pull_request`` token is read-only, so none is posted for it (:func:`post_skip_status` says so);
@@ -29,10 +35,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Mapping, MutableMapping
+from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
 
 BACKEND_ENV = "LEMONCROW_LLM_BACKEND"
@@ -231,6 +238,215 @@ def decide(
     return Gate(True)
 
 
+# --------------------------------------------------------------------------- #
+# chat: @mentions in pull request threads
+# --------------------------------------------------------------------------- #
+
+CHAT_EVENTS = ("issue_comment", "pull_request_review_comment")
+MENTIONS_ENV = "LEMONCROW_REVIEW_MENTIONS"
+ASSOCIATIONS_ENV = "LEMONCROW_REVIEW_CHAT_ASSOCIATIONS"
+#: The handle the bot answers to. It is plain text, not a GitHub account: the bot posts as ``github-actions[bot]``.
+DEFAULT_MENTION = "@lemoncrow"
+#: ``author_association`` values GitHub attaches to a comment, widest trust first.
+KNOWN_ASSOCIATIONS = (
+    "OWNER",
+    "MEMBER",
+    "COLLABORATOR",
+    "CONTRIBUTOR",
+    "FIRST_TIME_CONTRIBUTOR",
+    "FIRST_TIMER",
+    "MANNEQUIN",
+    "NONE",
+)
+DEFAULT_ASSOCIATIONS = ("OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR")
+_HANDLE = re.compile(r"@[A-Za-z0-9][A-Za-z0-9_-]{0,38}")
+_FENCE = re.compile(r"(```|~~~).*?(?:\1|\Z)", re.DOTALL)
+_HTML_COMMENT = re.compile(r"<!--.*?(?:-->|\Z)", re.DOTALL)
+_INLINE_CODE = re.compile(r"`[^`\n]*`")
+_QUOTE = re.compile(r"^[ \t]*>.*$", re.MULTILINE)
+#: Text the bot writes into its own comments. A comment that carries one is the bot's, whoever the login says posted it.
+_OWN_MARKER = "<!-- lemoncrow:"
+
+
+def chat_mentions(env: Mapping[str, str]) -> tuple[str, ...]:
+    """The handles the bot answers to: ``@lemoncrow`` plus the aliases in ``LEMONCROW_REVIEW_MENTIONS`` (comma separated).
+
+    An alias is a word like ``@review-bot``; anything else in the list is ignored. The default stays, so a typo in
+    an alias cannot turn chat off. An alias is for a repository where a real account already owns ``@lemoncrow``
+    (GitHub would notify it) or where a team prefers a shorter word.
+    """
+
+    found = [DEFAULT_MENTION]
+    for raw in re.split(r"[,;\n]+", str(env.get(MENTIONS_ENV) or "")):
+        token = raw.strip()
+        handle = token if token.startswith("@") else f"@{token}"
+        if token and _HANDLE.fullmatch(handle) and handle.lower() not in found:
+            found.append(handle.lower())
+    return tuple(found)
+
+
+def chat_associations(env: Mapping[str, str]) -> frozenset[str]:
+    """The ``author_association`` values allowed to talk to the bot; the default when the variable is empty or unusable."""
+
+    wanted = {
+        token.upper()
+        for token in re.split(r"[\s,]+", str(env.get(ASSOCIATIONS_ENV) or ""))
+        if token.upper() in KNOWN_ASSOCIATIONS
+    }
+    return frozenset(wanted or DEFAULT_ASSOCIATIONS)
+
+
+def find_mention(body: str, mentions: Sequence[str] = (DEFAULT_MENTION,)) -> str | None:
+    """The text after the first ``@mention`` of the bot in *body*, or ``None`` when it is not addressed.
+
+    Code (fenced or inline), quoted lines and HTML comments are ignored, so documenting the command or quoting the
+    bot's own reply never triggers it. The handle must stand alone: ``@lemoncrow-bot`` and ``me@lemoncrow`` are not it.
+    """
+
+    text = _HTML_COMMENT.sub(" ", _QUOTE.sub(" ", _INLINE_CODE.sub(" ", _FENCE.sub(" ", body or ""))))
+    pattern = re.compile(
+        r"(?<![A-Za-z0-9_@/.\-])(?:" + "|".join(re.escape(handle) for handle in mentions) + r")(?![A-Za-z0-9_\-])",
+        re.IGNORECASE,
+    )
+    found = pattern.search(text)
+    if found is None:
+        return None
+    return text[found.end() :].strip()
+
+
+@dataclass(frozen=True)
+class ChatEvent:
+    """A comment event that might address the bot, read from the workflow payload."""
+
+    name: str
+    action: str
+    pull_number: int
+    comment_id: int
+    body: str
+    author: str
+    author_type: str
+    association: str
+    html_url: str = ""
+    #: For a review comment: the comment it replies to (``0`` for the first comment of a thread), where it sits,
+    #: the diff around it, and whether the pull request comes from a fork.
+    reply_to: int = 0
+    path: str = ""
+    line: int = 0
+    start_line: int = 0
+    diff_hunk: str = ""
+    fork: bool = False
+
+    @property
+    def in_thread(self) -> bool:
+        return self.name == "pull_request_review_comment"
+
+    @property
+    def root_id(self) -> int:
+        """The first comment of the review thread this comment belongs to; ``0`` for a conversation comment."""
+
+        return (self.reply_to or self.comment_id) if self.in_thread else 0
+
+
+def _positive(value: object) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
+
+
+def chat_event(name: str, payload: Mapping[str, object]) -> ChatEvent | None:
+    """The comment a chat-capable event carries; ``None`` for any other event, or one that is not about a pull request."""
+
+    if name not in CHAT_EVENTS:
+        return None
+    comment = _mapping(payload.get("comment"))
+    user = _mapping(comment.get("user")) or _mapping(payload.get("sender"))
+    if name == "issue_comment":
+        issue = _mapping(payload.get("issue"))
+        if not _mapping(issue.get("pull_request")):
+            return None  # a comment on a plain issue
+        number, fork = _positive(issue.get("number")), False
+    else:
+        pull = _mapping(payload.get("pull_request"))
+        number, fork = _positive(pull.get("number")), bool(pull) and _is_fork(pull)
+    comment_id = _positive(comment.get("id"))
+    if not (number and comment_id):
+        return None
+    return ChatEvent(
+        name=name,
+        action=str(payload.get("action") or ""),
+        pull_number=number,
+        comment_id=comment_id,
+        body=str(comment.get("body") or ""),
+        author=str(user.get("login") or ""),
+        author_type=str(user.get("type") or ""),
+        association=str(comment.get("author_association") or "").upper(),
+        html_url=str(comment.get("html_url") or ""),
+        reply_to=_positive(comment.get("in_reply_to_id")),
+        path=str(comment.get("path") or ""),
+        line=_positive(comment.get("line")) or _positive(comment.get("original_line")),
+        start_line=_positive(comment.get("start_line")) or _positive(comment.get("original_start_line")),
+        diff_hunk=str(comment.get("diff_hunk") or ""),
+        fork=fork,
+    )
+
+
+def is_bot(event: ChatEvent) -> bool:
+    """Whether the comment is from a bot or from this bot: neither is ever answered, which is what stops a loop."""
+
+    return (
+        event.author_type.lower() == "bot"
+        or event.author.lower().endswith("[bot]")
+        or _OWN_MARKER in event.body
+        or not event.author
+    )
+
+
+def decide_chat(
+    env: Mapping[str, str],
+    *,
+    provider: str = "auto",
+    event: Mapping[str, object] | None = None,
+    require_credentials: bool = True,
+) -> Gate:
+    """Whether this comment event should be answered, from the CI environment and the payload alone.
+
+    Most skips are silent (``reason`` empty): a comment that does not address the bot is not an error and not even
+    news. A person who is not allowed to talk to the bot, and a fork, get a notice in the run log; nothing is ever
+    posted for a skip, and no commit status is set (``skip`` stays empty).
+    """
+
+    name = str(env.get("GITHUB_EVENT_NAME") or "")
+    payload = load_event(env) if event is None else event
+    chat = chat_event(name, payload)
+    if chat is None or chat.action != "created" or is_bot(chat):
+        return Gate(False)
+    if find_mention(chat.body, chat_mentions(env)) is None:
+        return Gate(False)
+    allowed = chat_associations(env)
+    if chat.association not in allowed:
+        who = chat.association.lower().replace("_", " ") or "unknown"
+        return Gate(
+            False,
+            f"{chat.author} ({who}) is not allowed to talk to LemonCrow here; the allowed author associations are "
+            f"{', '.join(sorted(allowed))}. Nothing was answered.",
+        )
+    if chat.fork:
+        return Gate(
+            False,
+            "Review comment on a pull request from a fork: GitHub gives pull_request_review_comment runs from forks no "
+            "secrets and a read-only token, so there is no model key to call and no permission to reply. Ask in the "
+            "pull request's conversation instead (issue_comment runs with this repository's secrets), or have a "
+            "maintainer push the branch here.",
+        )
+    if require_credentials and resolve_model_route(env, provider) is None:
+        return Gate(
+            False,
+            "No model credentials. Add ANTHROPIC_API_KEY or OPENAI_API_KEY as a repository secret and pass it to "
+            "the step as an environment variable (or set LEMONCROW_LLM_BACKEND with its provider variables).",
+            "error",
+            1,
+        )
+    return Gate(True)
+
+
 _LEVEL_COMMAND = {"notice": "notice", "warning": "warning", "error": "error"}
 #: The LemonCrow extra (``pyproject.toml`` optional dependencies) each backend's client library comes from.
 _EXTRA_FOR_BACKEND = {"litellm": "litellm", "openai": "cloud", "ollama": "smart"}
@@ -314,13 +530,16 @@ def main(argv: list[str] | None = None) -> int:
 
     env = os.environ
     raw_number = (argv[0] if argv else str(env.get("LEMONCROW_REVIEW_PR") or "")).strip()
-    gate = decide(
-        env,
-        review_drafts=_truthy(str(env.get("LEMONCROW_REVIEW_DRAFTS") or ""), False),
-        on_push=_truthy(str(env.get("LEMONCROW_REVIEW_ON_PUSH") or ""), True),
-        provider=str(env.get(PROVIDER_ENV) or "auto"),
-        pr_number=int(raw_number) if raw_number.isdigit() else 0,
-    )
+    if str(env.get("GITHUB_EVENT_NAME") or "") in CHAT_EVENTS:
+        gate = decide_chat(env, provider=str(env.get(PROVIDER_ENV) or "auto"))
+    else:
+        gate = decide(
+            env,
+            review_drafts=_truthy(str(env.get("LEMONCROW_REVIEW_DRAFTS") or ""), False),
+            on_push=_truthy(str(env.get("LEMONCROW_REVIEW_ON_PUSH") or ""), True),
+            provider=str(env.get(PROVIDER_ENV) or "auto"),
+            pr_number=int(raw_number) if raw_number.isdigit() else 0,
+        )
     if gate.reason:
         print(f"::{_LEVEL_COMMAND.get(gate.level, 'notice')} title=LemonCrow Review::{gate.reason}")
     if not gate.run and gate.exit_code == 0:

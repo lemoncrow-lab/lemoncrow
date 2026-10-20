@@ -53,6 +53,8 @@ def test_the_inputs_are_the_documented_ones_with_safe_defaults() -> None:
         "max-runs-per-pr",
         "review-drafts",
         "on-push",
+        "mention-aliases",
+        "chat-allowed-associations",
         "pr-number",
         "working-directory",
     }
@@ -63,6 +65,12 @@ def test_the_inputs_are_the_documented_ones_with_safe_defaults() -> None:
         "auto",
     )
     assert (inputs["review-drafts"]["default"], inputs["on-push"]["default"]) == ("false", "true")
+    # Chat: no alias unless asked for, and the people it answers default to those with a stake in the repository.
+    assert inputs["mention-aliases"]["default"] == ""
+    assert inputs["chat-allowed-associations"]["default"] == "OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR"
+    # A comment on a pull request carries the number in `issue`, a pull_request event in `pull_request`.
+    assert "github.event.pull_request.number" in inputs["pr-number"]["default"]
+    assert "github.event.issue.number" in inputs["pr-number"]["default"]
     # No budget unless the workflow asks for one.
     assert (inputs["max-usd-per-pr"]["default"], inputs["max-runs-per-pr"]["default"]) == ("", "")
     documented = GUIDE.read_text(encoding="utf-8")
@@ -156,13 +164,23 @@ def test_the_action_ships_in_the_public_mirror() -> None:
 def test_the_documented_workflow_has_least_privilege_and_per_pull_request_concurrency() -> None:
     workflow = documented_workflow()
     assert workflow["permissions"] == {"contents": "read", "pull-requests": "write", "statuses": "write"}
-    assert workflow["concurrency"] == {
-        "group": "lemoncrow-review-${{ github.event.pull_request.number }}",
-        "cancel-in-progress": True,
-    }
+    # A push cancels the review of an older push; a comment has a group of its own and never cancels anything.
+    group = workflow["concurrency"]["group"]
+    assert "format('review-{0}', github.event.pull_request.number)" in group
+    assert "format('chat-{0}', github.event.comment.id)" in group
+    assert workflow["concurrency"]["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
     trigger = workflow["on"] if "on" in workflow else workflow[True]
-    assert list(trigger) == ["pull_request"]
+    # Chat (G6): the same Action answers comments, through two more events.
+    assert list(trigger) == ["pull_request", "issue_comment", "pull_request_review_comment"]
     assert {"opened", "synchronize", "reopened", "ready_for_review"} <= set(trigger["pull_request"]["types"])
+    assert trigger["issue_comment"]["types"] == ["created"] and trigger["pull_request_review_comment"]["types"] == [
+        "created"
+    ]
+    # A runner starts for a comment only when it mentions the bot; every other comment on the repository costs nothing.
+    condition = " ".join(str(workflow["jobs"]["review"]["if"]).split())
+    assert "github.event_name == 'pull_request'" in condition
+    assert "contains(github.event.comment.body, '@lemoncrow')" in condition
+    assert "github.event.issue.pull_request" in condition, "a comment on a plain issue never starts a runner"
     job_steps = workflow["jobs"]["review"]["steps"]
     assert job_steps[0]["uses"].startswith("actions/checkout@") and job_steps[0]["with"]["fetch-depth"] == 0
     action_step = job_steps[1]
@@ -198,7 +216,7 @@ def test_a_killed_job_cannot_leave_the_check_pending_forever(tmp_path: Path) -> 
 
     steps_ = documented_workflow()["jobs"]["review"]["steps"]
     fallback = steps_[-1]
-    assert fallback["if"] == "failure() || cancelled()"
+    assert fallback["if"] == "(failure() || cancelled()) && github.event_name == 'pull_request'"
     assert "if" not in steps_[1], "the review step itself must not be conditional"
     assert fallback["env"]["SHA"] == "${{ github.event.pull_request.head.sha }}"
     script = str(fallback["run"])
@@ -257,3 +275,31 @@ def test_the_documented_review_yaml_is_accepted_and_changes_nothing_it_should_no
     assert not report.skipped and "Review policy invalid" not in report.reason
     assert report.verdict is not None and report.state is not None and report.state.complete
     assert any("auth-required" in str(rule) for rule in yaml.safe_load(config)["rules"])
+
+
+def test_chat_is_wired_through_the_gate_and_the_review_step_and_documented() -> None:
+    """G6: the comment events reach the same Action, which reads its chat settings from the same two variables."""
+
+    action = manifest()
+    gate = steps(action)[0]
+    review = next(step for step in steps(action) if step["name"] == "Review the pull request")
+    for step in (gate, review):
+        assert step["env"][ci_env.MENTIONS_ENV] == "${{ inputs.mention-aliases }}"
+        assert step["env"][ci_env.ASSOCIATIONS_ENV] == "${{ inputs.chat-allowed-associations }}"
+    guide = GUIDE.read_text(encoding="utf-8")
+    for phrase in (
+        "## Chat in pull request threads",
+        "The trigger word is `@lemoncrow`",
+        "`issue_comment`",
+        "`pull_request_review_comment`",
+        "`recheck`",
+        "`max-runs-per-pr`",
+        "`chat-allowed-associations`",
+        "`mention-aliases`",
+        "`pull-requests: write`",
+    ):
+        assert phrase in guide, phrase
+    # The default the guide states is the default the code applies.
+    assert ci_env.DEFAULT_MENTION == "@lemoncrow"
+    assert ",".join(ci_env.DEFAULT_ASSOCIATIONS) == manifest()["inputs"]["chat-allowed-associations"]["default"]
+    assert "OWNER`, `MEMBER`, `COLLABORATOR` or `CONTRIBUTOR`" in guide

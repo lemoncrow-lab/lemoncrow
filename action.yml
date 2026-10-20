@@ -1,7 +1,7 @@
 name: LemonCrow Review
 description: >-
   AI pull request review on your own model key. Posts one summary comment and inline findings as a bot,
-  and on each push re-reviews only what changed.
+  on each push re-reviews only what changed, and answers @lemoncrow questions in the pull request's threads.
 author: LemonCrow
 branding:
   icon: eye
@@ -51,9 +51,24 @@ inputs:
   on-push:
     description: Re-review on each push to an open pull request, not only when it opens.
     default: "true"
+  mention-aliases:
+    description: >-
+      Extra handles the bot answers to in pull request comments, comma separated (for example "@review-bot").
+      "@lemoncrow" always works. It is plain text, not a GitHub account; an alias is for a repository where a real
+      account already owns "@lemoncrow" (GitHub would notify it). Only used when the workflow also triggers on
+      issue_comment and pull_request_review_comment.
+    default: ""
+  chat-allowed-associations:
+    description: >-
+      Whose mentions the bot answers, by the author_association GitHub puts on the comment: a comma separated subset
+      of OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR, FIRST_TIME_CONTRIBUTOR, FIRST_TIMER, MANNEQUIN, NONE. Bots, and
+      this bot, are never answered whatever this says.
+    default: "OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR"
   pr-number:
-    description: Pull request to review. Set it for workflow_dispatch runs.
-    default: ${{ github.event.pull_request.number }}
+    description: >-
+      Pull request to review. Set it for workflow_dispatch runs. The default is the pull request of the event, for a
+      pull_request run and for a comment on a pull request.
+    default: ${{ github.event.pull_request.number || github.event.issue.number }}
   working-directory:
     description: Directory of the repository checkout.
     default: "."
@@ -63,6 +78,9 @@ runs:
   steps:
     # Standard library only and runs before anything is installed, so a fork, a draft or a missing key costs
     # seconds. Forks get no secrets and a read-only token on pull_request, so they exit 0 with a notice.
+    # A comment event (issue_comment, pull_request_review_comment) is the chat mode of this same Action: the gate
+    # answers it only when the comment mentions the bot, comes from an allowed author_association and is not from a
+    # bot (this one included), and a comment skip never sets a commit status.
     # Any other skip also posts a `skipped: <reason>` success status on the head, with the token below, so a
     # required "LemonCrow Review" check does not wait forever; if the token cannot write statuses it says so.
     # pull_request_target is refused: it would run with secrets on behalf of code from the pull request.
@@ -75,6 +93,8 @@ runs:
         LEMONCROW_REVIEW_DRAFTS: ${{ inputs.review-drafts }}
         LEMONCROW_REVIEW_ON_PUSH: ${{ inputs.on-push }}
         LEMONCROW_REVIEW_PROVIDER: ${{ inputs.model-provider }}
+        LEMONCROW_REVIEW_MENTIONS: ${{ inputs.mention-aliases }}
+        LEMONCROW_REVIEW_CHAT_ASSOCIATIONS: ${{ inputs.chat-allowed-associations }}
         INPUT_MODEL: ${{ inputs.model }}
       run: |
         if [ -n "$INPUT_MODEL" ]; then export LEMONCROW_REVIEW_MODEL="$INPUT_MODEL"; fi
@@ -113,6 +133,8 @@ runs:
         LEMONCROW_REVIEW_DRAFTS: ${{ inputs.review-drafts }}
         LEMONCROW_REVIEW_ON_PUSH: ${{ inputs.on-push }}
         LEMONCROW_REVIEW_PROVIDER: ${{ inputs.model-provider }}
+        LEMONCROW_REVIEW_MENTIONS: ${{ inputs.mention-aliases }}
+        LEMONCROW_REVIEW_CHAT_ASSOCIATIONS: ${{ inputs.chat-allowed-associations }}
         INPUT_MODEL: ${{ inputs.model }}
         DEPTH: ${{ inputs.depth }}
         FAIL_ON: ${{ inputs.fail-on }}

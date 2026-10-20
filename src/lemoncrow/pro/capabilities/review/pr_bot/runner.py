@@ -80,6 +80,9 @@ class RunOptions:
     #: carries. ``None`` is unlimited.
     max_usd_per_pr: float | None = None
     max_runs_per_pr: int | None = None
+    #: Chat's "recheck": review only these targets and nothing else (an empty set: no model call at all). ``None``
+    #: is a whole review, of everything that changed.
+    only_targets: frozenset[str] | None = None
 
 
 @dataclass
@@ -167,15 +170,29 @@ def run_pr_review(
     # Gate on the event alone first: a fork, a draft or a refused event costs no network call. A URL or
     # OWNER/REPO#N names its pull request by itself, so only a bare number needs the event to carry one.
     bare = re.fullmatch(r"#?(\d+)", options.pr.strip())
-    gate = ci_env.decide(
-        environ,
-        review_drafts=options.review_drafts,
-        on_push=options.on_push,
-        provider=options.provider,
-        pr_number=int(bare[1]) if bare else 1,
-        require_credentials=False,
-    )
-    if not gate.run:
+    # A comment event is the other mode of this Action (chat); it has its own gate and never sets a commit status.
+    chatting = str(environ.get("GITHUB_EVENT_NAME") or "") in ci_env.CHAT_EVENTS
+    if chatting:
+        payload = ci_env.load_event(environ)
+        gate = ci_env.decide_chat(environ, provider=options.provider, event=payload, require_credentials=False)
+        chat = ci_env.chat_event(str(environ.get("GITHUB_EVENT_NAME")), payload)
+        if gate.run and chat is not None and bare and int(bare[1]) != chat.pull_number:
+            return _skip(
+                options.pr,
+                f"pr-number {bare[1]} is not the pull request of this comment (#{chat.pull_number}).",
+                level="warning",
+            )
+    else:
+        chat = None
+        gate = ci_env.decide(
+            environ,
+            review_drafts=options.review_drafts,
+            on_push=options.on_push,
+            provider=options.provider,
+            pr_number=int(bare[1]) if bare else 1,
+            require_credentials=False,
+        )
+    if not gate.run or (chatting and chat is None):
         return _skip(options.pr, gate.reason, level=gate.level, exit_code=gate.exit_code)
     try:
         ref = pull_request_ref(options.repo_root, options.pr, runner=run)
@@ -188,6 +205,8 @@ def run_pr_review(
     except GitHubCliError as exc:
         raise PrReviewError(str(exc)) from exc
     writes = options.publish and not options.dry_run
+    if chat is not None:
+        return _chat(options, chat, ref, github, facts, run, structured_executor, environ, say)
 
     def skipped(reason: str, because: str) -> RunReport:
         # A `LemonCrow Review` required check waits for a status on the head: a skip says so instead of hanging it.
@@ -206,11 +225,7 @@ def run_pr_review(
     if facts.draft and not options.review_drafts:
         return skipped("Draft pull request: skipped. Set review-drafts to review drafts.", "draft pull request")
 
-    route = ci_env.resolve_model_route(environ, options.provider)
-    if route is not None:
-        # The drivers read the process environment, whatever environment the gate was decided from.
-        ci_env.apply_model_route(route, os.environ)
-    problem, why = engine.route_problem()
+    problem, why = _model_route(options, environ)
     if problem == "disabled":
         return skipped(f"AI review is turned off ({why}); nothing was reviewed.", "AI review is turned off")
     if problem:
@@ -239,6 +254,64 @@ def run_pr_review(
             raise PrReviewError(str(exc)) from exc
         raise
     return report
+
+
+def _model_route(options: RunOptions, environ: Mapping[str, str]) -> tuple[str, str]:
+    """Point the drivers at the model route the environment selects; ``("", "")`` when it can be used, else why not."""
+
+    from lemoncrow.pro.capabilities.review.pr_bot import engine
+
+    route = ci_env.resolve_model_route(environ, options.provider)
+    if route is not None:
+        # The drivers read the process environment, whatever environment the gate was decided from.
+        ci_env.apply_model_route(route, os.environ)
+    return engine.route_problem()
+
+
+def _chat(
+    options: RunOptions,
+    event: ci_env.ChatEvent,
+    ref: PullRequestRef,
+    github: BotGitHub,
+    facts: Any,
+    run: GhRunner,
+    structured_executor: Callable[..., Any] | None,
+    environ: Mapping[str, str],
+    say: Callable[[str], None],
+) -> RunReport:
+    """The chat mode: answer one comment. A failure here is reported, never written to the pull request's check."""
+
+    from lemoncrow.pro.capabilities.review.pr_bot import chat, engine
+
+    problem, why = _model_route(options, environ)
+    if problem == "disabled":
+        return _skip(f"{ref.slug}#{ref.number}", f"AI review is turned off ({why}); nothing was answered.")
+    if problem:
+        raise PrReviewError(
+            "no model route is configured: set ANTHROPIC_API_KEY or OPENAI_API_KEY (or LEMONCROW_LLM_BACKEND with "
+            f"its provider variables). {why}"
+        )
+    writes = options.publish and not options.dry_run
+
+    def review(narrowed: RunOptions) -> RunReport:
+        return _review(narrowed, ref, github, run, structured_executor, say, writes)
+
+    try:
+        return chat.run_chat(
+            options,
+            event,
+            ref=ref,
+            github=github,
+            facts=facts,
+            run=run,
+            structured_executor=structured_executor,
+            environ=environ,
+            say=say,
+            budget=lambda previous: budget_reached(options, previous),
+            review=review,
+        )
+    except (PrReviewError, GitHubCliError, engine.AiStageError, ValueError) as exc:
+        raise PrReviewError(str(exc)) from exc
 
 
 def _best_effort(action: Callable[[], object], notes: list[str], what: str) -> bool:
@@ -271,13 +344,20 @@ def _review(
     spent = budget_reached(options, previous)
     if previous is not None and spent and not (previous.head_sha == head and previous.complete):
         return _over_budget(options, ref, github, existing, previous, head, spent, writes)
-    unpriced = options.max_usd_per_pr is not None and previous is not None and previous.usage_total.cost_usd is None
+    unpriced = options.max_usd_per_pr is not None and previous is not None and previous.spent.cost_usd is None
+    narrow = options.only_targets is not None and previous is not None
+    # A narrow run (chat's recheck) looks at a few targets under the depth the rest were reviewed at.
+    depth = previous.depth if narrow and previous is not None and previous.depth in engine.DEPTHS else options.depth
     with tempfile.TemporaryDirectory(prefix="lemoncrow-pr-review-") as scratch:
         say("Capturing the change")
         captured = engine.capture_pull_request(options.repo_root, pull, Path(scratch), with_impact=options.with_impact)
         say("Running the AI review" if previous is None else "Re-reviewing what changed")
         ai = engine.run_ai_stage(
-            captured, depth=options.depth, previous=previous, structured_executor=structured_executor
+            captured,
+            depth=depth,
+            previous=previous,
+            structured_executor=structured_executor,
+            only_targets=options.only_targets if narrow else None,
         )
     if not ai.ran:
         return _skip(name, f"AI review did not run: {ai.reason}")
@@ -341,12 +421,19 @@ def _review(
     usage = ai.usage
     reviews = 1 if previous is None else previous.reviews + (0 if report.noop else 1)
     total = usage if previous is None else previous.usage_total.plus(usage)
+    # Chat answers given while this review ran are in the summary now and not in `previous`: carry them, so a review
+    # never erases the count the budget reads. The re-read is as late as it can be, just before the state is built.
+    chats, chat_usage = (previous.chats, previous.chat_usage) if previous is not None else (0, Usage())
+    if writes and previous is not None:
+        again = _best_effort_value(github.summary, report.notes, "re-read the summary")
+        if again is not None and again[1] is not None:
+            chats, chat_usage = again[1].chats, again[1].chat_usage
     state = ReviewState(
         head_sha=head,
         base_sha=pull.base_sha,
         merge_base_sha=pull.merge_base_sha,
         pull_request=name,
-        depth=options.depth,
+        depth=depth,
         model=ai.model,
         policy=ai.policy,
         complete=ai.complete,
@@ -357,6 +444,8 @@ def _review(
         findings_dropped=dropped,
         usage=usage,
         usage_total=total,
+        chats=chats,
+        chat_usage=chat_usage,
     )
     reason = "model calls failed; see the workflow log" if ai.errors else (ai.reason if not ai.complete else "")
     uninvestigated = max(ai.candidates - ai.investigated, 0)
@@ -423,7 +512,8 @@ def _review(
 def budget_reached(options: RunOptions, previous: ReviewState | None) -> str:
     """Why this pull request's review budget is spent (``3 of 3 reviews used``), or ``""``.
 
-    Read from the state the last summary carries: the reviews so far and the cost of their model calls. A review
+    Read from the state the last summary carries: the reviews and chat answers so far and the cost of their model
+    calls. A review
     cancelled before it wrote its summary left no trace, so its spend is not counted. A cost is known only when the
     provider reported it or the local price table knows the model; an unknown cost cannot be held to a dollar cap.
     """
@@ -431,9 +521,12 @@ def budget_reached(options: RunOptions, previous: ReviewState | None) -> str:
     if previous is None:
         return ""
     reasons: list[str] = []
-    if options.max_runs_per_pr is not None and previous.reviews >= options.max_runs_per_pr:
-        reasons.append(f"{plural(previous.reviews, 'review')} used of {options.max_runs_per_pr} allowed")
-    cost = previous.usage_total.cost_usd
+    if options.max_runs_per_pr is not None and previous.runs >= options.max_runs_per_pr:
+        used = plural(previous.reviews, "review") + (
+            f" and {plural(previous.chats, 'chat answer')}" if previous.chats else ""
+        )
+        reasons.append(f"{used} used of {options.max_runs_per_pr} allowed")
+    cost = previous.spent.cost_usd
     if options.max_usd_per_pr is not None and cost is not None and cost >= options.max_usd_per_pr:
         reasons.append(f"{money(cost)} spent of {money(options.max_usd_per_pr)} allowed")
     return " and ".join(reasons)

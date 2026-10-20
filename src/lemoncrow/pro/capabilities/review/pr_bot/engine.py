@@ -281,6 +281,20 @@ def revision_usage(store: ReviewStore, review_id: str, revision_id: str) -> tupl
     return Usage(calls, tokens_in, tokens_out, cost), ", ".join(models)
 
 
+def call_usage(model: str, used: ModelCallUsage) -> Usage:
+    """One structured model call's usage as the bot records it: the provider's cost, else the local price table's.
+
+    The same rule :func:`revision_usage` applies to a review's calls, for a call made outside a Review run (a chat
+    answer). A cost that neither the provider nor the table knows stays ``None``, never a guess.
+    """
+
+    if used.provider_cost is not None and used.currency in {None, "USD"}:
+        cost: float | None = used.provider_cost
+    else:
+        cost = _price(model, used)
+    return Usage(max(used.calls, 1), used.input_tokens, used.output_tokens, cost)
+
+
 def _price(model: str, used: ModelCallUsage) -> float | None:
     """USD for one call at the local price table's rate -- only for a model it knows exactly, on reported tokens."""
 
@@ -299,23 +313,71 @@ def _price(model: str, used: ModelCallUsage) -> float | None:
     )
 
 
+def _mount(captured: Captured, submit: Callable[..., Mapping[str, Any]] | None = None) -> Any:
+    """The Review API for *captured*'s store on an in-process app nothing outside this process can reach."""
+
+    from fastapi import FastAPI
+
+    from lemoncrow.pro.capabilities.review.api import register_review_api
+
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    async def open_access() -> None:
+        # A one-shot, in-process app: nothing outside this process can reach it.
+        return None
+
+    register_review_api(
+        app,
+        captured.store,
+        auth_dependency=open_access,
+        repo_root=captured.repo_root,
+        port=0,
+        enforce_origin_guard=False,
+        source_refresh_enabled=False,
+        live_journal_enabled=False,
+        ask_enabled=False,
+        ai_review_submitter=submit,
+    )
+    return app
+
+
+@dataclass(frozen=True)
+class ReviewContext:
+    """What the Review API resolved for a Snapshot: its targets, the rules and content-access policy in force, and
+    the effective intelligence policy. Chat reads this to build the same context an investigation would see."""
+
+    targets: tuple[ReviewTarget, ...]
+    governance: Any
+    policy: Mapping[str, Any]
+
+
+def review_context(captured: Captured) -> ReviewContext:
+    """The Snapshot's targets and governance, resolved by the Review API itself (never re-implemented here)."""
+
+    app = _mount(captured)
+    context = app.state.review_worker_ai_publication_context(captured.session.id, captured.revision.id)
+    return ReviewContext(tuple(context["targets"]), context["governance"], context["policy"])
+
+
 def run_ai_stage(
     captured: Captured,
     *,
     depth: str = "auto",
     previous: ReviewState | None = None,
     structured_executor: Callable[..., StructuredExecution] | None = None,
+    only_targets: Collection[str] | None = None,
 ) -> AiStage:
-    """Run the AI review on what changed since *previous*, through the Review API's own AI endpoint."""
+    """Run the AI review on what changed since *previous*, through the Review API's own AI endpoint.
 
-    from fastapi import FastAPI
-
-    from lemoncrow.pro.capabilities.review.api import register_review_api
+    *only_targets* narrows the review to those targets and nothing else, whatever else changed (chat's "recheck"
+    names one finding's targets; an empty collection asks for no model call at all). The reviewed-unit list and the
+    policy digest the stage returns then stay those of *previous* except for the targets it did re-review, so a
+    narrow run never marks code it did not look at as reviewed.
+    """
 
     if depth not in DEPTHS:
         raise AiStageError(f"depth must be one of {', '.join(DEPTHS)}")
-    store, session, revision = captured.store, captured.session, captured.revision
-    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    session, revision = captured.session, captured.revision
     outcome: dict[str, AiStage] = {}
 
     def submit(
@@ -331,25 +393,12 @@ def run_ai_stage(
         fresh: bool = False,
     ) -> Mapping[str, Any]:
         # The seam a hosted worker's queue sits behind, run inline: everything the endpoint resolved is passed in.
-        outcome["stage"] = _execute(app, captured, depth, previous, policy, governance, structured_executor)
+        outcome["stage"] = _execute(
+            app, captured, depth, previous, policy, governance, structured_executor, only_targets=only_targets
+        )
         return {"status": "inline", "revision_id": request_revision.id}
 
-    async def open_access() -> None:
-        # A one-shot, in-process app: nothing outside this process can reach it.
-        return None
-
-    register_review_api(
-        app,
-        store,
-        auth_dependency=open_access,
-        repo_root=captured.repo_root,
-        port=0,
-        enforce_origin_guard=False,
-        source_refresh_enabled=False,
-        live_journal_enabled=False,
-        ask_enabled=False,
-        ai_review_submitter=submit,
-    )
+    app = _mount(captured, submit)
     expected = {"expected_revision_id": revision.id}
     if depth == "auto":
         # The Snapshot's effective plan, escalation included: what an Auto trigger would run.
@@ -479,6 +528,8 @@ def _execute(
     policy: Mapping[str, Any],
     governance: Any,
     structured_executor: Callable[..., StructuredExecution] | None,
+    *,
+    only_targets: Collection[str] | None = None,
 ) -> AiStage:
     from lemoncrow.pro.capabilities.review.ai_review import generate_candidates, run_independent_review
     from lemoncrow.pro.capabilities.review.independence import configured_reviewer_routes
@@ -516,7 +567,9 @@ def _execute(
         token = units.get(target.target_id)
         return token is not None and before.get(token[0]) == token[1]
 
-    changed = tuple(target for target in targets if not unchanged(target))
+    narrow = only_targets is not None
+    wanted = frozenset(only_targets or ())
+    changed = tuple(target for target in targets if (target.target_id in wanted if narrow else not unchanged(target)))
     locations = {target.target_id: locate_target(target) for target in targets}
     intact = _intact_findings(captured, previous)
     rules = tuple(rule.stable_key for rule in governance.rules)
@@ -528,12 +581,14 @@ def _execute(
         unchanged=len(targets) - len(changed),
         files=tuple(sorted({target.path for target in targets})),
         rules=rules,
-        policy=digest,
+        policy=previous.policy if narrow and previous is not None else digest,
         depth=depth,
         max_calls=stage_plan.max_review_calls or ModelCallBudget.from_env(max_calls=1).max_review_calls,
     )
     if not changed:
         kept, truncated = cap_units(_tokens(targets, units, pending=()))
+        if narrow and previous is not None:
+            kept, truncated = dict(previous.reviewed_units), previous.units_truncated
         return replace(
             base,
             reviewed_units=kept,
@@ -588,6 +643,11 @@ def _execute(
     elif uncovered:
         why = f"{stage_plan.effort} depth cannot cover {_candidates_phrase(result.candidates)}; ask for more depth"
     kept, truncated = cap_units(_tokens(targets, units, pending=pending))
+    if narrow and previous is not None:
+        # Only the targets that were looked at again are newly reviewed; the rest stay as the last review left them.
+        looked_at = {units[t.target_id][0] for t in changed if t.target_id in units and t.target_id not in pending}
+        kept = {**previous.reviewed_units, **{key: value for key, value in kept.items() if key in looked_at}}
+        truncated = previous.units_truncated
     changed_ids = tuple(target.target_id for target in changed)
     return replace(
         base,

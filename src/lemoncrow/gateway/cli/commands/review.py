@@ -1223,14 +1223,29 @@ def _review_pull_request_with_ai(
     if as_json:
         _emit(report.to_wire(), as_json=True)
     elif not report.skipped:
-        if report.published:
+        if isinstance(report.published.get("chat"), dict):
+            _emit_chat(report, dry_run=dry_run)
+        elif report.published:
             _emit_bot_publication(report)
         else:
             click.echo(strip_state(report.summary))
-        if dry_run:
+        if dry_run and not isinstance(report.published.get("chat"), dict):
             click.echo(f"\nDry run: would post {len(report.inline_bodies)} inline comment(s) and the summary above.")
     if report.exit_code:
         ctx.exit(report.exit_code)
+
+
+def _emit_chat(report: Any, *, dry_run: bool) -> None:
+    """What a chat run (a comment that mentioned the bot) did."""
+
+    chat = report.published["chat"]
+    if dry_run:
+        click.echo(f"Dry run: would reply ({chat.get('kind')}):\n")
+        click.echo("\n".join(report.inline_bodies))
+        return
+    click.echo(f"Chat             {chat.get('kind')}: {chat.get('reply_url') or 'no reply posted'}")
+    if isinstance(report.published.get("chat_total"), dict):
+        click.echo(f"Chat answers     {report.published['chat_total']['answers']} on this pull request")
 
 
 def _emit_bot_publication(report: Any) -> None:
