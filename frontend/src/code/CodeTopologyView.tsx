@@ -214,7 +214,7 @@ export default function CodeTopologyView({
       <Status>
         <span className="text-red-300/80">{error}</span>
         <UiButton type="button" size="xs" variant="outline" onClick={onRetry}>
-          <RotateCw size={10} /> Retry
+          <RotateCw size={14} /> Retry
         </UiButton>
       </Status>
     );
@@ -270,7 +270,7 @@ export default function CodeTopologyView({
               >
                 Repository
               </UiButton>
-              <ChevronRight size={11} className="shrink-0 text-muted-foreground/60" />
+              <ChevronRight size={14} className="shrink-0 text-muted-foreground/60" />
               <div className="flex min-w-0 items-center gap-1 rounded-md border border-border bg-muted/45 pl-2 pr-1">
                 <span className="max-w-[320px] truncate py-1 text-foreground" title={`${spec.level}: ${spec.id}`}>
                   {spec.level}: {spec.id}
@@ -283,7 +283,7 @@ export default function CodeTopologyView({
                   aria-label="Clear topology scope"
                   title="Clear scope"
                 >
-                  <X size={11} />
+                  <X size={14} />
                 </UiButton>
               </div>
             </>

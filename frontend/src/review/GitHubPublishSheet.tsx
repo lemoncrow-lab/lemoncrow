@@ -90,7 +90,7 @@ export default function GitHubPublishSheet({ reviewId, onClose, onPublished }: G
               {result.adopted ? "Already on GitHub" : "Published"}: {EVENT_LABEL[result.event]}, {result.inline} inline
               {result.folded > 0 ? `, ${result.folded} in the review body` : ""}.{" "}
               <a href={result.html_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline">
-                Open on GitHub <ExternalLink size={11} />
+                Open on GitHub <ExternalLink size={14} />
               </a>
             </p>
           )}

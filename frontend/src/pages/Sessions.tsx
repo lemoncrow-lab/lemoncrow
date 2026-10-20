@@ -594,7 +594,7 @@ function EmptyState({ summaries }: { summaries: SessionSummary[] | null }) {
       </div>
 
       <div className="rounded-lg border border-border/70 bg-background/60 p-4 text-center">
-        <Terminal size={28} className="mx-auto mb-3 text-muted-foreground" />
+        <Terminal size={20} className="mx-auto mb-3 text-muted-foreground" />
         <h3 className="mb-1 text-body font-semibold text-subtle">
           Select a session
         </h3>

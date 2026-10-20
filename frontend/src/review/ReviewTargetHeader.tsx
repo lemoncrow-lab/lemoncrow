@@ -179,8 +179,8 @@ export default function ReviewTargetHeader({
           className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1 py-0.5 text-left"
         >
           {needsChanges
-            ? <X size={12} strokeWidth={1.8} className="shrink-0 text-p0" />
-            : <Check size={12} strokeWidth={1.8} className="shrink-0 text-ok" />}
+            ? <X size={14} className="shrink-0 text-p0" />
+            : <Check size={14} className="shrink-0 text-ok" />}
           {showStickyFilename && (
             <>
               <span className="max-w-36 shrink-0 truncate font-mono text-caption font-normal text-muted-foreground" title={stickyPath}>{stickyFilename}</span>
@@ -193,7 +193,7 @@ export default function ReviewTargetHeader({
           </span>
           {commentCount > 0 && <span className="shrink-0 text-muted-foreground">· {commentCount} comment{commentCount === 1 ? "" : "s"}</span>}
           {coverage && <span className="min-w-0 truncate text-muted-foreground">· {coverage}</span>}
-          <ChevronDown size={12} className="ml-auto shrink-0 text-muted-foreground group-hover/target:text-foreground" />
+          <ChevronDown size={14} className="ml-auto shrink-0 text-muted-foreground group-hover/target:text-foreground" />
         </UiButton>
       </div>
     );
@@ -309,7 +309,7 @@ export default function ReviewTargetHeader({
             onClick={onToggleFold}
             className="h-6 w-6 text-muted-foreground hover:text-foreground"
           >
-            <ChevronUp size={12} strokeWidth={1.8} />
+            <ChevronUp size={14} />
           </UiButton>
         )}
         <UiButton
@@ -324,7 +324,7 @@ export default function ReviewTargetHeader({
             ? "h-6 w-6 border-ok-line bg-ok-bg text-ok disabled:opacity-100"
             : "h-6 w-6 hover:bg-ok-bg hover:text-ok"}
         >
-          <Check size={13} strokeWidth={1.8} />
+          <Check size={14} />
           {target.state === "reviewed" && <span className="sr-only">✓ Reviewed</span>}
         </UiButton>
         <UiButton
@@ -339,7 +339,7 @@ export default function ReviewTargetHeader({
             ? "h-6 w-6 border-p0-line bg-p0-bg text-p0"
             : "h-6 w-6 hover:bg-p0-bg hover:text-p0"}
         >
-          <X size={13} strokeWidth={1.8} />
+          <X size={14} />
         </UiButton>
         <UiButton
           variant="ghost"
@@ -351,7 +351,7 @@ export default function ReviewTargetHeader({
           onClick={onComment}
           className="h-6 w-6 hover:text-foreground"
         >
-          <MessageSquareText size={12} strokeWidth={1.8} />
+          <MessageSquareText size={14} />
         </UiButton>
         {onAsk && (
           <UiButton
@@ -364,7 +364,7 @@ export default function ReviewTargetHeader({
             onClick={onAsk}
             className="h-6 gap-1 px-1.5 text-meta"
           >
-            <Sparkles size={11} strokeWidth={1.8} />
+            <Sparkles size={14} />
             Ask
           </UiButton>
         )}
@@ -377,7 +377,7 @@ export default function ReviewTargetHeader({
           onClick={() => onContext("context")}
           className="h-6 w-6"
         >
-          <PanelRight size={12} strokeWidth={1.8} />
+          <PanelRight size={14} />
         </UiButton>
       </div>}
     </div>

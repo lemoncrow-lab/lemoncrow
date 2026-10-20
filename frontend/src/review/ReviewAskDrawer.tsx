@@ -182,9 +182,9 @@ function AskPicker({
           aria-label={label}
           className="h-7 max-w-[150px] gap-1.5 rounded-full border-border bg-muted/70 px-2.5 font-medium text-subtle hover:bg-muted hover:text-foreground"
         >
-          <Cpu size={11} className="shrink-0 text-muted-foreground" />
+          <Cpu size={14} className="shrink-0 text-muted-foreground" />
           <span className="truncate">{selected}</span>
-          <ChevronDown size={11} className="shrink-0 text-muted-foreground" />
+          <ChevronDown size={14} className="shrink-0 text-muted-foreground" />
         </UiButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="top" align={align === "right" ? "end" : "start"} className="min-w-[190px] max-w-[280px]">
@@ -239,12 +239,12 @@ function ProjectKnowledgeChip({ reference }: { reference: ReviewAskReference }) 
   const className = "inline-flex max-w-full items-center gap-1 rounded-full border border-dashed border-border px-2 py-1 text-micro text-muted-foreground";
   return reference.review_id ? (
     <a href={reviewHref(reference.review_id)} title={title} className={`${className} hover:text-foreground`} data-testid="ask-project-knowledge-reference">
-      <History size={9} aria-hidden="true" />
+      <History size={14} aria-hidden="true" />
       <span className="truncate">{label}</span>
     </a>
   ) : (
     <span title={title} className={className} data-testid="ask-project-knowledge-reference">
-      <History size={9} aria-hidden="true" />
+      <History size={14} aria-hidden="true" />
       <span className="truncate">{label}</span>
     </span>
   );
@@ -805,7 +805,7 @@ export default function ReviewAskDrawer({
     <section className="relative flex h-full min-h-0 flex-col bg-background" aria-label={transport ? "Code chat" : "Review chat"}>
       <header className="flex h-11 shrink-0 items-center gap-2 border-b border-border bg-muted px-3">
         <div className="flex h-6 w-6 items-center justify-center rounded-full bg-ai-bg text-ai">
-          <Sparkles size={13} aria-hidden="true" />
+          <Sparkles size={14} aria-hidden="true" />
         </div>
         <div className="min-w-0">
           <div className="text-label font-medium leading-4 text-foreground">{transport ? "Code chat" : "Review chat"}</div>
@@ -818,7 +818,7 @@ export default function ReviewAskDrawer({
         <span className="flex-1" />
         {loading && (
           <span className="flex items-center gap-1 text-micro text-muted-foreground" aria-label="Syncing conversation">
-            <LoaderCircle size={10} className="animate-spin motion-reduce:animate-none" />
+            <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" />
             Syncing
           </span>
         )}
@@ -831,7 +831,7 @@ export default function ReviewAskDrawer({
           aria-expanded={historyOpen}
           className={historyOpen ? "h-6 w-6 bg-muted text-muted-foreground" : "h-6 w-6"}
         >
-          <History size={13} />
+          <History size={14} />
         </UiButton>
         <UiButton
           type="button"
@@ -842,10 +842,10 @@ export default function ReviewAskDrawer({
           aria-label="New Ask conversation"
           className="h-6 w-6"
         >
-          <Plus size={13} />
+          <Plus size={14} />
         </UiButton>
         <UiButton type="button" variant="ghost" size="icon" onClick={onClose} aria-label="Close Ask" className="h-6 w-6">
-          <X size={13} />
+          <X size={14} />
         </UiButton>
       </header>
 
@@ -871,14 +871,14 @@ export default function ReviewAskDrawer({
                 <div className="mt-0.5 truncate text-micro text-muted-foreground">{conversationOriginLabel(conversation.origin)}</div>
               </div>
               <div className="flex shrink-0 items-center gap-1 pt-0.5 text-micro text-muted-foreground">
-                {conversation.id === activeConversationId && <Check size={10} className="text-muted-foreground" />}
+                {conversation.id === activeConversationId && <Check size={14} className="text-muted-foreground" />}
                 <span>{conversationAge(conversation.updated_at)}</span>
               </div>
             </UiButton>
           ))}
           <div className="mt-1 border-t border-border px-1 pt-1">
             <UiButton type="button" variant="ghost" size="compact" onClick={() => void startConversation()} disabled={asking || loading} className="w-full justify-start">
-              <Plus size={11} /> New conversation
+              <Plus size={14} /> New conversation
             </UiButton>
           </div>
         </div>
@@ -887,7 +887,7 @@ export default function ReviewAskDrawer({
       {transport && scope?.path && (
         <div className="shrink-0 border-b border-border bg-muted/30 px-3 py-2" aria-label="Code Ask focus">
           <div className="flex min-w-0 items-start gap-2">
-            <FileCode2 size={13} className="mt-0.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <FileCode2 size={14} className="mt-0.5 shrink-0 text-muted-foreground" aria-hidden="true" />
             <div className="min-w-0 flex-1">
               <div className="text-micro font-semibold uppercase tracking-wider text-muted-foreground">
                 {scope.selected_text ? "Selected code" : scope.symbol || scope.start_line ? "File location" : "Focused file"}
@@ -897,7 +897,7 @@ export default function ReviewAskDrawer({
             </div>
             {(scope.symbol || scope.start_line) && (
               <UiButton type="button" variant="ghost" size="icon" onClick={onClearScope} aria-label="Focus on whole file" className="h-6 w-6 shrink-0">
-                <X size={12} />
+                <X size={14} />
               </UiButton>
             )}
           </div>
@@ -974,7 +974,7 @@ export default function ReviewAskDrawer({
                       title={copiedPromptId === message.id ? "Copied" : "Copy prompt"}
                       className={`mt-1 flex h-6 shrink-0 items-center justify-center rounded-md transition focus:opacity-100 group-hover:opacity-100 ${copiedPromptId === message.id ? "w-auto gap-1 px-1.5 text-emerald-400 opacity-100" : "w-6 text-muted-foreground opacity-0 hover:bg-muted hover:text-subtle"}`}
                     >
-                      {copiedPromptId === message.id ? <Check size={11} /> : <Copy size={11} />}
+                      {copiedPromptId === message.id ? <Check size={14} /> : <Copy size={14} />}
                       {copiedPromptId === message.id && <span className="text-micro">Copied</span>}
                     </UiButton>
                     <div className="max-w-[92%] rounded-2xl rounded-br-md border border-border bg-muted/75 px-3 py-2">
@@ -987,7 +987,7 @@ export default function ReviewAskDrawer({
                             onClick={() => onOpenReference(reference)}
                             className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-meta text-muted-foreground hover:bg-muted"
                           >
-                            <FileCode2 size={9} />
+                            <FileCode2 size={14} />
                             <span className="truncate">{fileName(reference.path)}</span>
                           </UiButton>
                         ) : reference.evidence_id ? (
@@ -996,7 +996,7 @@ export default function ReviewAskDrawer({
                             title={reference.label || "External attachment"}
                             className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-accent/45 px-1.5 py-0.5 text-micro text-subtle"
                           >
-                            <FileText size={9} className="text-muted-foreground" />
+                            <FileText size={14} className="text-muted-foreground" />
                             <span className="truncate">{reference.label || "Attachment"}</span>
                           </span>
                         ) : null)}
@@ -1006,14 +1006,14 @@ export default function ReviewAskDrawer({
                   </div>
                 ) : (
                   <div className="mr-1 flex items-start gap-2">
-                    <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-ai-bg text-ai">
-                      <Sparkles size={10} />
+                    <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-ai-bg text-ai">
+                      <Sparkles size={14} />
                     </div>
                     <div className="min-w-0 flex-1 pt-0.5">
                       <div className="whitespace-pre-wrap text-label leading-5 text-foreground">{message.body}</div>
                       {isStoppedTurn(message) && (
                         <div className="mt-1 flex items-center gap-1 text-micro text-muted-foreground">
-                          <Square size={8} aria-hidden="true" />
+                          <Square size={14} aria-hidden="true" />
                           {message.body ? "Stopped" : "Stopped before an answer arrived"}
                         </div>
                       )}
@@ -1052,8 +1052,8 @@ export default function ReviewAskDrawer({
                               tooltip={!delivery?.supported ? delivery?.reason : undefined}
                             >
                               {handoffState === "dispatching"
-                                ? <LoaderCircle size={12} className="animate-spin motion-reduce:animate-none" />
-                                : <Send size={12} />}
+                                ? <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" />
+                                : <Send size={14} />}
                               {deliveryLabel(handoffState)}
                             </UiButton>
                             {handoffState === "sent" && (
@@ -1087,20 +1087,20 @@ export default function ReviewAskDrawer({
                   title={copiedPromptId === "pending" ? "Copied" : "Copy prompt"}
                   className={`mt-1 flex h-6 shrink-0 items-center justify-center rounded-md transition focus:opacity-100 group-hover:opacity-100 ${copiedPromptId === "pending" ? "w-auto gap-1 px-1.5 text-emerald-400 opacity-100" : "w-6 text-muted-foreground opacity-0 hover:bg-muted hover:text-subtle"}`}
                 >
-                  {copiedPromptId === "pending" ? <Check size={11} /> : <Copy size={11} />}
+                  {copiedPromptId === "pending" ? <Check size={14} /> : <Copy size={14} />}
                   {copiedPromptId === "pending" && <span className="text-micro">Copied</span>}
                 </UiButton>
                 <div className="max-w-[92%] rounded-2xl rounded-br-md border border-border bg-muted/75 px-3 py-2">
                   <div className="flex flex-wrap items-center justify-end gap-1">
                     {pendingTurn.mentionedPaths.map((path) => (
                       <span key={path} title={path} className="inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-micro text-muted-foreground">
-                        <FileCode2 size={9} />
+                        <FileCode2 size={14} />
                         <span className="truncate">{fileName(path)}</span>
                       </span>
                     ))}
                     {pendingTurn.attachments.map((attachment) => (
                       <span key={attachment.id} title={attachment.title} className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/70 bg-accent/45 px-1.5 py-0.5 text-micro text-subtle">
-                        <FileText size={9} className="text-muted-foreground" />
+                        <FileText size={14} className="text-muted-foreground" />
                         <span className="truncate">{attachment.title}</span>
                       </span>
                     ))}
@@ -1109,10 +1109,10 @@ export default function ReviewAskDrawer({
                 </div>
               </div>
               <div className="mr-1 flex items-start gap-2" aria-live="polite">
-                <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-ai-bg text-ai">
+                <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-ai-bg text-ai">
                   {pendingTurn.status === "failed"
-                    ? <X size={10} />
-                    : <Sparkles size={10} className={pendingTurn.answer ? "" : pendingTurn.status === "working" ? "animate-pulse motion-reduce:animate-none" : ""} />}
+                    ? <X size={14} />
+                    : <Sparkles size={14} className={pendingTurn.answer ? "" : pendingTurn.status === "working" ? "animate-pulse motion-reduce:animate-none" : ""} />}
                 </div>
                 <div className="min-w-0 flex-1 rounded-lg border border-border bg-muted/20 px-2.5 py-2">
                   <div className="flex items-center gap-2">
@@ -1136,7 +1136,7 @@ export default function ReviewAskDrawer({
                         onClick={() => void ask(pendingTurn.question, pendingTurn.mentionedPaths, pendingTurn.attachments)}
                         className="h-6 shrink-0 px-2"
                       >
-                        <RotateCcw size={10} />
+                        <RotateCcw size={14} />
                         Retry
                       </UiButton>
                     </div>
@@ -1147,7 +1147,7 @@ export default function ReviewAskDrawer({
                     </div>
                   ) : (
                     <div className="mt-1.5 flex items-center gap-2 text-caption text-muted-foreground">
-                      <LoaderCircle size={11} className="animate-spin motion-reduce:animate-none" />
+                      <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" />
                       <span>{pendingTurn.status === "starting" ? "Starting…" : transport ? "Working on this code…" : "Working on this snapshot…"}</span>
                     </div>
                   )}
@@ -1208,13 +1208,13 @@ export default function ReviewAskDrawer({
                 <div className="flex min-w-0 max-w-full items-center gap-1.5 rounded-md border border-cyan-900/60 bg-cyan-950/20 px-2 py-1 font-mono text-micro text-cyan-200" title={sourceScope}>
                   <span className="truncate">{sourceScope}</span>
                   {(!transport || scope?.symbol || scope?.start_line) && <UiButton type="button" variant="ghost" size="icon" onClick={onClearScope} aria-label="Remove Ask context" className="h-4 w-4 shrink-0 text-cyan-500 hover:bg-transparent hover:text-cyan-200">
-                    <X size={10} />
+                    <X size={14} />
                   </UiButton>}
                 </div>
               )}
               {mentionedPaths.map((path) => (
                 <div key={path} className="flex min-w-0 max-w-full items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-1 font-mono text-micro text-muted-foreground" title={path}>
-                  <FileCode2 size={9} className="shrink-0" />
+                  <FileCode2 size={14} className="shrink-0" />
                   <span className="truncate">{fileName(path)}</span>
                   <UiButton
                     type="button"
@@ -1224,13 +1224,13 @@ export default function ReviewAskDrawer({
                     aria-label={`Remove ${path}`}
                     className="h-4 w-4 shrink-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
                   >
-                    <X size={9} />
+                    <X size={14} />
                   </UiButton>
                 </div>
               ))}
               {attachments.map((attachment) => (
                 <div key={attachment.id} className="flex min-w-0 max-w-full items-center gap-1 rounded-md border border-border/70 bg-accent/45 px-1.5 py-1 text-micro text-subtle" title={attachment.title}>
-                  <FileText size={9} className="shrink-0 text-muted-foreground" />
+                  <FileText size={14} className="shrink-0 text-muted-foreground" />
                   <span className="max-w-40 truncate">{attachment.title}</span>
                   <UiButton
                     type="button"
@@ -1240,7 +1240,7 @@ export default function ReviewAskDrawer({
                     aria-label={`Remove ${attachment.title}`}
                     className="h-4 w-4 shrink-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
                   >
-                    <X size={9} />
+                    <X size={14} />
                   </UiButton>
                 </div>
               ))}
@@ -1252,7 +1252,7 @@ export default function ReviewAskDrawer({
               className="absolute bottom-full left-0 right-0 z-20 mb-1 overflow-hidden rounded-lg border border-border bg-muted/95 shadow-float backdrop-blur"
             >
               <div className="flex items-center gap-2 px-2.5 pb-1 pt-2">
-                <FileCode2 size={11} className="shrink-0 text-muted-foreground" />
+                <FileCode2 size={14} className="shrink-0 text-muted-foreground" />
                 <span className="text-micro font-medium text-muted-foreground">{transport ? "Files in this project" : "Files in this change"}</span>
                 <span className="min-w-0 truncate font-mono text-micro text-muted-foreground">
                   @{mentionDraft.query}
@@ -1271,7 +1271,7 @@ export default function ReviewAskDrawer({
                   onClick={() => selectMention(path)}
                   className={`group/file flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left transition ${index === mentionIndex ? "bg-muted text-foreground ring-1 ring-inset ring-border" : "text-muted-foreground hover:bg-accent/55 hover:text-foreground"}`}
                 >
-                  <FileCode2 size={10} className={`shrink-0 ${index === mentionIndex ? "text-muted-foreground" : "text-muted-foreground group-hover/file:text-muted-foreground"}`} />
+                  <FileCode2 size={14} className={`shrink-0 ${index === mentionIndex ? "text-muted-foreground" : "text-muted-foreground group-hover/file:text-muted-foreground"}`} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-caption font-medium leading-4">{fileName(path)}</span>
                     <span className="block truncate font-mono text-micro leading-3 text-muted-foreground">{path}</span>
@@ -1368,7 +1368,7 @@ export default function ReviewAskDrawer({
               onClick={() => attachmentInputRef.current?.click()}
               className="h-7 w-7 shrink-0 rounded-full"
             >
-              {uploadingAttachments ? <LoaderCircle size={12} className="animate-spin motion-reduce:animate-none" /> : <Plus size={14} />}
+              {uploadingAttachments ? <LoaderCircle size={14} className="animate-spin motion-reduce:animate-none" /> : <Plus size={14} />}
             </UiButton>}
             <span className="flex-1" />
             <details className="relative text-meta" data-testid="ask-provider-options">
@@ -1421,7 +1421,7 @@ export default function ReviewAskDrawer({
                 aria-label="Stop Ask"
                 className="h-8 w-8 shrink-0 rounded-full"
               >
-                <Square size={11} fill="currentColor" strokeWidth={0} />
+                <Square size={14} fill="currentColor" />
               </UiButton>
             ) : (
               <UiButton
@@ -1431,7 +1431,7 @@ export default function ReviewAskDrawer({
                 aria-label="Send Ask question"
                 className="h-8 w-8 shrink-0 rounded-full"
               >
-                <ArrowUp size={14} strokeWidth={2.4} />
+                <ArrowUp size={14} />
               </UiButton>
             )}
           </div>

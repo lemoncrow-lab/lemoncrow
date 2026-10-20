@@ -322,7 +322,7 @@ export default function Memory() {
           )}
           {facts !== null && facts.length === 0 && (
             <EmptyState
-              icon={<Hexagon size={32} />}
+              icon={<Hexagon size={20} />}
               title="No cross-vendor facts yet"
               description="Facts are shared across vendors after they are written to the memory registry."
             />

@@ -64,7 +64,7 @@ export default function Rubrics() {
           <Button
             onClick={() => navigate("/knowledge/rubrics")}
             size="xs"
-            icon={<ArrowLeft size={12} />}
+            icon={<ArrowLeft size={14} />}
           >
             All rubrics
           </Button>
@@ -138,7 +138,7 @@ export default function Rubrics() {
                     {/* ID */}
                     <div>
                       <FieldLabel className="mb-2">
-                        <ChevronRight size={10} className="inline mr-1" /> ID
+                        <ChevronRight size={14} className="inline mr-1" /> ID
                       </FieldLabel>
                       <code className="text-caption bg-background px-2 py-1 text-muted-foreground font-mono border border-border block break-all">
                         {r.id}
@@ -148,7 +148,7 @@ export default function Rubrics() {
                     {/* Timestamps */}
                     <div>
                       <FieldLabel className="mb-2">
-                        <ChevronRight size={10} className="inline mr-1" /> created
+                        <ChevronRight size={14} className="inline mr-1" /> created
                       </FieldLabel>
                       <p className="text-body text-muted-foreground font-mono">
                         {new Date(r.created_at).toLocaleString()}
@@ -163,7 +163,7 @@ export default function Rubrics() {
                     {/* Required Checks */}
                     <div>
                       <FieldLabel className="mb-2">
-                        <ChevronRight size={10} className="inline mr-1" /> required checks
+                        <ChevronRight size={14} className="inline mr-1" /> required checks
                       </FieldLabel>
                       <ul className="space-y-1">
                         {r.required_checks.map((check, i) => (

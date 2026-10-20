@@ -56,7 +56,7 @@ export function InspectorFacts({
           {location && <div className="mt-0.5 truncate font-mono text-caption text-muted-foreground" title={location}>{location}</div>}
         </div>
         {headerAction}
-        {onClose && <Button variant="ghost" size="icon" onClick={onClose} aria-label={closeLabel}><X size={13} /></Button>}
+        {onClose && <Button variant="ghost" size="icon" onClick={onClose} aria-label={closeLabel}><X size={14} /></Button>}
       </div>
       {children}
     </div>

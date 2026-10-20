@@ -45,10 +45,10 @@ export default function ReviewEvidenceFacts({
       {facts.map((item) => (
         <div key={item.id} className="flex gap-2.5 py-2.5">
           {item.state === "verified"
-            ? <CheckCircle2 size={12} className="mt-0.5 shrink-0 text-emerald-400" />
+            ? <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-emerald-400" />
             : item.state === "failed"
-              ? <AlertTriangle size={12} className="mt-0.5 shrink-0 text-red-400" />
-              : <CircleDot size={11} className={`mt-0.5 shrink-0 ${stateClass(item.state)}`} />}
+              ? <AlertTriangle size={14} className="mt-0.5 shrink-0 text-red-400" />
+              : <CircleDot size={14} className={`mt-0.5 shrink-0 ${stateClass(item.state)}`} />}
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2">
               <span className="min-w-0 flex-1 truncate text-caption font-medium text-subtle">{item.label}</span>

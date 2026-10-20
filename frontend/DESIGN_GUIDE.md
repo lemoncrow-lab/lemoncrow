@@ -175,7 +175,11 @@ density, typography, focus treatment, control sizes, and light/dark behavior.
 - Prefer semantic tokens over `bg-black`, hex, or duplicated light/dark values.
 - Normal routed pages use `PageFrame` and open with `PageHeader`; full-canvas tools may opt out but still inherit the same control and surface
   language.
-- Icons are lucide, in `currentColor`, muted by default. File-type glyphs in the diff outline keep their colours because they encode content.
+- Icons are lucide, in `currentColor`, muted by default, on one scale: `size={14}` (dense rows, inline with 12 to 13px text; the default in this
+  dense tool), `size={16}` (back arrows, loaders, standalone controls) and `size={20}` (empty states and feature headings). The 1.75 stroke is
+  global (`svg.lucide` in `src/index.css`), so no call site sets `strokeWidth`. `check:ui-primitives` rejects any other `size={N}` and any
+  `strokeWidth` on an icon. File-type glyphs in the diff outline keep their colours because they encode content, and are fixed at 14px
+  (`FileTypeIcon` takes no size).
 - Motion is short and functional.
 
 The diff body (`@pierre/diffs`), Monaco, CodeMirror, the markdown preview, the graph canvases and the chart series keep their own palettes: they

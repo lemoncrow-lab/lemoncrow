@@ -107,7 +107,7 @@ export default function ReviewRecordExport({
     <div className="space-y-3">
       <div className="rounded-md border border-border/80 bg-muted/25 p-3">
         <div className="flex items-start gap-2">
-          <FileSignature size={12} className="mt-0.5 shrink-0 text-muted-foreground" />
+          <FileSignature size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1">
             <div className="text-caption font-semibold text-foreground">Signed review record</div>
             <div className="mt-1 text-caption leading-4 text-muted-foreground">
@@ -184,7 +184,7 @@ export default function ReviewRecordExport({
                 aria-label={`Download ${recordLabel(record)}`}
                 onClick={() => void download(record)}
               >
-                <Download size={12} />
+                <Download size={14} />
               </UiButton>
             </div>
           ))}

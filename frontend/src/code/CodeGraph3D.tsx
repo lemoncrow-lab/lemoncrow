@@ -687,7 +687,7 @@ export default function CodeGraph3D({
         className="absolute bottom-4 left-4 shadow-float"
         aria-label="Fit graph"
       >
-        <Focus size={15} />
+        <Focus size={16} />
       </UiButton>
       <div className="absolute bottom-4 right-4 rounded-lg border border-border bg-background/85 px-3 py-2 text-micro font-medium text-muted-foreground">
         {count.toLocaleString()} nodes · 3D

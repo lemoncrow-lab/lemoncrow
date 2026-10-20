@@ -42,6 +42,12 @@ const tokenRules = [
   { id: "neutral", pattern: /\b(?:text|bg|border|ring|divide|fill|stroke|from|to|via|outline)-neutral-\d/g, message: "Raw neutral-* is retired: use foreground, subtle, muted-foreground, border, input, muted, accent or background." },
   { id: "hue", pattern: HUE_UTILITY, message: "Only red, amber, cyan, emerald and violet ramps exist (P0, P1, P2, ok, ai); use those or the p0/p1/p2/ok/ai tokens." },
 ];
+// One icon scale (spec 3.8): lucide icons are 14px (dense rows, inline with 12-13px text), 16px (the default) or 20px
+// (empty states, feature headings); file-type glyphs are fixed at 14px. The 1.75 stroke is global (src/index.css).
+const iconRules = [
+  { id: "icon-size", pattern: /\bsize=\{(?!(?:14|16|20)\})\d+\}/g, message: "Icons use the three-step scale: size={14} (dense rows, inline with 12-13px text), size={16} (default) or size={20} (empty states, feature headings)." },
+  { id: "icon-stroke", pattern: /\bsize=\{\d+\}[^\n]*\bstrokeWidth=\{|\bstrokeWidth=\{[^\n]*\bsize=\{\d+\}/g, message: "Stroke weight is global (1.75, src/index.css): do not set strokeWidth on an icon." },
+];
 // Content and theme files whose colours are data, not chrome: editor and markdown themes, graph canvases, chart
 // series and the per-agent palette. Everything else must use tokens.
 const tokenAllowlist = new Map([
@@ -124,7 +130,7 @@ async function walkTokens(dir, rules = tokenRules) {
   }
 }
 
-await walkTokens(root);
+await walkTokens(root, [...tokenRules, ...iconRules]);
 
 // The hosted app (enterprise/frontend, private checkout only) renders these primitives and shares the theme, so
 // its sources follow the same token, type and variant rules. Absent in the public tree: skipped.

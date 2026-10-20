@@ -101,7 +101,7 @@ function SpecialFacts({ change }: { change: ReviewSpecialChange }) {
         {change.warnings.length > 0 && (
           <ul role="alert" className="mt-1 space-y-0.5 rounded border border-amber-800/60 bg-amber-950/30 px-2 py-1 text-amber-200" data-testid="special-change-warning">
             {change.warnings.map((warning) => (
-              <li key={warning} className="flex items-start gap-1.5"><TriangleAlert size={12} aria-hidden="true" className="mt-0.5 shrink-0" />{warning}</li>
+              <li key={warning} className="flex items-start gap-1.5"><TriangleAlert size={14} aria-hidden="true" className="mt-0.5 shrink-0" />{warning}</li>
             ))}
           </ul>
         )}
@@ -324,7 +324,7 @@ export function GeneratedFileSemantics({
 }) {
   return (
     <section className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-muted/10 px-4 py-2 text-caption" data-testid={`generated-file:${path}`} aria-label={`Generated file: ${path}`}>
-      <Wand2 size={13} aria-hidden="true" className="shrink-0 text-muted-foreground" />
+      <Wand2 size={14} aria-hidden="true" className="shrink-0 text-muted-foreground" />
       <span className="font-medium text-foreground">Generated or vendored</span>
       <span className="text-muted-foreground">
         {role.source === "gitattributes" ? "marked by trusted-base .gitattributes" : "inferred from its path"}

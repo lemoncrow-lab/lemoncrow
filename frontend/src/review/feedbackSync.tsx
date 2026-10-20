@@ -94,7 +94,7 @@ export function PublishedFeedbackControls({ comment, busy }: { comment: Annotati
   return (
     <div className="review-thread-actions flex-wrap" aria-label="Published feedback" data-testid="published-feedback">
       <span className="inline-flex items-center gap-1 text-caption text-muted-foreground">
-        {failed ? <CloudOff size={12} className="text-red-300" aria-hidden="true" /> : <UploadCloud size={12} aria-hidden="true" />}
+        {failed ? <CloudOff size={14} className="text-red-300" aria-hidden="true" /> : <UploadCloud size={14} aria-hidden="true" />}
         {failed
           ? `Sync to ${provider} failed`
           : record?.state === "synced"
@@ -136,7 +136,7 @@ export function PublishedFeedbackControls({ comment, busy }: { comment: Annotati
           </UiButton>
         </>
       )}
-      {inFlight && <LoaderCircle size={12} className="animate-spin text-muted-foreground" aria-label="Syncing" />}
+      {inFlight && <LoaderCircle size={14} className="animate-spin text-muted-foreground" aria-label="Syncing" />}
       {editing && (
         <form
           className="basis-full space-y-1.5"

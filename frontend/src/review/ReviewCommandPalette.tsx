@@ -133,7 +133,7 @@ export default function ReviewCommandPalette({ mode, actions, onClose }: ReviewC
       >
         <div className="flex items-center gap-3 border-b border-border/80 px-3.5 py-3">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-muted/60 text-muted-foreground">
-            <Command size={13} aria-hidden="true" />
+            <Command size={14} aria-hidden="true" />
           </div>
           <div className="min-w-0 flex-1">
             <DialogTitle className="text-body font-semibold text-foreground">
@@ -154,7 +154,7 @@ export default function ReviewCommandPalette({ mode, actions, onClose }: ReviewC
           <>
             <div className="border-b border-border/70 p-2.5">
               <div className="relative flex items-center">
-                <Search size={13} className="pointer-events-none absolute left-2.5 text-muted-foreground" />
+                <Search size={14} className="pointer-events-none absolute left-2.5 text-muted-foreground" />
               <UiInput
                 uiSize="xs"
                 ref={inputRef}

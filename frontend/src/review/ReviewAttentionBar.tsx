@@ -256,7 +256,7 @@ export default function ReviewAttentionBar(props: ReviewAttentionBarProps) {
       role="status"
       aria-live="polite"
     >
-      <Icon size={12} strokeWidth={1.9} aria-hidden="true" className="shrink-0 opacity-85" />
+      <Icon size={14} aria-hidden="true" className="shrink-0 opacity-85" />
       <span className="shrink-0 text-body font-semibold">{state.label}</span>
       <span className="hidden min-w-0 flex-1 truncate text-body md:block" title={state.detail}>
         {state.detail}
@@ -271,7 +271,7 @@ export default function ReviewAttentionBar(props: ReviewAttentionBarProps) {
         tooltip={props.readiness.detail}
         className={`h-6 ${control.className}`}
       >
-        <ShieldCheck size={12} />
+        <ShieldCheck size={14} />
         <span>{control.text}</span>
       </UiButton>
       {props.openCommentCount > 0 && (
@@ -283,7 +283,7 @@ export default function ReviewAttentionBar(props: ReviewAttentionBarProps) {
           className="h-6"
           aria-label={`Open ${props.openCommentCount} review comments`}
         >
-          <MessageSquareText size={12} />
+          <MessageSquareText size={14} />
           <span className="font-mono text-caption">{props.openCommentCount}</span>
         </UiButton>
       )}

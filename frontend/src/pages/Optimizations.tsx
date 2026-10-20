@@ -148,7 +148,7 @@ function Hint({ text }: { text: string }) {
         aria-label={text}
         className="inline-flex h-5 w-5 cursor-help items-center justify-center border border-border text-muted-foreground"
       >
-        <HelpCircle size={12} />
+        <HelpCircle size={14} />
       </span>
     </Tip>
   );

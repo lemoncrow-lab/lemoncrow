@@ -176,7 +176,7 @@ export function SavedInboxFilterControls({
       ) : (
         <>
           <Button type="button" size="xs" variant="ghost" onClick={() => setNaming(true)}>
-            <Bookmark size={11} />Save view
+            <Bookmark size={14} />Save view
           </Button>
           {active && onRename && (
             <Button type="button" size="xs" variant="ghost" aria-label="Rename saved filter" disabled={busy}
@@ -195,7 +195,7 @@ export function SavedInboxFilterControls({
       {activeId && (
         <Button type="button" size="icon" variant="ghost" aria-label="Delete saved filter" disabled={busy}
           onClick={() => void run(() => onDelete(activeId))}>
-          <Trash2 size={11} />
+          <Trash2 size={14} />
         </Button>
       )}
       {error && <span role="alert" className="text-caption text-p0">{error}</span>}

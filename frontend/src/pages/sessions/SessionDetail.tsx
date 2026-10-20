@@ -214,7 +214,7 @@ function SidebarList({
                     className="text-meta text-muted-foreground hover:text-emerald-300 uppercase font-semibold flex items-center gap-1"
                     title="View raw content"
                   >
-                    Raw <ExternalLink size={10} />
+                    Raw <ExternalLink size={14} />
                   </a>
                 )}
               </div>
@@ -581,7 +581,7 @@ export function SessionExplorerDetail({ sessionId }: { sessionId: string }) {
                     rel="noreferrer"
                     className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/80 bg-muted/55 px-2.5 text-meta font-medium text-muted-foreground transition-colors hover:bg-accent/80 hover:text-foreground"
                   >
-                    <ExternalLink size={10} />
+                    <ExternalLink size={14} />
                     Raw Link
                   </a>
                 )}

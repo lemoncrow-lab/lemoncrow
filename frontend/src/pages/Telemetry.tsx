@@ -79,7 +79,7 @@ function HintButton({ label, hint }: { label: string; hint: string }) {
       size="icon"
       variant="ghost"
     >
-      <HelpCircle size={12} />
+      <HelpCircle size={14} />
     </UiButton>
   );
 }
@@ -418,7 +418,7 @@ function EventRow({
       <summary className="flex cursor-pointer list-none items-start justify-between gap-4 px-4 py-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <Circle size={10} fill={color} stroke="none" className="mt-0.5" />
+            <Circle size={14} fill={color} stroke="none" className="mt-0.5" />
             <span className="font-mono text-body uppercase tracking-widest text-foreground">
               {item.event}
             </span>

@@ -233,7 +233,7 @@ function ReviewRow({
                     disabled={archiving || deleting}
                     className="gap-2"
                   >
-                    {archived ? <ArchiveRestore size={12} aria-hidden="true" /> : <Archive size={12} aria-hidden="true" />}
+                    {archived ? <ArchiveRestore size={14} aria-hidden="true" /> : <Archive size={14} aria-hidden="true" />}
                     {archived ? `Restore ${row.title || "review"}` : `Archive ${row.title || "review"}`}
                   </DropdownMenuItem>
                   {archived && (
@@ -244,7 +244,7 @@ function ReviewRow({
                         disabled={archiving || deleting}
                         className="gap-2 text-destructive focus:text-destructive"
                       >
-                        <Trash2 size={12} aria-hidden="true" />
+                        <Trash2 size={14} aria-hidden="true" />
                         {`Delete ${row.title || "review"}`}
                       </DropdownMenuItem>
                     </>

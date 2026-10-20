@@ -991,7 +991,7 @@ export default function CodeMap() {
         <div className="flex h-10 items-center gap-1.5 overflow-x-auto whitespace-nowrap">
           {returnTo && (
             <UiButton type="button" size="xs" variant="ghost" className="shrink-0" onClick={() => navigate(returnTo)} title={returnLabel === "Review" ? "Back to the Review location you came from" : "Back to where you came from"}>
-              <ArrowLeft size={11} /> {returnLabel}
+              <ArrowLeft size={14} /> {returnLabel}
             </UiButton>
           )}
           <div className="flex min-w-0 shrink items-center gap-2 text-caption">
@@ -1024,7 +1024,7 @@ export default function CodeMap() {
 
           <div className="ml-auto flex shrink-0 items-center gap-1.5 text-caption">
             <div className="relative w-[280px] shrink-0">
-              <Search size={12} className="pointer-events-none absolute left-2 top-2.5 text-muted-foreground" />
+              <Search size={14} className="pointer-events-none absolute left-2 top-2.5 text-muted-foreground" />
               <UiInput
                 ref={searchInput}
                 type="search"
@@ -1055,7 +1055,7 @@ export default function CodeMap() {
                   {navigator.platform?.toLowerCase().includes("mac") ? "⌘K" : "Ctrl K"}
                 </span>
               )}
-              {searching && <Loader2 size={11} className="absolute right-2 top-2.5 animate-spin text-muted-foreground" />}
+              {searching && <Loader2 size={14} className="absolute right-2 top-2.5 animate-spin text-muted-foreground" />}
               {query.trim().length >= 2 && !searching && searchError && (
                 <div className="absolute right-0 top-9 z-30 w-full rounded-lg border border-red-900/60 bg-background px-3 py-2.5 text-label text-red-300 shadow-float">{searchError}</div>
               )}
@@ -1082,7 +1082,7 @@ export default function CodeMap() {
                         aria-label={`${label} ${path}`}
                       >
                         <span className="flex items-center gap-2">
-                          <FileTypeIcon path={path} size={13} />
+                          <FileTypeIcon path={path} />
                           <span className="min-w-0 flex-1 truncate text-body text-foreground">{label}</span>
                           <span className="shrink-0 text-micro font-semibold uppercase tracking-wider text-muted-foreground">{badge}</span>
                         </span>
@@ -1114,7 +1114,7 @@ export default function CodeMap() {
                 style={{ borderRadius: 0 }}
                 className={`inline-flex h-full items-center gap-1.5 border-0 text-label px-2 ${surface === "source" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
               >
-                <FileCode2 size={11} /> Source
+                <FileCode2 size={14} /> Source
               </UiButton>
               <UiButton
                 unstyled
@@ -1124,7 +1124,7 @@ export default function CodeMap() {
                 style={{ borderRadius: 0 }}
                 className={`inline-flex h-full items-center gap-1.5 border-0 text-label border-l border-border px-2 ${surface === "map" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
               >
-                <Network size={11} /> Map
+                <Network size={14} /> Map
               </UiButton>
               <UiButton
                 unstyled
@@ -1134,7 +1134,7 @@ export default function CodeMap() {
                 style={{ borderRadius: 0 }}
                 className={`inline-flex h-full items-center gap-1.5 border-0 text-label border-l border-border px-2 ${surface === "2d" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
               >
-                <Share2 size={11} /> 2D
+                <Share2 size={14} /> 2D
               </UiButton>
               <UiButton
                 unstyled
@@ -1144,7 +1144,7 @@ export default function CodeMap() {
                 style={{ borderRadius: 0 }}
                 className={`inline-flex h-full items-center gap-1.5 border-0 text-label border-l border-border px-2 ${surface === "3d" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
               >
-                <Boxes size={11} /> 3D
+                <Boxes size={14} /> 3D
               </UiButton>
             </div>
             {codeAskTransport && (
@@ -1159,7 +1159,7 @@ export default function CodeMap() {
                 tooltip={selectedNode ? "Ask AI about the selected file or symbol" : "Open a file or symbol to ask AI"}
                 className="h-7 shrink-0"
               >
-                <Sparkles size={12} /> Ask AI
+                <Sparkles size={14} /> Ask AI
               </UiButton>
             )}
             <UiButton
@@ -1182,13 +1182,13 @@ export default function CodeMap() {
         <div className="flex items-start justify-between border-b border-red-900/60 bg-red-950/20 px-4 py-2.5 text-label text-red-200">
           <span>{error}</span>
           <UiButton type="button" onClick={() => setError(null)} size="icon" variant="ghost" aria-label="Dismiss error">
-            <X size={15} />
+            <X size={16} />
           </UiButton>
         </div>
       )}
       {loading ? (
         <div className="flex min-h-[560px] items-center justify-center gap-3 text-heading text-subtle">
-          <Loader2 className="animate-spin text-subtle" size={18} /> Listing files…
+          <Loader2 className="animate-spin text-subtle" size={16} /> Listing files…
         </div>
       ) : !files.length && !error ? (
         <div className="flex min-h-[560px] items-center justify-center px-4">

@@ -185,11 +185,11 @@ function TextBlock({
         >
           {expanded ? (
             <>
-              Collapse <ChevronUp size={10} />
+              Collapse <ChevronUp size={14} />
             </>
           ) : (
             <>
-              Expand <ChevronDown size={10} />
+              Expand <ChevronDown size={14} />
             </>
           )}
         </UiButton>
@@ -723,12 +723,12 @@ export function ConversationTurn({
               >
                 {internalExpanded ? (
                   <>
-                    Shrink <ChevronUp size={10} />
+                    Shrink <ChevronUp size={14} />
                   </>
                 ) : (
                   <>
                     Expand ({turn.content?.length || 0} chars){" "}
-                    <ChevronDown size={10} />
+                    <ChevronDown size={14} />
                   </>
                 )}
               </UiButton>
@@ -774,11 +774,11 @@ export function ToolCallDetail({
           <span className="text-caption font-semibold uppercase tracking-widest text-muted-foreground transition-colors group-hover/tool:text-subtle flex items-center gap-1.5">
             {expanded ? (
               <>
-                Collapse <ChevronUp size={10} />
+                Collapse <ChevronUp size={14} />
               </>
             ) : (
               <>
-                Inspect <ChevronDown size={10} />
+                Inspect <ChevronDown size={14} />
               </>
             )}
           </span>
@@ -866,11 +866,11 @@ export function CommandDetail({
             <span className="text-caption font-semibold uppercase tracking-widest text-muted-foreground transition-colors group-hover/cmd:text-subtle flex items-center gap-1.5">
               {expanded ? (
                 <>
-                  Hide <ChevronUp size={10} />
+                  Hide <ChevronUp size={14} />
                 </>
               ) : (
                 <>
-                  Logs <ChevronDown size={10} />
+                  Logs <ChevronDown size={14} />
                 </>
               )}
             </span>

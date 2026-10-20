@@ -185,7 +185,7 @@ export default function CodeSourceView({
     <main className="flex min-h-[560px] min-w-0 flex-col bg-surface-code xl:min-h-0">
       <div className="flex h-9 shrink-0 items-center gap-1.5 overflow-x-auto whitespace-nowrap border-b border-border bg-background/75 px-3">
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
-          <FileTypeIcon path={selectedNode.path} size={13} />
+          <FileTypeIcon path={selectedNode.path} />
           <div className="flex min-w-0 items-center gap-1 text-caption text-muted-foreground">
             {selectedNode.path.split("/").map((part, index, parts) => (
               <span key={`${part}-${index}`} className="flex min-w-0 items-center gap-1">
@@ -203,7 +203,7 @@ export default function CodeSourceView({
             aria-label={copied === "path" ? "Path copied" : "Copy file path"}
             tooltip={copied === "path" ? "Copied" : "Copy file path"}
           >
-            {copied === "path" ? <Check size={12} /> : <Copy size={12} />}
+            {copied === "path" ? <Check size={14} /> : <Copy size={14} />}
           </UiButton>
           {selectedNode.node_type !== "file" && (
             <>
@@ -229,7 +229,7 @@ export default function CodeSourceView({
               aria-pressed={viewerMode === "preview"}
               className={`inline-flex h-full items-center gap-1 px-2 text-meta ${viewerMode === "preview" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
             >
-              <Eye size={10} /> Preview
+              <Eye size={14} /> Preview
             </UiButton>
             <UiButton
               unstyled
@@ -238,7 +238,7 @@ export default function CodeSourceView({
               aria-pressed={viewerMode === "source"}
               className={`inline-flex h-full items-center gap-1 border-l border-border px-2 text-meta ${viewerMode === "source" ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
             >
-              <FileCode2 size={10} /> Source
+              <FileCode2 size={14} /> Source
             </UiButton>
           </div>
         )}
@@ -282,18 +282,18 @@ export default function CodeSourceView({
             variant="outline"
             className="shrink-0"
           >
-            {editorOpening ? <Loader2 size={10} className="animate-spin" /> : <ArrowUpRight size={10} />}
+            {editorOpening ? <Loader2 size={14} className="animate-spin" /> : <ArrowUpRight size={14} />}
             {editorOpening ? "Opening…" : "Open in editor"}
           </UiButton>
         )}
         {textSelection && onAskSelection && (
           <UiButton type="button" onClick={() => onAskSelection([textSelection.start, textSelection.end], textSelection.text)} size="xs" variant="outline" className="shrink-0">
-            <Sparkles size={10} /> Ask selection
+            <Sparkles size={14} /> Ask selection
           </UiButton>
         )}
         {selectedRange && (
           <UiButton type="button" onClick={() => void copy("ref")} title={displayRange(selectedRange)} size="xs" variant="ghost" className="shrink-0">
-            {copied === "ref" ? <Check size={10} /> : <Copy size={10} />}
+            {copied === "ref" ? <Check size={14} /> : <Copy size={14} />}
             {selectedRange[0] === selectedRange[1] ? "Line" : "Range"}
           </UiButton>
         )}

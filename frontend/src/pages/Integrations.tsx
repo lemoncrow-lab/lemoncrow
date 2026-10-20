@@ -77,7 +77,7 @@ function IntegrationDetails({ host }: { host: LocalIntegrationHost }) {
               {component.present ? (
                 <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-emerald-400" />
               ) : (
-                <Circle size={13} className="mt-0.5 shrink-0 text-muted-foreground" />
+                <Circle size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
               )}
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
@@ -243,7 +243,7 @@ export default function Integrations() {
                             (host.configured ? (
                               <CheckCircle2 size={14} className="text-emerald-400" />
                             ) : (
-                              <Circle size={13} className="text-muted-foreground" />
+                              <Circle size={14} className="text-muted-foreground" />
                             ))}
                           {open ? (
                             <ChevronDown size={14} className="text-muted-foreground" />

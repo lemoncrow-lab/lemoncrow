@@ -28,7 +28,7 @@ export default function RevisionCompareBar({
       role="status"
       aria-live="polite"
     >
-      <GitCompareArrows size={12} className="shrink-0 text-cyan-400/80" aria-hidden="true" />
+      <GitCompareArrows size={14} className="shrink-0 text-cyan-400/80" aria-hidden="true" />
       <span className="font-medium text-cyan-200">Comparing {baseLabel} → {targetLabel}</span>
       {loading && <span className="text-muted-foreground">Loading comparison…</span>}
       {!loading && error && <span className="min-w-0 truncate text-amber-300">{error}</span>}
@@ -42,7 +42,7 @@ export default function RevisionCompareBar({
         aria-label="Show full review"
         tooltip="Show all changes from the original Review base"
       >
-        <X size={11} aria-hidden="true" />
+        <X size={14} aria-hidden="true" />
         Full review
       </UiButton>
     </div>

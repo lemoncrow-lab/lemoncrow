@@ -124,7 +124,7 @@ export default function SurfacePicker({
         className="w-[min(34rem,80vw)] overflow-hidden p-0"
       >
         <div className="flex items-center gap-2 border-b border-border px-2.5 py-2">
-          <Search size={12} className="shrink-0 text-muted-foreground" />
+          <Search size={14} className="shrink-0 text-muted-foreground" />
           <UiInput unstyled
             ref={inputRef}
             type="search"

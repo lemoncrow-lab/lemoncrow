@@ -222,7 +222,7 @@ export default function ReviewHistorySheet({
                     <span className="absolute -left-[5px] top-[18px] h-2.5 w-2.5 rounded-full border border-border bg-background" />
                     <div className="flex flex-wrap items-center gap-2">
                       <span className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-caption ${actor.tone}`}>
-                        {actor.icon === "human" ? <UserRound size={10} /> : actor.icon === "agent" ? <Bot size={10} /> : <CircleDot size={10} />}
+                        {actor.icon === "human" ? <UserRound size={14} /> : actor.icon === "agent" ? <Bot size={14} /> : <CircleDot size={14} />}
                         {actor.label}
                       </span>
                       {revisionNumber !== undefined && <span className="font-mono text-caption text-cyan-400/80">Snapshot {revisionNumber}</span>}
@@ -292,7 +292,7 @@ export default function ReviewHistorySheet({
                     {advancedCompareHref ? (
                       <UiButton asChild variant="outline" className="px-3 text-meta">
                         <a href={advancedCompareHref}>
-                          <GitCompareArrows size={11} aria-hidden="true" />
+                          <GitCompareArrows size={14} aria-hidden="true" />
                           Compare
                         </a>
                       </UiButton>
@@ -365,7 +365,7 @@ export default function ReviewHistorySheet({
                         {compareHref && (
                           <UiButton asChild variant="ghost" size="compact" className="text-cyan-300/80">
                             <a href={compareHref}>
-                              <GitCompareArrows size={11} aria-hidden="true" /> Compare to latest
+                              <GitCompareArrows size={14} aria-hidden="true" /> Compare to latest
                             </a>
                           </UiButton>
                         )}

@@ -248,7 +248,7 @@ function VirtualOutlineRows({
             ].join(" ")}
             style={{ height: VIRTUAL_ROW_HEIGHT, marginBottom: VIRTUAL_ROW_GAP }}
           >
-            <FileTypeIcon path={row.path} size={13} />
+            <FileTypeIcon path={row.path} />
             <span className="min-w-0 flex-1 truncate text-label text-subtle" title={row.path}>{filename}</span>
             {directory !== "./" && (
               <span className="max-w-[42%] truncate font-mono text-micro text-muted-foreground" title={directory}>{directory}</span>
@@ -345,7 +345,7 @@ export default function ReviewOutline({
         <span className="flex-1" />
         <span className="font-mono text-caption text-muted-foreground">{rows.length}</span>
         <UiButton variant="ghost" size="icon" type="button" aria-label="Collapse review outline" onClick={onToggleCollapsed}>
-          <ChevronLeft size={13} />
+          <ChevronLeft size={14} />
         </UiButton>
       </div>
 
@@ -407,7 +407,7 @@ export default function ReviewOutline({
                       onClick={() => onNavigateAttention(-1)}
                       className="h-6 w-6 border-0"
                     >
-                      <ChevronUp size={10} />
+                      <ChevronUp size={14} />
                     </UiButton>
                     <UiButton
                       variant="ghost"
@@ -417,7 +417,7 @@ export default function ReviewOutline({
                       onClick={() => onNavigateAttention(1)}
                       className="h-6 w-6 border-0"
                     >
-                      <ChevronDown size={10} />
+                      <ChevronDown size={14} />
                     </UiButton>
                   </>
                 )}
@@ -451,7 +451,7 @@ export default function ReviewOutline({
       <div className="border-b border-border/70 p-1.5">
         <div className="flex items-center gap-1">
         <div className="relative flex min-w-0 flex-1 items-center">
-          <Search size={13} className="pointer-events-none absolute left-2.5 text-muted-foreground" />
+          <Search size={14} className="pointer-events-none absolute left-2.5 text-muted-foreground" />
           <UiInput
             uiSize="xs"
             ref={searchInputRef}
@@ -480,7 +480,7 @@ export default function ReviewOutline({
               onClick={onDismissSearch}
               className="absolute right-0.5 h-7 w-7 border-0"
             >
-              <X size={12} />
+              <X size={14} />
             </UiButton>
           )}
         </div>
@@ -496,7 +496,7 @@ export default function ReviewOutline({
                 title={`Review order: ${ORDER_LABEL[order]}`}
                 className={fileOrder ? "h-7 w-7 shrink-0 border-0 text-cyan-300" : "h-7 w-7 shrink-0 border-0"}
               >
-                <ArrowDownWideNarrow size={13} />
+                <ArrowDownWideNarrow size={14} />
               </UiButton>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -534,7 +534,7 @@ export default function ReviewOutline({
               onClick={() => onNavigateMatch(-1)}
               className="h-6 w-6 border-0"
             >
-              <ChevronUp size={12} />
+              <ChevronUp size={14} />
             </UiButton>
             <UiButton
               variant="ghost"
@@ -545,7 +545,7 @@ export default function ReviewOutline({
               onClick={() => onNavigateMatch(1)}
               className="h-6 w-6 border-0"
             >
-              <ChevronDown size={12} />
+              <ChevronDown size={14} />
             </UiButton>
           </div>
         )}
@@ -612,7 +612,7 @@ export default function ReviewOutline({
                   }}
                   className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-label font-medium text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
                 >
-                  {closed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
+                  {closed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
                   <span className="flex-1">{section.label}</span>
                   <span className="font-mono font-normal text-muted-foreground">{section.rows.length}</span>
                 </UiButton>
@@ -660,7 +660,7 @@ export default function ReviewOutline({
                                 ].join(" ")}
                               >
                                 <div className="flex items-center gap-1.5 text-label">
-                                  <FileTypeIcon path={row.path} size={13} />
+                                  <FileTypeIcon path={row.path} />
                                   <span className={[active ? "font-medium text-foreground" : "text-subtle", "truncate", group.rows.length === 1 && group.directory !== "./" ? "max-w-[70%] shrink-0" : "min-w-0 flex-1"].join(" ")} title={row.path}>
                                     {filename}
                                   </span>

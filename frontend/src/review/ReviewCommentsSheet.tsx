@@ -189,7 +189,7 @@ export default function ReviewCommentsSheet({
                     {sourceFilters.find((item) => item.id === sourceFilter)?.label ?? "All sources"}
                   </span>
                   <span className="font-mono text-micro text-muted-foreground">{sourceCounts[sourceFilter]}</span>
-                  <ChevronDown size={11} className="shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <ChevronDown size={14} className="shrink-0 text-muted-foreground" aria-hidden="true" />
                 </UiButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" aria-label="Comment source options" className="w-44">
@@ -207,7 +207,7 @@ export default function ReviewCommentsSheet({
         </div>
 
         <TabsContent value={filter} className="min-h-0 flex-1 overflow-auto px-5 py-2">
-          {visible.length === 0 && <div className="review-comments-empty"><MessageSquareText size={24} strokeWidth={1.5} aria-hidden="true" /><p>No matching comments.</p></div>}
+          {visible.length === 0 && <div className="review-comments-empty"><MessageSquareText size={20} aria-hidden="true" /><p>No matching comments.</p></div>}
           <div className="divide-y divide-border">
             <BelowThresholdList items={visible} render={(item) => {
               const canJump = item.anchored && item.state !== "orphaned" && Boolean(item.path);
@@ -240,13 +240,13 @@ export default function ReviewCommentsSheet({
                     )}
                     {orphaned || reReview || item.state === "resolved" ? (
                       <span className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 font-medium ${stateTone}`}>
-                        <StateIcon size={12} aria-hidden="true" />
+                        <StateIcon size={14} aria-hidden="true" />
                         {orphaned ? "orphaned" : reReview ? "re-review" : "resolved"}
                       </span>
                     ) : null}
                     {replyCount > 0 && (
                       <span className="ml-auto inline-flex items-center gap-1 text-muted-foreground">
-                        <CornerUpRight size={10} aria-hidden="true" />
+                        <CornerUpRight size={14} aria-hidden="true" />
                         {replyCount} repl{replyCount === 1 ? "y" : "ies"}
                       </span>
                     )}

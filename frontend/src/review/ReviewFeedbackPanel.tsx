@@ -186,7 +186,7 @@ export default function ReviewFeedbackPanel({
             ? "flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-950/40 text-emerald-300"
             : "flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-950/45 text-amber-300"}
           >
-            {sent || queued || working || !publishable ? <CheckCircle2 size={14} /> : <Send size={13} />}
+            {sent || queued || working || !publishable ? <CheckCircle2 size={14} /> : <Send size={14} />}
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 text-heading font-semibold text-foreground">
@@ -206,7 +206,7 @@ export default function ReviewFeedbackPanel({
             onClick={() => copy()}
             aria-label="Copy review feedback bundle"
           >
-            <Copy size={12} />
+            <Copy size={14} />
             {copyState === "copied" ? "Copied" : copyState === "copying" ? "Copying…" : "Copy feedback"}
           </UiButton>
         )}
@@ -218,19 +218,19 @@ export default function ReviewFeedbackPanel({
             disabled={busy || copyState === "copying"}
             onClick={() => copy(() => onSend({ copied: true }))}
           >
-            <Copy size={12} />
+            <Copy size={14} />
             {copyState === "copying" ? "Copying…" : `Copy ${unsent} for the author`}
           </UiButton>
         )}
         {canDirectSend && open && toPullRequest && reachable && onPublishGitHub && (
           <UiButton variant="solid" className="px-3" type="button" disabled={busy} onClick={onPublishGitHub}>
-            <GitPullRequest size={12} />
+            <GitPullRequest size={14} />
             Publish {unsent} to {destination}…
           </UiButton>
         )}
         {canDirectSend && open && !toAuthor && !toPullRequest && reachable && !sendBlocked && (
           <UiButton variant="solid" className="px-3" type="button" disabled={busy} onClick={() => void onSend()}>
-            <Send size={12} />
+            <Send size={14} />
             Send {unsent} to {destination}
           </UiButton>
         )}

@@ -5992,7 +5992,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
       ),
       chip: hostedPanel(
         <UiButton unstyled type="button" className={`review-context-chip ${conflicts > 0 ? "border-amber-800/60 text-amber-200 hover:bg-amber-950/30" : "border-cyan-800/60 text-cyan-200 hover:bg-cyan-950/30"}`}>
-          <Cloud size={11} aria-hidden="true" />
+          <Cloud size={14} aria-hidden="true" />
           <span className="truncate">{`Hosted ${hostedInfo.reference}${queueLabel ? ` · ${queueLabel}` : ""}`}</span>
         </UiButton>,
       ),
@@ -6050,7 +6050,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
         <Popover key="context-failures">
           <PopoverTrigger asChild>
             <UiButton unstyled type="button" className="review-context-chip border-amber-800/60 text-amber-200 hover:bg-amber-950/30">
-              <TriangleAlert size={11} aria-hidden="true" />
+              <TriangleAlert size={14} aria-hidden="true" />
               <span className="truncate">Some context unavailable</span>
             </UiButton>
           </PopoverTrigger>
@@ -6311,7 +6311,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
               aria-expanded={!outlineCollapsed}
               aria-label={`${outlineCollapsed ? "Open" : "Close"} change navigation · ${Math.max(0, progress.target_count - progress.reviewed)} left`}
             >
-              <ListTree size={13} aria-hidden="true" />
+              <ListTree size={14} aria-hidden="true" />
               <span>Changes · {Math.max(0, progress.target_count - progress.reviewed)}</span>
             </UiButton>
           ) : undefined,
@@ -6751,8 +6751,8 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
             <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-info/30 bg-info/10 px-4 py-2 text-label" data-testid="dedicated-review-scope">
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 {dedicatedItem.kind === "file"
-                  ? <FileDiff size={15} className="shrink-0 text-info" aria-hidden="true" />
-                  : <Puzzle size={15} className="shrink-0 text-info" aria-hidden="true" />}
+                  ? <FileDiff size={16} className="shrink-0 text-info" aria-hidden="true" />
+                  : <Puzzle size={16} className="shrink-0 text-info" aria-hidden="true" />}
                 <span className="shrink-0 font-semibold text-foreground">
                   {dedicatedItem.kind === "file" ? "File view" : "Component view"}
                 </span>
@@ -6800,7 +6800,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
               aria-live="polite"
               className="pointer-events-none absolute left-1/2 top-3 z-30 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-md border border-border bg-background/95 px-2.5 py-1 text-label text-muted-foreground"
             >
-              <LoaderCircle size={13} className="shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+              <LoaderCircle size={14} className="shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
               <span className="truncate">Opening <span className="font-mono text-subtle">{openingPath.split("/").pop()}</span>…</span>
             </div>
           )}

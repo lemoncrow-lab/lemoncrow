@@ -243,7 +243,7 @@ export default function Home() {
           to="/usage?inspect=savings"
           className="flex min-h-12 items-center gap-1 border-l border-border px-3 font-mono text-label uppercase tracking-tag text-muted-foreground transition-colors duration-fast hover:bg-accent hover:text-foreground"
         >
-          Details <ArrowRight size={12} />
+          Details <ArrowRight size={14} />
         </Link>
       </section>
       )}
@@ -275,7 +275,7 @@ export default function Home() {
             {reviewAvailable && (
             <Hunk>
               <div className="hunk-head justify-start">
-                <ClipboardCheck size={12} /> Reviews
+                <ClipboardCheck size={14} /> Reviews
               </div>
               {reviewsUnavailable ? (
                 <div className="px-3 py-4 text-body text-muted-foreground">Review data is unavailable.</div>
@@ -296,7 +296,7 @@ export default function Home() {
                         {reviewPlace(review)} · Snapshot {review.revision_number}
                       </div>
                     </div>
-                    <ArrowRight size={13} className="shrink-0 text-muted-foreground" />
+                    <ArrowRight size={14} className="shrink-0 text-muted-foreground" />
                   </a>
                 ))
               )}
@@ -306,7 +306,7 @@ export default function Home() {
             {runtimeAvailable && (
             <Hunk>
               <div className="hunk-head justify-start">
-                <AlertTriangle size={12} /> Failed runs
+                <AlertTriangle size={14} /> Failed runs
               </div>
               {runsUnavailable ? (
                 <div className="px-3 py-4 text-body text-muted-foreground">Run history is unavailable.</div>
@@ -337,7 +337,7 @@ export default function Home() {
             {integrationIssue && (
               <Hunk>
                 <div className="hunk-head justify-start">
-                  <AlertTriangle size={12} /> Setup
+                  <AlertTriangle size={14} /> Setup
                 </div>
                 <Link
                   to="/settings/integrations"
@@ -353,7 +353,7 @@ export default function Home() {
                       Open Integrations to repair or finish the coding-host setup.
                     </div>
                   </div>
-                  <ArrowRight size={13} className="shrink-0 text-muted-foreground" />
+                  <ArrowRight size={14} className="shrink-0 text-muted-foreground" />
                 </Link>
               </Hunk>
             )}
@@ -387,7 +387,7 @@ export default function Home() {
               <Link key={run.id} to={runHref(run)} className="block">
                 <Hunk className="h-full p-3 transition-colors duration-fast hover:border-input">
                   <div className="flex items-start gap-2">
-                    <Play size={12} className="mt-0.5 shrink-0 text-ok" />
+                    <Play size={14} className="mt-0.5 shrink-0 text-ok" />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-body font-medium text-foreground">
                         {runLabel(run)}
@@ -413,7 +413,7 @@ export default function Home() {
         <Hunk>
           <div className="hunk-head">
             <div className="flex items-center gap-2">
-              <ClipboardCheck size={12} /> Recent reviews
+              <ClipboardCheck size={14} /> Recent reviews
             </div>
             <Link to="/reviews" className="text-meta text-muted-foreground transition-colors duration-fast hover:text-foreground">View all</Link>
           </div>
@@ -443,7 +443,7 @@ export default function Home() {
         <Hunk>
           <div className="hunk-head">
             <div className="flex items-center gap-2">
-              <Activity size={12} /> Recent sessions
+              <Activity size={14} /> Recent sessions
             </div>
             <Link to="/activity" className="text-meta text-muted-foreground transition-colors duration-fast hover:text-foreground">View all</Link>
           </div>
