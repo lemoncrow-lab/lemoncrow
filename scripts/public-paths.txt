@@ -179,6 +179,7 @@ scripts/install_hermes.sh
 scripts/install_hosts.sh
 scripts/install_lemoncode.sh
 scripts/install_opencode.sh
+scripts/opencode_v2_config.py
 scripts/install_pi.sh
 scripts/install.sh
 scripts/hosted.sh
@@ -204,6 +205,7 @@ scripts/refresh_model_prices.py
 scripts/release_changelog.py
 scripts/release_notes.py
 scripts/release_preflight.py
+scripts/release_previous_tag.py
 scripts/release_version.py
 scripts/sessions.sh
 scripts/verify_release_upgrade.sh

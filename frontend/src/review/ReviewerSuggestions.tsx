@@ -8,7 +8,7 @@ import {
   fetchReviewerSuggestions,
   type ReviewerSuggestion,
   type ReviewerSuggestionSet,
-} from "./reviewerSuggestions";
+} from "./reviewerSuggestionLogic";
 
 export interface ReviewerSuggestionListProps {
   data: ReviewerSuggestionSet | null;
