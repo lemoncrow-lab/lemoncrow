@@ -9,6 +9,15 @@ export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      borderRadius: {
+        sm: 'var(--radius-control)',
+        DEFAULT: 'var(--radius-control)',
+        md: 'var(--radius-control)',
+        lg: 'var(--radius-panel)',
+        xl: 'var(--radius-panel)',
+        '2xl': 'var(--radius-panel)',
+        '3xl': 'var(--radius-panel)',
+      },
       /* Dense type scale (font-size only, so line-height stays inherited). Keep in sync with lib/utils.ts. */
       fontSize: {
         micro: "9px",

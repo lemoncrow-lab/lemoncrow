@@ -5,6 +5,10 @@
 /* ===== Design tokens (themed via a root class: default dark, .light overrides) ===== */
 :root {
   color-scheme: dark;
+  /* Fleet geometry: shared across public runtime and hosted frontend. */
+  --radius-control: 6px;
+  --radius-panel: 12px;
+  --radius-badge: 6px;
 
   /* neutral ramp — dark */
   --n-50: 250 250 250;
