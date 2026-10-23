@@ -211,7 +211,7 @@ export default function Integrations() {
                     <UiButton
                       unstyled
                       type="button"
-                      className="w-full p-3 text-left transition-colors hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      className="w-full p-3 text-left transition-colors hover:bg-muted/35 focus-visible:outline-1 focus-visible:outline-ring"
                       aria-expanded={open}
                       aria-controls={`integration-details-${host.id}`}
                       onClick={() => toggleHost(host.id)}

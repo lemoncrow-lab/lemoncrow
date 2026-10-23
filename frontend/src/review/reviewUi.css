@@ -51,12 +51,13 @@
 }
 
 .review-app :where(button, a, summary, [role="button"], [role="menuitem"], [role="tab"], [role="combobox"], [role="listbox"]):focus-visible {
-  outline: 2px solid rgb(var(--brand-400));
-  outline-offset: 2px;
+  outline: 1px solid rgb(var(--brand-400));
+  outline-offset: 0px;
 }
 
 .review-app :where(input, select, textarea):focus-visible {
-  outline: none;
+  outline: 1px solid rgb(var(--brand-400));
+  outline-offset: 0;
 }
 
 .review-shell {
@@ -94,7 +95,8 @@
 .review-field:focus-within,
 .review-field:focus-visible {
   border-color: rgb(var(--ring));
-  outline: none;
+  outline: 1px solid rgb(var(--ring));
+  outline-offset: 0;
   box-shadow: none;
 }
 
@@ -406,7 +408,8 @@
 }
 .review-composer-input:focus-visible {
   border-color: rgb(var(--ring));
-  outline: none;
+  outline: 1px solid rgb(var(--ring));
+  outline-offset: 0;
   box-shadow: none;
 }
 .review-composer-options {

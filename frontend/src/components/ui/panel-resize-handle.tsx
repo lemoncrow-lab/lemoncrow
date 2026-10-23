@@ -25,7 +25,7 @@ export function PanelResizeHandle({ label, onResize, className }: PanelResizeHan
     <Button
       unstyled
       aria-label={label}
-      className={cn("absolute inset-y-0 right-0 z-10 flex w-2 cursor-col-resize touch-none select-none items-center justify-center hover:bg-muted focus-visible:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring pointer-coarse:w-4", className)}
+      className={cn("absolute inset-y-0 right-0 z-10 flex w-2 cursor-col-resize touch-none select-none items-center justify-center hover:bg-muted focus-visible:bg-muted focus-visible:outline-1  focus-visible:outline-ring pointer-coarse:w-4", className)}
       onPointerDown={(event) => {
         if (event.button !== 0) return;
         const panel = event.currentTarget.parentElement;

@@ -5,7 +5,7 @@ type InputSize = "xs" | "sm";
 
 /** Shared field chrome for Input, Textarea and the Select trigger. */
 export const fieldStyles =
-  "rounded-md border border-input bg-secondary/90 text-neutral-200 outline-none transition-[color,border-color] placeholder:text-muted-foreground focus-visible:border-ring disabled:cursor-not-allowed disabled:opacity-40";
+  "rounded-md border border-input bg-secondary/90 text-neutral-200 outline-none focus-visible:outline-1 focus-visible:outline-offset-0 focus-visible:outline-ring transition-[color,border-color] placeholder:text-muted-foreground focus-visible:border-ring disabled:cursor-not-allowed disabled:opacity-40";
 
 const SIZE_STYLES: Record<InputSize, string> = {
   xs: "h-8 px-2.5 text-label",

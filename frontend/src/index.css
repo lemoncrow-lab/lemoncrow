@@ -182,7 +182,7 @@ html {
   font-family: var(--workbench-code-font);
 }
 
-/* Review-like focus: controls get a quiet neutral outline; text fields keep their own border treatment. */
+/* One quiet 1px focus outline against the control border, with no gap. */
 .workbench-shell :where(
   button,
   a,
@@ -197,8 +197,8 @@ html {
   [role="checkbox"],
   [role="radio"]
 ):focus-visible {
-  outline: 2px solid rgb(var(--ring));
-  outline-offset: 2px;
+  outline: 1px solid rgb(var(--ring));
+  outline-offset: 0px;
 }
 
 /* A highlighted menu item already shows focus through its background; no second ring. */
@@ -208,7 +208,9 @@ html {
 
 /* Text fields draw their own focus ring (border + ring token), so the outline is suppressed. */
 .workbench-shell :where(input, select, textarea):focus-visible {
-  outline: none;
+  outline: 1px solid rgb(var(--ring));
+  outline-offset: 0;
+  box-shadow: none;
 }
 
 .workbench-shell :where(button, input, select, textarea, [role="button"], [role="tab"]) {

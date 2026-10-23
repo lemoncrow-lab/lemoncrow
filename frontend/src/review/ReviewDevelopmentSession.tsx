@@ -26,7 +26,7 @@ export function OpenDevelopmentSession({ host, sessionId, context }: Development
       type="button"
       onClick={(event) => open({ host, sessionId, context }, event.currentTarget)}
       aria-label={`Open ${hostLabel(host)} session ${sessionId}${context ? ` for ${context}` : ""}`}
-      className="inline-flex shrink-0 rounded px-2 py-1 text-label font-medium text-sky-300 hover:bg-sky-950/40 hover:text-sky-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-400"
+      className="inline-flex shrink-0 rounded px-2 py-1 text-label font-medium text-sky-300 hover:bg-sky-950/40 hover:text-sky-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-sky-400"
     >
       Open session
     </Button>
