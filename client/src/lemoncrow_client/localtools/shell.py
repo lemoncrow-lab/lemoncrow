@@ -408,7 +408,7 @@ def run_bash(context: LocalContext, arguments: Mapping[str, Any]) -> LocalResult
     failed = False
     for index, command in enumerate(commands, start=1):
         header = f"## lc:cmd {index}/{len(commands)}" if len(commands) > 1 else ""
-        policy = classify_command(command, allowed_write_roots=[context.repo_root], cwd=cwd)
+        policy = classify_command(command, allowed_write_roots=[context.repo_root, *context.write_roots()], cwd=cwd)
         timed_out = False
         if policy.action == "block":
             code, body = -1, policy.reason
@@ -609,7 +609,7 @@ def _start_background(
     from ..kit.command_policy import classify_command
 
     command = commands[0]
-    policy = classify_command(command, allowed_write_roots=[context.repo_root], cwd=cwd)
+    policy = classify_command(command, allowed_write_roots=[context.repo_root, *context.write_roots()], cwd=cwd)
     if policy.action == "block":
         return text_result(f"{policy.reason}\n[exit -1]", is_error=True)
     exec_command, _note = inject_stable_flags(command)

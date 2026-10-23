@@ -23,6 +23,7 @@ kit/security_rules.py
 kit/security_scan.py
 kit/security_taint.py
 kit/spill.py
+kit/write_roots.py
 localtools/__init__.py
 localtools/arguments.py
 localtools/astgrep.py
