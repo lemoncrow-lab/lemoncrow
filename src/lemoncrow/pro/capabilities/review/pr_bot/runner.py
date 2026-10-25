@@ -22,7 +22,7 @@ import os
 import re
 import tempfile
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -32,6 +32,7 @@ from lemoncrow.pro.capabilities.review.pr_bot import (
     diagram,
     impact,
     learning,
+    model_failure,
     notices,
     pr_intent,
     security,
@@ -42,6 +43,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.github import (
     FeedbackThread,
     PullFacts,
     Remote,
+    is_denied,
     with_backoff,
 )
 from lemoncrow.pro.capabilities.review.pr_bot.reconcile import reconcile
@@ -78,6 +80,53 @@ FAIL_ON = ("none", "p0")
 
 class PrReviewError(RuntimeError):
     """The review could not run, for a reason the person running it can act on."""
+
+
+#: The permissions block the sample workflow uses: the one line that fixes every missing-permission message below.
+PERMISSIONS_FIX = "permissions: { contents: read, pull-requests: write, statuses: write }"
+
+
+class PrPermissionError(PrReviewError):
+    """The workflow's token may not do something the review must: the message names the permission and the fix."""
+
+    def __init__(self, missing: Sequence[str]) -> None:
+        self.missing = tuple(dict.fromkeys(missing))
+        super().__init__(permission_message(self.missing))
+
+
+denied = is_denied
+
+
+def permission_message(missing: Sequence[str]) -> str:
+    if missing:
+        names = " and ".join(f"`{name}`" for name in missing)
+        what = " and ".join(
+            {"pull-requests: write": "post comments", "statuses: write": "set the `LemonCrow Review` status"}.get(
+                name, f"use {name}"
+            )
+            for name in missing
+        )
+        head = f"The workflow token is missing {names}: GitHub refused to let the Action {what}"
+    else:
+        head = "The workflow token is missing a permission the Action needs: GitHub refused a request"
+    return (
+        f"{head} ('Resource not accessible by integration'). Add this at the top of the workflow, next to `on:`, "
+        f"and re-run: `{PERMISSIONS_FIX}`."
+    )
+
+
+def _permission_for(what: str) -> str:
+    """The permission a best-effort write named *what* needs."""
+
+    return "statuses: write" if "status" in what else "pull-requests: write"
+
+
+class Notes(list[str]):
+    """The run's notes, and the permissions GitHub refused to grant while it wrote them."""
+
+    def __init__(self, items: Sequence[str] = ()) -> None:
+        super().__init__(items)
+        self.denied: set[str] = set()
 
 
 @dataclass(frozen=True)
@@ -131,7 +180,10 @@ class RunReport:
     inline_bodies: tuple[str, ...] = ()
     status: tuple[str, str] | None = None
     published: dict[str, Any] = field(default_factory=dict)
-    notes: list[str] = field(default_factory=list)
+    notes: Notes = field(default_factory=Notes)
+    #: ``(level, message)`` workflow annotations for the run page: what went wrong, and what to change. The Action
+    #: prints them as ``::error`` / ``::warning`` lines; they are the one thing a green job still shows in red.
+    annotations: list[tuple[str, str]] = field(default_factory=list)
     noop: bool = False
     #: What the security scan did (``security.SecurityScan.to_wire``); empty when the run did no review.
     security: dict[str, Any] = field(default_factory=dict)
@@ -260,7 +312,14 @@ def run_pr_review(
         raise PrReviewError(str(exc)) from exc
     writes = options.publish and not options.dry_run
     if chat is not None:
-        return _chat(options, chat, ref, github, facts, run, structured_executor, environ, say)
+        try:
+            answered = _chat(options, chat, ref, github, facts, run, structured_executor, environ, say)
+        except PrReviewError as exc:
+            announce("error", str(exc), environ)
+            raise
+        for level, message in answered.annotations:
+            announce(level, message, environ)
+        return answered
 
     def skipped(reason: str, because: str) -> RunReport:
         # A `LemonCrow Review` required check waits for a status on the head: a skip says so instead of hanging it.
@@ -284,30 +343,95 @@ def run_pr_review(
         return skipped(f"AI review is turned off ({why}); nothing was reviewed.", "AI review is turned off")
     if problem:
         raise PrReviewError(
-            "no model route is configured: set ANTHROPIC_API_KEY or OPENAI_API_KEY (or LEMONCROW_LLM_BACKEND with "
-            f"its provider variables). {why}"
+            "no model route is configured: pass `anthropic-api-key` or `openai-api-key` to the Action, or set "
+            f"ANTHROPIC_API_KEY or OPENAI_API_KEY (or LEMONCROW_LLM_BACKEND with its provider variables). {why}"
         )
 
-    if writes:
-        _best_effort(lambda: github.set_status(facts.head_sha, "pending", "Reviewing…"), [], "set the pending status")
+    link = run_url(environ)
     try:
+        if writes:
+            _preflight(github, facts.head_sha, link)
         report = _review(options, ref, github, run, structured_executor, say, writes, facts=facts)
         if report.skipped and writes:
             # The pending status must not be left hanging on a run that decided not to review.
             _best_effort(
-                lambda: github.set_status(facts.head_sha, "success", report.reason), report.notes, "set the status"
+                lambda: github.set_status(facts.head_sha, "success", report.reason, link),
+                report.notes,
+                "set the status",
             )
     except Exception as exc:
         if writes:
+            if isinstance(exc, PrPermissionError):
+                description = f"Token is missing {' and '.join(exc.missing) or 'a permission'}; see the workflow log."
+            else:
+                description = "Review failed; see the workflow log."
             _best_effort(
-                lambda: github.set_status(facts.head_sha, "error", "Review failed; see the workflow log."),
+                lambda: github.set_status(facts.head_sha, "error", description, link),
                 [],
                 "set the status",
             )
-        if isinstance(exc, (PrReviewError, GitHubCliError, engine.AiStageError, ValueError)):
-            raise PrReviewError(str(exc)) from exc
-        raise
+        failed: PrReviewError | None = None
+        if isinstance(exc, PrReviewError):
+            failed = exc
+        elif isinstance(exc, (GitHubCliError, engine.AiStageError, ValueError)):
+            failed = PrPermissionError(()) if denied(exc) else PrReviewError(str(exc))
+        if failed is None:
+            raise
+        announce("error", str(failed), environ)
+        if failed is exc:
+            raise
+        raise failed from exc
+    for level, message in report.annotations:
+        announce(level, message, environ)
     return report
+
+
+def run_url(environ: Mapping[str, str]) -> str:
+    """The workflow run's page, for a status to link to; empty outside GitHub Actions."""
+
+    server, repository, run_id = (
+        str(environ.get(name) or "").rstrip("/") for name in ("GITHUB_SERVER_URL", "GITHUB_REPOSITORY", "GITHUB_RUN_ID")
+    )
+    return f"{server}/{repository}/actions/runs/{run_id}" if server and repository and run_id else ""
+
+
+def announce(level: str, message: str, environ: Mapping[str, str]) -> None:
+    """Print a workflow annotation (``::error title=LemonCrow Review::...``) on the Actions runner; nothing elsewhere.
+
+    The run page lists annotations at its top, even for a green job; a line in the log is easy to miss. The message is
+    one line with the characters a workflow command reserves escaped, and no credential in it.
+    """
+
+    if str(environ.get("GITHUB_ACTIONS") or "") != "true":
+        return
+    clean = model_failure.scrub(" ".join(message.split()), model_failure.key_values(environ))
+    data = clean.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    command = level if level in {"notice", "warning", "error"} else "notice"
+    print(f"::{command} title=LemonCrow Review::{data}", flush=True)
+
+
+def _preflight(github: BotGitHub, sha: str, link: str) -> None:
+    """Before a model is asked anything: can this token write what the review will write?
+
+    A token that cannot comment would run the whole review, pay for it, and post nothing, so the two writes are tried
+    first. The status is the ``pending`` one every review sets anyway; the comment right is tested without posting
+    (:meth:`BotGitHub.probe_comment_access`). A refusal raises :class:`PrPermissionError` naming what is missing.
+    Any other failure here is ignored: it is the same best effort the status always was.
+    """
+
+    missing: list[str] = []
+    try:
+        github.probe_comment_access()
+    except GitHubCliError as exc:
+        if denied(exc):
+            missing.append("pull-requests: write")
+    try:
+        github.set_status(sha, "pending", "Reviewing…", link)
+    except GitHubCliError as exc:
+        if denied(exc):
+            missing.append("statuses: write")
+    if missing:
+        raise PrPermissionError(missing)
 
 
 def _model_route(options: RunOptions, environ: Mapping[str, str]) -> tuple[str, str]:
@@ -342,8 +466,8 @@ def _chat(
         return _skip(f"{ref.slug}#{ref.number}", f"AI review is turned off ({why}); nothing was answered.")
     if problem:
         raise PrReviewError(
-            "no model route is configured: set ANTHROPIC_API_KEY or OPENAI_API_KEY (or LEMONCROW_LLM_BACKEND with "
-            f"its provider variables). {why}"
+            "no model route is configured: pass `anthropic-api-key` or `openai-api-key` to the Action, or set "
+            f"ANTHROPIC_API_KEY or OPENAI_API_KEY (or LEMONCROW_LLM_BACKEND with its provider variables). {why}"
         )
     writes = options.publish and not options.dry_run
 
@@ -364,8 +488,10 @@ def _chat(
             budget=lambda previous: budget_reached(options, previous),
             review=review,
         )
-    except (PrReviewError, GitHubCliError, engine.AiStageError, ValueError) as exc:
-        raise PrReviewError(str(exc)) from exc
+    except PrReviewError:
+        raise
+    except (GitHubCliError, engine.AiStageError, ValueError) as exc:
+        raise (PrPermissionError(["pull-requests: write"]) if denied(exc) else PrReviewError(str(exc))) from exc
 
 
 def _architecture_delta(captured: Captured, say: Callable[[str], None]) -> tuple[Mapping[str, Any] | None, str]:
@@ -388,9 +514,15 @@ def _best_effort(action: Callable[[], object], notes: list[str], what: str) -> b
     try:
         action()
     except GitHubCliError as exc:
-        notes.append(f"could not {what}: {str(exc)[:200]}")
+        _note_failure(notes, what, exc)
         return False
     return True
+
+
+def _note_failure(notes: list[str], what: str, exc: GitHubCliError) -> None:
+    notes.append(f"could not {what}: {str(exc)[:200]}")
+    if denied(exc) and isinstance(notes, Notes):
+        notes.denied.add(_permission_for(what))
 
 
 def _review(
@@ -485,8 +617,14 @@ def _review(
             "max-usd-per-pr is not enforced: the cost of this pull request's earlier reviews is unknown (the provider "
             "reported none and the local price table does not know the model); max-runs-per-pr needs no price"
         )
+    failure = model_failure.classify(ai.errors, provider=_provider_of(ai.model), model=_bare_model(ai.model))
     if ai.errors:
-        report.notes.append("model call errors: " + " | ".join(error[:200] for error in ai.errors))
+        secrets = model_failure.key_values(os.environ)
+        report.notes.append(
+            "model call errors: " + " | ".join(model_failure.scrub(error[:200], secrets) for error in ai.errors)
+        )
+    if failure is not None:
+        report.annotations.append(("error", failure.annotation))
     findings = security.merge(
         previous,
         list(merged.findings),
@@ -615,7 +753,7 @@ def _review(
         impact=ai.impact,
         view=noise.view_code(),
     )
-    reason = "model calls failed; see the workflow log" if ai.errors else (ai.reason if not ai.complete else "")
+    reason = failure.headline if failure is not None else (ai.reason if not ai.complete else "")
     uninvestigated = max(ai.candidates - ai.investigated, 0)
     # Findings below the repository's threshold are tracked in the state (lowering the threshold shows them again with no
     # new review) but are in no verdict count: they are counted as held back, and listed once in the summary.
@@ -629,6 +767,7 @@ def _review(
         held=len(below),
         deferred_files=len(ai.deferred_files),
         total_files=ai.total_files,
+        model_failed=failure is not None,
     )
     summary_view = SummaryView(
         state=state,
@@ -698,6 +837,10 @@ def _review(
     report.summary = body
     report.verdict = view
     report.status = status
+    # `fail-on: p0` is a gate: when it makes the check red the job is red too, so a person who requires either one is
+    # blocked by it. Without it the job stays green however the check reads (the annotations still show in red).
+    if options.fail_on == "p0" and status[0] in {"failure", "error"}:
+        report.exit_code = 1
 
     if writes:
         link = existing.url if existing is not None else ""
@@ -710,11 +853,49 @@ def _review(
                 report.published["summary_url"] = written.url
         elif existing is not None:
             report.published["summary_url"] = existing.url
-        _best_effort(lambda: github.set_status(head, status[0], status[1], link), report.notes, "set the commit status")
+        _best_effort(
+            lambda: github.set_status(head, status[0], status[1], link or run_url(os.environ)),
+            report.notes,
+            "set the commit status",
+        )
         report.published["status"] = {"state": status[0], "description": status[1]}
+        if report.notes.denied:
+            # The preflight passed and a write was refused anyway: say so, and do not leave a green check behind a
+            # review nobody can read on the pull request.
+            missing = sorted(report.notes.denied)
+            report.annotations.append(("error", permission_message(missing)))
+            report.exit_code = 1
+            if "statuses: write" not in report.notes.denied:
+                _best_effort(
+                    lambda: github.set_status(
+                        head,
+                        "error",
+                        f"Token is missing {' and '.join(missing)}; see the workflow log.",
+                        run_url(os.environ),
+                    ),
+                    [],
+                    "set the status",
+                )
     elif options.dry_run:
         report.published["dry_run"] = True
     return report
+
+
+def _provider_of(model: str) -> str:
+    """``anthropic`` or ``openai`` for a route's model label (``litellm/anthropic/claude-...``), else ``""``."""
+
+    label = model.lower()
+    if "anthropic" in label or "claude" in label:
+        return "anthropic"
+    if label.startswith(("openai", "litellm/openai")) or "gpt-" in label:
+        return "openai"
+    return ""
+
+
+def _bare_model(model: str) -> str:
+    """The model id after the driver and provider prefixes: ``litellm/anthropic/claude-x`` -> ``claude-x``."""
+
+    return model.rsplit("/", 1)[-1]
 
 
 def budget_reached(options: RunOptions, previous: ReviewState | None) -> str:
@@ -820,7 +1001,7 @@ def _best_effort_value(action: Callable[[], Any], notes: list[str], what: str) -
     try:
         return action()
     except GitHubCliError as exc:
-        notes.append(f"could not {what}: {str(exc)[:200]}")
+        _note_failure(notes, what, exc)
         return None
 
 

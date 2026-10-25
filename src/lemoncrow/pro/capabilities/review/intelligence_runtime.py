@@ -515,12 +515,15 @@ def execute_structured(
         usage = _usage_from_internal(provider_result)
         observed.append(provider_result.reported_model)
     elif resolved.driver == "litellm":
+        from lemoncrow.infra.internal_llm.litellm_client import bounded_max_tokens
         from lemoncrow.infra.internal_llm.litellm_client import chat_with_result as litellm_chat_with_result
 
         provider_result = litellm_chat_with_result(
             messages,
             model=resolved.model or None,
             json_schema=dict(output_schema),
+            # LiteLLM would otherwise send the model's own maximum (128,000 tokens on current Claude models).
+            extra_kwargs={"max_tokens": bounded_max_tokens(resolved.model or None)},
         )
         value = provider_result.parsed_json or {}
         usage = _usage_from_internal(provider_result)

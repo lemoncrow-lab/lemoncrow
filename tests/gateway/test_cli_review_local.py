@@ -373,8 +373,10 @@ def test_a_found_p0_outranks_an_incomplete_review_under_strict(ruled: Lab, monke
     assert ruled.run("--strict", "--fail-on", "none").exit_code == 2
 
 
-def test_risk_signals_left_unexamined_are_incomplete_coverage(lab: Lab) -> None:
-    # Auto investigates two risk signals; with three, one is left unexamined: "partially reviewed", never clean.
+def test_risk_signals_left_unexamined_are_incomplete_coverage(lab: Lab, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The call cap allows two investigations; with three risk signals one is left unexamined: "partially reviewed",
+    # never clean. (Without the cap Auto examines all three: a change this small is covered whole.)
+    monkeypatch.setenv("LEMONCROW_REVIEW_INTELLIGENCE_MAX_CALLS", "2")
     lab.write({"src/auth.py": AUTH_BUGGY, "src/cache.py": CACHE_BUGGY, "src/token.py": TOKEN_BUGGY})
     plain = lab.run()
     assert plain.exit_code == 0 and "Partially reviewed: 2 of 3 risk signals examined" in plain.stdout
@@ -382,6 +384,7 @@ def test_risk_signals_left_unexamined_are_incomplete_coverage(lab: Lab) -> None:
     assert wire["complete"] is False and wire["verdict"]["state"] == "partial"
     assert wire["incomplete_reason"] == "Partially reviewed: 2 of 3 risk signals examined"
     assert (wire["coverage"]["candidates"], wire["coverage"]["investigated"]) == (3, 2)
+    monkeypatch.setenv("LEMONCROW_REVIEW_INTELLIGENCE_MAX_CALLS", "20")
     deeper = lab.wire("--strict", "--fresh", "--depth", "thorough", ok=(0, 2))
     assert deeper["coverage"]["investigated"] >= wire["coverage"]["investigated"]
 

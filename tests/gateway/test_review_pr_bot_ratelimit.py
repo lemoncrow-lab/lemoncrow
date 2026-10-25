@@ -19,7 +19,7 @@ from typing import Any
 import pytest
 
 from lemoncrow.pro.capabilities.review.pr_bot.github import BACKOFF_DELAYS, with_backoff
-from lemoncrow.pro.capabilities.review.pr_bot.runner import RunOptions, run_pr_review
+from lemoncrow.pro.capabilities.review.pr_bot.runner import PrPermissionError, RunOptions, run_pr_review
 from lemoncrow.pro.capabilities.review.sources.github import GitHubCliError
 from tests.gateway.pr_bot_support import BASE, FIRST_PUSH, NUMBER, SLUG, World, build_world
 
@@ -148,16 +148,17 @@ def test_a_throttled_review_post_is_waited_out_and_the_comment_is_posted_once(
     assert world.github.last_status()["state"] == "success" and f"{SLUG}" in report.pr
 
 
-def test_a_forbidden_status_is_still_just_a_note_and_never_slept_on(
+def test_a_forbidden_status_is_a_missing_permission_and_never_slept_on(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, slept: list[float]
 ) -> None:
     world = build_world(tmp_path, monkeypatch, BASE)
     world.origin.push(FIRST_PUSH)
     world.github.deny_status = True
-    report = run_pr_review(
-        RunOptions(pr=str(NUMBER), repo_root=world.origin.clone, publish=True),
-        runner=world.github,
-        structured_executor=world.model,
-        sleep=slept.append,
-    )
-    assert slept == [] and any("could not set the commit status" in note for note in report.notes)
+    with pytest.raises(PrPermissionError, match="statuses: write"):
+        run_pr_review(
+            RunOptions(pr=str(NUMBER), repo_root=world.origin.clone, publish=True),
+            runner=world.github,
+            structured_executor=world.model,
+            sleep=slept.append,
+        )
+    assert slept == [] and world.model.calls == []

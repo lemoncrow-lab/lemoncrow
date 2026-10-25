@@ -106,6 +106,9 @@ class Verdict:
     #: Open findings below the repository's threshold (``review.finding_threshold`` / ``strictness``): not in the counts
     #: above, said here so they are never silent.
     held: int = 0
+    #: An ``incomplete`` review whose model calls failed (a rejected key, no credit, a provider that was down): its
+    #: check is ``error`` whatever ``fail-on`` says, because nothing was reviewed that could be called a pass.
+    failed: bool = False
 
     @property
     def counts(self) -> str:
@@ -128,6 +131,7 @@ def verdict(
     held: int = 0,
     deferred_files: int = 0,
     total_files: int = 0,
+    model_failed: bool = False,
 ) -> Verdict:
     """The one verdict line. A review that could not finish, or left risk signals unexamined, never reads as clean.
 
@@ -138,6 +142,7 @@ def verdict(
     ``held`` is how many open findings sit below the repository's threshold: *findings* must hold only what is
     surfaced, and ``held`` only says how many were left out. ``deferred_files`` of ``total_files`` is a large pull
     request cut to its highest-risk files (``large_pr``): a partial review, whatever the risk signals say.
+    ``model_failed`` marks an incomplete review whose cause is a failed model call: ``check_status`` then reports ``error``.
     """
 
     counts = verdict_counts(list(findings))
@@ -148,7 +153,7 @@ def verdict(
         return Verdict("budget", f"Review budget reached: {budget}", 0, p1, p2, held)
     if not complete:
         why = f": {reason}" if reason else ""
-        return Verdict("incomplete", f"Review incomplete{why}", 0, p1, p2, held)
+        return Verdict("incomplete", f"Review incomplete{why}", 0, p1, p2, held, failed=model_failed)
     if deferred_files > 0:
         total = max(total_files, deferred_files)
         headline = f"Partially reviewed: {total - deferred_files} of {total} files, highest risk first"
@@ -174,6 +179,10 @@ def check_status(view: Verdict, *, fail_on: str) -> tuple[str, str]:
     ``Partially reviewed: N of M risk signals examined`` and never ``No must-fix
     findings``, so a green check cannot be read as full coverage. The unexamined
     signals compete for the next push's investigations; ``depth: thorough`` covers more.
+
+    A review that could not run because a model call failed (a rejected key, an account out of credit, a provider
+    that was down) is ``error`` whatever ``fail_on`` says: a check that reads ``success`` for a review that never
+    happened is the one lie this status must not tell. The description names the cause.
     """
 
     gating = fail_on == "p0"
@@ -185,7 +194,7 @@ def check_status(view: Verdict, *, fail_on: str) -> tuple[str, str]:
         # that stopped because its owner capped it must not block a merge; an earlier open P0 still does (above).
         return "success", trimmed(f"{view.headline}; this push was not reviewed", 140)
     if view.state == "incomplete":
-        return ("error" if gating else "success"), trimmed(view.headline, 140)
+        return ("error" if gating or view.failed else "success"), trimmed(view.headline, 140)
     detail = f"; {view.counts}" if view.counts else ""
     return "success", trimmed(view.headline + detail, 140)  # clean, or partial: the headline says which
 

@@ -673,6 +673,63 @@ def test_parallel_investigators_cannot_race_past_review_budget(tmp_path: Path) -
     assert result.skipped_by_budget >= 1
 
 
+def test_only_the_pull_request_review_scales_auto_to_the_risk_signals_of_a_small_change(tmp_path: Path) -> None:
+    """Three risk signals: the pull request review (``pr_fields``) investigates each; every other caller is unchanged."""
+
+    seen: dict[bool, list[str]] = {}
+    for pr_fields in (False, True):
+        case = tmp_path / f"pr-fields-{pr_fields}"
+        case.mkdir()
+        store, revision = _store(case)
+        schemas: list[str] = []
+
+        def execute(_schemas: list[str] = schemas, **kwargs: Any) -> StructuredExecution:
+            if kwargs["output_schema"] == HYPOTHESIS_SCHEMA:
+                _schemas.append("synthesis")
+                return _execution({"hypotheses": [_hypothesis(t) for t in ("target-a", "target-b")]})
+            _schemas.append("investigation")
+            return _execution(
+                {
+                    "status": "not_confirmed",
+                    "category": "security",
+                    "target_ids": [],
+                    "title": "",
+                    "explanation": "",
+                    "consequence": "",
+                    "evidence_refs": [],
+                }
+            )
+
+        result = run_independent_review(
+            store=store,
+            revision=revision,
+            targets=tuple(_target(target_id=f"target-{name}", path=f"src/auth/{name}.py") for name in ("a", "b", "c")),
+            repo_root=case,
+            effort="auto",
+            driver="openai",
+            model="review-model",
+            budget=ModelCallBudget(max_calls=1, max_review_calls=20),
+            structured_executor=execute,
+            pr_fields=pr_fields,
+        )
+        seen[pr_fields] = schemas
+        assert result.candidates == 3
+    assert sorted(seen[False]) == ["investigation", "investigation", "synthesis"], "the Reader's Auto: group, then two"
+    assert seen[True] == ["investigation"] * 3, "the pull request review: one each, no grouping call"
+
+
+def _hypothesis(target: str) -> dict[str, Any]:
+    return {
+        "category": "security",
+        "target_ids": [target],
+        "failure_mode": "Authorization may be skipped",
+        "investigation_rationale": "auth boundary changed",
+        "priority_rationale": "security boundary",
+        "evidence_needed": "Trace the branch",
+        "rule_refs": [],
+    }
+
+
 def test_failed_and_cancelled_runs_produce_no_annotations(tmp_path: Path) -> None:
     store, revision = _store(tmp_path)
 

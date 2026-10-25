@@ -22,13 +22,40 @@ def extract_section(text: str, version: str) -> str:
     return body
 
 
-def render_release_notes(text: str, version: str) -> str:
+_FULL_SHA = re.compile(r"[0-9a-f]{40}")
+
+
+def action_section(version: str, sha: str) -> str:
+    """The "GitHub Action" part of the release notes: the pin line with this release's real commit filled in.
+
+    ``sha`` is the public commit the tag points at (``$GITHUB_SHA`` in the public Release workflow). Without one the
+    section is left out, so the private ``release-prepare`` check that renders the notes needs no commit.
+    """
+
+    if not sha:
+        return ""
+    if _FULL_SHA.fullmatch(sha) is None:
+        raise ValueError(f"the Action pin needs a full 40-character commit SHA, got {sha!r}")
+    return f"""### GitHub Action
+
+Pin the review Action to this release. Replace the `<sha>` of the line in your workflow with this commit:
+
+~~~yaml
+- uses: lemoncrow-lab/lemoncrow@{sha}  # v{version}
+~~~
+
+The setup guide is `docs/setup/github-action.md`, "Pin the Action".
+
+"""
+
+
+def render_release_notes(text: str, version: str, action_sha: str = "") -> str:
     changes = extract_section(text, version)
     return f"""## LemonCrow {version}
 
 {changes}
 
-### Installation
+{action_section(version, action_sha)}### Installation
 
 Install Review with the hosted service:
 
@@ -86,10 +113,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("version")
     parser.add_argument("--changelog", type=Path, default=REPO_ROOT / "CHANGELOG.md")
+    parser.add_argument(
+        "--action-sha",
+        default="",
+        help="the full SHA of the tagged public commit: adds the ready-to-copy GitHub Action pin line to the notes",
+    )
     args = parser.parse_args(argv)
     try:
         text = args.changelog.read_text(encoding="utf-8")
-        sys.stdout.write(render_release_notes(text, args.version))
+        sys.stdout.write(render_release_notes(text, args.version, args.action_sha))
     except (OSError, ValueError) as exc:
         print(f"release notes failed: {exc}", file=sys.stderr)
         return 1

@@ -267,3 +267,34 @@ def test_a_commit_that_is_not_the_prepared_release_is_refused(
     }[case]
     with pytest.raises(RuntimeError, match=expected):
         release_preflight.run_prepared("v0.8.0", check_remotes=False)
+
+
+def test_release_notes_print_the_github_action_pin_line_for_the_tagged_public_commit() -> None:
+    """The setup guide's "Pin the Action" sends people here: the line to copy, with this release's real commit."""
+
+    source = "# Changelog\n\n## [Unreleased]\n\n## [0.9.0] - 2026-11-01\n- The Action.\n"
+    sha = "0123456789abcdef0123456789abcdef01234567"
+
+    with_pin = release_notes.render_release_notes(source, "0.9.0", sha)
+    assert "### GitHub Action" in with_pin
+    assert f"- uses: lemoncrow-lab/lemoncrow@{sha}  # v0.9.0" in with_pin
+    assert with_pin.index("### GitHub Action") < with_pin.index("### Installation")
+    # Without a commit (the private release-prepare check) the notes are exactly what they were.
+    assert "GitHub Action" not in release_notes.render_release_notes(source, "0.9.0")
+    # A short or odd value is refused rather than printed as a pin that would not resolve in `uses:`.
+    for bad in ("0123456", "main", sha.upper()):
+        with pytest.raises(ValueError, match="40-character"):
+            release_notes.render_release_notes(source, "0.9.0", bad)
+
+
+def test_the_release_notes_command_takes_the_tag_commit_as_an_option(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text("# Changelog\n\n## [0.9.0] - 2026-11-01\n- The Action.\n", encoding="utf-8")
+    sha = "fedcba9876543210fedcba9876543210fedcba98"
+    assert release_notes.main(["0.9.0", "--changelog", str(changelog), "--action-sha", sha]) == 0
+    assert f"lemoncrow-lab/lemoncrow@{sha}  # v0.9.0" in capsys.readouterr().out
+    assert release_notes.main(["0.9.0", "--changelog", str(changelog)]) == 0
+    assert "GitHub Action" not in capsys.readouterr().out
+    assert release_notes.main(["0.9.0", "--changelog", str(changelog), "--action-sha", "main"]) == 1

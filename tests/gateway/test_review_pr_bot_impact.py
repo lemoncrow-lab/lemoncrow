@@ -498,8 +498,11 @@ def test_no_word_a_model_wrote_reaches_the_label_or_the_list_and_its_rating_chan
     assert title in summary(loud), "the finding itself is still listed, in the place a model's words belong"
 
 
-def test_the_risks_list_agrees_with_what_was_found_cleared_and_left_pending(world: World) -> None:
-    # Three risk signals; Auto investigates two of them (the two security ones) and leaves the performance one.
+def test_the_risks_list_agrees_with_what_was_found_cleared_and_left_pending(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Three risk signals; the call cap allows two investigations (the two security ones), so the performance one waits.
+    monkeypatch.setenv("LEMONCROW_REVIEW_INTELLIGENCE_MAX_CALLS", "2")
     world.origin.push({"src/auth.py": AUTH_BUGGY, "src/token.py": TOKEN_CLEAN, "src/cache.py": CACHE_CLEAN})
     report = world.review()
 

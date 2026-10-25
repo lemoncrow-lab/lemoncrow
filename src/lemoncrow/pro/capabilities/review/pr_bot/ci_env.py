@@ -16,7 +16,14 @@ Gating, in the order it is decided:
 * Drafts are skipped unless ``review_drafts``; a push to an open pull request is
   skipped when ``on_push`` is off.
 * With no model credential the run stops. Dependabot runs also have no secrets, so
-  they skip quietly; anything else is a misconfiguration and fails loudly.
+  they skip quietly; anything else is a misconfiguration and fails loudly: a red job, an ``::error`` that names the
+  two ways to pass a key, and (on a pull request) an ``error`` ``LemonCrow Review`` status so a required check does
+  not wait forever.
+
+The model key reaches the Action as an input (``anthropic-api-key``, ``openai-api-key``), which ``action.yml`` hands
+to the steps that need it as ``INPUT_ANTHROPIC_API_KEY`` / ``INPUT_OPENAI_API_KEY`` and to no other step; a key set
+as ``ANTHROPIC_API_KEY`` / ``OPENAI_API_KEY`` on the calling step keeps working. :func:`key_environment` merges the
+two (the input wins), :func:`mask_commands` makes the runner mask every key value, and nothing here ever prints one.
 
 Chat (G6) is a second mode of the same Action, picked from ``GITHUB_EVENT_NAME``: ``issue_comment`` and
 ``pull_request_review_comment`` runs are decided by :func:`decide_chat` instead, with its own rules: the comment must
@@ -50,6 +57,14 @@ PROVIDER_ENV = "LEMONCROW_REVIEW_PROVIDER"
 #: driver's own (``gpt-4o-mini``).
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
 PROVIDERS = ("auto", "anthropic", "openai", "litellm")
+#: The Action's key inputs, as ``action.yml`` passes them to a step, and the standard variable each one stands for.
+KEY_INPUTS = {"INPUT_ANTHROPIC_API_KEY": "ANTHROPIC_API_KEY", "INPUT_OPENAI_API_KEY": "OPENAI_API_KEY"}
+#: What a person does about a missing key; the one wording every "no key" message uses.
+NO_KEY_FIX = (
+    "Add your model key as a repository secret (Settings > Secrets and variables > Actions) and pass it to the "
+    "Action: `with: {anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}}` (or `openai-api-key`). A key set as an "
+    "environment variable on the step also works."
+)
 #: Backends a user may already have chosen with ``LEMONCROW_LLM_BACKEND``.
 _KNOWN_BACKENDS = frozenset({"openai", "openai_compatible", "litellm", "ollama", "claude", "codex", "opencode"})
 #: The model variable each API backend reads once the backend is chosen.
@@ -72,6 +87,40 @@ class ModelRoute:
 
 def _present(env: Mapping[str, str], name: str) -> bool:
     return bool(str(env.get(name) or "").strip())
+
+
+def key_environment(env: Mapping[str, str]) -> dict[str, str]:
+    """*env* with each key input copied to the standard variable it stands for.
+
+    The input wins over a variable of the same name: it is the explicit choice, made on the Action itself. An empty
+    input changes nothing, so a key set as an environment variable on the calling step keeps working.
+    """
+
+    merged = dict(env)
+    for source, target in KEY_INPUTS.items():
+        if _present(env, source):
+            merged[target] = str(env[source]).strip()
+    return merged
+
+
+_MIN_MASK = 6
+
+
+def mask_commands(env: Mapping[str, str]) -> list[str]:
+    """``::add-mask::`` lines for every key *env* holds, so the runner hides the value wherever it would appear.
+
+    Each line of a multi-line value is masked on its own (a workflow command ends at the newline). GitHub already masks
+    a ``secrets.*`` value; this covers a key that did not come from there, and costs nothing when it did.
+    """
+
+    names = (*KEY_INPUTS, *KEY_INPUTS.values(), "LEMONCROW_OPENAI_API_KEY")
+    seen: dict[str, None] = {}
+    for name in names:
+        for line in str(env.get(name) or "").splitlines():
+            # Real keys are long; masking a one-character placeholder would blank that character out of every log.
+            if len(line.strip()) >= _MIN_MASK:
+                seen[line.strip()] = None
+    return [f"::add-mask::{value}" for value in seen]
 
 
 def _openai_credential(env: Mapping[str, str]) -> str:
@@ -138,6 +187,9 @@ class Gate:
     skip: str = ""
     #: Whether GitHub gives this run a token that can write a commit status (a fork's is read-only).
     writable: bool = True
+    #: For a failure that stops the run before any review: the description of the ``error`` ``LemonCrow Review`` status
+    #: posted for it, so a required check shows why instead of waiting. Empty: no status.
+    error_status: str = ""
 
 
 def _mapping(value: object) -> Mapping[str, object]:
@@ -230,10 +282,10 @@ def decide(
             )
         return Gate(
             False,
-            "No model credentials. Add ANTHROPIC_API_KEY or OPENAI_API_KEY as a repository secret and pass it to "
-            "the step as an environment variable (or set LEMONCROW_LLM_BACKEND with its provider variables).",
+            f"No model key. {NO_KEY_FIX} (Or set LEMONCROW_LLM_BACKEND with its provider variables.)",
             "error",
             1,
+            error_status="No model key: pass anthropic-api-key or openai-api-key to the LemonCrow Action",
         )
     return Gate(True)
 
@@ -437,10 +489,10 @@ def decide_chat(
             "maintainer push the branch here.",
         )
     if require_credentials and resolve_model_route(env, provider) is None:
+        # A comment has no check to answer, so there is no status to set: the red job and the annotation say it.
         return Gate(
             False,
-            "No model credentials. Add ANTHROPIC_API_KEY or OPENAI_API_KEY as a repository secret and pass it to "
-            "the step as an environment variable (or set LEMONCROW_LLM_BACKEND with its provider variables).",
+            f"No model key. {NO_KEY_FIX} (Or set LEMONCROW_LLM_BACKEND with its provider variables.)",
             "error",
             1,
         )
@@ -471,23 +523,23 @@ def _send_status(url: str, body: bytes, headers: Mapping[str, str]) -> None:
         return
 
 
-def post_skip_status(
+def post_status(
     env: Mapping[str, str],
-    gate: Gate,
+    state: str,
+    description: str,
     *,
+    writable: bool = True,
     event: Mapping[str, object] | None = None,
     send: Callable[[str, bytes, Mapping[str, str]], None] = _send_status,
 ) -> str:
-    """Post ``success`` / ``skipped: <reason>`` on the pull request's head; return ``""`` or why nothing was posted.
+    """Post a ``LemonCrow Review`` status on the pull request's head; return ``""`` or why nothing was posted.
 
-    Best effort and never raising: a skipped run must stay a skipped run. A fork's token is read-only, so none is
-    attempted for it. The status goes on the pull request's head commit, which is what a required check reads, not
-    on the merge commit the job checked out.
+    Best effort and never raising: the run it speaks for has already been decided. A fork's token is read-only, so none
+    is attempted for it (*writable* false). The status goes on the pull request's head commit, which is what a required
+    check reads, not on the merge commit the job checked out. It links to this workflow run.
     """
 
-    if not gate.skip:
-        return ""
-    if not gate.writable:
+    if not writable:
         return (
             f"No '{STATUS_CONTEXT}' status was posted: GitHub gives this run a read-only token. "
             "If you require that check, see 'Required checks and skipped runs' in the setup guide."
@@ -500,11 +552,7 @@ def post_skip_status(
     if not (token and repository and sha):
         return f"No '{STATUS_CONTEXT}' status was posted: the run has no token, repository or pull request head."
     api = str(env.get("GITHUB_API_URL") or "https://api.github.com").rstrip("/")
-    body: dict[str, str] = {
-        "state": "success",
-        "context": STATUS_CONTEXT,
-        "description": f"skipped: {gate.skip}"[:140],
-    }
+    body: dict[str, str] = {"state": state, "context": STATUS_CONTEXT, "description": description[:140]}
     server, run = str(env.get("GITHUB_SERVER_URL") or "").rstrip("/"), str(env.get("GITHUB_RUN_ID") or "")
     if server and run:
         body["target_url"] = f"{server}/{repository}/actions/runs/{run}"
@@ -525,10 +573,120 @@ def post_skip_status(
     return ""
 
 
+def _get_json(url: str, headers: Mapping[str, str]) -> object:
+    """GET *url* as JSON; raises ``OSError`` (``URLError`` is one) or ``ValueError`` on any failure."""
+
+    request = urllib.request.Request(url, headers=dict(headers), method="GET")
+    with urllib.request.urlopen(request, timeout=_STATUS_TIMEOUT) as response:
+        return json.load(response)
+
+
+def _api_headers(token: str) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "Content-Type": "application/json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "lemoncrow-review-gate",
+    }
+
+
+#: What a status left `pending` by a job that died says once the Action settles it.
+UNFINISHED = "The review job failed or was cancelled before it finished. Re-run it."
+
+
+def settle_pending_status(
+    env: Mapping[str, str],
+    *,
+    event: Mapping[str, object] | None = None,
+    fetch: Callable[[str, Mapping[str, str]], object] = _get_json,
+    send: Callable[[str, bytes, Mapping[str, str]], None] = _send_status,
+) -> str:
+    """Turn a ``LemonCrow Review`` status still ``pending`` on this run's head into ``error``; return a note or ``""``.
+
+    The review sets ``pending`` when it starts and replaces it when it ends. A job that is cancelled or times out never
+    gets to, and a required check would wait on the pending status until the next push. ``action.yml`` runs this as its
+    last step with ``if: always()``, so no workflow needs a cleanup step of its own. It touches this run's head commit
+    only, only when its newest ``LemonCrow Review`` status is ``pending``, and never raises: a cleanup must not
+    turn a finished job red. A comment event sets no status, so there is nothing to settle for it.
+    """
+
+    if str(env.get("GITHUB_EVENT_NAME") or "") in CHAT_EVENTS:
+        return ""
+    token = str(env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or "").strip()
+    repository = str(env.get("GITHUB_REPOSITORY") or "").strip()
+    payload = load_event(env) if event is None else event
+    sha = str(_mapping(_mapping(payload.get("pull_request")).get("head")).get("sha") or "").strip()
+    api = str(env.get("GITHUB_API_URL") or "https://api.github.com").rstrip("/")
+    headers = _api_headers(token)
+    number = str(env.get("LEMONCROW_REVIEW_PR") or "").strip()
+    try:
+        if not sha and token and repository and number.isdigit():  # a workflow_dispatch run names its pull request
+            pull = _mapping(fetch(f"{api}/repos/{repository}/pulls/{number}", headers))
+            sha = str(_mapping(pull.get("head")).get("sha") or "").strip()
+        if not (sha and token and repository):
+            return ""
+        rows = fetch(f"{api}/repos/{repository}/commits/{sha}/statuses?per_page=100", headers)
+        ours = (
+            [row for row in rows if isinstance(row, dict) and row.get("context") == STATUS_CONTEXT]
+            if isinstance(rows, list)
+            else []
+        )
+        if not ours or ours[0].get("state") != "pending":
+            return ""
+    except urllib.error.HTTPError as exc:
+        if exc.code in {401, 403, 404}:
+            return ""  # the token cannot read statuses, so it cannot have left one pending; the run already said why
+        return f"Could not check whether the '{STATUS_CONTEXT}' status was left pending (HTTP {exc.code})."
+    except (OSError, ValueError) as exc:
+        return f"Could not check whether the '{STATUS_CONTEXT}' status was left pending ({type(exc).__name__})."
+    problem = post_status(env, "error", UNFINISHED, event={"pull_request": {"head": {"sha": sha}}}, send=send)
+    return problem or f"The '{STATUS_CONTEXT}' status was left pending by a run that did not finish; set it to error."
+
+
+def post_skip_status(
+    env: Mapping[str, str],
+    gate: Gate,
+    *,
+    event: Mapping[str, object] | None = None,
+    send: Callable[[str, bytes, Mapping[str, str]], None] = _send_status,
+) -> str:
+    """Post ``success`` / ``skipped: <reason>`` for a skipped run; return ``""`` or why nothing was posted.
+
+    Only a gate with a ``skip`` reason posts one, and a skipped run must stay a skipped run, so this never raises.
+    """
+
+    if not gate.skip:
+        return ""
+    return post_status(env, "success", f"skipped: {gate.skip}", writable=gate.writable, event=event, send=send)
+
+
+def post_error_status(
+    env: Mapping[str, str],
+    gate: Gate,
+    *,
+    event: Mapping[str, object] | None = None,
+    send: Callable[[str, bytes, Mapping[str, str]], None] = _send_status,
+) -> str:
+    """Post ``error`` for a run the gate stopped because it is misconfigured; return ``""`` or why nothing was posted."""
+
+    if not gate.error_status:
+        return ""
+    return post_status(env, "error", gate.error_status, writable=gate.writable, event=event, send=send)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Script entry for ``action.yml``: decide, print a workflow command, write ``run=`` and ``extra=`` to ``$GITHUB_OUTPUT``."""
 
-    env = os.environ
+    if argv and argv[0] == "settle":
+        note = settle_pending_status(os.environ)
+        if note:
+            print(f"::warning title=LemonCrow Review::{note}")
+        return 0
+    # The key inputs become the standard variables first, and every key is masked before anything else is printed.
+    env = key_environment(os.environ)
+    for command in mask_commands(env):
+        print(command)
     raw_number = (argv[0] if argv else str(env.get("LEMONCROW_REVIEW_PR") or "")).strip()
     if str(env.get("GITHUB_EVENT_NAME") or "") in CHAT_EVENTS:
         gate = decide_chat(env, provider=str(env.get(PROVIDER_ENV) or "auto"))
@@ -546,6 +704,10 @@ def main(argv: list[str] | None = None) -> int:
         unposted = post_skip_status(env, gate)
         if unposted:
             print(f"::notice title=LemonCrow Review::{unposted}")
+    if not gate.run and gate.exit_code != 0:
+        unposted = post_error_status(env, gate)
+        if unposted:
+            print(f"::warning title=LemonCrow Review::{unposted}")
     output = str(env.get("GITHUB_OUTPUT") or "").strip()
     if output:
         route = resolve_model_route(env, str(env.get(PROVIDER_ENV) or "auto")) if gate.run else None

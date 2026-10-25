@@ -8,8 +8,8 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Added
 
-- **GitHub Action: AI pull request review (early access).** `lemoncrow-lab/lemoncrow@<commit-sha>`
-  (pin a full commit SHA of the public repository; there is no moving `v1` tag) reviews each pull
+- **GitHub Action: AI pull request review (early access).** `lemoncrow-lab/lemoncrow@<sha>`
+  (pin the release commit the release notes print) reviews each pull
   request on your own model key and posts one summary comment, inline P0/P1 findings and a
   `LemonCrow Review` status as a bot (event `COMMENT` only). A high-impact correctness, security or
   data-loss finding backed by evidence beyond its own code, or a violation of a rule you wrote, is a P0
@@ -20,6 +20,22 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   small fix LemonCrow has checked against the commit is posted as a one-click `suggestion`. On
   each push it re-reviews only what changed and carries unchanged findings forward without a
   model call. Same engine from the full CLI: `lc review --pr N --ai [--publish-bot]`.
+  See [GitHub Action: AI pull request review](docs/setup/github-action.md).
+- **GitHub Action: one step to set up, and honest when something is wrong.** The workflow is one
+  `uses:` step and one decision, which key to pass (`anthropic-api-key` or `openai-api-key`, masked and
+  given only to the steps that call the model): no `actions/checkout`, no `fetch-depth: 0`, no cleanup
+  step. The Action checks out the pull request itself, deepens a shallow checkout to the merge base, and
+  settles its own `pending` status if the job is cancelled. A rejected or out-of-credit key, a rate
+  limit or a provider that is down sets the `LemonCrow Review` status to `error` with the cause, says it
+  in the summary's headline and in an `::error` annotation, and no longer sends the rejected request
+  twice; a token without `pull-requests: write` fails the step before any model is paid for, naming the
+  `permissions:` line to add. With `fail-on: p0` the job fails exactly when the status does. The sample
+  workflow is named `LemonCrow` so `LemonCrow Review` is the one status to require. One content-keyed
+  cache holds the scanner and the parser bundle, the runner's own Python is used, LiteLLM's price table
+  is no longer fetched at runtime, and a review call asks for at most 8,192 output tokens instead of
+  the model's maximum. Auto now examines every risk signal of a pull request with up to six (about 1.4
+  cents each) instead of calling a five-file pull request "Partially reviewed". README, guide and
+  `lc review init-action` show one pin line, and the release notes print it with the real commit.
   See [GitHub Action: AI pull request review](docs/setup/github-action.md).
 - **A change diagram in the pull request summary.** A collapsed `Change diagram` after the findings
   draws, as a Mermaid flowchart GitHub shows inline, the relationships between files that the pull
