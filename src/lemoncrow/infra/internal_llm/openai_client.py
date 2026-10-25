@@ -15,6 +15,7 @@ LEMONCROW_OPENAI_MODEL           model name; defaults to "gpt-4o-mini"
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import threading
@@ -118,8 +119,20 @@ def chat_with_result(
     timeout: float | None = None,
 ) -> InternalLLMChatResult:
     """Call an OpenAI-compatible chat endpoint and return content plus usage metadata."""
-    client = _resolve_client()
     chosen_model = model or _resolve_model()
+    if importlib.util.find_spec("openai") is None:
+        # The installed Review engine ships no SDK: OPENAI_API_KEY alone must be enough for `lc review --ai`.
+        from lemoncrow.infra.internal_llm import direct_http
+
+        return direct_http.openai_chat_with_result(
+            messages,
+            model=chosen_model,
+            json_schema=json_schema,
+            cache_metadata=cache_metadata,
+            max_tokens=max_tokens,
+            timeout=timeout,
+        )
+    client = _resolve_client()
     try:
         kwargs: dict[str, Any] = {"model": chosen_model, "messages": messages}
         if json_schema is not None:

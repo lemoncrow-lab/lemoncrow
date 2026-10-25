@@ -499,3 +499,131 @@ def test_the_review_base_replaces_head_as_the_range_base(tmp_path: Path) -> None
     assert (rebased.base_rev, rebased.base_sha, rebased.head_rev) == ("c" * 40, "c" * 40, "WORKDIR")
     empty = _with_review_base(rng, EMPTY_TREE_SHA)
     assert (empty.base_rev, empty.base_sha) == ("(empty tree)", "")
+
+
+# --------------------------------------------------------------------------- #
+# the model-backed commands run in the Review engine, from the same `lc`
+# --------------------------------------------------------------------------- #
+
+
+def test_review_help_shows_the_ai_review_hook_init_action_and_config() -> None:
+    sink = StringIO()
+    assert main(["review", "--help"], stdout=sink) == 0
+    text = sink.getvalue()
+    for wanted in ("lc review --ai", "lc review hook install", "lc review init-action", "lc review config", "--agent"):
+        assert wanted in text, wanted
+    assert "No AI, no model call" in text  # plain `lc review` says it spends nothing
+    root = StringIO()
+    assert main(["--help"], stdout=root) == 0
+    for wanted in ("--ai", "hook", "init-action", "config"):
+        assert wanted in root.getvalue(), wanted
+
+
+@pytest.mark.parametrize(
+    ("arguments", "engine"),
+    [
+        ([], False),
+        (["--staged"], False),
+        (["main...HEAD", "--json"], False),
+        (["--agent", "claude"], False),  # a flag that only sounds like AI never calls a model
+        (["--pr", "5"], False),
+        (["--ai"], True),
+        (["--staged", "--ai", "--json"], True),
+        (["config"], True),
+        (["config", "--effective"], True),
+        (["init-action", "--chat"], True),
+        (["hook"], True),
+        (["hook", "install"], True),
+        (["hook", "run", "--pre-push"], True),
+        (["hook", "after-edit"], False),  # the hosted agent-checkpoint hook is the client's
+    ],
+)
+def test_only_the_model_backed_review_commands_go_to_the_engine(arguments: list[str], engine: bool) -> None:
+    from lemoncrow_client.review_engine import needs_engine
+
+    assert needs_engine(arguments) is engine
+
+
+def _fake_engine(home: Path) -> Path:
+    """An engine whose interpreter reports how it was started, and exits with ``$FAKE_ENGINE_EXIT``."""
+
+    python = home / "review" / "engine" / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    python.write_text(
+        '#!/bin/sh\necho "engine $*"\necho "lc=$LEMONCROW_LC_BIN root=$LEMONCROW_ROOT" >&2\nexit "${FAKE_ENGINE_EXIT:-0}"\n'
+    )
+    python.chmod(0o755)
+    return python
+
+
+def test_ai_review_runs_in_the_engine_and_its_exit_status_is_ours(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    bin_dir = home / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "lc").write_text("#!/bin/sh\n")
+    (bin_dir / "lc").chmod(0o755)
+    _fake_engine(home)
+    monkeypatch.setenv("LEMONCROW_HOME", str(home))
+    monkeypatch.setenv("LEMONCROW_BIN_DIR", str(bin_dir))
+    monkeypatch.delenv("LEMONCROW_ROOT", raising=False)
+    monkeypatch.setenv("FAKE_ENGINE_EXIT", "1")
+    sink = StringIO()
+
+    assert main(["review", "--ai", "--staged", "--fail-on", "p1"], stdout=sink) == 1  # a finding is open
+
+    out = sink.getvalue()
+    assert "engine -m lemoncrow.pro.capabilities.review.local_cli --ai --staged --fail-on p1" in out
+    assert f"lc={bin_dir / 'lc'} root={home}" in out  # a hook it installs calls this lc, state stays in this home
+
+
+def test_ai_review_without_an_engine_says_how_to_get_one(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LEMONCROW_HOME", str(tmp_path / "empty"))
+    sink = StringIO()
+    assert main(["review", "--ai"], stdout=sink) == 2
+    assert "needs the local Review engine" in sink.getvalue() and "--product review" in sink.getvalue()
+
+
+@pytest.mark.parametrize("option", ["--agent", "--fail-on", "--strict", "--pr"])
+def test_a_flag_that_belongs_to_an_ai_review_says_to_add_ai_instead_of_running_one(option: str) -> None:
+    sink = StringIO()
+    assert main(["review", option], stdout=sink) == 2
+    assert f"unknown review option: {option}" in sink.getvalue()
+    assert "add --ai" in sink.getvalue()
+
+
+def test_a_plain_review_points_at_the_ai_review_when_a_terminal_reads_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lemoncrow_client import review as review_mod
+
+    repo = _repo(tmp_path)
+    (repo / "a.py").write_text("value = 2\n", encoding="utf-8")
+    home = tmp_path / "home"
+    _fake_engine(home)
+    monkeypatch.setenv("LEMONCROW_HOME", str(home))
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        review_mod,
+        "load_config",
+        lambda **_kwargs: SimpleNamespace(hosted=False, authenticated=True, token="t", repo_root=repo),
+    )
+    monkeypatch.setattr(review_mod, "_capture", lambda *_a, **_k: ({"review": {}}, "http://127.0.0.1:7420/r/1"))
+
+    class Terminal(StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    tty, piped, quiet = Terminal(), StringIO(), Terminal()
+    assert main(["review", "--working-tree", "--no-open"], stdout=tty) == 0
+    assert main(["review", "--working-tree", "--no-open"], stdout=piped) == 0
+    assert main(["review", "--working-tree", "--no-open", "--json"], stdout=quiet) == 0
+    assert "export ANTHROPIC_API_KEY=..., then lc review --ai" in tty.getvalue()
+    assert "lc review --ai" not in piped.getvalue()  # scripts get exactly what they got before
+    assert "lc review --ai" not in quiet.getvalue()
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "set")
+    again = Terminal()
+    assert main(["review", "--working-tree", "--no-open"], stdout=again) == 0
+    assert "AI review of this change in the terminal: lc review --ai" in again.getvalue()

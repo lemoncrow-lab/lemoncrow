@@ -142,6 +142,7 @@ classifiers = [
 ]
 dependencies = [
   "aiohttp>=3.14.1",
+  "click>=8.1",
   "diff-match-patch>=2.1",
   "fastapi>=0.139.2",
   "pydantic>=2.6",
@@ -195,8 +196,9 @@ with zipfile.ZipFile(wheel) as zf:
     required = {
         "lemoncrow/pro/capabilities/review/models.py",
         "lemoncrow/pro/capabilities/review/gate_h_contract.yaml",
-        "lemoncrow/pro/capabilities/review/config_import.py",
-        "lemoncrow/pro/capabilities/review/repo_context.py",
+        "lemoncrow/pro/capabilities/review/local_cli/main.py",
+        "lemoncrow/pro/capabilities/review/pr_bot/local.py",
+        "lemoncrow/pro/capabilities/review/security_rules/python.yaml",
         "lemoncrow_server_core/bootstrap.py",
         "lemoncrow_server_core/local_review.py",
         "lemoncrow_client/kit/redaction.py",

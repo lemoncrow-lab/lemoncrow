@@ -163,12 +163,29 @@ def test_the_shipped_files_import_on_their_own(shipped_tree: Path, tmp_path: Pat
 
 
 @pytest.mark.parametrize(
-    "arguments",
-    [["--help"], ["--version"], ["review", "--help"], ["status"], ["review", "--bogus"]],
-    ids=lambda value: " ".join(value),
+    ("arguments", "code"),
+    [
+        (["--help"], 0),
+        (["--version"], 0),
+        (["review", "--help"], 0),
+        (["status"], 0),
+        (["review", "--bogus"], 2),
+        # Hosted machine-companion commands are not in this wheel: a sentence and 2, never a traceback.
+        (["review", "watch"], 2),
+        (["review", "connect"], 2),
+        (["review", "service"], 2),
+        (["review", "pending"], 2),
+        (["review", "hook", "after-edit"], 2),
+        # No engine in this temp HOME: the model-backed commands say how to get it.
+        (["review", "--ai"], 2),
+        (["review", "hook", "install"], 2),
+        (["review", "config"], 2),
+        (["review", "init-action"], 2),
+    ],
+    ids=lambda value: " ".join(value) if isinstance(value, list) else str(value),
 )
 def test_the_commands_that_need_no_server_run_from_the_shipped_files_alone(
-    shipped_tree: Path, tmp_path: Path, arguments: list[str]
+    shipped_tree: Path, tmp_path: Path, arguments: list[str], code: int
 ) -> None:
     done = _isolated(
         shipped_tree,
@@ -177,7 +194,7 @@ def test_the_commands_that_need_no_server_run_from_the_shipped_files_alone(
         home=tmp_path,
     )
     assert "Traceback" not in done.stderr + done.stdout, done.stderr
-    assert done.returncode in ({2} if arguments == ["review", "--bogus"] else {0}), done.stdout + done.stderr
+    assert done.returncode == code, done.stdout + done.stderr
 
 
 def test_a_review_capture_with_no_server_is_a_message_not_a_traceback(shipped_tree: Path, tmp_path: Path) -> None:

@@ -167,6 +167,7 @@ src/lemoncrow/core/environment.py
 src/lemoncrow/core/foundation/managed_host.py
 src/lemoncrow/infra/internal_llm/__init__.py
 src/lemoncrow/infra/internal_llm/cache.py
+src/lemoncrow/infra/internal_llm/direct_http.py
 src/lemoncrow/infra/internal_llm/exceptions.py
 src/lemoncrow/infra/internal_llm/litellm_client.py
 src/lemoncrow/infra/internal_llm/logprobs.py
@@ -414,3 +415,49 @@ src/lemoncrow/infra/storage/migrations/v3_037_review_deletion_tombstones.sql
 src/lemoncrow/infra/storage/migrations/v3_038_review_ask_conversations.sql
 src/lemoncrow/infra/storage/migrations/v3_039_review_hosted_attachment.sql
 src/lemoncrow/infra/storage/migrations/v3_040_project_knowledge.sql
+
+# The terminal commands of the installed `lc` that need a model route or the repository's rules: `lc review --ai`,
+# `hook`, `init-action` and `config`. The Review client hands them to this engine's interpreter
+# (python -m lemoncrow.pro.capabilities.review.local_cli), so an installer user gets the commands a source checkout has.
+src/lemoncrow/pro/capabilities/review/local_cli/__init__.py
+src/lemoncrow/pro/capabilities/review/local_cli/__main__.py
+src/lemoncrow/pro/capabilities/review/local_cli/ai.py
+src/lemoncrow/pro/capabilities/review/local_cli/config.py
+src/lemoncrow/pro/capabilities/review/local_cli/hook.py
+src/lemoncrow/pro/capabilities/review/local_cli/init_action.py
+src/lemoncrow/pro/capabilities/review/local_cli/main.py
+
+# What `lc review --ai` runs: the local AI review is the pull request reviewer with GitHub taken out
+# (pr_bot/local.py), so it ships the reviewer's modules: capture, the AI stage, reconcile, the impact label, the
+# opengrep security scan (the vendored rules below; the scan runs only when an `opengrep` binary is on the PATH,
+# and nothing is downloaded), the change diagram, the attribution trailers and the Action workflow sample that
+# `init-action` writes. `lc review config` reads the governance resolver (reproduce.py names the trusted base).
+src/lemoncrow/pro/capabilities/review/pr_bot/__init__.py
+src/lemoncrow/pro/capabilities/review/pr_bot/init_action.py
+src/lemoncrow/pro/capabilities/review/pr_bot/local.py
+src/lemoncrow/pro/capabilities/review/pr_bot/runner.py
+src/lemoncrow/pro/capabilities/review/pr_bot/state.py
+src/lemoncrow/pro/capabilities/review/reproduce.py
+src/lemoncrow/pro/capabilities/review/pr_bot/chat.py
+src/lemoncrow/pro/capabilities/review/pr_bot/ci_env.py
+src/lemoncrow/pro/capabilities/review/pr_bot/diagram.py
+src/lemoncrow/pro/capabilities/review/pr_bot/engine.py
+src/lemoncrow/pro/capabilities/review/pr_bot/findings.py
+src/lemoncrow/pro/capabilities/review/pr_bot/github.py
+src/lemoncrow/pro/capabilities/review/pr_bot/impact.py
+src/lemoncrow/pro/capabilities/review/pr_bot/learning.py
+src/lemoncrow/pro/capabilities/review/pr_bot/lemoncrow-review.workflow.yml
+src/lemoncrow/pro/capabilities/review/pr_bot/notices.py
+src/lemoncrow/pro/capabilities/review/pr_bot/pr_intent.py
+src/lemoncrow/pro/capabilities/review/pr_bot/reconcile.py
+src/lemoncrow/pro/capabilities/review/pr_bot/render.py
+src/lemoncrow/pro/capabilities/review/pr_bot/security.py
+src/lemoncrow/pro/capabilities/review/pr_bot/settings.py
+src/lemoncrow/pro/capabilities/review/pr_bot/suppression.py
+src/lemoncrow/pro/capabilities/review/pr_bot/attribution.py
+src/lemoncrow/pro/capabilities/review/pr_bot/large_pr.py
+src/lemoncrow/pro/capabilities/review/security_rules/go.yaml
+src/lemoncrow/pro/capabilities/review/security_rules/java.yaml
+src/lemoncrow/pro/capabilities/review/security_rules/javascript.yaml
+src/lemoncrow/pro/capabilities/review/security_rules/python.yaml
+src/lemoncrow/pro/capabilities/review/security_rules/secrets.yaml

@@ -183,9 +183,19 @@ def chat_with_result(
     ``max_tokens`` for a connectivity probe). This keeps every litellm call on
     the user's path routed through this single infra wrapper.
     """
-    litellm = _litellm_module()
     chosen_model = _resolve_model(model)
     request_messages = _apply_cache_control(messages, chosen_model=chosen_model, cache_metadata=cache_metadata)
+    try:
+        litellm = _litellm_module()
+    except LiteLLMUnavailable:
+        # The installed Review engine ships no SDK: ANTHROPIC_API_KEY alone must be enough for `lc review --ai`.
+        from lemoncrow.infra.internal_llm import direct_http
+
+        if not direct_http.handles_anthropic(chosen_model):
+            raise
+        return direct_http.anthropic_chat_with_result(
+            request_messages, model=chosen_model, json_schema=json_schema, cache_metadata=cache_metadata
+        )
     request_kwargs: dict[str, Any] = {"model": chosen_model, "messages": request_messages}
     if api_key:
         request_kwargs["api_key"] = api_key
