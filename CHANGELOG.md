@@ -202,11 +202,11 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   in the savings ledger are skipped, at most 20 are sent per import run, and
   prompts, titles and paths are never sent. `LEMONCROW_SYNC_URL` and
   `core/service/sync.py` are removed.
-- **Removed leftover Beseam references.** The example domain ids
-  `beseam.*` in the Claude and Codex integration docs now use the builtin
-  `swe.general` domain, domain bundles default to author `LemonCrow`,
-  `ContextRuntime.run` defaults its agent to `lemoncrow-agent`, and the
-  unrelated Beseam benchmark page is gone.
+- **Removed leftover references to an unrelated project.** The example domain
+  ids from that project in the Claude and Codex integration docs now use the
+  builtin `swe.general` domain, domain bundles default to author `LemonCrow`,
+  `ContextRuntime.run` defaults its agent to `lemoncrow-agent`, and an
+  unrelated benchmark page is gone.
 
 ## [0.8.0] - 2026-10-18
 

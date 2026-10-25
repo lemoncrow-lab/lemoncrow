@@ -2,9 +2,9 @@
 
 Each row of ``FORBIDDEN`` is one forbidden name with the places it is scanned and the paths allowed to keep it:
 
-* **Beseam.** LemonCrow once posted per-session usage to a Beseam host, left over from the project's earlier name. The
-  call now goes through the telemetry rollup client; this keeps any Beseam host, rule id or author string from coming
-  back.
+* **An unrelated project's name.** LemonCrow once posted per-session usage to that project's host. The call now goes
+  through the telemetry rollup client; this keeps the name from coming back anywhere in the repository. The test spells
+  it in two halves so that this file does not contain it.
 * **A competitor's name** (and the config file names built on it). The product never names it: it reads no competitor's
   config and maps none of its settings, and the benchmark harness is reviewer-agnostic. The name may live only in
   marketing and strategy material (``docs/marketing/``, ``product.md``, ``differential.html``, ``research_notes/``)
@@ -56,13 +56,11 @@ class ForbiddenName:
 
 FORBIDDEN: tuple[ForbiddenName, ...] = (
     ForbiddenName(
-        label="beseam",
-        needle=b"beseam",
-        roots=("src", "client", "enterprise", "integrations"),
-        why="Beseam is not a LemonCrow concept",
-        # An operational note about the other services already running on the shared pilot VM, which must not be
-        # clobbered. It names a neighbour; it is not a LemonCrow reference.
-        allowed=frozenset({"enterprise/deploy/gcp/vm/README.md"}),
+        label="unrelated project name",
+        needle=("be" + "seam").encode(),
+        roots=(".",),
+        why="LemonCrow has nothing to do with this unrelated project",
+        scan_paths=True,
     ),
     ForbiddenName(
         label="competitor name",
