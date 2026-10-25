@@ -65,6 +65,8 @@ const tokenAllowlist = new Map([
   ["pages/Savings.tsx", ["hex"]],
   // Hosted login: the GitHub and Google brand marks keep their own fills.
   ["../../enterprise/frontend/src/HostedApp.tsx", ["hex"]],
+  // Hosted login: the Olaryn login visual contract is one literal palette shared by every application's login.
+  ["../../enterprise/frontend/src/login-contract-v2.css", ["hex"]],
 ]);
 
 async function walk(dir) {

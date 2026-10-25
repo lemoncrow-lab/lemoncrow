@@ -404,7 +404,7 @@ export default function CodeExplorer({
       <Collapsible asChild open={sessionsOpen} onOpenChange={setSessionsOpen}>
         <section ref={sessionsRef} className="flex min-h-0 shrink-0 flex-col border-b border-border" style={{ height: sessionsOpen ? sessionsHeight ?? `min(${SECONDARY_DEFAULT_HEIGHT}px, 28%)` : undefined }} aria-label="Sessions">
           {sessionsOpen && (
-            <UiButton unstyled type="button" aria-label="Resize Sessions" onPointerDown={(event) => startResize("sessions", event)} onPointerMove={moveResize} onPointerUp={stopResize} onPointerCancel={stopResize} onKeyDown={(event) => resizeWithKeyboard("sessions", event)} className="flex h-2 w-full shrink-0 cursor-row-resize touch-none items-center justify-center hover:bg-muted focus-visible:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:h-4">
+            <UiButton unstyled type="button" aria-label="Resize Sessions" onPointerDown={(event) => startResize("sessions", event)} onPointerMove={moveResize} onPointerUp={stopResize} onPointerCancel={stopResize} onKeyDown={(event) => resizeWithKeyboard("sessions", event)} className="flex h-2 w-full shrink-0 cursor-row-resize touch-none items-center justify-center hover:bg-muted focus-visible:bg-muted focus-visible:outline-1 focus-visible:outline-ring pointer-coarse:h-4">
               <span className="h-px w-8 bg-border" />
             </UiButton>
           )}
@@ -467,7 +467,7 @@ export default function CodeExplorer({
       <Collapsible asChild open={hotspotsOpen} onOpenChange={setHotspotsOpen}>
         <section ref={hotspotsRef} className="flex min-h-0 shrink-0 flex-col" style={{ height: hotspotsOpen ? hotspotsHeight ?? `min(${SECONDARY_DEFAULT_HEIGHT}px, 28%)` : undefined }} aria-label={`Re-edited ${windowPhrase(hotspots?.days ?? 7)}`}>
           {hotspotsOpen && (
-            <UiButton unstyled type="button" aria-label="Resize Re-edited files" onPointerDown={(event) => startResize("hotspots", event)} onPointerMove={moveResize} onPointerUp={stopResize} onPointerCancel={stopResize} onKeyDown={(event) => resizeWithKeyboard("hotspots", event)} className="flex h-2 w-full shrink-0 cursor-row-resize touch-none items-center justify-center hover:bg-muted focus-visible:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-coarse:h-4">
+            <UiButton unstyled type="button" aria-label="Resize Re-edited files" onPointerDown={(event) => startResize("hotspots", event)} onPointerMove={moveResize} onPointerUp={stopResize} onPointerCancel={stopResize} onKeyDown={(event) => resizeWithKeyboard("hotspots", event)} className="flex h-2 w-full shrink-0 cursor-row-resize touch-none items-center justify-center hover:bg-muted focus-visible:bg-muted focus-visible:outline-1 focus-visible:outline-ring pointer-coarse:h-4">
               <span className="h-px w-8 bg-border" />
             </UiButton>
           )}

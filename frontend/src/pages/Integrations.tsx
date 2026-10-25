@@ -188,22 +188,12 @@ export default function Integrations() {
                 <h2 className="text-caption font-semibold uppercase tracking-tag text-muted-foreground">
                   Coding hosts
                 </h2>
-                <p className="mt-1 text-caption text-muted-foreground">
-                  Expand a host to see the exact LemonCrow surfaces detected on this machine.
-                </p>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-caption text-muted-foreground">Live detection</span>
-                <span
-                  className={`rounded-md border px-2 py-1 text-caption ${
-                    data.dispatcher_available
-                      ? "border-emerald-900/60 bg-emerald-950/20 text-emerald-300"
-                      : "border-red-900/60 bg-red-950/20 text-red-300"
-                  }`}
-                >
-                  Connection {data.dispatcher_available ? "ready" : "unavailable"}
+              {!data.dispatcher_available && (
+                <span role="status" className="rounded-md border border-red-900/60 bg-red-950/20 px-2 py-1 text-caption text-red-300">
+                  Connection unavailable
                 </span>
-              </div>
+              )}
             </div>
 
             <div className="grid items-start gap-2 md:grid-cols-2 xl:grid-cols-3">
@@ -221,7 +211,7 @@ export default function Integrations() {
                     <UiButton
                       unstyled
                       type="button"
-                      className="w-full p-3 text-left transition-colors hover:bg-muted/35 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      className="w-full p-3 text-left transition-colors hover:bg-muted/35 focus-visible:outline-1 focus-visible:outline-ring"
                       aria-expanded={open}
                       aria-controls={`integration-details-${host.id}`}
                       onClick={() => toggleHost(host.id)}

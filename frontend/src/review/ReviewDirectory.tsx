@@ -178,7 +178,7 @@ function ReviewRow({
         data-review-link
         title={`${row.worktree_root || row.repo_id} · ${row.id}`}
         aria-label={`Open ${row.title || "Untitled review"}`}
-        className="absolute inset-0 rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
+        className="absolute inset-0 rounded-md focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-[-2px] focus-visible:outline-ring"
       />}
       <div className="pointer-events-none relative min-w-0 pr-4">
         <div className="flex min-w-0 items-center gap-2">

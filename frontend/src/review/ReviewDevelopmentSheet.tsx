@@ -703,7 +703,7 @@ export default function ReviewDevelopmentSheet({
                   type="button"
                   aria-expanded={evidenceOpen}
                   onClick={() => setEvidenceOpen((open) => !open)}
-                  className="w-full border-b border-border/70 px-5 py-3 text-left text-body font-medium text-subtle hover:bg-muted/40 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-400"
+                  className="w-full border-b border-border/70 px-5 py-3 text-left text-body font-medium text-subtle hover:bg-muted/40 hover:text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-cyan-400"
                 >
                   {evidenceOpen ? "Hide" : "Show"} checks, decisions, files and activity
                 </UiButton>

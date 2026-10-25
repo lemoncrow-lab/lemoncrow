@@ -143,6 +143,9 @@ describe("Integrations", () => {
     const user = userEvent.setup();
     render(<Integrations />);
 
+    expect(screen.queryByText("Connection ready")).not.toBeInTheDocument();
+    expect(screen.queryByText("Live detection")).not.toBeInTheDocument();
+
     const claude = await screen.findByRole("button", { name: /Claude Code/ });
     expect(within(claude).getByText("2/3 surfaces present")).toBeInTheDocument();
     expect(within(claude).getByText("MCP registration · Plugin bundle")).toBeInTheDocument();

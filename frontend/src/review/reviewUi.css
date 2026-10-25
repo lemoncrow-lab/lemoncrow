@@ -34,12 +34,13 @@
 }
 
 .review-app :where(button, a, summary, [role="button"], [role="menuitem"], [role="tab"], [role="combobox"], [role="listbox"]):focus-visible {
-  outline: 2px solid rgb(var(--ring));
-  outline-offset: 2px;
+  outline: 1px solid rgb(var(--ring));
+  outline-offset: 0px;
 }
 
 .review-app :where(input, select, textarea):focus-visible {
-  outline: none;
+  outline: 1px solid rgb(var(--ring));
+  outline-offset: 0;
 }
 
 .review-shell {
@@ -77,8 +78,9 @@
 .review-field:focus-within,
 .review-field:focus-visible {
   border-color: rgb(var(--ring));
-  outline: none;
-  box-shadow: 0 0 0 2px rgb(var(--ring) / 0.15);
+  outline: 1px solid rgb(var(--ring));
+  outline-offset: 0;
+  box-shadow: none;
 }
 
 /* Keep the outline search glyph and clear action out of the text/placeholder.
@@ -255,7 +257,7 @@
   max-width: none;
   min-width: 0;
   border: 1px solid var(--review-thread-border, var(--review-border));
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   background: var(--review-thread-bg, var(--review-surface));
 }
 
@@ -325,7 +327,7 @@
   flex-direction: column;
   gap: 4px;
   padding: 5px;
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
 }
 .review-composer-heading {
   display: flex;
@@ -358,7 +360,8 @@
 }
 .review-composer-input:focus-visible {
   border-color: rgb(var(--ring));
-  outline: none;
+  outline: 1px solid rgb(var(--ring));
+  outline-offset: 0;
   box-shadow: none;
 }
 .review-composer-options {
@@ -404,7 +407,7 @@
 .review-source-composer {
   gap: 10px;
   max-width: none;
-  border-radius: 10px;
+  border-radius: var(--radius-panel);
   background: rgb(var(--surface-raised));
 }
 .review-source-composer-proposal { border-color: rgb(var(--violet-900) / 0.65); }
@@ -480,7 +483,7 @@
   min-height: 22px;
   align-items: center;
   border-width: 1px;
-  border-radius: 999px;
+  border-radius: var(--radius-badge);
   padding: 1px 7px;
   font-size: var(--fs-caption);
   font-weight: 600;
@@ -491,7 +494,7 @@
   min-height: 22px;
   align-items: center;
   border: 1px solid rgb(var(--violet-900) / 0.5);
-  border-radius: 999px;
+  border-radius: var(--radius-badge);
   background: rgb(var(--violet-950) / 0.18);
   padding: 1px 7px;
   font-size: var(--fs-micro);

@@ -16,6 +16,11 @@
   --fs-body: 0.8125rem;
   --fs-heading: 0.875rem;
   --fs-title: 1rem;
+  /* Fleet geometry for the CSS-only Review surfaces (reviewUi.css): named after the preset's radii so there is one
+     scale. Controls and badges are 6px (rounded-md), panels 8px (rounded-lg). */
+  --radius-control: theme("borderRadius.md");
+  --radius-panel: theme("borderRadius.lg");
+  --radius-badge: theme("borderRadius.DEFAULT");
 }
 
 /* Icons: one stroke weight (spec 3.8). lucide writes `stroke-width="2"` as an attribute, which any rule beats, so no
@@ -152,16 +157,18 @@ html {
   font-family: var(--workbench-code-font);
 }
 
-/* Focus: the preset's global :focus-visible draws a 2px ring-token outline (ink on light, lemon on dark).
-   Two exceptions follow: highlighted menu items and text fields already show focus themselves. */
+/* Focus: the preset's global :focus-visible draws one 1px ring-token outline with no offset (ink on light, lemon on
+   dark). Two exceptions follow: highlighted menu items and text fields already show focus themselves. */
 /* A highlighted menu item already shows focus through its background; no second ring. */
 .workbench-shell [role="menuitem"][data-highlighted]:focus-visible {
   outline: none;
 }
 
-/* Text fields draw their own focus ring (border + ring token), so the outline is suppressed. */
+/* Text fields flush the same 1px outline against their border (border-ring) and take no ring shadow. */
 .workbench-shell :where(input, select, textarea):focus-visible {
-  outline: none;
+  outline: 1px solid rgb(var(--ring));
+  outline-offset: 0;
+  box-shadow: none;
 }
 
 .workbench-shell :where(button, input, select, textarea, [role="button"], [role="tab"]) {

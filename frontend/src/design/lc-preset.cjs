@@ -83,7 +83,8 @@ module.exports = {
     plugin(({ addBase, addVariant }) => {
       addVariant("pointer-coarse", "@media (pointer: coarse)"); // controls grow to a 44px target on touch
       addBase({
-        ":focus-visible": { outline: "2px solid rgb(var(--ring))", outlineOffset: "2px" },
+        // One quiet 1px outline flush against the control, no gap (ink on light, lemon on dark via --ring).
+        ":focus-visible": { outline: "1px solid rgb(var(--ring))", outlineOffset: "0px" },
         "::selection": { backgroundColor: "rgb(var(--brand) / 0.55)", color: "rgb(10 10 10)" },
         "@media (prefers-reduced-motion: reduce)": {
           "*, *::before, *::after": { animationDuration: "0.01ms !important", animationIterationCount: "1 !important", transitionDuration: "0.01ms !important", scrollBehavior: "auto !important" },

@@ -5,7 +5,7 @@ type InputSize = "xs" | "sm";
 
 /** Shared field chrome for Input, Textarea and the Select trigger. */
 export const fieldStyles =
-  "rounded-md border border-input bg-card text-foreground outline-none transition-colors duration-fast placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:opacity-50 aria-[invalid=true]:border-p0 aria-[invalid=true]:focus-visible:ring-p0/25";
+  "rounded-md border border-input bg-card text-foreground outline-none transition-colors duration-fast placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-1 focus-visible:outline-offset-0 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-50 aria-[invalid=true]:border-p0 aria-[invalid=true]:focus-visible:outline-p0";
 
 // 16px under a coarse pointer keeps iOS from zooming into the field.
 const SIZE_STYLES: Record<InputSize, string> = {

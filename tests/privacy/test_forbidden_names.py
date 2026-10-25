@@ -61,8 +61,9 @@ FORBIDDEN: tuple[ForbiddenName, ...] = (
         roots=("src", "client", "enterprise", "integrations"),
         why="Beseam is not a LemonCrow concept",
         # An operational note about the other services already running on the shared pilot VM, which must not be
-        # clobbered. It names a neighbour; it is not a LemonCrow reference.
-        allowed=frozenset({"enterprise/deploy/gcp/vm/README.md"}),
+        # clobbered. It names a neighbour; it is not a LemonCrow reference. The hosted login note is the same kind of
+        # file: its cross-product table names the sibling products whose login it is kept consistent with.
+        allowed=frozenset({"enterprise/deploy/gcp/vm/README.md", "enterprise/frontend/LOGIN_UX.md"}),
     ),
     ForbiddenName(
         label="competitor name",

@@ -57,6 +57,11 @@ function AiSettingsEditor({ data, onSaved }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    if (!saved) return;
+    const timer = window.setTimeout(() => setSaved(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [saved]);
   const change = <K extends keyof IntelligencePreferences>(key: K, value: IntelligencePreferences[K]) => {
     setSettings((previous) => ({ ...previous, [key]: value }));
     setSaved(false);
@@ -151,7 +156,7 @@ function AiSettingsEditor({ data, onSaved }: {
         </label>
       </div>
       {error && <p role="alert" className="text-meta text-p0">{error}</p>}
-      {saved && <p role="status" className="text-meta text-foreground">Saved to this machine. Effective AI status updated below.</p>}
+      {saved && <p role="status" className="text-meta text-foreground">AI settings saved.</p>}
       <Button type="submit" variant="brand" disabled={saving}>
         {saving ? "Saving…" : "Save AI settings"}
       </Button>

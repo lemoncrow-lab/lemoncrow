@@ -53,7 +53,7 @@ surfaces, feature components, or tests.
 
 Sizes: `xs` (28px), `sm` (32px, default), `compact` (28px inline row action), `icon` (28px square). Text is 12px (`text-meta`). Use `asChild`
 to give a router `Link` button styling, and `tooltip=` instead of `title=` for hints. Buttons press with `active:translate-y-px` and show the
-global focus ring.
+global focus ring (1px, no offset).
 
 Prefer a variant plus `className` overrides (tailwind-merge makes overrides deterministic) over `unstyled`. `unstyled` is reserved for
 content-specific controls whose visuals belong to the content: tree/list rows, diff gutters, map nodes, chat bubbles, cards acting as buttons.
