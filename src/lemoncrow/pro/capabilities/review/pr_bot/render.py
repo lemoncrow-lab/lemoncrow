@@ -17,6 +17,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Final
 
+from lemoncrow.pro.capabilities.review.pr_bot import attribution
 from lemoncrow.pro.capabilities.review.pr_bot.findings import (
     SEVERITY_BADGE,
     SEVERITY_MEANING,
@@ -211,6 +212,36 @@ def usage_text(usage: Usage) -> str:
 # --------------------------------------------------------------------------- #
 
 
+def trailer(finding: BotFinding) -> str:
+    """What a finding relied on, in one line: ``Rule used: `key` · Context used: `path:1-9` (caller) · +2 more``.
+
+    Built only from the finding's validated rule and evidence refs (:attr:`BotFinding.used`, see :mod:`attribution`),
+    never from the title, explanation or consequence a model wrote. At most :data:`attribution.MAX_SHOWN` items are
+    named, rules first; the rest are counted. Each name is a rule key or a file path, both of which a repository chooses,
+    so they go through :func:`code` like every other path in a comment. ``""`` when the finding cites none of them.
+    """
+
+    listed, more = attribution.items(finding.used)
+    shown = listed[: attribution.MAX_SHOWN]
+    if not shown:
+        return ""
+    groups: dict[str, list[str]] = {}
+    for item in shown:
+        names = groups.setdefault(item.group, [])
+        if item.group == "rule":
+            names.append(f"`{trimmed(code(item.text), 60)}`")
+        elif item.group == "ctx":
+            names.append(f"`{trimmed(code(item.text), 80)}` ({item.detail})")
+    parts = [
+        f"{attribution.GROUPS[group]}: {', '.join(names)}" if names else attribution.GROUPS[group]
+        for group, names in groups.items()
+    ]
+    rest = len(listed) - len(shown) + more
+    if rest:
+        parts.append(f"+{rest} more")
+    return " · ".join(parts)
+
+
 def inline_comment(finding: BotFinding) -> str:
     """A finding as an inline review comment: badge and title, why, the consequence, a suggestion if one exists.
 
@@ -229,6 +260,8 @@ def inline_comment(finding: BotFinding) -> str:
     if finding.has_suggestion:
         fence = fence_for(finding.suggestion)
         lines += ["", f"{fence}suggestion", finding.suggestion.rstrip("\n"), fence]
+    if trail := trailer(finding):
+        lines += ["", f"<sub>{trail}</sub>"]
     lines += ["", "<sub>LemonCrow AI review</sub>"]
     if FINGERPRINT.fullmatch(finding.fingerprint):
         lines.append(FINGERPRINT_MARKER.format(fingerprint=finding.fingerprint))
@@ -394,13 +427,22 @@ def _row(finding: BotFinding, *, link: bool = True) -> str:
     return f"- **{SEVERITY_BADGE[finding.severity]}** {label} — `{_where(finding)}` · {_tag(finding)}"
 
 
-def _held_back(findings: Sequence[BotFinding], *, detailed: bool) -> list[str]:
+def _trail_line(finding: BotFinding) -> list[str]:
+    """The indented attribution line under a finding's row in the summary, or nothing."""
+
+    trail = trailer(finding)
+    return [f"  <sub>{trail}</sub>"] if trail else []
+
+
+def _held_back(findings: Sequence[BotFinding], *, detailed: bool, trails: bool = True) -> list[str]:
     heading = plural(len(findings), "low-priority finding") + " held back"
     lines = ["", f"<details><summary>{heading}</summary>", ""]
     for finding in findings:
         lines.append(_row(finding, link=False))
         if detailed and finding.explanation:
             lines.append(f"  {clean(trimmed(finding.explanation, 240))}")
+        if trails:
+            lines += _trail_line(finding)
     lines += ["", "</details>"]
     return lines
 
@@ -588,9 +630,12 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
         ]
     if shown:
         lines.append("")
-        lines += [_row(finding) for finding in shown]
+        for finding in shown:
+            lines.append(_row(finding))
+            if level < 1:
+                lines += _trail_line(finding)
     if held:
-        lines += _held_back(held, detailed=level < 2)
+        lines += _held_back(held, detailed=level < 2, trails=level < 1)
     if view.diagram:
         # After the findings and before the receipt: a picture of the change, not part of the verdict.
         lines += ["", view.diagram]

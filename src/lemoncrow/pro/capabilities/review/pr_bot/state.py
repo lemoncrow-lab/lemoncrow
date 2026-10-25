@@ -352,7 +352,7 @@ def _priority(finding: BotFinding) -> tuple[int, int, str]:
 def shrink(state: ReviewState, level: int) -> ReviewState:
     """*state* with detail removed up to *level* (0: none, :data:`MAX_DETAIL`: the least it can carry).
 
-    1. closed findings (fixed, stale) keep only their identity and title;
+    1. every finding drops its attribution trailer, and closed findings (fixed, stale) keep only their identity and title;
     2. P2 findings drop their long text;
     3. every finding's text is cut to a short form and the reviewed-unit list to :data:`MAX_UNITS` / 4;
     4. the unit list is dropped (the next run re-reviews) and every finding keeps only its title and place;
@@ -361,6 +361,8 @@ def shrink(state: ReviewState, level: int) -> ReviewState:
 
     findings = list(state.findings)
     if level >= 1:
+        # The attribution trailers go first: they are a courtesy, and the posted comments already carry theirs.
+        findings = [f.changed(used=()) for f in findings]
         findings = [f.changed(explanation="", consequence="", suggestion="") if not f.is_open else f for f in findings]
     if level >= 2:
         findings = [

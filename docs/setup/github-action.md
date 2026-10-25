@@ -118,7 +118,7 @@ LiteLLM users can set `model-provider: litellm` and the variables LiteLLM alread
 
 - a verdict line that agrees with the status: `1 must-fix before merge`, `Partially reviewed: 2 of 3 risk signals examined` when the review finished but left risk signals unexamined, `Review incomplete: <why>` when it could not finish, or `No must-fix findings` only when every risk signal was examined;
 - a status strip: `Re-reviewed 38 changed lines · 1 new · 2 carried forward · 1 fixed since last review`;
-- findings sorted by severity, each linking to its inline thread. **P0** must fix, **P1** should fix, **P2** optional;
+- findings sorted by severity, each linking to its inline thread and, when it cites a rule or an excerpt of another file, ending in an attribution trailer (see "Attribution trailers"). **P0** must fix, **P1** should fix, **P2** optional;
 - P2 findings in a collapsed block, `N low-priority findings held back`;
 - a collapsed `Change diagram` of the relationships the pull request added, removed or changed (see "Change diagram");
 - on a clean review, a collapsed `What we checked`: files, rules applied, depth;
@@ -126,7 +126,7 @@ LiteLLM users can set `model-provider: litellm` and the variables LiteLLM alread
 - a collapsed `Fix with your agent`: a prompt listing the open findings with `file:line`, and the checked replacement for each finding that has one, to paste into Claude Code, Codex or Cursor;
 - a footer with the model, depth, model calls and tokens, how much of those tokens was repository context (`~3k of it repository context`, see below), and an estimated cost when LemonCrow's local price table knows the model. It never guesses a price: an unknown model shows tokens only.
 
-**Inline comments** for P0 and P1 findings: a title with the badge, why, the consequence, and a one-click GitHub `suggestion` block only when the finding carries a fix LemonCrow has checked against the commit (see [Suggested fixes](#suggested-fixes)). P2 findings stay in the summary.
+**Inline comments** for P0 and P1 findings: a title with the badge, why, the consequence, a one-click GitHub `suggestion` block only when the finding carries a fix LemonCrow has checked against the commit (see [Suggested fixes](#suggested-fixes)), and a one-line trailer naming the rule and the context it relied on, when there are any (see [Attribution trailers](#attribution-trailers)). P2 findings stay in the summary.
 
 **Where a comment sits.** The investigator names the line, or short range (at most 8 lines), of the new file that the defect is on, and LemonCrow checks the claim before it places a comment by it: the lines must exist in the file at the reviewed commit, be lines the model was shown, and sit inside one hunk of the pull request's diff (the lines GitHub lets a comment attach to; GitHub's own diff is checked again when the comment is posted). If the claim fails any check, or the model named no line, the comment falls back to the first lines of the code the pull request changed in that function or file, which may not be the line that is wrong. The hidden state records which happened as `anchor`: `cited` or `target`. A comment cannot move once it is posted, so a finding that already has a thread stays on the lines the thread is on in the summary and the fix prompt, however the code shifts under later pushes; a finding with no thread follows its code.
 
@@ -164,6 +164,20 @@ When a fix is a small, local and certain edit, the investigator may attach it to
 A replacement that fails any check is dropped and the finding stays, as an ordinary comment. A passing one is posted as a GitHub `suggestion` block, on a multi-line comment (`start_line` to `line`, right side) when it replaces more than one line, so the author can commit it with one click. GitHub's own diff gets the same check when the comment is posted. The same edit is listed in the `Fix with your agent` prompt.
 
 Limits: a replacement is never offered for a file with CRLF or other ambiguous line endings, for a deletion, for more than 10 lines or 2,000 characters, or for deleted code. LemonCrow checks that the edit applies, not that it compiles or passes your tests: let CI judge it.
+
+### Attribution trailers
+
+Every inline comment, and the row of each open finding in the summary, ends with a one-line trailer naming what the finding relied on, so you can check it or argue with it:
+
+```text
+Rule used: `no-secrets-in-logs` · Context used: `src/handlers.py:12-18` (caller)
+```
+
+- **Where it comes from.** Only from the finding's validated references, never from its wording. The investigator names its evidence by reference, and the engine refuses a finding whose references are not in the list it built for that run. The trailer reads two kinds: the rule reference (the key of a rule you wrote in `.lemoncrow/review.yaml`, or imported through `import.rules_files`) and the evidence references that point at an excerpt of another file from the repository context pack (the file, the lines and the kind: caller, definition, test or config). A static-analysis finding, a recorded check or an attached artifact is named by kind only (`Static finding used`). The finding's own code and exact source are never listed: every finding has both, so they would say nothing. A sentence in a title or an explanation that looks like a trailer is the model's sentence, and is not one.
+- **Shape.** One line. At most three items are named (rules first, then tools, then context) and the rest are counted as `+N more`. A finding that cites nothing of the kind has no trailer. The names are rule keys and paths from your repository, so they are neutralised like every path in a comment: no mention, image, link or HTML survives, and a long name is cut with an ellipsis.
+- **What "used" means.** The investigator cited it as evidence. That is more than being shown it: the context pack goes to the model on every call, and a trailer lists only the excerpts a finding cites. It does not mean the model read it correctly.
+- **`AGENTS.md` and `CLAUDE.md`** are context only. The investigator is shown them, but a finding has no reference to cite them by, so nothing proves it relied on them and no trailer names them.
+- **In the state.** The trailers travel in the hidden state (`used`, at most five items per finding and a count of the rest), so a carried finding keeps its trailer in the summary with no model call. They are the first detail given up when the state has to shrink to fit the comment, before any finding text. An inline comment that is already posted is not edited by later pushes, so its trailer is the one it had when it was posted.
 
 ### The check
 

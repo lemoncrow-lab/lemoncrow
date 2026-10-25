@@ -45,6 +45,7 @@ from typing import Any, Final
 from lemoncrow.pro.capabilities.review.criticality import FINDING_IMPACTS
 from lemoncrow.pro.capabilities.review.criticality import P0_CATEGORIES as P0_CATEGORIES
 from lemoncrow.pro.capabilities.review.criticality import severity_for as severity_for
+from lemoncrow.pro.capabilities.review.pr_bot import attribution
 
 SEVERITIES: Final[tuple[str, ...]] = ("p0", "p1", "p2")
 SEVERITY_BADGE: Final[Mapping[str, str]] = {"p0": "P0", "p1": "P1", "p2": "P2"}
@@ -146,6 +147,10 @@ class BotFinding:
     #: ``suppressed``; and whether an allowed person gave it a thumbs-up (kept for analytics, it changes nothing).
     suppressed_by: str = ""
     confirmed: bool = False
+    #: What the finding relied on, as :mod:`attribution` tokens read from its validated rule and evidence refs (never
+    #: from its wording): the rule it cites, the repository-context excerpts it cites, the kinds of tool evidence. The
+    #: attribution trailer is built from these and from nothing else; empty when it cites none of them.
+    used: tuple[str, ...] = ()
 
     @property
     def is_open(self) -> bool:
@@ -233,6 +238,8 @@ class BotFinding:
             wire["suggestion"] = self.suggestion
             wire["suggestion_start"] = self.suggestion_start
             wire["suggestion_end"] = self.suggestion_end
+        if self.used:
+            wire["used"] = list(self.used)
         return wire
 
 
@@ -316,6 +323,7 @@ def finding_from_wire(raw: object) -> BotFinding | None:
         anchor_digest=digest if isinstance(digest, str) and _DIGEST.match(digest) else "",
         suppressed_by=_text(raw, "suppressed_by", 40),
         confirmed=raw.get("confirmed") is True,
+        used=attribution.clean_tokens(raw.get("used")),
     )
 
 

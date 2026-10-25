@@ -12,6 +12,7 @@ step:
 * ``findings`` / ``state`` -- the finding record and the hidden JSON block in the
   summary comment that carries it to the next run. No database survives a CI job.
 * ``reconcile`` -- new, carried forward, fixed or stale, per finding.
+* ``attribution`` -- the rule and context a finding cites, read from its validated refs, for the trailer.
 * ``render`` -- the summary, inline comment and "Fix with your agent" text.
 * ``github`` -- the bot's GitHub calls (comments, review, threads, status).
 * ``engine`` -- capture and the in-process AI review stage.

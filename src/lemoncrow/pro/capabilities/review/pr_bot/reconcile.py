@@ -30,6 +30,7 @@ from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from lemoncrow.pro.capabilities.review.pr_bot import attribution
 from lemoncrow.pro.capabilities.review.pr_bot.findings import (
     IMPACTS,
     MAX_CONSEQUENCE,
@@ -126,6 +127,7 @@ def finding_from_confirmed(confirmed: Any, located: Located | None, head: str) -
         anchor=anchor,
         target_line=where.line,
         anchor_digest=cited.digest if cited is not None else "",
+        used=attribution.used_from(confirmed.rule_refs, getattr(confirmed, "evidence_refs", ())),
     )
 
 
