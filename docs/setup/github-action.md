@@ -824,10 +824,13 @@ The same command reads findings without posting anything, using your own model k
 
 ```bash
 export OPENAI_API_KEY=…
-lc review --pr 123 --ai                      # print the findings
-lc review --pr 123 --ai --json               # machine-readable
-lc review --pr 123 --publish-bot --dry-run   # the exact comments the bot would post
+lc review --pr 123 --ai                      # review it; print the summary and each inline comment the bot would post
+lc review --pr 123 --ai --dry-run            # the same, said out loud
+lc review --pr 123 --publish-bot --dry-run   # the same, spelled the way the Action runs it
+lc review --pr 123 --ai --json               # machine-readable, with the comments
 ```
+
+All three forms print exactly what the bot would post (the summary comment, then each inline comment with the file and lines it would sit on) and write nothing to GitHub: reads only, no comment, no status. Only `--publish-bot` posts, and only in GitHub Actions.
 
 If `opengrep` is on your `PATH` the same security scan runs here too (see "Security scan"); without it the scan is skipped silently.
 

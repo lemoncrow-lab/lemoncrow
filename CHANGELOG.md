@@ -150,6 +150,12 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   on an ordinary change in a repository with no rules (a utility function, a snake_case file name) none is raised,
   and `lc review --ai` printed `No must-fix findings` with `Model: none · no model calls` and nothing else, which
   reads as an AI verdict. A line under `Model:` now says no model was asked and how to have it check the change.
+- **`lc review --pr N --ai --dry-run` works, and the three ways to look at a pull request agree.** It was refused
+  ("--dry-run only applies to --publish or --publish-bot"), and `--pr N --ai` printed only the summary. Now
+  `--pr N --ai`, `--pr N --ai --dry-run` and `--pr N --publish-bot --dry-run` are one preview: the pull request is
+  reviewed, the summary and each inline comment (with its file and lines) are printed exactly as the bot would post
+  them, and nothing is written to GitHub. Only `--publish-bot`, in GitHub Actions, posts. `lc review --help` and the
+  installed client's `lc review --ai --help` say so.
 - **A review on the `claude` agent CLI reports what it cost, and `--max-usd-per-pr` holds there.** The CLI's
   result carries a total cost for each call (`total_cost_usd`, its list-price estimate: a subscription is not
   billed per call), and LemonCrow dropped it, so the summary showed no cost and the dollar cap could not be
