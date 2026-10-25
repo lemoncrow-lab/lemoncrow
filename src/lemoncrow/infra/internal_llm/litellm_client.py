@@ -31,7 +31,7 @@ from collections.abc import Callable, Mapping
 from contextlib import redirect_stderr, redirect_stdout
 from typing import Any
 
-from lemoncrow.infra.internal_llm.exceptions import LiteLLMUnavailable
+from lemoncrow.infra.internal_llm.exceptions import LiteLLMUnavailable, refusal_from_exception
 from lemoncrow.infra.internal_llm.result import InternalLLMChatResult
 
 
@@ -40,6 +40,9 @@ def _litellm_module() -> Any:
         import litellm
     except ImportError as exc:
         raise LiteLLMUnavailable("litellm package is not installed; install lemoncrow[litellm]") from exc
+    # LiteLLM prints a "Give Feedback / Get Help" banner, in colour whatever NO_COLOR says, on every provider error.
+    # The review reports the error itself, in one line.
+    litellm.suppress_debug_info = True
     return litellm
 
 
@@ -277,7 +280,9 @@ def chat_with_result(
         except Exception as exc:
             if isinstance(exc, LiteLLMUnavailable):
                 raise
-            raise LiteLLMUnavailable(f"LiteLLM completion unavailable: {exc}") from exc
+            raise LiteLLMUnavailable(
+                refusal_from_exception("", exc) or f"LiteLLM completion unavailable: {exc}"
+            ) from exc
 
     response = complete(request_kwargs)
     responses = [response]

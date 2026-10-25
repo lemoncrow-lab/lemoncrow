@@ -36,8 +36,10 @@ This section applies to the full LemonCrow engine run from a source checkout
 product telemetry, and `lc rt telemetry` in the installed client only says
 that. In a source checkout, the commands below are `uv run lc ...`.
 
-In the full engine, anonymous remote telemetry is **ON by default**. Turn it off
-with `lc rt telemetry remote off`, or set `DO_NOT_TRACK=1` or
+In the full engine, anonymous remote telemetry is **ON by default**, and the first
+command you run says so, once, on standard error (also when it is piped):
+`Telemetry is on: LemonCrow sends anonymous counts and timings, never code, prompts or file paths. Turn it off: lc rt telemetry remote off (or DO_NOT_TRACK=1).`
+Turn it off with `lc rt telemetry remote off`, or set `DO_NOT_TRACK=1` or
 `LEMONCROW_TELEMETRY=off`.
 
 - **Inspect** what is collected locally: `lc rt telemetry show`

@@ -10,11 +10,13 @@ curl -fsSL https://lemoncrow.com/install.sh | bash
 
 The installer asks nothing. It installs Local Review: the `lc` client (`lc` and `lcr` are real executables, not shell aliases) and a loopback Review server on port 7420. No account or sign-in is needed. Pass `--hosted` (alias `--cloud`) for Hosted Review at api.lemoncrow.com instead, which needs an invited account; run `lc auth login` next. Re-running the bare installer keeps an existing hosted install hosted. Runtime is fetched once, the first time you run `lc rt enable <host>` (`claude`, `codex`, or `opencode`). To pre-install it, pass `--product runtime` or `--product both`, adding `--agent <host>` to enable an agent. `--dry-run` prints the plan; `--url` and `--port` are the other flags. Environment overrides: `LEMONCROW_RELEASE_TAG`, `LEMONCROW_RELEASE_BASE_URL` (alternate asset base, for example `file://` for a local rehearsal), and `LEMONCROW_NO_LAZY_INSTALL=1` to disable the first-use fetch.
 
-Verify the install:
+Verify the install, then get your first AI review in two more steps (a key or an agent you are signed in to, then `lc review --ai`; see [Your first AI review](./ai-review.md)):
 
 ```bash
 lc --version
 lc status
+export ANTHROPIC_API_KEY=sk-ant-...        # or OPENAI_API_KEY; or skip it and use: lc review --ai --agent claude
+cd your-project && lc review --ai
 ```
 
 The normal Runtime path does not require a LemonCrow daemon or a listening local application server. Repository intelligence is prepared in the repository you are working in.
@@ -188,14 +190,15 @@ Security hardening changed how the local product behaves. The full list is in th
 
 ## Uninstall
 
-Remove one product without disturbing the other. A product is required and there is no prompt:
+`lc uninstall` lists exactly what it will remove, removes what the installer added after one question, and asks separately before it deletes anything of yours. A product is required:
 
 ```bash
-lc uninstall runtime
-lc uninstall review
-lc uninstall all --dry-run   # preview
-lc uninstall all
+lc uninstall all --dry-run   # list what would be removed; changes nothing
+lc uninstall all             # asks; --yes skips the question (your data stays), --purge removes your data too
+lc uninstall review          # Review only, Runtime keeps working (or: runtime)
 ```
+
+What it removes: the `lc` and `lcr` commands, the Review client and engine, the installer's scripts, the background server, carried review results (a cache) and the lines the installer added to `~/.bashrc`, `~/.profile` and the other shell startup files. What it asks about: your settings and any API key you saved (`~/.lemoncrow/plugin_settings.json`), the reviews you opened in the Reader, the git hooks `lc review hook install` wrote, and the `.lemoncrow` folder of the repository you run it in. It never runs `npm` and never touches coding-agent settings or your code. Without a terminal it removes nothing until you pass `--yes`. Details: [CLI reference](../reference/cli.md#removal-lc-uninstall).
 
 Update with `lc update`, which re-runs the installer for each installed product and leaves host registrations untouched.
 

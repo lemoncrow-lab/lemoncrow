@@ -22,7 +22,7 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
-from lemoncrow.infra.internal_llm.exceptions import OpenAIClientUnavailable
+from lemoncrow.infra.internal_llm.exceptions import OpenAIClientUnavailable, refusal_from_exception
 from lemoncrow.infra.internal_llm.result import InternalLLMChatResult
 
 
@@ -146,7 +146,9 @@ def chat_with_result(
             kwargs["extra_body"] = {"prompt_cache_key": prompt_cache_key}
         response = client.chat.completions.create(**kwargs)
     except Exception as exc:
-        raise OpenAIClientUnavailable(f"OpenAI-compatible API unavailable: {exc}") from exc
+        raise OpenAIClientUnavailable(
+            refusal_from_exception("OpenAI", exc) or f"OpenAI-compatible API unavailable: {exc}"
+        ) from exc
     content = str(response.choices[0].message.content or "")
     parsed_json: dict[str, Any] | None = None
     if json_schema is not None:

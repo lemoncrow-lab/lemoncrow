@@ -180,6 +180,25 @@ def install_hook(path: Path, script: str, *, force: bool) -> str:
     return "installed" if existing is None else "replaced"
 
 
+def record_installed_hook(path: Path) -> None:
+    """Remember where a hook went, in ``<root>/installed-hooks.txt``, so ``lc uninstall`` can list every one of them.
+
+    Best effort: a hook that cannot be recorded still works, and ``lc uninstall`` also looks in the repository it runs in.
+    """
+
+    from lemoncrow.core.foundation.paths import default_store_root
+
+    try:
+        record = default_store_root() / "installed-hooks.txt"
+        known = record.read_text(encoding="utf-8").splitlines() if record.exists() else []
+        if str(path) not in known:
+            record.parent.mkdir(parents=True, exist_ok=True)
+            with record.open("a", encoding="utf-8") as handle:
+                handle.write(f"{path}\n")
+    except OSError:
+        pass
+
+
 # --------------------------------------------------------------------------- #
 # what a push publishes
 # --------------------------------------------------------------------------- #
@@ -345,6 +364,7 @@ def hook_install(
     root = _repo_root(repo_root)
     path = hook_path(root, kind)
     outcome = install_hook(path, script, force=force)
+    record_installed_hook(path)
     if outcome == "unchanged":
         click.echo(f"Already installed: {path} (nothing changed)")
         return
@@ -505,5 +525,6 @@ __all__ = [
     "install_hook",
     "parse_updates",
     "plan_push",
+    "record_installed_hook",
     "resolve_lc_path",
 ]

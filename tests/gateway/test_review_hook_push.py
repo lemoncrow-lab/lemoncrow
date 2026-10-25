@@ -172,7 +172,7 @@ def test_no_model_key_never_stops_a_push(setup: Setup) -> None:
     setup.install(lc=plain_lc)
     done = setup.push()
     assert done.returncode == 0 and setup.remote_has_feature(), done.stderr
-    assert "no model route is configured" in done.stderr and "export ANTHROPIC_API_KEY" in done.stderr
+    assert "No AI model is set up" in done.stderr and "export ANTHROPIC_API_KEY" in done.stderr
     assert "Traceback" not in done.stderr
 
 

@@ -325,6 +325,7 @@ src/lemoncrow/pro/capabilities/review/test_impact.py
 src/lemoncrow/pro/capabilities/review/tour.py
 src/lemoncrow/pro/capabilities/review/track_record.py
 src/lemoncrow/pro/capabilities/review/trusted_base.py
+src/lemoncrow/pro/capabilities/review/working_tree_authority.py
 src/lemoncrow/pro/capabilities/review/validity.py
 src/lemoncrow/pro/capabilities/review/verification.py
 src/lemoncrow/pro/capabilities/review/verification_delta.py
@@ -419,7 +420,7 @@ src/lemoncrow/infra/storage/migrations/v3_039_review_hosted_attachment.sql
 src/lemoncrow/infra/storage/migrations/v3_040_project_knowledge.sql
 
 # The terminal commands of the installed `lc` that need a model route or the repository's rules: `lc review --ai`,
-# `hook`, `init-action` and `config`. The Review client hands them to this engine's interpreter
+# `hook`, `init-action`, `config` and `lc settings`. The Review client hands them to this engine's interpreter
 # (python -m lemoncrow.pro.capabilities.review.local_cli), so an installer user gets the commands a source checkout has.
 src/lemoncrow/pro/capabilities/review/local_cli/__init__.py
 src/lemoncrow/pro/capabilities/review/local_cli/__main__.py
@@ -428,6 +429,7 @@ src/lemoncrow/pro/capabilities/review/local_cli/config.py
 src/lemoncrow/pro/capabilities/review/local_cli/hook.py
 src/lemoncrow/pro/capabilities/review/local_cli/init_action.py
 src/lemoncrow/pro/capabilities/review/local_cli/main.py
+src/lemoncrow/pro/capabilities/review/local_cli/settings_cli.py
 
 # What `lc review --ai` runs: the local AI review is the pull request reviewer with GitHub taken out
 # (pr_bot/local.py), so it ships the reviewer's modules: capture, the AI stage, reconcile, the impact label, the

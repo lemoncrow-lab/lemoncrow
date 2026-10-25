@@ -439,7 +439,8 @@ class FakeModel:
         """The ``prior_findings`` rows each investigator call was shown (only calls that were shown any)."""
         self.evidence_seen: list[dict[str, Any]] = []
         """The evidence registry each investigator call was offered, with the path of its first target."""
-        self.fail = False
+        self.fail: bool | str = False
+        """Every call raises; a string is the error's message (a provider's refusal, say), ``True`` a generic outage."""
         self.chats: list[dict[str, Any]] = []
         """Every chat call: the system prompt, the prompt as the model was shown it, and the other call arguments."""
         self.chat_answer: str | Any = "The guard is missing for a None principal; see src/auth.py:2."
@@ -465,7 +466,7 @@ class FakeModel:
             }
         )
         if self.fail:
-            raise RuntimeError("provider unavailable")
+            raise RuntimeError(self.fail if isinstance(self.fail, str) else "provider unavailable")
         answer = self.chat_answer(prompt) if callable(self.chat_answer) else self.chat_answer
         usage = ModelCallUsage(calls=1, input_tokens=self.chat_input_tokens, output_tokens=120)
         return StructuredExecution(result={"answer": answer}, driver="openai", model=self.model, usage=usage)
@@ -486,7 +487,7 @@ class FakeModel:
         self.calls.append({"path": path, "targets": targets, "category": hypothesis["category"]})
         self.evidence_seen.append({"path": path, "evidence": prompt["evidence_registry"]["value"]})
         if self.fail:
-            raise RuntimeError("provider unavailable")
+            raise RuntimeError(self.fail if isinstance(self.fail, str) else "provider unavailable")
         usage = ModelCallUsage(calls=1, input_tokens=self.input_tokens, output_tokens=self.output_tokens)
         found = re.search(r"BUG: (.+)", text)
         if found is not None and found.group(1).strip() in self.forget:
@@ -572,7 +573,7 @@ class FakeModel:
         first = hits[0] if hits else next(iter(source))
         self.calls.append({"path": str(source[first]["path"]), "targets": list(source), "category": "rule_check"})
         if self.fail:
-            raise RuntimeError("provider unavailable")
+            raise RuntimeError(self.fail if isinstance(self.fail, str) else "provider unavailable")
         usage = ModelCallUsage(calls=1, input_tokens=self.input_tokens, output_tokens=self.output_tokens)
         if not hits:
             result: dict[str, Any] = {

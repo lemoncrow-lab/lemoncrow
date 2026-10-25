@@ -140,7 +140,12 @@ def test_cache_control_blocks_the_review_adds_reach_the_api(monkeypatch: pytest.
     ("status", "message", "expected"),
     [
         (401, "invalid x-api-key", "rejected the API key (HTTP 401): check ANTHROPIC_API_KEY"),
-        (429, "slow down", "rate limit or quota reached (HTTP 429)"),
+        (429, "slow down", "rate limit reached (HTTP 429): wait a minute and run it again."),
+        (
+            400,
+            "Your credit balance is too low to access the Anthropic API.",
+            "Anthropic says your account has no credit left (HTTP 400): add credit at console.anthropic.com/settings/billing.",
+        ),
         (500, "overloaded", "answered HTTP 500: overloaded"),
     ],
 )
@@ -153,6 +158,25 @@ def test_an_error_from_anthropic_says_what_to_do_not_just_the_status(
         with pytest.raises(LiteLLMUnavailable) as raised:
             direct_http.anthropic_chat_with_result(MESSAGES, model="anthropic/m", json_schema=None)
     assert expected in str(raised.value)
+
+
+def test_the_refusal_sentences_are_found_again_by_kind() -> None:
+    from lemoncrow.infra.internal_llm.exceptions import describe_refusal, refusal_from_exception, refusal_kind
+
+    assert refusal_kind(describe_refusal("Anthropic", 401, "invalid x-api-key")) == "key"
+    assert refusal_kind(describe_refusal("OpenAI", 429, "You exceeded your current quota")) == "credit"
+    assert refusal_kind(describe_refusal("OpenAI", 429, "Rate limit reached for gpt-4o")) == "limit"
+    assert describe_refusal("OpenAI", 500, "server error") == "" and refusal_kind("could not reach Anthropic") == ""
+    long = describe_refusal("Anthropic", 401, "x" * 400)
+    assert long.endswith("check ANTHROPIC_API_KEY.") and "xxx" not in long  # a long reply is left out, not cut
+
+    class SdkError(Exception):  # what the LiteLLM and OpenAI SDKs raise: a status code, a provider and a message
+        status_code = 401
+        llm_provider = "anthropic"
+        message = "invalid x-api-key"
+
+    assert refusal_from_exception("", SdkError()).startswith("Anthropic rejected the API key (HTTP 401)")
+    assert refusal_from_exception("OpenAI", RuntimeError("boom")) == ""
 
 
 def test_an_unreachable_provider_is_a_sentence(monkeypatch: pytest.MonkeyPatch) -> None:

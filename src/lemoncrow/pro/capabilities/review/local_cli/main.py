@@ -94,6 +94,11 @@ def _store_root() -> Path:
     help="Review with a local agent CLI you are signed in to, instead of an API key. It uses that tool's own plan.",
 )
 @click.option(
+    "--remember",
+    is_flag=True,
+    help="With --agent: save that agent as the default for when no API key is set (lc settings reset review.agent undoes it).",
+)
+@click.option(
     "--depth",
     type=click.Choice(["auto", "thorough", "deep"]),
     default="auto",
@@ -149,6 +154,7 @@ def review_cmd(
     working_tree: bool,
     pr_spec: str | None,
     agent: str | None,
+    remember: bool,
     depth: str,
     fail_on: str | None,
     strict: bool,
@@ -167,12 +173,13 @@ def review_cmd(
     OPENAI_API_KEY in the environment, or --agent for a signed-in agent CLI. Posts nothing anywhere.
 
     \b
-    Exit status: 0 clean, 1 a finding at or above --fail-on is open, 2 incomplete with --strict, 3 usage error.
+    Exit status: 0 clean, 1 a finding at or above --fail-on is open, 2 incomplete with --strict, 3 it could not
+    run (a bad option, or no AI model set up, or a refused key).
     Subcommands: hook install|run, init-action, config.
     """
 
     del ai
-    use_agent_cli(agent)
+    use_agent_cli(agent, remember=remember, store_root=_store_root())
     if pr_spec is not None:
         if rev or base_rev or head_rev or staged or working_tree:
             raise click.ClickException(

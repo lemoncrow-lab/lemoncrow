@@ -29,7 +29,9 @@ Exit codes, for a hook to act on (documented in ``docs/reference/cli.md``):
 * ``1`` -- a finding at or above ``--fail-on`` is open (``p0`` by default);
 * ``2`` -- the review was incomplete (no model, the kill switch, the call or dollar budget, risk signals left
   unexamined) and ``--strict`` was given;
-* ``3`` -- usage error: a flag combination or a revision that cannot be used.
+* ``3`` -- the review could not be set up, so it did not run: a flag combination or a revision that cannot be used, and
+  (only for a person at the command, never for a hook) no AI model set up, or a provider that refused the key, the
+  credit or the rate. A hook never exits 3 for these: it fails open.
 """
 
 from __future__ import annotations
@@ -72,6 +74,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.state import (
     parse_state,
     shrink,
 )
+from lemoncrow.pro.capabilities.review.working_tree_authority import config_line
 
 if TYPE_CHECKING:
     from lemoncrow.pro.capabilities.review.gitdiff import RevRange
@@ -90,6 +93,7 @@ MAX_STATES_PER_REPO: Final[int] = 64
 STATE_DIR: Final[str] = "review-local-ai"
 _SHA: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{40}$")
 _CONTROL: Final[re.Pattern[str]] = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+_CLASS_PREFIX: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*: ")
 
 
 class LocalReviewError(RuntimeError):
@@ -120,6 +124,9 @@ class LocalOptions:
     #: Names the branch a range ends on, for the identity of its carried result. Default: the current branch for
     #: ``HEAD``, else the revision as written.
     label: str = ""
+    #: A person typed this (``lc review --ai``), so a review that could not run for want of a model, a key or credit
+    #: exits 3 instead of 0. A git hook leaves it off: it fails open.
+    fail_setup: bool = False
 
 
 @dataclass
@@ -158,6 +165,18 @@ class LocalReport:
     usage: Usage = field(default_factory=Usage)
     model: str = ""
     notes: list[str] = field(default_factory=list)
+    #: Why the review could not run, when it is something the person sets up: ``no_route`` (no key, no agent),
+    #: ``disabled`` (AI review is switched off) or ``refused`` (the provider rejected the key, the credit or the rate).
+    setup: str = ""
+    #: What to tell the person about :attr:`setup`: three lines for ``no_route``, one for the others.
+    setup_message: str = ""
+    #: Whether :attr:`setup` ends the process with exit 3 (see :attr:`LocalOptions.fail_setup`).
+    fail_setup: bool = False
+    #: Which agent the review ran on when the person had saved one with ``--remember``, as one line ("" otherwise).
+    route_line: str = ""
+    #: Which configuration the review used, as one line and as data (``working_tree_authority.config_line``).
+    config_line: str = ""
+    config: dict[str, Any] = field(default_factory=dict)
 
     @property
     def incomplete(self) -> bool:
@@ -215,6 +234,7 @@ class LocalReport:
             },
             "depth": self.depth,
             "model": self.model,
+            **({"config": self.config} if self.config else {}),
             "usage": self.usage.to_wire(),
             "usage_total": None if self.state is None else self.state.usage_total.to_wire(),
             "notes": list(self.notes),
@@ -226,9 +246,12 @@ class LocalReport:
 # --------------------------------------------------------------------------- #
 
 
-def exit_decision(*, p0: int, p1: int, incomplete: bool, reason: str, fail_on: str, strict: bool) -> tuple[int, str]:
+def exit_decision(
+    *, p0: int, p1: int, incomplete: bool, reason: str, fail_on: str, strict: bool, setup: bool = False
+) -> tuple[int, str]:
     """``(exit code, why)``: 1 for an open finding at or above *fail_on*, else 2 for an incomplete review under
-    *strict*, else 0. A found P0 outranks an incomplete review: it is something to act on, and the other is not."""
+    *strict*, else 3 when the review could not be set up and *setup* asks to hear it, else 0. A found P0 outranks an
+    incomplete review: it is something to act on, and the other is not."""
 
     found = {"none": 0, "p0": p0, "p1": p0 + p1}[fail_on]
     if found:
@@ -236,6 +259,8 @@ def exit_decision(*, p0: int, p1: int, incomplete: bool, reason: str, fail_on: s
         return EXIT_FOUND, f"{plural(found, 'open finding')} at or above --fail-on {fail_on} ({where})"
     if incomplete and strict:
         return EXIT_INCOMPLETE, f"the review is incomplete and --strict is set: {reason or 'see the coverage above'}"
+    if incomplete and setup:
+        return EXIT_USAGE, f"the review did not run: {reason}"
     return EXIT_CLEAN, ""
 
 
@@ -249,6 +274,7 @@ def _decided(report: LocalReport) -> LocalReport:
         reason=report.incomplete_reason,
         fail_on=report.fail_on,
         strict=report.strict,
+        setup=bool(report.setup) and report.fail_setup,
     )
     return report
 
@@ -337,43 +363,118 @@ def _prune(folder: Path) -> None:
 # the review
 # --------------------------------------------------------------------------- #
 
-NO_ROUTE: Final[str] = (
-    "no model route is configured. Set a key, for example `export ANTHROPIC_API_KEY=sk-ant-...` "
-    "(or OPENAI_API_KEY), or review with a local agent CLI you are signed in to: `lc review --ai --agent claude` "
-    "(also codex, opencode)"
+#: The one page the "no AI model" message links to; ``docs/setup/ai-review.md``.
+DOCS_URL: Final[str] = "https://docs.lemoncrow.com/setup/ai-review"
+#: The same, in a sentence for ``--json``'s ``incomplete_reason`` and a hook's headline.
+NO_ROUTE_REASON: Final[str] = (
+    "no AI model is set up (set ANTHROPIC_API_KEY or OPENAI_API_KEY, or use --agent claude|codex|opencode)"
 )
 _AGENT_CLIS: Final[tuple[str, ...]] = ("claude", "codex", "opencode")
+_AGENT_NAMES: Final[Mapping[str, str]] = {"claude": "Claude Code", "codex": "Codex", "opencode": "OpenCode"}
+#: The setting ``lc review --ai --agent NAME --remember`` writes: the agent CLI used when there is no API key.
+AGENT_SETTING: Final[str] = "review.agent"
 
 
 def no_route_text(which: Callable[[str], str | None] | None = None) -> str:
-    """:data:`NO_ROUTE`, naming the agent CLI that is on the PATH when there is one. Nothing is run or chosen here:
-    an agent CLI spends the person's own plan, so it is used only when ``--agent`` asks for it by name."""
+    """The three lines a person with no AI model set up reads: what is missing, the exact line to fix it with a key, and
+    the agent they could use instead, then where to read more.
+
+    Nothing is run or chosen here. An agent CLI spends the person's own plan, so it is used only when ``--agent`` names it
+    (once with ``--remember``, or each time); when exactly one is on the PATH the message names it, as the command to type.
+    """
 
     import shutil
 
     found = [name for name in _AGENT_CLIS if (which or shutil.which)(name)]
-    if not found:
-        return NO_ROUTE
-    return (
-        "no model route is configured. Set a key, for example `export ANTHROPIC_API_KEY=sk-ant-...` "
-        f"(or OPENAI_API_KEY), or use the agent CLI on your PATH: `lc review --ai --agent {found[0]}`"
+    if len(found) == 1:
+        agent = (
+            f"Found {_AGENT_NAMES[found[0]]}:  lc review --ai --agent {found[0]}"
+            "   (uses its plan; add --remember to make it the default)"
+        )
+    else:
+        agent = "Or use an agent you are signed in to:  lc review --ai --agent claude   (also codex, opencode)"
+    return "\n".join(
+        (
+            "No AI model is set up. Set a key:  export ANTHROPIC_API_KEY=sk-ant-...   (or OPENAI_API_KEY=sk-...)",
+            agent,
+            f"Details: {DOCS_URL}",
+        )
     )
 
 
-def _model_problem(environ: Mapping[str, str]) -> str:
-    """Why no model can be used (the kill switch, or no route), or ``""``. The same resolver every model call goes through."""
+def saved_agent(store_root: Path, which: Callable[[str], str | None] | None = None) -> str:
+    """The agent CLI ``--remember`` saved, when it is still on the PATH, else ``""``."""
+
+    import shutil
+
+    from lemoncrow.core.settings import load_raw
+
+    try:
+        saved = str(load_raw(store_root).get(AGENT_SETTING) or "").strip().lower()
+    except Exception:  # a settings file that cannot be read is no saved choice, never a failed review
+        return ""
+    return saved if saved in _AGENT_CLIS and (which or shutil.which)(saved) else ""
+
+
+def _route_state(environ: Mapping[str, str], store_root: Path, report: LocalReport) -> tuple[str, str]:
+    """``("", "")`` when a model can be used; else ``(kind, why)``: ``disabled`` (the switch is off) or ``no_route``.
+
+    The same resolver every model call goes through. With no key, the agent the person saved with ``--remember`` is the
+    route (they named it, once, on purpose); an agent that was merely found on the PATH never is.
+    """
 
     from lemoncrow.pro.capabilities.review.pr_bot import engine
 
     route = ci_env.resolve_model_route(environ, str(environ.get("LEMONCROW_REVIEW_PROVIDER") or "auto"))
+    if route is None:
+        agent = saved_agent(store_root)
+        if agent:
+            route = ci_env.ModelRoute(agent, agent, "", AGENT_SETTING)
+            report.route_line = (
+                f"Using {_AGENT_NAMES[agent]}, as you chose with --remember "
+                f"(stop: lc settings reset {AGENT_SETTING}; an exported API key is used instead)."
+            )
     if route is not None:
         ci_env.apply_model_route(route, os.environ)  # the drivers read the process environment
     status, why = engine.route_problem()
     if status == "disabled":
-        return f"AI review is turned off ({why})"
+        return "disabled", f"AI review is turned off ({why}). Turn it on: lc settings set intelligence.enabled true"
     if status:
-        # "provider is disabled; configure a provider" only repeats NO_ROUTE; a driver that is not supported is news.
-        return f"{no_route_text()}. {why}".strip() if why.startswith("Unsupported") else no_route_text()
+        if why.startswith("Unsupported"):
+            backend = why.rsplit(": ", 1)[-1]
+            return (
+                "no_route",
+                f"LEMONCROW_LLM_BACKEND={backend} is not one lc can use (claude, codex, opencode, openai, litellm, ollama)",
+            )
+        return "no_route", NO_ROUTE_REASON
+    return "", ""
+
+
+def _unrouted(report: LocalReport, kind: str, why: str) -> str:
+    """Record that the review could not start for want of a usable model; returns the reason it stops with."""
+
+    report.setup = kind
+    report.setup_message = no_route_text() if why == NO_ROUTE_REASON else why
+    return why
+
+
+def _plain_error(error: str) -> str:
+    """*error* without the names of the classes that raised it ("RuntimeError: InternalLLMError: ..."): code, not news."""
+
+    for _ in range(3):
+        error = _CLASS_PREFIX.sub("", error, count=1)
+    return error
+
+
+def _refusal(errors: Sequence[str]) -> str:
+    """The provider's refusal (a bad key, no credit, a rate limit) as one sentence, when that is why the calls failed."""
+
+    from lemoncrow.infra.internal_llm.exceptions import refusal_kind
+
+    for error in errors:
+        message = _plain_error(error)
+        if refusal_kind(message):
+            return message
     return ""
 
 
@@ -413,6 +514,25 @@ def _shown(rev: str) -> str:
     return rev[:7] if _SHA.match(rev) else rev
 
 
+def _nothing_changed(repo_root: Path, rng: RevRange) -> bool:
+    """Whether git says the range holds no change at all, asked cheaply so that "nothing to review" never needs a model
+    (and never hides behind a missing key). Anything git does not settle is "something changed": the capture decides."""
+
+    import subprocess
+
+    base = ["git", "-C", str(repo_root)]
+    if rng.mode == "working_tree":
+        command = [*base, "status", "--porcelain"]
+    elif rng.mode == "staged":
+        command = [*base, "diff", "--cached", "--name-only"]
+    elif rng.base_sha and rng.head_sha:
+        command = [*base, "diff", "--name-only", rng.base_sha, rng.head_sha]
+    else:
+        return False
+    done = subprocess.run(command, capture_output=True, text=True, check=False)
+    return done.returncode == 0 and not done.stdout.strip()
+
+
 def _is_bare(options: LocalOptions) -> bool:
     return not (options.rev or options.base or options.head or options.staged or options.working_tree)
 
@@ -442,7 +562,9 @@ def run_local_review(
         depth=options.depth,
         fail_on=options.fail_on,
         strict=options.strict,
+        fail_setup=options.fail_setup,
     )
+    report.config_line, report.config = config_line(repo_root)
     if _is_bare(options) and rng.mode == "commit_range":
         report.notes.append("working tree clean: reviewing the last commit instead")
     path = state_path(options, scope_key(repo_root, rng, options))
@@ -457,24 +579,31 @@ def run_local_review(
     problem = ""
     ai = None
     head_id = rng.head_sha
-    try:
-        with tempfile.TemporaryDirectory(prefix="lemoncrow-local-review-") as scratch:
-            say("Capturing the change")
-            captured = engine.capture_range(repo_root, rng, Path(scratch), with_impact=options.with_impact)
-            head_id = rng.head_sha or hashlib.sha1(captured.revision.tree_fingerprint.encode("utf-8")).hexdigest()
-            report.head = head_id
-            if not _changed_files(captured):
-                report.empty = True
-                report.verdict = verdict((), complete=True)
-                return _decided(report)
-            problem = _model_problem(environ)
-            if not problem:
+    # The model comes first: with none, a person hears so at once and a push pays for no capture.
+    if _nothing_changed(repo_root, rng):
+        report.empty = True
+        report.verdict = verdict((), complete=True)
+        return _decided(report)
+    kind, why = _route_state(environ, options.store_root, report)
+    if kind:
+        problem = _unrouted(report, kind, why)
+    else:
+        try:
+            with tempfile.TemporaryDirectory(prefix="lemoncrow-local-review-") as scratch:
+                say("Capturing the change")
+                captured = engine.capture_range(repo_root, rng, Path(scratch), with_impact=options.with_impact)
+                head_id = rng.head_sha or hashlib.sha1(captured.revision.tree_fingerprint.encode("utf-8")).hexdigest()
+                report.head = head_id
+                if not _changed_files(captured):
+                    report.empty = True
+                    report.verdict = verdict((), complete=True)
+                    return _decided(report)
                 say("Running the AI review" if previous is None else "Re-reviewing what changed")
                 ai = engine.run_ai_stage(
                     captured, depth=options.depth, previous=previous, structured_executor=structured_executor
                 )
-    except Exception as exc:  # a bug or a refusal in the review is an incomplete review, never a found P0 (exit 1)
-        problem = f"the review could not run ({type(exc).__name__}: {trimmed(str(exc), 200)})"
+        except Exception as exc:  # a bug or a refusal in the review is an incomplete review, never a found P0 (exit 1)
+            problem = f"the review could not run ({type(exc).__name__}: {trimmed(str(exc), 200)})"
     if ai is None or not ai.ran:
         reason = problem or (ai.reason if ai is not None else "") or "the effective run plan does not run AI review"
         report.complete = False
@@ -505,8 +634,11 @@ def run_local_review(
     )
     tracked, dropped = cap_findings(list(merged.findings))
     reason = ""
-    if ai.errors:
-        reason = "model calls failed: " + trimmed(ai.errors[0], 160)
+    refused = _refusal(ai.errors)
+    if refused:
+        reason = refused
+    elif ai.errors:
+        reason = "model calls failed: " + trimmed(_plain_error(ai.errors[0]), 160)
     elif not ai.complete:
         reason = ai.reason
     uninvestigated = max(ai.candidates - ai.investigated, 0)
@@ -563,8 +695,14 @@ def run_local_review(
     report.notes.extend(f"config: {note}" for note in noise.notes)
     if ai.ignored:
         report.notes.append(f"{plural(len(ai.ignored), 'file')} left out by review.ignore")
-    if ai.errors:
-        report.notes.append("model call errors: " + " | ".join(error[:200] for error in ai.errors))
+    if refused:
+        # The key, the credit or the rate: the provider's sentence is the whole story, said once.
+        report.setup, report.setup_message = "refused", refused
+    elif len(ai.errors) > 1:
+        # The first error is in the headline already; say only what else went wrong.
+        report.notes.append(
+            "more model call errors: " + " | ".join(_plain_error(error)[:200] for error in ai.errors[1:])
+        )
     return _decided(report)
 
 
@@ -613,12 +751,19 @@ def render_text(report: LocalReport, *, style: Callable[..., str] | None = None,
     def paint(text: str, **kwargs: Any) -> str:
         return style(text, **kwargs) if style is not None else text
 
+    opened = sorted(report.open_findings(), key=sort_key)
+    if report.setup and report.setup_message and not opened:
+        # The review did not run (no model, a key the provider refused): that, and what to do, and nothing else.
+        return report.setup_message + "\n"
     lines = [paint(f"LemonCrow review · {report.scope_label}", bold=True)]
+    if report.config_line:
+        lines.append(paint(report.config_line, dim=True))
+    if report.route_line:
+        lines.append(paint(report.route_line, dim=True))
     if report.empty:
         lines.append("Nothing to review: no changed files in this range.")
         return "\n".join(lines) + "\n"
     view = report.verdict
-    opened = sorted(report.open_findings(), key=sort_key)
     if view is not None:
         mark = {"must_fix": "red", "clean": "green"}.get(view.state, "yellow")
         counts = f" · {view.counts}" if view.counts else ""

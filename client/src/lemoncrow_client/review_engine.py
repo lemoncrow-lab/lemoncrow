@@ -17,10 +17,12 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Final, TextIO
 
-__all__ = ["ENGINE_COMMANDS", "engine_python", "model_route_hint", "needs_engine", "run_engine"]
+__all__ = ["ENGINE_COMMANDS", "engine_python", "model_route_hint", "needs_engine", "run_engine", "run_settings"]
 
 #: The module the engine's interpreter runs: ``<arguments typed after lc review>`` go straight to it.
 _ENGINE_MODULE: Final[str] = "lemoncrow.pro.capabilities.review.local_cli"
+#: ``lc settings ...``: the same interpreter, the settings half of the engine (an API key, a remembered agent).
+_SETTINGS_MODULE: Final[str] = "lemoncrow.pro.capabilities.review.local_cli.settings_cli"
 #: Named by the hook script and by ``hook install``: the ``lc`` that was typed, so a hook calls the right one.
 _LC_ENV: Final[str] = "LEMONCROW_LC_BIN"
 #: Subcommands that always run in the engine. ``hook`` does too, except the agent-checkpoint events below.
@@ -71,16 +73,22 @@ def _own_lc(environment: Mapping[str, str]) -> str:
     return str(installed) if installed.is_file() and os.access(installed, os.X_OK) else ""
 
 
-def run_engine(arguments: Sequence[str], sink: TextIO) -> int:
-    """Run ``lc review ARGUMENTS`` in the engine's interpreter; its exit status is ours."""
+def run_settings(arguments: Sequence[str], sink: TextIO) -> int:
+    """Run ``lc settings ARGUMENTS`` in the engine's interpreter; its exit status is ours."""
+
+    return run_engine(arguments, sink, module=_SETTINGS_MODULE, command="lc settings")
+
+
+def run_engine(arguments: Sequence[str], sink: TextIO, *, module: str = _ENGINE_MODULE, command: str = "") -> int:
+    """Run ``lc review ARGUMENTS`` (or, with *module*, another engine command) in the engine's interpreter; its exit
+    status is ours."""
 
     python = engine_python()
     if python is None:
         from .cli import _install_hint
 
-        sink.write(
-            f"lc review {' '.join(arguments[:2])} needs the local Review engine, which this install does not have.\n"
-        )
+        needs = command or f"lc review {' '.join(arguments[:2])}"
+        sink.write(f"{needs} needs the local Review engine, which this install does not have.\n")
         sink.write(f"Install it with: {_install_hint('review')}\n")
         return 2
     environment = {key: value for key, value in os.environ.items() if key not in {"PYTHONPATH", "PYTHONHOME"}}
@@ -89,11 +97,11 @@ def run_engine(arguments: Sequence[str], sink: TextIO) -> int:
     lc = _own_lc(os.environ)
     if lc:
         environment[_LC_ENV] = lc
-    command = [str(python), "-m", _ENGINE_MODULE, *arguments]
+    argv = [str(python), "-m", module, *arguments]
     try:
         if sink is sys.stdout:
-            return subprocess.run(command, env=environment, check=False).returncode
-        completed = subprocess.run(command, env=environment, capture_output=True, text=True, check=False)
+            return subprocess.run(argv, env=environment, check=False).returncode
+        completed = subprocess.run(argv, env=environment, capture_output=True, text=True, check=False)
     except OSError as exc:
         sink.write(f"could not start the Review engine ({exc}). Re-run the installer to repair it.\n")
         return 2

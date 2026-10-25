@@ -167,8 +167,12 @@ def capture_range(
     from lemoncrow.pro.capabilities.review.packet import build_review_packet_with_blobs
     from lemoncrow.pro.capabilities.review.sources.local import open_or_create_session, snapshot_revision
     from lemoncrow.pro.capabilities.review.store import ReviewStore
+    from lemoncrow.pro.capabilities.review.working_tree_authority import WorkingTreeAuthority
 
     store = ReviewStore(store_root)
+    if pull is None:
+        # A change in the developer's own checkout: their configuration files, as they are on disk, apply.
+        store.working_tree_authority = WorkingTreeAuthority(repo_root)
     build = build_review_packet_with_blobs(
         repo_root,
         rng,

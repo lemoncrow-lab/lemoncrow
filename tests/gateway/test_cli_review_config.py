@@ -1,7 +1,9 @@
 """``lc review config``: the effective merged Review configuration and the dry run (G10).
 
-The command prints what the AI pull request reviewer would use, resolved from the trusted base only (never the work
-tree, never the pull request's own files), with the file each rule came from and what the import warned about.
+The command prints what the AI reviewer would use, with the file each setting and rule came from and what the import
+warned about. Naming a base (``--base REF``, ``--pr``) reads the trusted base a pull request review reads (never the work
+tree, never the pull request's own files); with none it reads your working tree, which is what a local ``lc review --ai``
+uses, so a file you have just written but not committed counts.
 """
 
 from __future__ import annotations
@@ -167,7 +169,10 @@ def test_the_effective_view_shows_exclusions_context_sources_and_warnings(tmp_pa
     states = {row["path"]: row["state"] for row in effective["sources"]}
     assert states["docs/review-rules.md"] == "present" and states["rules/team.yaml"] == "present"
     assert states["rules/extra.yaml"] == "present" and states["CLAUDE.md"] == "absent"
-    assert "settings" not in effective and "ignore" not in effective  # nothing else is imported
+    assert "ignore" not in effective  # the settings are rows, with their source; nothing else is imported
+    settings = {row["key"]: row for row in effective["settings"]}
+    assert {"strictness", "ignore", "inline_comments", "max_files"} <= set(settings)
+    assert all(row["source"] == "default" for row in settings.values())  # this base's review.yaml sets none of them
 
 
 def test_the_text_view_is_readable_and_names_the_source_of_every_rule(tmp_path: Path, repo: Path) -> None:
@@ -305,3 +310,60 @@ def test_usage_errors_are_clean(tmp_path: Path, repo: Path) -> None:
 def test_the_subcommand_is_listed_in_the_review_help(tmp_path: Path) -> None:
     result = CliRunner().invoke(cli, ["--root", str(tmp_path / "root"), "review", "--help"])
     assert result.exit_code == 0 and "config --effective" in result.output
+
+
+def test_with_no_base_the_view_is_your_working_tree_with_every_setting_and_its_source(
+    tmp_path: Path, repo: Path
+) -> None:
+    """The audit's gap: a new ``.lemoncrow/review.yaml`` was invisible until committed, and strictness and ignore were never shown."""
+
+    review = repo / ".lemoncrow" / "review.yaml"
+    review.write_text(
+        "review:\n  strictness: 3\n  ignore: ['docs/**', '**/*.lock']\n  inline_comments: false\n  max_files: 40\n"
+        "  rules: {no-such-rule: {severity: p1}}\n"
+        "import:\n  rules_files: [docs/review-rules.md]\n",
+        encoding="utf-8",
+    )  # uncommitted: HEAD's copy has no review: section at all
+    document = _effective(tmp_path, repo)
+    assert document["base"] == {"ref": "working tree", "sha": ""}
+    settings = {row["key"]: row for row in document["effective"]["settings"] if row["key"] != "note"}
+    assert (
+        settings["strictness"]["value"] == "3 (threshold high)"
+        and settings["strictness"]["source"] == ".lemoncrow/review.yaml"
+    )
+    assert (
+        settings["ignore"]["value"] == "docs/**, **/*.lock" and settings["ignore"]["source"] == ".lemoncrow/review.yaml"
+    )
+    assert settings["inline_comments"]["value"] == "false" and settings["max_files"]["value"] == "40"
+    assert settings["rules.no-such-rule.severity"]["value"] == "p1"
+    sources = {row["path"]: row for row in document["effective"]["sources"]}
+    assert sources[".lemoncrow/review.yaml"]["state"] == "present"  # listed, not silently ignored
+    assert sources["docs/review-rules.md"]["state"] == "present" and sources["docs/review-rules.md"]["role"]
+    text = _run(tmp_path, "--effective", "--repo", str(repo)).output
+    assert "read from:    your working tree" in text
+    assert "strictness" in text and "3 (threshold high)" in text and "from .lemoncrow/review.yaml" in text
+    assert "no rule has this key" in text  # a rule key that matches nothing is a warning, not silence
+    # The trusted base is what a pull request review reads: HEAD never saw the file.
+    base = _effective(tmp_path, repo, "--base", "HEAD")["effective"]
+    assert {row["source"] for row in base["settings"] if row["key"] != "note"} == {"default"}
+
+
+def test_a_local_review_reads_the_working_tree_config_and_a_pull_request_review_the_trusted_base(
+    tmp_path: Path, repo: Path
+) -> None:
+    from lemoncrow.pro.capabilities.review.working_tree_authority import WorkingTreeAuthority, config_line
+
+    (repo / ".lemoncrow" / "review.yaml").write_text("review:\n  strictness: 3\n", encoding="utf-8")
+    authority = WorkingTreeAuthority(repo)
+    assert "strictness: 3" in authority.document(".lemoncrow/review.yaml").content
+    assert authority.document("nope.md").state == "absent"
+    assert authority.document("../outside.md").state == "absent"  # never a path outside the checkout
+    assert "docs/review-rules.md" in (authority.paths() or [])
+    line, data = config_line(repo)
+    assert line.startswith("Config: .lemoncrow/review.yaml from your working tree (not committed yet")
+    assert data["committed"] is False and data["source"] == "working_tree"
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "commit the config")
+    assert config_line(repo)[0] == "Config: .lemoncrow/review.yaml from your working tree."
+    (repo / ".lemoncrow" / "review.yaml").unlink()
+    assert config_line(repo)[1]["state"] == "absent" and "built-in defaults" in config_line(repo)[0]

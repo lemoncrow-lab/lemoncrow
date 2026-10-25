@@ -407,7 +407,8 @@ def test_the_hook_fails_open_without_a_model_and_blocks_only_under_strict(
     monkeypatch.delenv("OPENAI_API_KEY")
     monkeypatch.delenv("LEMONCROW_LLM_BACKEND")
     soft = hook_run(lab, push_line(lab), "--pre-push")
-    assert soft.exit_code == 0 and "no model route is configured" in soft.stderr
+    assert soft.exit_code == 0 and "No AI model is set up" in soft.stderr  # fail-open: never exit 3 for a hook
+    assert "export ANTHROPIC_API_KEY" in soft.stderr
     hard = hook_run(lab, push_line(lab), "--pre-push", "--strict")
     assert hard.exit_code == 2 and "incomplete and --strict is set" in hard.stderr
     assert lab.model.calls == []

@@ -356,7 +356,12 @@ def test_first_run_banner_shows_once(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
     stream = Stream()
     assert maybe_show_banner(stream) is True
-    assert "LemonCrow collects anonymous usage telemetry" in stream.value
+    assert stream.value.count("\n") == 1  # one line
+    assert (
+        "Telemetry is on: LemonCrow sends anonymous counts and timings, never code, prompts or file paths"
+        in stream.value
+    )
+    assert "lc rt telemetry remote off" in stream.value and "DO_NOT_TRACK=1" in stream.value
     stream.value = ""
     assert maybe_show_banner(stream) is False
     assert stream.value == ""
@@ -396,6 +401,39 @@ def test_banner_auto_acknowledges_in_non_tty_context(tmp_path: Path, monkeypatch
     # Second call: ack exists, so no banner and still no output
     assert maybe_show_banner(stream) is False
     assert stream.value == ""
+
+
+def test_a_person_running_a_command_is_told_once_even_when_stderr_is_not_a_terminal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The audit: the first run wrote its telemetry id and acknowledged the banner without a word (a piped run)."""
+    ack_file = tmp_path / "ack"
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_ACK", str(ack_file))
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+
+    class Pipe:
+        def __init__(self) -> None:
+            self.value = ""
+
+        def isatty(self) -> bool:
+            return False
+
+        def write(self, text: str) -> int:
+            self.value += text
+            return len(text)
+
+        def flush(self) -> None:
+            pass
+
+    pipe = Pipe()
+    assert maybe_show_banner(pipe, announce=True) is True
+    assert "Telemetry is on" in pipe.value and ack_file.exists()
+    pipe.value = ""
+    assert maybe_show_banner(pipe, announce=True) is False and pipe.value == ""  # once
+
+    ack_file.unlink()
+    daemon = Pipe()  # a daemon, hook or statusline never announces; it only acknowledges, as before
+    assert maybe_show_banner(daemon) is False and daemon.value == "" and ack_file.exists()
 
 
 def test_emit_product_call_sites_use_allowlisted_props() -> None:
