@@ -931,10 +931,8 @@ def _arm_local_browser(config: ClientConfig, url: str) -> None:
         return
     from urllib.parse import urlsplit
 
-    from .session import RemoteSession
-
     try:
-        remote = RemoteSession(config)
+        remote = ReviewSession(config)
         try:
             remote.pair_local_review_browser(urlsplit(url).path or "/", timeout_s=2.0)
         finally:

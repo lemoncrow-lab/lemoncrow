@@ -107,7 +107,7 @@ def test_review_open_arms_local_browser_pairing_before_opening(tmp_path: Path, m
     import webbrowser
 
     from lemoncrow_client import review as review_mod
-    from lemoncrow_client.session import RemoteSession
+    from lemoncrow_client.review_session import ReviewSession
 
     repo = _repo(tmp_path)
     (repo / "a.py").write_text("value = 2\n", encoding="utf-8")
@@ -118,10 +118,10 @@ def test_review_open_arms_local_browser_pairing_before_opening(tmp_path: Path, m
         lambda **_kwargs: SimpleNamespace(hosted=False, authenticated=True, token="lc_local_machine", repo_root=repo),
     )
     monkeypatch.setattr(review_mod, "_capture", lambda *_a, **_k: ({"review": {}}, "http://127.0.0.1:7420/r/1"))
-    monkeypatch.setattr(RemoteSession, "__init__", lambda self, config: None)
-    monkeypatch.setattr(RemoteSession, "close", lambda self: None)
+    monkeypatch.setattr(ReviewSession, "__init__", lambda self, config: None)
+    monkeypatch.setattr(ReviewSession, "close", lambda self: None)
     monkeypatch.setattr(
-        RemoteSession,
+        ReviewSession,
         "pair_local_review_browser",
         lambda self, path, timeout_s=None: events.append(f"arm {path}") or {"state": "armed"},
     )

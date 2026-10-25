@@ -5,9 +5,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from _stub import StubServer
 from lemoncrow_client.config import ClientConfig
+from lemoncrow_client.errors import ClientError
 from lemoncrow_client.review_session import ReviewSession
+from lemoncrow_client.transport import Response
 
 
 def test_review_session_uploads_exact_snapshots_and_captures_from_views(
@@ -146,3 +149,40 @@ def test_review_does_not_offer_checkout_access_without_opt_in(
         assert not (config.repo_root / LOCAL_FS_PROOF_PATH).exists()
     finally:
         session.close()
+
+
+class _PairingTransport:
+    def __init__(self) -> None:
+        self.posts: list[tuple[str, object, object]] = []
+
+    def post(
+        self, path: str, *, body: object = None, headers: object = None, timeout_s: float | None = None
+    ) -> Response:
+        self.posts.append((path, body, headers))
+        return Response(status=200, payload={"state": "armed"})
+
+
+def test_review_session_arms_local_browser_pairing_with_the_machine_bearer(config: ClientConfig) -> None:
+    """``lc review --open`` pairs through ReviewSession: the Review-only client does not ship the Runtime session."""
+
+    from dataclasses import replace
+
+    local = replace(config, install_mode="local")
+    transport = _PairingTransport()
+    session = ReviewSession(local, transport=transport)  # type: ignore[arg-type]
+
+    assert session.pair_local_review_browser("/r/abc", timeout_s=2.0) == {"state": "armed"}
+
+    assert transport.posts == [
+        ("/v1/auth/local-browser/pair", {"path": "/r/abc"}, {"Authorization": f"Bearer {local.token}"})
+    ]
+
+
+def test_review_session_refuses_local_browser_pairing_for_a_hosted_server(config: ClientConfig) -> None:
+    from dataclasses import replace
+
+    hosted = replace(config, install_mode="hosted")
+    session = ReviewSession(hosted, transport=_PairingTransport())  # type: ignore[arg-type]
+
+    with pytest.raises(ClientError):
+        session.pair_local_review_browser("/r/abc")
