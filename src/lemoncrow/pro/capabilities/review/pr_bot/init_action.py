@@ -1,21 +1,23 @@
 """The workflow ``lc review init-action`` writes: the one in ``docs/setup/github-action.md``, not a second copy of it.
 
-``lemoncrow-review.workflow.yml`` beside this module is the sample workflow of the setup guide, byte for byte (a test
-holds the guide's block and this file equal), so the guide and the command cannot drift. The options only *edit* that
-sample at places it names itself:
+``lemoncrow-review.workflow.yml`` beside this module is the minimal workflow the setup guide leads with, byte for byte
+(a test holds the guide's block and this file equal), so the guide and the command cannot drift. The options only *add*
+to that sample the lines the guide shows as additions:
 
-* the default is the review-only install the guide describes ("Delete these two entries (and the `if:` below) for a
-  review-only install"); ``chat=True`` keeps the comment triggers and is exactly the sample;
-* ``provider`` picks which model key the sample passes (the sample shows Anthropic and names OpenAI in a comment);
-* ``fail_on="p0"`` turns on the sample's own suggestion to fail the check while a P0 is open.
+* ``chat=True`` adds the two comment triggers and the job condition the guide's "Chat in pull request threads" shows;
+* ``provider`` picks which key the sample passes (``anthropic-api-key``, or ``openai-api-key`` for OpenAI);
+* ``fail_on="p0"`` adds the ``fail-on: p0`` line the guide's options table describes.
 
 An edit whose anchor is gone from the sample raises :class:`WorkflowTemplateError`, which the test of every option
 combination turns into a failing test the day the guide changes shape.
+
+The pin. The sample carries one placeholder line, :data:`PIN_LINE`, and so do the README and the guide; the person
+replaces ``<sha>`` with the release commit the release notes print (:data:`RELEASES_URL`). Nothing here suggests a
+branch, a moving tag or "the latest commit": the commit is the version that reviews.
 """
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Final
 
@@ -24,22 +26,36 @@ WORKFLOW_PATH: Final[str] = ".github/workflows/lemoncrow-review.yml"
 PROVIDERS: Final[tuple[str, ...]] = ("anthropic", "openai")
 FAIL_ON: Final[tuple[str, ...]] = ("none", "p0")
 SECRETS: Final[dict[str, str]] = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
-PIN_PLACEHOLDER: Final[str] = "<commit-sha>"
+#: The Action's input that carries each provider's key.
+KEY_INPUTS: Final[dict[str, str]] = {"anthropic": "anthropic-api-key", "openai": "openai-api-key"}
 
-_CHAT_TRIGGERS = re.compile(r"  # Chat: .*?\n(?=\npermissions:)", re.DOTALL)
-_CHAT_CONDITION = re.compile(r"    # Start a runner for a comment .*?\n    if: >-\n(?:      .*\n)+(?=    steps:)")
-_ANTHROPIC_KEY = (
-    "          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}\n"
-    "          # or: OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}\n"
+#: The one pin line every page shows: ``<sha>`` is replaced with the commit the release notes print. The version after
+#: ``#`` is a reminder of what that commit is; the README, the guide and the sample are held to this exact line by a test.
+PIN_PLACEHOLDER: Final[str] = "<sha>"
+PIN_VERSION: Final[str] = "v0.9.0"
+PIN_LINE: Final[str] = f"lemoncrow-lab/lemoncrow@{PIN_PLACEHOLDER}  # {PIN_VERSION}"
+#: Where the release commit to pin is printed: the release notes of every release carry the ready-to-copy line.
+RELEASES_URL: Final[str] = "https://github.com/lemoncrow-lab/lemoncrow/releases/latest"
+GUIDE_PIN_URL: Final[str] = (
+    "https://github.com/lemoncrow-lab/lemoncrow/blob/main/docs/setup/github-action.md#pin-the-action"
 )
-_OPENAI_KEY = (
-    "          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}\n"
-    "          # or: ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}\n"
+
+_ON_TYPES = "    types: [opened, synchronize, reopened, ready_for_review]\n"
+CHAT_TRIGGERS: Final[str] = "  issue_comment: {types: [created]}\n  pull_request_review_comment: {types: [created]}\n"
+_RUNS_ON = "    runs-on: ubuntu-latest\n"
+#: Start a runner for a comment only when it mentions the bot (a comment on a plain issue never starts one).
+CHAT_CONDITION: Final[str] = (
+    "    if: >-\n"
+    "      github.event_name == 'pull_request'\n"
+    "      || (github.event_name == 'issue_comment' && github.event.issue.pull_request"
+    " && contains(github.event.comment.body, '@lemoncrow'))\n"
+    "      || (github.event_name == 'pull_request_review_comment'"
+    " && contains(github.event.comment.body, '@lemoncrow'))\n"
 )
-_ADVISORY = re.compile(r"          # Advisory while you trial it: .*?          fail-on: none\n", re.DOTALL)
-_GATING = (
-    '          # Fails the "LemonCrow Review" check while a P0 is open. Add the check to branch protection to block\n'
-    "          # merges. Set `none` to keep the check advisory.\n"
+_ANTHROPIC_KEY = "          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}\n"
+_OPENAI_KEY = "          openai-api-key: ${{ secrets.OPENAI_API_KEY }}\n"
+GATING: Final[str] = (
+    '          # Fails the "LemonCrow Review" check (and this job) while a P0 finding is open. Remove it to stay advisory.\n'
     "          fail-on: p0\n"
 )
 
@@ -58,15 +74,10 @@ def sample() -> str:
     return template_path().read_text(encoding="utf-8")
 
 
-def _edited(text: str, pattern: re.Pattern[str] | str, replacement: str, what: str) -> str:
-    if isinstance(pattern, str):
-        if pattern not in text:
-            raise WorkflowTemplateError(f"the sample workflow no longer has {what}")
-        return text.replace(pattern, replacement, 1)
-    edited, count = pattern.subn(replacement, text, count=1)
-    if count != 1:
+def _edited(text: str, anchor: str, replacement: str, what: str) -> str:
+    if text.count(anchor) != 1:
         raise WorkflowTemplateError(f"the sample workflow no longer has {what}")
-    return edited
+    return text.replace(anchor, replacement, 1)
 
 
 def render_workflow(*, provider: str = "anthropic", fail_on: str = "none", chat: bool = False) -> str:
@@ -77,13 +88,14 @@ def render_workflow(*, provider: str = "anthropic", fail_on: str = "none", chat:
     if fail_on not in FAIL_ON:
         raise ValueError(f"fail-on must be one of {', '.join(FAIL_ON)}")
     text = sample()
-    if not chat:
-        text = _edited(text, _CHAT_TRIGGERS, "", "the comment triggers")
-        text = _edited(text, _CHAT_CONDITION, "", "the condition on comment events")
+    if chat:
+        text = _edited(text, _ON_TYPES, _ON_TYPES + CHAT_TRIGGERS, "the pull_request trigger")
+        text = _edited(text, _RUNS_ON, _RUNS_ON + CHAT_CONDITION, "the job's runs-on line")
     if provider == "openai":
         text = _edited(text, _ANTHROPIC_KEY, _OPENAI_KEY, "the Anthropic key line")
     if fail_on == "p0":
-        text = _edited(text, _ADVISORY, _GATING, "the advisory fail-on setting")
+        key = _OPENAI_KEY if provider == "openai" else _ANTHROPIC_KEY
+        text = _edited(text, key, key + GATING, "the key line the fail-on setting follows")
     return text
 
 
@@ -97,9 +109,9 @@ def next_steps(*, provider: str, chat: bool, path: str = WORKFLOW_PATH) -> list[
             (f"gh secret set {secret}",),
         ),
         (
-            f"Pin the Action: replace {PIN_PLACEHOLDER} in {path} with the full 40-character SHA of a commit of "
-            "lemoncrow-lab/lemoncrow. There is no moving tag, on purpose.",
-            ("gh api repos/lemoncrow-lab/lemoncrow/commits/HEAD --jq .sha",),
+            f"Pin the Action: replace {PIN_PLACEHOLDER} in {path} with the release commit shown at {RELEASES_URL} "
+            f'(see "Pin the Action" in the guide: {GUIDE_PIN_URL}).',
+            (),
         ),
         (
             "Commit the file to your default branch, then open a pull request: the bot posts a summary and a "
@@ -115,9 +127,17 @@ def next_steps(*, provider: str, chat: bool, path: str = WORKFLOW_PATH) -> list[
 
 
 __all__ = [
+    "CHAT_CONDITION",
+    "CHAT_TRIGGERS",
     "FAIL_ON",
+    "GATING",
+    "GUIDE_PIN_URL",
+    "KEY_INPUTS",
+    "PIN_LINE",
     "PIN_PLACEHOLDER",
+    "PIN_VERSION",
     "PROVIDERS",
+    "RELEASES_URL",
     "WORKFLOW_PATH",
     "WorkflowTemplateError",
     "next_steps",

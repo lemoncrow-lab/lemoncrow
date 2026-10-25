@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 
 from lemoncrow.pro.capabilities.review.api import make_token_dependency, register_review_api
 from lemoncrow.pro.capabilities.review.pr_bot import engine
-from lemoncrow.pro.capabilities.review.pr_bot.runner import PrReviewError, RunReport
+from lemoncrow.pro.capabilities.review.pr_bot.runner import PrPermissionError, PrReviewError, RunReport
 from lemoncrow.pro.capabilities.review.pr_bot.state import dump_state, parse_state
 from lemoncrow.pro.capabilities.review.sources.github import resolve_pull_request
 from lemoncrow.pro.capabilities.review.sources.local import annotate_machine_finding
@@ -250,7 +250,14 @@ def test_a_failed_model_call_is_retried_next_push_even_for_unchanged_code(world:
     assert broken.state is not None and not broken.state.complete and broken.findings == ()
     body = world.github.summary_comments()[0]["body"]
     assert "**Review incomplete: model calls failed; see the workflow log**" in body
-    assert world.github.last_status()["state"] == "success"  # advisory: fail-on is off
+    # A review that never happened is an error whatever fail-on says; the cause is in the description.
+    status = world.github.last_status()
+    assert (status["state"], status["description"]) == (
+        "error",
+        "Review incomplete: model calls failed; see the workflow log",
+    )
+    assert status["target_url"].endswith("#issuecomment-1001"), "the check links to the summary comment"
+    assert broken.annotations and broken.annotations[0][0] == "error"
     # Only the file with no risk signal counts as reviewed; the two the model failed on are not.
     assert len(posted_state(world).reviewed_units) == 1
 
@@ -440,12 +447,45 @@ def test_a_failure_on_the_way_sets_an_error_status_instead_of_leaving_pending(wo
     assert [s["state"] for s in world.github.statuses] == ["pending", "error"]
 
 
-def test_without_statuses_permission_the_review_still_completes(world: World) -> None:
+def test_without_statuses_permission_the_review_stops_before_asking_the_model(world: World) -> None:
     world.origin.push(FIRST_PUSH)
     world.github.deny_status = True
+    with pytest.raises(PrPermissionError, match="statuses: write") as caught:
+        world.review()
+    assert caught.value.missing == ("statuses: write",)
+    assert "permissions: { contents: read, pull-requests: write, statuses: write }" in str(caught.value)
+    assert world.model.calls == [] and world.github.summary_comments() == [] and world.github.posted_reviews == []
+
+
+def test_without_pull_requests_write_the_review_stops_before_asking_the_model_and_says_so_in_the_check(
+    world: World,
+) -> None:
+    world.origin.push(FIRST_PUSH)
+    world.github.deny_comments = True
+    with pytest.raises(PrPermissionError, match="pull-requests: write") as caught:
+        world.review()
+    assert caught.value.missing == ("pull-requests: write",)
+    assert world.model.calls == [] and world.github.issue_comments == [] and world.github.posted_reviews == []
+    # The token can still write a status, so the check is red and names the permission instead of waiting.
+    assert [s["state"] for s in world.github.statuses] == ["pending", "error"]
+    assert world.github.last_status()["description"] == "Token is missing pull-requests: write; see the workflow log."
+
+
+def test_a_token_that_passes_the_probe_and_is_refused_at_the_write_is_still_loud(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    world.github.deny_comments_after_probe = True
     report = world.review()
-    assert not report.skipped and len(world.github.summary_comments()) == 1
-    assert any("could not set the commit status" in note for note in report.notes)
+    assert report.exit_code == 1
+    ((level, message),) = report.annotations
+    assert level == "error" and "`pull-requests: write`" in message and "permissions: {" in message
+    # The check does not read as a pass for a review nobody can read on the pull request.
+    assert world.github.last_status()["state"] == "error"
+
+
+def test_the_permission_probe_posts_nothing_and_is_not_counted_as_a_write(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    world.review()
+    assert not [call for call in world.github.calls if call[1].endswith("/issues/comments/0")]
 
 
 # --------------------------------------------------------------------------- #
@@ -545,16 +585,17 @@ def test_a_depth_that_cannot_cover_the_candidates_says_so_instead_of_passing(
     assert sorted(world.model.paths())[-2:] == ["src/cache.py", "src/query.py"]
 
 
-def test_a_risk_candidate_beyond_autos_cap_is_said_so_and_investigated_on_a_later_push(
+def test_a_risk_candidate_beyond_the_call_cap_is_said_so_and_investigated_on_a_later_push(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Auto investigates at most two hypotheses. With three risk candidates the third is not looked at, and the
-    # summary must not let that read as reviewed; the next push competes for the cap again, then nothing is owed.
+    # The hard cap on model calls is 2 here. With three risk candidates the third is not looked at, and the summary
+    # must not let that read as reviewed; the next push competes for the cap again, then nothing is owed.
+    monkeypatch.setenv("LEMONCROW_REVIEW_INTELLIGENCE_MAX_CALLS", "2")
     base = {**BASE, "src/token.py": "def verify(token):\n    return True\n"}
     world = build_world(tmp_path, monkeypatch, base)
     world.origin.push({"src/auth.py": AUTH_BUGGY, "src/cache.py": CACHE_BUGGY, "src/token.py": TOKEN_BUGGY})
     first = world.review()
-    assert world.model.paths() == ["(synthesis)", "src/auth.py", "src/token.py"]
+    assert world.model.paths() == ["src/auth.py", "src/token.py"]
     assert {f.title for f in first.findings} == {
         "lets a missing principal through",
         "compares secrets without a constant-time check",
@@ -584,8 +625,9 @@ def test_a_risk_candidate_beyond_autos_cap_is_said_so_and_investigated_on_a_late
 def test_a_review_that_examined_two_of_three_risk_signals_is_partial_not_clean(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail_on: str
 ) -> None:
-    # R2: three risk signals, Auto examines two, nothing is found. That is "I looked at two of three and saw
+    # R2: three risk signals, the call cap allows two, nothing is found. That is "I looked at two of three and saw
     # nothing", which must not read as "No must-fix findings" in the headline or on the green check.
+    monkeypatch.setenv("LEMONCROW_REVIEW_INTELLIGENCE_MAX_CALLS", "2")
     base = {**BASE, "src/token.py": "def verify(token):\n    return True\n"}
     world = build_world(tmp_path, monkeypatch, base)
     world.origin.push(
@@ -596,7 +638,7 @@ def test_a_review_that_examined_two_of_three_risk_signals_is_partial_not_clean(
         }
     )
     report = world.review(fail_on=fail_on)
-    assert len(world.model.paths()) == 3 and world.model.paths()[0] == "(synthesis)"  # synthesis + two investigators
+    assert len(world.model.paths()) == 2  # the cap allows two investigations
     assert report.findings == ()
     headline = "Partially reviewed: 2 of 3 risk signals examined"
     assert report.verdict is not None and (report.verdict.state, report.verdict.headline) == ("partial", headline)
@@ -619,6 +661,7 @@ def test_a_review_that_examined_two_of_three_risk_signals_is_partial_not_clean(
 
 
 def test_a_found_p0_still_reads_as_a_p0_on_a_partial_review(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LEMONCROW_REVIEW_INTELLIGENCE_MAX_CALLS", "3")  # the rule's own check, then two investigations
     base = {**BASE, "src/token.py": "def verify(token):\n    return True\n", ".lemoncrow/review.yaml": RULE}
     world = build_world(tmp_path, monkeypatch, base)
     world.origin.push({"src/auth.py": AUTH_BUGGY, "src/cache.py": CACHE_BUGGY, "src/token.py": TOKEN_BUGGY})

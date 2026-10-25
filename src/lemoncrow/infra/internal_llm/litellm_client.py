@@ -27,7 +27,7 @@ import io
 import json
 import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import redirect_stderr, redirect_stdout
 from typing import Any
 
@@ -109,6 +109,65 @@ def _parse_json(content: str) -> tuple[Any, str]:
                     continue
                 return value, ""
     return None, why
+
+
+_ACCOUNT_ERROR = re.compile(
+    r"AuthenticationError|PermissionDeniedError|RateLimitError|authentication_error|permission_error|rate_limit_error"
+    r"|invalid[ _-]?x?-?api[ _-]?key|credit balance|insufficient[_ ](?:quota|credit|funds)|exceeded your current quota",
+    re.IGNORECASE,
+)
+
+
+def is_account_error(exc: BaseException) -> bool:
+    """Whether *exc* says the key, the account or the rate limit is the problem rather than the request's shape.
+
+    Retrying such a request without ``response_format`` cannot help and is billed or counted against the limit again.
+    """
+
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int) and status in {401, 402, 403, 429}:
+        return True
+    return bool(_ACCOUNT_ERROR.search(f"{type(exc).__name__} {exc}"))
+
+
+#: The most output one review call may ask for. A review answer is a small JSON object (a few hundred tokens); without a
+#: limit LiteLLM sends the model's own maximum (128,000 tokens for current Claude models), which bounds nothing.
+REVIEW_MAX_OUTPUT_TOKENS = 8192
+REVIEW_MAX_OUTPUT_ENV = "LEMONCROW_REVIEW_MAX_OUTPUT_TOKENS"
+
+
+def bounded_max_tokens(model: str | None, env: Mapping[str, str] | None = None) -> int:
+    """The output-token limit for one review call on *model*.
+
+    ``REVIEW_MAX_OUTPUT_TOKENS`` unless ``LEMONCROW_REVIEW_MAX_OUTPUT_TOKENS`` names another positive number, and never
+    more than the model can produce when LiteLLM knows that limit.
+    """
+
+    raw = str((os.environ if env is None else env).get(REVIEW_MAX_OUTPUT_ENV) or "").strip()
+    wanted = int(raw) if raw.isdigit() and int(raw) > 0 else REVIEW_MAX_OUTPUT_TOKENS
+    limit = _model_output_limit(_resolve_model(model))
+    return min(wanted, limit) if limit else wanted
+
+
+def _model_output_limit(model: str) -> int:
+    """The most output tokens LiteLLM's price table says *model* can produce; ``0`` when it does not know the model.
+
+    Read from the table directly (``get_model_info`` prints a banner for an unknown id, and silencing a print means
+    swapping ``sys.stdout``, which parallel review calls must not do).
+    """
+
+    try:
+        table = _litellm_module().model_cost
+    except Exception:
+        return 0
+    for key in (model, model.split("/", 1)[-1]):
+        entry = table.get(key) if isinstance(table, dict) else None
+        if isinstance(entry, dict):
+            for field in ("max_output_tokens", "max_tokens"):
+                limit = entry.get(field)
+                if isinstance(limit, int) and not isinstance(limit, bool) and limit > 0:
+                    return limit
+    return 0
 
 
 def _field(source: Any, name: str) -> Any:
@@ -210,7 +269,9 @@ def chat_with_result(
             if json_mode:
                 try:
                     return litellm.completion(**kwargs, response_format={"type": "json_object"})
-                except Exception:
+                except Exception as exc:
+                    if is_account_error(exc):
+                        raise  # a rejected key or an empty balance fails the same way again: do not pay a second request
                     json_mode = False  # this provider rejects it; the retry below does not ask again
             return litellm.completion(**kwargs)
         except Exception as exc:

@@ -271,7 +271,7 @@ vendor/babel-99.0.0-py3-none-any.whl
 .cursor-plugin/
 
 # === Root-level files ===
-# action.yml is the GitHub Action (`uses: lemoncrow-lab/lemoncrow@v1`): it must sit at the repository root.
+# action.yml is the GitHub Action (`uses: lemoncrow-lab/lemoncrow@<sha>`, see docs/setup/github-action.md): it must sit at the repository root.
 action.yml
 AGENTS.md
 BENCHMARKS.md

@@ -2,116 +2,130 @@
 
 LemonCrow reviews each pull request in your own CI, on your own model key, and posts the result as a bot: one summary comment with a verdict, inline comments on the lines that matter, and a `LemonCrow Review` commit status on the head commit. On each push it re-reviews only what changed. Early access.
 
-Nothing is sent to LemonCrow. The Action runs `lc review --pr N --ai --publish-bot` on your runner and talks only to GitHub and to the model provider you give it a key for. You pay your provider directly; LemonCrow adds no markup.
+Nothing is sent to LemonCrow. The Action runs `lc review --pr N --ai --publish-bot` on your runner and talks only to GitHub, to the model provider you give it a key for, and to the package hosts that install it (listed in "Caching and network"). You pay your provider directly; LemonCrow adds no markup.
 
 ## Install the GitHub Action
 
-1. Add your model key as a repository secret: `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`.
-2. Add this workflow as `.github/workflows/lemoncrow-review.yml`:
+1. Add your model key as a repository secret: `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`).
+2. Add this workflow as `.github/workflows/lemoncrow-review.yml`, replacing `<sha>` with the release commit (see "Pin the Action"):
 
 ```yaml
-name: LemonCrow Review
-
+name: LemonCrow
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-  # Chat: answer `@lemoncrow` in the pull request's conversation and in review threads. Delete these two entries
-  # (and the `if:` below) for a review-only install. See "Chat in pull request threads".
-  issue_comment:
-    types: [created]
-  pull_request_review_comment:
-    types: [created]
-
-permissions:
-  contents: read
-  pull-requests: write
-  statuses: write
-
-# A push cancels the review of an older push. A comment never cancels anything: each one has its own group.
-concurrency:
-  group: lemoncrow-${{ github.event_name == 'pull_request' && format('review-{0}', github.event.pull_request.number) || format('chat-{0}', github.event.comment.id) }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
+permissions: { contents: read, pull-requests: write, statuses: write }
 jobs:
   review:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    # Start a runner for a comment only when it mentions the bot (comments on plain issues never reach the Action).
-    if: >-
-      github.event_name == 'pull_request'
-      || (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '@lemoncrow'))
-      || (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@lemoncrow'))
     steps:
-      - uses: actions/checkout@v4
+      - uses: lemoncrow-lab/lemoncrow@<sha>  # v0.9.0
         with:
-          fetch-depth: 0
-      # Pin a full commit SHA of the public repository (see "Installing a pinned version" below), not a branch or a
-      # tag that moves: the commit is the version that reviews, and the prompt and checks come with it.
-      - uses: lemoncrow-lab/lemoncrow@<commit-sha>  # pin to a release commit
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          # or: OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        with:
-          # Advisory while you trial it: the check reports P0s but never fails. Once you have seen a few weeks of
-          # pull requests and agree with the P0s it raised, change this to `p0` to fail the "LemonCrow Review"
-          # check while a P0 is open (add the check to branch protection if you want it to block merges).
-          fail-on: none
-
-      # If the job is killed (timeout) or cancelled before the review finishes, the status it set to `pending` would
-      # stay pending forever. This step runs only then, and turns a still-pending status into an error. It is for a
-      # review (a push); a comment sets no status.
-      - name: Do not leave LemonCrow Review pending
-        if: (failure() || cancelled()) && github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          state=$(gh api "repos/$REPO/commits/$SHA/statuses" \
-            --jq '[.[] | select(.context == "LemonCrow Review")][0].state // ""')
-          if [ "$state" = "pending" ]; then
-            gh api --method POST "repos/$REPO/statuses/$SHA" \
-              -f state=error -f context="LemonCrow Review" \
-              -f description="The review job failed or was cancelled before it finished. Re-run it." \
-              -f target_url="$GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID"
-          fi
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
-3. Open a pull request. The bot posts a summary comment and a `LemonCrow Review` status when the run finishes.
+3. Open a pull request. The bot posts a summary comment and a `LemonCrow Review` status when the run finishes, a minute or two later.
 
-**Or let the CLI write the file.** `lc review init-action` writes `.github/workflows/lemoncrow-review.yml` from the workflow above (it is the same text: the command ships this sample and a test holds the two equal) and prints the two steps that are left to you, adding the secret and pinning the SHA:
+That is the whole install, and the one decision in it is which key you pass: `anthropic-api-key` or `openai-api-key`. There is no `actions/checkout` step (the Action checks out the pull request itself, with the history its merge base needs; a checkout you already have is used, and deepened if it is shallow), no `fetch-depth`, no cleanup step (if the job is cancelled the Action settles its own `pending` status) and no `fail-on` (the check is advisory until you ask for more).
+
+**Or let the CLI write the file.** `lc review init-action` writes `.github/workflows/lemoncrow-review.yml` from the workflow above (it is the same text: the command ships this sample and a test holds the two equal) and prints the steps that are left to you, adding the secret and pinning the SHA:
 
 ```bash
-lc review init-action                           # review only: the sample without the comment triggers
-lc review init-action --chat                    # the sample as it is above, with `@lemoncrow` chat
-lc review init-action --provider openai         # pass OPENAI_API_KEY instead of ANTHROPIC_API_KEY
+lc review init-action                           # the workflow above
+lc review init-action --chat                    # plus the chat triggers of "Add chat" below
+lc review init-action --provider openai         # pass openai-api-key instead of anthropic-api-key
 lc review init-action --fail-on p0              # fail the check while a P0 is open (default: none, advisory)
 lc review init-action --force                   # replace a workflow file that already exists
 ```
 
-It never overwrites a different file without `--force`, and running it twice leaves the file as it is. It leaves `<commit-sha>` in place on purpose: it cannot know which commit of the public repository you want to run (see "Installing a pinned version").
+It never overwrites a different file without `--force`, and running it twice leaves the file as it is. It leaves `<sha>` in place on purpose and tells you where the commit to pin is printed ("Pin the Action").
 
-Notes on the workflow:
+## Pin the Action
 
-- **`permissions`** are the least the Action needs: `pull-requests: write` to comment, reply in threads and resolve threads, `statuses: write` for the status, `contents: read` to fetch the pull request. Chat adds no permission (see "Chat in pull request threads"). It posts as `github-actions[bot]` with the workflow's `GITHUB_TOKEN`; keep the default `github-token` input so the comments never come from a person.
-- **`timeout-minutes`** bounds a hung model call; each call has its own 120-second limit, so a review that is not done in a few minutes is stuck. A large pull request can also run long: at Deep depth up to ten calls run one after another.
-- **The last step** (`if: (failure() || cancelled()) && github.event_name == 'pull_request'`) is the fallback for a killed job. The Action sets `LemonCrow Review` to `pending` when it starts, and a job that is cancelled or times out never gets to replace it, which would leave a required check waiting for good. The step looks at the status on this run's head commit and, only if it is still `pending`, sets it to `error` with a message to re-run. It touches only its own commit, so a run that a newer push cancelled marks its own, older commit and nothing else. It is `error`, not a pass, on purpose: a review that never finished has not approved anything; change `-f state=error` to `success` if you would rather it stay out of the way. GitHub runs a `failure()` or `cancelled()` step after a timeout in the normal case; if the runner itself is lost, nothing can run, and the status stays pending until the next push or a re-run.
-- **`concurrency`** per pull request with `cancel-in-progress` means a newer push cancels the review of an older one instead of queueing behind it. A comment gets a group of its own (its comment id) and never cancels or is cancelled, so a question asked while a review runs is answered, and a push is not cancelled by a question.
-- **`fetch-depth: 0`** gives LemonCrow the history to find the merge base. `ready_for_review` is in `types` so a draft is reviewed when it is marked ready.
-- **`<commit-sha>`** is a placeholder: replace it with the full 40-character SHA of a commit of the public `lemoncrow-lab/lemoncrow` repository. There is no moving `v1` tag, on purpose. The Action installs LemonCrow from its own checkout at that ref, so the version you pin is the version that reviews, and a floating ref would change the prompt under you. See "Installing a pinned version".
-- **Organization policy.** If your organization restricts which actions may run, allow `lemoncrow-lab/lemoncrow` and `astral-sh/setup-uv`; the Action uses the latter to install LemonCrow's dependencies (`uv` itself is pinned to an exact version). If it requires every third-party action to be **pinned to a commit SHA**, the Action already pins `astral-sh/setup-uv` to the commit of its `v5.4.2` tag. The sample workflow's `actions/checkout@v4` is a tag pin too; pin it to a SHA if your policy needs that.
-- **GitHub rate limits.** When GitHub throttles a call (HTTP 429, or a 403 that names a secondary rate limit), the Action waits and tries again up to three times (5, 15 and 45 seconds, or the wait GitHub states, at most 60 seconds each), and never more than 120 seconds in total in one run. A permission error (`Resource not accessible by integration`) is not a rate limit and is not retried. If the limit outlasts that, the one write that was refused is reported in the run's notes and the next push repeats it.
-- Runners: Linux and macOS (the install is POSIX shell); Windows runners are not supported. The key must reach the step as an environment variable; the Action never prints it.
+`uses: lemoncrow-lab/lemoncrow@<sha>  # v0.9.0` is the one line to pin. `<sha>` is the full 40-character SHA of a **release commit** of the public `lemoncrow-lab/lemoncrow` repository, and the release notes of every stable release print the line with the real SHA filled in, ready to copy: <https://github.com/lemoncrow-lab/lemoncrow/releases/latest>. The text after `#` is the version the SHA is, as a reminder for the person reading the file.
+
+Pin a commit, not a branch: the Action installs LemonCrow from its own checkout at that ref, so the commit you name is the version that reviews, with its prompt, its checks and its dependencies. A branch would change the prompt under you; the 7-character short SHA does not resolve in `uses:`; and a SHA from the private repository does not exist in the public one. A release that changes the prompt or the checks changes what "reviewed" means, so every open pull request is re-reviewed once on its next push after you upgrade: upgrade on purpose, by changing the SHA in the workflow.
+
+## The check to require
+
+There is exactly one status to require in branch protection: **`LemonCrow Review`**, the commit status the bot sets on the head commit (it is listed on the pull request as `LemonCrow Review`, with no slash). The sample's workflow is called `LemonCrow` and its job `review`, so the job's own check reads `LemonCrow / review (pull_request)`: it says the job ran, not what the review found, and it is not the one to require. With `fail-on: p0` the two agree (the job fails when the status does), without it the job stays green on purpose. Read "Required checks and skipped runs" before you require it.
+
+## Options
+
+Everything below is a `with:` input of the Action step, and every one has a default: the workflow above sets none of them. The full reference is in "Inputs".
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `depth` | `auto` | How hard the review looks. `auto` examines every risk signal of a small change (up to six) and the two highest-ranked of a larger one, saying `Partially reviewed` for the rest; `thorough` and `deep` go further and cost more. See "Cost and limits". |
+| `fail-on` | `none` | `p0` fails the `LemonCrow Review` status, and the job, while a P0 finding is open and when the review could not run. `none` keeps the check advisory. Start at `none` for a few weeks. |
+| `strictness` | the file, else `2` | `1`, `2` or `3`: how much the bot reports (`1` also comments on P2, `3` never does). See "Reducing noise". |
+| `anthropic-api-key`, `openai-api-key` | none | The model key, from a secret. Pass one. Both work as environment variables too, but the input keeps the key away from the steps that do not need it. |
+| `security-scan` | `auto` | `auto` runs a pinned, checksum-verified [Opengrep](https://github.com/opengrep/opengrep) over the changed files; `off` downloads and runs nothing. See "Security scan". |
+| `diagram` | `auto` | The collapsed `Change diagram` in the summary, drawn only when the pull request added or removed a relationship between files. `off` never builds it. |
+| `max-usd-per-pr`, `max-runs-per-pr` | none | Stop reviewing a pull request after this many dollars, or this many reviews, in total. See "A budget per pull request". |
+| `model` | the provider's | A model id. Anthropic defaults to `claude-sonnet-4-6`, OpenAI to `gpt-4o-mini`. |
+| `review-drafts`, `on-push` | `false`, `true` | Review draft pull requests too; re-review on each push. |
+| Chat | off | Answer `@lemoncrow` in pull request comments: add the two triggers below. |
+
+### Add chat
+
+To let people ask `@lemoncrow` questions and run `@lemoncrow review` from a comment, add two triggers under `on:` and a condition under the job, so a runner starts only for a comment that mentions the bot. `lc review init-action --chat` writes exactly this. Comment events run from your default branch, so the file has to be merged there first.
+
+```yaml
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  issue_comment: {types: [created]}
+  pull_request_review_comment: {types: [created]}
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'pull_request'
+      || (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '@lemoncrow'))
+      || (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@lemoncrow'))
+    steps: # … unchanged
+```
+
+Chat adds no permission. See "Chat in pull request threads".
+
+### Permissions
+
+| Permission | Why |
+| --- | --- |
+| `contents: read` | Fetch the pull request's commits. |
+| `pull-requests: write` | Post the summary and the inline review, reply in threads and resolve them. |
+| `statuses: write` | Set the `LemonCrow Review` status. |
+| `issues: read` (optional) | Read the issues a pull request links with `Fixes #N` or `Closes #N`, so the review knows what the change is for. Without it the summary says `issue #N could not be read` and carries on. Add it to the `permissions:` line if you want the linked issues read. |
+
+A token that lacks one of the first three fails the step before any model is asked, with an `::error` annotation that names the missing permission and the line to add (`permissions: { contents: read, pull-requests: write, statuses: write }`), and sets the `LemonCrow Review` status to `error` when it can write one. A repository whose default `GITHUB_TOKEN` is read-only needs the `permissions:` block above; it is the usual cause.
+
+### When something is wrong
+
+The Action says so in four places: an `::error` annotation on the run page (shown at its top even when the job is green), the `LemonCrow Review` status, the summary comment's headline, and the job's exit code. A review that did not happen is never reported as a pass.
+
+| What went wrong | `LemonCrow Review` status | Annotation | Job |
+| --- | --- | --- | --- |
+| The key is rejected (expired, revoked, wrong), the account has no credit, the rate limit is hit, the model name is unknown, or the provider is down | `error`: `Review incomplete: <cause>; <fix>`, also the summary's headline | `::error` naming the cause and the fix, e.g. `Anthropic rejected the API key (HTTP 401). Check the secret passed as anthropic-api-key` | Green. Red with `fail-on: p0`. |
+| No key was passed | `error`: `No model key: pass anthropic-api-key or openai-api-key` | `::error` with both ways to pass a key | Red |
+| The token cannot write comments or the status | `error` when the token can write one | `::error` naming `pull-requests: write` or `statuses: write` and the one-line fix, `permissions: { contents: read, pull-requests: write, statuses: write }` | Red |
+| The checkout is shallow and cannot be deepened, or the pull request cannot be fetched | `error` | `::error` naming `fetch-depth: 0` (or `contents: read`) | Red |
+| The job is cancelled or times out mid-review | `error`: `The review job failed or was cancelled before it finished. Re-run it.` (set by the Action's last step, with a link to the run) | a warning from that step | Red (cancelled) |
+| A P0 is open and `fail-on: p0` | `failure` | none | Red |
+
+The job stays green when only the model failed and `fail-on` is `none`, because the check is advisory by default: the status and the annotation are the signal. A team that wants a red job sets `fail-on: p0`, and then **`fail-on: p0` makes the job fail exactly when the status is `failure` or `error`.**
 
 ### Inputs
 
 | Input | Default | Meaning |
 | --- | --- | --- |
+| `anthropic-api-key` | none | Your Anthropic API key, from a secret. The Action masks it, hands it to the gate and the review step only, and never prints it. |
+| `openai-api-key` | none | Your OpenAI API key, same handling. |
 | `github-token` | `${{ github.token }}` | Token the bot comments with. |
-| `model-provider` | `auto` | `anthropic`, `openai` or `litellm`. `auto` uses `ANTHROPIC_API_KEY`, else `OPENAI_API_KEY`, from the step's environment. |
+| `model-provider` | `auto` | `anthropic`, `openai` or `litellm`. `auto` uses the key you passed (Anthropic first when both are set). |
 | `model` | the provider's own | Model id (also `LEMONCROW_REVIEW_MODEL`). OpenAI defaults to `gpt-4o-mini`; Anthropic to `claude-sonnet-4-6`. Both are provisional until review cost per catch is measured. |
 | `depth` | `auto` | `auto`, `thorough` or `deep`. `auto` follows `review.effort` in `.lemoncrow/review.yaml` (Auto by default, `quick` if you set it there); the others go deeper for the run. It is also the depth of an `@lemoncrow review` comment that names none. |
-| `fail-on` | `none` | `p0` fails the `LemonCrow Review` status while a P0 finding is open. The pull request's author cannot dismiss a P0 (see "Learning from feedback"). |
+| `fail-on` | `none` | `p0` fails the `LemonCrow Review` status, and the job, while a P0 finding is open or when the review could not run. The pull request's author cannot dismiss a P0 (see "Learning from feedback"). |
 | `max-usd-per-pr` | none | Stop reviewing a pull request once its reviews have cost this many US dollars in total (a number such as `2.50`). See "A budget per pull request". |
 | `max-runs-per-pr` | none | Stop reviewing a pull request after this many reviews of it (a whole number such as `5`). |
 | `review-drafts` | `false` | Review draft pull requests too. |
@@ -124,9 +138,33 @@ Notes on the workflow:
 | `mention-aliases` | none | Extra handles the bot answers to besides `@lemoncrow`, comma separated (`@review-bot`). See "Chat in pull request threads". |
 | `chat-allowed-associations` | `OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR` | Whose mentions are answered, and whose reactions, replies and resolved threads teach the bot, by the `author_association` GitHub puts on the comment. |
 | `pr-number` | the event's pull request (also for a comment on one) | Set it for `workflow_dispatch` runs. |
-| `working-directory` | `.` | Where the repository is checked out. |
+| `working-directory` | `.` | Where the repository is checked out, or where the Action checks it out when there is none. |
 
 LiteLLM users can set `model-provider: litellm` and the variables LiteLLM already reads for their cloud (`AWS_*`, `AZURE_*`, `VERTEXAI_*`) plus `LEMONCROW_LITELLM_MODEL`. `LEMONCROW_LLM_BACKEND` is respected if you set it yourself. The intelligence policy and its kill switch (`intelligence.enabled` in the LemonCrow settings, `LEMONCROW_ROOT` on a self-hosted runner) apply exactly as they do locally: when AI is off, the run exits 0, posts no comment, and sets the `LemonCrow Review` status to `skipped: AI review is turned off`.
+
+### Notes on the workflow
+
+- **Optional extras.** The sample leaves out two lines you may want. `timeout-minutes: 15` on the job bounds a hung run (each model call has its own 120-second limit, so a review that is not done in a few minutes is stuck). A `concurrency:` block (`group: lemoncrow-${{ github.event.pull_request.number }}`, `cancel-in-progress: true`) makes a newer push cancel the review of an older one instead of running beside it; the Action settles the cancelled run's status itself. A comment (chat) never needs one.
+- **The key.** Pass it as the `anthropic-api-key` / `openai-api-key` input. GitHub passes a calling step's `env:` to every step of an Action, including the ones that install packages, so a key set as `ANTHROPIC_API_KEY` there reaches all of them; the input reaches only the two steps that call the model. Either way the Action masks it and never prints it. A secret you never created arrives empty and fails the gate with the no-key error above.
+- **`ready_for_review`** is in `types` so a draft is reviewed when it is marked ready; without it a draft's `skipped: draft pull request` status would stand until the next push.
+- **Organization policy.** If your organization restricts which actions may run, allow `lemoncrow-lab/lemoncrow`, `astral-sh/setup-uv` and `actions/cache`; the Action uses the latter two inside itself, each pinned to a commit SHA (`setup-uv` to its `v5.4.2`, `cache` to its `v4.3.0`), and `uv` itself is pinned to an exact version. The sample uses no other action.
+- **GitHub rate limits.** When GitHub throttles a call (HTTP 429, or a 403 that names a secondary rate limit), the Action waits and tries again up to three times (5, 15 and 45 seconds, or the wait GitHub states, at most 60 seconds each), and never more than 120 seconds in total in one run. A permission error (`Resource not accessible by integration`) is not a rate limit and is not retried. If the limit outlasts that, the one write that was refused is reported in the run's notes and the next push repeats it.
+- **Runners and tools.** Linux and macOS (the install is POSIX shell); Windows runners are not supported. The runner needs `git`, `bash`, `python3` (3.12 or 3.13: the Action uses it instead of downloading its own) and the GitHub CLI `gh`, which GitHub-hosted runners have. GitHub Enterprise Server is not supported yet.
+
+### Caching and network
+
+The Action keeps one small cache between runs, about 65 MB: the pinned security scanner and the tree-sitter parser bundle that the change diagram reads. Its key names the scanner release, its checksum and the parser pack version (never a pull request), so an upgrade starts from an empty cache. Python packages are not cached: restoring their cache costs as much as downloading them again (the install is a few seconds), and the Action uses the runner's own Python rather than downloading one. GitHub scopes a cache to the branch that saved it and lets a pull request also read the default branch's caches: the first review of a pull request saves the cache and its later pushes restore it. A cache saved by a workflow run on your default branch would serve every pull request; this workflow does not run there.
+
+The hosts a run contacts, for an egress allowlist:
+
+| Host | What for | When |
+| --- | --- | --- |
+| `api.github.com` (or your `GITHUB_API_URL`) and `github.com` | the pull request, comments and statuses; fetching the pull request's commits | always |
+| your model provider (`api.anthropic.com` or `api.openai.com`, or the host LiteLLM routes to) | the review's model calls | always |
+| `pypi.org`, `files.pythonhosted.org` | installing LemonCrow's pinned dependencies | always |
+| `github.com`, `release-assets.githubusercontent.com` | the security scanner (Opengrep, checksum verified) and the tree-sitter parser bundle | only when the cache misses |
+
+No LemonCrow host is contacted. LiteLLM's price table is read from its own package (`LITELLM_LOCAL_MODEL_COST_MAP=True`), not fetched from GitHub's main branch. A parser bundle that cannot be downloaded leaves the change diagram out and the review otherwise unchanged.
 
 ## What the bot posts
 
@@ -252,9 +290,11 @@ The `LemonCrow Review` commit status is set on the reviewed head, with a link to
 | No P0 finding, but a large pull request was cut to its highest-risk files | `success`, described `Partially reviewed: N of M files, highest risk first` |
 | A P0 finding and `fail-on: p0` | `failure` |
 | A P0 finding and `fail-on: none` | `success`, described as advisory |
-| Review incomplete (a model call failed, the call budget ran out) | `error` with `fail-on: p0`, otherwise `success` saying it is incomplete |
+| A model call failed (rejected key, no credit, rate limit, unknown model, provider down) | `error`, described `Review incomplete: <cause>; <fix>`, whatever `fail-on` says |
+| Review incomplete for another reason (the call budget ran out) | `error` with `fail-on: p0`, otherwise `success` saying it is incomplete |
+| The token cannot write comments or the status, or the pull request cannot be fetched | `error` when the token can write one, with an `::error` annotation naming the fix (see "When something is wrong") |
 
-Add `LemonCrow Review` to your branch protection's required checks if you want it to block, and read "Required checks and skipped runs" below first.
+`LemonCrow Review` is the one check to require in branch protection if you want the review to block; read "Required checks and skipped runs" below first. The workflow's own job check (`LemonCrow / review`) says only that the job ran: see "The check to require".
 
 #### Required checks and skipped runs
 
@@ -275,7 +315,7 @@ Dependabot-triggered runs are not covered either by default. They have no access
 
 A skipped run is never a failure, and a failed attempt to post the skipped status is never one either.
 
-**A partial review is `success` on purpose.** Auto examines at most two risk signals per run, so failing the check on every pull request with three or more would block merges for something its author cannot fix. What it will not do is look like full coverage: the headline, the check description and the status strip all say `Partially reviewed` and how many signals were reached, the check never says `No must-fix findings` for it, and a P0 found in the signals that were examined still fails the check under `fail-on: p0`. The unexamined signals are still owed: the next run (a push, or a re-run of the job) competes for the cap again until they are all examined. To examine more of them in one run, use `depth: thorough` or `deep`.
+**A partial review is `success` on purpose.** Auto examines every risk signal of a small change (up to six, each with an investigation of its own) and the two highest-ranked of a larger one, so failing the check on every pull request with more signals than that would block merges for something its author cannot fix. What it will not do is look like full coverage: the headline, the check description and the status strip all say `Partially reviewed` and how many signals were reached, the check never says `No must-fix findings` for it, and a P0 found in the signals that were examined still fails the check under `fail-on: p0`. The unexamined signals are still owed: the next run (a push, or a re-run of the job) competes for the cap again until they are all examined. To examine more of them in one run, use `depth: thorough` or `deep`.
 
 ### The hidden state
 
@@ -315,7 +355,7 @@ On a push, the Action reads the previous state, compares the new commit with it,
 - a fixed finding gets a reply on its thread, `Fixed in <short sha>`, and the thread is resolved when the token allows it (GitHub's `resolveReviewThread`). If it does not, the reply stays and the review still completes;
 - a finding whose code left the pull request is **stale**;
 - if the model call for a changed target fails, the finding stays, marked unverified, and the target is retried on the next push.
-- Auto investigates at most two hypotheses per run, however many risk signals a large change has. One it did not reach is **pending**, not reviewed: the headline says `Partially reviewed: N of M risk signals examined`, the status strip says `N risk signals not investigated yet`, and the next push competes for the cap again. Ask for `depth: thorough` to investigate more of them in one run.
+- Auto investigates every risk signal of a small change (up to six) and the two highest-ranked of a larger one. One it did not reach is **pending**, not reviewed: the headline says `Partially reviewed: N of M risk signals examined`, the status strip says `N risk signals not investigated yet`, and the next push competes for the cap again. Ask for `depth: thorough` to investigate more of them in one run.
 
 A push that changes nothing LemonCrow reviews makes no model call and posts nothing. A changed depth, rule set, content-access policy or review prompt re-reviews everything once, because last time's result no longer means the same thing.
 
@@ -590,7 +630,7 @@ The summary always says how many files were left out and by which globs (`3 file
 
 Above `max_files` changed files (default 100; `0` is no limit) a review is **never skipped**: the highest-risk files are reviewed first and the summary says so. Risk is the review's own and deterministic: a path you marked `critical` or `high` in `review.focus` first; then the strongest risk signal in the file (security, persistence, API, concurrency, performance; a file a rule of yours applies to counts as the strongest); then the order of the review's canonical queue. A file with no signal comes last.
 
-The summary then opens with `Partially reviewed: 100 of 143 files, highest risk first`, a block quote names the files left (the first twelve, and how many more), and the check is `success` described the same way, never `No must-fix findings`. The files left are *pending*, not reviewed: the next push, or a re-run of the job, takes the next `max_files` of them, highest risk first, until none is left (each of those runs counts toward `max-runs-per-pr`, and it costs what a review of those files costs; Auto still examines at most two risk signals per run). A finding on a file that was left over and then changed stays open, marked unverified, until that file is reviewed. A `recheck` of one finding is not cut.
+The summary then opens with `Partially reviewed: 100 of 143 files, highest risk first`, a block quote names the files left (the first twelve, and how many more), and the check is `success` described the same way, never `No must-fix findings`. The files left are *pending*, not reviewed: the next push, or a re-run of the job, takes the next `max_files` of them, highest risk first, until none is left (each of those runs counts toward `max-runs-per-pr`, and it costs what a review of those files costs; on a change this size Auto examines the two highest-ranked risk signals per run). A finding on a file that was left over and then changed stays open, marked unverified, until that file is reviewed. A `recheck` of one finding is not cut.
 
 ### Filters of the workflow
 
@@ -618,7 +658,8 @@ For the threshold, `inline_comments` and `max_files` the order is: `.lemoncrow/r
 
 ## Cost and limits
 
-- Every review runs under a hard cap of 20 model calls, and Auto typically uses a few. Formatting-only and comment-only changes cost zero calls.
+- Every review runs under a hard cap of 20 model calls. Formatting-only and comment-only changes cost zero calls.
+- **What Auto costs.** Auto examines every risk signal of a small change: one investigation per file and kind of signal (security, persistence, API, concurrency, performance, a rule of yours), up to six signals, with no extra call spent choosing among them; a function that is several changed scopes is asked about once, so it is reported once. At about 2,000 input and 500 output tokens a call, a Sonnet-class model ($3 and $15 per million tokens) costs about 1.4 cents an investigation, so a small pull request costs about 1.4 cents per signal (two signals: 3 cents; six: 8 cents), and a push re-asks only the scopes it changed. A change with more than six signals keeps the two-investigation Auto (plus one call that groups the signals), says `Partially reviewed: N of M risk signals examined`, and costs about 4 cents; `depth: thorough` or `deep` examine more of them and cost about three and five times as much. If you would rather have the cheaper, narrower Auto on every pull request, cap the calls in `.lemoncrow/review.yaml` (`per_review_model_calls`): Auto then investigates the highest-ranked signals the cap allows and the summary says how many it reached. Each call also asks for at most 8,192 output tokens (`LEMONCROW_REVIEW_MAX_OUTPUT_TOKENS` changes it), so no single call can cost more than a few cents of output.
 - Lower the cap, or pick the depth, in `.lemoncrow/review.yaml`. It is read from the pull request's **merge base**, never from the pull request's own branch, so a pull request cannot loosen its own review:
 
 ```yaml
@@ -659,10 +700,6 @@ Limits to know:
 - The total is what finished runs saved. A run cancelled by `concurrency` before it wrote its summary spent money that no state records, so it is not counted; neither is a pull request whose summary comment was deleted, which starts from zero.
 - A rerun of a commit that was already reviewed is never a budget event: it costs nothing.
 
-### Pin the Action during a trial
-
-A LemonCrow release that changes the review prompt or the checks changes what "reviewed" means, so every open pull request is re-reviewed once on its next push, and a floating tag would do that without you choosing it. During a trial, pin `uses: lemoncrow-lab/lemoncrow@<full commit SHA>` (see "Releasing the Action" for where the SHA comes from), upgrade on purpose, and expect one re-review of each open pull request when you do. The Action installs LemonCrow from its own checkout at that ref, so the SHA pins the prompt, the checks and the dependencies together.
-
 ## Repository context
 
 A model reached through an API key (OpenAI, LiteLLM, Ollama) gets one prompt and no tools, so on its own it sees the changed lines and a few lines around them. A bug in a *different* file, such as a function whose signature changed while a caller was not updated, is invisible to it. So before each investigation LemonCrow adds a small, deterministic **context pack** for the changed code, found by searching the exact pull request snapshot (no index to build, no extra model call):
@@ -679,13 +716,13 @@ The pack is cut to a token budget that grows with the depth, the same ladder as 
 | Depth | Investigator calls (at most) | Context per call (at most) | Excerpts (callers / definitions / tests / config) |
 | --- | --- | --- | --- |
 | `quick` | 1 | 1,500 | 3 / 3 / 1 / 1 |
-| `auto` | 2 | 3,000 | 5 / 5 / 2 / 2 |
+| `auto` | 2 (up to 6 on a small change) | 3,000 | 5 / 5 / 2 / 2 |
 | `thorough` | 4 | 5,000 | 8 / 8 / 3 / 3 |
 | `deep` | 8 | 8,000 | 12 / 12 / 4 / 4 |
 
 The 1/2/5/9 call ladder counts one synthesis call at `thorough` and `deep`; that call does not get a pack.
 
-So context adds at most `investigator calls × ceiling` input tokens to a review (6,000 at `auto`, 20,000 at `thorough`, 64,000 at `deep`, and usually far less), and **never a model call**: the 1/2/5/9 investigator ladder and the 20-call cap are unchanged. When a pack is cut, the prompt says how many excerpts were left out, and the model is told that an absent caller proves nothing. The summary footer shows how much of the tokens was context, and the hidden state carries it as `usage.context_tokens`.
+So context adds at most `investigator calls × ceiling` input tokens to a review (6,000 at `auto`, or 18,000 when it investigates six signals of a small change; 20,000 at `thorough`, 64,000 at `deep`; usually far less), and **never a model call**: the 1/2/5/9 investigator ladder (Auto's six on a small change included) and the 20-call cap are unchanged. When a pack is cut, the prompt says how many excerpts were left out, and the model is told that an absent caller proves nothing. The summary footer shows how much of the tokens was context, and the hidden state carries it as `usage.context_tokens`.
 
 What it will not do:
 
@@ -756,20 +793,23 @@ GitHub gives `pull_request` runs from a fork no secrets and a read-only token, s
 
 Do not work around it with `pull_request_target`. That event runs with your secrets and a write token, and it is the event people pair with a checkout of the fork's code; the combination lets a pull request run its own code with your credentials. The Action refuses to run on it and fails with an error saying so.
 
-To review a fork's pull request deliberately, run the workflow by hand against your own trusted checkout. Never check out the pull request's head:
+To review a fork's pull request deliberately, run the workflow by hand from your own default branch. The Action checks out your base branch and fetches the pull request's commits as git objects; it never checks out the pull request's code. Never add a step that does:
 
 ```yaml
+name: LemonCrow (fork)
 on:
   workflow_dispatch:
     inputs:
-      pr:
-        description: Pull request number
-        required: true
-# …the same job, with:
-#   - uses: actions/checkout@v4          # your default branch, not the fork
-#       with: {fetch-depth: 0}
-#   - uses: lemoncrow-lab/lemoncrow@<commit-sha>  # pin to a release commit
-#       with: {pr-number: "${{ inputs.pr }}"}
+      pr: {description: Pull request number, required: true}
+permissions: { contents: read, pull-requests: write, statuses: write }
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: lemoncrow-lab/lemoncrow@<sha>  # v0.9.0
+        with:
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          pr-number: ${{ inputs.pr }}
 ```
 
 LemonCrow fetches the pull request's git objects and sends the diff to your model; it does not run it. Send only pull requests you are willing to show your model provider.
@@ -803,47 +843,42 @@ It uses the same findings, severity, noise controls (threshold and strictness, `
 
 `--publish-bot` itself runs only in GitHub Actions: on a laptop your `gh` login is a person, and AI output must not be posted under a person's name. This is the full Review CLI (`uv run lc review` in a source checkout).
 
-## Installing a pinned version
-
-`uses:` needs a ref that exists in the **public** repository, `lemoncrow-lab/lemoncrow`. Use the full commit SHA of one of its commits:
-
-- Open the repository's commit list (or its releases) on github.com, pick the commit you want to run, and copy its **full** 40-character SHA, not the 7-character short form: GitHub resolves only a full SHA in `uses:`.
-- Or from a terminal: `gh api repos/lemoncrow-lab/lemoncrow/commits/HEAD --jq .sha` for the latest commit of the default branch, or `git ls-remote https://github.com/lemoncrow-lab/lemoncrow.git refs/tags/<tag>` for a release tag (an annotated tag is listed twice; the line ending `^{}` is the commit).
-- The public repository's history is a filtered rewrite of the private one, so a SHA from the private repository does not exist there. Always take it from the public one.
-
-Once a release tag exists you can pin that instead (`@v0.9.0`, for example), which is readable but moves if a tag is ever re-pushed; a SHA cannot. There is no `v1` tag to float on: the Release workflow requires a tag to equal the package version, so a `v1` tag would fail it.
-
-Org policy and trial advice are in "Notes on the workflow" and "Pin the Action during a trial".
-
 ## Releasing the Action
 
-For the owner of the repository. The Action runs from the **public** repository, so until the mirror has published it, no customer can use it. In order:
+For the owner of the repository. The Action runs from the **public** repository, so until the mirror has published it, no customer can use it, and no page (this guide, the README, `lc review init-action`) should advertise it before then. In order:
 
 1. **Merge to `main`.** The Action (`action.yml`, the `pr_bot` package and the allowlist change) lives on a feature branch of the private repository until it is merged. Land it on `main` through the normal review.
-2. **Run the mirror with `--resync`.** `scripts/public-paths.txt` was widened (it now allows `action.yml`), and an ordinary incremental mirror applies only the paths each new commit touched, so it would publish a fragment. From a checkout of `main`:
+2. **Run the mirror with `--resync`.** `scripts/public-paths.txt` allows `action.yml`, and an ordinary incremental mirror applies only the paths each new commit touched, so it would publish a fragment. From a checkout of `main`:
 
    ```bash
    make mirror ARGS="--resync"
    ```
 
    This publishes everything the allowlist newly allows as one new commit on top of the public `HEAD` (a fast-forward, no history rewrite). Add `ARGS="--resync --dry-run"` first to see the plan. `git ls-remote origin refs/mirror/last-pub` then prints the public SHA that run created.
-3. **Check the public tree** has `action.yml`, `uv.lock`, `pyproject.toml`, `hatch_build.py`, `vendor/` and `src/lemoncrow/pro/capabilities/review/pr_bot/` (`uv run python scripts/mirror.py --export-dir <empty dir> --source-ref HEAD` materializes exactly what is published, and the Action's install command can be run against it).
-4. **Pick the ref customers pin.** Either:
-   - **a commit**: the public SHA from step 2 (or any later public commit). Nothing else is needed; customers use `lemoncrow-lab/lemoncrow@<that sha>`; or
-   - **the next semver release**, for example `v0.9.0`, cut through the repository's normal release flow (`make release-prepare tag=v0.9.0`, then `make release-qualify tag=v0.9.0`, then `make release tag=v0.9.0`, which pushes, mirrors and tags). Do not cut a `v1` tag: `.github/public-workflows/release.yml` runs on every `v*` tag and `scripts/release_version.py check` requires the tag to equal the package version (`0.8.0` is not `1`), so it would fail the Release run. This change leaves the release process as it is.
-5. **Try it once** from a scratch private repository on a real runner with `uses: lemoncrow-lab/lemoncrow@<the public sha>` before telling a customer to.
+3. **Check the public tree** has `action.yml`, `uv.lock`, `pyproject.toml`, `hatch_build.py`, `vendor/` and `src/lemoncrow/pro/capabilities/review/pr_bot/` (`uv run python scripts/mirror.py --export-dir <empty dir> --source-ref HEAD` materializes exactly what is published, and the Action's steps can be run against it).
+4. **`action.yml` must exist in the public tag before any page advertises the Action.** The tag a release points at is what `uses:` resolves, and a tag cut before the Action existed (`v0.8.0` is one) has no `action.yml`: any `uses:` of it fails with "action not found". Before the release notes, the README or this guide go out, check the tag and the SHA the notes will print:
+
+   ```bash
+   curl -fsSI https://raw.githubusercontent.com/lemoncrow-lab/lemoncrow/<tag>/action.yml   # must answer 200
+   ```
+
+5. **Cut the release** through the repository's normal flow (`make release-prepare tag=vX.Y.Z`, then `make release-qualify tag=vX.Y.Z`, then `make release tag=vX.Y.Z`, which pushes, mirrors and tags). Do not cut a `v1` tag: `.github/public-workflows/release.yml` runs on every `v*` tag and `scripts/release_version.py check` requires the tag to equal the package version, so it would fail the Release run. That workflow renders the release notes with `scripts/release_notes.py <version> --action-sha "$GITHUB_SHA"`, which adds a **GitHub Action** section with the line to copy, `uses: lemoncrow-lab/lemoncrow@<the tag's public commit>  # vX.Y.Z`. That section is "the release commit shown at" the releases page that "Pin the Action" and `lc review init-action` point to.
+6. **Keep the one placeholder line in step.** The README, this guide and the `init-action` sample show the same line, `lemoncrow-lab/lemoncrow@<sha>  # v0.9.0` (`PIN_LINE` in `pr_bot/init_action.py`; a test holds the three equal). For a new release change the version after `#` in all three places and in `PIN_VERSION`, in the release commit.
+7. **Try it once** from a scratch private repository on a real runner with the line from the release notes before telling a customer to. Nothing in the Action has been checked against a live repository yet: the permission handling, the cache and the status calls are tested against a fake GitHub only.
 
 Until step 2 has run, `lemoncrow-lab/lemoncrow` on github.com has no `action.yml`, and any `uses:` of it fails with an error that the action cannot be found.
 
 ## How it installs
 
-LemonCrow is not on PyPI. The Action checks out itself at the ref you named, installs that checkout from its lockfile with `uv sync --frozen` into a private environment, and runs `lemoncrow review` from there. It installs only the client library for the route you use (`openai` or `litellm`). This repository's root `action.yml` is the Action, so `uses: lemoncrow-lab/lemoncrow@<ref>` is the whole install.
+LemonCrow is not on PyPI. The Action runs these steps, in order, and the first costs seconds: a gate that decides whether to review (standard library only: forks, drafts and a missing key stop here); the checkout of the pull request, if the workspace has none or a shallow one; the cache restore; `uv`; the install of LemonCrow from the Action's own checkout and lockfile with `uv sync --frozen` into a private environment, on the runner's own Python (3.12 or 3.13; `uv` downloads one only when there is none); the security scanner; the review; and a last step that settles the check. It installs only the client library for the route you use (`openai` or `litellm`). This repository's root `action.yml` is the Action, so `uses: lemoncrow-lab/lemoncrow@<ref>` is the whole install.
 
 ## Troubleshooting
 
-- **`No model credentials`**: the key reached the workflow but not the step. Pass it in the step's `env:`, as above.
-- **`model calls failed`** with an Anthropic key: the LiteLLM route reads JSON out of a Markdown fence or surrounding prose and retries once, asking for only JSON, before it gives up, so a failure that persists is the provider's answer (an auth, quota or model-name error) and is in the run log. The Anthropic route has not been run against a live provider yet.
-- **`Resource not accessible by integration`** in the run log: the workflow lacks a permission. The review still completes; the note names what it could not do (a status needs `statuses: write`, comments and thread resolution need `pull-requests: write`).
+- **`No model key`** (a red job, and an `error` status): the key reached the workflow but not the Action. Pass it as `with: {anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}}` (or `openai-api-key`); a secret that does not exist arrives empty.
+- **`Review incomplete: Anthropic rejected the API key (HTTP 401)`** (or `no credit left`, `rate-limited`, `does not know the model`, `unavailable or overloaded`): the model call failed and the annotation on the run says why and what to change. A rejected key, an empty balance and an unknown model fail the same way on every run until you change them; a rate limit and an overloaded provider are worth a re-run. The model route reads JSON out of a Markdown fence or surrounding prose and retries once, asking for only JSON, before it reports that the model did not answer in the right format. The Anthropic route has not been run against a live provider yet.
+- **`The workflow token is missing pull-requests: write`** (or `statuses: write`): add `permissions: { contents: read, pull-requests: write, statuses: write }` at the top of the workflow. The step fails before any model is asked, so nothing was spent. A repository whose default token is read-only needs the block.
+- **`The checkout is shallow and could not be deepened`**: the Action deepens a shallow checkout itself. This message means the fetch failed (the error says why); set `fetch-depth: 0` on your `actions/checkout` step, or remove that step and let the Action check out the pull request.
+- **The `LemonCrow Review` status says `error: The review job failed or was cancelled before it finished`**: the job was cancelled or timed out while it ran, and the Action's last step turned the `pending` status into this. Re-run the job. If the runner itself is lost nothing can run, and the status stays `pending` until the next push or a re-run.
 - **Nothing happened on a pull request**: check the run's notice. Forks, drafts and `on-push: false` runs say so, and all but forks also set the `LemonCrow Review` status to `skipped: <reason>`.
 - **A mention got no answer**: look at the run log of the comment's workflow run. The usual causes are that the workflow does not trigger on `issue_comment` / `pull_request_review_comment`, that the job's `if:` did not match (an alias must be added to it), that the commenter's `author_association` is not allowed (the log says so), that the comment was on a fork's review thread (no secrets), or that the comment only quoted the handle in code or a quote.
 - **A thumbs-down did nothing**: it is read by the next run, not when you click (GitHub has no event for a reaction); push, re-run the workflow, or `@lemoncrow ignore` the finding. The reaction must be on the bot's own inline comment, from a person whose association is allowed (or who has write access), and the finding must still be open; a rule violation is never dismissed by feedback.

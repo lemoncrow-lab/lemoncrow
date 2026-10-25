@@ -1107,9 +1107,10 @@ def test_the_pin_and_install_commands_write_action_outputs_and_always_exit_zero(
     monkeypatch.setattr("platform.machine", lambda: "x86_64")
     assert opengrep_install.main(["pin"]) == 0
     lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
-    assert lines["dir"] == str(tmp_path / "temp" / "lemoncrow-opengrep")
+    # One directory is cached: the scanner and the parser bundle live under it. The key names content, never a pull request.
+    assert lines["dir"] == str(tmp_path / "temp" / "lemoncrow-cache")
     pin = opengrep_install.PINS[("linux", "x86_64")]
-    assert lines["key"] == f"opengrep-{opengrep_install.VERSION}-{pin.sha256[:16]}-{pin.asset}"
+    assert lines["key"] == f"lemoncrow-v1-linux-x86_64-opengrep-{opengrep_install.VERSION}-{pin.sha256[:16]}"
 
     monkeypatch.setattr(opengrep_install, "install", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
     output.write_text("")
@@ -1118,6 +1119,30 @@ def test_the_pin_and_install_commands_write_action_outputs_and_always_exit_zero(
     assert lines["bin"] == "" and lines["note"] == "the install failed (RuntimeError)"
     assert "::warning" in capsys.readouterr().out
     assert opengrep_install.main(["unknown"]) == 0
+
+
+def test_the_cache_key_names_the_scanner_and_the_parser_pack_and_never_a_pull_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    action = tmp_path / "action"
+    action.mkdir()
+    (action / "uv.lock").write_text(
+        '[[package]]\nname = "tree-sitter-language-pack"\nversion = "1.12.5"\nsource = { registry = "x" }\n'
+    )
+    env = {"GITHUB_ACTION_PATH": str(action), "GITHUB_REF": "refs/pull/7/merge", "GITHUB_HEAD_REF": "feature"}
+    pin = opengrep_install.PINS[("linux", "x86_64")]
+    key = opengrep_install.cache_key(env, "Linux", "x86_64")
+    assert key == f"lemoncrow-v1-linux-x86_64-opengrep-{opengrep_install.VERSION}-{pin.sha256[:16]}-parsers-1.12.5"
+    assert "pull" not in key and "feature" not in key and "refs" not in key
+    # With the scan off nothing of the scanner is cached or keyed; the parser bundle still is.
+    assert opengrep_install.cache_key({**env, "LEMONCROW_SECURITY_SCAN": "off"}, "Linux", "x86_64") == (
+        "lemoncrow-v1-linux-x86_64-parsers-1.12.5"
+    )
+    # A new parser pack in the lockfile is a new cache.
+    (action / "uv.lock").write_text('[[package]]\nname = "tree-sitter-language-pack"\nversion = "1.13.0"\n')
+    assert opengrep_install.cache_key(env, "Linux", "x86_64").endswith("-parsers-1.13.0")
+    assert opengrep_install.cache_root({"RUNNER_TEMP": "/t"}) == Path("/t/lemoncrow-cache")
+    assert opengrep_install.cache_directory({"RUNNER_TEMP": "/t"}) == Path("/t/lemoncrow-cache/opengrep")
 
 
 def test_a_platform_without_a_pin_gets_no_cache_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

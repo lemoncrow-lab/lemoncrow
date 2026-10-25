@@ -444,6 +444,60 @@ _EFFORT_PROFILES: dict[ReviewEffort, EffortProfile] = {
     "deep": EffortProfile(8, 8, True, True),
 }
 
+#: Auto looks at every risk signal of a small change. Its normal budget is two investigations, which leaves a change
+#: with three risk signals "Partially reviewed" on the very first pull request of a team; so up to this many signals
+#: (changed targets that carry one) each get an investigation of their own, under the same hard cap on model calls,
+#: and a larger change keeps the two (the summary says how many it reached; ``thorough`` and ``deep`` go further).
+AUTO_FULL_COVERAGE_SIGNALS = 6
+
+
+def _auto_cover(
+    candidates: Sequence[ReviewCandidate], *, paths: Mapping[str, str], calls_left: int
+) -> tuple[ReviewCandidate, ...] | None:
+    """The candidates Auto investigates so that every risk signal of a small change is examined, else ``None``.
+
+    ``candidates`` come highest score first; ``paths`` maps a target id to its file. Each target is covered by the first
+    candidate that names it, so a target with two categories costs one call and a rule that names several targets
+    covers them with one. Targets of one file that share a category are asked about together: a function is often
+    several targets (its signature, its body, a hunk), and asking about each alone makes a model report one problem
+    once per target. Applies when the change has more risk signals than Auto's two investigations (otherwise the normal
+    path already covers them) and no more than :data:`AUTO_FULL_COVERAGE_SIGNALS`. The investigations are the
+    candidates' own deterministic hypotheses: no synthesis call is spent choosing among them. ``calls_left`` is what
+    the hard cap still allows; when it allows fewer than the signals need, the highest-ranked are investigated and the
+    rest are honestly pending.
+    """
+
+    signals = {target for candidate in candidates for target in candidate.target_ids}
+    normal = _EFFORT_PROFILES["auto"].max_investigations
+    if not normal < len(signals) <= AUTO_FULL_COVERAGE_SIGNALS:
+        return None
+    chosen: list[ReviewCandidate] = []
+    covered: set[str] = set()
+    for candidate in candidates:
+        if set(candidate.target_ids) - covered:
+            chosen.append(candidate)
+            covered.update(candidate.target_ids)
+    merged: list[ReviewCandidate] = []
+    by_file: dict[tuple[str, str], int] = {}
+    for candidate in chosen:
+        where = paths.get(candidate.target_ids[0], "") if len(candidate.target_ids) == 1 else ""
+        slot = by_file.get((candidate.category, where)) if where else None
+        if slot is None:
+            if where:
+                by_file[(candidate.category, where)] = len(merged)
+            merged.append(candidate)
+            continue
+        first = merged[slot]
+        merged[slot] = replace(
+            first,
+            target_ids=tuple(dict.fromkeys((*first.target_ids, *candidate.target_ids))),
+            rationale=tuple(dict.fromkeys((*first.rationale, *candidate.rationale))),
+            scope=f"{first.scope}; {candidate.scope}",
+        )
+    merged = merged[: max(calls_left, 0)]
+    return tuple(merged) or None
+
+
 HYPOTHESIS_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -2645,6 +2699,18 @@ def _run_independent_review_stages(
         )
 
     profile = _EFFORT_PROFILES[effort]
+    cover = (
+        _auto_cover(
+            candidates,
+            paths={target.target_id: target.path for target in allowed_targets},
+            # The rule questions the plan asks run after the investigations and need their calls.
+            calls_left=effective_budget.max_review_calls - calls_before - len(covered_rule_refs),
+        )
+        if effort == "auto" and pr_fields  # the pull request review; the Reader's recorded calls stay as they were
+        else None
+    )
+    if cover is not None:
+        profile = replace(profile, max_hypotheses=len(cover), max_investigations=len(cover))
     candidate_targets = {
         target.target_id: target
         for target in allowed_targets
@@ -2777,10 +2843,14 @@ def _run_independent_review_stages(
         # a separate synthesis call cannot add breadth and only burns budget. A
         # false stage-plan value still forbids synthesis; a true value authorizes
         # it only when there is more than one candidate to synthesize.
-        synthesize = len(candidates) > 1 and (
-            synthesize_override
-            if synthesize_override is not None
-            else profile.synthesize_hypotheses and (effort in {"thorough", "deep"} or len(candidates) > 2)
+        synthesize = (
+            cover is None
+            and len(candidates) > 1
+            and (
+                synthesize_override
+                if synthesize_override is not None
+                else profile.synthesize_hypotheses and (effort in {"thorough", "deep"} or len(candidates) > 2)
+            )
         )
         if synthesize and executed is not None:
             executed.append("ai.hypotheses")
@@ -2833,7 +2903,8 @@ def _run_independent_review_stages(
                     limit=profile.max_hypotheses,
                 )
         else:
-            hypotheses = tuple(_direct_hypothesis(candidate) for candidate in candidates[: profile.max_hypotheses])
+            chosen = cover if cover is not None else candidates[: profile.max_hypotheses]
+            hypotheses = tuple(_direct_hypothesis(candidate) for candidate in chosen)
 
         if cancellation is not None and cancellation():
             return cancelled_result()

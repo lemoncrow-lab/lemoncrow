@@ -326,3 +326,109 @@ def test_streamed_json_gets_the_same_tolerance(monkeypatch: pytest.MonkeyPatch) 
         [{"role": "user", "content": "x"}], on_delta=seen.append, json_schema={"type": "object"}
     )
     assert payload == {"ok": True} and len(seen) == 3
+
+
+# --------------------------------------------------------------------------- #
+# the review's model call: a rejected key is not retried, and the output is bounded
+# --------------------------------------------------------------------------- #
+
+
+class _AuthError(Exception):
+    status_code = 401
+
+
+class _RejectingLiteLLM(_FakeLiteLLM):
+    """A provider that answers every request with an error."""
+
+    def __init__(self, error: Exception) -> None:
+        super().__init__("{}")
+        self._error = error
+
+    def completion(self, **kwargs: Any) -> _Response:
+        self.calls.append(kwargs)
+        raise self._error
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        _AuthError("litellm.AuthenticationError: invalid x-api-key"),
+        type("RateLimitError", (Exception,), {})("litellm.RateLimitError: Your credit balance is too low"),
+        ValueError("Your credit balance is too low to access the Anthropic API"),
+    ],
+)
+def test_a_rejected_key_or_an_empty_balance_is_asked_once_not_twice(
+    monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    fake = _RejectingLiteLLM(error)
+    monkeypatch.setattr(litellm_client, "_litellm_module", lambda: fake)
+
+    with pytest.raises(LiteLLMUnavailable):
+        litellm_client.chat_with_result([{"role": "user", "content": "x"}], json_schema={"type": "object"})
+
+    assert len(fake.calls) == 1, "the retry without response_format cannot change a 401 and would be paid or counted"
+
+
+def test_a_provider_that_rejects_the_response_format_is_still_retried_without_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _FakeLiteLLM('{"ok": true}', reject_response_format=True)
+    monkeypatch.setattr(litellm_client, "_litellm_module", lambda: fake)
+
+    result = litellm_client.chat_with_result([{"role": "user", "content": "x"}], json_schema={"type": "object"})
+
+    assert result.parsed_json == {"ok": True} and len(fake.calls) == 2
+
+
+def test_the_output_limit_is_bounded_by_default_by_the_environment_and_by_what_the_model_can_do(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Table:
+        def __init__(self) -> None:
+            self.model_cost = {"claude-small": {"max_output_tokens": 4096}, "claude-big": {"max_output_tokens": 128000}}
+
+    monkeypatch.setattr(litellm_client, "_litellm_module", lambda: Table())
+    assert litellm_client.REVIEW_MAX_OUTPUT_TOKENS == 8192
+    # LiteLLM sends the model's own maximum (128,000 for current Claude models) unless told otherwise.
+    assert litellm_client.bounded_max_tokens("anthropic/claude-big", {}) == 8192
+    assert litellm_client.bounded_max_tokens("anthropic/claude-small", {}) == 4096
+    assert litellm_client.bounded_max_tokens("unknown-model", {}) == 8192
+    assert (
+        litellm_client.bounded_max_tokens("anthropic/claude-big", {"LEMONCROW_REVIEW_MAX_OUTPUT_TOKENS": "2000"})
+        == 2000
+    )
+    assert (
+        litellm_client.bounded_max_tokens("anthropic/claude-small", {"LEMONCROW_REVIEW_MAX_OUTPUT_TOKENS": "99999"})
+        == 4096
+    )
+    assert (
+        litellm_client.bounded_max_tokens("anthropic/claude-big", {"LEMONCROW_REVIEW_MAX_OUTPUT_TOKENS": "lots"})
+        == 8192
+    )
+    assert (
+        litellm_client.bounded_max_tokens("anthropic/claude-big", {"LEMONCROW_REVIEW_MAX_OUTPUT_TOKENS": "0"}) == 8192
+    )
+
+
+def test_the_review_route_sends_max_tokens_to_litellm(monkeypatch: pytest.MonkeyPatch) -> None:
+    from lemoncrow.pro.capabilities.review import intelligence_runtime
+
+    seen: dict[str, Any] = {}
+
+    def fake_chat(messages: list[dict[str, Any]], **kwargs: Any) -> Any:
+        from lemoncrow.infra.internal_llm.result import InternalLLMChatResult
+
+        seen.update(kwargs)
+        return InternalLLMChatResult(content="{}", parsed_json={}, model="anthropic/x", reported_model="x")
+
+    monkeypatch.setattr(litellm_client, "chat_with_result", fake_chat)
+    monkeypatch.setattr(litellm_client, "bounded_max_tokens", lambda model, env=None: 4321)
+    intelligence_runtime.execute_structured(
+        system="s",
+        prompt="p",
+        output_schema={"type": "object"},
+        driver="litellm",
+        model="anthropic/x",
+        origin="machine",
+    )
+    assert seen["extra_kwargs"] == {"max_tokens": 4321} and seen["model"] == "anthropic/x"

@@ -27,6 +27,7 @@ SLUG = "acme/widgets"
 NUMBER = 7
 BOT = {"login": "github-actions[bot]", "type": "Bot"}
 PERSON = {"login": "alice", "type": "User"}
+PROBE = f"repos/{SLUG}/issues/comments/0"
 
 
 def git(cwd: Path, *args: str) -> str:
@@ -107,6 +108,10 @@ class FakeGitHub:
         self.threads: dict[int, dict[str, Any]] = {}
         self.deny_resolve = False
         self.deny_status = False
+        self.deny_comments = False
+        """The token lacks ``pull-requests: write``: every comment, review and reply is refused, as is the probe."""
+        self.deny_comments_after_probe = False
+        """The probe passes (``Not Found``) and every comment, review and reply is refused anyway."""
         self.calls: list[tuple[str, str]] = []
         self.review_posts = 0
         self.posted_reviews: list[dict[str, Any]] = []
@@ -219,7 +224,8 @@ class FakeGitHub:
             return json.dumps([self._list(call[3])])
         if call[1] == "--method":
             method, path = call[2], call[3]
-            self.calls.append((method, path))
+            if (method, path) != ("PATCH", PROBE):  # the permission probe changes nothing and is not a write
+                self.calls.append((method, path))
             return self._write(method, path, json.loads(stdin or "{}"))
         self.calls.append(("GET", call[1]))
         collaborator = re.fullmatch(rf"repos/{SLUG}/collaborators/([^/]+)/permission", call[1])
@@ -276,6 +282,12 @@ class FakeGitHub:
         raise AssertionError(f"unexpected list: {endpoint}")
 
     def _write(self, method: str, path: str, body: dict[str, Any]) -> str:
+        if method == "PATCH" and path == PROBE:  # the permission probe: no such comment
+            raise GitHubCliError(
+                "Resource not accessible by integration (HTTP 403)" if self.deny_comments else "Not Found (HTTP 404)"
+            )
+        if (self.deny_comments or self.deny_comments_after_probe) and not path.startswith(f"repos/{SLUG}/statuses/"):
+            raise GitHubCliError("Resource not accessible by integration (HTTP 403)")
         if method == "POST" and path == f"{self.api}/reviews":
             return self._post_review(body)
         if method == "POST" and path.startswith(f"{self.api}/comments/") and path.endswith("/replies"):

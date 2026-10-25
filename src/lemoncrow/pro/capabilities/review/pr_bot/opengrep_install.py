@@ -6,6 +6,11 @@ The Action runs this before anything else is installed, in the two steps around 
     python3 opengrep_install.py pin       # outputs: dir, key           (no network)
     python3 opengrep_install.py install   # outputs: bin, note          (verifies, downloads when it must)
 
+``dir`` is the one directory the Action's cache step saves (:func:`cache_root`): the scanner here, and the tree-sitter
+parser bundle the review would otherwise download on every run (``XDG_CACHE_HOME`` points into it). ``key`` names
+everything in it by content: the scanner's release and digest and the parser pack's version, so a re-pin or an upgrade
+starts from an empty cache and nothing is keyed on a pull request.
+
 Whatever happens, it exits 0: a scanner that cannot be installed never fails the review, the review only says
 "security scan unavailable" with the ``note`` this prints (``LEMONCROW_OPENGREP_NOTE`` in the review step).
 
@@ -198,8 +203,47 @@ def _output(name: str, value: str) -> None:
         sys.stdout.write(line)
 
 
+CACHE_NAME = "lemoncrow-cache"
+#: The version of the parser pack the lockfile pins: its bundle is cached, and a new version is a new cache.
+_PARSER_PACK = re.compile(r'name = "tree-sitter-language-pack"\nversion = "([^"]+)"')
+
+
+def cache_root(environ: Mapping[str, str]) -> Path:
+    """The directory the Action's cache step saves and restores."""
+
+    return Path(environ.get("RUNNER_TEMP") or tempfile.gettempdir()) / CACHE_NAME
+
+
 def cache_directory(environ: Mapping[str, str]) -> Path:
-    return Path(environ.get("RUNNER_TEMP") or tempfile.gettempdir()) / "lemoncrow-opengrep"
+    return cache_root(environ) / "opengrep"
+
+
+def parser_pack_version(environ: Mapping[str, str]) -> str:
+    """The pinned tree-sitter-language-pack version, read from the Action's own ``uv.lock``; ``""`` when not found."""
+
+    action = str(environ.get("GITHUB_ACTION_PATH") or "").strip()
+    if not action:
+        return ""
+    try:
+        text = (Path(action) / "uv.lock").read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    found = _PARSER_PACK.search(text)
+    return found[1] if found else ""
+
+
+def cache_key(environ: Mapping[str, str], system: str, machine: str) -> str:
+    """The cache key: platform, scanner release and digest (when the scan is on), parser pack version. No PR in it."""
+
+    kind, arch = platform_key(system, machine)
+    parts = ["lemoncrow", "v1", kind, arch]
+    pin, _why = pin_for(system, machine)
+    if pin is not None and str(environ.get("LEMONCROW_SECURITY_SCAN") or "auto").strip().lower() != "off":
+        parts += ["opengrep", VERSION, pin.sha256[:16]]
+    parsers = parser_pack_version(environ)
+    if parsers:
+        parts += ["parsers", parsers]
+    return "-".join(parts) if len(parts) > 4 else ""  # nothing worth keeping on this platform: no cache step
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -210,8 +254,8 @@ def main(argv: list[str] | None = None) -> int:
     pin, _why = pin_for(system, machine)
     if command == "pin":
         # The cache key names the release and the exact digest, so a re-pin starts from an empty cache.
-        _output("dir", str(directory))
-        _output("key", f"opengrep-{VERSION}-{pin.sha256[:16]}-{pin.asset}" if pin else "")
+        _output("dir", str(cache_root(os.environ)))
+        _output("key", cache_key(os.environ, system, machine))
         return 0
     if command == "install":
         try:

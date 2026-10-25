@@ -253,7 +253,10 @@ jobs:
       - name: Generate release notes
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          python scripts/release_notes.py "${VERSION%%-rc*}" > RELEASE_NOTES.md
+          # A stable release's notes carry the GitHub Action pin line with this tag's commit; a candidate's do not.
+          pin=(--action-sha "$GITHUB_SHA")
+          if [[ "$VERSION" == *-rc* ]]; then pin=(); fi
+          python scripts/release_notes.py "${VERSION%%-rc*}" "${pin[@]}" > RELEASE_NOTES.md
           if [[ "$VERSION" == *-rc* ]]; then
             sed -i '1iPRE-RELEASE: release candidate for testing. Full release qualification is pending.\n' RELEASE_NOTES.md
           fi

@@ -208,21 +208,35 @@ inline P0/P1 findings, and a `LemonCrow Review` status. On each push it
 re-reviews only what changed and carries the rest forward, so a push to a
 long-running pull request does not pay to review the same code twice.
 
+Add your model key as the repository secret `ANTHROPIC_API_KEY` (or
+`OPENAI_API_KEY`, passed as `openai-api-key`), and save this as
+`.github/workflows/lemoncrow-review.yml`:
+
 ```yaml
-- uses: lemoncrow-lab/lemoncrow@<commit-sha>  # pin to a release commit
-  env:
-    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}   # or OPENAI_API_KEY
-  with:
-    # Advisory while you trial it. After a few weeks of P0s you agree with, set `p0`
-    # to fail the "LemonCrow Review" check while a P0 is open.
-    fail-on: none
+name: LemonCrow
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions: { contents: read, pull-requests: write, statuses: write }
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: lemoncrow-lab/lemoncrow@<sha>  # v0.9.0
+        with:
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
-Replace `<commit-sha>` with the full SHA of a commit of the public repository
-(there is no moving `v1` tag; the guide explains how to find the SHA).
-The full workflow, permissions, fork-pull-request behavior and limits are in
-[Install the GitHub Action](docs/setup/github-action.md). To try it without
-CI: `lc review --pr 123 --ai` prints the findings and posts
+That is the whole file: the Action checks out the pull request itself, fetches
+the history it needs and cleans up its own status, and a bad key or a token
+without `pull-requests: write` fails loudly instead of passing quietly. Replace
+`<sha>` with the release commit the
+[latest release](https://github.com/lemoncrow-lab/lemoncrow/releases/latest)
+prints (a commit, not a branch: the commit is the version that reviews). The
+options (depth, `fail-on`, strictness, chat, budgets), the permissions, the one
+status to require and the fork-pull-request behavior are in
+[Install the GitHub Action](docs/setup/github-action.md). To try it without CI:
+`lc review --pr 123 --ai` prints the findings and posts
 nothing.
 
 ---

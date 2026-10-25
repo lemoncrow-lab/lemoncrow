@@ -146,6 +146,12 @@ MAX_WAIT_S: Final[float] = 60.0
 WAIT_BUDGET_S: Final[float] = 120.0
 
 
+def is_denied(exc: BaseException) -> bool:
+    """Whether GitHub refused a call because the token lacks a permission (waiting or retrying cannot change that)."""
+
+    return "resource not accessible by integration" in str(exc).lower()
+
+
 def _retry_after(message: str) -> float | None:
     found = _RETRY_AFTER.search(message)
     if found is None:
@@ -827,6 +833,24 @@ class BotGitHub:
         if _mapping(data).get("errors"):
             raise GitHubCliError(str(_mapping(data)["errors"])[:200])
 
+    def probe_comment_access(self) -> None:
+        """Raise ``GitHubCliError`` when the token may not write comments; change nothing either way.
+
+        It asks to edit a comment that cannot exist (id 0). GitHub decides whether the token may write comments before
+        it looks for the comment, so a token that may gets ``Not Found`` back and one that may not gets "Resource not
+        accessible by integration". Only that refusal is raised; any other answer means the token was allowed to try.
+        Comments and reviews need the same permission (``pull-requests: write``), so this speaks for both.
+        """
+
+        try:
+            self.runner(
+                ["api", "--method", "PATCH", f"repos/{self.pr.slug}/issues/comments/0", "--input", "-"],
+                json.dumps({"body": "."}),
+            )
+        except GitHubCliError as exc:
+            if is_denied(exc):
+                raise
+
     # ----- the check ---------------------------------------------------- #
 
     def set_status(self, sha: str, state: str, description: str, target_url: str = "") -> None:
@@ -853,5 +877,6 @@ __all__ = [
     "ThreadComment",
     "ThreadOutcome",
     "finding_id_of",
+    "is_denied",
     "with_backoff",
 ]
