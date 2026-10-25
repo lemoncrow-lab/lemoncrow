@@ -84,14 +84,23 @@ def _http_error_text(provider: str, error: urllib.error.HTTPError) -> str:
     except (ValueError, AttributeError):
         message = detail
     if error.code in (401, 403):
-        return f"{provider} rejected the API key (HTTP {error.code}): check the key. {message}"
+        key = "ANTHROPIC_API_KEY" if provider == "Anthropic" else "OPENAI_API_KEY"
+        return f"{provider} rejected the API key (HTTP {error.code}): check {key}. {message}"
     if error.code == 429:
         return f"{provider} rate limit or quota reached (HTTP 429): {message}"
     return f"{provider} answered HTTP {error.code}: {message}"
 
 
+class AnthropicRequestFailed(LiteLLMUnavailable):
+    """A direct Anthropic call failed. Named for what ran: the review prints the class, and LiteLLM is not involved."""
+
+
+class OpenAIRequestFailed(OpenAIClientUnavailable):
+    """A direct OpenAI-compatible call failed."""
+
+
 def _failure(provider: str, message: str) -> Exception:
-    return LiteLLMUnavailable(message) if provider == "Anthropic" else OpenAIClientUnavailable(message)
+    return AnthropicRequestFailed(message) if provider == "Anthropic" else OpenAIRequestFailed(message)
 
 
 def _int(source: Any, name: str) -> int:
@@ -258,6 +267,8 @@ def openai_chat_with_result(
 
 
 __all__ = [
+    "AnthropicRequestFailed",
+    "OpenAIRequestFailed",
     "anthropic_chat_with_result",
     "anthropic_key",
     "handles_anthropic",

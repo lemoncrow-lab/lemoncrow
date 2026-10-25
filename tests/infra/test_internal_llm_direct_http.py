@@ -139,7 +139,7 @@ def test_cache_control_blocks_the_review_adds_reach_the_api(monkeypatch: pytest.
 @pytest.mark.parametrize(
     ("status", "message", "expected"),
     [
-        (401, "invalid x-api-key", "rejected the API key (HTTP 401): check the key"),
+        (401, "invalid x-api-key", "rejected the API key (HTTP 401): check ANTHROPIC_API_KEY"),
         (429, "slow down", "rate limit or quota reached (HTTP 429)"),
         (500, "overloaded", "answered HTTP 500: overloaded"),
     ],

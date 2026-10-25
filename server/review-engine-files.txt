@@ -17,6 +17,8 @@ src/lemoncrow/core/capabilities/context_engine/engine.py
 src/lemoncrow/core/capabilities/context_engine/ranking.py
 src/lemoncrow/core/capabilities/context_engine/sufficiency.py
 src/lemoncrow/core/capabilities/pricing.py
+src/lemoncrow/core/capabilities/pricing.yaml
+src/lemoncrow/infra/model_prices.json
 src/lemoncrow/core/foundation/__init__.py
 src/lemoncrow/core/foundation/models.py
 src/lemoncrow/core/foundation/optional_modules.py
