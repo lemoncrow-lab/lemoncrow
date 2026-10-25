@@ -1,0 +1,65 @@
+name: LemonCrow Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  # Chat: answer `@lemoncrow` in the pull request's conversation and in review threads. Delete these two entries
+  # (and the `if:` below) for a review-only install. See "Chat in pull request threads".
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: write
+
+# A push cancels the review of an older push. A comment never cancels anything: each one has its own group.
+concurrency:
+  group: lemoncrow-${{ github.event_name == 'pull_request' && format('review-{0}', github.event.pull_request.number) || format('chat-{0}', github.event.comment.id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Start a runner for a comment only when it mentions the bot (comments on plain issues never reach the Action).
+    if: >-
+      github.event_name == 'pull_request'
+      || (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '@lemoncrow'))
+      || (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@lemoncrow'))
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Pin a full commit SHA of the public repository (see "Installing a pinned version" below), not a branch or a
+      # tag that moves: the commit is the version that reviews, and the prompt and checks come with it.
+      - uses: lemoncrow-lab/lemoncrow@<commit-sha>  # pin to a release commit
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # or: OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        with:
+          # Advisory while you trial it: the check reports P0s but never fails. Once you have seen a few weeks of
+          # pull requests and agree with the P0s it raised, change this to `p0` to fail the "LemonCrow Review"
+          # check while a P0 is open (add the check to branch protection if you want it to block merges).
+          fail-on: none
+
+      # If the job is killed (timeout) or cancelled before the review finishes, the status it set to `pending` would
+      # stay pending forever. This step runs only then, and turns a still-pending status into an error. It is for a
+      # review (a push); a comment sets no status.
+      - name: Do not leave LemonCrow Review pending
+        if: (failure() || cancelled()) && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          state=$(gh api "repos/$REPO/commits/$SHA/statuses" \
+            --jq '[.[] | select(.context == "LemonCrow Review")][0].state // ""')
+          if [ "$state" = "pending" ]; then
+            gh api --method POST "repos/$REPO/statuses/$SHA" \
+              -f state=error -f context="LemonCrow Review" \
+              -f description="The review job failed or was cancelled before it finished. Re-run it." \
+              -f target_url="$GITHUB_SERVER_URL/$REPO/actions/runs/$GITHUB_RUN_ID"
+          fi

@@ -62,6 +62,14 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   `lc review hook install [--pre-push|--pre-commit]` writes a small git hook that runs it on what you
   are about to push (`--print` shows the script, an existing hook is never overwritten without `--force`).
   See [Local AI review and git hooks](docs/reference/cli.md#local-ai-review-and-git-hooks).
+- **Switching to LemonCrow: other tools' instruction files and the workflow.** The review reads
+  `.cursor/rules`, `.claude/rules`, `.cursorrules`, `.github/copilot-instructions.md` and an `AGENTS.md` /
+  `CLAUDE.md` in a subdirectory from the trusted base as conventions context (a nested file only for code
+  under its directory), within the existing token budget and content-access policy.
+  `import.agent_docs: false` turns it off and `import.agent_docs_globs` adds files.
+  `lc review init-action [--provider anthropic|openai] [--fail-on none|p0] [--chat]` writes
+  `.github/workflows/lemoncrow-review.yml` from the setup guide's sample and prints the two steps left to
+  you, the secret and the pinned SHA. See [Importing review rules](docs/setup/importing-review-rules.md).
 
 ### Changed
 

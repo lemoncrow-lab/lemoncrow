@@ -138,6 +138,7 @@ lc review --pr 123
 lc review --pr 123 --ai --depth auto   # AI review in the terminal or CI; --publish-bot posts it as a bot
 lc review --ai                        # AI review of the working tree (or --staged, REV, --base/--head); posts nothing
 lc review hook install                # a git hook that runs it before a push (--pre-commit: before a commit)
+lc review init-action                 # write the GitHub Action workflow for this repository
 lc review data-flow
 lc review config --effective            # the merged review rules (review.yaml, import.rules_files, AGENTS.md) and their sources
 lc review config --dry-run --pr 123   # which rules would apply to that pull request's files
@@ -202,6 +203,8 @@ lc review hook install --force                # replace a hook that already exis
 ```
 
 The script is a few lines of shell around `lc review hook run`. For a push it reviews what the push would publish: the commits of each pushed branch that the remote does not have (from where a new branch leaves the default branch). Branch deletions and tags are skipped. A review that cannot be done lets the push through and says why, unless the hook was installed with `--strict`. Skip it once with `LEMONCROW_REVIEW_SKIP=1 git push` (`git push --no-verify` skips every hook). The installer never overwrites a hook that exists, whether another tool's or an earlier one of its own with other options, without `--force`; installing the same hook twice writes nothing the second time. A model call happens on every push with new code, so keep the depth at `auto` for hooks.
+
+**`lc review init-action`** writes `.github/workflows/lemoncrow-review.yml` from the setup guide's sample (`--provider anthropic|openai`, `--fail-on none|p0`, `--chat` to add the comment triggers, `--force` to replace an existing file) and prints the steps left to you: adding the secret and pinning the SHA. See [GitHub Action](../setup/github-action.md#install-the-github-action).
 
 Review keeps durable human judgment across Snapshots where the underlying reviewed work is unchanged; changed or new work returns to the review queue.
 

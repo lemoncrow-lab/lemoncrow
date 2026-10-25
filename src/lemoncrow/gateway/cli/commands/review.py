@@ -673,7 +673,8 @@ def review_cmd(
 
     With --ai (and no --pr) your own model reviews the change instead: nothing is opened or posted, and the
     exit code is for a hook -- 0 clean, 1 while a finding at or above --fail-on is open, 2 when incomplete with
-    --strict, 3 on a usage error. `lc review hook install` runs it before a push.
+    --strict, 3 on a usage error. `lc review hook install` runs it before a push; `lc review init-action` writes
+    the GitHub Action workflow.
     """
     from lemoncrow.core.foundation.paths import default_store_root
     from lemoncrow.pro.capabilities.review.gitdiff import detect_repo_root, resolve_rev_range
