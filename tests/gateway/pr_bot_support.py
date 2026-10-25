@@ -730,8 +730,12 @@ def build_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, files: dict[str
         "GITHUB_ACTOR",
         "LEMONCROW_REVIEW_MENTIONS",
         "LEMONCROW_REVIEW_CHAT_ASSOCIATIONS",
+        "LEMONCROW_OPENGREP_BIN",
+        "LEMONCROW_OPENGREP_NOTE",
     ):
         monkeypatch.delenv(name, raising=False)
+    # The security scan is off unless a test turns it on: a developer's own `opengrep` on PATH must not change a result.
+    monkeypatch.setenv("LEMONCROW_SECURITY_SCAN", "off")
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("LEMONCROW_AST_GREP_BIN", str(tmp_path / "sg"))

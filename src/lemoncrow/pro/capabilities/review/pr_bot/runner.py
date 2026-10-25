@@ -27,7 +27,15 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from lemoncrow.pro.capabilities.review.pr_bot import ci_env, diagram, impact, learning, notices, pr_intent
+from lemoncrow.pro.capabilities.review.pr_bot import (
+    ci_env,
+    diagram,
+    impact,
+    learning,
+    notices,
+    pr_intent,
+    security,
+)
 from lemoncrow.pro.capabilities.review.pr_bot.findings import BotFinding
 from lemoncrow.pro.capabilities.review.pr_bot.github import (
     BotGitHub,
@@ -125,6 +133,8 @@ class RunReport:
     published: dict[str, Any] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
     noop: bool = False
+    #: What the security scan did (``security.SecurityScan.to_wire``); empty when the run did no review.
+    security: dict[str, Any] = field(default_factory=dict)
 
     def to_wire(self) -> dict[str, Any]:
         """The machine-readable result (``--json``): the same fields the summary's hidden block carries."""
@@ -158,6 +168,7 @@ class RunReport:
             "dry_run": bool(self.published.get("dry_run")),
             "noop": self.noop,
             "notes": list(self.notes),
+            "security": dict(self.security),
         }
 
 
@@ -193,6 +204,10 @@ def run_pr_review(
         raise PrReviewError(f"fail-on must be one of {', '.join(FAIL_ON)}")
     if options.diagram not in diagram.DIAGRAM_MODES:
         raise PrReviewError(f"diagram must be one of {', '.join(diagram.DIAGRAM_MODES)}")
+    try:
+        security.scan_mode(environ)
+    except ValueError as exc:
+        raise PrReviewError(str(exc)) from exc
     if (options.max_usd_per_pr is not None and options.max_usd_per_pr <= 0) or (
         options.max_runs_per_pr is not None and options.max_runs_per_pr < 1
     ):
@@ -406,6 +421,8 @@ def _review(
     with tempfile.TemporaryDirectory(prefix="lemoncrow-pr-review-") as scratch:
         say("Capturing the change")
         captured = engine.capture_pull_request(options.repo_root, pull, Path(scratch), with_impact=options.with_impact)
+        # Never fails the review: a scanner that is missing or breaks leaves a receipt line saying so.
+        scan = security.scan_pull_request(captured, environ=os.environ, say=say)
         say("Running the AI review" if previous is None else "Re-reviewing what changed")
         ai = engine.run_ai_stage(
             captured,
@@ -432,8 +449,11 @@ def _review(
         return _skip(name, f"AI review did not run: {ai.reason}")
 
     noise = ai.noise
+    # Findings that cite the scanner's evidence carry its rule as a trailer; the scanner's other results are findings
+    # of their own, and are folded in after the AI path has decided what became of its findings.
+    cited = security.cited_results(ai.findings, scan)
     merged = reconcile(
-        previous,
+        security.without_scan_findings(previous),
         ai.findings,
         locations=ai.locations,
         current_targets=ai.target_ids,
@@ -443,8 +463,10 @@ def _review(
         answers=ai.answers,
         intact=ai.intact,
         rule_severity=noise.rule_severity,
+        static_checks=security.static_checks(cited),
     )
     report = RunReport(pr=name, head_sha=head)
+    report.security = scan.to_wire()
     if drawn.note:
         report.notes.append(drawn.note)
     report.notes.extend(f"config: {note}" for note in noise.notes)
@@ -455,6 +477,9 @@ def _review(
             f"large pull request: {len(ai.deferred_files)} of {ai.total_files} files left for a later run "
             f"(max_files is {noise.max_files}); reviewed the highest-risk files first"
         )
+    if scan.unavailable:
+        report.notes.append(f"security scan unavailable: {scan.reason}")
+    report.notes.extend(f"security scan: {note}" for note in scan.notes)
     if unpriced:
         report.notes.append(
             "max-usd-per-pr is not enforced: the cost of this pull request's earlier reviews is unknown (the provider "
@@ -462,7 +487,17 @@ def _review(
         )
     if ai.errors:
         report.notes.append("model call errors: " + " | ".join(error[:200] for error in ai.errors))
-    findings = list(merged.findings)
+    findings = security.merge(
+        previous,
+        list(merged.findings),
+        scan,
+        cited=cited,
+        head=short(head),
+        current_paths={where.path for where in ai.locations.values() if where.path},
+        locations=ai.locations,
+        spans=ai.spans,
+        intact=ai.intact,
+    )
 
     comments: list[Remote] = []
     if options.publish:
@@ -622,6 +657,8 @@ def _review(
             unchanged=ai.unchanged,
             imported=ai.imported,
             extra=notices.receipt_extra(intent=ai.intent, ignored=ai.ignored, globs=noise.ignore),
+            security=scan.receipt(**security.shown_counts(scan, cited)),
+            security_unavailable=scan.unavailable,
         ),
         pull_number=ref.number,
         repository=ref.slug,

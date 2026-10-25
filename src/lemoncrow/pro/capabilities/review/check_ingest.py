@@ -1227,8 +1227,12 @@ def record_check_ingest(
     authority: IngestAuthority,
     *,
     expected_current_revision_id: str = "",
+    path: str = "",
 ) -> tuple[ReviewEvidence, bool]:
     """Bind one normalized result to its exact Snapshot. Returns ``(row, created)``.
+
+    ``path`` binds the row to one file of the Snapshot, so the evidence refs the investigator may cite
+    (``artifact:``, ``check:``) reach only that file's targets; empty is a result about the whole change.
 
     The result's head SHA must be the Snapshot's (a result for another commit
     is refused, never re-labelled). A replay of the same observation (same
@@ -1292,6 +1296,7 @@ def record_check_ingest(
                 revision_id=revision.id,
                 kind="verification",
                 title=_bounded(ingest.title, 160),
+                path=path[:_MAX_PATH],
                 artifact_path=rel,
                 url=ingest.url if ingest.url.startswith("https://") else "",
                 content_hash=digest,

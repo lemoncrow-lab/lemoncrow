@@ -644,9 +644,13 @@ def _execute(
     from lemoncrow.pro.capabilities.review.planned_execution import persisted_plan
     from lemoncrow.pro.capabilities.review.repo_context import RepoContextOptions, repo_context_enabled
     from lemoncrow.pro.capabilities.review.run_plan import ai_stage_plan
+    from lemoncrow.pro.capabilities.review.static_findings import static_security_lines
 
     store, session, revision = captured.store, captured.session, captured.revision
     context = app.state.review_worker_ai_publication_context(session.id, revision.id)
+    # Lines the security scan reported an error-level result on (recorded before this stage): they make a target a
+    # ``security`` candidate, which ranks a large pull request, names a risk signal and is investigated.
+    security_lines = static_security_lines(store, revision)
     # The noise controls, from the trusted base's .lemoncrow/review.yaml (never the pull request's copy). An ignored path
     # is out of the review: it is not a target, and an ai_denied content-access row keeps it from every prompt.
     noise = _noise_policy(context, governance, inputs)
@@ -705,7 +709,9 @@ def _execute(
             pending_review,
             limit=noise.max_files,
             total_files=len({target.path for target in targets}),
-            candidates=generate_candidates(pending_review, rules=tuple(governance.rules)),
+            candidates=generate_candidates(
+                pending_review, rules=tuple(governance.rules), security_lines=security_lines
+            ),
             criticality=(lambda path: triage.classify(path).criticality) if triage is not None else None,
             order={target.target_id: index for index, target in enumerate(targets)},
         )
@@ -715,7 +721,7 @@ def _execute(
     intact = _intact_findings(captured, previous)
     rules = tuple(rule.stable_key for rule in governance.rules)
     # The change's impact and its risk signals, from the whole Snapshot and by fixed rules (no model, no model text).
-    risk_candidates = generate_candidates(targets, rules=tuple(governance.rules))
+    risk_candidates = generate_candidates(targets, rules=tuple(governance.rules), security_lines=security_lines)
     weighed = impact_mod.assess(targets, risk_candidates).to_state()
     rule_keys = {rule.ref: rule.stable_key for rule in governance.rules}
 
@@ -768,7 +774,7 @@ def _execute(
     examined = _Examined(structured_executor or execute_structured)
     candidate_ids = {
         target_id
-        for candidate in generate_candidates(changed, rules=tuple(governance.rules))
+        for candidate in generate_candidates(changed, rules=tuple(governance.rules), security_lines=security_lines)
         for target_id in candidate.target_ids
     }
     # What the author says the change is for: read only when a model is about to be asked (each linked issue is a GET),
@@ -797,6 +803,8 @@ def _execute(
             prior_findings=_prior_rows(previous, {target.target_id for target in changed}),
             project_conventions=imports.conventions if imports is not None else (),
             pr_intent=intent_block,
+            # A file the security scan reported an error-level result in is investigated as a security candidate.
+            static_security=True,
         )
     usage, served = revision_usage(store, session.id, revision.id)
     context = dict(result.repo_context)

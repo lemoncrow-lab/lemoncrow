@@ -53,6 +53,7 @@ def test_the_inputs_are_the_documented_ones_with_safe_defaults() -> None:
         "max-runs-per-pr",
         "review-drafts",
         "on-push",
+        "security-scan",
         "diagram",
         "strictness",
         "inline-comments",
@@ -73,6 +74,8 @@ def test_the_inputs_are_the_documented_ones_with_safe_defaults() -> None:
     assert inputs["diagram"]["default"] == "auto"
     # The noise controls are the file's to set: an input is only a default, so each is empty unless the workflow sets it.
     assert [inputs[name]["default"] for name in ("strictness", "inline-comments", "max-files")] == ["", "", ""]
+    # The security scan is on by default and `off` is the one way to keep it from downloading anything.
+    assert inputs["security-scan"]["default"] == "auto"
     # Chat: no alias unless asked for, and the people it answers default to those with a stake in the repository.
     assert inputs["mention-aliases"]["default"] == ""
     assert inputs["chat-allowed-associations"]["default"] == "OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR"
@@ -106,7 +109,14 @@ def test_the_steps_run_the_gate_first_and_only_continue_when_it_says_so() -> Non
     gate, *rest = steps(action)
     assert gate["id"] == "gate" and "ci_env.py" in gate["run"]
     assert (ROOT / "src/lemoncrow/pro/capabilities/review/pr_bot/ci_env.py").is_file()
-    assert rest and all(step["if"] == "steps.gate.outputs.run == 'true'" for step in rest)
+    # Every step waits for the gate; the optional security-scan steps also wait for `security-scan: auto`, and nothing else.
+    gated = "steps.gate.outputs.run == 'true'"
+    assert rest and all(step["if"].startswith(gated) for step in rest)
+    for step in rest:
+        extra = step["if"][len(gated) :]
+        assert extra == "" or re.fullmatch(
+            r" && inputs\.security-scan == 'auto'( && steps\.opengrep_pin\.outputs\.key != '')?", extra
+        ), step["name"]
     read = set(re.findall(r"steps\.gate\.outputs\.(\w+)", ACTION.read_text(encoding="utf-8")))
     assert read == {"run", "extra"}
     source = Path(ci_env.__file__).read_text(encoding="utf-8")
@@ -473,3 +483,67 @@ def test_the_guide_documents_the_intent_it_reads_and_what_it_cannot_do() -> None
         assert phrase in guide, phrase
     # Reading an issue needs a permission the sample does not grant, so the sample stays at least privilege.
     assert "issues" not in documented_workflow()["permissions"]
+
+
+def test_the_security_scan_is_optional_pinned_cached_and_never_fails_the_job() -> None:
+    """The scan's steps run only for `security-scan: auto`, verify before they run, and are allowed to fail."""
+
+    action = manifest()
+    by_name = {step["name"]: step for step in steps(action)}
+    resolve, cache, install = by_name["Resolve Opengrep"], by_name["Cache Opengrep"], by_name["Install Opengrep"]
+    review = by_name["Review the pull request"]
+    names = [step["name"] for step in steps(action)]
+    assert names.index("Install LemonCrow") < names.index("Resolve Opengrep") < names.index("Cache Opengrep")
+    assert names.index("Cache Opengrep") < names.index("Install Opengrep") < names.index("Review the pull request")
+    for step in (resolve, cache, install):
+        assert "inputs.security-scan == 'auto'" in step["if"], "off downloads and runs nothing"
+        assert step["continue-on-error"] is True, "no scanner problem fails the job"
+    # The installer is the stdlib script in the repository, run before anything else is trusted.
+    script = ROOT / "src/lemoncrow/pro/capabilities/review/pr_bot/opengrep_install.py"
+    assert script.is_file()
+    assert 'opengrep_install.py" pin' in resolve["run"] and 'opengrep_install.py" install' in install["run"]
+    # The cache is keyed by the release and its digest; the binary is verified again whatever it restores.
+    assert (
+        cache["uses"].startswith("actions/cache@") and cache["with"]["key"] == "${{ steps.opengrep_pin.outputs.key }}"
+    )
+    assert cache["with"]["path"] == "${{ steps.opengrep_pin.outputs.dir }}"
+    # What the review step is told: the mode, the verified binary (empty when there is none) and why not.
+    assert review["env"]["LEMONCROW_SECURITY_SCAN"] == "${{ inputs.security-scan }}"
+    assert review["env"]["LEMONCROW_OPENGREP_BIN"] == "${{ steps.opengrep.outputs.bin }}"
+    assert review["env"]["LEMONCROW_OPENGREP_NOTE"] == "${{ steps.opengrep.outputs.note }}"
+    # The pin is a release tag and a checksum, or the marked TODO; the installer refuses anything else (own tests).
+    from lemoncrow.pro.capabilities.review.pr_bot import opengrep_install, security
+
+    assert review["env"]["LEMONCROW_SECURITY_SCAN"] and security.MODE_ENV == "LEMONCROW_SECURITY_SCAN"
+    assert security.BIN_ENV == "LEMONCROW_OPENGREP_BIN" and security.NOTE_ENV == "LEMONCROW_OPENGREP_NOTE"
+    assert opengrep_install.VERSION in GUIDE.read_text(encoding="utf-8")
+
+
+def test_the_guide_documents_the_security_scan_its_licensing_and_how_to_add_rules() -> None:
+    guide = GUIDE.read_text(encoding="utf-8")
+    for phrase in (
+        "## Security scan",
+        "`security-scan: off` downloads and runs nothing",
+        "never run until its SHA-256 matches",
+        "A result is a **finding** only when its line is a line the pull request added or changed",
+        "`static:` reference",
+        "The scanner alone is never a P0.",
+        "`Static check: <rule id>`",
+        "`security scan unavailable`",
+        "**Licensing of the rules.**",
+        "Semgrep Rules License v1.0",
+        "Commons Clause",
+        "**Add your own.**",
+        "security:\n  rules:",
+        "`default_rules: false`",
+        "from the pull request's **merge base**",
+        "`nosem` comments in the pull request are ignored",
+    ):
+        assert phrase in guide, phrase
+    (block,) = [text for text in fenced("yaml") if text.startswith("# .lemoncrow/review.yaml") and "security:" in text]
+    parsed = yaml.safe_load(block)
+    assert set(parsed["security"]) == {"rules", "default_rules"} and isinstance(parsed["security"]["rules"], list)
+    from lemoncrow.pro.capabilities.review.pr_bot import security
+
+    block_config = security.parse_security_block(block)
+    assert block_config.rules == ("security/rules", "security/payments.yaml") and not block_config.notes

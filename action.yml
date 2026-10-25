@@ -53,6 +53,15 @@ inputs:
   on-push:
     description: Re-review on each push to an open pull request, not only when it opens.
     default: "true"
+  security-scan:
+    description: >-
+      auto or off. auto installs a pinned Opengrep release (checksum verified, cached) and scans only the files the
+      pull request changed with a small built-in ruleset (plus the rules `security.rules` names in
+      .lemoncrow/review.yaml on your default branch). A result on a changed line becomes evidence the AI review can
+      cite, and a P0 it confirms; a result nobody confirmed shows as its own `security` finding, P1 at most. If
+      Opengrep cannot be installed or run, the review goes on and the summary says "security scan unavailable". off
+      never downloads or runs anything.
+    default: auto
   diagram:
     description: >-
       The collapsed "Change diagram" in the summary comment, auto or off. auto draws the relationships the pull request
@@ -156,11 +165,40 @@ runs:
           uv sync --project "$GITHUB_ACTION_PATH" --frozen --no-dev --no-progress
         fi
 
+    # Security scan (optional): a pinned Opengrep binary, verified against a SHA-256 before it is ever run, cached between
+    # runs. The review step runs it on the changed files only, with a timeout and a result bound. Every step here ends
+    # with exit 0: no failure of the scanner fails the review (the summary says "security scan unavailable").
+    - name: Resolve Opengrep
+      id: opengrep_pin
+      if: steps.gate.outputs.run == 'true' && inputs.security-scan == 'auto'
+      continue-on-error: true
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/src/lemoncrow/pro/capabilities/review/pr_bot/opengrep_install.py" pin
+
+    # Pinned to the commit the v4 tag points at (v4.3.0), so organizations that require SHA-pinned actions allow it.
+    - name: Cache Opengrep
+      if: steps.gate.outputs.run == 'true' && inputs.security-scan == 'auto' && steps.opengrep_pin.outputs.key != ''
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+      continue-on-error: true
+      with:
+        path: ${{ steps.opengrep_pin.outputs.dir }}
+        key: ${{ steps.opengrep_pin.outputs.key }}
+
+    - name: Install Opengrep
+      id: opengrep
+      if: steps.gate.outputs.run == 'true' && inputs.security-scan == 'auto'
+      continue-on-error: true
+      shell: bash
+      run: python3 "$GITHUB_ACTION_PATH/src/lemoncrow/pro/capabilities/review/pr_bot/opengrep_install.py" install
+
     - name: Review the pull request
       if: steps.gate.outputs.run == 'true'
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
+        LEMONCROW_SECURITY_SCAN: ${{ inputs.security-scan }}
+        LEMONCROW_OPENGREP_BIN: ${{ steps.opengrep.outputs.bin }}
+        LEMONCROW_OPENGREP_NOTE: ${{ steps.opengrep.outputs.note }}
         GH_TOKEN: ${{ inputs.github-token }}
         LEMONCROW_REVIEW_PR: ${{ inputs.pr-number }}
         LEMONCROW_REVIEW_DRAFTS: ${{ inputs.review-drafts }}

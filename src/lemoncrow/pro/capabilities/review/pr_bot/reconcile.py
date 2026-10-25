@@ -81,7 +81,11 @@ class Reconciled:
 
 
 def finding_from_confirmed(
-    confirmed: Any, located: Located | None, head: str, rule_severity: Mapping[str, str] | None = None
+    confirmed: Any,
+    located: Located | None,
+    head: str,
+    rule_severity: Mapping[str, str] | None = None,
+    static_check: str = "",
 ) -> BotFinding:
     """A new tracked finding from the engine's ``ConfirmedFinding``.
 
@@ -89,6 +93,7 @@ def finding_from_confirmed(
     trusted-base ``.lemoncrow/review.yaml``): a finding citing one gets it instead of the ordinary ladder's answer.
     A finding the investigator marked as the code contradicting the stated intent is labelled so, in words this code
     chose, and is never more than a P1: a mismatch rests on text written by people, which is not evidence of a defect.
+    ``static_check`` names the scanner rule(s) behind the ``static_finding`` evidence it cited, for the comment's trailer.
     """
 
     target_ids = tuple(confirmed.target_ids)
@@ -143,6 +148,7 @@ def finding_from_confirmed(
         target_line=where.line,
         anchor_digest=cited.digest if cited is not None else "",
         used=attribution.used_from(confirmed.rule_refs, getattr(confirmed, "evidence_refs", ())),
+        static_check=static_check,
     )
 
 
@@ -185,6 +191,7 @@ def reconcile(
     answers: Mapping[str, str] | None = None,
     intact: Collection[str] = (),
     rule_severity: Mapping[str, str] | None = None,
+    static_checks: Mapping[str, str] | None = None,
 ) -> Reconciled:
     """The findings of this review.
 
@@ -194,11 +201,17 @@ def reconcile(
     short sha being reviewed. ``answers`` is what the re-check said about each earlier finding it was asked
     about (``still_present``, ``resolved`` or ``unclear``) and ``intact`` the earlier findings whose cited lines
     are still in the file word for word: together they are the only way a finding is declared fixed.
+    ``static_checks`` maps a confirmed finding's id to the scanner rule(s) its cited evidence came from.
     """
 
+    checks = static_checks or {}
     fresh = [
         finding_from_confirmed(
-            item, locations.get(item.target_ids[0]) if item.target_ids else None, head, rule_severity
+            item,
+            locations.get(item.target_ids[0]) if item.target_ids else None,
+            head,
+            rule_severity,
+            checks.get(item.id, ""),
         )
         for item in confirmed
     ]
