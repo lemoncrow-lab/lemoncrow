@@ -8,6 +8,10 @@ cannot change its own review) this module reads:
   markdown (every top-level bullet is a rule; a heading with prose and no bullets is one rule) or YAML / JSON in
   LemonCrow's own schema, ``{rules: [{id, rule, scope?: [globs], enabled?}]}``;
 * ``AGENTS.md`` and ``CLAUDE.md``: project conventions, as bounded context for the investigator and never as a rule.
+  So are the other instruction files a team may already have for another coding tool, found in the trusted base's file
+  list (``.cursor/rules``, ``.claude/rules``, ``.cursorrules``, ``.github/copilot-instructions.md`` and an
+  ``AGENTS.md`` / ``CLAUDE.md`` in a subdirectory, which applies under that directory only) and the files
+  ``import.agent_docs_globs`` adds. ``import.agent_docs: false`` turns all of it off.
 
 Precedence, highest first: ``.lemoncrow/review.yaml``, ``import.rules_files``, ``AGENTS.md`` / ``CLAUDE.md``. A rule is
 keyed ``imported:<file>:<id>``, so rules from different files never collide, and a rule written in
@@ -27,10 +31,11 @@ for the route in use is never put into a prompt.
 
 from __future__ import annotations
 
+import glob
 import json
 import os
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Final, Literal
@@ -53,6 +58,12 @@ if TYPE_CHECKING:
 
 REVIEW_CONFIG: Final[str] = ".lemoncrow/review.yaml"
 AGENT_DOCUMENTS: Final[tuple[str, ...]] = ("AGENTS.md", "CLAUDE.md")
+#: Files discovered beyond the two root documents, and how many of them one review reads. They are taken in a fixed
+#: order (repository-wide files first, then by directory depth), so what is over the limit is the same on every run.
+MAX_AGENT_DOCS: Final[int] = 24
+#: Directories whose files are somebody else's code; discovery never looks inside them (``import.agent_docs_globs`` can).
+_VENDORED_DIRS: Final[frozenset[str]] = frozenset({"node_modules", "vendor", "third_party", ".git", ".venv"})
+_CONVENTION_ROLE: Final[str] = "project conventions (context only)"
 MARKDOWN_SUFFIXES: Final[tuple[str, ...]] = (".md", ".markdown")
 STRUCTURED_SUFFIXES: Final[tuple[str, ...]] = (".yaml", ".yml", ".json")
 
@@ -128,15 +139,32 @@ class ImportSource:
 
 @dataclass(frozen=True, slots=True)
 class ConventionDocument:
-    """Free-form project context from the trusted base: ``AGENTS.md`` or ``CLAUDE.md``."""
+    """Free-form project context from the trusted base: ``AGENTS.md``, ``CLAUDE.md`` or another tool's rule file.
+
+    ``scope`` is the path globs the document applies to; none means every path. A nested ``AGENTS.md`` is scoped to its
+    directory, so an investigator reading ``src/billing/`` is shown ``src/billing/AGENTS.md`` and one reading
+    ``src/web/`` is not.
+    """
 
     path: str
     kind: Literal["agent_doc"]
     text: str
     source: str = ""
+    scope: tuple[str, ...] = ()
 
     def to_wire(self) -> dict[str, Any]:
-        return {"path": self.path, "kind": self.kind, "chars": len(self.text), "source": self.source}
+        wire: dict[str, Any] = {"path": self.path, "kind": self.kind, "chars": len(self.text), "source": self.source}
+        if self.scope:  # absent for an unscoped document, so a view of a repository without any is unchanged
+            wire["scope"] = list(self.scope)
+        return wire
+
+    def applies_to(self, path: str) -> bool:
+        if not self.scope:
+            return True
+        try:
+            return path_matches(path, self.scope)
+        except ValueError:
+            return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,6 +196,9 @@ class ImportOptions:
     agent_docs: bool = True
     critical: tuple[str, ...] = ()
     notes: tuple[ImportNote, ...] = ()
+    #: Extra instruction files to read as conventions, besides the ones found by name: paths, or globs when the trusted
+    #: base can be listed.
+    agent_docs_globs: tuple[str, ...] = ()
 
     @property
     def literal_files(self) -> tuple[str, ...]:
@@ -209,6 +240,7 @@ class ImportedConfig:
             "options": {
                 "rules_files": list(self.options.rules_files),
                 "agent_docs": self.options.agent_docs,
+                "agent_docs_globs": list(self.options.agent_docs_globs),
                 "critical": list(self.options.critical),
             },
             "sources": [row.to_wire() for row in self.sources],
@@ -223,22 +255,20 @@ class ImportedConfig:
 # --------------------------------------------------------------------------- #
 
 
-def _rules_file_patterns(raw: object, notes: list[ImportNote], source: str) -> tuple[str, ...]:
+def _rules_file_patterns(
+    raw: object, notes: list[ImportNote], source: str, *, key: str = "import.rules_files"
+) -> tuple[str, ...]:
     rows: object = [raw] if isinstance(raw, str) else raw
     if not isinstance(rows, Sequence) or isinstance(rows, bytes):
-        notes.append(
-            ImportNote("warning", source, "import.rules_files must be a path or a list of paths or globs; ignored")
-        )
+        notes.append(ImportNote("warning", source, f"{key} must be a path or a list of paths or globs; ignored"))
         return ()
     out: list[str] = []
     for index, item in enumerate(rows):
         if not isinstance(item, str) or not item.strip():
-            notes.append(
-                ImportNote("warning", source, f"import.rules_files[{index}] must be a non-empty string; ignored")
-            )
+            notes.append(ImportNote("warning", source, f"{key}[{index}] must be a non-empty string; ignored"))
             continue
         try:
-            pattern = _safe_path(item.strip(), field=f"import.rules_files[{index}]")
+            pattern = _safe_path(item.strip(), field=f"{key}[{index}]")
         except ValueError as exc:
             notes.append(ImportNote("warning", source, f"{exc}; ignored"))
             continue
@@ -246,11 +276,7 @@ def _rules_file_patterns(raw: object, notes: list[ImportNote], source: str) -> t
             continue
         if len(out) >= MAX_RULES_FILES:
             notes.append(
-                ImportNote(
-                    "dropped",
-                    source,
-                    f"import.rules_files lists more than {MAX_RULES_FILES} entries; the rest are ignored",
-                )
+                ImportNote("dropped", source, f"{key} lists more than {MAX_RULES_FILES} entries; the rest are ignored")
             )
             break
         out.append(pattern)
@@ -258,7 +284,7 @@ def _rules_file_patterns(raw: object, notes: list[ImportNote], source: str) -> t
 
 
 def parse_import_options(raw: object, *, source: str = REVIEW_CONFIG) -> ImportOptions:
-    """Read ``import: {rules_files, agent_docs, critical}``; a bad value is a note and the default, never a failure."""
+    """Read ``import: {rules_files, agent_docs, agent_docs_globs, critical}``; a bad value is a note and the default."""
 
     if raw is None:
         return ImportOptions()
@@ -272,6 +298,11 @@ def parse_import_options(raw: object, *, source: str = REVIEW_CONFIG) -> ImportO
         else:
             notes.append(ImportNote("warning", source, "import.agent_docs must be true or false; using true"))
     rules_files = _rules_file_patterns(raw["rules_files"], notes, source) if "rules_files" in raw else ()
+    doc_globs = (
+        _rules_file_patterns(raw["agent_docs_globs"], notes, source, key="import.agent_docs_globs")
+        if "agent_docs_globs" in raw
+        else ()
+    )
     critical: list[str] = []
     if "critical" in raw:
         listed = raw["critical"]
@@ -281,9 +312,15 @@ def parse_import_options(raw: object, *, source: str = REVIEW_CONFIG) -> ImportO
             critical = list(dict.fromkeys(item.strip() for item in listed))
         else:
             notes.append(ImportNote("warning", source, "import.critical must be a list of rule keys; ignored"))
-    for key in sorted(str(key) for key in raw if key not in {"rules_files", "agent_docs", "critical"}):
+    if doc_globs and not agent_docs:
+        notes.append(
+            ImportNote("warning", source, "import.agent_docs_globs is ignored while import.agent_docs is false")
+        )
+    for key in sorted(
+        str(key) for key in raw if key not in {"rules_files", "agent_docs", "agent_docs_globs", "critical"}
+    ):
         notes.append(ImportNote("warning", source, f"import.{key} is not a known key; ignored"))
-    return ImportOptions(rules_files, agent_docs, tuple(critical), tuple(notes))
+    return ImportOptions(rules_files, agent_docs, tuple(critical), tuple(notes), doc_globs)
 
 
 # --------------------------------------------------------------------------- #
@@ -639,27 +676,227 @@ def _load_rules_file(state: _Collector, document: TrustedBaseDocument) -> None:
 # ----- agent instruction documents ------------------------------------------ #
 
 _POINTER = re.compile(r"^@\S+$")
+#: Front matter is metadata about the file, read for its scope and not sent to the model; it is read only up to here.
+_MAX_FRONT_MATTER_CHARS: Final[int] = 4_000
 
 
-def _load_agent_documents(state: _Collector) -> None:
+@dataclass(frozen=True, slots=True)
+class _Candidate:
+    """A file found by name (or listed by ``import.agent_docs_globs``) that may become a convention document.
+
+    ``folder`` is the directory the file belongs to: the document applies under it, and nowhere else. ``""`` is the
+    whole repository. ``rank`` orders discovery, repository-wide kinds first.
+    """
+
+    path: str
+    role: str
+    folder: str = ""
+    rank: int = 0
+
+
+def _classify(path: str) -> _Candidate | None:
+    """What other tool's instruction file *path* is, by name, or ``None`` when it is not one. Root ``AGENTS.md`` and
+    ``CLAUDE.md`` are read directly (they need no file list), so they are not discovered here."""
+
+    parts = PurePosixPath(path).parts
+    if not parts or any(part in _VENDORED_DIRS for part in parts[:-1]):
+        return None
+    name, folder = parts[-1], "/".join(parts[:-1])
+    lowered = name.lower()
+    if len(parts) >= 3 and parts[0] == ".claude" and parts[1] == "rules" and lowered.endswith(MARKDOWN_SUFFIXES):
+        return _Candidate(path, "Claude rule (context only)", rank=2)
+    if ".cursor" in parts[:-2] and parts[parts.index(".cursor") + 1] == "rules" and lowered.endswith((".mdc", ".md")):
+        at = parts.index(".cursor")
+        return _Candidate(path, "Cursor rule (context only)", "/".join(parts[:at]), rank=4 + at)
+    if lowered == ".cursorrules":
+        return _Candidate(path, "Cursor rules file (context only)", folder, rank=3 + len(parts) - 1)
+    if path == ".github/copilot-instructions.md":
+        return _Candidate(path, "Copilot instructions (context only)", rank=1)
+    if path == ".claude/CLAUDE.md":
+        return _Candidate(path, "Claude project instructions (context only)", rank=0)
+    if lowered in {"agents.md", "claude.md"} and folder:
+        return _Candidate(path, f"nested agent instructions for {folder}/ (context only)", folder, rank=40 + len(parts))
+    return None
+
+
+def _folder_scope(folder: str) -> tuple[str, ...]:
+    """The path glob for everything under *folder*; ``[`` and friends in a directory name are matched literally."""
+
+    return (f"{glob.escape(folder)}/**",) if folder else ()
+
+
+def _front_matter(text: str) -> tuple[Mapping[str, Any], str]:
+    """``(front matter, body)`` of a markdown file; ``({}, text)`` when it has none or it cannot be read."""
+
+    body = text.replace("\r\n", "\n")
+    if not body.startswith("---\n"):
+        return {}, text
+    end = body.find("\n---", 4)
+    if end == -1 or end > _MAX_FRONT_MATTER_CHARS:
+        return {}, text
+    try:
+        header = yaml.safe_load(body[4:end])
+    except (yaml.YAMLError, RecursionError):
+        return {}, text
+    rest = body[end + 4 :].split("\n", 1)
+    return (header if isinstance(header, Mapping) else {}), (rest[1] if len(rest) > 1 else "")
+
+
+def _front_matter_scope(header: Mapping[str, Any]) -> tuple[str, ...]:
+    """The path globs a rule file asks to be limited to (``globs`` or ``paths`` in its front matter, as the other
+    tools write them: a list, or one comma separated string). ``alwaysApply: true`` is every path. Raises ``ValueError``
+    when they cannot be read, so a scope that does not parse is never widened to every path."""
+
+    if header.get("alwaysApply") is True:
+        return ()
+    raw = header.get("globs", header.get("paths"))
+    if raw is None or raw == "" or raw == []:
+        return ()
+    rows: list[object]
+    if isinstance(raw, str):
+        rows = list(raw.split(","))
+    elif isinstance(raw, list):
+        rows = list(raw)
+    else:
+        rows = [None]
+    if not all(isinstance(item, str) and item.strip() for item in rows):
+        raise ValueError("its globs or paths must be a glob or a list of globs")
+    return _patterns([str(item).strip().lstrip("/") for item in rows], field="globs")
+
+
+def _candidate_for(path: str) -> _Candidate:
+    return _classify(path) or _Candidate(path, "listed in import.agent_docs_globs (context only)", rank=100)
+
+
+def _glob_hit(path: str, pattern: str) -> bool:
+    try:
+        return path_matches(path, [pattern])
+    except ValueError:
+        return False
+
+
+def _agent_doc_candidates(state: _Collector, base_paths: Callable[[], Sequence[str] | None] | None) -> list[_Candidate]:
+    """The files beyond the root ``AGENTS.md`` / ``CLAUDE.md`` to read as conventions, in a fixed order, capped.
+
+    Found by name in the trusted base's file list (so none without one), plus whatever ``import.agent_docs_globs``
+    names: a path is read as written, a glob needs the list.
+    """
+
+    found: dict[str, _Candidate] = {}
+    listing = base_paths() if base_paths is not None else None
+    for path in listing or ():
+        if path not in AGENT_DOCUMENTS and path != REVIEW_CONFIG:
+            candidate = _classify(path)
+            if candidate is not None:
+                found.setdefault(path, candidate)
+    for pattern in state.options.agent_docs_globs:
+        if not is_glob(pattern):
+            if pattern not in AGENT_DOCUMENTS and pattern != REVIEW_CONFIG:
+                found.setdefault(pattern, _candidate_for(pattern))
+            continue
+        if listing is None:
+            state.note(
+                "unavailable",
+                REVIEW_CONFIG,
+                f"import.agent_docs_globs glob {pattern!r} needs a listing of the trusted base, which is not "
+                "available here; list the files by path instead",
+            )
+            continue
+        matched = [path for path in listing if path != REVIEW_CONFIG and path not in AGENT_DOCUMENTS]
+        matched = [path for path in matched if _glob_hit(path, pattern)]
+        if not matched:
+            state.note(
+                "warning",
+                REVIEW_CONFIG,
+                f"import.agent_docs_globs glob {pattern!r} matches no file in the trusted base",
+            )
+        for path in sorted(matched):
+            found.setdefault(path, _candidate_for(path))
+    ordered = sorted(found.values(), key=lambda row: (row.rank, row.path))
+    if len(ordered) > MAX_AGENT_DOCS:
+        state.note(
+            "dropped",
+            "agent instruction files",
+            f"{len(ordered)} instruction files were found; only the first {MAX_AGENT_DOCS} are read "
+            f"(first left out: {ordered[MAX_AGENT_DOCS].path})",
+        )
+    return ordered[:MAX_AGENT_DOCS]
+
+
+def _add_convention(state: _Collector, seen: dict[str, str], candidate: _Candidate) -> None:
+    document = state.document(candidate.path, candidate.role)
+    if document is None:
+        return
+    text = document.content.strip()
+    if not text:
+        return
+    header: Mapping[str, Any] = {}
+    name = PurePosixPath(candidate.path).name.lower()
+    # A rule file's front matter says where it applies; AGENTS.md and CLAUDE.md are sent as written.
+    if name not in {"agents.md", "claude.md"} and name.endswith((*MARKDOWN_SUFFIXES, ".mdc")):
+        header, text = _front_matter(text)
+        text = text.strip()
+        if not text:
+            return
+    if _POINTER.match(text):
+        state.note("info", candidate.path, f"only points at {text[1:]}; skipped")
+        return
+    if text in seen:
+        state.note("info", candidate.path, f"identical to {seen[text]}; skipped")
+        return
+    scope = _folder_scope(candidate.folder)
+    if not candidate.folder:
+        try:
+            scope = _front_matter_scope(header)
+        except ValueError as exc:
+            state.note("warning", candidate.path, f"{exc}; the file was skipped, not widened to every path")
+            return
+    seen[text] = candidate.path
+    if len(text) > MAX_DOCUMENT_CHARS:
+        state.note("dropped", candidate.path, f"longer than {MAX_DOCUMENT_CHARS} characters; only the start is kept")
+    state.conventions.append(
+        ConventionDocument(candidate.path, "agent_doc", text[:MAX_DOCUMENT_CHARS], document.source, scope)
+    )
+
+
+def _load_agent_documents(state: _Collector, base_paths: Callable[[], Sequence[str] | None] | None = None) -> None:
     seen: dict[str, str] = {}
     for path in AGENT_DOCUMENTS:
-        document = state.document(path, "project conventions (context only)")
-        if document is None:
-            continue
-        text = document.content.strip()
-        if not text:
-            continue
-        if _POINTER.match(text):
-            state.note("info", path, f"only points at {text[1:]}; skipped")
-            continue
-        if text in seen:
-            state.note("info", path, f"identical to {seen[text]}; skipped")
-            continue
-        seen[text] = path
-        if len(text) > MAX_DOCUMENT_CHARS:
-            state.note("dropped", path, f"longer than {MAX_DOCUMENT_CHARS} characters; only the start is kept")
-        state.conventions.append(ConventionDocument(path, "agent_doc", text[:MAX_DOCUMENT_CHARS], document.source))
+        _add_convention(state, seen, _Candidate(path, _CONVENTION_ROLE))
+    for candidate in _agent_doc_candidates(state, base_paths):
+        _add_convention(state, seen, candidate)
+
+
+def _scope_depth(scope: Sequence[str]) -> int:
+    """How many literal directory names the scope starts with (``src/billing/**`` is 2); an unscoped document is 0."""
+
+    depth = 0
+    for pattern in scope[:1]:
+        for part in pattern.split("/"):
+            if is_glob(part):
+                break
+            depth += 1
+    return depth
+
+
+def conventions_for_paths(
+    documents: Sequence[ConventionDocument], paths: Iterable[str]
+) -> tuple[ConventionDocument, ...]:
+    """The documents that apply to a review of *paths*, the most specific first.
+
+    A document with no scope applies to every path; a scoped one (a nested ``AGENTS.md``, a rule file limited to some
+    globs) applies when any path falls under it. The deepest directory comes first, so when the token budget cannot hold
+    everything it is the file nearest the code that is cut last.
+    """
+
+    wanted = tuple(dict.fromkeys(paths))
+    chosen = [
+        (index, row)
+        for index, row in enumerate(documents)
+        if not row.scope or any(row.applies_to(path) for path in wanted)
+    ]
+    chosen.sort(key=lambda pair: (-_scope_depth(pair[1].scope), pair[0]))
+    return tuple(row for _index, row in chosen)
 
 
 def load_imports(
@@ -693,7 +930,7 @@ def load_imports(
             continue
         _load_rules_file(state, document)
     if chosen.agent_docs:
-        _load_agent_documents(state)
+        _load_agent_documents(state, base_paths)
 
     if state.over_budget:
         shown = ", ".join(state.over_budget[:8]) + (" ..." if len(state.over_budget) > 8 else "")
@@ -797,6 +1034,22 @@ class ConventionsBlock:
         }
 
 
+#: Names of left-out documents a prompt lists; past this it ends with a count, and each name is cut. The list is bounded
+#: because it counts against the token budget like everything else in the block.
+_MAX_OMITTED_LISTED: Final[int] = 4
+_MAX_OMITTED_NAME: Final[int] = 80
+
+
+def _listed(names: Sequence[str]) -> tuple[str, ...]:
+    shown = [
+        name if len(name) <= _MAX_OMITTED_NAME else name[: _MAX_OMITTED_NAME - 1] + "…"
+        for name in names[:_MAX_OMITTED_LISTED]
+    ]
+    if len(names) > _MAX_OMITTED_LISTED:
+        shown.append(f"+{len(names) - _MAX_OMITTED_LISTED} more")
+    return tuple(shown)
+
+
 def _cut_at_boundary(text: str, limit: int) -> tuple[str, bool]:
     """*text* cut to *limit* characters at a paragraph, else line, else word boundary, with a visible ellipsis."""
 
@@ -837,7 +1090,8 @@ def conventions_block(
 
     A document whose path ``content_access_for_path`` denies for this route is left out and named in ``excluded``: an
     ``ai_content_access`` row in ``.lemoncrow/review.yaml`` for ``AGENTS.md`` keeps it out. Documents are taken in order
-    until the token budget is spent; what did not fit is named in ``omitted``.
+    until the token budget is spent; what did not fit is named in ``omitted`` (the first few names, then a count), and the
+    names count against the budget like the text, so the whole block stays within it however many documents there are.
     """
 
     from lemoncrow.pro.capabilities.review.repo_context import path_allowed
@@ -854,17 +1108,19 @@ def conventions_block(
         return ConventionsBlock((), budget, excluded=tuple(excluded)) if excluded else None
     items: list[Mapping[str, Any]] = []
     omitted: list[str] = []
-    for document in allowed:
+    for index, document in enumerate(allowed):
         # Fit by the whole block's estimate (keys, tags, the policy sentence and JSON escaping included), not by the
-        # text alone: the estimate must be the one a caller would compute for the prompt it is about to send.
+        # text alone: the estimate must be the one a caller would compute for the prompt it is about to send. That
+        # includes the names of the documents left out, so room is kept for naming every one still to come.
         redacted = _redacted(document.text)
-        room = budget - ConventionsBlock((*items, _item(document, "", True)), budget).tokens()
+        named = _listed([*omitted, *(row.path for row in allowed[index + 1 :])])
+        room = budget - ConventionsBlock((*items, _item(document, "", True)), budget, named).tokens()
         chars = room * 4
         item: Mapping[str, Any] | None = None
         while chars >= _MIN_EXCERPT_CHARS:
             text, cut = _cut_at_boundary(redacted, chars)
             item = _item(document, text, cut)
-            over = ConventionsBlock((*items, item), budget).tokens() - budget
+            over = ConventionsBlock((*items, item), budget, named).tokens() - budget
             if over <= 0:
                 break
             chars -= over * 4 + 8
@@ -874,8 +1130,8 @@ def conventions_block(
         else:
             items.append(item)
     if not items:
-        return ConventionsBlock((), budget, tuple(omitted), tuple(excluded)) if (omitted or excluded) else None
-    return ConventionsBlock(tuple(items), budget, tuple(omitted), tuple(excluded))
+        return ConventionsBlock((), budget, _listed(omitted), tuple(excluded)) if (omitted or excluded) else None
+    return ConventionsBlock(tuple(items), budget, _listed(omitted), tuple(excluded))
 
 
 # --------------------------------------------------------------------------- #
@@ -974,6 +1230,7 @@ __all__ = [
     "AGENT_DOCUMENTS",
     "CONVENTIONS_TOKENS_ENV",
     "CONVENTION_BUDGETS",
+    "MAX_AGENT_DOCS",
     "MAX_IMPORTED_RULES",
     "MAX_RULES_FILES",
     "PRECEDENCE",
@@ -987,6 +1244,7 @@ __all__ = [
     "ImportedRule",
     "conventions_block",
     "conventions_budget",
+    "conventions_for_paths",
     "dry_run_wire",
     "effective_wire",
     "is_glob",

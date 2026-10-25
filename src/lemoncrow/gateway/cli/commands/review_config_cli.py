@@ -155,8 +155,10 @@ def render_effective_text(wire: dict[str, Any], base: BaseCommit) -> str:
         out.append("  none")
     for row in wire["conventions"]:
         depths = ", ".join(f"{depth} {tokens}" for depth, tokens in row["tokens_by_depth"].items())
+        scope = f"  applies to: {', '.join(row['scope'])}" if row.get("scope") else ""
         out.append(
-            f"  {row['path']}  {row['chars']:,} characters; tokens in a prompt at quick/auto/thorough/deep: {depths}"
+            f"  {row['path']}{scope}  {row['chars']:,} characters; "
+            f"tokens in a prompt at quick/auto/thorough/deep: {depths}"
         )
     notes = [
         row for row in wire["notes"] if row["kind"] in {"warning", "overridden", "disabled", "dropped", "unavailable"}

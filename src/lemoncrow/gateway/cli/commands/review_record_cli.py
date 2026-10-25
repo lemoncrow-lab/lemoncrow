@@ -21,7 +21,9 @@ import click
 from lemoncrow.gateway.cli.commands.review_config_cli import config_cmd
 from lemoncrow.gateway.cli.commands.review_data_flow_cli import data_flow_cmd
 from lemoncrow.gateway.cli.commands.review_diagnostics_cli import diagnostics_cmd
+from lemoncrow.gateway.cli.commands.review_hook_cli import hook_group
 from lemoncrow.gateway.cli.commands.review_hosted_cli import hosted_group
+from lemoncrow.gateway.cli.commands.review_init_cli import init_action_cmd
 from lemoncrow.gateway.cli.commands.review_observation_cli import observation_worker_group
 
 _MAX_KEYS_BYTES = 1024 * 1024
@@ -202,17 +204,25 @@ REVIEW_SUBCOMMANDS: dict[str, click.Command] = {
     "record-key": record_key_group,
     "data-flow": data_flow_cmd,
     "config": config_cmd,
+    "hook": hook_group,
+    "init-action": init_action_cmd,
     "hosted": hosted_group,
     "diagnostics": diagnostics_cmd,
     "observation-worker": observation_worker_group,
 }
 
 
+class _LocalReviewUsageError(click.UsageError):
+    """A command line a local `--ai` review cannot use: exit 3 (a hook reads 1 as a finding and 2 as incomplete)."""
+
+    exit_code = 3
+
+
 class ReviewCommand(click.Command):
     """``lc review`` with a few named subcommands ahead of its optional REV argument.
 
     A first argument naming a subcommand (``verify-record``, ``record-key``,
-    ``data-flow``, ``config``, ``hosted``, ``diagnostics``, ``observation-worker``) dispatches
+    ``data-flow``, ``config``, ``hook``, ``init-action``, ``hosted``, ``diagnostics``, ``observation-worker``) dispatches
     to it; anything else is parsed exactly as before.
     """
 
@@ -220,7 +230,15 @@ class ReviewCommand(click.Command):
         if args and args[0] in REVIEW_SUBCOMMANDS:
             ctx.meta["lemoncrow.review_subcommand"] = (args[0], list(args[1:]))
             return []
-        return super().parse_args(ctx, args)
+        given = list(args)  # click consumes `args` as it parses
+        try:
+            return super().parse_args(ctx, args)
+        except click.UsageError as exc:
+            # A local `--ai` review is run by hooks, which read the exit code: 1 means a finding is open and 2 an
+            # incomplete review, so a command line click cannot parse is 3, the usage-error code of that command.
+            if "--ai" in given and not any(arg == "--pr" or arg.startswith("--pr=") for arg in given):
+                raise _LocalReviewUsageError(exc.message, ctx=exc.ctx) from exc
+            raise
 
     def invoke(self, ctx: click.Context) -> Any:
         routed = ctx.meta.pop("lemoncrow.review_subcommand", None)
@@ -242,6 +260,14 @@ class ReviewCommand(click.Command):
                     (
                         "config --effective [--dry-run --pr N] [--base REF]",
                         "Show the merged review rules (review.yaml, import.rules_files, AGENTS.md) and what applies.",
+                    ),
+                    (
+                        "hook install|run [--pre-push|--pre-commit]",
+                        "Install a git hook that runs `lc review --ai` on what is pushed or committed (--print shows it).",
+                    ),
+                    (
+                        "init-action [--provider P] [--fail-on F] [--chat]",
+                        "Write .github/workflows/lemoncrow-review.yml from the setup guide's sample workflow.",
                     ),
                     (
                         "hosted attach|status|queue|sync|resolve|detach",

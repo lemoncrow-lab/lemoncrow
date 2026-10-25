@@ -11,7 +11,8 @@ import:
     - docs/review-rules.md      # a path
     - review-rules/*.yaml       # or a glob
   critical: []                  # rule keys to treat as gates (below)
-  agent_docs: true              # send AGENTS.md / CLAUDE.md to the investigator (the default)
+  agent_docs: true              # send AGENTS.md / CLAUDE.md and other tools' rule files to the investigator (the default)
+  agent_docs_globs: []          # more instruction files to send, besides the ones found by name (below)
 ```
 
 ## What is read, and from where
@@ -22,7 +23,7 @@ Highest precedence first:
 
 1. `.lemoncrow/review.yaml`
 2. the files `import.rules_files` lists
-3. `AGENTS.md` and `CLAUDE.md` (context only: never a rule)
+3. `AGENTS.md`, `CLAUDE.md` and the instruction files other coding tools use (context only: never a rule; see "Instruction files from other tools")
 
 How precedence works:
 
@@ -76,13 +77,13 @@ import:
   critical: [imported:docs/review-rules.md:no-raw-sql]   # keys are shown by `lc review config --effective`
 ```
 
-Or write the rule again under the same key to change its wording or scope; a rule in `.lemoncrow/review.yaml` always replaces the imported one and is critical. To stop sending `AGENTS.md` / `CLAUDE.md` to the investigator, set `import.agent_docs: false`.
+Or write the rule again under the same key to change its wording or scope; a rule in `.lemoncrow/review.yaml` always replaces the imported one and is critical. To stop sending `AGENTS.md`, `CLAUDE.md` and the other instruction files to the investigator, set `import.agent_docs: false`.
 
 An advisory rule ranks below every deterministic risk signal when LemonCrow chooses what to investigate, and its per-rule model check (`ai.rule_checks`) is asked after the critical rules, so a long imported list does not use up the few model calls a depth allows before a security or correctness candidate. Each rule that applies to a changed file can still use one of the per-rule checks, up to the ceiling (8 by default); the 20-call cap per review is unchanged.
 
 ## AGENTS.md and CLAUDE.md as project conventions
 
-Both files are context for the investigator: how your team writes code. They are never turned into rules, are tagged as untrusted data in the prompt (instructions inside them cannot change the review), go through the credential redactor, and are cut to a token budget so they stay cheap. The excerpt is estimated at four characters per token, the same estimate as the [repository context](github-action.md#repository-context) pack, and the figures are ceilings per investigator call:
+Both files (and the other instruction files below) are context for the investigator: how your team writes code. They are never turned into rules, are tagged as untrusted data in the prompt (instructions inside them cannot change the review), go through the credential redactor, and are cut to a token budget so they stay cheap. The excerpt is estimated at four characters per token, the same estimate as the [repository context](github-action.md#repository-context) pack, and the figures are ceilings per investigator call:
 
 | Depth | Conventions per call (at most) |
 | --- | --- |
@@ -94,6 +95,51 @@ Both files are context for the investigator: how your team writes code. They are
 `LEMONCROW_REVIEW_CONVENTIONS_TOKENS` replaces the ceiling for every depth. A document is cut at a paragraph boundary with a visible ellipsis; a second document that no longer fits is left out and named. Editing `AGENTS.md` does not re-review unchanged code. A `CLAUDE.md` that is only `@AGENTS.md`, or a copy of it, is skipped.
 
 A file is never included if the content-access policy denies it for the model route in use: an `ai_content_access` row in `.lemoncrow/review.yaml` for `AGENTS.md` (or `customer_local_only` on an external route) keeps it out.
+
+## Instruction files from other tools
+
+A team that has been using another coding or review tool usually already has instruction files for it. They are found by name in the trusted base and used as conventions, the same way `AGENTS.md` and `CLAUDE.md` are: background for the investigator, never a rule, so none of them can make a P0. Nothing to list and nothing to convert.
+
+| File | Applies to |
+| --- | --- |
+| `AGENTS.md`, `CLAUDE.md` at the root | every path |
+| `.claude/CLAUDE.md` | every path |
+| `.github/copilot-instructions.md` | every path |
+| `.claude/rules/**/*.md` | every path, or the globs in its front matter (`paths:`) |
+| `.cursor/rules/**/*.mdc` (and `.md`) | every path, or the globs in its front matter (`globs:`; `alwaysApply: true` means every path) |
+| `.cursorrules` | every path |
+| `AGENTS.md`, `CLAUDE.md` in a subdirectory | that directory and below |
+| `.cursor/rules/**` and `.cursorrules` in a subdirectory | that directory and below (front matter globs are not used there) |
+
+**Scope.** A file that applies to part of the repository is shown to an investigation of code under it and to no other, so a `src/billing/AGENTS.md` never costs tokens on a change to `src/web/`. When a review looks at several files, it gets the files that apply to any of them. Front matter is read for its scope and is not sent to the model. A front matter scope that cannot be read (a path that climbs out of the repository, a value that is not a glob or a list of them) skips the file with a warning; it is never widened to every path.
+
+**Budget.** The same per-call ceilings as `AGENTS.md` (table below) cover all of the files together. The file nearest the code comes first (the deepest directory), then the repository-wide ones in the order of the table, so when something has to be cut it is the most general text. What did not fit is named in the prompt (the first few names, then a count) and counts against the ceiling like the text does. At most 24 files beyond the root `AGENTS.md` and `CLAUDE.md` are read (the ones `agent_docs_globs` adds included, which come after the ones found by name), repository-wide kinds first and then by depth, the same files every time; what is over is named in the view. A file that is only `@AGENTS.md`, or a copy of another one, is skipped.
+
+**Access.** Every file goes through the content-access policy and the credential redactor, one by one: an `ai_content_access` row for `.cursor/**` keeps those files out and names them.
+
+**Not searched.** `node_modules/`, `vendor/`, `third_party/`, `.venv/` and `.git/` are not looked inside. A path or glob in `agent_docs_globs` is read wherever it points.
+
+**Turning it off or adding to it.**
+
+```yaml
+# .lemoncrow/review.yaml
+import:
+  agent_docs: false                    # none of the above, the root AGENTS.md and CLAUDE.md included
+```
+
+```yaml
+# .lemoncrow/review.yaml
+import:
+  agent_docs_globs:
+    - docs/ai/*.md                     # more instruction files: paths, or globs
+    - .windsurfrules
+```
+
+`agent_docs_globs` takes repository paths or globs (at most 32). A listed file applies to every path unless its name or front matter scopes it, as above. A glob needs the list of files in the trusted base, which the Action and the local CLI have; where there is none it is reported and matches nothing, so list the files by path. A path the base does not hold, or a glob that matches nothing, is a warning. With `agent_docs: false` the list is ignored, and the view says so.
+
+### Moving from another review tool
+
+What carries over is what is written as text in your repository: the instruction files above, and rules you copy into a file that `import.rules_files` lists (a markdown file as it is, or a `rules` list with `id`, `rule`, `scope` and `enabled`; the severity of each rule and every setting of the other tool, such as a strictness level or ignore patterns, are not read and are reported if they appear in a file you list). What lives only on the other tool's servers (a dashboard, a rule it learned) cannot be read: copy its text into a file once. Run `lc review config --effective` on your default branch to see exactly what was found, then `lc review init-action` to write the workflow ([GitHub Action](github-action.md)).
 
 ## See what will apply
 
@@ -108,11 +154,14 @@ lc review config --dry-run --head my-branch       # the same for a branch (--fil
 
 `--pr` uses the pull request's merge base as the trusted base, exactly as the Action does, so the answer is what its review will use. Nothing is sent to a model and nothing is written. The effective view lists the files it looked for and what the base held, every rule with its key, severity, scope and source, the paths the model will never read, the conventions with their size at each depth, and the warnings. The view covers the repository's files; it does not include an organization policy.
 
+The effective view also lists every instruction file it found, with what it is and the paths it applies to (`src/billing/AGENTS.md  applies to: src/billing/**`).
+
 The pull request's own summary says when the import warned about something: on a clean review, the `What we checked` receipt shows `Imported config: 2 import warnings (run lc review config --effective)`.
 
 ## Limits
 
 - At most 32 files are read (list entries, and files a glob matched), 40 rules and about 3,000 tokens of rule text are imported, each rule cut at 800 characters, and at most 400 entries of one file are looked at; what is over is named in the view. Unscoped rules ride in every prompt, so the set is small on purpose. A file larger than a million characters is not read.
-- Imports run in the Action and the local CLI. The hosted service's trusted-base capture does not fetch these files yet.
+- Imports run in the Action and the local CLI. The hosted service's trusted-base capture does not fetch these files yet, and finding the files of other tools by name needs the base's file list, which the hosted capture does not have either.
+- Instruction files that scope to a directory are matched by path prefix; there is no rule precedence between a nested file and a root one, both are context.
 - A head edit to a rules file is reported as future policy only for files `import.rules_files` names by path; a file only a glob matches is not tracked.
 - Whether imported rules catch what the tool they came from caught is unmeasured.

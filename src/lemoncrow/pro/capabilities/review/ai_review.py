@@ -25,7 +25,12 @@ from lemoncrow.core.environment import REVIEW_AUTONOMOUS_MCP_TOOLS, REVIEW_AUTON
 from lemoncrow.pro.capabilities.review import finding_replacement
 from lemoncrow.pro.capabilities.review.anchors import build_anchor
 from lemoncrow.pro.capabilities.review.ask import exact_revision_sources
-from lemoncrow.pro.capabilities.review.config_import import ConventionDocument, ConventionsBlock, conventions_block
+from lemoncrow.pro.capabilities.review.config_import import (
+    ConventionDocument,
+    ConventionsBlock,
+    conventions_block,
+    conventions_for_paths,
+)
 from lemoncrow.pro.capabilities.review.data_governance import process_route_trust
 from lemoncrow.pro.capabilities.review.finding_replacement import CitedLines, Replacement
 from lemoncrow.pro.capabilities.review.intelligence_runtime import (
@@ -2113,9 +2118,9 @@ def run_independent_review(
 ) -> IndependentReviewResult:
     """Run deterministic triage plus bounded, policy-filtered Review Intelligence.
 
-    ``project_conventions`` (G10) are the trusted base's AGENTS.md / CLAUDE.md (and imported customInstructions). Each
-    investigator prompt carries a token-budgeted, redacted excerpt of them as background data, minus any path the
-    content-access policy denies for the route in use. ``()`` sends none.
+    ``project_conventions`` (G10) are the trusted base's AGENTS.md / CLAUDE.md and the other tools' rule files. Each
+    investigator prompt carries a token-budgeted, redacted excerpt of the ones that apply to its targets as background
+    data, minus any path the content-access policy denies for the route in use. ``()`` sends none.
 
     ``repo_context`` (G4) gives a model-API route a bounded, deterministic pack of repository context (callers,
     definitions, tests, config of the changed code) in each investigator prompt, since that route has no tools.
@@ -2586,13 +2591,25 @@ def _run_independent_review_stages(
             review_targets=all_targets,
             old_source=old_source_reader(store, revision, repo_root),
         )
-    # G10: the team's AGENTS.md / CLAUDE.md as bounded background for the investigator, cut to a budget by depth and
-    # left out for any path the content-access policy denies this route. Built once; the same excerpt for every call.
-    conventions = (
-        conventions_block(project_conventions, effort=effort, content_access=content_access, route_trust=route_trust)
-        if project_conventions
-        else None
-    )
+    # G10: the team's AGENTS.md / CLAUDE.md (and the other tools' rule files) as bounded background for the
+    # investigator, cut to a budget by depth and left out for any path the content-access policy denies this route.
+    # A document with a scope (a nested AGENTS.md) goes only to an investigation of a path under it; built once per
+    # distinct set of documents.
+    conventions_cache: dict[tuple[str, ...], ConventionsBlock | None] = {}
+
+    def conventions_for(paths: Sequence[str]) -> ConventionsBlock | None:
+        """The excerpt for one investigation: the documents that apply to *paths*, the nearest directory's first."""
+
+        documents = conventions_for_paths(project_conventions, paths)
+        key = tuple(document.path for document in documents)
+        if key not in conventions_cache:
+            conventions_cache[key] = (
+                conventions_block(documents, effort=effort, content_access=content_access, route_trust=route_trust)
+                if documents
+                else None
+            )
+        return conventions_cache[key]
+
     context_tokens: dict[str, int] = {}
     answered: list[dict[str, str]] = []  # one entry per re-check investigation (list.append is atomic across threads)
     outcomes: list[IntelligenceRunOutcome] = []
@@ -2753,6 +2770,7 @@ def _run_independent_review_stages(
                 block,
             )
             applicable_rules, rule_policy = stage_rules(hypothesis.target_ids)
+            conventions = conventions_for([target.path for target in hypothesis_targets])
             # Only the earlier findings of this very concern: the same category on the same targets.
             asked = [
                 row

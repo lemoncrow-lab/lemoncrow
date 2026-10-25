@@ -51,6 +51,25 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   commit and never invents one. Live runs need `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, stop
   at `--max-usd` and refuse CI. Nothing is measured yet. See
   [Review benchmark on real pull requests](docs/reference/review-benchmark.md).
+- **AI review of a change that has no pull request, and a git hook for it.** `lc review --ai` with
+  no `--pr` reviews the working tree, `--staged`, a revision or `--base`/`--head` on your own model key
+  (or a local agent CLI) and posts nothing: the same engine path, findings and severity as the
+  GitHub Action, printed for the terminal or as `--json`. It exits `0` clean, `1` while a finding at or
+  above `--fail-on` (`p0` by default, or `p1`, or `none`) is open, `2` for an incomplete review under
+  `--strict` (a missing key, the kill switch, a spent budget, risk signals left unexamined) and `3` on a
+  usage error; without `--strict` an incomplete review fails open, so a flaky provider never blocks a push.
+  A re-run on an unchanged tree reuses the carried results and makes no model call.
+  `lc review hook install [--pre-push|--pre-commit]` writes a small git hook that runs it on what you
+  are about to push (`--print` shows the script, an existing hook is never overwritten without `--force`).
+  See [Local AI review and git hooks](docs/reference/cli.md#local-ai-review-and-git-hooks).
+- **Switching to LemonCrow: other tools' instruction files and the workflow.** The review reads
+  `.cursor/rules`, `.claude/rules`, `.cursorrules`, `.github/copilot-instructions.md` and an `AGENTS.md` /
+  `CLAUDE.md` in a subdirectory from the trusted base as conventions context (a nested file only for code
+  under its directory), within the existing token budget and content-access policy.
+  `import.agent_docs: false` turns it off and `import.agent_docs_globs` adds files.
+  `lc review init-action [--provider anthropic|openai] [--fail-on none|p0] [--chat]` writes
+  `.github/workflows/lemoncrow-review.yml` from the setup guide's sample and prints the two steps left to
+  you, the secret and the pinned SHA. See [Importing review rules](docs/setup/importing-review-rules.md).
 
 ### Changed
 

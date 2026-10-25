@@ -79,6 +79,18 @@ jobs:
 
 3. Open a pull request. The bot posts a summary comment and a `LemonCrow Review` status when the run finishes.
 
+**Or let the CLI write the file.** `lc review init-action` writes `.github/workflows/lemoncrow-review.yml` from the workflow above (it is the same text: the command ships this sample and a test holds the two equal) and prints the two steps that are left to you, adding the secret and pinning the SHA:
+
+```bash
+lc review init-action                           # review only: the sample without the comment triggers
+lc review init-action --chat                    # the sample as it is above, with `@lemoncrow` chat
+lc review init-action --provider openai         # pass OPENAI_API_KEY instead of ANTHROPIC_API_KEY
+lc review init-action --fail-on p0              # fail the check while a P0 is open (default: none, advisory)
+lc review init-action --force                   # replace a workflow file that already exists
+```
+
+It never overwrites a different file without `--force`, and running it twice leaves the file as it is. It leaves `<commit-sha>` in place on purpose: it cannot know which commit of the public repository you want to run (see "Installing a pinned version").
+
 Notes on the workflow:
 
 - **`permissions`** are the least the Action needs: `pull-requests: write` to comment, reply in threads and resolve threads, `statuses: write` for the status, `contents: read` to fetch the pull request. Chat adds no permission (see "Chat in pull request threads"). It posts as `github-actions[bot]` with the workflow's `GITHUB_TOKEN`; keep the default `github-token` input so the comments never come from a person.
@@ -550,7 +562,7 @@ Limits to know: the search is textual, with tree-sitter to find the enclosing fu
 
 ## Importing review rules
 
-A team that already wrote its review rules down keeps them. From the pull request's **merge base**, the same trusted source as `.lemoncrow/review.yaml`, the Action reads the files that `import.rules_files` in `.lemoncrow/review.yaml` lists, and `AGENTS.md` / `CLAUDE.md`. A pull request that adds or edits them cannot change its own review. Precedence, highest first: `.lemoncrow/review.yaml`, the files `import.rules_files` lists, then `AGENTS.md` / `CLAUDE.md` as context only.
+A team that already wrote its review rules down keeps them. From the pull request's **merge base**, the same trusted source as `.lemoncrow/review.yaml`, the Action reads the files that `import.rules_files` in `.lemoncrow/review.yaml` lists, `AGENTS.md` / `CLAUDE.md`, and the instruction files other coding tools use. A pull request that adds or edits them cannot change its own review. Precedence, highest first: `.lemoncrow/review.yaml`, the files `import.rules_files` lists, then `AGENTS.md` / `CLAUDE.md` as context only.
 
 ```yaml
 # .lemoncrow/review.yaml
@@ -564,6 +576,7 @@ import:
 | A markdown file | Every top-level bullet (or a heading with prose) is a review rule, **advisory** (P1 or P2, never P0 unless `import.critical` says so) |
 | A YAML or JSON file `{rules: [{id, rule, scope?, enabled?}]}` | Review rules scoped to the `scope` globs (no `scope`: every path), advisory in the same way |
 | `AGENTS.md`, `CLAUDE.md` | Project conventions: a token-budgeted excerpt in the investigator's prompt, never a rule, never content the access policy denies |
+| `.cursor/rules`, `.claude/rules`, `.cursorrules`, `.github/copilot-instructions.md`, `AGENTS.md` / `CLAUDE.md` in a subdirectory | Found by name and used as conventions in the same way; a file that belongs to a directory is shown only for code under it. `import.agent_docs: false` turns all of them off, `import.agent_docs_globs` adds more files |
 | Any other key in a rules file | Ignored, with a warning |
 
 `lc review config --effective` prints the merged rules with the file each came from, and `lc review config --dry-run --pr N` shows which would apply to a pull request's files. The formats, the budgets and the limits are in [Importing review rules](importing-review-rules.md).
@@ -604,6 +617,18 @@ lc review --pr 123 --ai                      # print the findings
 lc review --pr 123 --ai --json               # machine-readable
 lc review --pr 123 --publish-bot --dry-run   # the exact comments the bot would post
 ```
+
+Without a pull request, the same review runs on the working tree, the staged changes or a range, and posts nothing anywhere:
+
+```bash
+lc review --ai                      # the working tree against HEAD (the last commit on a clean tree)
+lc review --ai --staged             # exactly what is staged
+lc review --ai main...HEAD          # a branch against its merge base with main
+lc review --ai --fail-on p0 --json  # exit 1 while a P0 is open; machine-readable
+lc review hook install              # a pre-push hook that runs it on what you are about to push
+```
+
+It uses the same findings, severity and carried results as the bot (a re-run on an unchanged tree makes no model call) and respects the intelligence policy and its kill switch. The exit codes and the hook are in [the CLI reference](../reference/cli.md#local-ai-review-and-git-hooks).
 
 `--publish-bot` itself runs only in GitHub Actions: on a laptop your `gh` login is a person, and AI output must not be posted under a person's name. This is the full Review CLI (`uv run lc review` in a source checkout).
 
