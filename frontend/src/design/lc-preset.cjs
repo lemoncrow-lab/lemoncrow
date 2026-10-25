@@ -64,7 +64,8 @@ module.exports = {
         // frontend names kept, values +1px (font-size only; line-height stays inherited)
         micro: "0.625rem", caption: "0.6875rem", label: "0.75rem", body: "0.8125rem", heading: "0.875rem", title: "1rem",
       },
-      borderRadius: { sm: "4px", DEFAULT: "6px", md: "6px", lg: "8px" },
+      // Fleet geometry: controls and badges 6px (sm, DEFAULT, md), panels 12px (lg and the larger names).
+      borderRadius: { sm: "6px", DEFAULT: "6px", md: "6px", lg: "12px", xl: "12px", "2xl": "12px", "3xl": "12px" },
       boxShadow: {
         float: "0 12px 32px -12px rgb(10 10 10 / 0.28), 0 0 0 1px rgb(var(--border))",
         frame: "0 32px 64px -32px rgb(10 10 10 / 0.35)",

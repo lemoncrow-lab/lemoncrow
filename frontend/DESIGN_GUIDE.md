@@ -174,8 +174,8 @@ completes instantly.
 The `/r` Review/Reader visual system is the canonical LemonCrow application language. Workbench routes must use the same surfaces,
 density, typography, focus treatment, control sizes, and light/dark behavior.
 
-- Panels, menus, sheets, and cards use hairline `border-border` and `rounded-lg`.
-- Controls and compact actions use `rounded-md`, with 28px compact and 32px normal heights. Badges and chips are `rounded-sm`.
+- Panels, menus, sheets, and cards use hairline `border-border` and `rounded-lg` (12px).
+- Controls and compact actions use `rounded-md`, with 28px compact and 32px normal heights. Badges and chips are `rounded-sm` (6px, the same as controls).
 - Use 12–16px panel padding and 12–16px section gaps by default.
 - No gradients, no hard-coded dark backgrounds, no shadows on cards. Floating menus and sheets use `shadow-float`.
 - Prefer semantic tokens over `bg-black`, hex, or duplicated light/dark values.

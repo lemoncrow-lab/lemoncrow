@@ -17,7 +17,7 @@
   --fs-heading: 0.875rem;
   --fs-title: 1rem;
   /* Fleet geometry for the CSS-only Review surfaces (reviewUi.css): named after the preset's radii so there is one
-     scale. Controls and badges are 6px (rounded-md), panels 8px (rounded-lg). */
+     scale. Controls and badges are 6px (rounded-md), panels 12px (rounded-lg). */
   --radius-control: theme("borderRadius.md");
   --radius-panel: theme("borderRadius.lg");
   --radius-badge: theme("borderRadius.DEFAULT");
