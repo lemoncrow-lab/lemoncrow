@@ -41,24 +41,24 @@ __all__ = ["main", "review_entrypoint"]
 _USAGE: Final[str] = f"""{CLIENT_NAME} {CLIENT_VERSION}
 
 usage:
-  lc review [OPTIONS]    capture your change and open it in the Reader (no AI, no model call)
-  lc review --ai         AI review of your change, printed here (ANTHROPIC_API_KEY, or --agent claude)
-  lc review hook install git hook: AI review before each push; stops only on a real finding
-  lc review init-action  write the GitHub Action workflow that reviews pull requests
-  lc review config       show the review rules this repository sets
-  lc code ...            use LemonCrow's Hosted coding agent
-  lc with HOST [...]     use Runtime Lite with claude, codex, opencode, or pi
-  lc runtime COMMAND     manage Runtime integration and transports
-  lc rt COMMAND          shorthand for runtime (rt host manages LemonCode/Pi host binaries)
-  lc run ...             managed/full Runtime only; not part of Runtime Lite
-  lc session ...         managed/full Runtime only; not part of Runtime Lite
-  lc context ...         managed/full Runtime only; not part of Runtime Lite
-  lc status              show installed products and next actions
-  lc update [--dry-run]  re-run the release installer for installed products
-  lc uninstall PRODUCT   remove review, runtime, or all
-  lc auth [COMMAND]      sign in to Hosted Runtime/Review
-  lc target [URL]        show or set a Hosted Runtime/Review endpoint
-  lc audit               print what this client does and does not do
+  lc review [OPTIONS]     capture your change and open it in the Reader (no AI, no model call)
+  lc review --ai          AI review of your change, printed here (needs a key or --agent claude)
+  lc review hook install  git hook: AI review before each push; stops only on a real finding
+  lc review init-action   write the GitHub Action workflow that reviews pull requests
+  lc review config        show the review rules this repository sets
+  lc code ...             use LemonCrow's Hosted coding agent
+  lc with HOST [...]      use Runtime Lite with claude, codex, opencode, or pi
+  lc runtime COMMAND      manage Runtime integration and transports
+  lc rt COMMAND           shorthand for runtime (rt host manages LemonCode/Pi host binaries)
+  lc run ...              managed/full Runtime only; not part of Runtime Lite
+  lc session ...          managed/full Runtime only; not part of Runtime Lite
+  lc context ...          managed/full Runtime only; not part of Runtime Lite
+  lc status               show installed products and next actions
+  lc update [--dry-run]   re-run the release installer for installed products
+  lc uninstall PRODUCT    remove review, runtime, or all
+  lc auth [COMMAND]       sign in to Hosted Runtime/Review
+  lc target [URL]         show or set a Hosted Runtime/Review endpoint
+  lc audit                print what this client does and does not do
 
 runtime commands:
   code [OPTIONS]                 LemonCrow Hosted coding agent
