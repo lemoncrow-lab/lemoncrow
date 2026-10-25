@@ -559,6 +559,8 @@ def test_persistent_state_writers_are_confined_to_the_worktree_or_state_director
     ``<state_dir>/mcp``; ``remote/service.py`` writes that gateway's two user
     units, only for ``runtime mcp serve --persistent``. ``pi_host.py`` owns the
     explicitly requested pinned Pi bundle and metadata under ``<state_dir>/hosts``.
+    ``uninstall.py`` rewrites a shell startup file only to cut the block the installer added to it, and a repository's
+    ``.git/info/exclude`` only to drop the one line a review added; it writes nothing else.
     Every other module must remain pure unless its persistence contract is
     reviewed here.
     """
@@ -585,6 +587,7 @@ def test_persistent_state_writers_are_confined_to_the_worktree_or_state_director
         "review_service.py",
         "session.py",
         "trace.py",
+        "uninstall.py",
         "workspace_paths.py",
     ], sorted(writers)
 

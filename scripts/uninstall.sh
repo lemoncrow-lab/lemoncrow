@@ -100,11 +100,14 @@ info() { printf "%b│%b  ◇  %s\n" "$C_FRAME" "$C_RESET" "$*"; }
 warn() { printf "%b│%b  %b⚠%b  %s\n" "$C_FRAME" "$C_RESET" "$C_YELLOW" "$C_RESET" "$*"; }
 run()  { [[ "$LEMONCROW_DRY_RUN" == "1" ]] && echo "[dry-run] $*" || eval "$*"; }
 
+# A dry run says "Would remove", never "Removed": it changed nothing.
+removed_word() { [[ "$LEMONCROW_DRY_RUN" == "1" ]] && printf 'Would remove' || printf 'Removed'; }
+
 remove_path() {
     local path="$1"
     if [ -e "$path" ] || [ -L "$path" ]; then
         run "rm -rf $(printf %q "$path")"
-        info "Removed ${path}"
+        info "$(removed_word) ${path}"
     fi
 }
 
@@ -184,12 +187,7 @@ purge_leftovers() {
     remove_path "${HOME}/.codex/plugins/cache/openai-curated/lemoncrow"
     if [ -f "${HOME}/.copilot/hooks/hooks.json" ] && grep -q "lemoncrow" "${HOME}/.copilot/hooks/hooks.json" 2>/dev/null; then
         run "rm -f $(printf %q "${HOME}/.copilot/hooks/hooks.json")"
-        info "Removed LemonCrow Copilot CLI hooks config"
-    fi
-
-    if command -v npm >/dev/null 2>&1; then
-        run "npm uninstall -g codeburn tokscale >/dev/null 2>&1 || true"
-        info "Removed global npm helper packages installed by LemonCrow when present"
+        info "$(removed_word) LemonCrow Copilot CLI hooks config"
     fi
 
     remove_glob "${HOME}/.copilot/instructions/*lemoncrow*"
@@ -352,7 +350,7 @@ for cmd in lemoncrow lc lcr lemoncode lemoncrowd lcd pi-host; do
     target="${LEMONCROW_BIN_DIR}/${cmd}"
     if [ -f "$target" ] || [ -L "$target" ]; then
         run "rm -f $(printf %q "$target")"
-        info "Removed ${target}"
+        info "$(removed_word) ${target}"
     fi
 done
 
@@ -365,7 +363,7 @@ for cmd in lemoncrow lc lcr lemoncode lemoncrowd lcd; do
     if [ -L "$target" ]; then
         link_dest="$(readlink "$target" 2>/dev/null || true)"
         case "$link_dest" in
-            *lemoncrow*) run "rm -f $(printf %q "$target")"; info "Removed ${target}" ;;
+            *lemoncrow*) run "rm -f $(printf %q "$target")"; info "$(removed_word) ${target}" ;;
         esac
     fi
 done
@@ -373,17 +371,22 @@ fi
 
 # ---- remove PATH sentinel from shell profile --------------------------------
 _remove_path_sentinel() {
-    local profile_file shell_name
+    # The installer writes to ~/.bashrc and the login file (or ~/.zshrc), chosen by $SHELL at install time; a later
+    # shell reads others. Look in every startup file it can have written to, and cut only its own block.
+    local profile_file
+    local -a candidates=(
+        "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"
+        "${ZDOTDIR:-$HOME}/.zshrc" "${ZDOTDIR:-$HOME}/.zshenv" "${ZDOTDIR:-$HOME}/.zprofile"
+        "$HOME/.config/fish/config.fish"
+    )
+    for profile_file in "${candidates[@]}"; do
+        [[ -f "$profile_file" ]] || continue
+        _remove_path_block_from "$profile_file"
+    done
+}
 
-    shell_name="$(basename "${SHELL:-bash}")"
-    case "$shell_name" in
-        zsh)  profile_file="${ZDOTDIR:-$HOME}/.zshrc" ;;
-        bash) profile_file="$HOME/.bashrc" ;;
-        fish) profile_file="$HOME/.config/fish/config.fish" ;;
-        *)    profile_file="$HOME/.profile" ;;
-    esac
-
-    [[ -f "$profile_file" ]] || return 0
+_remove_path_block_from() {
+    local profile_file="$1"
 
     # Two installer variants write different markers: scripts/lib/common.sh uses
     # the "path setup" pair; scripts/install.sh uses the bare marker. Remove both.
@@ -411,7 +414,7 @@ _remove_path_sentinel() {
             fi
         done < "$profile_file" > "$tmp_file"
         mv "$tmp_file" "$profile_file"
-        info "Removed LemonCrow PATH block (${sentinel_start}) from ${profile_file/#$HOME/~}"
+        info "Removed LemonCrow PATH block (${sentinel_start}) from ${profile_file/#$HOME/\~}"
     done
 }
 _remove_path_sentinel
@@ -500,7 +503,11 @@ else
     info "Preserved: your data in ~/.lemoncrow and ~/.config/lemoncrow (sessions, memory, index, config, installation id)."
     info "Run 'bash scripts/uninstall.sh --purge' to also remove all LemonCrow state."
 fi
-info "Uninstall complete."
+if [[ "$LEMONCROW_DRY_RUN" == "1" ]]; then
+    info "Dry run: nothing was changed."
+else
+    info "Uninstall complete."
+fi
 
 if [[ -n "$DEFERRED_REMOVE_INSTALL_DIR" ]]; then
     info "Scheduling deferred removal of install source: $DEFERRED_REMOVE_INSTALL_DIR"

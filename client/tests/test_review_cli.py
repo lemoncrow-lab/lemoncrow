@@ -578,6 +578,34 @@ def test_ai_review_runs_in_the_engine_and_its_exit_status_is_ours(
     assert f"lc={bin_dir / 'lc'} root={home}" in out  # a hook it installs calls this lc, state stays in this home
 
 
+def test_settings_runs_in_the_engine_from_the_same_lc_so_a_key_can_be_saved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The audit: `lc settings` was "unknown command" in the installed client, so the key-setting path needed a checkout."""
+
+    home = tmp_path / "home"
+    _fake_engine(home)
+    monkeypatch.setenv("LEMONCROW_HOME", str(home))
+    monkeypatch.delenv("LEMONCROW_ROOT", raising=False)
+    sink = StringIO()
+    assert main(["settings", "set", "llm.anthropic_api_key"], stdout=sink) == 0
+    assert (
+        "engine -m lemoncrow.pro.capabilities.review.local_cli.settings_cli set llm.anthropic_api_key"
+        in sink.getvalue()
+    )
+    assert f"root={home}" in sink.getvalue()  # the key goes to this install's settings file
+    assert "unknown command" not in sink.getvalue()
+    monkeypatch.setenv("FAKE_ENGINE_EXIT", "3")
+    assert main(["settings"], stdout=StringIO()) == 3  # the engine's status is ours
+
+
+def test_settings_without_an_engine_says_how_to_get_one(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LEMONCROW_HOME", str(tmp_path / "empty"))
+    sink = StringIO()
+    assert main(["settings", "show"], stdout=sink) == 2
+    assert "lc settings needs the local Review engine" in sink.getvalue() and "--product review" in sink.getvalue()
+
+
 def test_ai_review_without_an_engine_says_how_to_get_one(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEMONCROW_HOME", str(tmp_path / "empty"))
     sink = StringIO()
@@ -585,7 +613,7 @@ def test_ai_review_without_an_engine_says_how_to_get_one(tmp_path: Path, monkeyp
     assert "needs the local Review engine" in sink.getvalue() and "--product review" in sink.getvalue()
 
 
-@pytest.mark.parametrize("option", ["--agent", "--fail-on", "--strict", "--pr"])
+@pytest.mark.parametrize("option", ["--agent", "--remember", "--fail-on", "--strict", "--pr"])
 def test_a_flag_that_belongs_to_an_ai_review_says_to_add_ai_instead_of_running_one(option: str) -> None:
     sink = StringIO()
     assert main(["review", option], stdout=sink) == 2

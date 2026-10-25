@@ -741,6 +741,7 @@ def _capture(
 _AI_ONLY_OPTIONS: Final[frozenset[str]] = frozenset(
     {
         "--agent",
+        "--remember",
         "--depth",
         "--fail-on",
         "--strict",
@@ -776,8 +777,8 @@ def _help_text() -> str:
         "",
         "What to type:",
         "  lc review                  Capture your change and open it in the Reader. No AI, no model call.",
-        "  lc review --ai             AI review of your change, printed here. Needs ANTHROPIC_API_KEY (or",
-        "                             OPENAI_API_KEY), or add --agent claude|codex|opencode.",
+        "  lc review --ai             AI review of your change, printed here. First: export ANTHROPIC_API_KEY=...",
+        "                             (or OPENAI_API_KEY), or add --agent claude|codex|opencode.",
         "  lc review --staged         Review exactly what is staged (works with --ai too)",
         "  lc review main...HEAD      Review a branch against main (works with --ai too)",
         "  lc review hook install     Git hook: AI review before each push. It stops only on a real finding,",
@@ -816,6 +817,7 @@ def _help_text() -> str:
         "",
         "AI options (with --ai):",
         "  --agent NAME        Use a signed-in agent CLI instead of a key: claude, codex or opencode",
+        "  --remember          With --agent: use that agent whenever no API key is set",
         "  --fail-on p0|p1|none  Exit 1 while a finding at least this severe is open (default p0)",
         "  --strict            Exit 2 when the review could not finish (no model, spent budget)",
         "  --depth auto|thorough|deep, --fresh, --max-usd-per-pr USD, --json, --all",
