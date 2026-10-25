@@ -930,7 +930,9 @@ def review_main(arguments: list[str], *, sink: TextIO) -> int:
             name = argument.partition("=")[0]
             if name in _AI_ONLY_OPTIONS or name == "--pr":
                 # Never run a model because of a flag that merely sounds like it: say what to add.
-                sink.write(f"{name} belongs to an AI review: add --ai, for example `lc review --ai {argument}`.\n")
+                sink.write(
+                    f"{name} belongs to an AI review: add --ai to the same command (`lc review --ai {name} ...`).\n"
+                )
             elif name in _FULL_CLI_REVIEW_OPTIONS:
                 sink.write(
                     "That option belongs to the full Review CLI in a LemonCrow source checkout (`uv run lc review`).\n"
