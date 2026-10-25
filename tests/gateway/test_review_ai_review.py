@@ -977,6 +977,55 @@ def test_identical_hypotheses_are_deduped_before_investigation(tmp_path: Path) -
     assert result.not_confirmed == 1
 
 
+def test_a_synthesis_whose_hypotheses_the_triage_rejects_falls_back_to_the_top_candidates(tmp_path: Path) -> None:
+    store, revision = _store(tmp_path)
+    schemas: list[str] = []
+    # A real model pairs a category with a target the triage raised for another category: this one is rejected.
+    crossed = {
+        "category": "performance",
+        "target_ids": ["target-auth"],
+        "failure_mode": "The session lookup may be slow",
+        "investigation_rationale": "auth path changed",
+        "priority_rationale": "hot path",
+        "evidence_needed": "Trace the lookup",
+    }
+
+    def execute(**kwargs: Any) -> StructuredExecution:
+        if kwargs["output_schema"] == HYPOTHESIS_SCHEMA:
+            schemas.append("synthesis")
+            return _execution({"hypotheses": [crossed]})
+        schemas.append("investigation")
+        return _execution(
+            {
+                "status": "not_confirmed",
+                "category": "security",
+                "target_ids": ["target-auth"],
+                "title": "",
+                "explanation": "",
+                "consequence": "",
+                "evidence_refs": [],
+            }
+        )
+
+    result = run_independent_review(
+        store=store,
+        revision=revision,
+        targets=(
+            _target(target_id="target-auth", path="src/auth/session.py"),
+            _target(target_id="target-cache", path="src/cache/query.py"),
+        ),
+        repo_root=tmp_path,
+        effort="thorough",
+        driver="openai",
+        model="review-model",
+        structured_executor=execute,
+    )
+    # The call is not wasted: the two candidates the triage raised are investigated.
+    assert schemas == ["synthesis", "investigation", "investigation"]
+    assert result.hypotheses == 2 and result.not_confirmed == 2
+    assert result.status == "completed"
+
+
 def test_independent_provider_preference_is_used_when_configured_route_succeeds(tmp_path: Path) -> None:
     # P11 item 14: the author must be known from exact provenance for a route to be distinct.
     store, revision = _store(tmp_path, certainty="exact")

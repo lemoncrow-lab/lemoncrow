@@ -137,6 +137,11 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Fixed
 
+- **A review no longer pays for a hypothesis call and then examines nothing.** On a change with many risk signals
+  the model's proposed hypotheses can pair a category with a target the triage raised for another category; all of
+  them were dropped, so the one call was spent, no investigation ran, and the summary said "0 of 39 risk signals
+  examined (the depth limit)". When none of the proposed hypotheses is allowed, the highest-ranked candidates are
+  investigated directly, as a review without that call does.
 - **A local review that asked the model nothing says so.** The model is asked only about a risk signal or a rule;
   on an ordinary change in a repository with no rules (a utility function, a snake_case file name) none is raised,
   and `lc review --ai` printed `No must-fix findings` with `Model: none · no model calls` and nothing else, which
