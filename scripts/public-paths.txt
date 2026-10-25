@@ -77,7 +77,6 @@ evals/review/
 # names enterprise test paths and private gates; its test stays private with it.
 !tests/test_release_gate.py
 !tests/test_release_canary_env.py
-!tests/gateway/test_stage_hosted_downloads.py
 !tests/test_release_record.py
 !tests/test_verify_compiled_candidate.py
 # The support-matrix renderer reads the private status index; only its page is public.
