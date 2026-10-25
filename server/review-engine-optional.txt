@@ -73,3 +73,4 @@ src/lemoncrow/bench/LICENSE
 src/lemoncrow/core/LICENSE
 src/lemoncrow/infra/LICENSE
 src/lemoncrow/py.typed
+src/lemoncrow/pro/capabilities/review/security_rules/README.md

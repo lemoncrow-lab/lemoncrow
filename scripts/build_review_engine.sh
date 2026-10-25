@@ -142,6 +142,7 @@ classifiers = [
 ]
 dependencies = [
   "aiohttp>=3.14.1",
+  "diff-match-patch>=2.1",
   "fastapi>=0.139.2",
   "pydantic>=2.6",
   "pygit2==1.19.2",
@@ -194,6 +195,8 @@ with zipfile.ZipFile(wheel) as zf:
     required = {
         "lemoncrow/pro/capabilities/review/models.py",
         "lemoncrow/pro/capabilities/review/gate_h_contract.yaml",
+        "lemoncrow/pro/capabilities/review/config_import.py",
+        "lemoncrow/pro/capabilities/review/repo_context.py",
         "lemoncrow_server_core/bootstrap.py",
         "lemoncrow_server_core/local_review.py",
         "lemoncrow_client/kit/redaction.py",
@@ -213,6 +216,29 @@ lc_run uv venv --python "${LEMONCROW_BUILD_PYTHON:-3.13}" "$SMOKE"
 lc_run uv pip install --python "$SMOKE/bin/python" "$wheel"
 HOME="$WORK/home" "$SMOKE/bin/python" -m lemoncrow_server_core up \
     --directory "$WORK/state" --local-no-auth --product review --ephemeral --check-only
+# Import every module the wheel ships. The server only imports what a request reaches, so a module the allowlist
+# forgot (config_import.py and repo_context.py were) is a 500 in the Reader, not a build failure, unless every
+# shipped module is imported here. The installed interpreter sees the wheel, never the checkout.
+HOME="$WORK/home" "$SMOKE/bin/python" - "$wheel" <<'PY_IMPORTS'
+import importlib
+import sys
+import zipfile
+
+failures = []
+with zipfile.ZipFile(sys.argv[1]) as wheel:
+    names = sorted(n for n in wheel.namelist() if n.endswith(".py") and not n.endswith("__main__.py"))
+for name in names:
+    module = name[: -len(".py")].replace("/", ".")
+    if module.endswith(".__init__"):
+        module = module[: -len(".__init__")]
+    try:
+        importlib.import_module(module)
+    except Exception as exc:  # any failure to import is the finding
+        failures.append(f"{module}: {type(exc).__name__}: {exc}")
+if failures:
+    raise SystemExit("Review engine ships modules that do not import:\n  " + "\n  ".join(failures))
+print(f"imported {len(names)} shipped modules")
+PY_IMPORTS
 LEMONCROW_REVIEW_SMOKE_STATE="$WORK/state-capabilities" "$SMOKE/bin/python" - <<'PY'
 import importlib.util
 import os
