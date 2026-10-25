@@ -32,6 +32,25 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   limit. `diagram: off` (or `--diagram off`) never builds it; a pull request that changes no code, or a
   head tree of more than 2,000 source files, skips it. See
   [Change diagram](docs/setup/github-action.md#change-diagram).
+- **Noise controls for the pull request reviewer.** A team can tune volume in one place, the trusted-base
+  `.lemoncrow/review.yaml` (read from the merge base, so a pull request cannot loosen its own review):
+  `review.finding_threshold`, which was defined and never applied, now holds back what is below it
+  (tracked, counted in the headline and the check as `N held back`, listed once, never inline); `strictness: 1|2|3`
+  is a friendly alias (1 shows everything, 2 is the default, 3 never comments on P2); `ignore` path globs take
+  files out of the review and out of every prompt (the existing `ai_denied` content-access mechanism);
+  `rules: {<key>: {severity: p1}}` sets a rule's severity (a critical rule can be lowered, an imported rule can
+  never be raised past P1); `inline_comments: false` is summary-only mode; and a pull request over `max_files`
+  (default 100) is reviewed highest-risk files first, says `Partially reviewed: N of M files, highest risk
+  first`, names the files left and reviews them on the next push, never skipping them. The Action gains
+  `strictness`, `inline-comments` and `max-files` inputs as defaults for a repository whose file is silent. A
+  P0 is never held back. See [Reducing noise](docs/setup/github-action.md#reducing-noise).
+- **The pull request description and linked issues as review context.** The reviewer now reads the pull request
+  title and description and the issues of the same repository it links (`Fixes #12`, an issue URL), with the
+  workflow token, within a 1,000-token budget, and shows them to the investigators as untrusted data (never
+  instructions, never evidence; HTML comments and credentials removed) to cut false positives and to flag code
+  that contradicts what was written (`Differs from the stated intent:`, never above P1). Security, data-loss and
+  rule investigations never see it. An issue the token cannot read is skipped with a note.
+  `LEMONCROW_REVIEW_INTENT=0` turns it off. See [Intent](docs/setup/github-action.md#intent).
 - **Repository context for AI review on a model-API route.** A reviewer reached through
   an API key has no tools, so it could not see a caller in another file. Before each
   investigation it now gets a small deterministic pack from the pull request snapshot:

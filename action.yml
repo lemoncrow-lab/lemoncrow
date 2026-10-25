@@ -58,6 +58,28 @@ inputs:
       drawing, from the Snapshot's architecture delta: no model call and nothing inferred. off never builds it (it
       parses the repository's source on both sides of the pull request, which a very large repository may not want).
     default: auto
+  strictness:
+    description: >-
+      How much the bot reports, 1, 2 or 3. 1 reports everything: P2 findings are rows in the summary and get an inline
+      comment like P0 and P1. 2, the behavior without this input, posts P0 and P1 inline and holds P2 back in a
+      collapsed block. 3 never comments on P2: it is counted ("N held back") and listed once, collapsed, below the
+      threshold. A P0 is never held back. It is an alias for review.finding_threshold; a value that
+      .lemoncrow/review.yaml on the pull request's merge base sets wins over this input. Empty: use the file, else 2.
+    default: ""
+  inline-comments:
+    description: >-
+      true or false. false is summary-only mode: no inline comments on the diff, every finding listed in the summary
+      comment (the check and fail-on are unchanged). Inline comments carry one-click suggestions and the threads that
+      reactions and replies teach the bot from, so a summary-only review has neither. review.inline_comments in
+      .lemoncrow/review.yaml on the merge base wins over this input. Empty: use the file, else true.
+    default: ""
+  max-files:
+    description: >-
+      A whole number. A pull request with more files than this is reviewed highest-risk files first: the rest are
+      named in the summary, which reads "Partially reviewed", and are reviewed on the next push or re-run, never
+      skipped. 0 means no limit. review.max_files in .lemoncrow/review.yaml on the merge base wins over this input.
+      Empty: use the file, else 100.
+    default: ""
   mention-aliases:
     description: >-
       Extra handles the bot answers to in pull request comments, comma separated (for example "@review-bot").
@@ -148,6 +170,11 @@ runs:
         DEPTH: ${{ inputs.depth }}
         DIAGRAM: ${{ inputs.diagram }}
         FAIL_ON: ${{ inputs.fail-on }}
+        # The noise controls: read by the reviewer from the environment, like the chat settings; the trusted-base
+        # .lemoncrow/review.yaml wins over them (docs/setup/github-action.md, "Reducing noise").
+        LEMONCROW_REVIEW_STRICTNESS: ${{ inputs.strictness }}
+        LEMONCROW_REVIEW_INLINE_COMMENTS: ${{ inputs.inline-comments }}
+        LEMONCROW_REVIEW_MAX_FILES: ${{ inputs.max-files }}
         MAX_USD: ${{ inputs.max-usd-per-pr }}
         MAX_RUNS: ${{ inputs.max-runs-per-pr }}
         VENV: ${{ runner.temp }}/lemoncrow-venv

@@ -105,6 +105,9 @@ Notes on the workflow:
 | `review-drafts` | `false` | Review draft pull requests too. |
 | `on-push` | `true` | Re-review on each push to an open pull request. `false` reviews only when it opens. |
 | `diagram` | `auto` | `auto` adds the collapsed `Change diagram` to the summary when the pull request added or removed a relationship between files; `off` never builds it. See "Change diagram". |
+| `strictness` | none (the file, else `2`) | `1`, `2` or `3`: how much the bot reports. An alias for `finding_threshold`; `.lemoncrow/review.yaml` wins. See "Reducing noise". |
+| `inline-comments` | none (the file, else `true`) | `false` is summary-only mode: nothing on the diff, every finding listed in the summary. `.lemoncrow/review.yaml` wins. |
+| `max-files` | none (the file, else `100`) | A pull request with more files is reviewed highest-risk files first, and the rest are named and reviewed next, never skipped. `0` means no limit. `.lemoncrow/review.yaml` wins. |
 | `mention-aliases` | none | Extra handles the bot answers to besides `@lemoncrow`, comma separated (`@review-bot`). See "Chat in pull request threads". |
 | `chat-allowed-associations` | `OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR` | Whose mentions are answered, and whose reactions, replies and resolved threads teach the bot, by the `author_association` GitHub puts on the comment. |
 | `pr-number` | the event's pull request (also for a comment on one) | Set it for `workflow_dispatch` runs. |
@@ -119,14 +122,15 @@ LiteLLM users can set `model-provider: litellm` and the variables LiteLLM alread
 - a verdict line that agrees with the status: `1 must-fix before merge`, `Partially reviewed: 2 of 3 risk signals examined` when the review finished but left risk signals unexamined, `Review incomplete: <why>` when it could not finish, or `No must-fix findings` only when every risk signal was examined;
 - a status strip: `Re-reviewed 38 changed lines · 1 new · 2 carried forward · 1 fixed since last review`;
 - findings sorted by severity, each linking to its inline thread. **P0** must fix, **P1** should fix, **P2** optional;
-- P2 findings in a collapsed block, `N low-priority findings held back`;
+- P2 findings in a collapsed block, `N low-priority findings held back`; with a stricter setting, findings below your threshold are counted in the headline (`· 2 held back`) and listed once in their own collapsed block (see "Reducing noise");
+- when the pull request has more files than `max_files`, a block quote saying how many files, which were left for the next run, and that the review is partial;
 - a collapsed `Change diagram` of the relationships the pull request added, removed or changed (see "Change diagram");
 - on a clean review, a collapsed `What we checked`: files, rules applied, depth;
 - collapsed blocks for feedback: `N findings dismissed by feedback`, `N instructions learned on this pull request` and `Suggested rules from feedback` (see "Learning from feedback");
 - a collapsed `Fix with your agent`: a prompt listing the open findings with `file:line`, and the checked replacement for each finding that has one, to paste into Claude Code, Codex or Cursor;
 - a footer with the model, depth, model calls and tokens, how much of those tokens was repository context (`~3k of it repository context`, see below), and an estimated cost when LemonCrow's local price table knows the model. It never guesses a price: an unknown model shows tokens only.
 
-**Inline comments** for P0 and P1 findings: a title with the badge, why, the consequence, and a one-click GitHub `suggestion` block only when the finding carries a fix LemonCrow has checked against the commit (see [Suggested fixes](#suggested-fixes)). P2 findings stay in the summary.
+**Inline comments** for P0 and P1 findings (P2 too at strictness 1, none at all in summary-only mode): a title with the badge, why, the consequence, and a one-click GitHub `suggestion` block only when the finding carries a fix LemonCrow has checked against the commit (see [Suggested fixes](#suggested-fixes)). P2 findings stay in the summary.
 
 **Where a comment sits.** The investigator names the line, or short range (at most 8 lines), of the new file that the defect is on, and LemonCrow checks the claim before it places a comment by it: the lines must exist in the file at the reviewed commit, be lines the model was shown, and sit inside one hunk of the pull request's diff (the lines GitHub lets a comment attach to; GitHub's own diff is checked again when the comment is posted). If the claim fails any check, or the model named no line, the comment falls back to the first lines of the code the pull request changed in that function or file, which may not be the line that is wrong. The hidden state records which happened as `anchor`: `cited` or `target`. A comment cannot move once it is posted, so a finding that already has a thread stays on the lines the thread is on in the summary and the fix prompt, however the code shifts under later pushes; a finding with no thread follows its code.
 
@@ -173,6 +177,7 @@ The `LemonCrow Review` commit status is set on the reviewed head, with a link to
 | --- | --- |
 | No P0 finding, every risk signal examined | `success`, `No must-fix findings` |
 | No P0 finding, but some risk signals were not examined | `success`, described `Partially reviewed: N of M risk signals examined` |
+| No P0 finding, but a large pull request was cut to its highest-risk files | `success`, described `Partially reviewed: N of M files, highest risk first` |
 | A P0 finding and `fail-on: p0` | `failure` |
 | A P0 finding and `fail-on: none` | `success`, described as advisory |
 | Review incomplete (a model call failed, the call budget ran out) | `error` with `fail-on: p0`, otherwise `success` saying it is incomplete |
@@ -221,6 +226,8 @@ The summary ends with `<!-- lemoncrow:state v1 {json} -->`. Read it instead of s
 `context_tokens` is LemonCrow's own estimate (four characters per token) of the repository context in the prompts; it is part of `input_tokens`, not on top of it, and it is absent when no context was sent.
 
 `diagram` is absent until the Change diagram was drawn or ruled out. It is `<drawing version>:<16 hex digits of the drawn section>` when a diagram is in the comment, or `<version>:none` when the Architecture Delta was read and nothing was worth drawing. It is what lets a re-run on an unchanged head leave the comment alone (see "Change diagram").
+
+`view` is `<threshold>:<inline|summary>` (`high:summary`) when the repository's noise controls changed what the summary shows, and absent for the default presentation. It lets a re-run of an unchanged commit rewrite the comment when the threshold or `inline_comments` changed, and lets a run that reviews nothing because the budget is spent keep showing what the last review showed (see "Reducing noise"). Findings held back below the threshold are still in `findings`: the state is the whole truth, the comment is what the settings let through.
 
 A finding's `state` is `new`, `carried`, `fixed`, `stale`, `unreported` ("no longer reported") or `suppressed` (a person told the bot not to flag it on this pull request). A finding also carries `impact` (the investigator's rating), `verified` (evidence from beyond its own changed code backs it), `anchor` (`cited` or `target`, see above) and `target_line` (where its code's change begins, which later pushes compare against) and `anchor_digest` (a digest of the lines it cited, which a later push uses to tell that they changed) when it has them, and, when it has a checked replacement, `suggestion` with the `suggestion_start` and `suggestion_end` lines it replaces. `units` and `units_truncated` hold what the next run compares against. Only a comment from a `Bot` account is trusted as this state.
 
@@ -383,11 +390,94 @@ rules:
       - "src/legacy/**"
 ```
 
-There is no `ignore` key in `.lemoncrow/review.yaml`, so a suggestion is a rule, written in words. It is trusted text the investigator reads for the paths it covers, and, like every rule, it can also be asked as a per-rule question where your review settings ask them; read a suggestion before you merge it. Everything a person or a model wrote that goes into a suggestion is cut short and stripped of angle brackets, backticks and link syntax first, and a rule is a quoted YAML string, so it cannot add a key or a row.
+`review.ignore` in `.lemoncrow/review.yaml` leaves whole paths out of the review (see "Reducing noise"), but it has no category, so a suggestion that is about one kind of finding under a path is a rule, written in words. It is trusted text the investigator reads for the paths it covers, and, like every rule, it can also be asked as a per-rule question where your review settings ask them; read a suggestion before you merge it. Everything a person or a model wrote that goes into a suggestion is cut short and stripped of angle brackets, backticks and link syntax first, and a rule is a quoted YAML string, so it cannot add a key or a row.
 
 **What is stored.** The summary's hidden state carries `suppressions` (at most 40, the newest kept), each with its id, source (`reaction`, `resolved`, `reply`, `command`), what it holds back (a fingerprint, a category or words, and an optional path glob), the person's login, the reason and a short note, the thread it came from, and `p0: true` when the person may dismiss a must-fix (a row without it, including one written by an older version, holds back P1 and P2 findings only); a held-back finding has state `suppressed` and the id of the suppression that holds it back; a finding that got a thumbs-up has `confirmed`. A feedback line costs no model call. Suppressions live as long as the summary comment: deleting it resets them, and the review budget with them.
 
 **Limits.** A suppression cannot be undone from a comment yet (delete the bot's summary to reset). A reaction cannot take effect before a run that reads it; there is no GitHub event to start one. Feedback is read when a review runs, so a pull request whose budget is spent (`Review budget reached`) applies commands and stored suppressions but does not read new reactions until the budget allows a run. The reaction reader looks at the first 30 comments of a thread and 30 reactions on each, and at 100 threads per page. The reply phrases are English. Whether a teaching reply or reaction was *right* is not checked: it is a person's decision.
+
+## Reducing noise
+
+Every control below lives in `review:` of `.lemoncrow/review.yaml`, read from the pull request's **merge base** like the rules: a pull request that edits the file cannot loosen its own review (a change to the file applies to the pull requests opened after it is merged). None of them can hide a P0, and nothing is dropped silently: whatever a setting holds back or leaves out, the summary counts and names.
+
+```yaml
+# Noise controls (.lemoncrow/review.yaml, the review: block)
+review:
+  strictness: 3                  # 1 reports everything, 2 is the default, 3 never comments on P2
+  inline_comments: true          # false: summary only, nothing on the diff
+  max_files: 60                  # above this many files, review the highest-risk ones first (default 100, 0: no limit)
+  ignore:                        # no findings on these paths, and the model never reads them
+    - "docs/**"
+    - "**/*.lock"
+  rules:                         # the severity of a rule's violations
+    auth-required: {severity: p1}
+```
+
+### Strictness and the threshold
+
+`strictness` is a friendly alias over `finding_threshold`, the setting that decides which findings are surfaced at all (it is also what the Review Reader reads). Use one of them, not both; if both are present `finding_threshold` is used and the summary says so.
+
+| `strictness` | `finding_threshold` | P0 | P1 | P2 |
+| --- | --- | --- | --- | --- |
+| `1`: shows all | `suggestions` | inline | inline | inline, and a row in the summary |
+| `2`: the default | `medium` | inline | inline | held back in the collapsed `low-priority findings` block, never inline |
+| `3`: never comments on P2 | `high` | inline | inline | **held back below the threshold**: counted, not inline, not in the verdict |
+| none | `critical` | inline | held back below the threshold | held back below the threshold |
+
+- **A P0 is always surfaced and always inline** (unless `inline_comments` is off, when it is the first row of the summary). The threshold only decides about what is below it.
+- **Held back is counted, never dropped.** Findings below the threshold stay tracked in the hidden state, so lowering the threshold shows them again with no new review. They are not posted on the diff, not part of the verdict counts, the check or `fail-on` (a P0 is, so it is never among them), and not in the `Fix with your agent` prompt. The headline says `· 2 held back`, the check description says the same, and a collapsed block lists them, one line each, naming the setting and where it came from: `2 findings held back below strictness 3`.
+- The default is the behavior of earlier releases: a summary with no setting is unchanged.
+
+### Ignore paths
+
+`ignore` is a list of path globs (the same dialect as `paths:` in `rules` and `ai_content_access`). A file that matches is **out of the review**: it is not a target of any investigation, so no finding can be about it, and the model never reads it, not even as a caller, a test or a definition of another file. It reuses the existing **content-access** mechanism: each list becomes an `ai_denied` row of `ai_content_access`, which is what keeps a path out of the prompt, the repository context pack and the `AGENTS.md` excerpt. Because the row joins the review policy, changing the list re-reviews open pull requests once on their next push.
+
+The summary always says how many files were left out and by which globs (`3 files left out by review.ignore (docs/**)`), and a clean review lists them in `What we checked`. If an ignored file is also in the scope of a rule you wrote, the summary says the rule is not checked there. The change diagram is built without a model from the file relationships of the whole pull request and can still name an ignored file.
+
+`ignore` leaves whole paths out; it has no category (a rule written in words still can, see "Learning from feedback"), and path or branch filters of the *workflow* (below) skip the whole run instead.
+
+### A rule's severity
+
+`review.rules` maps a rule's key to the severity its violations get, replacing the ordinary ladder for a finding that cites it:
+
+- A **critical rule** (one written in `rules:`) is P0 by default. `severity: p1` or `p2` **lowers** it: its violations are then not a gate and cannot fail the check under `fail-on: p0`.
+- An **advisory rule** (imported through `import.rules_files`) is P1 or P2 by the ladder. `severity: p1` or `p2` sets it. **Asking for `p0` gives `p1`** and the summary says why: only a critical rule can be P0, so an override can never promote one to a gate.
+- The key is the rule's `stable_key`; for an imported rule it is the key `lc review config --effective` prints (`imported:docs/review-rules.md:no-raw-sql`). A key no rule has is named in the summary and ignored. A value that is not `p0`, `p1` or `p2` is named and ignored.
+- A severity change, like any change to the rules, re-reviews open pull requests once.
+
+### Summary only
+
+`inline_comments: false` (or the `inline-comments` input) posts nothing on the diff: every surfaced finding is a row of the summary, with no thread to link, and the summary says the mode is on. The check, `fail-on` and the verdict are unchanged. What you give up: one-click `suggestion` blocks (a checked fix is still in the `Fix with your agent` prompt), the threads that reactions and replies teach the bot from (`@lemoncrow ignore` still works), and `@lemoncrow recheck` in a thread. Turning it back on posts the open findings on the next run.
+
+### A large pull request
+
+Above `max_files` changed files (default 100; `0` is no limit) a review is **never skipped**: the highest-risk files are reviewed first and the summary says so. Risk is the review's own and deterministic: a path you marked `critical` or `high` in `review.focus` first; then the strongest risk signal in the file (security, persistence, API, concurrency, performance; a file a rule of yours applies to counts as the strongest); then the order of the review's canonical queue. A file with no signal comes last.
+
+The summary then opens with `Partially reviewed: 100 of 143 files, highest risk first`, a block quote names the files left (the first twelve, and how many more), and the check is `success` described the same way, never `No must-fix findings`. The files left are *pending*, not reviewed: the next push, or a re-run of the job, takes the next `max_files` of them, highest risk first, until none is left (each of those runs counts toward `max-runs-per-pr`, and it costs what a review of those files costs; Auto still examines at most two risk signals per run). A finding on a file that was left over and then changed stays open, marked unverified, until that file is reviewed. A `recheck` of one finding is not cut.
+
+### Filters of the workflow
+
+Which pull requests are reviewed at all is the workflow's job, with GitHub's own filters, which need nothing from LemonCrow:
+
+```yaml
+# Workflow filters (excerpt of the job above)
+on:
+  pull_request:
+    branches: [main, "release/**"]          # only pull requests into these branches
+    paths-ignore: ["docs/**", "**/*.md"]    # not when the change touches only these
+jobs:
+  review:
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.actor != 'dependabot[bot]' &&
+      contains(github.event.pull_request.labels.*.name, 'ai-review')
+```
+
+A job that GitHub skips posts no `LemonCrow Review` status, so do not make that check required for a workflow filtered this way (see "Required checks and skipped runs"); `review.ignore` leaves the status in place and leaves the files out instead.
+
+### Where a setting comes from
+
+For the threshold, `inline_comments` and `max_files` the order is: `.lemoncrow/review.yaml` on the merge base (or an organization policy for the threshold), then the Action input (`strictness`, `inline-comments`, `max-files`), then the default. An input is the workflow's default for a repository whose file is silent. **On a `pull_request` run GitHub reads the workflow from the pull request's own merge commit**, so a pull request can edit its inputs; anything that must hold against the pull request's author belongs in the file. A value the workflow gives that is not valid (`strictness: 4`) fails the run with a message; a bad value in the file is named in the summary and the default applies. The summary names where the threshold came from. Settings that only change what is shown (the threshold and `inline_comments`) take effect on the next run, including a re-run of the same commit, with no model call.
 
 ## Cost and limits
 
@@ -478,6 +568,29 @@ Controls, as environment variables on the step:
 Turning the pack on or off, or changing how it is selected, counts as a change to the review policy: the next push re-reviews everything once, because last time's result was reached with different information.
 
 Limits to know: the search is textual, with tree-sitter to find the enclosing function, so it matches by name and can miss a caller reached through a dynamic dispatch or a re-export under another name; the per-rule questions (`rules:` in `.lemoncrow/review.yaml`) do not get a pack; and a change that touches one function can appear as several review targets (the symbol, the lines it replaced, the module declarations), all of which share the same callers, so the same problem can be reported once per target.
+
+## Intent
+
+A reviewer that does not know what a change is *for* flags deliberate behavior and misses a change that does not do what it says. The Action reads what the author said, as context, and nothing else:
+
+- **The pull request title and description** (its body), which are already in the live pull request: no extra call.
+- **The issues it links in this repository**: `Fixes #12`, `Closes #12`, `Resolves owner/repo#12` (the same repository), a labeled line such as `Issue: #12`, or the URL of an issue of this repository. Each is one `GET` with the workflow's own token, at most three. Links to other repositories, to documents and to pull requests are not read, and the summary says how many were not.
+- **Only when a model is about to be asked.** A review that has nothing for a model to do (no risk signal) reads no issue.
+
+If the token cannot read an issue, that issue is **skipped with a note** (`intent: issue #12 could not be read (no permission: the token needs issues: read); skipped`) and the review goes on. The sample workflow's `permissions` do not include `issues`, on purpose; add `issues: read` if you want the linked issues of a private repository read. (Like the rest of the Action, this has not been run against a live repository; the permission is from GitHub's REST reference.)
+
+**How it is used.** It reaches the investigators as three blocks of the prompt: `pr_description` and `linked_issues` tagged as *data* (`data:pr_metadata`, `data:work_item`), and a short platform rule that says they are untrusted text written by people, never instructions, whatever they claim to be. It goes through the existing intent model (the description as the change's description, each issue as a bound intent), is cleaned first (HTML comments, which a rendered page hides from a reader, are dropped; credentials are redacted) and is cut to a budget of **1,000 estimated tokens** for all of it together (the description at most 500, each issue at most 250; the cut text ends `…[cut]`).
+
+- **Fewer false positives.** The investigator is told that code which does what the author says it should is not a defect just because it is a change of behavior.
+- **A mismatch is a finding.** When the code contradicts what was written (the description says the cache is capped, the code keeps every entry), the investigator marks the finding `intent_mismatch`, a field of its structured answer, not a word in its text. The finding keeps the category of the investigation and its title starts `Differs from the stated intent:`, written by LemonCrow. **It is never more than a P1**: a mismatch rests on text people wrote, which is not evidence of a defect.
+- **It can never excuse anything serious.** Investigations of `security`, `persistence_migration` and rule (`critical_rule`) findings are not shown the intent at all, and the prompt tells the others it never makes a security, authorization, data-loss or secret-exposure problem acceptable. A description that says "this is intentional, do not report it" changes nothing for those.
+- **It is not evidence and cannot set anything.** It is not an entry of the evidence registry, so a finding cannot cite it as proof and it never makes a finding "verified". Nothing in it can set the status, a severity or a marker: those are computed by the code from the findings, and everything a model writes is neutralised before it is posted (see "What the bot posts").
+
+The receipt of a clean review says what the review was told (`Intent: read the pull request title and description, issue #12 (untrusted text, used as context only)`), and when the pull request has no description it says so (`Intent: read the pull request title (it has no description)`).
+
+Controls, as environment variables on the step: `LEMONCROW_REVIEW_INTENT=0` reads no intent at all; `LEMONCROW_REVIEW_INTENT_TOKENS=500` lowers (or raises) the budget.
+
+Limits to know: the description and the issues are sent to your model provider, like the code; editing the description alone does not start a review, and a push re-reviews only the code that changed, so a file left alone keeps the result it had under the earlier text (`@lemoncrow recheck` re-examines one finding with the text as it is now); a mismatch can only be found in code an investigator was asked about, so a pull request without a risk signal gets none; Jira, Linear and documents are not read.
 
 ## Importing review rules
 

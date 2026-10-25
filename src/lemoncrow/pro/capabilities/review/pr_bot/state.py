@@ -58,6 +58,9 @@ _SHA = re.compile(r"^[0-9a-f]{40}$")
 #: What the change diagram (G17) leaves in the state: ``<drawing version>:<16 hex of the drawn section>``, or
 #: ``<version>:none`` when the Architecture Delta was read and nothing was worth drawing. Anything else is no record.
 DIAGRAM_STATE: Final[re.Pattern[str]] = re.compile(r"^[0-9]{1,3}:(?:none|[0-9a-f]{16})$")
+#: What the noise controls made the summary show (``settings.NoisePolicy.view_code``): ``<threshold>:<inline|summary>``,
+#: absent for the defaults. Anything else is no record.
+VIEW_STATE: Final[re.Pattern[str]] = re.compile(r"^(?:critical|high|medium|suggestions):(?:inline|summary)$")
 
 #: Findings and reviewed units the state may carry. Past them the state says so.
 # lc-debt: the state rides in one 65,536-character comment, so at most 60 findings and 700 reviewed units are
@@ -170,6 +173,10 @@ class ReviewState:
     #: block instead of recomputing it, and rewrites the comment only when the drawing differs. ``""``: none was drawn
     #: (turned off, too large, not computed, or dropped to fit the comment).
     diagram: str = ""
+    #: The threshold and inline mode this summary was shown under (``VIEW_STATE``); ``""``: the defaults. It lets a re-run
+    #: on an unchanged head rewrite the comment when the repository changed them, and lets a run that reviews nothing
+    #: (the budget is spent) keep showing what was shown.
+    view: str = ""
 
     def open_findings(self) -> tuple[BotFinding, ...]:
         return tuple(finding for finding in self.findings if finding.is_open)
@@ -235,6 +242,8 @@ def state_wire(state: ReviewState) -> dict[str, Any]:
         **({"suppressions": [row.to_wire() for row in state.suppressions]} if state.suppressions else {}),
         # Absent until a diagram was drawn or ruled out, so a state written before G17 round-trips unchanged.
         **({"diagram": state.diagram} if state.diagram else {}),
+        # Absent for the default presentation, so a state written before the noise controls round-trips unchanged.
+        **({"view": state.view} if state.view else {}),
     }
 
 
@@ -294,6 +303,7 @@ def parse_state(body: str) -> ReviewState | None:
     chats = raw.get("chats")
     held = raw.get("suppressions")
     drawn = raw.get("diagram")
+    shown = raw.get("view")
     return ReviewState(
         head_sha=head,
         base_sha=_sha(raw, "base_sha"),
@@ -320,6 +330,7 @@ def parse_state(body: str) -> ReviewState | None:
             if row is not None
         ),
         diagram=drawn if isinstance(drawn, str) and DIAGRAM_STATE.match(drawn) else "",
+        view=shown if isinstance(shown, str) and VIEW_STATE.match(shown) else "",
     )
 
 

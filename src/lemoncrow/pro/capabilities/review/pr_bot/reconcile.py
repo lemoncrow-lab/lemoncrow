@@ -38,11 +38,11 @@ from lemoncrow.pro.capabilities.review.pr_bot.findings import (
     BotFinding,
     Located,
     fingerprint_for,
-    severity_for,
     trimmed,
 )
+from lemoncrow.pro.capabilities.review.pr_bot.pr_intent import MISMATCH_PREFIX
+from lemoncrow.pro.capabilities.review.pr_bot.settings import capped, severity_with_overrides
 from lemoncrow.pro.capabilities.review.pr_bot.state import ReviewState
-from lemoncrow.pro.capabilities.review.rules import cites_critical_rule
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,8 +79,16 @@ class Reconciled:
         return tuple(finding for finding in self.findings if finding.is_open)
 
 
-def finding_from_confirmed(confirmed: Any, located: Located | None, head: str) -> BotFinding:
-    """A new tracked finding from the engine's ``ConfirmedFinding``."""
+def finding_from_confirmed(
+    confirmed: Any, located: Located | None, head: str, rule_severity: Mapping[str, str] | None = None
+) -> BotFinding:
+    """A new tracked finding from the engine's ``ConfirmedFinding``.
+
+    *rule_severity* is ``{rule ref: severity}`` for the rules the repository gave a severity (``review.rules`` in the
+    trusted-base ``.lemoncrow/review.yaml``): a finding citing one gets it instead of the ordinary ladder's answer.
+    A finding the investigator marked as the code contradicting the stated intent is labelled so, in words this code
+    chose, and is never more than a P1: a mismatch rests on text written by people, which is not evidence of a defect.
+    """
 
     target_ids = tuple(confirmed.target_ids)
     where = located or Located("", 0, 0)
@@ -96,16 +104,23 @@ def finding_from_confirmed(confirmed: Any, located: Located | None, head: str) -
         line, end_line, anchor = cited.start_line, cited.end_line, "cited"
     else:
         line, end_line, anchor = where.line, where.end_line, "target" if where.path else ""
+    # An imported (advisory) rule never makes a P0; only a critical rule does (G10). A severity the repository gave a
+    # rule replaces the ladder's answer for a finding that cites it (settings.severity_with_overrides).
+    severity = severity_with_overrides(
+        confirmed.category,
+        impact=impact,
+        verified=verified,
+        rule_refs=tuple(confirmed.rule_refs),
+        overrides=rule_severity or {},
+    )
+    title = confirmed.title
+    if getattr(confirmed, "intent_mismatch", False) is True:
+        severity = capped(severity, "p1")
+        title = MISMATCH_PREFIX + title
     return BotFinding(
         id=confirmed.id,
         fingerprint=fingerprint_for(confirmed.category, target_ids, confirmed.rule_refs),
-        severity=severity_for(
-            # An imported (advisory) rule never makes a P0; only a critical rule does (G10).
-            confirmed.category,
-            impact=impact,
-            verified=verified,
-            rule_cited=cites_critical_rule(tuple(confirmed.rule_refs)),
-        ),
+        severity=severity,
         category=confirmed.category,
         state="new",
         path=where.path,
@@ -113,7 +128,7 @@ def finding_from_confirmed(confirmed: Any, located: Located | None, head: str) -
         end_line=end_line,
         side=where.side,
         target_ids=target_ids,
-        title=trimmed(confirmed.title, MAX_TITLE),
+        title=trimmed(title, MAX_TITLE),
         explanation=trimmed(confirmed.explanation, MAX_EXPLANATION),
         consequence=trimmed(confirmed.consequence, MAX_CONSEQUENCE),
         first_seen=head,
@@ -167,6 +182,7 @@ def reconcile(
     head: str,
     answers: Mapping[str, str] | None = None,
     intact: Collection[str] = (),
+    rule_severity: Mapping[str, str] | None = None,
 ) -> Reconciled:
     """The findings of this review.
 
@@ -179,7 +195,9 @@ def reconcile(
     """
 
     fresh = [
-        finding_from_confirmed(item, locations.get(item.target_ids[0]) if item.target_ids else None, head)
+        finding_from_confirmed(
+            item, locations.get(item.target_ids[0]) if item.target_ids else None, head, rule_severity
+        )
         for item in confirmed
     ]
     by_id = {finding.id: finding for finding in fresh}

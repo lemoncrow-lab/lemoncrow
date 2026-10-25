@@ -26,7 +26,15 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from lemoncrow.pro.capabilities.review.pr_bot import large_pr, pr_intent
 from lemoncrow.pro.capabilities.review.pr_bot.findings import Located, locate_target
+from lemoncrow.pro.capabilities.review.pr_bot.pr_intent import IntentNote
+from lemoncrow.pro.capabilities.review.pr_bot.settings import (
+    NoiseInputs,
+    NoisePolicy,
+    resolve_policy,
+    with_ignored_paths,
+)
 from lemoncrow.pro.capabilities.review.pr_bot.state import ReviewState, Usage, cap_units, unit_token
 
 if TYPE_CHECKING:
@@ -105,6 +113,17 @@ class AiStage:
     #: Ids of the earlier open findings whose cited lines are still in the file, word for word, wherever they now
     #: sit: the code those findings were about has not changed, whatever else did.
     intact: tuple[str, ...] = ()
+    #: The noise controls in force for this review (``settings.NoisePolicy``): the trusted base's, else the workflow's.
+    noise: NoisePolicy = field(default_factory=NoisePolicy)
+    #: Files left out of the review because ``review.ignore`` names them (never read by the model, no findings), and
+    #: the number of files in the rest of the change.
+    ignored: tuple[str, ...] = ()
+    total_files: int = 0
+    #: Files this run left for the next because the change has more than ``max_files``, highest risk first; they are
+    #: pending, not reviewed (``large_pr``).
+    deferred_files: tuple[str, ...] = ()
+    #: What the review was told the change is for, and what could not be read (``pr_intent.gather``); ``None``: not asked.
+    intent: IntentNote | None = None
 
     @property
     def ran(self) -> bool:
@@ -217,11 +236,12 @@ def _asgi_post(app: Any, path: str, body: Mapping[str, Any]) -> tuple[int, Any]:
     return asyncio.run(call())
 
 
-def policy_digest(governance: Any, depth: str) -> str:
+def policy_digest(governance: Any, depth: str, rule_severity: Mapping[str, str] | None = None) -> str:
     """Everything that makes a reviewed unit's result reusable on the next push.
 
-    A change to the rules, the content-access policy, the depth or the prompt makes
-    last time's "reviewed" mean something else, so it re-reviews everything.
+    A change to the rules, the content-access policy (``review.ignore`` is part of it), the severities the file gave
+    its rules, the depth or the prompt makes last time's "reviewed" mean something else, so it re-reviews everything.
+    What only changes how findings are shown (the threshold, ``inline_comments``, ``max_files``) is not in it.
     """
 
     from lemoncrow.pro.capabilities.review.ai_review import PR_FIELDS_VERSION, PROMPT_VERSION, SCHEMA_VERSION
@@ -235,6 +255,9 @@ def policy_digest(governance: Any, depth: str) -> str:
         "schema": SCHEMA_VERSION,
         "pr_fields": PR_FIELDS_VERSION,
     }
+    if rule_severity:
+        # Left out when there is none, so a repository without overrides keeps the digest it had.
+        document["rule_severity"] = sorted(rule_severity.items())
     if repo_context_enabled():
         # Context changes what a reviewed unit's result means (what the model saw): turning it on or off, or a new
         # selection rule, re-reviews once. Left out when off, so a repository that opts out keeps its digest.
@@ -358,7 +381,22 @@ def review_context(captured: Captured) -> ReviewContext:
 
     app = _mount(captured)
     context = app.state.review_worker_ai_publication_context(captured.session.id, captured.revision.id)
-    return ReviewContext(tuple(context["targets"]), context["governance"], context["policy"])
+    # An ignored path stays unreadable to chat as it is to the review.
+    governance = with_ignored_paths(
+        context["governance"], _noise_policy(context, context["governance"], None), context.get("review_config")
+    )
+    return ReviewContext(tuple(context["targets"]), governance, context["policy"])
+
+
+def _noise_policy(context: Mapping[str, Any], governance: Any, inputs: NoiseInputs | None) -> NoisePolicy:
+    """The noise controls for the Snapshot: its trusted-base ``.lemoncrow/review.yaml`` and triage policy, then the workflow's inputs."""
+
+    return resolve_policy(
+        config=context.get("review_config"),
+        triage=context.get("triage"),
+        rules=tuple(governance.rules),
+        inputs=inputs,
+    )
 
 
 def run_ai_stage(
@@ -368,8 +406,14 @@ def run_ai_stage(
     previous: ReviewState | None = None,
     structured_executor: Callable[..., StructuredExecution] | None = None,
     only_targets: Collection[str] | None = None,
+    inputs: NoiseInputs | None = None,
+    intent_loader: Callable[[Captured], IntentNote] | None = None,
 ) -> AiStage:
     """Run the AI review on what changed since *previous*, through the Review API's own AI endpoint.
+
+    *inputs* are the workflow's defaults for the noise controls (the trusted base's ``.lemoncrow/review.yaml`` wins);
+    *intent_loader* reads the pull request's description and linked issues onto the Snapshot, called only when a model
+    is about to be asked.
 
     *only_targets* narrows the review to those targets and nothing else, whatever else changed (chat's "recheck"
     names one finding's targets; an empty collection asks for no model call at all). The reviewed-unit list and the
@@ -396,7 +440,16 @@ def run_ai_stage(
     ) -> Mapping[str, Any]:
         # The seam a hosted worker's queue sits behind, run inline: everything the endpoint resolved is passed in.
         outcome["stage"] = _execute(
-            app, captured, depth, previous, policy, governance, structured_executor, only_targets=only_targets
+            app,
+            captured,
+            depth,
+            previous,
+            policy,
+            governance,
+            structured_executor,
+            only_targets=only_targets,
+            inputs=inputs,
+            intent_loader=intent_loader,
         )
         return {"status": "inline", "revision_id": request_revision.id}
 
@@ -532,6 +585,8 @@ def _execute(
     structured_executor: Callable[..., StructuredExecution] | None,
     *,
     only_targets: Collection[str] | None = None,
+    inputs: NoiseInputs | None = None,
+    intent_loader: Callable[[Captured], IntentNote] | None = None,
 ) -> AiStage:
     from lemoncrow.pro.capabilities.review.ai_review import generate_candidates, run_independent_review
     from lemoncrow.pro.capabilities.review.independence import configured_reviewer_routes
@@ -547,7 +602,30 @@ def _execute(
 
     store, session, revision = captured.store, captured.session, captured.revision
     context = app.state.review_worker_ai_publication_context(session.id, revision.id)
-    targets: tuple[ReviewTarget, ...] = tuple(context["targets"])
+    # The noise controls, from the trusted base's .lemoncrow/review.yaml (never the pull request's copy). An ignored path
+    # is out of the review: it is not a target, and an ai_denied content-access row keeps it from every prompt.
+    noise = _noise_policy(context, governance, inputs)
+    governance = with_ignored_paths(governance, noise, context.get("review_config"))
+    reviewable: tuple[ReviewTarget, ...] = tuple(context["targets"])
+    targets = tuple(target for target in reviewable if not noise.ignores(target.path))
+    ignored = tuple(sorted({target.path for target in reviewable if noise.ignores(target.path)}))
+    shadowed = sorted(
+        {
+            rule.stable_key
+            for rule in governance.rules
+            if rule.severity == "critical" and any(rule.applies_to(path) for path in ignored)
+        }
+    )
+    if shadowed:
+        # A rule the repository wrote is not checked on a file it also ignores: say so rather than leave it silent.
+        shown = ", ".join(shadowed[:3]) + (f" and {len(shadowed) - 3} more" if len(shadowed) > 3 else "")
+        noise = replace(
+            noise,
+            notes=(
+                *noise.notes,
+                f"review.ignore leaves out files in the scope of rule {shown}; it is not checked there",
+            ),
+        )
     plan = persisted_plan(store, revision.id)
     if plan is None:
         raise AiStageError("the Snapshot has no persisted effective run plan")
@@ -561,7 +639,7 @@ def _execute(
         f"target:{unit.unit_key}": unit_token(unit.unit_key, unit.content_fingerprint)
         for unit in store.list_units(revision.id)
     }
-    digest = policy_digest(governance, stage_plan.effort)
+    digest = policy_digest(governance, stage_plan.effort, noise.rule_severity)
     reuse = previous is not None and previous.policy == digest and previous.depth == depth
     before = previous.reviewed_units if previous is not None and reuse else {}
 
@@ -571,7 +649,23 @@ def _execute(
 
     narrow = only_targets is not None
     wanted = frozenset(only_targets or ())
-    changed = tuple(target for target in targets if (target.target_id in wanted if narrow else not unchanged(target)))
+    pending_review = tuple(target for target in targets if not unchanged(target))
+    changed_all = tuple(target for target in targets if target.target_id in wanted) if narrow else pending_review
+    # A change with more files than max_files: the highest-risk ones now, the rest pending (said in the summary). A
+    # narrow run (chat's recheck) names its targets itself and is not cut, but it still says what is pending.
+    cut: large_pr.LargePlan | None = None
+    if noise.max_files and len({target.path for target in pending_review}) > noise.max_files:
+        triage = context.get("triage")
+        cut = large_pr.plan_large(
+            pending_review,
+            limit=noise.max_files,
+            total_files=len({target.path for target in targets}),
+            candidates=generate_candidates(pending_review, rules=tuple(governance.rules)),
+            criticality=(lambda path: triage.classify(path).criticality) if triage is not None else None,
+            order={target.target_id: index for index, target in enumerate(targets)},
+        )
+    changed = cut.kept if cut is not None and not narrow else changed_all
+    deferred_ids = cut.deferred_ids if cut is not None and not narrow else frozenset()
     locations = {target.target_id: locate_target(target) for target in targets}
     intact = _intact_findings(captured, previous)
     rules = tuple(rule.stable_key for rule in governance.rules)
@@ -582,15 +676,19 @@ def _execute(
         locations=locations,
         spans={t.target_id: tuple((span.side, span.start_line, span.end_line) for span in t.spans) for t in targets},
         target_ids=tuple(target.target_id for target in targets),
-        unchanged=len(targets) - len(changed),
+        unchanged=len(targets) - len(changed_all),
         files=tuple(sorted({target.path for target in targets})),
         rules=rules,
         imported=imports.receipt_lines() if imports is not None else (),
         policy=previous.policy if narrow and previous is not None else digest,
         depth=depth,
         max_calls=stage_plan.max_review_calls or ModelCallBudget.from_env(max_calls=1).max_review_calls,
+        noise=noise,
+        ignored=ignored,
+        total_files=len({target.path for target in targets}),
+        deferred_files=cut.deferred_paths if cut is not None else (),
     )
-    if not changed:
+    if not changed_all:
         kept, truncated = cap_units(_tokens(targets, units, pending=()))
         if narrow and previous is not None:
             kept, truncated = dict(previous.reviewed_units), previous.units_truncated
@@ -604,6 +702,15 @@ def _execute(
 
     budget = ModelCallBudget.from_env(max_calls=1)
     examined = _Examined(structured_executor or execute_structured)
+    candidate_ids = {
+        target_id
+        for candidate in generate_candidates(changed, rules=tuple(governance.rules))
+        for target_id in candidate.target_ids
+    }
+    # What the author says the change is for: read only when a model is about to be asked (each linked issue is a GET),
+    # recorded on the Snapshot as bound intent, and shown to the investigators as small, cleaned, untrusted data.
+    note = intent_loader(captured) if intent_loader is not None and candidate_ids else None
+    intent_block = pr_intent.prompt_block(store, session.id) if pr_intent.enabled() and candidate_ids else None
     with bound_intelligence_policy(review_intelligence_policy(policy)):
         result: IndependentReviewResult = run_independent_review(
             store=store,
@@ -625,24 +732,21 @@ def _execute(
             pr_fields=True,
             prior_findings=_prior_rows(previous, {target.target_id for target in changed}),
             project_conventions=imports.conventions if imports is not None else (),
+            pr_intent=intent_block,
         )
     usage, served = revision_usage(store, session.id, revision.id)
     context = dict(result.repo_context)
     context_tokens = context.get("estimated_tokens")
     if isinstance(context_tokens, int) and context_tokens > 0:
         usage = replace(usage, context_tokens=context_tokens)
-    candidate_ids = {
-        target_id
-        for candidate in generate_candidates(changed, rules=tuple(governance.rules))
-        for target_id in candidate.target_ids
-    }
     # Reviewed means a model call about the target returned (or it carried no risk signal). A candidate no call
     # reached -- a failed call, a spent budget, Auto's cap on investigations -- is pending: it is retried on the next
     # push and competes for the cap again, so a large pull request is covered over its pushes, never silently skipped.
     uncovered = result.status == "skipped_unnecessary" and result.candidates > 0
     complete = result.status in {"completed", "skipped_unnecessary"} and not result.provider_errors
     complete = complete and not result.skipped_by_budget and not uncovered
-    pending = candidate_ids - examined.targets
+    # A deferred file was not looked at at all: pending like a risk signal no call reached.
+    pending = (candidate_ids - examined.targets) | deferred_ids
     why = ""
     if result.skipped_by_budget:
         why = "the model-call budget ran out"
@@ -660,7 +764,8 @@ def _execute(
         status="ran",
         reason=why,
         findings=tuple(result.machine_findings),
-        rereviewed=changed_ids,
+        # Deferred targets count as asked-about but not covered: a finding on one is carried, marked unverified.
+        rereviewed=tuple(target.target_id for target in changed_all),
         covered=tuple(target_id for target_id in changed_ids if target_id not in pending),
         reviewed_units=kept,
         units_truncated=truncated,
@@ -677,4 +782,5 @@ def _execute(
         examined=tuple(sorted(examined.targets)),
         answers=dict(result.prior_answers),
         intact=intact,
+        intent=note,
     )

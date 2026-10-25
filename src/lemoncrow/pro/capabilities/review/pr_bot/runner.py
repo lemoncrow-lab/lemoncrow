@@ -27,7 +27,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from lemoncrow.pro.capabilities.review.pr_bot import ci_env, diagram, learning
+from lemoncrow.pro.capabilities.review.pr_bot import ci_env, diagram, learning, notices, pr_intent
 from lemoncrow.pro.capabilities.review.pr_bot.findings import BotFinding
 from lemoncrow.pro.capabilities.review.pr_bot.github import (
     BotGitHub,
@@ -50,6 +50,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.render import (
     short,
     verdict,
 )
+from lemoncrow.pro.capabilities.review.pr_bot.settings import NoiseInputs, NoisePolicy
 from lemoncrow.pro.capabilities.review.pr_bot.state import ReviewState, Usage, cap_findings
 from lemoncrow.pro.capabilities.review.pr_bot.suppression import Suppression
 from lemoncrow.pro.capabilities.review.sources.github import (
@@ -65,10 +66,6 @@ if TYPE_CHECKING:
     from lemoncrow.pro.capabilities.review.pr_bot.engine import Captured
 
 FAIL_ON = ("none", "p0")
-# lc-debt: the repository's review.finding_threshold is not applied here, so P2 findings always show (held back, collapsed);
-# upgrade: resolve criticality.triage_policy_for for the Snapshot and drop findings below the threshold.
-#: Severities that get an inline comment; P2 stays in the summary, held back.
-INLINE_SEVERITIES = frozenset({"p0", "p1"})
 
 
 class PrReviewError(RuntimeError):
@@ -103,6 +100,10 @@ class RunOptions:
     #: The change diagram in the summary (G17): ``auto`` draws it when the Architecture Delta shows a relationship added
     #: or removed, ``off`` never builds it.
     diagram: str = "auto"
+    #: The workflow's defaults for the noise controls (the Action's ``strictness``, ``inline-comments`` and ``max-files``
+    #: inputs). ``None``: read them from the environment the Action sets. The trusted base's ``.lemoncrow/review.yaml``
+    #: wins over them (``settings``).
+    noise: NoiseInputs | None = None
 
 
 @dataclass
@@ -143,6 +144,9 @@ class RunReport:
                     "p0": self.verdict.p0,
                     "p1": self.verdict.p1,
                     "p2": self.verdict.p2,
+                    # Open findings below the repository's threshold: tracked, counted here, in no other count. Absent
+                    # when there are none, so a result without the noise controls reads exactly as it always did.
+                    **({"held_back": self.verdict.held} if self.verdict.held else {}),
                 }
             ),
             "status": None if self.status is None else {"state": self.status[0], "description": self.status[1]},
@@ -174,6 +178,11 @@ def run_pr_review(
     environ = os.environ if env is None else env
     say = progress or (lambda _message: None)
     options = replace(options, feedback_from=ci_env.chat_associations(environ))
+    if options.noise is None:
+        try:
+            options = replace(options, noise=NoiseInputs.from_env(environ))
+        except ValueError as exc:
+            raise PrReviewError(str(exc)) from exc
     if options.fail_on not in FAIL_ON:
         raise PrReviewError(f"fail-on must be one of {', '.join(FAIL_ON)}")
     if options.diagram not in diagram.DIAGRAM_MODES:
@@ -398,6 +407,9 @@ def _review(
             previous=previous,
             structured_executor=structured_executor,
             only_targets=options.only_targets if narrow else None,
+            inputs=options.noise,
+            # The description and the issues it links, read only when a model is about to be asked.
+            intent_loader=(lambda stage: pr_intent.gather(github, facts, stage)) if facts is not None else None,
         )
         # G17: read inside the scratch store, which is gone after this block. Never a reason to fail the review.
         drawn = diagram.Diagram()
@@ -413,6 +425,7 @@ def _review(
     if not ai.ran:
         return _skip(name, f"AI review did not run: {ai.reason}")
 
+    noise = ai.noise
     merged = reconcile(
         previous,
         ai.findings,
@@ -423,10 +436,19 @@ def _review(
         head=short(head),
         answers=ai.answers,
         intact=ai.intact,
+        rule_severity=noise.rule_severity,
     )
     report = RunReport(pr=name, head_sha=head)
     if drawn.note:
         report.notes.append(drawn.note)
+    report.notes.extend(f"config: {note}" for note in noise.notes)
+    if ai.intent is not None:
+        report.notes.extend(f"intent: {note}" for note in ai.intent.skipped)
+    if ai.deferred_files:
+        report.notes.append(
+            f"large pull request: {len(ai.deferred_files)} of {ai.total_files} files left for a later run "
+            f"(max_files is {noise.max_files}); reviewed the highest-risk files first"
+        )
     if unpriced:
         report.notes.append(
             "max-usd-per-pr is not enforced: the cost of this pull request's earlier reviews is unknown (the provider "
@@ -463,11 +485,13 @@ def _review(
             )
     learned = learning.learn(findings, held, signals, commands=options.suppress, head=short(head))
     findings = list(learned.findings)
+    # Inline comments: the surfaced findings the repository's settings give a comment to (P0 and P1 by default; P2 only at
+    # strictness 1; none at all in summary-only mode). A finding below the threshold is never posted.
     wanted = [
         finding
         for finding in findings
         if finding.is_open
-        and finding.severity in INLINE_SEVERITIES
+        and noise.inline_eligible(finding.severity)
         and finding.thread_id == 0
         and not finding.placement
     ]
@@ -513,9 +537,11 @@ def _review(
     tracked, dropped = cap_findings(findings)
     # A run asked only to apply an instruction (`only_targets` empty) re-examines nothing: it is not another review.
     refresh = options.only_targets is not None and not options.only_targets
-    # A re-run that has only a different diagram to say rewrites the comment, and says what the last review cost.
+    # A re-run that has only a different diagram or a different threshold to say rewrites the comment, and says what the
+    # last review cost.
     redrawn = report.noop and previous is not None and drawn.state != previous.diagram
-    usage = previous.usage if (refresh or redrawn) and previous is not None else ai.usage
+    reshown = report.noop and previous is not None and previous.view != noise.view_code()
+    usage = previous.usage if (refresh or redrawn or reshown) and previous is not None else ai.usage
     reviews = 1 if previous is None else previous.reviews + (0 if report.noop or refresh else 1)
     total = ai.usage if previous is None else previous.usage_total.plus(ai.usage)
     # Chat answers given while this review ran are in the summary now and not in `previous`: carry them, so a review
@@ -545,10 +571,23 @@ def _review(
         chat_usage=chat_usage,
         suppressions=learned.suppressions,
         diagram=drawn.state,
+        view=noise.view_code(),
     )
     reason = "model calls failed; see the workflow log" if ai.errors else (ai.reason if not ai.complete else "")
     uninvestigated = max(ai.candidates - ai.investigated, 0)
-    view = verdict(tracked, complete=ai.complete, reason=reason, signals=ai.candidates, uninvestigated=uninvestigated)
+    # Findings below the repository's threshold are tracked in the state (lowering the threshold shows them again with no
+    # new review) but are in no verdict count: they are counted as held back, and listed once in the summary.
+    below = [finding for finding in tracked if finding.is_open and noise.tier(finding.severity) == "held"]
+    view = verdict(
+        [finding for finding in tracked if finding not in below],
+        complete=ai.complete,
+        reason=reason,
+        signals=ai.candidates,
+        uninvestigated=uninvestigated,
+        held=len(below),
+        deferred_files=len(ai.deferred_files),
+        total_files=ai.total_files,
+    )
     summary_view = SummaryView(
         state=state,
         findings=tuple(tracked),
@@ -564,6 +603,8 @@ def _review(
             complete=ai.complete,
             uninvestigated=uninvestigated,
             suppressed=len(_state_is(tracked, "suppressed")),
+            deferred_files=len(ai.deferred_files),
+            total_files=ai.total_files,
         ),
         receipt=Receipt(
             files=ai.files,
@@ -573,6 +614,7 @@ def _review(
             rules=ai.rules,
             unchanged=ai.unchanged,
             imported=ai.imported,
+            extra=notices.receipt_extra(intent=ai.intent, ignored=ai.ignored, globs=noise.ignore),
         ),
         pull_number=ref.number,
         repository=ref.slug,
@@ -585,11 +627,21 @@ def _review(
         fail_on=options.fail_on,
         suggestions=learning.suggest(ref.slug, learned.suppressions, tracked),
         diagram=drawn.section,
+        noise=noise,
+        banner=notices.large_pr_banner(total=ai.total_files, limit=noise.max_files, deferred=ai.deferred_files),
+        notes=notices.settings_line(
+            ignored=ai.ignored,
+            globs=noise.ignore,
+            inline=noise.inline,
+            notes=noise.notes,
+            intent_skipped=ai.intent.skipped if ai.intent is not None else (),
+        ),
     )
     body, posted_state = render_summary(summary_view)
     # A diagram that appeared, changed or went away is a reason to rewrite a comment a re-run would leave alone. The
-    # state is compared after rendering: a diagram dropped to fit the comment is one that was not drawn.
-    if report.noop and previous is not None and posted_state.diagram != previous.diagram:
+    # state is compared after rendering: a diagram dropped to fit the comment is one that was not drawn. So is a changed
+    # threshold or inline mode in the repository's settings.
+    if report.noop and previous is not None and (posted_state.diagram != previous.diagram or reshown):
         report.noop = False
     status = check_status(view, fail_on=options.fail_on)
     report.findings = tuple(tracked)
@@ -670,7 +722,10 @@ def _over_budget(
     section = diagram.reuse(existing.body, previous.diagram) if existing is not None else ""
     shown = previous.diagram if section or previous.diagram == diagram.none_state() else ""
     state = replace(previous, findings=kept, usage=Usage(), suppressions=learned.suppressions, diagram=shown)
-    view = verdict(kept, complete=True, budget=spent)
+    # No capture, so no trusted base to read: the summary keeps showing what the last review showed (threshold, inline).
+    noise = NoisePolicy.from_view(previous.view)
+    below = [finding for finding in kept if finding.is_open and noise.tier(finding.severity) == "held"]
+    view = verdict([finding for finding in kept if finding not in below], complete=True, budget=spent, held=len(below))
     body, posted_state = render_summary(
         SummaryView(
             state=state,
@@ -686,6 +741,7 @@ def _over_budget(
             fail_on=options.fail_on,
             budget=spent,
             diagram=section,
+            noise=noise,
         )
     )
     status = check_status(view, fail_on=options.fail_on)

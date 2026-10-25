@@ -223,6 +223,8 @@ class PullFacts:
     html_url: str
     #: GitHub's ``author_association`` of the pull request's author, for the people-checks of chat and learning.
     author_association: str = ""
+    #: The pull request's description, as its author wrote it: untrusted text, read only as the author's stated intent.
+    body: str = ""
 
     @property
     def open(self) -> bool:
@@ -361,7 +363,20 @@ class BotGitHub:
             base_repo=str(_mapping(_mapping(_mapping(pull.get("base")).get("repo"))).get("full_name") or ""),
             html_url=str(pull.get("html_url") or self.pr.url),
             author_association=str(pull.get("author_association") or "").upper(),
+            body=str(pull.get("body") or ""),
         )
+
+    def issue(self, number: int) -> dict[str, Any]:
+        """One issue of this repository by number, with the workflow's own token.
+
+        Raises ``GitHubCliError`` when the token cannot read it (no ``issues: read`` on a private repository, a deleted
+        or transferred issue): the caller skips that issue and says so. The number is a parsed integer, never text.
+        """
+
+        row = gh_json(self.runner, ["api", f"repos/{self.pr.slug}/issues/{int(number)}"])
+        if not isinstance(row, dict):
+            raise GitHubCliError(f"GitHub returned an unexpected shape for issue #{number}")
+        return row
 
     def _issue_path(self) -> str:
         return f"repos/{self.pr.slug}/issues/{self.pr.number}"
