@@ -19,7 +19,7 @@ jobs:
   review:
     runs-on: ubuntu-latest
     steps:
-      - uses: lemoncrow-lab/lemoncrow@<sha>  # v0.9.0
+      - uses: lemoncrow-lab/lemoncrow@<sha>  # v0.8.1
         with:
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
@@ -44,7 +44,7 @@ It never overwrites a different file without `--force`, and running it twice lea
 
 ## Pin the Action
 
-`uses: lemoncrow-lab/lemoncrow@<sha>  # v0.9.0` is the one line to pin. `<sha>` is the full 40-character SHA of a **release commit** of the public `lemoncrow-lab/lemoncrow` repository, and the release notes of every stable release print the line with the real SHA filled in, ready to copy: <https://github.com/lemoncrow-lab/lemoncrow/releases/latest>. The text after `#` is the version the SHA is, as a reminder for the person reading the file.
+`uses: lemoncrow-lab/lemoncrow@<sha>  # v0.8.1` is the one line to pin. `<sha>` is the full 40-character SHA of a **release commit** of the public `lemoncrow-lab/lemoncrow` repository, and the release notes of every stable release print the line with the real SHA filled in, ready to copy: <https://github.com/lemoncrow-lab/lemoncrow/releases/latest>. The text after `#` is the version the SHA is, as a reminder for the person reading the file.
 
 Pin a commit, not a branch: the Action installs LemonCrow from its own checkout at that ref, so the commit you name is the version that reviews, with its prompt, its checks and its dependencies. A branch would change the prompt under you; the 7-character short SHA does not resolve in `uses:`; and a SHA from the private repository does not exist in the public one. A release that changes the prompt or the checks changes what "reviewed" means, so every open pull request is re-reviewed once on its next push after you upgrade: upgrade on purpose, by changing the SHA in the workflow.
 
@@ -808,7 +808,7 @@ jobs:
   review:
     runs-on: ubuntu-latest
     steps:
-      - uses: lemoncrow-lab/lemoncrow@<sha>  # v0.9.0
+      - uses: lemoncrow-lab/lemoncrow@<sha>  # v0.8.1
         with:
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
           pr-number: ${{ inputs.pr }}
@@ -865,7 +865,7 @@ For the owner of the repository. The Action runs from the **public** repository,
    ```
 
 5. **Cut the release** through the repository's normal flow (`make release-prepare tag=vX.Y.Z`, then `make release-qualify tag=vX.Y.Z`, then `make release tag=vX.Y.Z`, which pushes, mirrors and tags). Do not cut a `v1` tag: `.github/public-workflows/release.yml` runs on every `v*` tag and `scripts/release_version.py check` requires the tag to equal the package version, so it would fail the Release run. That workflow renders the release notes with `scripts/release_notes.py <version> --action-sha "$GITHUB_SHA"`, which adds a **GitHub Action** section with the line to copy, `uses: lemoncrow-lab/lemoncrow@<the tag's public commit>  # vX.Y.Z`. That section is "the release commit shown at" the releases page that "Pin the Action" and `lc review init-action` point to.
-6. **Keep the one placeholder line in step.** The README, this guide and the `init-action` sample show the same line, `lemoncrow-lab/lemoncrow@<sha>  # v0.9.0` (`PIN_LINE` in `pr_bot/init_action.py`; a test holds the three equal). For a new release change the version after `#` in all three places and in `PIN_VERSION`, in the release commit.
+6. **Keep the one placeholder line in step.** The README, this guide and the `init-action` sample show the same line, `lemoncrow-lab/lemoncrow@<sha>  # v0.8.1` (`PIN_LINE` in `pr_bot/init_action.py`; a test holds the three equal). For a new release change the version after `#` in all three places and in `PIN_VERSION`, in the release commit.
 7. **Try it once** from a scratch private repository on a real runner with the line from the release notes before telling a customer to. Nothing in the Action has been checked against a live repository yet: the permission handling, the cache and the status calls are tested against a fake GitHub only.
 
 Until step 2 has run, `lemoncrow-lab/lemoncrow` on github.com has no `action.yml`, and any `uses:` of it fails with an error that the action cannot be found.

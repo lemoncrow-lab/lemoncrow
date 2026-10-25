@@ -223,7 +223,7 @@ jobs:
   review:
     runs-on: ubuntu-latest
     steps:
-      - uses: lemoncrow-lab/lemoncrow@<sha>  # v0.9.0
+      - uses: lemoncrow-lab/lemoncrow@<sha>  # v0.8.1
         with:
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```

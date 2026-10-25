@@ -198,7 +198,7 @@ def test_it_writes_one_file_and_prints_the_next_steps(repo: Path) -> None:
 
 def test_the_pin_is_one_placeholder_line_in_the_readme_the_guide_and_the_sample() -> None:
     line = init_action.PIN_LINE
-    assert line == "lemoncrow-lab/lemoncrow@<sha>  # v0.9.0"
+    assert line == "lemoncrow-lab/lemoncrow@<sha>  # v0.8.1"
     for text in (
         init_action.sample(),
         GUIDE.read_text(encoding="utf-8"),

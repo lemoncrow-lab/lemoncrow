@@ -32,7 +32,7 @@ KEY_INPUTS: Final[dict[str, str]] = {"anthropic": "anthropic-api-key", "openai":
 #: The one pin line every page shows: ``<sha>`` is replaced with the commit the release notes print. The version after
 #: ``#`` is a reminder of what that commit is; the README, the guide and the sample are held to this exact line by a test.
 PIN_PLACEHOLDER: Final[str] = "<sha>"
-PIN_VERSION: Final[str] = "v0.9.0"
+PIN_VERSION: Final[str] = "v0.8.1"
 PIN_LINE: Final[str] = f"lemoncrow-lab/lemoncrow@{PIN_PLACEHOLDER}  # {PIN_VERSION}"
 #: Where the release commit to pin is printed: the release notes of every release carry the ready-to-copy line.
 RELEASES_URL: Final[str] = "https://github.com/lemoncrow-lab/lemoncrow/releases/latest"
