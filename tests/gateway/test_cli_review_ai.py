@@ -217,6 +217,26 @@ def test_the_bot_in_actions_still_skips_a_closed_pull_request_and_says_so_on_the
     assert ci[1].issue_comments == []
 
 
+def test_a_failed_model_call_in_a_terminal_does_not_send_you_to_a_workflow_log(
+    ci: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    ci[2].fail = "RuntimeError: provider unavailable"
+    result = invoke(ci[0], "--pr", "7", "--ai")
+    assert result.exit_code == 0, result.output
+    assert "! model call errors: " in result.output and "provider unavailable" in result.output
+    assert "Review incomplete: model calls failed; see the model call errors line" in result.stdout
+    assert "workflow log" not in result.output
+    assert _writes(ci[1]) == []
+
+
+def test_the_same_failure_in_actions_still_points_at_the_workflow_log(ci: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    ci[2].fail = "RuntimeError: provider unavailable"
+    result = invoke(ci[0], "--pr", "7", "--ai")
+    assert "Review incomplete: model calls failed; see the workflow log" in result.stdout
+
+
 def test_publishing_in_actions_writes_the_comment_and_the_status_and_says_so(
     ci: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

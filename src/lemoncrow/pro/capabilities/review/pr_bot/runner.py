@@ -636,7 +636,13 @@ def _review(
             "max-usd-per-pr is not enforced: the cost of this pull request's earlier reviews is unknown (the provider "
             "reported none and the local price table does not know the model); max-runs-per-pr needs no price"
         )
-    failure = model_failure.classify(ai.errors, provider=_provider_of(ai.model), model=_bare_model(ai.model))
+    failure = model_failure.classify(
+        ai.errors,
+        provider=_provider_of(ai.model),
+        model=_bare_model(ai.model),
+        # In a terminal there is no workflow log: the cause is the `model call errors` note printed with the review.
+        in_actions=os.environ.get("GITHUB_ACTIONS") == "true",
+    )
     if ai.errors:
         secrets = model_failure.key_values(os.environ)
         report.notes.append(

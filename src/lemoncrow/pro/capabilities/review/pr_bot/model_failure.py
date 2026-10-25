@@ -4,7 +4,8 @@ A rejected key, an account out of credit and a provider that is down all end the
 investigation came back. They need different words. A key is the user's to fix, an overloaded provider is not, and
 "model calls failed; see the workflow log" tells neither. :func:`classify` reads the error text the model route left
 behind (``provider_errors``) and returns a :class:`ModelFailure`: a ``cause`` for the summary comment and the commit
-status, and a ``fix`` that goes into the ``::error`` annotation beside it.
+status, and a ``fix`` that goes into the ``::error`` annotation beside it. The ``fix`` and ``short`` talk about the
+Action's secrets, inputs and job log; a run in a terminal (``in_actions=False``) gets wording that is true there instead.
 
 The text is only ever matched, never repeated: a provider may echo part of a key in its error, so what reaches a
 comment, a status or an annotation is the fixed wording below, and :func:`scrub` removes any secret from the one raw
@@ -15,10 +16,12 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 #: The action input that carries each provider's key, as the workflow spells it.
 KEY_INPUT = {"anthropic": "anthropic-api-key", "openai": "openai-api-key"}
+#: The environment variable a person at a terminal sets for each provider.
+KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
 PROVIDER_NAME = {"anthropic": "Anthropic", "openai": "OpenAI"}
 
 
@@ -94,12 +97,59 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 PERMANENT = frozenset({"auth", "credit", "model"})
 
 
-def classify(errors: Iterable[str], *, provider: str = "", key_input: str = "", model: str = "") -> ModelFailure | None:
+def classify(
+    errors: Iterable[str],
+    *,
+    provider: str = "",
+    key_input: str = "",
+    model: str = "",
+    in_actions: bool = True,
+) -> ModelFailure | None:
     """The failure *errors* describe, or ``None`` when there are none.
 
     *provider* is ``anthropic`` or ``openai`` when the route is one of those (it names the key the fix points at);
-    anything else, a LiteLLM route for a cloud provider, gets wording that does not claim a key.
+    anything else, a LiteLLM route for a cloud provider, gets wording that does not claim a key. *in_actions* is false
+    for a run in a terminal, where there is no workflow, secret, input or job log to point at.
     """
+
+    failure = _classify(errors, provider=provider, key_input=key_input, model=model)
+    if failure is None or in_actions:
+        return failure
+    who = PROVIDER_NAME.get(provider, "The model provider")
+    key = KEY_ENV.get(provider, "")
+    where = f"your API key ({key})" if key else "your model credentials"
+    fix, short = {
+        "auth": (f"Check {where}: it must be a valid, active key", f"check {where}"),
+        "credit": (
+            f"Add credit or raise the spend limit in the {who} console, then run the review again",
+            f"add credit in the {who} console",
+        ),
+        "rate_limit": (
+            "Run the review again in a few minutes, or raise the key's rate limit with the provider",
+            "run again in a few minutes",
+        ),
+        "model": (
+            "Use a model id the key can use, or leave the model unset for the default",
+            "use a model the key can use",
+        ),
+        "overloaded": (
+            "Nothing is wrong with your setup; run the review again in a few minutes",
+            "run again in a few minutes",
+        ),
+        "json": ("Run the review again; if it repeats, use a stronger model", "run again"),
+    }.get(
+        failure.kind,
+        (
+            "The model's own error is the `model call errors` line printed with this review (add --json to read it "
+            "with the rest); run the review again",
+            "see the model call errors line",
+        ),
+    )
+    return replace(failure, fix=fix, short=short)
+
+
+def _classify(errors: Iterable[str], *, provider: str, key_input: str, model: str) -> ModelFailure | None:
+    """The failure in the Action's words: secrets, inputs and the job log."""
 
     text = "\n".join(str(error) for error in errors)
     if not text.strip():

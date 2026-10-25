@@ -823,7 +823,9 @@ def test_a_repository_over_the_file_limit_gets_no_diagram_and_a_note_not_a_failu
 
     assert report.verdict is not None and report.verdict.state == "clean"
     assert "Change diagram" not in report.summary and report.state is not None and report.state.diagram == ""
-    assert any("over the 2-file limit" in note and diagram_module.MAX_FILES_ENV in note for note in report.notes)
+    (skipped,) = [note for note in report.notes if note.startswith("change diagram skipped")]
+    assert "source files, more than the 2 a diagram is drawn for" in skipped
+    assert diagram_module.MAX_FILES_ENV not in skipped and "LEMONCROW" not in skipped, "plain words, no variable name"
     assert diagram_module.max_source_files({}) == DEFAULT_MAX_SOURCE_FILES
     assert diagram_module.max_source_files({diagram_module.MAX_FILES_ENV: "12"}) == 12
     assert diagram_module.max_source_files({diagram_module.MAX_FILES_ENV: "many"}) == DEFAULT_MAX_SOURCE_FILES

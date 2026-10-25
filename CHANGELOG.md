@@ -161,6 +161,13 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   the reviewer on history. A preview (`lc review --pr N --ai`, with or without `--dry-run`) now reviews it and
   says once, in the notes, that it is closed or merged and nothing will be posted. The Action and
   `--publish-bot` still skip closed pull requests exactly as before.
+- **A terminal run no longer says "see the workflow log", or names an environment variable.** A review run
+  from a terminal that could not reach its model said `model calls failed; see the workflow log`, and the other
+  causes told you to check a secret or re-run a job: there is no workflow, secret or job there. In a terminal the
+  headline now says `see the model call errors line` (the error is printed with the review, and in `--json`) and
+  the other causes name your API key and say to run it again; the Action's wording is unchanged. The change
+  diagram's skipped note, shown on every review of a large repository, no longer names
+  `LEMONCROW_REVIEW_DIAGRAM_MAX_FILES`; the guide still documents it.
 - **A review on the `claude` agent CLI reports what it cost, and `--max-usd-per-pr` holds there.** The CLI's
   result carries a total cost for each call (`total_cost_usd`, its list-price estimate: a subscription is not
   billed per call), and LemonCrow dropped it, so the summary showed no cost and the dollar cap could not be

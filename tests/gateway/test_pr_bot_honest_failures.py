@@ -82,6 +82,42 @@ def test_each_failure_is_named_with_its_cause_and_its_fix(error: str, kind: str,
     ), "the provider's text is never repeated"
 
 
+_TERMINAL_ERRORS = {
+    "auth": "litellm.AuthenticationError: invalid x-api-key",
+    "credit": "litellm.RateLimitError: Your credit balance is too low",
+    "rate_limit": "litellm.RateLimitError: rate_limit_error: slow down",
+    "model": "litellm.NotFoundError: model: claude-sonnet-9 not found",
+    "overloaded": "litellm.APIConnectionError: connection reset",
+    "json": "LiteLLM returned invalid JSON, also after one retry",
+    "other": "RuntimeError: provider unavailable",
+}
+
+
+@pytest.mark.parametrize("kind", sorted(_TERMINAL_ERRORS))
+def test_in_a_terminal_a_failure_never_points_at_a_workflow_a_secret_an_input_or_a_job(kind: str) -> None:
+    """There is no workflow log, secret, action input or job to re-run at a terminal: the words must be true there."""
+
+    failure = model_failure.classify([_TERMINAL_ERRORS[kind]], provider="anthropic", in_actions=False)
+    assert failure is not None and failure.kind == kind
+    said = f"{failure.annotation} {failure.headline}".lower()
+    for word in ("workflow", "job", "secret", " input", "anthropic-api-key"):
+        assert word not in said, (kind, word, said)
+    assert "\n" not in failure.headline and len(f"Review incomplete: {failure.headline}") <= 140
+    # The cause is the same sentence in both places; only what to do about it differs.
+    assert failure.cause == model_failure.classify([_TERMINAL_ERRORS[kind]], provider="anthropic").cause  # type: ignore[union-attr]
+
+
+def test_the_terminal_wording_names_the_key_to_check_and_where_the_unclassified_error_is() -> None:
+    auth = model_failure.classify([_TERMINAL_ERRORS["auth"]], provider="anthropic", in_actions=False)
+    assert auth is not None and "ANTHROPIC_API_KEY" in auth.headline
+    other = model_failure.classify([_TERMINAL_ERRORS["other"]], in_actions=False)
+    assert other is not None and other.headline == "model calls failed; see the model call errors line"
+    assert "--json" in other.fix
+    # In the Action nothing changed.
+    action = model_failure.classify([_TERMINAL_ERRORS["other"]])
+    assert action is not None and action.headline == "model calls failed; see the workflow log"
+
+
 def test_a_status_code_in_a_number_is_not_mistaken_for_one() -> None:
     """A JSON parse error at ``char 403`` or a count of 429 findings is no HTTP status."""
 
