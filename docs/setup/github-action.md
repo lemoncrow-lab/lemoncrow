@@ -592,14 +592,14 @@ review:
 
 ### Strictness and the threshold
 
-`strictness` is a friendly alias over `finding_threshold`, the setting that decides which findings are surfaced at all (it is also what the Review Reader reads). Use one of them, not both; if both are present `finding_threshold` is used and the summary says so.
+`strictness` is a friendly alias over `finding_threshold`, the setting that decides which findings are surfaced at all. The Review Reader (local and hosted) reads the same setting and shows it as the finding threshold, with the label in the third column (for example `3 findings below the High+ threshold`); the terminal and the pull request comment say `strictness 3`. Use one of them, not both; if both are present `finding_threshold` is used and the summary says so.
 
-| `strictness` | `finding_threshold` | P0 | P1 | P2 |
-| --- | --- | --- | --- | --- |
-| `1`: shows all | `suggestions` | inline | inline | inline, and a row in the summary |
-| `2`: the default | `medium` | inline | inline | held back in the collapsed `low-priority findings` block, never inline |
-| `3`: never comments on P2 | `high` | inline | inline | **held back below the threshold**: counted, not inline, not in the verdict |
-| none | `critical` | inline | held back below the threshold | held back below the threshold |
+| `strictness` | `finding_threshold` | The Reader calls it | P0 | P1 | P2 |
+| --- | --- | --- | --- | --- | --- |
+| `1`: shows all | `suggestions` | Suggestions | inline | inline | inline, and a row in the summary |
+| `2`: the default | `medium` | Medium+ | inline | inline | held back in the collapsed `low-priority findings` block, never inline |
+| `3`: never comments on P2 | `high` | High+ | inline | inline | **held back below the threshold**: counted, not inline, not in the verdict |
+| none | `critical` | Critical only | inline | held back below the threshold | held back below the threshold |
 
 - **A P0 is always surfaced and always inline** (unless `inline_comments` is off, when it is the first row of the summary). The threshold only decides about what is below it.
 - **Held back is counted, never dropped.** Findings below the threshold stay tracked in the hidden state, so lowering the threshold shows them again with no new review. They are not posted on the diff, not part of the verdict counts, the check or `fail-on` (a P0 is, so it is never among them), and not in the `Fix with your agent` prompt. The headline says `· 2 held back`, the check description says the same, and a collapsed block lists them, one line each, naming the setting and where it came from: `2 findings held back below strictness 3`.

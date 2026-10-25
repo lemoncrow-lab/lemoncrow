@@ -137,6 +137,8 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Fixed
 
+- **The Reader no longer opens on "LemonCrow policy removed" when your repository commits `.lemoncrow/review.yaml`.** A working-tree review left the whole `.lemoncrow/` folder out of the changed side but kept the committed config on the base side, so an unchanged file showed as a deleted, critical agent-instruction change and blocked auto-approval. The one committed `.lemoncrow/review.yaml` is now on both sides; the rest of `.lemoncrow/` stays out, and a real deletion still shows as one.
+- **The review engine builds again.** `pr_bot/model_failure.py` was missing from the engine allowlist, so the engine build and `test_review_engine_closure_contract` failed on the merged branch.
 - **`lc review` no longer ends in `ModuleNotFoundError: lemoncrow_client.session`** (also `--open`, `--json`
   and `lcr`; present in v0.8.0). The Review client armed the browser pairing through the Runtime session,
   which its wheel does not ship. It now pairs through the Review session, and a test copies exactly the shipped
