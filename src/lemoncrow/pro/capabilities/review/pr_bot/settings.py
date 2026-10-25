@@ -23,7 +23,7 @@ silently. A rule's severity can lift a violation to P0 only for a critical rule,
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Final
 
@@ -36,7 +36,7 @@ from lemoncrow.pro.capabilities.review.criticality import (
     severity_for,
     surfaced,
 )
-from lemoncrow.pro.capabilities.review.pr_bot.findings import SEVERITY_RANK
+from lemoncrow.pro.capabilities.review.pr_bot.findings import SEVERITY_RANK, BotFinding
 from lemoncrow.pro.capabilities.review.rules import (
     ContentAccessRule,
     ReviewGovernance,
@@ -246,6 +246,15 @@ class NoisePolicy:
         if severity == "p2" and self.threshold != "suggestions":
             return "listed"
         return "row"
+
+    def held_back(self, findings: Iterable[BotFinding]) -> list[BotFinding]:
+        """The open *findings* that sit below the threshold: tracked and counted, but in no verdict, comment or exit code.
+
+        The one place the rule is written, for the pull request bot's summary and status and for ``lc review --ai``. A
+        P0 is never among them.
+        """
+
+        return [finding for finding in findings if finding.is_open and self.tier(finding.severity) == "held"]
 
     def inline_eligible(self, severity: str) -> bool:
         """Whether a finding of *severity* gets an inline comment at all."""

@@ -20,7 +20,8 @@ from lemoncrow.pro.capabilities.review.pr_bot import impact
 from lemoncrow.pro.capabilities.review.pr_bot.findings import BotFinding
 from lemoncrow.pro.capabilities.review.pr_bot.impact import Impact, RiskRow, assess, risk_rows, signals_for
 from lemoncrow.pro.capabilities.review.pr_bot.state import parse_state, with_state
-from tests.gateway.pr_bot_support import AUTH_BUGGY, BASE, World, build_world
+from tests.gateway.pr_bot_noise_support import CONFIG, clear_noise_env, review_yaml
+from tests.gateway.pr_bot_support import AUTH_BUGGY, BASE, FIRST_PUSH, World, build_world
 
 ADVISORY = "rule:advisory:trusted_base_repository:style@sha256:" + "a" * 64
 CRITICAL = "rule:trusted_base_repository:no-bug-markers@sha256:" + "b" * 64
@@ -330,6 +331,41 @@ def test_a_closed_finding_does_not_make_a_signal_found() -> None:
     assert (row.outcome, row.findings) == ("cleared", 0)
 
 
+def test_a_risk_whose_findings_are_all_held_back_is_found_held_back_and_listed_after_the_rest() -> None:
+    targets = [target("src/held.py"), target("src/shown.py"), target("src/mixed.py")]
+    found = [
+        candidate("security", "src/held.py", score=100),
+        candidate("security", "src/shown.py", score=50),
+        candidate("security", "src/mixed.py", score=75),
+    ]
+    signals = signals_for(
+        targets,
+        found,
+        changed={t.target_id for t in targets},
+        asked={t.target_id: {"security"} for t in targets},
+        reviewed=set(),
+        rule_keys={},
+    )
+    findings = [
+        finding_on("t:src/held.py"),
+        finding_on("t:src/shown.py"),
+        finding_on("t:src/mixed.py"),
+        replace(finding_on("t:src/mixed.py"), id="f-second"),
+    ]
+    rows = risk_rows(signals, findings, held={"f-t:src/held.py", "f-t:src/mixed.py"})
+    by_scope = {row.scope.split(":")[0]: row for row in rows}
+    # By rank alone the held-back one (100) would lead; the ones the verdict counts come first.
+    assert [row.scope.split(":")[0] for row in rows] == ["src/mixed.py", "src/shown.py", "src/held.py"]
+    assert by_scope["src/held.py"].outcome == "found" and by_scope["src/held.py"].held_back is True
+    assert (by_scope["src/held.py"].findings, by_scope["src/held.py"].held) == (1, 1)
+    # One finding the verdict counts is enough for a plain "Found".
+    assert (by_scope["src/mixed.py"].findings, by_scope["src/mixed.py"].held) == (2, 1)
+    assert by_scope["src/mixed.py"].held_back is False and by_scope["src/shown.py"].held_back is False
+    assert impact.counts(rows) == {"found": 3, "pending": 0, "cleared": 0}
+    # With nothing held back a row is what it always was.
+    assert not any(row.held_back or row.held for row in risk_rows(signals, findings))
+
+
 def test_a_rule_signal_names_the_rules_key_not_the_ref() -> None:
     signals = signals_for(
         [target("src/a.py")],
@@ -577,3 +613,49 @@ def test_the_guide_states_the_impact_rule_and_the_risks_list() -> None:
         assert f" | {points} |" in guide, points
     assert len(re.findall(r"^\| .+ \| \d \|$", guide, re.MULTILINE)) >= len(impact.POINTS)
     assert RiskRow("x", (), (), "found").outcome in impact.OUTCOMES
+
+
+# --------------------------------------------------------------------------- #
+# a risk whose only finding is held back
+# --------------------------------------------------------------------------- #
+
+
+def test_a_risk_whose_only_finding_is_held_back_does_not_read_as_a_plain_found(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clear_noise_env(monkeypatch)
+    for name in ("plain", "strict"):
+        (tmp_path / name).mkdir()
+    plain = build_world(tmp_path / "plain", monkeypatch, BASE)
+    strict = build_world(tmp_path / "strict", monkeypatch, {**BASE, CONFIG: review_yaml(strictness=3)})
+    for each in (plain, strict):
+        each.origin.push({"src/cache.py": CACHE_BUGGY})  # a P2: listed by default, below the threshold at strictness 3
+        each.review()
+
+    # By default the P2 is listed and counted, so the risk is a plain "Found".
+    assert risks_block(plain)[0] == "<details><summary>Risks examined: 1 of 1 · 1 found</summary>"
+    assert any(row.startswith("- **Found** — `src/cache.py:") for row in risks_block(plain))
+
+    # At strictness 3 the verdict counts nothing and says one is held back; the list says the same, not "Found".
+    assert summary(strict).split("\n")[1] == "**No must-fix findings** · 1 held back"
+    block = risks_block(strict)
+    assert block[0] == "<details><summary>Risks examined: 1 of 1 · 1 found (held back)</summary>"
+    (row,) = [row for row in block if row.startswith("- **")]
+    assert row.startswith("- **Found (held back)** — `src/cache.py:") and row.endswith("1 open finding")
+    assert not any(row.startswith("- **Found** ") for row in block)
+    assert any("below this repository's threshold" in row for row in block), "the block says what it means"
+
+
+def test_a_held_back_risk_is_listed_after_the_one_the_verdict_counts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clear_noise_env(monkeypatch)
+    world = build_world(tmp_path, monkeypatch, {**BASE, CONFIG: review_yaml(strictness=3)})
+    world.origin.push(FIRST_PUSH)  # auth: a P1; cache: a P2, held back at strictness 3
+    world.review()
+    assert summary(world).split("\n")[1] == "**No must-fix findings** · 1 should-fix · 1 held back"
+    block = risks_block(world)
+    assert block[0] == "<details><summary>Risks examined: 2 of 2 · 1 found · 1 found (held back)</summary>"
+    rows = [row for row in block if row.startswith("- **")]
+    assert [row.split("**")[1] for row in rows] == ["Found", "Found (held back)"]
+    assert "src/auth.py" in rows[0] and "src/cache.py" in rows[1]

@@ -234,6 +234,7 @@ Risks examined: 2 of 3 · 1 found · 1 not investigated yet
 ```
 
 - **Found**: a finding is open about that code. **Examined, nothing found**: a model call about that code returned and the review reported nothing. **Not investigated yet**: no call about it has returned (Auto's two investigations, a failed call or a spent budget); the next push or `@lemoncrow review thorough` competes for them again, and the headline says `Partially reviewed` until they are done. The words are never "safe" or "cleared": `Examined, nothing found` means a model looked at that code and reported nothing, not that it is safe, because a model that does not find a bug has not proved there is none.
+- **Found (held back)**: the only findings about that code sit below your threshold (see "Reducing noise"), so the verdict counts none of them. It is counted apart in the heading (`1 found (held back)`) and listed after the risks the verdict counts, so it never reads as a plain `Found` beside a verdict that says nothing is wrong.
 - It names the categories a call actually covered for code it examined, and every category the signal carries for code it did not, so it never claims a check that was not asked. A critical rule that covers the code is named by its key.
 - Code that was examined by an earlier review and has not changed since is listed too, marked `examined in an earlier review, unchanged since`, so the list covers the whole pull request and not only the last push.
 - Up to seven rows are shown, then `+N more` with how many of each kind. The block comes after the findings and before the change diagram, and on a clean review it sits beside `What we checked`.
@@ -798,7 +799,7 @@ lc review --ai --fail-on p0 --json  # exit 1 while a P0 is open; machine-readabl
 lc review hook install              # a pre-push hook that runs it on what you are about to push
 ```
 
-It uses the same findings, severity and carried results as the bot (a re-run on an unchanged tree makes no model call) and respects the intelligence policy and its kill switch; it does not run the security scan, which is part of the pull request review. The exit codes and the hook are in [the CLI reference](../reference/cli.md#local-ai-review-and-git-hooks).
+It uses the same findings, severity, noise controls (threshold and strictness, `ignore`, per-rule severity, read from `.lemoncrow/review.yaml` at the base) and carried results as the bot (a re-run on an unchanged tree makes no model call) and respects the intelligence policy and its kill switch; it does not run the security scan, which is part of the pull request review. The exit codes and the hook are in [the CLI reference](../reference/cli.md#local-ai-review-and-git-hooks).
 
 `--publish-bot` itself runs only in GitHub Actions: on a laptop your `gh` login is a person, and AI output must not be posted under a person's name. This is the full Review CLI (`uv run lc review` in a source checkout).
 

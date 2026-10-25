@@ -671,7 +671,7 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
     dismissed = [finding for finding in findings if finding.state == "suppressed"]
     # What the repository's threshold lets through: below it a finding is counted and listed once, never a row, an
     # inline comment, a part of the verdict or of the fix prompt. A P0 is always surfaced.
-    below = [finding for finding in opened if view.noise.tier(finding.severity) == "held"]
+    below = view.noise.held_back(opened)
     opened = [finding for finding in opened if view.noise.tier(finding.severity) != "held"]
     shown = [finding for finding in opened if view.noise.tier(finding.severity) == "row"]
     held = [finding for finding in opened if view.noise.tier(finding.severity) == "listed"]
@@ -813,53 +813,75 @@ _OUTCOME_TEXT: Final[dict[str, str]] = {
     "pending": "Not investigated yet",
     "cleared": "Examined, nothing found",
 }
+#: A risk whose open findings all sit below the repository's threshold: the verdict counts none of them, so it must not
+#: read as a plain "Found".
+_HELD_TEXT: Final[str] = "Found (held back)"
+
+
+def _outcome_text(row: impact.RiskRow) -> str:
+    return _HELD_TEXT if row.held_back else _OUTCOME_TEXT[row.outcome]
 
 
 def _risk_row(row: impact.RiskRow) -> str:
-    """``- **Found** — `src/auth.py:1-4`: security · 1 finding``. Every word is fixed or a path, rule key or number."""
+    """``- **Found** — `src/auth.py:1-4`: security · 1 open finding``. Every word is fixed or a path, rule key or number."""
 
     # A rule's key says more than the word "rule", so the key stands in for it.
     named = [category for category in row.categories if not (category == "critical_rule" and row.rules)]
     what = ", ".join(impact.CATEGORY_WORDS.get(category, category.replace("_", " ")) for category in named)
-    parts = [f"- **{_OUTCOME_TEXT[row.outcome]}** — `{trimmed(code(row.scope), 100)}`" + (f": {what}" if what else "")]
+    parts = [f"- **{_outcome_text(row)}** — `{trimmed(code(row.scope), 100)}`" + (f": {what}" if what else "")]
     if row.rules:
         parts.append("rule " + ", ".join(f"`{trimmed(code(key), 40)}`" for key in row.rules[:2]))
     if row.outcome == "found":
-        parts.append(plural(row.findings, "open finding"))
+        mixed = f" ({row.held} held back)" if row.held and not row.held_back else ""
+        parts.append(plural(row.findings, "open finding") + mixed)
     elif row.earlier:
         parts.append("examined in an earlier review, unchanged since")
     return " · ".join(parts)
+
+
+def _tally(rows: Sequence[impact.RiskRow]) -> list[tuple[str, int]]:
+    """``(words, count)`` for each outcome that has rows, in list order; a held-back risk is counted apart from a found one."""
+
+    tally = impact.counts(rows)
+    held = sum(1 for row in rows if row.held_back)
+    counted = (
+        (_OUTCOME_TEXT["found"], tally["found"] - held),
+        (_HELD_TEXT, held),
+        (_OUTCOME_TEXT["pending"], tally["pending"]),
+        (_OUTCOME_TEXT["cleared"], tally["cleared"]),
+    )
+    return [(words, count) for words, count in counted if count]
 
 
 def _risk_lines(rows: Sequence[impact.RiskRow]) -> list[str]:
     """The collapsed "Risks examined" block: a count line, then up to :data:`impact.MAX_ROWS` rows and ``+N more``."""
 
     tally = impact.counts(rows)
-    seen = tally["found"] + tally["cleared"]
-    heading = f"Risks examined: {seen} of {len(rows)}"
-    if tally["found"]:
-        heading += f" · {tally['found']} found"
+    held = sum(1 for row in rows if row.held_back)
+    heading = f"Risks examined: {tally['found'] + tally['cleared']} of {len(rows)}"
+    if tally["found"] - held:
+        heading += f" · {tally['found'] - held} found"
+    if held:
+        heading += f" · {held} found (held back)"
     if tally["pending"]:
         heading += f" · {tally['pending']} not investigated yet"
     lines = [f"<details><summary>{heading}</summary>", ""]
     lines += [_risk_row(row) for row in rows[: impact.MAX_ROWS]]
     rest = rows[impact.MAX_ROWS :]
     if rest:
-        left = impact.counts(rest)
         lines.append(
-            f"- +{len(rest)} more ("
-            + ", ".join(
-                f"{left[outcome]} {_OUTCOME_TEXT[outcome].lower()}" for outcome in impact.OUTCOMES if left[outcome]
-            )
-            + ")"
+            f"- +{len(rest)} more (" + ", ".join(f"{count} {words.lower()}" for words, count in _tally(rest)) + ")"
         )
-    lines += [
-        "",
+    explained = (
         'These are the places in the change that carry a risk signal, found without a model. "Examined, nothing found" '
-        "means a model looked at that code and reported nothing, not that it is safe.",
-        "",
-        "</details>",
-    ]
+        "means a model looked at that code and reported nothing, not that it is safe."
+    )
+    if held:
+        explained += (
+            ' "Found (held back)" means the only findings about that code sit below this repository\'s threshold: '
+            "they are listed above and counted in no verdict."
+        )
+    lines += ["", explained, "", "</details>"]
     return lines
 
 

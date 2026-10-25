@@ -11,8 +11,10 @@ text:
 * :class:`RiskRow` is one changed piece of code that carries a risk signal (the same deterministic signals that decide
   what the investigator is asked about, ``ai_review.generate_candidates``) with what became of it: ``found`` (an open
   finding is about it), ``cleared`` (a model call about it returned and the review reported nothing) or ``pending`` (no
-  call about it has returned yet). The words for ``cleared`` are "examined, nothing found", never "safe": a model that
-  does not find a bug has not proved there is none.
+  call about it has returned yet). A ``found`` risk whose open findings all sit below the repository's threshold is
+  *held back* (:attr:`RiskRow.held_back`): it still names the finding, but it says it is held back, so it never reads as
+  a plain "Found" next to a verdict that counts nothing. The words for ``cleared`` are "examined, nothing found", never
+  "safe": a model that does not find a bug has not proved there is none.
 
 The impact rule, in full (the points are added, then the level is read off):
 
@@ -249,6 +251,14 @@ class RiskRow:
     findings: int = 0
     earlier: bool = False
     rank: int = 0
+    #: How many of the open ``findings`` sit below the repository's threshold (``NoisePolicy.held_back``).
+    held: int = 0
+
+    @property
+    def held_back(self) -> bool:
+        """A ``found`` risk whose every open finding is held back: nothing about it is in the verdict."""
+
+        return self.outcome == "found" and self.held >= self.findings
 
 
 def _scope(target: Any) -> str:
@@ -307,14 +317,22 @@ def signals_for(
     return tuple(sorted(out, key=lambda signal: (-signal.rank, signal.scope, signal.target_id)))
 
 
-def risk_rows(signals: Sequence[Signal], findings: Iterable[Any]) -> tuple[RiskRow, ...]:
-    """Every signal with its outcome, found first, then pending, then cleared; a row is ``found`` if a finding is open on it."""
+def risk_rows(signals: Sequence[Signal], findings: Iterable[Any], *, held: Collection[str] = ()) -> tuple[RiskRow, ...]:
+    """Every signal with its outcome, found first, then pending, then cleared; a row is ``found`` if a finding is open on it.
+
+    *held* is the ids of the open findings that sit below the repository's threshold. A ``found`` row counts them in
+    ``held``, so one whose findings are all held back says so (:attr:`RiskRow.held_back`) and sorts after the ones the
+    verdict counts.
+    """
 
     open_on: dict[str, int] = {}
+    held_on: dict[str, int] = {}
     for finding in findings:
         if finding.is_open:
             for target_id in finding.target_ids:
                 open_on[target_id] = open_on.get(target_id, 0) + 1
+                if finding.id in held:
+                    held_on[target_id] = held_on.get(target_id, 0) + 1
     rows = [
         RiskRow(
             signal.scope,
@@ -324,10 +342,11 @@ def risk_rows(signals: Sequence[Signal], findings: Iterable[Any]) -> tuple[RiskR
             open_on.get(signal.target_id, 0),
             signal.status == "earlier",
             signal.rank,
+            held_on.get(signal.target_id, 0),
         )
         for signal in signals
     ]
-    return tuple(sorted(rows, key=lambda row: (OUTCOMES.index(row.outcome), -row.rank, row.scope)))
+    return tuple(sorted(rows, key=lambda row: (OUTCOMES.index(row.outcome), row.held_back, -row.rank, row.scope)))
 
 
 def counts(rows: Sequence[RiskRow]) -> dict[str, int]:

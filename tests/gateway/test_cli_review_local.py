@@ -23,6 +23,7 @@ from lemoncrow.pro.capabilities.review.pr_bot import local
 from lemoncrow.pro.capabilities.review.pr_bot.findings import BotFinding
 from lemoncrow.pro.capabilities.review.pr_bot.render import verdict
 from lemoncrow.pro.capabilities.review.pr_bot.state import parse_state
+from tests.gateway.pr_bot_noise_support import CONFIG, review_yaml
 from tests.gateway.pr_bot_support import (
     AUTH_BUGGY,
     AUTH_FIXED,
@@ -165,6 +166,157 @@ def test_the_severity_is_the_one_the_pull_request_bot_stores(ruled: Lab) -> None
         "p1": 1,
         "p2": 1,
     }
+
+
+# --------------------------------------------------------------------------- #
+# the repository's noise controls: the trusted base's .lemoncrow/review.yaml, as on a pull request
+# --------------------------------------------------------------------------- #
+
+AUTH_TITLE = "lets a missing principal through"
+CACHE_TITLE = "grows without a bound"
+
+
+def configured(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: str) -> Lab:
+    """A repository whose committed ``.lemoncrow/review.yaml`` is *config*."""
+
+    return make_lab(tmp_path, monkeypatch, {**BASE, CONFIG: config})
+
+
+def test_a_finding_below_the_threshold_is_held_back_and_shown_apart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lab = configured(tmp_path, monkeypatch, review_yaml(strictness=3))
+    lab.write({"src/auth.py": AUTH_BUGGY, "src/cache.py": CACHE_BUGGY})  # a P1 and a P2
+    result = lab.run("--fail-on", "p1")
+    out = result.stdout
+    assert result.exit_code == 1  # the P1 is surfaced; only the P2 is held back
+    # In the headline as a count, in no other count, and in a section of its own that says why.
+    assert "No must-fix findings · 1 should-fix · 1 held back" in out
+    assert "1 finding held back below strictness 3 (from .lemoncrow/review.yaml)" in out
+    assert "not counted toward --fail-on. A P0 is never held back:" in out
+    assert f"  P2  src/cache.py:5  {CACHE_TITLE}" in out
+    assert "optional finding" not in out and "1 open finding at or above --fail-on p1 (a P0 or P1)" in out
+    # The P1 is a finding in full; the held-back one is one line.
+    assert f"P1 · should fix  src/auth.py:2-3  [security]\n    {AUTH_TITLE}" in out
+    assert "grows without a bound\n    " not in out
+
+
+def test_a_p2_under_strictness_3_never_counts_toward_fail_on_and_is_in_the_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lab = configured(tmp_path, monkeypatch, review_yaml(strictness=3))
+    lab.write({"src/cache.py": CACHE_BUGGY})  # only a P2
+    wire = lab.wire("--fail-on", "p1")
+    assert wire["exit"] == {"code": 0, "reason": "", "fail_on": "p1", "strict": False}
+    assert wire["verdict"] == {
+        "state": "clean",
+        "headline": "No must-fix findings",
+        "p0": 0,
+        "p1": 0,
+        "p2": 0,
+        "held_back": 1,
+    }
+    assert [(row["severity"], row["title"], row["state"]) for row in wire["held_back"]] == [("p2", CACHE_TITLE, "new")]
+    # Still tracked: lowering the threshold shows it again with no new review.
+    assert [row["title"] for row in wire["findings"]] == [CACHE_TITLE]
+    text = lab.run().stdout
+    assert "No must-fix findings · 1 held back" in text and "Exit " not in text
+
+
+def test_without_a_threshold_nothing_is_held_back_and_the_json_reads_as_it_always_did(lab: Lab) -> None:
+    lab.write({"src/cache.py": CACHE_BUGGY})
+    wire = lab.wire()
+    assert "held_back" not in wire and "held_back" not in wire["verdict"]
+    assert wire["verdict"]["p2"] == 1
+    assert "1 optional finding (P2):" in lab.run().stdout and "held back below" not in lab.run().stdout
+
+
+def test_a_strictness_that_holds_back_a_p1_stops_it_failing_a_p1_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lab = configured(tmp_path, monkeypatch, review_yaml(finding_threshold="critical"))
+    lab.write({"src/auth.py": AUTH_BUGGY})  # one P1
+    wire = lab.wire("--fail-on", "p1")
+    assert wire["exit"]["code"] == 0 and wire["verdict"]["p1"] == 0 and wire["verdict"]["held_back"] == 1
+    assert [row["severity"] for row in wire["held_back"]] == ["p1"]
+    assert "held back below threshold critical" in lab.run("--fail-on", "p1").stdout
+
+
+def test_a_p0_is_never_held_back(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    lab = configured(tmp_path, monkeypatch, review_yaml(finding_threshold="critical") + RULE)
+    lab.write({"src/auth.py": AUTH_BUGGY, "src/cache.py": CACHE_BUGGY})
+    wire = lab.wire()
+    assert wire["exit"]["code"] == 1 and wire["verdict"]["state"] == "must_fix"
+    assert (wire["verdict"]["p0"], wire["verdict"]["held_back"]) == (1, 2)
+    assert sorted(row["severity"] for row in wire["held_back"]) == ["p1", "p2"]  # the P1 and the P2; never the P0
+    text = lab.run().stdout
+    assert "P0 · must fix  src/auth.py" in text and "2 findings held back below threshold critical" in text
+    assert "Exit 1: 1 open finding at or above --fail-on p0 (a P0)" in text
+
+
+def test_a_held_back_finding_stays_held_back_when_the_result_is_carried(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lab = configured(tmp_path, monkeypatch, review_yaml(strictness=3))
+    lab.write({"src/auth.py": AUTH_BUGGY, "src/cache.py": CACHE_BUGGY})
+    first = lab.wire("--fail-on", "p1")
+    lab.forget_calls()
+    again = lab.wire("--fail-on", "p1")
+    assert lab.model.calls == [] and again["cached"] is True
+    assert again["verdict"] == first["verdict"]
+    assert [(row["severity"], row["title"]) for row in again["held_back"]] == [("p2", CACHE_TITLE)]
+    assert again["exit"]["code"] == 1
+
+
+def test_an_incomplete_rerun_keeps_the_threshold_the_last_review_ran_under(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lab = configured(tmp_path, monkeypatch, review_yaml(strictness=3))
+    lab.write({"src/auth.py": AUTH_BUGGY, "src/cache.py": CACHE_BUGGY})
+    lab.wire("--fail-on", "p1")
+    monkeypatch.delenv("OPENAI_API_KEY")
+    monkeypatch.delenv("LEMONCROW_LLM_BACKEND")
+    lab.write({"src/plain.py": "VALUE = 3\n"})  # new code, and no model to review it with
+    wire = lab.wire("--fail-on", "p1")
+    assert wire["complete"] is False
+    assert (wire["verdict"]["p1"], wire["verdict"]["p2"], wire["verdict"]["held_back"]) == (1, 0, 1)
+    assert [row["title"] for row in wire["held_back"]] == [CACHE_TITLE]
+
+
+def test_a_rule_severity_in_the_trusted_base_applies_to_a_local_review(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lowered = configured(tmp_path, monkeypatch, review_yaml(rules={"no-bug-markers": {"severity": "p1"}}) + RULE)
+    lowered.write({"src/auth.py": AUTH_BUGGY})
+    wire = lowered.wire()
+    # The rule's violation is a P1 now, so it is no gate; without the setting it is a P0 (see the tests above).
+    assert sorted((row["category"], row["severity"]) for row in wire["findings"]) == [
+        ("critical_rule", "p1"),
+        ("security", "p1"),
+    ]
+    assert wire["exit"]["code"] == 0 and wire["verdict"]["p0"] == 0 and wire["verdict"]["p1"] == 2
+
+
+def test_ignored_paths_are_not_reviewed_and_the_json_says_how_many(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lab = configured(tmp_path, monkeypatch, review_yaml(ignore=["src/cache.py"]))
+    lab.write({"src/auth.py": AUTH_BUGGY, "src/cache.py": CACHE_BUGGY})
+    wire = lab.wire()
+    assert lab.model.paths() == ["src/auth.py"]  # the model never reads the ignored file
+    assert [row["title"] for row in wire["findings"]] == [AUTH_TITLE]
+    assert wire["coverage"]["files"] == ["src/auth.py"]
+    assert "1 file left out by review.ignore" in wire["notes"]
+
+
+def test_a_setting_that_cannot_be_applied_is_a_note_and_the_default_stands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lab = configured(tmp_path, monkeypatch, review_yaml(strictness=9))
+    lab.write({"src/cache.py": CACHE_BUGGY})
+    wire = lab.wire()
+    assert any(note.startswith("config: ") and "strictness must be 1, 2 or 3" in note for note in wire["notes"])
+    assert wire["verdict"]["p2"] == 1 and "held_back" not in wire  # the default threshold: a P2 is listed, not held
 
 
 # --------------------------------------------------------------------------- #

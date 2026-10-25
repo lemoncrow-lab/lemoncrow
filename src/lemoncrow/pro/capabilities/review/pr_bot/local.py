@@ -9,7 +9,11 @@ The same engine path the pull request bot runs, with GitHub taken out of it:
    and kill switch;
 3. :func:`reconcile.reconcile` decides what became of every finding, which is where
    :func:`findings.severity_for` rates each one, so a finding has the severity here that it would have on a pull
-   request;
+   request. The repository's noise controls from the trusted base's ``.lemoncrow/review.yaml`` apply as they do there:
+   ``ignore`` globs keep files out of the review, a ``rules`` severity rates the findings that cite the rule, and
+   ``finding_threshold`` / ``strictness`` hold back the open findings below it (:meth:`settings.NoisePolicy.held_back`,
+   the rule the bot uses). A held-back finding is tracked and listed apart, is in no verdict count and never counts
+   toward ``--fail-on``; a P0 is never held back;
 4. the result is printed for a terminal, or as JSON, and *nothing is posted anywhere*.
 
 What a pull request keeps in its summary comment's hidden block, a local review keeps in a small file of the same
@@ -19,8 +23,9 @@ makes no model call.
 
 Exit codes, for a hook to act on (documented in ``docs/reference/cli.md``):
 
-* ``0`` -- clean: nothing open at or above ``--fail-on``. An incomplete review is also ``0`` (the review fails open, so
-  a flaky provider never blocks a push) unless ``--strict``;
+* ``0`` -- clean: nothing open at or above ``--fail-on`` (a finding held back by the repository's threshold is not
+  open for this). An incomplete review is also ``0`` (the review fails open, so a flaky provider never blocks a push)
+  unless ``--strict``;
 * ``1`` -- a finding at or above ``--fail-on`` is open (``p0`` by default);
 * ``2`` -- the review was incomplete (no model, the kill switch, the call or dollar budget, risk signals left
   unexamined) and ``--strict`` was given;
@@ -34,7 +39,7 @@ import json
 import os
 import re
 import tempfile
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
@@ -56,6 +61,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.render import (
     verdict,
 )
 from lemoncrow.pro.capabilities.review.pr_bot.runner import RunOptions, budget_reached
+from lemoncrow.pro.capabilities.review.pr_bot.settings import NoisePolicy
 from lemoncrow.pro.capabilities.review.pr_bot.state import (
     MAX_DETAIL,
     MAX_STATE_BYTES,
@@ -134,7 +140,12 @@ class LocalReport:
     #: No model call was made because every changed unit was already reviewed, unchanged, last time.
     cached: bool = False
     verdict: Verdict | None = None
+    #: Every tracked finding, the held-back ones included (lowering the threshold shows them again with no new review).
     findings: tuple[BotFinding, ...] = ()
+    #: The open findings below the repository's threshold: in :attr:`findings`, in no verdict count, never in the exit code.
+    held: tuple[BotFinding, ...] = ()
+    #: The noise controls this review ran under (the trusted base's ``.lemoncrow/review.yaml``), for the words about ``held``.
+    noise: NoisePolicy = field(default_factory=NoisePolicy)
     state: ReviewState | None = None
     complete: bool = True
     incomplete_reason: str = ""
@@ -155,7 +166,10 @@ class LocalReport:
         )
 
     def open_findings(self) -> tuple[BotFinding, ...]:
-        return tuple(finding for finding in self.findings if finding.is_open)
+        """The open findings the repository's threshold lets through: what the verdict and ``--fail-on`` count."""
+
+        held = {finding.id for finding in self.held}
+        return tuple(finding for finding in self.findings if finding.is_open and finding.id not in held)
 
     def to_wire(self) -> dict[str, Any]:
         """The machine-readable result (``--json``). ``schema`` is bumped when a field changes meaning."""
@@ -175,6 +189,8 @@ class LocalReport:
                     "p0": self.verdict.p0,
                     "p1": self.verdict.p1,
                     "p2": self.verdict.p2,
+                    # As the pull request bot's result: absent when nothing is held back.
+                    **({"held_back": self.verdict.held} if self.verdict.held else {}),
                 }
             ),
             "complete": not self.incomplete,
@@ -186,6 +202,9 @@ class LocalReport:
                 "strict": self.strict,
             },
             "findings": [finding.to_wire() for finding in self.findings],
+            # The open findings below the repository's threshold (also among "findings"); absent when there are none,
+            # so a result without the noise controls reads exactly as it always did.
+            **({"held_back": [finding.to_wire() for finding in self.held]} if self.held else {}),
             "coverage": {
                 "files": list(self.files),
                 "targets": self.targets,
@@ -232,6 +251,16 @@ def _decided(report: LocalReport) -> LocalReport:
         strict=report.strict,
     )
     return report
+
+
+def _judged(report: LocalReport, noise: NoisePolicy, findings: Sequence[BotFinding], **details: Any) -> Verdict:
+    """The verdict over what *noise* lets through; the findings below its threshold are kept on *report*, counted in the
+    verdict's ``held`` and in nothing else. The same rule and the same call the pull request bot makes."""
+
+    below = noise.held_back(findings)
+    held = {finding.id for finding in below}
+    report.noise, report.held = noise, tuple(below)
+    return verdict([finding for finding in findings if finding.id not in held], held=len(below), **details)
 
 
 # --------------------------------------------------------------------------- #
@@ -432,14 +461,18 @@ def run_local_review(
         reason = problem or (ai.reason if ai is not None else "") or "the effective run plan does not run AI review"
         report.complete = False
         report.incomplete_reason = reason
-        report.verdict = verdict(
-            [finding for finding in (previous.findings if previous else ()) if finding.is_open],
+        report.findings = previous.findings if previous is not None else ()
+        # No capture, so no trusted base was read: the threshold is the one the last review ran under.
+        report.verdict = _judged(
+            report,
+            NoisePolicy.from_view(previous.view if previous else ""),
+            report.findings,
             complete=False,
             reason=reason,
         )
-        report.findings = previous.findings if previous is not None else ()
         return _decided(report)
 
+    noise = ai.noise  # the trusted base's .lemoncrow/review.yaml, read by the AI stage (ignore globs are applied there)
     merged = reconcile(
         previous,
         ai.findings,
@@ -450,6 +483,7 @@ def run_local_review(
         head=short(head_id),
         answers=ai.answers,
         intact=ai.intact,
+        rule_severity=noise.rule_severity,
     )
     tracked, dropped = cap_findings(list(merged.findings))
     reason = ""
@@ -458,7 +492,15 @@ def run_local_review(
     elif not ai.complete:
         reason = ai.reason
     uninvestigated = max(ai.candidates - ai.investigated, 0)
-    view = verdict(tracked, complete=ai.complete, reason=reason, signals=ai.candidates, uninvestigated=uninvestigated)
+    view = _judged(
+        report,
+        noise,
+        tracked,
+        complete=ai.complete,
+        reason=reason,
+        signals=ai.candidates,
+        uninvestigated=uninvestigated,
+    )
     same_tree = previous is not None and previous.head_sha == head_id and previous.complete
     noop = ai.status == "nothing_changed" and same_tree
     state = ReviewState(
@@ -477,6 +519,7 @@ def run_local_review(
         findings_dropped=dropped,
         usage=ai.usage,
         usage_total=ai.usage if previous is None else previous.usage_total.plus(ai.usage),
+        view=noise.view_code(),
     )
     try:
         state = save_state(path, state)
@@ -499,6 +542,9 @@ def run_local_review(
     report.usage = ai.usage
     report.model = ai.model
     report.cached = ai.status == "nothing_changed"
+    report.notes.extend(f"config: {note}" for note in noise.notes)
+    if ai.ignored:
+        report.notes.append(f"{plural(len(ai.ignored), 'file')} left out by review.ignore")
     if ai.errors:
         report.notes.append("model call errors: " + " | ".join(error[:200] for error in ai.errors))
     return _decided(report)
@@ -521,7 +567,7 @@ def _over_budget(report: LocalReport, previous: ReviewState, spent: str) -> Loca
         if finding.is_open or finding.state == "unreported"
     )
     report.findings = kept
-    report.verdict = verdict(kept, complete=True, budget=spent)
+    report.verdict = _judged(report, NoisePolicy.from_view(previous.view), kept, complete=True, budget=spent)
     report.complete = False
     report.incomplete_reason = report.verdict.headline
     report.usage = Usage()
@@ -563,16 +609,19 @@ def render_text(report: LocalReport, *, style: Callable[..., str] | None = None,
         lines.append("Nothing changed since the last review of this scope: its results are reused, with no model call.")
     lines.append("")
     shown = [finding for finding in opened if finding.severity != "p2"]
-    held = [finding for finding in opened if finding.severity == "p2"]
+    listed = [finding for finding in opened if finding.severity == "p2"]
     for finding in shown:
         lines.extend(_finding_lines(finding, paint))
-    if held:
-        lines.append(paint(f"{plural(len(held), 'optional finding')} (P2):", dim=True))
-        for finding in held:
-            where = _where(finding)
-            lines.append(f"  P2  {where}  {plain(finding.title)}")
-            if show_all and finding.explanation:
-                lines.append(f"      {plain(finding.explanation)}")
+    if listed:
+        lines.append(paint(f"{plural(len(listed), 'optional finding')} (P2):", dim=True))
+        lines.extend(_one_line_rows(listed, show_all=show_all))
+        lines.append("")
+    if report.held:
+        # Below the repository's threshold: tracked, shown here once, in no verdict count and never in the exit code.
+        noise = report.noise
+        heading = f"{plural(len(report.held), 'finding')} held back below {noise.label} (from {noise.threshold_source})"
+        lines.append(paint(f"{heading}; not counted toward --fail-on. A P0 is never held back:", dim=True))
+        lines.extend(_one_line_rows(sorted(report.held, key=sort_key), show_all=show_all))
         lines.append("")
     closed = [finding for finding in report.findings if finding.state == "fixed"]
     if closed:
@@ -589,6 +638,15 @@ def render_text(report: LocalReport, *, style: Callable[..., str] | None = None,
     if report.exit_code:
         lines.append(paint(f"Exit {report.exit_code}: {report.exit_reason}", fg="red"))
     return "\n".join(lines) + "\n"
+
+
+def _one_line_rows(findings: Sequence[BotFinding], *, show_all: bool) -> list[str]:
+    lines: list[str] = []
+    for finding in findings:
+        lines.append(f"  {finding.severity.upper()}  {_where(finding)}  {plain(finding.title)}")
+        if show_all and finding.explanation:
+            lines.append(f"      {plain(finding.explanation)}")
+    return lines
 
 
 def _where(finding: BotFinding) -> str:

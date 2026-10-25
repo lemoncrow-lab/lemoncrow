@@ -619,7 +619,7 @@ def _review(
     uninvestigated = max(ai.candidates - ai.investigated, 0)
     # Findings below the repository's threshold are tracked in the state (lowering the threshold shows them again with no
     # new review) but are in no verdict count: they are counted as held back, and listed once in the summary.
-    below = [finding for finding in tracked if finding.is_open and noise.tier(finding.severity) == "held"]
+    below = noise.held_back(tracked)
     view = verdict(
         [finding for finding in tracked if finding not in below],
         complete=ai.complete,
@@ -671,7 +671,7 @@ def _review(
         fail_on=options.fail_on,
         suggestions=learning.suggest(ref.slug, learned.suppressions, tracked),
         diagram=drawn.section,
-        risks=impact.risk_rows(ai.signals, tracked),
+        risks=impact.risk_rows(ai.signals, tracked, held={finding.id for finding in below}),
         noise=noise,
         banner=notices.large_pr_banner(total=ai.total_files, limit=noise.max_files, deferred=ai.deferred_files),
         notes=notices.settings_line(
@@ -773,7 +773,7 @@ def _over_budget(
     state = replace(previous, findings=kept, usage=Usage(), suppressions=learned.suppressions, diagram=shown)
     # No capture, so no trusted base to read: the summary keeps showing what the last review showed (threshold, inline).
     noise = NoisePolicy.from_view(previous.view)
-    below = [finding for finding in kept if finding.is_open and noise.tier(finding.severity) == "held"]
+    below = noise.held_back(kept)
     view = verdict([finding for finding in kept if finding not in below], complete=True, budget=spent, held=len(below))
     body, posted_state = render_summary(
         SummaryView(

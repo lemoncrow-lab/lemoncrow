@@ -171,7 +171,7 @@ lc review --ai --fresh                 # ignore the result carried from the last
 
 Nothing to review (no changed files) is `0` and needs no model. An error inside the review that is not a finding is reported as an incomplete review, never as exit `1`.
 
-**What is shown.** The verdict line, then each open P0 and P1 with its place, why, the consequence and a checked replacement when there is one, the P2 findings as one line each, what was reviewed in this run and how much was reused, the model, depth and usage. Colour is off with `--no-color`, with `NO_COLOR`, and when output is not a terminal; text written by the model or a file name is stripped of control characters before it is printed.
+**What is shown.** The verdict line, then each open P0 and P1 with its place, why, the consequence and a checked replacement when there is one, the P2 findings as one line each, the findings your repository's threshold holds back in a section of their own (below), what was reviewed in this run and how much was reused, the model, depth and usage. Colour is off with `--no-color`, with `NO_COLOR`, and when output is not a terminal; text written by the model or a file name is stripped of control characters before it is printed.
 
 **`--json`.** One document on standard output (progress goes to standard error), `schema: 1`:
 
@@ -180,13 +180,16 @@ Nothing to review (no changed files) is `0` and needs no model. An error inside 
 | `kind` | `local_review` |
 | `scope` | `{mode, label, base, head}`: `working_tree`, `staged` or `commit_range`, the commits or tree the review covered |
 | `empty`, `cached` | nothing to review; no model call was needed because every changed unit was reviewed, unchanged, last time |
-| `verdict` | `{state, headline, p0, p1, p2}`; `state` is `clean`, `must_fix`, `partial`, `incomplete` or `budget` |
+| `verdict` | `{state, headline, p0, p1, p2}`, plus `held_back` (a count) when the repository's threshold holds findings back; `state` is `clean`, `must_fix`, `partial`, `incomplete` or `budget` |
 | `complete`, `incomplete_reason` | whether the review finished and examined every risk signal, and why not |
 | `exit` | `{code, reason, fail_on, strict}`: the exit status and why |
-| `findings` | every tracked finding as the pull request bot's hidden state records it (`id`, `severity`, `category`, `state`, `path`, `line`, `end_line`, `title`, `explanation`, `consequence`, `suggestion`, ...); `state` is `new`, `carried`, `fixed`, `stale`, `unreported` or `suppressed` |
+| `findings` | every tracked finding as the pull request bot's hidden state records it (`id`, `severity`, `category`, `state`, `path`, `line`, `end_line`, `title`, `explanation`, `consequence`, `suggestion`, ...); `state` is `new`, `carried`, `fixed`, `stale`, `unreported` or `suppressed`; the held-back ones are among them |
+| `held_back` | only when the threshold holds findings back: those findings, in the same shape. They are in no `verdict` count and never decide the exit code |
 | `coverage` | `{files, targets, rereviewed, unchanged, candidates, investigated}` |
 | `depth`, `model`, `usage`, `usage_total` | the run's depth, the model that served it, and its usage (`calls`, `input_tokens`, `output_tokens`, `cost_usd`) and the total for this change |
 | `notes` | things worth knowing, such as the clean-tree fallback |
+
+**Noise controls.** The review reads the `review:` block of `.lemoncrow/review.yaml` as committed at the base of the range (`HEAD` for the working tree and the staged changes), as the pull request bot reads it from the merge base: `strictness` / `finding_threshold` hold back the open findings below the threshold, `rules.<key>.severity` sets the severity of the findings that cite a rule, and `ignore` keeps files out of the review. A held-back finding is shown once, in a `held back below strictness 3` section, counted in the headline (`1 held back`) and listed under `held_back` in `--json`; it is in no verdict count and never makes `--fail-on` exit `1`. A P0 is never held back. Lowering the threshold shows the finding again on the next run with no new model call. See [Reducing noise](../setup/github-action.md#reducing-noise).
 
 **Model route.** Your own: `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, or `LEMONCROW_LLM_BACKEND` for LiteLLM, Ollama or a local agent CLI (`claude`, `codex`, `opencode`) with its variables, as `--pr N --ai` uses. The intelligence policy and its kill switch apply: with AI turned off, nothing is sent and the review is incomplete (exit `0`, or `2` under `--strict`).
 
