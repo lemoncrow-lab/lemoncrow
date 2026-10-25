@@ -114,7 +114,7 @@
         "metadata": {"category": "security", "confidence": "HIGH", "cwe": ["CWE-798: Use of Hard-coded Credentials"]},
         "severity": "ERROR",
         "fingerprint": "ff",
-        "lines": "aws_access_key_id = AKIAABCDEFGHIJKLMNOP",
+        "lines": "aws_access_key_id = AKIA****************",
         "is_ignored": false,
         "engine_kind": "OSS"
       }

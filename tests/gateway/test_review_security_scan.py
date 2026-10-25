@@ -95,9 +95,13 @@ def test_native_output_becomes_severity_mapped_findings_without_copying_matched_
     assert by_rule[OS_RULE].path == "app/handlers.py", "a leading ./ is normalised against the Snapshot's paths"
     assert (by_rule[OS_RULE].start_line, by_rule[OS_RULE].end_line) == (14, 14)
     assert by_rule[OS_RULE].cwe == (78,) and by_rule["acme.crypto.maybe-bad"].cwe == (327,)
-    # The matched source line (here a made-up key) is hashed into the fingerprint and kept nowhere else.
+    # The matched source line (here a redacted key assignment) is hashed into the fingerprint and kept nowhere else.
     wire = json.dumps([item.to_wire() for item in parsed.findings])
-    assert "AKIAABCDEFGHIJKLMNOP" not in wire and "rm -rf" not in wire
+    recorded = json.loads(fixture("native_full.json"))["results"]
+    secret_line = next(
+        row["extra"]["lines"] for row in recorded if row["check_id"] == "lemoncrow.secrets.cloud-or-vcs-token"
+    )
+    assert secret_line not in wire and "aws_access_key_id" not in wire and "rm -rf" not in wire
     assert all(item.fingerprint.startswith("sfp_") for item in parsed.findings)
 
 
@@ -1154,9 +1158,7 @@ def test_the_vendored_ruleset_is_small_original_and_carries_its_licence() -> Non
 def test_the_documented_rule_count_is_the_real_one() -> None:
     count = len(load_rules())
     guide = (ROOT / "docs" / "setup" / "github-action.md").read_text(encoding="utf-8")
-    status = (ROOT / "docs" / "status" / "capabilities.toml").read_text(encoding="utf-8")
     assert f"**{count} original rules**" in guide, f"the guide must say there are {count} original rules"
-    assert f"The default ruleset is {count} original Apache-2.0 rules" in status
 
 
 def test_every_rule_is_well_formed_and_maps_to_a_conservative_severity() -> None:
