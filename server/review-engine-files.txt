@@ -460,6 +460,7 @@ src/lemoncrow/pro/capabilities/review/pr_bot/settings.py
 src/lemoncrow/pro/capabilities/review/pr_bot/suppression.py
 src/lemoncrow/pro/capabilities/review/pr_bot/attribution.py
 src/lemoncrow/pro/capabilities/review/pr_bot/large_pr.py
+src/lemoncrow/pro/capabilities/review/pr_bot/model_failure.py
 src/lemoncrow/pro/capabilities/review/security_rules/go.yaml
 src/lemoncrow/pro/capabilities/review/security_rules/java.yaml
 src/lemoncrow/pro/capabilities/review/security_rules/javascript.yaml
