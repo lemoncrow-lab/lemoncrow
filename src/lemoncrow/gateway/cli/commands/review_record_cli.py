@@ -18,13 +18,13 @@ from typing import Any
 
 import click
 
-from lemoncrow.gateway.cli.commands.review_config_cli import config_cmd
 from lemoncrow.gateway.cli.commands.review_data_flow_cli import data_flow_cmd
 from lemoncrow.gateway.cli.commands.review_diagnostics_cli import diagnostics_cmd
-from lemoncrow.gateway.cli.commands.review_hook_cli import hook_group
 from lemoncrow.gateway.cli.commands.review_hosted_cli import hosted_group
-from lemoncrow.gateway.cli.commands.review_init_cli import init_action_cmd
 from lemoncrow.gateway.cli.commands.review_observation_cli import observation_worker_group
+from lemoncrow.pro.capabilities.review.local_cli.config import config_cmd
+from lemoncrow.pro.capabilities.review.local_cli.hook import hook_group
+from lemoncrow.pro.capabilities.review.local_cli.init_action import init_action_cmd
 
 _MAX_KEYS_BYTES = 1024 * 1024
 _MAX_RECORD_BYTES = 64 * 1024 * 1024

@@ -18,7 +18,7 @@ import pytest
 from click.testing import CliRunner
 
 from lemoncrow.gateway.cli import cli
-from lemoncrow.gateway.cli.commands import review_hook_cli as hooks
+from lemoncrow.pro.capabilities.review.local_cli import hook as hooks
 from tests.gateway.pr_bot_support import AUTH_BUGGY, BASE, CACHE_BUGGY, RULE, git
 from tests.gateway.test_cli_review_local import Lab, make_lab
 
@@ -54,8 +54,8 @@ def install(repo: Path, *args: str, ok: bool = True) -> Any:
 def test_print_shows_the_script_and_writes_nothing(plain: Path) -> None:
     result = install(plain, "--print")
     assert result.output == hooks.hook_script("pre-push")
-    assert result.output.startswith("#!/bin/sh\n# lemoncrow-review-hook v1 (pre-push)\n")
-    assert 'exec lc review hook run --pre-push --fail-on p0 --depth auto "$@"' in result.output
+    assert result.output.startswith("#!/bin/sh\n# lemoncrow-review-hook v2 (pre-push)\n")
+    assert 'LEMONCROW_HOOK_STOP=87 "$LC" review hook run --pre-push --fail-on p0 --depth auto "$@"' in result.output
     assert not (plain / ".git" / "hooks" / "pre-push").exists()
     subprocess.run(["sh", "-n"], input=result.output, text=True, check=True)  # it parses
 
@@ -95,13 +95,15 @@ def test_our_own_hook_with_other_options_is_not_replaced_without_force_either(pl
     assert path.read_text() == hooks.hook_script("pre-push")
     install(plain, "--fail-on", "p1", "--strict", "--force")
     text = path.read_text()
-    assert "--fail-on p1" in text and "--strict" in text and "--strict blocks on those too" in text
+    assert (
+        "--fail-on p1" in text and "--strict" in text and "--strict also stops it when the review is incomplete" in text
+    )
 
 
 def test_pre_commit_is_its_own_hook_and_leaves_pre_push_alone(plain: Path) -> None:
     install(plain, "--pre-commit", "--depth", "thorough")
     commit = plain / ".git" / "hooks" / "pre-commit"
-    assert 'exec lc review hook run --pre-commit --fail-on p0 --depth thorough "$@"' in commit.read_text()
+    assert '"$LC" review hook run --pre-commit --fail-on p0 --depth thorough "$@"' in commit.read_text()
     assert not (plain / ".git" / "hooks" / "pre-push").exists()
     install(plain, "--pre-push")
     assert (plain / ".git" / "hooks" / "pre-push").exists()
@@ -156,18 +158,52 @@ def run_hook(
     )
 
 
-def test_the_script_hands_git_s_arguments_and_the_ref_list_to_lc_and_returns_its_exit_code(
+def test_the_script_hands_git_s_arguments_and_the_ref_list_to_lc_and_stops_only_on_the_stop_code(
     tmp_path: Path, stub_lc: Path
 ) -> None:
     refs = "refs/heads/f aaaa refs/heads/f bbbb\n"
-    for code in (0, 1, 2, 3):
+    stopped = run_hook(hooks.hook_script("pre-push"), tmp_path, stub_lc, stdin=refs, STUB_EXIT=str(hooks.STOP_CODE))
+    assert stopped.returncode == 1 and "could not run" not in stopped.stderr
+    # Anything else lc exits with is LemonCrow's trouble, not a finding: the push goes through, with one line saying so.
+    for code in (0, 1, 2, 3, 126, 127, 139):
         done = run_hook(hooks.hook_script("pre-push"), tmp_path, stub_lc, stdin=refs, STUB_EXIT=str(code))
-        assert done.returncode == code
+        assert done.returncode == 0, code
+        assert ("could not run" in done.stderr) == (code != 0), done.stderr
     log = (tmp_path / "stub.log").read_text()
     assert (
         log.splitlines()[0] == "review hook run --pre-push --fail-on p0 --depth auto origin git@example.invalid:o/r.git"
     )
     assert "refs/heads/f aaaa refs/heads/f bbbb" in log  # stdin reached lc
+    assert done.stderr.count("\n") == 1  # one line, not a traceback
+
+
+def test_the_script_calls_the_lc_that_wrote_it_even_when_the_path_has_another(tmp_path: Path, stub_lc: Path) -> None:
+    other = tmp_path / "other-bin"
+    other.mkdir()
+    own = other / "lc"
+    own.write_text('#!/bin/sh\necho "own lc" > "$STUB_LOG"\nexit "${STUB_EXIT:-0}"\n')
+    own.chmod(0o755)
+    script = hooks.hook_script("pre-push", lc_path=str(own))
+    done = run_hook(script, tmp_path, stub_lc, STUB_EXIT=str(hooks.STOP_CODE))
+    assert done.returncode == 1 and (tmp_path / "stub.log").read_text() == "own lc\n"  # not the PATH one
+    # A path that no longer exists falls back to the PATH, and a path with a space in it works.
+    spaced = tmp_path / "a b"
+    spaced.mkdir()
+    (spaced / "lc").write_text("#!/bin/sh\nexit 87\n")
+    (spaced / "lc").chmod(0o755)
+    assert run_hook(hooks.hook_script("pre-push", lc_path=str(spaced / "lc")), tmp_path, stub_lc).returncode == 1
+    gone = run_hook(hooks.hook_script("pre-push", lc_path=str(tmp_path / "gone" / "lc")), tmp_path, stub_lc)
+    assert gone.returncode == 0 and (tmp_path / "stub.log").read_text().startswith("review hook run")
+
+
+def test_a_crashing_lc_never_stops_a_push(tmp_path: Path) -> None:
+    broken = tmp_path / "bin"
+    broken.mkdir()
+    lc = broken / "lc"
+    lc.write_text("#!/bin/sh\necho 'Traceback (most recent call last):' >&2\necho 'ModuleNotFoundError' >&2\nexit 1\n")
+    lc.chmod(0o755)
+    done = run_hook(hooks.hook_script("pre-push", lc_path=str(lc)), tmp_path, broken)
+    assert done.returncode == 0 and "lc exited 1); not blocking this push" in done.stderr
 
 
 def test_the_script_skips_on_request_and_never_blocks_for_want_of_lc(tmp_path: Path, stub_lc: Path) -> None:
@@ -177,7 +213,7 @@ def test_the_script_skips_on_request_and_never_blocks_for_want_of_lc(tmp_path: P
     empty = tmp_path / "empty"
     empty.mkdir()
     missing = run_hook(script, tmp_path, empty)
-    assert missing.returncode == 0 and "lc is not on PATH; skipping the pre-push review" in missing.stderr
+    assert missing.returncode == 0 and "lc was not found; not reviewing this push" in missing.stderr
 
 
 def test_the_pre_commit_script_calls_the_staged_review(tmp_path: Path, stub_lc: Path) -> None:

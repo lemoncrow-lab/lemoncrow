@@ -16,7 +16,7 @@ import yaml
 from click.testing import CliRunner
 
 from lemoncrow.gateway.cli import cli
-from lemoncrow.gateway.cli.commands import review_config_cli
+from lemoncrow.pro.capabilities.review.local_cli import config as review_config_cli
 
 TEAM_RULES = {
     "frobnicate": True,
