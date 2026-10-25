@@ -52,6 +52,10 @@ MAX_INTENT_TITLE: Final[int] = 300
 MAX_INTENT_SOURCES: Final[int] = 8
 #: Only this much of a description is scanned for links (bounded parsing).
 _MAX_SCAN: Final[int] = 65536
+#: Finding categories whose investigator is never shown the stated intent when a review feeds it to a model. An
+#: author's word that a change is intended must not be able to talk the reviewer out of a security hole, a data-loss
+#: migration or a violation of a rule the repository wrote.
+INTENT_WITHHELD_CATEGORIES: Final[frozenset[str]] = frozenset({"security", "persistence_migration", "critical_rule"})
 
 _ISSUE_REF = r"(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#\d{1,9}"
 _GITHUB_ISSUE_URL = r"https?://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/\d{1,9}"
@@ -711,6 +715,7 @@ __all__ = [
     "INTENT_KINDS",
     "INTENT_ORIGINS",
     "INTENT_SOURCE_PREFIX",
+    "INTENT_WITHHELD_CATEGORIES",
     "MAX_INTENT_SOURCES",
     "MAX_INTENT_TEXT",
     "ChangeDescription",

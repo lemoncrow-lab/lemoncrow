@@ -13,7 +13,7 @@ Four separate concepts (plan §3.14-§3.16), never collapsed into one score:
 * **Finding threshold** (``critical | high | medium | suggestions``) controls what
   is surfaced. It is never part of the run plan, so it cannot change compute.
 
-Settings are read from ``review.focus`` / ``review.finding_threshold`` in the
+Settings are read from ``review.focus`` / ``review.finding_threshold`` (or its alias ``review.strictness``) in the
 **trusted-base** ``.lemoncrow/review.yaml`` (local Snapshot base, or the hosted
 provider-proven trusted-base capture) and from operator organization/repository
 policy (``effective_review["triage"]["layers"]``). Head-side edits are proposed
@@ -55,6 +55,9 @@ CRITICALITY_VALUES: Final[tuple[str, ...]] = ("critical", "high", "normal", "low
 FINDING_SEVERITIES: Final[tuple[str, ...]] = ("p0", "p1", "p2", "suggestion")
 FINDING_THRESHOLDS: Final[tuple[str, ...]] = ("critical", "high", "medium", "suggestions")
 DEFAULT_FINDING_THRESHOLD: Final[FindingThreshold] = "medium"
+#: ``review.strictness``: a friendly alias over ``review.finding_threshold`` (1 shows everything, 2 is the default,
+#: 3 holds back P2). It is resolved to a threshold when the settings are parsed, so nothing downstream knows it.
+STRICTNESS_THRESHOLDS: Final[Mapping[int, FindingThreshold]] = {1: "suggestions", 2: "medium", 3: "high"}
 
 CRITICALITY_RANK: Final[Mapping[str, int]] = {"low": 0, "normal": 1, "high": 2, "critical": 3}
 SEVERITY_RANK: Final[Mapping[str, int]] = {"suggestion": 0, "p2": 1, "p1": 2, "p0": 3}
@@ -365,8 +368,17 @@ def parse_triage_settings(raw: Mapping[str, Any], *, origin: PolicyOrigin) -> Tr
             if len(raw_focus) > MAX_FOCUS_RULES:
                 errors.append(f"focus exceeds {MAX_FOCUS_RULES} rules")
     threshold: FindingThreshold | None = None
+    if "strictness" in raw:
+        level = raw.get("strictness")
+        # ``True == 1`` in Python: a YAML ``yes`` is not a strictness.
+        if isinstance(level, int) and not isinstance(level, bool) and level in STRICTNESS_THRESHOLDS:
+            threshold = STRICTNESS_THRESHOLDS[level]
+        else:
+            errors.append("strictness must be 1, 2 or 3")
     if "finding_threshold" in raw:
         value = raw.get("finding_threshold")
+        if "strictness" in raw:
+            errors.append("set strictness or finding_threshold, not both; finding_threshold is used")
         if value in FINDING_THRESHOLDS:
             threshold = cast(FindingThreshold, value)
         else:
@@ -395,7 +407,7 @@ def parse_trusted_base_triage(content: str, *, source: str, commit: str = "") ->
         return None
     if not isinstance(section, Mapping):
         return TriageLayer(origin=origin, errors=("review must be a mapping",))
-    if "focus" not in section and "finding_threshold" not in section:
+    if "focus" not in section and "finding_threshold" not in section and "strictness" not in section:
         return None
     return parse_triage_settings(section, origin=origin)
 
@@ -730,8 +742,8 @@ def normalize_finding_severity(
 FINDING_IMPACTS: Final[tuple[str, ...]] = ("low", "medium", "high")
 #: The categories where a verified high-impact finding is a must-fix: wrong results, security holes and
 #: data loss. Concurrency, API and performance findings can be P1 at most, however they are rated.
-# lc-debt: hard-coded; there is no loader for PR-bot settings, only the CLI options and the rules in
-# `.lemoncrow/review.yaml`; upgrade: a `review.pr_bot.p0_categories` key once such a loader exists.
+# lc-debt: hard-coded; the PR bot's settings loader (`pr_bot/settings.py`) reads only the noise controls, not this
+# set; upgrade: a `review.p0_categories` key read there.
 P0_CATEGORIES: Final[frozenset[str]] = frozenset({"correctness", "security", "persistence_migration"})
 
 
@@ -862,6 +874,7 @@ __all__ = [
     "REVIEW_FIRST_VALUES",
     "SEVERITY_LABELS",
     "SEVERITY_RANK",
+    "STRICTNESS_THRESHOLDS",
     "THRESHOLD_LABELS",
     "Criticality",
     "EffectiveTriagePolicy",

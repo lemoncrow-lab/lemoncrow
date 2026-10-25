@@ -11886,6 +11886,10 @@ def register_review_api(
             "policy": policy,
             "governance": governance,
             "targets": tuple(ordered),
+            # The Snapshot's trusted-base .lemoncrow/review.yaml and the triage policy resolved from it and the
+            # operator layers (the finding threshold among them): what the pull request bot's noise controls read.
+            "review_config": _snapshot_review_config(revision),
+            "triage": _triage_policy(session, revision),
         }
 
     def _worker_ai_publish(

@@ -64,6 +64,8 @@ rules:
 
 Anything else, in a rule or at the top of the file, is ignored with a warning. A file that is not valid, or has no `rules` list, imports nothing and says so.
 
+Settings of another tool's file (a strictness, ignore patterns, a severity per rule) are not carried over, by design. Their native counterparts are `review.strictness`, `review.ignore` and `review.rules` in `.lemoncrow/review.yaml`, read from the merge base like the rest; see [Reducing noise](github-action.md#reducing-noise). A rule's severity there is set by its key, which is the key `lc review config --effective` prints for an imported rule.
+
 ## Imported rules are advisory
 
 A violation of a rule you wrote in `.lemoncrow/review.yaml` is a **P0**: a critical rule. An imported rule is not. Its violation is a **P1 or P2** by the ordinary severity ladder, whatever the model rates it, so it can never fail the `LemonCrow Review` check under `fail-on: p0` on its own.

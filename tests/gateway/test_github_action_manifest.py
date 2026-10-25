@@ -54,6 +54,9 @@ def test_the_inputs_are_the_documented_ones_with_safe_defaults() -> None:
         "review-drafts",
         "on-push",
         "diagram",
+        "strictness",
+        "inline-comments",
+        "max-files",
         "mention-aliases",
         "chat-allowed-associations",
         "pr-number",
@@ -68,6 +71,8 @@ def test_the_inputs_are_the_documented_ones_with_safe_defaults() -> None:
     assert (inputs["review-drafts"]["default"], inputs["on-push"]["default"]) == ("false", "true")
     # The change diagram is on by default and costs nothing when the pull request has none worth drawing (G17).
     assert inputs["diagram"]["default"] == "auto"
+    # The noise controls are the file's to set: an input is only a default, so each is empty unless the workflow sets it.
+    assert [inputs[name]["default"] for name in ("strictness", "inline-comments", "max-files")] == ["", "", ""]
     # Chat: no alias unless asked for, and the people it answers default to those with a stake in the repository.
     assert inputs["mention-aliases"]["default"] == ""
     assert inputs["chat-allowed-associations"]["default"] == "OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR"
@@ -398,3 +403,73 @@ def test_the_guide_documents_the_change_diagram_and_how_to_turn_it_off() -> None
     # The example in the guide is the grammar the code emits, so a reader can recognise what the bot posts.
     (example,) = re.findall(r"```mermaid\n(.*?)```", guide, re.DOTALL)
     assert example.startswith("flowchart LR\n") and ":::added" in example and "linkStyle" in example
+
+
+def test_the_noise_inputs_reach_the_reviewer_through_the_environment_and_the_guide_explains_them() -> None:
+    """Noise controls: three inputs, passed as the variables ``NoiseInputs.from_env`` reads, under a file that wins."""
+
+    from lemoncrow.pro.capabilities.review.pr_bot.settings import INLINE_ENV, MAX_FILES_ENV, STRICTNESS_ENV
+
+    review = next(step for step in steps(manifest()) if step["name"] == "Review the pull request")
+    assert review["env"][STRICTNESS_ENV] == "${{ inputs.strictness }}"
+    assert review["env"][INLINE_ENV] == "${{ inputs.inline-comments }}"
+    assert review["env"][MAX_FILES_ENV] == "${{ inputs.max-files }}"
+    gate = steps(manifest())[0]
+    assert not {STRICTNESS_ENV, INLINE_ENV, MAX_FILES_ENV} & set(gate["env"])  # the standard-library gate needs none
+    guide = GUIDE.read_text(encoding="utf-8")
+    for phrase in (
+        "## Reducing noise",
+        "### Strictness and the threshold",
+        "### Ignore paths",
+        "### A rule's severity",
+        "### Summary only",
+        "### A large pull request",
+        "### Filters of the workflow",
+        "### Where a setting comes from",
+        "A P0 is always surfaced and always inline",
+        "Held back is counted, never dropped.",
+        "`ai_denied` row of `ai_content_access`",
+        "**Asking for `p0` gives `p1`**",
+        "Partially reviewed: 100 of 143 files, highest risk first",
+        "**On a `pull_request` run GitHub reads the workflow from the pull request's own merge commit**",
+    ):
+        assert phrase in guide, phrase
+
+
+def test_the_documented_noise_block_is_read_by_the_loaders_it_documents() -> None:
+    """The example in "Reducing noise" parses with the very code that applies it, and every key is a documented one."""
+
+    from lemoncrow.pro.capabilities.review.criticality import parse_trusted_base_triage
+    from lemoncrow.pro.capabilities.review.pr_bot.settings import parse_file_settings
+
+    (example,) = [text for text in fenced("yaml") if text.startswith("# Noise controls (.lemoncrow/review.yaml")]
+    parsed = parse_file_settings(example)
+    assert parsed.notes == () and parsed.ignore == ("docs/**", "**/*.lock")
+    assert (parsed.inline_comments, parsed.max_files, parsed.rule_severity) == (True, 60, {"auth-required": "p1"})
+    layer = parse_trusted_base_triage(example, source="doc")
+    assert layer is not None and layer.errors == () and layer.finding_threshold == "high"  # strictness: 3
+    # And the run plan, which rejects unknown keys of `review:`, accepts every key the example uses.
+    from lemoncrow.pro.capabilities.review.run_plan import parse_review_config_layer
+
+    run = parse_review_config_layer(example, source="doc")
+    assert run is not None and run.errors == ()
+
+
+def test_the_guide_documents_the_intent_it_reads_and_what_it_cannot_do() -> None:
+    guide = GUIDE.read_text(encoding="utf-8")
+    for phrase in (
+        "## Intent",
+        "`Fixes #12`",
+        "**skipped with a note**",
+        "`issues: read`",
+        "**1,000 estimated tokens**",
+        "`data:pr_metadata`, `data:work_item`",
+        "**It is never more than a P1**",
+        "not shown the intent at all",
+        "It is not an entry of the evidence registry",
+        "`LEMONCROW_REVIEW_INTENT=0`",
+        "`Intent: read the pull request title (it has no description)`",
+    ):
+        assert phrase in guide, phrase
+    # Reading an issue needs a permission the sample does not grant, so the sample stays at least privilege.
+    assert "issues" not in documented_workflow()["permissions"]

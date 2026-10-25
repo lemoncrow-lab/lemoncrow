@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Final
 
 from lemoncrow.pro.capabilities.review.pr_bot import attribution, impact
@@ -25,6 +25,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.findings import (
     sort_key,
     trimmed,
 )
+from lemoncrow.pro.capabilities.review.pr_bot.settings import NoisePolicy
 from lemoncrow.pro.capabilities.review.pr_bot.state import (
     DECLINED_MARKER,
     FINDING_MARKER,
@@ -102,10 +103,17 @@ class Verdict:
     p0: int
     p1: int
     p2: int
+    #: Open findings below the repository's threshold (``review.finding_threshold`` / ``strictness``): not in the counts
+    #: above, said here so they are never silent.
+    held: int = 0
 
     @property
     def counts(self) -> str:
-        parts = [f"{self.p1} should-fix" if self.p1 else "", f"{self.p2} optional" if self.p2 else ""]
+        parts = [
+            f"{self.p1} should-fix" if self.p1 else "",
+            f"{self.p2} optional" if self.p2 else "",
+            f"{self.held} held back" if self.held else "",
+        ]
         return " · ".join(part for part in parts if part)
 
 
@@ -117,28 +125,40 @@ def verdict(
     signals: int = 0,
     uninvestigated: int = 0,
     budget: str = "",
+    held: int = 0,
+    deferred_files: int = 0,
+    total_files: int = 0,
 ) -> Verdict:
     """The one verdict line. A review that could not finish, or left risk signals unexamined, never reads as clean.
 
     ``signals`` is how many changed targets carry a risk signal and ``uninvestigated`` how many of them no model
     call reached; Auto looks at two however many there are. ``budget`` is why the pull request's review budget is
     spent, when it is. A found P0 (even an earlier one nobody could re-check) still reads as a P0.
+
+    ``held`` is how many open findings sit below the repository's threshold: *findings* must hold only what is
+    surfaced, and ``held`` only says how many were left out. ``deferred_files`` of ``total_files`` is a large pull
+    request cut to its highest-risk files (``large_pr``): a partial review, whatever the risk signals say.
     """
 
     counts = verdict_counts(list(findings))
+    p1, p2 = counts["p1"], counts["p2"]
     if counts["p0"]:
-        return Verdict("must_fix", f"{counts['p0']} must-fix before merge", counts["p0"], counts["p1"], counts["p2"])
+        return Verdict("must_fix", f"{counts['p0']} must-fix before merge", counts["p0"], p1, p2, held)
     if budget:
-        return Verdict("budget", f"Review budget reached: {budget}", 0, counts["p1"], counts["p2"])
+        return Verdict("budget", f"Review budget reached: {budget}", 0, p1, p2, held)
     if not complete:
         why = f": {reason}" if reason else ""
-        return Verdict("incomplete", f"Review incomplete{why}", 0, counts["p1"], counts["p2"])
+        return Verdict("incomplete", f"Review incomplete{why}", 0, p1, p2, held)
+    if deferred_files > 0:
+        total = max(total_files, deferred_files)
+        headline = f"Partially reviewed: {total - deferred_files} of {total} files, highest risk first"
+        return Verdict("partial", headline, 0, p1, p2, held)
     if uninvestigated > 0:
         total = max(signals, uninvestigated)
         noun = "risk signal" if total == 1 else "risk signals"
         headline = f"Partially reviewed: {total - uninvestigated} of {total} {noun} examined"
-        return Verdict("partial", headline, 0, counts["p1"], counts["p2"])
-    return Verdict("clean", "No must-fix findings", 0, counts["p1"], counts["p2"])
+        return Verdict("partial", headline, 0, p1, p2, held)
+    return Verdict("clean", "No must-fix findings", 0, p1, p2, held)
 
 
 def check_status(view: Verdict, *, fail_on: str) -> tuple[str, str]:
@@ -336,6 +356,9 @@ class RunFacts:
     unreported: int = 0
     #: Findings held back by feedback in this run (G9): a person said not to flag them on this pull request.
     suppressed: int = 0
+    #: Files a large pull request left for the next run (``large_pr``) of the ``total_files`` it has.
+    deferred_files: int = 0
+    total_files: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -350,6 +373,8 @@ class Receipt:
     unchanged: int = 0
     #: Import warnings, said out loud rather than silently dropped (``ImportedConfig.receipt_lines``).
     imported: tuple[str, ...] = ()
+    #: More lines of the receipt, written by ``notices.receipt_extra``: the intent read, the files left out.
+    extra: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -379,6 +404,12 @@ class SummaryView:
     #: The named risks this review examined and what became of each (:func:`impact.risk_rows`), found first. The
     #: collapsed "Risks examined" block lists up to :data:`impact.MAX_ROWS` of them; empty: no risk signal in the change.
     risks: tuple[impact.RiskRow, ...] = ()
+    #: The noise controls in force (``settings``): which findings are rows, listed, or held back below the threshold.
+    noise: NoisePolicy = field(default_factory=NoisePolicy)
+    #: A block quote under the status strip (a large pull request cut to its riskiest files) and one small line of what
+    #: the settings left out or could not do; both built by ``notices``, empty for none.
+    banner: str = ""
+    notes: str = ""
 
 
 def strip_text(facts: RunFacts) -> str:
@@ -447,6 +478,25 @@ def _held_back(findings: Sequence[BotFinding], *, detailed: bool, trails: bool =
         if trails:
             lines += _trail_line(finding)
     lines += ["", "</details>"]
+    return lines
+
+
+def _below_threshold(findings: Sequence[BotFinding], noise: NoisePolicy, *, trails: bool = True) -> list[str]:
+    """Findings under the repository's threshold: one line each, never posted on the diff, in no verdict count."""
+
+    heading = plural(len(findings), "finding") + f" held back below {noise.label}"
+    lines = ["", f"<details><summary>{heading}</summary>", ""]
+    for finding in findings:
+        lines.append(_row(finding, link=False))
+        if trails:
+            lines += _trail_line(finding)
+    lines += [
+        "",
+        f"Below this repository's threshold ({noise.label}, from {noise.threshold_source}): not posted on the diff and "
+        "not counted in the verdict or the check. A P0 is never held back.",
+        "",
+        "</details>",
+    ]
     return lines
 
 
@@ -607,8 +657,12 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
     ]
     unreported = [finding for finding in findings if finding.state == "unreported"]
     dismissed = [finding for finding in findings if finding.state == "suppressed"]
-    shown = [finding for finding in opened if finding.severity != "p2"]
-    held = [finding for finding in opened if finding.severity == "p2"]
+    # What the repository's threshold lets through: below it a finding is counted and listed once, never a row, an
+    # inline comment, a part of the verdict or of the fix prompt. A P0 is always surfaced.
+    below = [finding for finding in opened if view.noise.tier(finding.severity) == "held"]
+    opened = [finding for finding in opened if view.noise.tier(finding.severity) != "held"]
+    shown = [finding for finding in opened if view.noise.tier(finding.severity) == "row"]
+    held = [finding for finding in opened if view.noise.tier(finding.severity) == "listed"]
     result = verdict(
         opened,
         complete=view.facts.complete,
@@ -616,6 +670,9 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
         signals=view.receipt.candidates,
         uninvestigated=view.facts.uninvestigated,
         budget=view.budget,
+        held=len(below),
+        deferred_files=view.facts.deferred_files,
+        total_files=view.facts.total_files,
     )
 
     head = f"**{result.headline}**" + (f" · {result.counts}" if result.counts else "")
@@ -630,6 +687,10 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
     if weighed is not None:
         lines += ["", f"**{weighed.label}** · {weighed.summary()} <sub>(from the change itself, not a model)</sub>"]
     lines += ["", f"<sub>{strip}</sub>"]
+    if view.banner:
+        lines += ["", view.banner]
+    if view.notes:
+        lines += ["", f"<sub>{view.notes}</sub>"]
     if state.findings_dropped:
         lines += [
             "",
@@ -643,6 +704,8 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
                 lines += _trail_line(finding)
     if held:
         lines += _held_back(held, detailed=level < 2, trails=level < 1)
+    if below:
+        lines += _below_threshold(below, view.noise, trails=level < 1)
     if view.risks and level < 2:
         # Before the diagram, which is what gives way first, and after the findings, which it explains.
         lines += ["", *_risk_lines(view.risks)]
@@ -803,6 +866,7 @@ def _receipt_lines(view: SummaryView) -> list[str]:
         lines.insert(2, f"- Unchanged since the last review, not re-checked: {receipt.unchanged}")
     if receipt.imported:
         lines.append("- Imported config: " + "; ".join(code(item) for item in receipt.imported[:6]))
+    lines.extend(f"- {item}" for item in receipt.extra)
     return lines
 
 
