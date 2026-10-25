@@ -113,6 +113,21 @@ def ruled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Lab:
     return make_lab(tmp_path, monkeypatch, {**BASE, ".lemoncrow/review.yaml": RULE})
 
 
+def test_a_change_no_risk_signal_or_rule_matches_says_that_no_model_was_asked(lab: Lab) -> None:
+    lab.write({"src/mathx.py": "def clamp(value, low, high):\n    return max(low, min(value, high))\n"})
+    lab.commit("add clamp")
+    lab.write({"src/mathx.py": "def clamp(value, low, high):\n    return max(low, min(value, high - 1))\n"})
+    result = lab.run()
+    assert result.exit_code == 0, result.output
+    assert "No must-fix findings" in result.stdout
+    assert local.NO_MODEL_ASKED in result.stdout and "no model calls" in result.stdout
+    assert lab.model.calls == []
+    # A change with a risk signal is investigated, and then the line has no place.
+    lab.write({"src/auth.py": AUTH_BUGGY})
+    asked = lab.run("--fresh")
+    assert lab.model.calls and local.NO_MODEL_ASKED not in asked.stdout
+
+
 # --------------------------------------------------------------------------- #
 # the same findings and severity as the pull request bot, rendered for a terminal
 # --------------------------------------------------------------------------- #

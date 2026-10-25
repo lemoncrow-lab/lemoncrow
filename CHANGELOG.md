@@ -137,6 +137,10 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Fixed
 
+- **A local review that asked the model nothing says so.** The model is asked only about a risk signal or a rule;
+  on an ordinary change in a repository with no rules (a utility function, a snake_case file name) none is raised,
+  and `lc review --ai` printed `No must-fix findings` with `Model: none · no model calls` and nothing else, which
+  reads as an AI verdict. A line under `Model:` now says no model was asked and how to have it check the change.
 - **A review on the `claude` agent CLI reports the tokens it used.** The CLI's result carries its token counts,
   and LemonCrow dropped them: every line said "tokens not reported" and the JSON had `null` counts. They are now
   read from the result (prompt tokens include the cached part, as on the API routes). A dollar cost stays

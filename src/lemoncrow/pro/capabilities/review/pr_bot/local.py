@@ -796,6 +796,13 @@ def plain(text: str) -> str:
 _BADGE_COLOR: Final[Mapping[str, str]] = {"p0": "red", "p1": "yellow", "p2": "bright_black"}
 
 
+#: Said under a local review that made no model call because nothing in the change matched a risk signal or a rule.
+NO_MODEL_ASKED = (
+    "No model was asked about this change: no risk signal matched it and no review rule covers it. "
+    "To have the model check it, add a rule under rules: in .lemoncrow/review.yaml."
+)
+
+
 def render_text(report: LocalReport, *, style: Callable[..., str] | None = None, show_all: bool = False) -> str:
     """The report for a terminal. *style* is ``click.style`` (or ``None`` for plain text)."""
 
@@ -844,6 +851,10 @@ def render_text(report: LocalReport, *, style: Callable[..., str] | None = None,
     if report.state is not None:
         lines.append(_coverage_line(report))
         lines.append(f"Model: {report.model or 'none'} · depth {report.depth} · {usage_text(report.usage)}")
+        if report.rereviewed and report.candidates == 0 and report.usage.calls == 0 and report.complete:
+            # The model is asked only about a risk signal or a rule. A clean verdict that asked it nothing is not an
+            # AI verdict, and a first run on an ordinary change would otherwise read as one.
+            lines.append(NO_MODEL_ASKED)
     shown_reason = report.incomplete_reason
     if report.incomplete and shown_reason and (view is None or shown_reason not in view.headline):
         if report.setup == "no_route" and report.setup_message:
@@ -913,6 +924,7 @@ __all__ = [
     "EXIT_INCOMPLETE",
     "EXIT_USAGE",
     "LOCAL_FAIL_ON",
+    "NO_MODEL_ASKED",
     "LocalOptions",
     "LocalReport",
     "LocalReviewError",

@@ -35,6 +35,19 @@ and exits with status 3 (a script or CI step sees that the review did not run). 
 
 If you reviewed this change before with a key, you see those findings first, under the line `Not re-checked: these findings are from your last review of this change.`, then the same three lines; the exit code stays the findings' (1 for an open P0), because nothing could re-check them. The local Reader says it the same way: `lc review` (no `--ai`) opens it, and its AI review line reads `No AI model is set up.` with the same key and agent commands and this page's link. AI review itself runs from your terminal with `lc review --ai`.
 
+## When it asks the model nothing
+
+The model is not asked about every change. It is asked about a *risk signal* the review finds without a model (code whose path or name says security, an API, concurrency, storage, caching or performance, or a check that failed) and about each *rule* you wrote in `.lemoncrow/review.yaml`. A change that raises neither is not sent to the model, and the review says so under the `Model:` line:
+
+```text
+No must-fix findings
+Reviewed 1 target in this run · 1 file in the range
+Model: none · depth auto · no model calls
+No model was asked about this change: no risk signal matched it and no review rule covers it. To have the model check it, add a rule under rules: in .lemoncrow/review.yaml.
+```
+
+`No must-fix findings` there means no finding was raised, not that a model read the change. A rule such as "Changed code must not introduce a logic error" (scope it with `paths:`) puts every change it covers in front of the model. A rule is a critical rule: a violation it finds is a P0.
+
 ## Keep your key instead of exporting it
 
 ```bash
