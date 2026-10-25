@@ -61,7 +61,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.render import (
     verdict,
 )
 from lemoncrow.pro.capabilities.review.pr_bot.settings import NoiseInputs, NoisePolicy
-from lemoncrow.pro.capabilities.review.pr_bot.state import ReviewState, Usage, cap_findings
+from lemoncrow.pro.capabilities.review.pr_bot.state import ReviewState, Usage, cap_findings, strip_state
 from lemoncrow.pro.capabilities.review.pr_bot.suppression import Suppression
 from lemoncrow.pro.capabilities.review.sources.github import (
     GhRunner,
@@ -178,6 +178,8 @@ class RunReport:
     state: ReviewState | None = None
     summary: str = ""
     inline_bodies: tuple[str, ...] = ()
+    #: Where each inline comment would go (``path:line``), in the order of ``inline_bodies``.
+    inline_where: tuple[str, ...] = ()
     status: tuple[str, str] | None = None
     published: dict[str, Any] = field(default_factory=dict)
     notes: Notes = field(default_factory=Notes)
@@ -221,6 +223,17 @@ class RunReport:
             "noop": self.noop,
             "notes": list(self.notes),
             "security": dict(self.security),
+            # A dry run is a preview: it carries the exact comments it would have posted.
+            **({"comments": self._comments_wire()} if self.published.get("dry_run") else {}),
+        }
+
+    def _comments_wire(self) -> dict[str, Any]:
+        return {
+            "summary": strip_state(self.summary),
+            "inline": [
+                {"where": where, "body": body}
+                for where, body in zip(self.inline_where, self.inline_bodies, strict=False)
+            ],
         }
 
 
@@ -682,6 +695,7 @@ def _review(
     same_head = previous is not None and previous.head_sha == head
     report.noop = bool(ai.status == "nothing_changed" and same_head and previous is not None and previous.complete)
     report.inline_bodies = tuple(inline_comment(finding) for finding in wanted)
+    report.inline_where = tuple(_inline_where(finding) for finding in wanted)
 
     if writes and wanted:
         findings = _post_inline(github, findings, wanted, head, report)
@@ -995,6 +1009,15 @@ def _over_budget(
 
 def _state_is(findings: list[BotFinding], state: str) -> list[BotFinding]:
     return [finding for finding in findings if finding.state == state]
+
+
+def _inline_where(finding: BotFinding) -> str:
+    """``path:line`` (``path:first-last`` for a range) of the lines an inline comment on *finding* is placed on."""
+
+    if finding.line <= 0:
+        return finding.path
+    start, end = finding.span
+    return f"{finding.path}:{start}-{end}" if end > start else f"{finding.path}:{start}"
 
 
 def _best_effort_value(action: Callable[[], Any], notes: list[str], what: str) -> Any:

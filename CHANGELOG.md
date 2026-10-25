@@ -137,6 +137,10 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Fixed
 
+- **`lc review --pr N --publish-bot --dry-run` prints the comments it would post.** It printed the headline and
+  "would post N inline comment(s) and the summary above", with no summary above it. It now prints the summary
+  comment (without its hidden state block) and each inline comment with the file and lines it would sit on, and
+  `--json` carries them under `comments`. Found by the first run against a real model and real GitHub.
 - **The Reader no longer opens on "LemonCrow policy removed" when your repository commits `.lemoncrow/review.yaml`.** A working-tree review left the whole `.lemoncrow/` folder out of the changed side but kept the committed config on the base side, so an unchanged file showed as a deleted, critical agent-instruction change and blocked auto-approval. The one committed `.lemoncrow/review.yaml` is now on both sides; the rest of `.lemoncrow/` stays out, and a real deletion still shows as one.
 - **The review engine builds again.** `pr_bot/model_failure.py` was missing from the engine allowlist, so the engine build and `test_review_engine_closure_contract` failed on the merged branch.
 - **The local Reader says what to do when no AI model is set up.** Its AI review line read "Review Intelligence
