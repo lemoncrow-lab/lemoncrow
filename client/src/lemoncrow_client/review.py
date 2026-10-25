@@ -787,8 +787,16 @@ def _help_text() -> str:
     ]
     if hosted:
         lines += [
-            "  lc review watch            Keep local or hosted Review current as source settles",
-            "  lc review connect          Pair an optional Hosted Review machine with a one-time code",
+            "  lcr watch                  Keep local or hosted Review current as source settles",
+            "  lcr connect                Pair an optional Hosted Review machine with a one-time code",
+            "  lcr pending                Show paired Hosted Review work waiting on this machine",
+            "  lcr pending --watch        Receive scoped work hints over WSS (HTTPS fallback)",
+            "  lcr device check           Verify hosted connection and pinned worker signer",
+            "  lcr device online          Announce presence without executing jobs",
+            "  lcr task run JOB_ID        Run one explicitly approved AI task with a local spend cap",
+            "  lcr device serve           Foreground Review capture + machine presence on VPS/laptop",
+            "  lcr service install        Optional user-owned Review capture service (explicit opt-in)",
+            "  lcr hook after-edit|after-checkpoint|on-exit  Agent checkpoint capture",
         ]
     lines += [
         "",
