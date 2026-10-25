@@ -656,17 +656,30 @@ def _scope_label(target: ReviewTarget) -> str:
     return f"{target.path}:{target.start_line}-{target.end_line}"
 
 
+def _holds_lines(target: ReviewTarget, ranges: Sequence[tuple[int, int]]) -> bool:
+    """Whether any of *ranges* overlaps a changed new-side span of *target*."""
+
+    return any(
+        span.side == "new" and span.start_line <= last and first <= span.end_line
+        for first, last in ranges
+        for span in target.spans
+    )
+
+
 def generate_candidates(
     targets: Sequence[ReviewTarget],
     *,
     rules: Sequence[ReviewRule] = (),
     critical_rules: Sequence[Mapping[str, Any]] = (),
+    security_lines: Mapping[str, Sequence[tuple[int, int]]] | None = None,
 ) -> tuple[ReviewCandidate, ...]:
     """Deterministically identify consequential target/category pairs.
 
     Typed Phase-6 rules use deterministic path applicability. Legacy critical
     rule rows remain consumable for compatibility but carry no canonical rule
-    authority.
+    authority. ``security_lines`` are the lines a deterministic scanner reported an error-level security result on
+    (``static_findings.static_security_lines``): each target that holds one gets a ``security`` candidate, so the
+    investigator is asked about the category the scanner's evidence belongs to. ``None`` (the Reader) adds none.
     """
 
     candidates: dict[tuple[FindingCategory, tuple[str, ...], tuple[str, ...]], ReviewCandidate] = {}
@@ -703,6 +716,9 @@ def generate_candidates(
                 "performance": 72,
             }.get(category, 70)
             add(category, base, f"changed scope is identifiable as {category.replace('_', ' ')}")
+
+        if security_lines and _holds_lines(target, security_lines.get(target.path, ())):
+            add("security", 100, "a deterministic scanner reported a security result on a changed line of this scope")
 
         if target.verification.fail_count:
             add("verification", 96, f"{target.verification.fail_count} linked verification check(s) failed")
@@ -2110,8 +2126,13 @@ def run_independent_review(
     pr_fields: bool = False,
     prior_findings: Sequence[Mapping[str, Any]] = (),
     project_conventions: Sequence[ConventionDocument] = (),
+    static_security: bool = False,
 ) -> IndependentReviewResult:
     """Run deterministic triage plus bounded, policy-filtered Review Intelligence.
+
+    ``static_security`` (the pull request reviewer) makes each target that holds a line an ingested scanner reported
+    an error-level security result on a ``security`` candidate, so the scanner's ``static_finding`` evidence is
+    investigated. Off, candidates are exactly the Reader's.
 
     ``project_conventions`` (G10) are the trusted base's AGENTS.md / CLAUDE.md (and imported customInstructions). Each
     investigator prompt carries a token-budgeted, redacted excerpt of them as background data, minus any path the
@@ -2191,6 +2212,7 @@ def run_independent_review(
             pr_fields=pr_fields,
             prior_findings=prior_findings if pr_fields else (),
             project_conventions=project_conventions,
+            static_security=static_security,
         )
     else:
         # Only rule questions are planned: no investigator stage runs.
@@ -2367,8 +2389,11 @@ def _run_independent_review_stages(
     pr_fields: bool = False,
     prior_findings: Sequence[Mapping[str, Any]] = (),
     project_conventions: Sequence[ConventionDocument] = (),
+    static_security: bool = False,
 ) -> IndependentReviewResult:
     """Run deterministic triage plus bounded, policy-filtered Review Intelligence.
+
+    ``static_security``: see :func:`run_independent_review`.
 
     ``repo_context`` (G4) is the repository context pack for a model-API route; see :func:`run_independent_review`.
     ``project_conventions`` (G10) is the trusted base's AGENTS.md / CLAUDE.md context; same docstring.
@@ -2391,12 +2416,18 @@ def _run_independent_review_stages(
     effective_budget = budget or ModelCallBudget.from_env(max_calls=1)
     calls_before = store.intelligence_calls(revision.review_id)
     all_targets = tuple(targets)
+    security_lines: dict[str, tuple[tuple[int, int], ...]] | None = None
+    if static_security:
+        from lemoncrow.pro.capabilities.review.static_findings import static_security_lines
+
+        security_lines = static_security_lines(store, revision)
 
     # Triage itself is deterministic and local. It may inspect target metadata,
     # but no source bytes reach a model until route trust and content access are
     # resolved below.
     initial_candidates = _uncovered(
-        generate_candidates(all_targets, rules=rules, critical_rules=critical_rules), covered_rule_refs
+        generate_candidates(all_targets, rules=rules, critical_rules=critical_rules, security_lines=security_lines),
+        covered_rule_refs,
     )
     if not initial_candidates:
         return IndependentReviewResult(
@@ -2488,7 +2519,8 @@ def _run_independent_review_stages(
     # target remains part of human/deterministic Review, but cannot create a
     # model investigation that would need its bytes.
     candidates = _uncovered(
-        generate_candidates(allowed_targets, rules=rules, critical_rules=critical_rules), covered_rule_refs
+        generate_candidates(allowed_targets, rules=rules, critical_rules=critical_rules, security_lines=security_lines),
+        covered_rule_refs,
     )
     if not candidates:
         return IndependentReviewResult(

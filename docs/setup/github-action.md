@@ -104,6 +104,7 @@ Notes on the workflow:
 | `max-runs-per-pr` | none | Stop reviewing a pull request after this many reviews of it (a whole number such as `5`). |
 | `review-drafts` | `false` | Review draft pull requests too. |
 | `on-push` | `true` | Re-review on each push to an open pull request. `false` reviews only when it opens. |
+| `security-scan` | `auto` | `auto` installs a pinned [Opengrep](https://github.com/opengrep/opengrep) release (checksum verified, cached) and scans the files the pull request changed; `off` downloads and runs nothing. See "Security scan". |
 | `diagram` | `auto` | `auto` adds the collapsed `Change diagram` to the summary when the pull request added or removed a relationship between files; `off` never builds it. See "Change diagram". |
 | `mention-aliases` | none | Extra handles the bot answers to besides `@lemoncrow`, comma separated (`@review-bot`). See "Chat in pull request threads". |
 | `chat-allowed-associations` | `OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR` | Whose mentions are answered, and whose reactions, replies and resolved threads teach the bot, by the `author_association` GitHub puts on the comment. |
@@ -121,7 +122,7 @@ LiteLLM users can set `model-provider: litellm` and the variables LiteLLM alread
 - findings sorted by severity, each linking to its inline thread. **P0** must fix, **P1** should fix, **P2** optional;
 - P2 findings in a collapsed block, `N low-priority findings held back`;
 - a collapsed `Change diagram` of the relationships the pull request added, removed or changed (see "Change diagram");
-- on a clean review, a collapsed `What we checked`: files, rules applied, depth;
+- on a clean review, a collapsed `What we checked`: files, rules applied, depth, and what the security scan did (see "Security scan");
 - collapsed blocks for feedback: `N findings dismissed by feedback`, `N instructions learned on this pull request` and `Suggested rules from feedback` (see "Learning from feedback");
 - a collapsed `Fix with your agent`: a prompt listing the open findings with `file:line`, and the checked replacement for each finding that has one, to paste into Claude Code, Codex or Cursor;
 - a footer with the model, depth, model calls and tokens, how much of those tokens was repository context (`~3k of it repository context`, see below), and an estimated cost when LemonCrow's local price table knows the model. It never guesses a price: an unknown model shows tokens only.
@@ -281,6 +282,60 @@ An arrow points from the file that refers to another to the file it refers to. T
 **Cost.** The delta parses every source file of both sides of the pull request with tree-sitter, about 10 to 25 milliseconds a file, once per head; that is why large repositories are skipped. It makes no model call and adds nothing to the review's cost line. A re-run on an unchanged head and merge base does not parse again: it reuses the block already in the comment, after checking it against the digest in the hidden state, and rewrites the comment only if the drawing would differ.
 
 **Turning it off.** Set `diagram: off` on the Action (or `--diagram off` on `lc review --pr N --ai --publish-bot`). Nothing is parsed, and a comment that had a diagram is rewritten once without it. There is no `.lemoncrow/review.yaml` key for it: the pull request bot has no settings loader for per-feature switches yet (the same reason `review.finding_threshold` is not applied there), so the Action input is the switch.
+
+## Security scan
+
+The Action can run [Opengrep](https://github.com/opengrep/opengrep) (the open-source, LGPL-2.1 fork of the Semgrep engine) on the files a pull request changed and feed what it finds to the AI review as independent evidence. It is on by default (`security-scan: auto`) and costs no model call of its own: it adds a few seconds to the job, and a file with an error-level result is investigated as a `security` candidate within the same call budget as everything else. `security-scan: off` downloads and runs nothing and leaves the summary exactly as it was.
+
+| What | How |
+| --- | --- |
+| Install | A pinned release, `v1.32.0`, downloaded from the project's GitHub release for the runner (Linux x86_64 or aarch64, macOS x86_64 or arm64). It is **never run until its SHA-256 matches the digest pinned in `opengrep_install.py`**, whether it was just downloaded or came out of the cache, so a poisoned cache or a moved tag cannot change what runs. The cache key names the release and the digest. Any other platform, a failed download or a mismatch leaves the scan unavailable; it never fails the job. |
+| What is scanned | Only the files the pull request changed, read from the pull request's head commit (not the checkout, which on a `pull_request` event is a merge commit), at most 300 files, 500 KB each and 20 MB in all, in a scratch directory the scanner is the only reader of. Opengrep's default ignore list still skips test directories, `node_modules`, `vendor` and minified files. |
+| Limits | 120 seconds for the whole scan (`LEMONCROW_SECURITY_SCAN_TIMEOUT`, 10 to 600), 5 seconds per rule per file, 50 results kept (most severe first, the rest counted). The scanner gets a short allow-list of environment variables: not the token, not the model key. It reads local files only and needs no network. |
+| What counts | A result is a **finding** only when its line is a line the pull request added or changed. A result elsewhere in a changed file (an old `shell=True` the pull request did not touch) is context: counted in the receipt, never reported. |
+| Suppression comments | `nosem` comments in the pull request are ignored (`--disable-nosem`): what the scanner reports must not be decided by the text it scans. Dismiss a result you accept with a thumbs-down or `@lemoncrow ignore`, as for any finding. |
+
+### What a result becomes
+
+1. **Evidence.** Each file with a result is recorded as a `static_finding` in the pull request's Snapshot, bound to that file. The investigator is offered it as a `static:` reference. A file with an error-level result also becomes a `security` candidate, so it is investigated even when nothing in its name or text looks security related.
+2. **A confirmed P0.** A finding the investigator rated **high** in the `security` category that cites a matching `static:` reference of its file is *verified* (a scanner is evidence from outside the changed code), so the severity rule in "Severity" makes it a **P0**. The same rating without the citation, or with the scan off, is a P1. The scanner alone is never a P0.
+3. **A raw result.** A result no investigator cited shows as its own finding, in the `security` category with a `security` flag, and ends with the trailer `Static check: <rule id>`: an `ERROR` rule is a **P1** (a rule that declares `confidence: LOW` is a P2), a `WARNING` rule a **P2** (held back, not inline), and an `INFO` rule is not a finding. It is labelled "not yet confirmed by the AI review". A finding the investigator confirmed carries the same trailer and is shown once, not twice; when it confirms a result that already had a thread, it takes that thread over.
+4. **Later pushes.** A raw result is matched by rule, file and the matched text, not by line, so it keeps its thread when code above it moves. When the scanner no longer reports it, it is **fixed** if the lines it was on changed, `no longer reported, not confirmed fixed` if they are still there word for word, and closed as no longer applying if its file left the change. When the scan did not run (it failed, or you turned it off), it is carried forward, marked unverified.
+
+A report never copies what the scanner matched: the comment shows the rule's message, the file and the lines, so a leaked secret is not quoted into a pull request.
+
+### When the scan cannot run
+
+It never fails the review. The summary's status strip says `security scan unavailable` and the collapsed `What we checked` names the reason:
+
+```text
+- Not run: security scan unavailable (Opengrep exited with code 2: fatal: could not load the rules)
+```
+
+Reasons include `checksum mismatch for opengrep_manylinux_x86: the download was not installed`, `the download failed (URLError)`, `no Opengrep release is pinned for windows x86_64`, `Opengrep timed out after 120s` and `no security rules to run`. The install step also writes a `::warning` to the job log. A run that checks the same pull request again retries the install.
+
+### Rules
+
+The default ruleset is **34 original rules** in `src/lemoncrow/pro/capabilities/review/security_rules/` (Python, JavaScript and TypeScript, Go, Java, and a language-independent file for secrets): command injection, `eval`/`exec`, SQL built from strings, unsafe deserialization (pickle, YAML, `ObjectInputStream`, `node-serialize`), SSRF and path traversal from request data (taint rules), weak hashes and ciphers, disabled TLS verification, and hard-coded tokens, private keys and credentials. Each rule has a positive and a negative test line in `tests/fixtures/opengrep/`, run with `opengrep scan --test`.
+
+**Licensing of the rules.** Every rule is Apache-2.0, written for LemonCrow, and copied from nobody. The popular rule sets could not be shipped in a product: the Semgrep registry and the `semgrep-rules` repository are under the Semgrep Rules License v1.0, which does not allow redistributing the rules inside another product, and the `opengrep-rules` fork adds the Commons Clause to LGPL-2.1 (no right to "Sell" a product whose value derives substantially from the software) and describes the rules as "for research, testing & benchmarking". The Opengrep binary (LGPL-2.1) is downloaded at run time and run as a separate process; it is not bundled or linked.
+
+**Add your own.** List rule files, or directories of them, under `security` in `.lemoncrow/review.yaml` **on your default branch**:
+
+```yaml
+# .lemoncrow/review.yaml
+security:
+  rules:
+    - security/rules          # a directory: every .yaml / .yml file under it
+    - security/payments.yaml  # or a single file
+  default_rules: true         # false: run only yours
+```
+
+The Action reads this block, and the rule files, from the pull request's **merge base**, like every other part of that file, so a pull request cannot add, change or remove a rule that is applied to itself; a rule you add takes effect once it is merged. Your rules run in addition to the built-in ones unless `default_rules: false`. Paths must be relative to the repository root; at most 30 rule files of 200 KB each are read, and a path that does not exist on the base branch is skipped with a note in the job log. A rule file Opengrep rejects makes the scan unavailable (with the engine's first error line as the reason), so a typo is visible, not silent. Write rules in [Opengrep's rule syntax](https://opengrep.dev) (the Semgrep rule format): `id`, `languages`, `severity` (`ERROR` becomes a P1, `WARNING` a P2), `message`, a pattern, and `metadata` (`cwe`, `confidence`, and an optional short `title` used as the finding's title). Keep the message free of metavariables, so it never repeats the matched text.
+
+### Locally
+
+`lc review --pr 123 --ai` runs the same scan when `opengrep` is on your `PATH` (or `LEMONCROW_OPENGREP_BIN` names it). Without it the scan is skipped silently; `--json` says so under `security` (`"status": "skipped"`), as it records `ran`, `unavailable` or `off` otherwise, with the counts. `LEMONCROW_SECURITY_SCAN=off` turns it off.
 
 ## Chat in pull request threads
 
@@ -535,6 +590,8 @@ lc review --pr 123 --ai                      # print the findings
 lc review --pr 123 --ai --json               # machine-readable
 lc review --pr 123 --publish-bot --dry-run   # the exact comments the bot would post
 ```
+
+If `opengrep` is on your `PATH` the same security scan runs here too (see "Security scan"); without it the scan is skipped silently.
 
 `--publish-bot` itself runs only in GitHub Actions: on a laptop your `gh` login is a person, and AI output must not be posted under a person's name. This is the full Review CLI (`uv run lc review` in a source checkout).
 

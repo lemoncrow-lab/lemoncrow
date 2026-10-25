@@ -79,8 +79,11 @@ class Reconciled:
         return tuple(finding for finding in self.findings if finding.is_open)
 
 
-def finding_from_confirmed(confirmed: Any, located: Located | None, head: str) -> BotFinding:
-    """A new tracked finding from the engine's ``ConfirmedFinding``."""
+def finding_from_confirmed(confirmed: Any, located: Located | None, head: str, static_check: str = "") -> BotFinding:
+    """A new tracked finding from the engine's ``ConfirmedFinding``.
+
+    ``static_check`` names the scanner rule(s) behind the ``static_finding`` evidence it cited, for the comment's trailer.
+    """
 
     target_ids = tuple(confirmed.target_ids)
     where = located or Located("", 0, 0)
@@ -126,6 +129,7 @@ def finding_from_confirmed(confirmed: Any, located: Located | None, head: str) -
         anchor=anchor,
         target_line=where.line,
         anchor_digest=cited.digest if cited is not None else "",
+        static_check=static_check,
     )
 
 
@@ -167,6 +171,7 @@ def reconcile(
     head: str,
     answers: Mapping[str, str] | None = None,
     intact: Collection[str] = (),
+    static_checks: Mapping[str, str] | None = None,
 ) -> Reconciled:
     """The findings of this review.
 
@@ -176,10 +181,14 @@ def reconcile(
     short sha being reviewed. ``answers`` is what the re-check said about each earlier finding it was asked
     about (``still_present``, ``resolved`` or ``unclear``) and ``intact`` the earlier findings whose cited lines
     are still in the file word for word: together they are the only way a finding is declared fixed.
+    ``static_checks`` maps a confirmed finding's id to the scanner rule(s) its cited evidence came from.
     """
 
+    checks = static_checks or {}
     fresh = [
-        finding_from_confirmed(item, locations.get(item.target_ids[0]) if item.target_ids else None, head)
+        finding_from_confirmed(
+            item, locations.get(item.target_ids[0]) if item.target_ids else None, head, checks.get(item.id, "")
+        )
         for item in confirmed
     ]
     by_id = {finding.id: finding for finding in fresh}

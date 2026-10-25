@@ -1,0 +1,8 @@
+{
+  "version": "1.32.0",
+  "results": [],
+  "errors": [],
+  "paths": {"scanned": ["app/handlers.py", "app/hashing.py"]},
+  "interfile_languages_used": [],
+  "skipped_rules": []
+}

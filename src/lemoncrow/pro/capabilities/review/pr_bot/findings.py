@@ -146,6 +146,11 @@ class BotFinding:
     #: ``suppressed``; and whether an allowed person gave it a thumbs-up (kept for analytics, it changes nothing).
     suppressed_by: str = ""
     confirmed: bool = False
+    #: The scanner rule id(s) behind this finding (``Static check: <rule id>``): the Opengrep rule a raw scan result
+    #: came from, or the rules of the ``static_finding`` evidence an investigator's finding cited. ``scan`` is set
+    #: when the finding *is* a scanner result no investigator confirmed (``security``, P1 at most, never a P0).
+    static_check: str = ""
+    scan: bool = False
 
     @property
     def is_open(self) -> bool:
@@ -226,6 +231,8 @@ class BotFinding:
             ("anchor_digest", self.anchor_digest),
             ("suppressed_by", self.suppressed_by),
             ("confirmed", self.confirmed),
+            ("static_check", self.static_check),
+            ("scan", self.scan),
         ):
             if value:
                 wire[key] = value
@@ -316,6 +323,8 @@ def finding_from_wire(raw: object) -> BotFinding | None:
         anchor_digest=digest if isinstance(digest, str) and _DIGEST.match(digest) else "",
         suppressed_by=_text(raw, "suppressed_by", 40),
         confirmed=raw.get("confirmed") is True,
+        static_check=_text(raw, "static_check", 200),
+        scan=raw.get("scan") is True,
     )
 
 

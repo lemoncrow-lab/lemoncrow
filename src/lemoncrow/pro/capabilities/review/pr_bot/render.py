@@ -220,7 +220,8 @@ def inline_comment(finding: BotFinding) -> str:
     when it is parsed (``finding_replacement.parse_replacement``).
     """
 
-    badge = f"**{SEVERITY_BADGE[finding.severity]} · {SEVERITY_MEANING[finding.severity]}**"
+    flag = " · security" if finding.scan else ""
+    badge = f"**{SEVERITY_BADGE[finding.severity]} · {SEVERITY_MEANING[finding.severity]}{flag}**"
     lines = [f"{badge} — {clean(finding.title)}"]
     if finding.explanation:
         lines += ["", clean(finding.explanation)]
@@ -229,7 +230,13 @@ def inline_comment(finding: BotFinding) -> str:
     if finding.has_suggestion:
         fence = fence_for(finding.suggestion)
         lines += ["", f"{fence}suggestion", finding.suggestion.rstrip("\n"), fence]
-    lines += ["", "<sub>LemonCrow AI review</sub>"]
+    if finding.static_check:
+        # The scanner rule behind it (a raw result, or the evidence an investigator's finding cited).
+        lines += ["", f"Static check: {code(finding.static_check)}"]
+    if finding.scan:
+        lines += ["", "<sub>LemonCrow security scan (Opengrep) · not yet confirmed by the AI review</sub>"]
+    else:
+        lines += ["", "<sub>LemonCrow AI review</sub>"]
     if FINGERPRINT.fullmatch(finding.fingerprint):
         lines.append(FINGERPRINT_MARKER.format(fingerprint=finding.fingerprint))
     lines.append(FINDING_MARKER.format(finding_id=finding.id))
@@ -317,6 +324,10 @@ class Receipt:
     unchanged: int = 0
     #: Import warnings, said out loud rather than silently dropped (``ImportedConfig.receipt_lines``).
     imported: tuple[str, ...] = ()
+    #: What the security scan did (``security.SecurityScan.receipt``), and whether it could not run: that is said in the
+    #: summary's status strip too, not only in the collapsed receipt.
+    security: str = ""
+    security_unavailable: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -391,7 +402,8 @@ def _tag(finding: BotFinding) -> str:
 def _row(finding: BotFinding, *, link: bool = True) -> str:
     title = clean(finding.title)
     label = f"[{title}]({finding.thread_url})" if link and finding.thread_url else title
-    return f"- **{SEVERITY_BADGE[finding.severity]}** {label} — `{_where(finding)}` · {_tag(finding)}"
+    flag = " · security" if finding.scan else ""
+    return f"- **{SEVERITY_BADGE[finding.severity]}** {label} — `{_where(finding)}` · {_tag(finding)}{flag}"
 
 
 def _held_back(findings: Sequence[BotFinding], *, detailed: bool) -> list[str]:
@@ -580,6 +592,8 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
         if view.budget
         else strip_text(view.facts)
     )
+    if view.receipt.security_unavailable and not view.budget:
+        strip += " · security scan unavailable"
     lines = [SUMMARY_MARKER, head, "", f"<sub>{strip}</sub>"]
     if state.findings_dropped:
         lines += [
@@ -693,6 +707,8 @@ def _receipt_lines(view: SummaryView) -> list[str]:
         lines.insert(2, f"- Unchanged since the last review, not re-checked: {receipt.unchanged}")
     if receipt.imported:
         lines.append("- Imported config: " + "; ".join(code(item) for item in receipt.imported[:6]))
+    if receipt.security:
+        lines.append(f"- {code(receipt.security)}")
     return lines
 
 

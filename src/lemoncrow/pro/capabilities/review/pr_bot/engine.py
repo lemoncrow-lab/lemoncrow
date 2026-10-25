@@ -544,6 +544,7 @@ def _execute(
     from lemoncrow.pro.capabilities.review.planned_execution import persisted_plan
     from lemoncrow.pro.capabilities.review.repo_context import RepoContextOptions, repo_context_enabled
     from lemoncrow.pro.capabilities.review.run_plan import ai_stage_plan
+    from lemoncrow.pro.capabilities.review.static_findings import static_security_lines
 
     store, session, revision = captured.store, captured.session, captured.revision
     context = app.state.review_worker_ai_publication_context(session.id, revision.id)
@@ -625,6 +626,8 @@ def _execute(
             pr_fields=True,
             prior_findings=_prior_rows(previous, {target.target_id for target in changed}),
             project_conventions=imports.conventions if imports is not None else (),
+            # A file the security scan reported an error-level result in is investigated as a security candidate.
+            static_security=True,
         )
     usage, served = revision_usage(store, session.id, revision.id)
     context = dict(result.repo_context)
@@ -633,7 +636,9 @@ def _execute(
         usage = replace(usage, context_tokens=context_tokens)
     candidate_ids = {
         target_id
-        for candidate in generate_candidates(changed, rules=tuple(governance.rules))
+        for candidate in generate_candidates(
+            changed, rules=tuple(governance.rules), security_lines=static_security_lines(store, revision)
+        )
         for target_id in candidate.target_ids
     }
     # Reviewed means a model call about the target returned (or it carried no risk signal). A candidate no call
