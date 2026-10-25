@@ -53,14 +53,15 @@ def invoke(origin: Origin, *args: str) -> Any:
 @pytest.mark.parametrize(
     ("args", "message"),
     [
-        (["--ai"], "add --pr NUMBER|URL"),
-        (["--publish-bot"], "add --pr NUMBER|URL"),
+        (["--publish-bot"], "--publish-bot posts to a pull request; add --pr NUMBER|URL"),
         (["--pr", "7", "--publish", "--publish-bot"], "Use one of them"),
         (["--pr", "7", "--ai", "--mark", "src/a.py"], "drop --mark"),
         (["--pr", "7", "--ai", "--list-reviews"], "drop --current/--resume-author/--list-reviews"),
         (["--pr", "7", "--ai", "--base", "main"], "--pr picks the range itself"),
         (["--pr", "7", "--dry-run"], "--dry-run only applies to --publish or --publish-bot"),
-        (["--pr", "7", "--ai", "--fail-on", "p1"], "is not one of"),
+        (["--pr", "7", "--ai", "--fail-on", "p1"], "--fail-on p1 is for a local --ai review"),
+        (["--pr", "7", "--ai", "--fail-on", "p2"], "is not one of"),
+        (["--pr", "7", "--ai", "--strict"], "--strict and --fresh apply to a local --ai review"),
         (["--pr", "7", "--ai", "--depth", "huge"], "is not one of"),
     ],
 )

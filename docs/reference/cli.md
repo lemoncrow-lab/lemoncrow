@@ -136,12 +136,72 @@ lc review --current
 lc review --resume-author
 lc review --pr 123
 lc review --pr 123 --ai --depth auto   # AI review in the terminal or CI; --publish-bot posts it as a bot
+lc review --ai                        # AI review of the working tree (or --staged, REV, --base/--head); posts nothing
+lc review hook install                # a git hook that runs it before a push (--pre-commit: before a commit)
 lc review data-flow
 lc review config --effective            # the merged review rules (review.yaml, import.rules_files, AGENTS.md) and their sources
 lc review config --dry-run --pr 123   # which rules would apply to that pull request's files
 lc review diagnostics
 lc review observation-worker check --server URL --pins pins.json
 ```
+
+### Local AI review and git hooks
+
+`lc review --ai` reviews a change that has no pull request, on your own model key, and posts nothing anywhere. It runs the engine path the [GitHub Action](../setup/github-action.md) runs (capture, the AI stage, the same severity rule), so a finding has the same severity here as on a pull request.
+
+```bash
+lc review --ai                         # the working tree against HEAD (the last commit when the tree is clean)
+lc review --ai --staged                # exactly what is staged
+lc review --ai main...HEAD             # a branch against its merge base with main (or REV, or --base/--head)
+lc review --ai --fail-on p1 --strict   # stricter exit codes, for a hook or a script
+lc review --ai --json                  # the result as JSON
+lc review --ai --depth thorough        # go deeper (auto, thorough, deep); the hard model-call cap applies at every depth
+lc review --ai --fresh                 # ignore the result carried from the last review of this change
+```
+
+**Exit codes.** A hook reads these; they are the same for `lc review --ai` and for the hooks below.
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Clean: no open finding at or above `--fail-on`. An incomplete review is also `0` unless `--strict`: a missing key, a provider error or a spent budget never blocks a push by itself. |
+| `1` | A finding at or above `--fail-on` is open. `--fail-on p0` (the default) stops on a P0, `p1` on a P0 or P1, `none` never. A found P0 outranks an incomplete review. |
+| `2` | The review is incomplete and `--strict` is set: no model route, the intelligence kill switch is off, the model-call or dollar budget ran out, a model call failed, or risk signals were left unexamined (Auto depth examines two; `--depth thorough` covers more). |
+| `3` | Usage error: a flag that cannot be combined with `--ai`, a value that is not one of the choices, a revision that does not resolve, or no Git repository. |
+
+Nothing to review (no changed files) is `0` and needs no model. An error inside the review that is not a finding is reported as an incomplete review, never as exit `1`.
+
+**What is shown.** The verdict line, then each open P0 and P1 with its place, why, the consequence and a checked replacement when there is one, the P2 findings as one line each, what was reviewed in this run and how much was reused, the model, depth and usage. Colour is off with `--no-color`, with `NO_COLOR`, and when output is not a terminal; text written by the model or a file name is stripped of control characters before it is printed.
+
+**`--json`.** One document on standard output (progress goes to standard error), `schema: 1`:
+
+| Field | Meaning |
+| --- | --- |
+| `kind` | `local_review` |
+| `scope` | `{mode, label, base, head}`: `working_tree`, `staged` or `commit_range`, the commits or tree the review covered |
+| `empty`, `cached` | nothing to review; no model call was needed because every changed unit was reviewed, unchanged, last time |
+| `verdict` | `{state, headline, p0, p1, p2}`; `state` is `clean`, `must_fix`, `partial`, `incomplete` or `budget` |
+| `complete`, `incomplete_reason` | whether the review finished and examined every risk signal, and why not |
+| `exit` | `{code, reason, fail_on, strict}`: the exit status and why |
+| `findings` | every tracked finding as the pull request bot's hidden state records it (`id`, `severity`, `category`, `state`, `path`, `line`, `end_line`, `title`, `explanation`, `consequence`, `suggestion`, ...); `state` is `new`, `carried`, `fixed`, `stale`, `unreported` or `suppressed` |
+| `coverage` | `{files, targets, rereviewed, unchanged, candidates, investigated}` |
+| `depth`, `model`, `usage`, `usage_total` | the run's depth, the model that served it, and its usage (`calls`, `input_tokens`, `output_tokens`, `cost_usd`) and the total for this change |
+| `notes` | things worth knowing, such as the clean-tree fallback |
+
+**Model route.** Your own: `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, or `LEMONCROW_LLM_BACKEND` for LiteLLM, Ollama or a local agent CLI (`claude`, `codex`, `opencode`) with its variables, as `--pr N --ai` uses. The intelligence policy and its kill switch apply: with AI turned off, nothing is sent and the review is incomplete (exit `0`, or `2` under `--strict`).
+
+**Carried results.** Like the bot, the review keeps its result between runs, in a small file under the LemonCrow root (`review-local-ai/`), one per change: the working tree and the staged changes of a branch, or a range's base and the branch it ends on. A re-run reviews only what changed since: on an unchanged tree no model call is made and the open findings still decide the exit code; after an edit only the changed files go to the model; a fixed finding is closed. A changed review policy or depth reviews everything once; `--fresh` does so on request. `--max-usd-per-pr` and `--max-runs-per-pr` limit what one change may cost over its runs, read from the same carried usage; when they are reached nothing new is reviewed and the findings stand.
+
+**`lc review hook install`** writes a hook that runs this before a push, or before a commit with `--pre-commit`:
+
+```bash
+lc review hook install                        # .git/hooks/pre-push (or wherever core.hooksPath points)
+lc review hook install --print                # show the script, write nothing
+lc review hook install --fail-on p1 --strict  # the options the hook runs with
+lc review hook install --pre-commit           # review what is staged before each commit
+lc review hook install --force                # replace a hook that already exists
+```
+
+The script is a few lines of shell around `lc review hook run`. For a push it reviews what the push would publish: the commits of each pushed branch that the remote does not have (from where a new branch leaves the default branch). Branch deletions and tags are skipped. A review that cannot be done lets the push through and says why, unless the hook was installed with `--strict`. Skip it once with `LEMONCROW_REVIEW_SKIP=1 git push` (`git push --no-verify` skips every hook). The installer never overwrites a hook that exists, whether another tool's or an earlier one of its own with other options, without `--force`; installing the same hook twice writes nothing the second time. A model call happens on every push with new code, so keep the depth at `auto` for hooks.
 
 Review keeps durable human judgment across Snapshots where the underlying reviewed work is unchanged; changed or new work returns to the review queue.
 

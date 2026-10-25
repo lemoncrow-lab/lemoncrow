@@ -31,6 +31,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.state import ReviewState, Usage, c
 
 if TYPE_CHECKING:
     from lemoncrow.pro.capabilities.review.ai_review import ConfirmedFinding, IndependentReviewResult
+    from lemoncrow.pro.capabilities.review.gitdiff import RevRange
     from lemoncrow.pro.capabilities.review.intelligence_runtime import ModelCallUsage, StructuredExecution
     from lemoncrow.pro.capabilities.review.session_models import ReviewRevision, ReviewSession
     from lemoncrow.pro.capabilities.review.sources.github import PullRequestSource
@@ -48,13 +49,13 @@ class AiStageError(RuntimeError):
 
 @dataclass(frozen=True)
 class Captured:
-    """A pull request as a Snapshot in a throwaway store."""
+    """A pull request, or a local range, as a Snapshot in a throwaway store. ``pull`` is ``None`` for a local range."""
 
     store: ReviewStore
     session: ReviewSession
     revision: ReviewRevision
     repo_root: Path
-    pull: PullRequestSource
+    pull: PullRequestSource | None = None
 
 
 @dataclass(frozen=True)
@@ -122,11 +123,26 @@ def capture_pull_request(
     """Record the PR (merge base to head) as one Snapshot of a Review in a store under *store_root*."""
 
     from lemoncrow.pro.capabilities.review.gitdiff import resolve_rev_range
+
+    rng = replace(resolve_rev_range(repo_root, base=pull.merge_base_sha, head=pull.head_sha), title=pull.review_title)
+    return capture_range(repo_root, rng, store_root, with_impact=with_impact, pull=pull)
+
+
+def capture_range(
+    repo_root: Path,
+    rng: RevRange,
+    store_root: Path,
+    *,
+    with_impact: bool = True,
+    pull: PullRequestSource | None = None,
+) -> Captured:
+    """Record any resolved range (a commit range, the index or the working tree) as one Snapshot in a store under
+    *store_root*: the capture ``lc review --ai`` makes of a change that has no pull request (*pull* is ``None``)."""
+
     from lemoncrow.pro.capabilities.review.packet import build_review_packet_with_blobs
     from lemoncrow.pro.capabilities.review.sources.local import open_or_create_session, snapshot_revision
     from lemoncrow.pro.capabilities.review.store import ReviewStore
 
-    rng = replace(resolve_rev_range(repo_root, base=pull.merge_base_sha, head=pull.head_sha), title=pull.review_title)
     store = ReviewStore(store_root)
     build = build_review_packet_with_blobs(
         repo_root,
@@ -136,9 +152,14 @@ def capture_pull_request(
         with_provenance=False,
         with_patch_text=True,
     )
-    session = open_or_create_session(store, repo_root, rng, title=pull.review_title)
-    store.update_session(session.id, source_ref=pull.ref.source_ref)
+    session = open_or_create_session(store, repo_root, rng, title=rng.title)
+    if pull is not None:
+        store.update_session(session.id, source_ref=pull.ref.source_ref)
     revision = snapshot_revision(store, session, repo_root, rng, store_root=store_root, build=build)
+    if revision.capture_kind == "draft":
+        # The working tree and the index are captured as running drafts, which the Review API will not run an AI
+        # review on until they are saved as a Snapshot; this store is throwaway, so saving it is the capture itself.
+        store.publish_snapshot(session.id, revision.id)
     return Captured(store, session, revision, repo_root, pull)
 
 

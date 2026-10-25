@@ -5,8 +5,10 @@ a packet that names the changed files, the reading order, the places the change
 reaches outside the patch, and the agent session that produced it. No model is
 called and no verdict is issued — the packet is evidence for a human reviewer,
 which is why every rendering ends in ``Human review  REQUIRED``. The one
-exception is ``--pr N --ai``: it runs the AI review on the caller's own model
-route and prints hints, and ``--publish-bot`` posts them as a bot in CI.
+exception is ``--ai``: it runs the AI review on the caller's own model route and
+prints the findings -- of a pull request with ``--pr N``, ``--publish-bot`` posts them as a bot in CI, and
+of the working tree, the index or a commit range with no pull request at all (exit codes for a hook; see
+:mod:`lemoncrow.pro.capabilities.review.pr_bot.local`).
 
 The default range is the working tree, not a commit range, because the moment a
 developer actually reviews agent output is the one where the agent has stopped
@@ -202,8 +204,10 @@ class _ReviewCliProgress:
     "ai_review",
     is_flag=True,
     help=(
-        "With --pr, run the AI review headlessly on your own model route (no browser, no server) and print the "
-        "findings. Needs ANTHROPIC_API_KEY or OPENAI_API_KEY, or LEMONCROW_LLM_BACKEND."
+        "Run the AI review headlessly on your own model route (no browser, no server) and print the findings: of "
+        "the pull request --pr names, or, with no --pr, of the working tree, --staged, REV or --base/--head, posting "
+        "nothing. Needs ANTHROPIC_API_KEY or OPENAI_API_KEY, or LEMONCROW_LLM_BACKEND. A local review exits 0 when "
+        "clean, 1 when a finding at or above --fail-on is open, 2 when incomplete with --strict, 3 on a usage error."
     ),
 )
 @click.option(
@@ -227,10 +231,26 @@ class _ReviewCliProgress:
 )
 @click.option(
     "--fail-on",
-    type=click.Choice(["none", "p0"]),
-    default="none",
-    show_default=True,
-    help="With --publish-bot, fail the LemonCrow Review commit status when a P0 finding is open.",
+    type=click.Choice(["none", "p0", "p1"]),
+    default=None,
+    help=(
+        "With --publish-bot, fail the LemonCrow Review commit status when a P0 finding is open (none or p0; default "
+        "none). With a local --ai review, exit 1 while a finding at or above this severity is open (none, p0 or p1; "
+        "default p0)."
+    ),
+)
+@click.option(
+    "--strict",
+    is_flag=True,
+    help=(
+        "With a local --ai review, exit 2 when the review is incomplete (no model route, the kill switch, a spent "
+        "budget, risk signals left unexamined) instead of failing open with exit 0."
+    ),
+)
+@click.option(
+    "--fresh",
+    is_flag=True,
+    help="With a local --ai review, ignore the result carried from the last review of this scope and review it all again.",
 )
 @click.option(
     "--max-usd-per-pr",
@@ -240,7 +260,8 @@ class _ReviewCliProgress:
     metavar="USD",
     help=(
         "With --publish-bot, stop reviewing a pull request once its reviews have cost this much in total, read from "
-        "the usage the summary comment carries. Needs a known cost (the provider's, or a model in the local price "
+        "the usage the summary comment carries (for a local --ai review, the usage carried for this working tree or "
+        "range). Needs a known cost (the provider's, or a model in the local price "
         "table); a cancelled run's spend is not counted. Default: no limit."
     ),
 )
@@ -250,7 +271,10 @@ class _ReviewCliProgress:
     type=click.IntRange(min=1),
     default=None,
     metavar="N",
-    help="With --publish-bot, stop reviewing a pull request after this many reviews of it. Default: no limit.",
+    help=(
+        "With --publish-bot, stop reviewing a pull request after this many reviews of it (for a local --ai review, "
+        "of this working tree or range). Default: no limit."
+    ),
 )
 @click.option(
     "--review-drafts/--skip-drafts",
@@ -567,7 +591,9 @@ def review_cmd(
     ai_review: bool,
     publish_bot: bool,
     depth: str,
-    fail_on: str,
+    fail_on: str | None,
+    strict: bool,
+    fresh: bool,
     max_usd_per_pr: float | None,
     max_runs_per_pr: int | None,
     review_drafts: bool,
@@ -644,6 +670,10 @@ def review_cmd(
     feedback, rerun after fixes, and return to the same URL to review only what
     changed. ``--current`` reports that same Review/agent binding in the terminal;
     ``--resume-author`` continues its exact author session without copying IDs.
+
+    With --ai (and no --pr) your own model reviews the change instead: nothing is opened or posted, and the
+    exit code is for a hook -- 0 clean, 1 while a finding at or above --fail-on is open, 2 when incomplete with
+    --strict, 3 on a usage error. `lc review hook install` runs it before a push.
     """
     from lemoncrow.core.foundation.paths import default_store_root
     from lemoncrow.pro.capabilities.review.gitdiff import detect_repo_root, resolve_rev_range
@@ -673,6 +703,7 @@ def review_cmd(
         _check_ai_review_flags(
             pr_spec=pr_spec,
             publish_pr=publish_pr,
+            publish_bot=publish_bot,
             others=[
                 flag
                 for flag, used in (
@@ -883,8 +914,13 @@ def review_cmd(
         )
     if publish_pr and pr_spec is None:
         raise click.ClickException("--publish needs --pr NUMBER|URL")
+    local_ai = ai_review and not publish_bot and pr_spec is None
     if dry_run and not (publish_pr or publish_bot):
-        raise click.ClickException("--dry-run only applies to --publish or --publish-bot")
+        raise (_LocalUsageError if local_ai else click.ClickException)(
+            "--dry-run only applies to --publish or --publish-bot"
+        )
+    if (strict or fresh) and not local_ai:
+        raise click.ClickException("--strict and --fresh apply to a local --ai review (no --pr)")
     if pr_spec is not None and (rev or base_rev or head_rev or staged or working_tree):
         raise click.ClickException("--pr picks the range itself; drop REV, --base, --head, --staged and --working-tree")
     if pr_spec is not None and (new_review or continue_review):
@@ -895,14 +931,40 @@ def review_cmd(
         assert pr_spec is not None
         _publish_pull_request(client_config, detect_repo_root(repo_root), pr_spec, dry_run=dry_run, as_json=as_json)
         return
+    if local_ai:
+        _review_local_with_ai(
+            ctx,
+            repo_root,
+            store_root=store_root,
+            rev=rev,
+            base_rev=base_rev,
+            head_rev=head_rev,
+            staged=staged,
+            working_tree=working_tree,
+            depth=depth,
+            fail_on=fail_on or DEFAULT_LOCAL_FAIL_ON,
+            strict=strict,
+            fresh=fresh,
+            max_usd=max_usd_per_pr,
+            max_runs=max_runs_per_pr,
+            with_impact=not no_impact,
+            as_json=as_json,
+            no_color=no_color,
+            show_all=show_all,
+        )
+        return
     if ai_review or publish_bot:
         assert pr_spec is not None
+        if fail_on == "p1":
+            raise click.ClickException(
+                "--fail-on p1 is for a local --ai review; a pull request's status takes none or p0"
+            )
         _review_pull_request_with_ai(
             ctx,
             repo_root,
             pr_spec,
             depth=depth,
-            fail_on=fail_on,
+            fail_on=fail_on or "none",
             max_usd_per_pr=max_usd_per_pr,
             max_runs_per_pr=max_runs_per_pr,
             review_drafts=review_drafts,
@@ -1159,9 +1221,26 @@ def _intent_payload(repo_root: Path, specs: tuple[str, ...], description_file: P
     return payload
 
 
-def _check_ai_review_flags(*, pr_spec: str | None, publish_pr: bool, others: Sequence[str]) -> None:
+class _LocalUsageError(click.ClickException):
+    """A request a local review cannot serve: exit code 3, so a hook can tell it from a finding (1)."""
+
+    exit_code = 3
+
+
+#: ``--fail-on`` for a local review when the flag is not given (mirrors ``local.DEFAULT_FAIL_ON``, which this module
+#: does not import so that ``lc --help`` pays for nothing).
+DEFAULT_LOCAL_FAIL_ON = "p0"
+
+
+def _check_ai_review_flags(*, pr_spec: str | None, publish_pr: bool, publish_bot: bool, others: Sequence[str]) -> None:
     if pr_spec is None:
-        raise click.ClickException("--ai and --publish-bot review a pull request; add --pr NUMBER|URL")
+        if publish_bot:
+            raise click.ClickException("--publish-bot posts to a pull request; add --pr NUMBER|URL")
+        if publish_pr:
+            raise _LocalUsageError("--publish posts your review to a pull request; a local --ai review posts nothing")
+        if others:
+            raise _LocalUsageError(f"--ai reviews a change on its own; drop {', '.join(others)}")
+        return
     if publish_pr:
         raise click.ClickException(
             "--publish posts your own review as you; --publish-bot posts AI findings as a bot. Use one of them"
@@ -1246,6 +1325,76 @@ def _review_pull_request_with_ai(
             click.echo(strip_state(report.summary))
         if dry_run and not isinstance(report.published.get("chat"), dict):
             click.echo(f"\nDry run: would post {len(report.inline_bodies)} inline comment(s) and the summary above.")
+    if report.exit_code:
+        ctx.exit(report.exit_code)
+
+
+def _review_local_with_ai(
+    ctx: click.Context,
+    repo_root: Path | None,
+    *,
+    store_root: Path,
+    rev: str | None,
+    base_rev: str | None,
+    head_rev: str | None,
+    staged: bool,
+    working_tree: bool,
+    depth: str,
+    fail_on: str,
+    strict: bool,
+    fresh: bool,
+    max_usd: float | None,
+    max_runs: int | None,
+    with_impact: bool,
+    as_json: bool,
+    no_color: bool,
+    show_all: bool,
+) -> None:
+    """``--ai`` with no ``--pr``: review the working tree, the index or a range, post nothing, exit for a hook."""
+
+    import os
+
+    from lemoncrow.pro.capabilities.review.gitdiff import detect_repo_root
+    from lemoncrow.pro.capabilities.review.pr_bot.local import (
+        LocalOptions,
+        LocalReviewError,
+        render_text,
+        run_local_review,
+    )
+
+    try:
+        root = detect_repo_root(repo_root)
+    except ValueError as exc:
+        raise _LocalUsageError(str(exc)) from exc
+    options = LocalOptions(
+        repo_root=root,
+        store_root=store_root,
+        rev=rev,
+        base=base_rev,
+        head=head_rev,
+        staged=staged,
+        working_tree=working_tree,
+        depth=depth,
+        fail_on=fail_on,
+        strict=strict,
+        with_impact=with_impact,
+        fresh=fresh,
+        max_usd=max_usd,
+        max_runs=max_runs,
+    )
+    try:
+        report = run_local_review(options, progress=lambda message: click.echo(f"  {message}…", err=True))
+    except LocalReviewError as exc:
+        raise _LocalUsageError(str(exc)) from exc
+    plain = no_color or bool(os.environ.get("NO_COLOR"))
+    if as_json:
+        _emit(report.to_wire(), as_json=True)
+    else:
+        click.echo(
+            render_text(report, style=None if plain else click.style, show_all=show_all),
+            nl=False,
+            color=False if plain else None,
+        )
     if report.exit_code:
         ctx.exit(report.exit_code)
 
