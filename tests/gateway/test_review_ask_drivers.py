@@ -461,3 +461,108 @@ def test_codex_human_and_code_ask_never_load_user_config_shell_or_repo_rules(
         assert setting in rendered
     # Human Ask keeps its MCP bash/web tools; only Codex's native ones are off.
     assert "mcp_servers.lemoncrow.disabled_tools" not in rendered
+
+
+# The claude CLI's final result, as a real run reports it (trimmed): the cached prompt is counted apart from
+# ``input_tokens``, and the answer is the ``structured_output``.
+_CLAUDE_RESULT = {
+    "type": "result",
+    "is_error": False,
+    "num_turns": 3,
+    "total_cost_usd": 0.0369,
+    "usage": {
+        "input_tokens": 6,
+        "cache_creation_input_tokens": 2291,
+        "cache_read_input_tokens": 16364,
+        "output_tokens": 862,
+    },
+    "structured_output": {"intent": "question", "body": "Grounded answer", "handoff_instruction": ""},
+}
+
+
+def test_claude_usage_report_counts_the_cached_prompt_as_prompt_tokens() -> None:
+    assert intelligence_drivers.claude_usage_report(_CLAUDE_RESULT) == {
+        "input_tokens": 6 + 16364 + 2291,
+        "output_tokens": 862,
+        "cached_input_tokens": 16364,
+        "cache_write_input_tokens": 2291,
+    }
+    assert intelligence_drivers.claude_usage_report({"usage": {"input_tokens": 3, "output_tokens": 4}}) == {
+        "input_tokens": 3,
+        "output_tokens": 4,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+    }
+
+
+@pytest.mark.parametrize(
+    "result", [{}, {"usage": None}, {"usage": {"input_tokens": 6}}, {"usage": {"output_tokens": "4"}}]
+)
+def test_claude_usage_report_is_empty_when_the_cli_reports_no_usable_counts(result: dict[str, object]) -> None:
+    assert intelligence_drivers.claude_usage_report(result) == {}
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_claude_review_reports_the_tokens_the_cli_used(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, streaming: bool
+) -> None:
+    monkeypatch.setattr(intelligence_drivers.shutil, "which", lambda name: f"/usr/bin/{name}")
+    reported: list[dict[str, int]] = []
+    project_root = tmp_path / "snapshot"
+    project_root.mkdir()
+    stdout = json.dumps(_CLAUDE_RESULT)
+
+    def fake_run(command, **_kwargs):
+        return SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+
+    def fake_stream(command, *, on_stdout, **_kwargs):
+        on_stdout(stdout + "\n")
+        return 0, stdout, ""
+
+    monkeypatch.setattr(intelligence_drivers.subprocess, "run", fake_run)
+    result = _human_ask_cli(
+        driver="claude",
+        model="sonnet",
+        system="system",
+        prompt="{}",
+        project_root=project_root,
+        on_usage_reported=reported.append,
+        **({"on_raw_delta": lambda _fragment: None, "process_runner": fake_stream} if streaming else {}),
+    )
+
+    assert result["body"] == "Grounded answer"
+    assert reported == [
+        {
+            "input_tokens": 18661,
+            "output_tokens": 862,
+            "cached_input_tokens": 16364,
+            "cache_write_input_tokens": 2291,
+        }
+    ]
+
+
+def test_execute_structured_returns_the_claude_cli_tokens_in_the_call_usage(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(intelligence_drivers.shutil, "which", lambda name: f"/usr/bin/{name}")
+    monkeypatch.setattr(
+        intelligence_drivers.subprocess,
+        "run",
+        lambda command, **_kwargs: SimpleNamespace(returncode=0, stdout=json.dumps(_CLAUDE_RESULT), stderr=""),
+    )
+    project_root = tmp_path / "snapshot"
+    project_root.mkdir()
+
+    execution = intelligence_runtime.execute_structured(
+        system="system",
+        prompt="{}",
+        output_schema=ask.ASK_OUTPUT_SCHEMA,
+        driver="claude",
+        model="sonnet",
+        project_root=project_root,
+        origin="machine",
+    )
+
+    usage = execution.usage
+    assert (usage.calls, usage.input_tokens, usage.output_tokens) == (1, 18661, 862)
+    assert (usage.cache_read_input_tokens, usage.cache_write_input_tokens) == (16364, 2291)

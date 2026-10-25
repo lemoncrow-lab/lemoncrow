@@ -137,6 +137,10 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Fixed
 
+- **A review on the `claude` agent CLI reports the tokens it used.** The CLI's result carries its token counts,
+  and LemonCrow dropped them: every line said "tokens not reported" and the JSON had `null` counts. They are now
+  read from the result (prompt tokens include the cached part, as on the API routes). A dollar cost stays
+  unreported: a subscription process has none to bill.
 - **`lc review --pr N --publish-bot --dry-run` prints the comments it would post.** It printed the headline and
   "would post N inline comment(s) and the summary above", with no summary above it. It now prints the summary
   comment (without its hidden state block) and each inline comment with the file and lines it would sit on, and
