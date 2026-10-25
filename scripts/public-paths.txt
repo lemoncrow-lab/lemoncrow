@@ -126,6 +126,9 @@ frontend/index.html
 frontend/nginx.conf
 frontend/package.json
 frontend/package-lock.json
+# Vite runs Tailwind and autoprefixer through this file. The public mirror built the v0.8.0 Reader
+# without it, so the release shipped raw @tailwind directives and an unstyled Reader.
+frontend/postcss.config.js
 frontend/tailwind.config.ts
 frontend/test-results.json
 frontend/tsconfig.json

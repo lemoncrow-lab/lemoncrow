@@ -69,6 +69,26 @@ fi
 rm -rf "$WORK/frontend"
 mkdir -p "$WORK/frontend"
 cp -R "$FRONTEND_DIST"/. "$WORK/frontend/"
+# A Reader built without Tailwind passes `@tailwind` directives through as raw CSS and renders unstyled: the
+# v0.8.0 release shipped 11.7 KB of CSS where this build makes about 97 KB. Refuse such a bundle. An override
+# bundle (the engine smoke test's stub) is not releasable and is not held to this.
+if [[ -z "${LEMONCROW_REVIEW_ENGINE_FRONTEND_DIR:-}" ]]; then
+    python3 - "$WORK/frontend" <<'PY'
+import sys
+from pathlib import Path
+
+assets = Path(sys.argv[1]) / "assets"
+floor = 40_000
+stylesheets = sorted(assets.glob("index-*.css"))
+if len(stylesheets) != 1:
+    raise SystemExit(f"build_review_engine.sh: expected one assets/index-*.css in the frontend bundle, found {len(stylesheets)}")
+text = stylesheets[0].read_text(encoding="utf-8")
+if "@tailwind" in text:
+    raise SystemExit("build_review_engine.sh: the frontend CSS still holds @tailwind directives: PostCSS did not run (is frontend/postcss.config.js missing?)")
+if len(text.encode("utf-8")) < floor:
+    raise SystemExit(f"build_review_engine.sh: the frontend CSS is {len(text)} bytes, under the {floor} floor: the Reader would render unstyled")
+PY
+fi
 # The engine records which frontend it packaged, machine-readably, in its wheel:
 # lemoncrow_server_core/review_engine_build.json says whether frontend/ came from
 # this checkout's frontend/dist or from the override, and the digest of the
