@@ -1,14 +1,16 @@
-"""``lc review config``: the effective, merged Review rules, with the file each one came from (G10).
+"""``lc review config``: the effective, merged Review rules and settings, with the file each one came from (G10).
 
-The local surface of the same governance resolver the AI pull request reviewer runs
-(:func:`lemoncrow.pro.capabilities.review.rules.resolve_review_governance`). It reads only the **trusted base** (the
-pull request's merge base for ``--pr``, else ``origin/HEAD`` when known, else ``HEAD``), never the working tree, so what
-it prints is what a review would use: ``.lemoncrow/review.yaml`` first, then the rules files ``import.rules_files`` lists,
+The local surface of the same governance resolver the AI reviewer runs
+(:func:`lemoncrow.pro.capabilities.review.rules.resolve_review_governance`). By default it reads **your working tree**,
+which is what ``lc review --ai`` uses on your own change: a ``.lemoncrow/review.yaml`` you have just written counts before
+you commit it. ``--base REF`` (or ``--pr``) reads the **trusted base** instead, the commit a pull request review reads
+and a pull request cannot change: ``.lemoncrow/review.yaml`` first, then the rules files ``import.rules_files`` lists,
 then ``AGENTS.md`` and ``CLAUDE.md`` as context.
 
-``--effective`` prints every rule, exclusion and warning with its source file.
-``--dry-run`` takes the files a pull request changes (``--pr``, ``--head`` or ``--files``) and shows which rules would
-apply to each and which files the model would never read. No model is called and nothing is written.
+``--effective`` prints every setting (``strictness``, ``ignore``, ``inline_comments``, ``max_files``), rule, exclusion and
+warning with its source file. ``--dry-run`` takes the files a pull request changes (``--pr``, ``--head`` or ``--files``)
+and shows which rules would apply to each and which files the model would never read. No model is called and nothing is
+written.
 """
 
 from __future__ import annotations
@@ -87,15 +89,78 @@ def base_paths_lister(repo: Path, base: BaseCommit) -> Callable[[], Sequence[str
     return listing
 
 
-def effective_governance(repo: Path, base: BaseCommit) -> ReviewGovernance:
-    """The governance a review of this repository resolves from *base*: the repository layers, no organization policy."""
+def effective_governance(repo: Path, base: BaseCommit | None) -> ReviewGovernance:
+    """The governance a review of this repository resolves from *base* (``None``: your working tree, as a local
+    ``lc review --ai`` reads it): the repository layers, no organization policy."""
 
     from lemoncrow.pro.capabilities.review.rules import resolve_review_governance
 
-    read = base_reader(repo, base)
-    return resolve_review_governance(
-        read(_REVIEW_CONFIG), read_base_document=read, base_paths=base_paths_lister(repo, base)
+    read, paths = _readers(repo, base)
+    return resolve_review_governance(read(_REVIEW_CONFIG), read_base_document=read, base_paths=paths)
+
+
+def _readers(
+    repo: Path, base: BaseCommit | None
+) -> tuple[Callable[[str], TrustedBaseDocument], Callable[[], Sequence[str] | None]]:
+    if base is not None:
+        return base_reader(repo, base), base_paths_lister(repo, base)
+    from lemoncrow.pro.capabilities.review.working_tree_authority import WorkingTreeAuthority
+
+    authority = WorkingTreeAuthority(repo)
+    return authority.document, authority.paths
+
+
+def effective_settings(repo: Path, base: BaseCommit | None, governance: ReviewGovernance) -> list[dict[str, str]]:
+    """The review settings in force, one row each, with where the value came from: ``strictness``, ``ignore``,
+    ``inline_comments``, ``max_files``, and a severity per rule the file rates. A setting the file does not make is
+    ``default``. Never raises: what cannot be applied is a note."""
+
+    from lemoncrow.pro.capabilities.review.criticality import triage_policy_for
+    from lemoncrow.pro.capabilities.review.pr_bot.settings import (
+        DEFAULT_MAX_FILES,
+        parse_file_settings,
+        resolve_policy,
     )
+
+    read, _ = _readers(repo, base)
+    document = read(_REVIEW_CONFIG)
+    triage = triage_policy_for(None, document, commit=base.sha if base is not None else "")
+    policy = resolve_policy(config=document, triage=triage, rules=tuple(governance.rules))
+    parsed = parse_file_settings(document.content)
+    here = _REVIEW_CONFIG
+    strict = policy.strictness
+    rows = [
+        {
+            "key": "strictness",
+            "value": (
+                f"{strict} (threshold {policy.threshold})" if strict is not None else f"threshold {policy.threshold}"
+            ),
+            "source": policy.threshold_source if policy.threshold_source != "default" else "default",
+        },
+        {
+            "key": "ignore",
+            "value": ", ".join(policy.ignore) if policy.ignore else "none",
+            "source": here if parsed.ignore else "default",
+        },
+        {
+            "key": "inline_comments",
+            "value": "true" if policy.inline else "false",
+            "source": here if parsed.inline_comments is not None else "default",
+        },
+        {
+            "key": "max_files",
+            "value": "no limit" if policy.max_files == 0 else str(policy.max_files),
+            "source": here if parsed.max_files is not None else "default",
+        },
+    ]
+    if policy.max_files == DEFAULT_MAX_FILES and parsed.max_files is None:
+        rows[-1]["value"] = f"{DEFAULT_MAX_FILES}"
+    rows += [
+        {"key": f"rules.{key}.severity", "value": level, "source": here} for key, level in parsed.rule_severity.items()
+    ]
+    for note in policy.notes:
+        rows.append({"key": "note", "value": note, "source": here})
+    return rows
 
 
 def changed_paths(repo: Path, base_sha: str, head: str) -> list[str]:
@@ -125,17 +190,29 @@ def _trim(text: str, limit: int) -> str:
     return compact if len(compact) <= limit else compact[: limit - 1].rstrip() + "…"
 
 
-def render_effective_text(wire: dict[str, Any], base: BaseCommit) -> str:
+def render_effective_text(wire: dict[str, Any], base: BaseCommit | None) -> str:
     rules = wire["rules"]
     critical = sum(1 for row in rules if row["severity"] == "critical")
+    if base is None:
+        origin = (
+            "  read from:    your working tree, as lc review --ai reads it on your own change "
+            "(--base main shows what a pull request review reads)"
+        )
+    else:
+        origin = f"  trusted base: {base.ref} ({base.sha[:12]}); rules and context are read from here, never from a pull request"
     out = [
         "Effective Review configuration",
-        f"  trusted base: {base.ref} ({base.sha[:12]}); rules and context are read from here, never from a pull request",
+        origin,
         "  precedence:   " + " > ".join(wire["precedence"]),
         "  scope:        repository files only; organization policy is not included in this local view",
         "",
-        "Files read",
+        "Settings (review: in .lemoncrow/review.yaml)",
     ]
+    shown = [row for row in wire.get("settings", []) if row["key"] != "note"]
+    width = max((len(row["key"]) for row in shown), default=0)
+    for row in shown:
+        out.append(f"  {row['key']:<{width}}  {row['value']:<32} from {row['source']}")
+    out += ["", "Files read"]
     for row in wire["sources"]:
         out.append(f"  {row['path']:<40} {row['state']:<12} {row['role']}")
     out += ["", f"Rules ({len(rules)}: {critical} critical, {len(rules) - critical} advisory)"]
@@ -163,11 +240,14 @@ def render_effective_text(wire: dict[str, Any], base: BaseCommit) -> str:
     notes = [
         row for row in wire["notes"] if row["kind"] in {"warning", "overridden", "disabled", "dropped", "unavailable"}
     ]
-    out += ["", f"Notes ({len(notes)})"]
-    if not notes:
+    setting_notes = [row for row in wire.get("settings", []) if row["key"] == "note"]
+    out += ["", f"Notes ({len(notes) + len(setting_notes)})"]
+    if not notes and not setting_notes:
         out.append("  none")
     for row in notes:
         out.append(f"  {row['kind']:<12} {row['source']}: {row['message']}")
+    for row in setting_notes:
+        out.append(f"  {'warning':<12} {row['source']}: {row['value']}")
     for message in wire["errors"]:
         out.append(f"  error        {message}")
     return "\n".join(out) + "\n"
@@ -233,7 +313,7 @@ def resolve_pull_request_range(repo: Path, spec: str) -> tuple[str, str, str]:
     "--base",
     "base_ref",
     default=None,
-    help="Trusted base to read from. Default: the PR's merge base with --pr, else origin/HEAD when known, else HEAD.",
+    help="Read the trusted base at this revision instead of your working tree (what a pull request review reads).",
 )
 @click.option(
     "--pr",
@@ -264,10 +344,12 @@ def config_cmd(
     repo_path: Path | None,
     as_json: bool,
 ) -> None:
-    """Show the effective Review configuration a pull request review would use, and what it would apply to.
+    """Show the effective Review settings and rules, and what they would apply to.
 
     Reads .lemoncrow/review.yaml, then the rules files import.rules_files lists, then AGENTS.md and CLAUDE.md (context
-    only), all from the trusted base. A pull request that adds or edits any of them cannot change its own review.
+    only), from your working tree: what lc review --ai uses on your own change. With --base REF (or --pr) it reads the
+    trusted base instead, which is what a pull request review uses; a pull request that edits those files cannot change
+    its own review.
     """
 
     if not effective and not dry_run:
@@ -300,15 +382,30 @@ def config_cmd(
         else:
             paths = list(dict.fromkeys(files))
             label = f"{len(paths)} named files"
-    base = resolve_base(repo, base_ref or pr_base or default_trusted_base(repo))
+    # Your own checkout is read as it is on disk; naming a base (or a pull request) reads the commit a pull request
+    # review trusts instead.
+    base = resolve_base(repo, base_ref or pr_base) if (base_ref or pr_base) else None
     if dry_run and head_ref:
-        paths = changed_paths(repo, base.sha, head_ref)
-        label = f"{base.ref}..{head_ref}"
+        compare = base or resolve_base(repo, default_trusted_base(repo))
+        paths = changed_paths(repo, compare.sha, head_ref)
+        label = f"{compare.ref}..{head_ref}"
     governance = effective_governance(repo, base)
 
-    wire: dict[str, Any] = {"base": base.to_wire()}
+    wire: dict[str, Any] = {"base": base.to_wire() if base is not None else {"ref": "working tree", "sha": ""}}
     if effective:
         wire["effective"] = effective_wire(governance)
+        wire["effective"]["settings"] = effective_settings(repo, base, governance)
+        read, _ = _readers(repo, base)
+        document = read(_REVIEW_CONFIG)
+        if not any(row["path"] == _REVIEW_CONFIG for row in wire["effective"]["sources"]):
+            wire["effective"]["sources"].insert(
+                0,
+                {
+                    "path": _REVIEW_CONFIG,
+                    "state": document.state,
+                    "role": "review settings, rules and imports",
+                },
+            )
     if dry_run:
         wire["dry_run"] = dry_run_wire(governance, paths)
     if as_json:
@@ -329,6 +426,7 @@ __all__ = [
     "changed_paths",
     "config_cmd",
     "effective_governance",
+    "effective_settings",
     "render_dry_run_text",
     "render_effective_text",
     "resolve_base",

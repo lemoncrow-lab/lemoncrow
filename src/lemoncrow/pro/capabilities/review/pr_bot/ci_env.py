@@ -74,6 +74,15 @@ def _present(env: Mapping[str, str], name: str) -> bool:
     return bool(str(env.get(name) or "").strip())
 
 
+def _anthropic_credential(env: Mapping[str, str]) -> str:
+    """``ANTHROPIC_API_KEY``, else the key ``lc settings set llm.anthropic_api_key`` saved (``LEMONCROW_ANTHROPIC_API_KEY``)."""
+
+    for name in ("ANTHROPIC_API_KEY", "LEMONCROW_ANTHROPIC_API_KEY"):
+        if _present(env, name):
+            return name
+    return ""
+
+
 def _openai_credential(env: Mapping[str, str]) -> str:
     for name in ("LEMONCROW_OPENAI_API_KEY", "OPENAI_API_KEY", "LEMONCROW_OPENAI_BASE_URL"):
         if _present(env, name):
@@ -97,9 +106,10 @@ def resolve_model_route(env: Mapping[str, str], provider: str = "auto") -> Model
     if backend in _KNOWN_BACKENDS and wanted in {"auto", ""}:
         canonical = "openai" if backend == "openai_compatible" else backend
         return ModelRoute(canonical, canonical, review_model, BACKEND_ENV)
-    if wanted in {"auto", "anthropic"} and _present(env, "ANTHROPIC_API_KEY"):
+    anthropic = _anthropic_credential(env)
+    if wanted in {"auto", "anthropic"} and anthropic:
         model = review_model or DEFAULT_ANTHROPIC_MODEL
-        return ModelRoute("anthropic", "litellm", model if "/" in model else f"anthropic/{model}", "ANTHROPIC_API_KEY")
+        return ModelRoute("anthropic", "litellm", model if "/" in model else f"anthropic/{model}", anthropic)
     if wanted in {"auto", "openai"}:
         credential = _openai_credential(env)
         if credential:
@@ -114,6 +124,10 @@ def apply_model_route(route: ModelRoute, env: MutableMapping[str, str]) -> None:
     """Point the review drivers at *route*. A backend or driver model the user already set is kept."""
 
     env.setdefault(BACKEND_ENV, route.backend)
+    if route.credential == "LEMONCROW_ANTHROPIC_API_KEY" and not _present(env, "ANTHROPIC_API_KEY"):
+        saved = str(env.get(route.credential) or "").strip()
+        if saved:
+            env["ANTHROPIC_API_KEY"] = saved  # the SDK and the direct route read the vendor's own name
     if route.backend == "litellm":
         # LiteLLM waits 6000 s for a response unless told otherwise; the review gives each call 120 s everywhere
         # else, and a hung connection must not hold a CI job for hours.

@@ -58,13 +58,16 @@ def _check_ai_review_flags(*, pr_spec: str | None, publish_pr: bool, publish_bot
 AGENT_CLIS = ("claude", "codex", "opencode")
 
 
-def use_agent_cli(agent: str | None) -> None:
+def use_agent_cli(agent: str | None, *, remember: bool = False, store_root: Path | None = None) -> None:
     """``--agent NAME``: run this one review on that local agent CLI, over any API key in the environment.
 
-    An agent CLI spends the person's own subscription, so it is only ever used when asked for by name; the missing-key
-    message shows the command when one is on the PATH.
+    An agent CLI spends the person's own subscription, so it is only ever used when they name it: with ``--agent`` each
+    time, or once with ``--remember``, which saves the name (``review.agent``) as the agent to use whenever no API key is
+    set. The missing-key message shows the command when exactly one is on the PATH, and runs nothing.
     """
 
+    if remember and not agent:
+        raise _LocalUsageError("--remember saves the agent you name: add --agent claude (or codex, opencode)")
     if not agent:
         return
     if shutil.which(agent) is None:
@@ -73,6 +76,18 @@ def use_agent_cli(agent: str | None) -> None:
             "export ANTHROPIC_API_KEY=sk-ant-..."
         )
     os.environ["LEMONCROW_LLM_BACKEND"] = agent
+    if remember:
+        from lemoncrow.core.foundation.paths import default_store_root
+        from lemoncrow.core.settings import settings_path, write_setting
+        from lemoncrow.pro.capabilities.review.pr_bot.local import AGENT_SETTING
+
+        root = store_root or default_store_root()
+        write_setting(root, AGENT_SETTING, agent)
+        click.echo(
+            f"Saved: with no API key set, lc review --ai now uses {agent} ({settings_path(root)}). "
+            f"Undo: lc settings reset {AGENT_SETTING}",
+            err=True,
+        )
 
 
 _WORKFLOW_COMMAND = {"notice": "notice", "warning": "warning", "error": "error"}
@@ -205,6 +220,7 @@ def _review_local_with_ai(
         fresh=fresh,
         max_usd=max_usd,
         max_runs=max_runs,
+        fail_setup=True,
     )
     try:
         report = run_local_review(options, progress=lambda message: click.echo(f"  {message}…", err=True))
@@ -214,9 +230,12 @@ def _review_local_with_ai(
     if as_json:
         _emit(report.to_wire(), as_json=True)
     else:
+        # A review that did not run (no model, a refused key) is an error: said on stderr, in a few plain lines.
+        did_not_run = bool(report.setup and report.setup_message and not report.open_findings())
         click.echo(
             render_text(report, style=None if plain else click.style, show_all=show_all),
             nl=False,
+            err=did_not_run,
             color=False if plain else None,
         )
     if report.exit_code:

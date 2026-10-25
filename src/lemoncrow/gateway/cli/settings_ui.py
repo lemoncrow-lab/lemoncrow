@@ -9,7 +9,6 @@ The ``*_lines`` helpers render the same model as plain output for ``show`` and
 from __future__ import annotations
 
 import difflib
-import re
 import textwrap
 from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
@@ -25,6 +24,7 @@ from lemoncrow.core.settings import (
     coerce,
     env_override,
     find_by_key,
+    is_secret,
     load_raw,
     unset_setting,
     write_setting,
@@ -86,14 +86,6 @@ def _gate_name(key: str) -> str:
 
 
 # ── values ────────────────────────────────────────────────────────────────────────
-
-
-_SECRET = re.compile(r"(?:api_key|_token|secret|password)$")
-
-
-def is_secret(spec: SettingSpec) -> bool:
-    """API keys and tokens: never echoed back to the screen."""
-    return spec.type == "str" and bool(_SECRET.search(spec.key))
 
 
 def display_value(spec: SettingSpec, value: Any) -> str:

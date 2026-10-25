@@ -235,6 +235,11 @@ class _ReviewCliProgress:
     help="With --ai, review with a local agent CLI you are signed in to instead of an API key (uses that tool's plan).",
 )
 @click.option(
+    "--remember",
+    is_flag=True,
+    help="With --ai --agent NAME: save that agent as the default for when no API key is set.",
+)
+@click.option(
     "--depth",
     type=click.Choice(["auto", "thorough", "deep"]),
     default="auto",
@@ -606,6 +611,7 @@ def review_cmd(
     ai_review: bool,
     publish_bot: bool,
     agent: str | None,
+    remember: bool,
     depth: str,
     fail_on: str | None,
     strict: bool,
@@ -716,10 +722,10 @@ def review_cmd(
         raise click.ClickException("--fix and --apply-fix are mutually exclusive")
     if with_conflict_markers and not apply_fix_snapshot:
         raise click.ClickException("--with-conflict-markers requires --apply-fix")
-    if agent and not (ai_review or publish_bot):
+    if (agent or remember) and not (ai_review or publish_bot):
         raise click.ClickException("--agent applies to an --ai review")
     if ai_review or publish_bot:
-        use_agent_cli(agent)
+        use_agent_cli(agent, remember=remember, store_root=store_root)
         _check_ai_review_flags(
             pr_spec=pr_spec,
             publish_pr=publish_pr,

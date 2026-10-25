@@ -21,7 +21,7 @@ import urllib.request
 from collections.abc import Mapping, Sequence
 from typing import Any, Final
 
-from lemoncrow.infra.internal_llm.exceptions import LiteLLMUnavailable, OpenAIClientUnavailable
+from lemoncrow.infra.internal_llm.exceptions import LiteLLMUnavailable, OpenAIClientUnavailable, describe_refusal
 from lemoncrow.infra.internal_llm.result import InternalLLMChatResult
 
 ANTHROPIC_VERSION: Final[str] = "2023-06-01"
@@ -83,11 +83,9 @@ def _http_error_text(provider: str, error: urllib.error.HTTPError) -> str:
         message = (json.loads(detail).get("error") or {}).get("message") or detail
     except (ValueError, AttributeError):
         message = detail
-    if error.code in (401, 403):
-        key = "ANTHROPIC_API_KEY" if provider == "Anthropic" else "OPENAI_API_KEY"
-        return f"{provider} rejected the API key (HTTP {error.code}): check {key}. {message}"
-    if error.code == 429:
-        return f"{provider} rate limit or quota reached (HTTP 429): {message}"
+    refusal = describe_refusal(provider, error.code, message)
+    if refusal:
+        return refusal
     return f"{provider} answered HTTP {error.code}: {message}"
 
 

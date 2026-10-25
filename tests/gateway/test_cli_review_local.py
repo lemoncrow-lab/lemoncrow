@@ -149,6 +149,36 @@ def test_a_critical_rule_violation_is_a_p0_and_exits_1(ruled: Lab) -> None:
     assert "Exit 1: 1 open finding at or above --fail-on p0 (a P0)" in result.stdout
 
 
+def test_a_rule_you_have_not_committed_yet_applies_to_your_own_review(lab: Lab) -> None:
+    """The audit: a new .lemoncrow/review.yaml was ignored ("absent", 0 rules) until committed. A developer trusts their own
+    working tree, so it counts, and the output says which config it used."""
+
+    lab.write({".lemoncrow/review.yaml": RULE, "src/auth.py": AUTH_BUGGY})  # both uncommitted
+    result = lab.run()
+    assert result.exit_code == 1 and "P0 · must fix  src/auth.py" in result.stdout
+    assert "Config: .lemoncrow/review.yaml from your working tree (not committed yet" in result.stdout
+    wire = lab.wire("--fresh", ok=(1,))
+    assert wire["config"] == {
+        "source": "working_tree",
+        "path": ".lemoncrow/review.yaml",
+        "state": "present",
+        "committed": False,
+    }
+    # Committed, the same file is "from your working tree." with nothing more to say.
+    lab.commit("add the review config")
+    assert "Config: .lemoncrow/review.yaml from your working tree.\n" in lab.run("--fresh").stdout
+    # Edit it without committing: the edit is what the next review uses (here it drops the rule).
+    lab.write({".lemoncrow/review.yaml": "review:\n  strictness: 2\n"})
+    edited = lab.run("--fresh")
+    assert "P0 · must fix" not in edited.stdout and "not committed yet" in edited.stdout
+
+
+def test_a_review_with_no_config_file_says_it_used_the_defaults(lab: Lab) -> None:
+    lab.write({"src/cache.py": CACHE_BUGGY})
+    result = lab.run()
+    assert "Config: no .lemoncrow/review.yaml in this working tree; built-in defaults." in result.stdout
+
+
 def test_the_severity_is_the_one_the_pull_request_bot_stores(ruled: Lab) -> None:
     ruled.write({"src/auth.py": AUTH_BUGGY, "src/cache.py": CACHE_BUGGY})
     wire = ruled.wire()
@@ -386,15 +416,99 @@ def test_risk_signals_left_unexamined_are_incomplete_coverage(lab: Lab) -> None:
     assert deeper["coverage"]["investigated"] >= wire["coverage"]["investigated"]
 
 
-def test_no_model_route_fails_open_and_exits_2_under_strict(lab: Lab, monkeypatch: pytest.MonkeyPatch) -> None:
+def _unroute(lab: Lab, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY")
     monkeypatch.delenv("LEMONCROW_LLM_BACKEND")
     lab.write({"src/auth.py": AUTH_BUGGY})
+
+
+def _agents_on_path(where: Path, monkeypatch: pytest.MonkeyPatch, *names: str) -> Path:
+    """A PATH holding only fake agent CLIs, each of which records that it ran (none should). Returns that record."""
+
+    bin_dir = where / "agent-bin"
+    bin_dir.mkdir()
+    ran = where / "agent-ran.txt"
+    for name in names:
+        script = bin_dir / name
+        script.write_text(f"#!/bin/sh\necho {name} >> {ran}\n", encoding="utf-8")
+        script.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}/usr/bin{os.pathsep}/bin")
+    return ran
+
+
+def test_no_model_is_a_three_line_message_and_exit_3_not_a_green_run(
+    lab: Lab, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _unroute(lab, monkeypatch)
+    ran = _agents_on_path(tmp_path, monkeypatch)  # no agent CLI at all
     soft = lab.run()
-    assert soft.exit_code == 0
-    assert "Review incomplete: no model route is configured" in soft.stdout
+    assert soft.exit_code == 3 and soft.stdout == ""  # an error: on stderr, and nothing on stdout
+    lines = soft.stderr.strip().splitlines()
+    assert len(lines) == 3
+    assert lines[0].startswith("No AI model is set up. Set a key:  export ANTHROPIC_API_KEY=sk-ant-...")
+    assert "OPENAI_API_KEY" in lines[0]
+    assert lines[1] == "Or use an agent you are signed in to:  lc review --ai --agent claude   (also codex, opencode)"
+    assert lines[2] == "Details: https://docs.lemoncrow.com/setup/ai-review"
+    for jargon in ("provider", "driver", "Review Intelligence", "route", "Traceback"):
+        assert jargon not in soft.stderr
+    assert not ran.exists() and lab.model.calls == []
+    # --strict keeps its own code (a hook or CI asks for it), with the same message.
     hard = lab.run("--strict")
-    assert hard.exit_code == 2 and "no model route is configured" in hard.stdout
+    assert hard.exit_code == 2 and hard.stderr == soft.stderr
+
+
+def test_exactly_one_agent_on_the_path_is_suggested_by_name_and_never_run(
+    lab: Lab, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _unroute(lab, monkeypatch)
+    ran = _agents_on_path(tmp_path, monkeypatch, "claude")
+    done = lab.run()
+    lines = done.stderr.strip().splitlines()
+    assert done.exit_code == 3 and len(lines) == 3
+    assert lines[1].startswith("Found Claude Code:  lc review --ai --agent claude")
+    assert "--remember" in lines[1]
+    assert not ran.exists() and lab.model.calls == []  # found is not chosen: nothing ran, nothing was spent
+    two = tmp_path / "two"
+    two.mkdir()
+    _agents_on_path(two, monkeypatch, "claude", "codex")
+    both = lab.run()
+    assert "Found" not in both.stderr and "also codex, opencode" in both.stderr
+
+
+def test_remember_saves_the_named_agent_and_a_later_run_with_no_key_uses_it(
+    lab: Lab, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    _unroute(lab, monkeypatch)
+    ran = _agents_on_path(tmp_path, monkeypatch, "claude")
+    refused = lab.run("--remember")  # --remember saves an agent you name: it does not guess one
+    assert refused.exit_code == 3 and "add --agent claude" in refused.stderr
+    saved = lab.run("--agent", "claude", "--remember")
+    assert "Saved: with no API key set, lc review --ai now uses claude" in saved.stderr
+    assert json.loads((lab.store / "plugin_settings.json").read_text())["review.agent"] == "claude"
+    assert oct((lab.store / "plugin_settings.json").stat().st_mode & 0o777) == "0o600"
+    monkeypatch.delenv("LEMONCROW_LLM_BACKEND", raising=False)  # --agent put it there for that one run
+    lab.model.reset()
+    again = lab.run("--fresh")  # no --agent this time: the saved choice is the route
+    assert again.exit_code == 0 and "Using Claude Code, as you chose with --remember" in again.stdout
+    assert lab.model.calls  # reviewed through the (fake) agent driver
+    assert not ran.exists()  # the fake CLI itself is never executed: the executor is the fake model
+    # An API key in the environment wins over the saved agent, and the agent can be forgotten.
+    monkeypatch.delenv("LEMONCROW_LLM_BACKEND", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    assert "Using Claude Code" not in lab.run("--fresh").stdout
+    monkeypatch.delenv("OPENAI_API_KEY")
+    monkeypatch.delenv("LEMONCROW_LLM_BACKEND", raising=False)
+    (lab.store / "plugin_settings.json").write_text("{}")
+    assert lab.run().exit_code == 3
+
+
+def test_no_model_json_says_why_and_exits_3(lab: Lab, monkeypatch: pytest.MonkeyPatch) -> None:
+    _unroute(lab, monkeypatch)
+    result = lab.run("--json")
+    wire = json.loads(result.stdout)
+    assert result.exit_code == 3 and wire["exit"]["code"] == 3 and wire["complete"] is False
+    assert "no AI model is set up" in wire["incomplete_reason"]
+    assert wire["findings"] == [] and wire["coverage"]["targets"] == 0
     assert lab.model.calls == []
 
 
@@ -403,9 +517,32 @@ def test_the_kill_switch_is_respected_and_no_model_is_called(lab: Lab) -> None:
     (lab.store / "plugin_settings.json").write_text(json.dumps({"intelligence.enabled": False}))
     lab.write({"src/auth.py": AUTH_BUGGY})
     soft = lab.run()
-    assert soft.exit_code == 0 and "AI review is turned off" in soft.stdout
+    assert soft.exit_code == 3 and "AI review is turned off" in soft.stderr
+    assert "lc settings set intelligence.enabled true" in soft.stderr
     assert lab.run("--strict").exit_code == 2
     assert lab.model.calls == []
+
+
+@pytest.mark.parametrize(
+    "refusal",
+    [
+        'Anthropic rejected the API key (HTTP 401): check ANTHROPIC_API_KEY. ("invalid x-api-key")',
+        "OpenAI says your account has no credit left (HTTP 429): add credit at platform.openai.com/settings/organization/billing.",
+        "Anthropic rate limit reached (HTTP 429): wait a minute and run it again.",
+    ],
+)
+def test_a_provider_that_refuses_the_key_the_credit_or_the_rate_is_one_line(lab: Lab, refusal: str) -> None:
+    lab.model.fail = f"AnthropicRequestFailed: {refusal}"
+    lab.write({"src/auth.py": AUTH_BUGGY})
+    done = lab.run()
+    assert done.exit_code == 3 and done.stdout == ""
+    said = done.stderr.strip().splitlines()
+    assert said[-1] == refusal  # the reason is one line: no coverage table, no model-call notes, no class name
+    assert all(line.startswith(("Capturing", "  Running")) for line in said[:-1])  # just the progress before it
+    assert "Give Feedback" not in done.output and "\x1b" not in done.output
+    assert lab.run("--strict", "--fresh").exit_code == 2
+    wire = lab.wire("--fresh", ok=(3,))
+    assert wire["incomplete_reason"] == refusal and wire["exit"]["code"] == 3 and wire["findings"] == []
 
 
 def test_a_provider_that_fails_is_an_incomplete_review_not_a_finding(lab: Lab) -> None:
@@ -537,6 +674,7 @@ def test_json_is_a_stable_machine_readable_result(ruled: Lab) -> None:
         "coverage",
         "depth",
         "model",
+        "config",
         "usage",
         "usage_total",
         "notes",
@@ -577,7 +715,7 @@ def test_json_for_an_incomplete_review_says_why(lab: Lab, monkeypatch: pytest.Mo
     monkeypatch.delenv("LEMONCROW_LLM_BACKEND")
     lab.write({"src/auth.py": AUTH_BUGGY})
     wire = lab.wire("--strict", ok=(2,))
-    assert wire["complete"] is False and "no model route is configured" in wire["incomplete_reason"]
+    assert wire["complete"] is False and "no AI model is set up" in wire["incomplete_reason"]
     assert wire["exit"]["code"] == 2 and wire["findings"] == [] and wire["coverage"]["targets"] == 0
 
 

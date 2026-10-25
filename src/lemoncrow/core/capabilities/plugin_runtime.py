@@ -227,7 +227,7 @@ def write_plugin_setting(root: str | Path, key: str, value: bool) -> dict[str, b
         raise ValueError(f"unknown plugin setting: {key}")
     settings = load_plugin_settings(root)
     settings[key] = bool(value)
-    _write_json(plugin_settings_path(root), settings)
+    _write_json(plugin_settings_path(root), settings, mode=0o600)  # it can hold API keys
     return settings
 
 
@@ -535,7 +535,7 @@ def set_recall_settings(
     if not isinstance(settings, dict):
         settings = {}
     updated = apply_recall_settings(settings, auto_index=auto_index, embedder=embedder, embed_model=embed_model)
-    _write_json(path, updated)
+    _write_json(path, updated, mode=0o600)  # the file can hold API keys
     return updated
 
 

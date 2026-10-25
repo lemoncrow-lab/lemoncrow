@@ -3231,6 +3231,13 @@ def register_review_api(
             document = hosted_authority(revision.review_id, revision.id, path)
             if isinstance(document, TrustedBaseDocument):
                 return document
+        own_checkout = getattr(store, "working_tree_authority", None)
+        if own_checkout is not None:
+            # `lc review --ai` on the developer's own change (never a pull request, the Action or a hosted Review):
+            # nobody else wrote this configuration, so the file as it is on disk is the authority.
+            document = own_checkout.document(path)
+            if isinstance(document, TrustedBaseDocument):
+                return document
         return resolve_trusted_base_document(path, _snapshot_document_text(revision, path, side="old"))
 
     def _snapshot_review_config(revision: ReviewRevision) -> TrustedBaseDocument:
@@ -3305,7 +3312,11 @@ def register_review_api(
             read_base_document=lambda path: _snapshot_base_document(revision, path),
             organization=organization,
             # Expands import.rules_files globs (G10); only a path is taken from this listing, every byte is the base's.
-            base_paths=lambda: _base_tree_paths(revision),
+            base_paths=lambda: (
+                _base_tree_paths(revision)
+                if getattr(store, "working_tree_authority", None) is None
+                else store.working_tree_authority.paths()
+            ),
         )
         base_known = config.base_known and governance.base_state != "provisional"
         _bounded_cache_put(_review_governance_cache, revision.id, (governance, base_known))
