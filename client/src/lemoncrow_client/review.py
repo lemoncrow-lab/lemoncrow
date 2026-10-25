@@ -26,6 +26,7 @@ from .config import ClientConfig, load_config
 from .errors import AgentAction, ClientError, ErrorCode
 from .review_base import EMPTY_TREE_SHA, branch_review_failed, capture_review_base, parse_branch_review
 from .review_session import ReviewSession
+from .workspace_paths import REVIEW_CONFIG_PATH
 
 __all__ = ["ReviewRange", "resolve_review_range", "review_main"]
 
@@ -425,7 +426,13 @@ def _worktree_paths(repo: Path) -> tuple[str, ...]:
         ".",
         *[f":(exclude){path}" for path in _INTERNAL_PATHS],
     )
-    return tuple(item.decode("utf-8", errors="surrogateescape") for item in raw.split(b"\0") if item)
+    paths = tuple(item.decode("utf-8", errors="surrogateescape") for item in raw.split(b"\0") if item)
+    # `.lemoncrow/` is excluded as LemonCrow's own scratch space, but its one committed file is repository source that
+    # sets the review policy, and the base side (a checkout of the commit) carries it. Leaving it out of the working
+    # tree would show an unchanged policy file as deleted: "LemonCrow policy removed", a critical change.
+    config = _git_bytes(repo, "ls-files", "-co", "--exclude-standard", "-z", "--", REVIEW_CONFIG_PATH)
+    kept = config.decode("utf-8", errors="surrogateescape").split("\0")[0]
+    return (*paths, kept) if kept and kept not in paths else paths
 
 
 def _materialize_worktree(repo: Path, target: Path) -> None:

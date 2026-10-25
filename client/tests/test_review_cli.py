@@ -161,6 +161,31 @@ def test_working_tree_snapshot_is_exact_and_excludes_ignored_state(tmp_path: Pat
     assert not (head / ".git").exists()
 
 
+def test_working_tree_snapshot_keeps_the_committed_review_policy_but_not_the_rest_of_lemoncrow_state(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    (repo / ".lemoncrow").mkdir()
+    (repo / ".lemoncrow" / "review.yaml").write_text("review:\n  strictness: 3\n", encoding="utf-8")
+    _git(repo, "add", ".lemoncrow/review.yaml")
+    _git(repo, "commit", "-q", "-m", "policy")
+    (repo / "a.py").write_text("value = 2\n", encoding="utf-8")
+    (repo / ".lemoncrow" / "index.sqlite").write_text("scratch\n", encoding="utf-8")
+    resolved = resolve_review_range(repo, working_tree=True)
+    base, head = tmp_path / "base", tmp_path / "head"
+
+    _freeze_range(repo, resolved, base, head)
+
+    # An unchanged policy file is on both sides, so it is not a change; the scratch file is on neither.
+    assert (base / ".lemoncrow" / "review.yaml").read_text() == "review:\n  strictness: 3\n"
+    assert (head / ".lemoncrow" / "review.yaml").read_text() == "review:\n  strictness: 3\n"
+    assert not (head / ".lemoncrow" / "index.sqlite").exists()
+
+    (repo / ".lemoncrow" / "review.yaml").unlink()
+    _freeze_range(repo, resolve_review_range(repo, working_tree=True), base, head)
+    assert not (head / ".lemoncrow" / "review.yaml").exists()  # a real deletion still shows as one
+
+
 def test_staged_snapshot_does_not_include_unstaged_edit(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     (repo / "a.py").write_text("value = 2\n", encoding="utf-8")
