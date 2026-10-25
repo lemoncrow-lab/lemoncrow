@@ -3443,6 +3443,13 @@ export interface ReviewAiAssurance {
   fresh_rerun: ReviewAiFreshRerunPreview;
 }
 
+/** What a person with no AI model set up is told: the same words and next steps as `lc review --ai` prints. */
+export interface ReviewAiSetupHelp {
+  headline: string;
+  steps: Array<{ lead: string; command: string; note: string }>;
+  docs_url: string;
+}
+
 export interface ReviewAiReviewStatus {
   /**
    * Whether this deployment can run AI review at all. `false` (hosted without an executor) hides every control
@@ -3460,6 +3467,8 @@ export interface ReviewAiReviewStatus {
   provider?: string;
   model?: string;
   error?: string;
+  /** Set when this server runs AI review itself and no model is set up yet (the local Reader); `error` is then its headline. */
+  setup_help?: ReviewAiSetupHelp;
   budget: { calls_used: number; max_calls: number };
   skipped_by_budget?: number;
   /** Backend-derived Auto eligibility for this exact latest Snapshot. */

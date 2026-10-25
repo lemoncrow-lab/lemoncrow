@@ -70,6 +70,14 @@ class AgentCliDriverRefused(InternalLLMError):
     """The route resolved to an agent CLI on a host that never starts one."""
 
 
+class NoProviderConfigured(InternalLLMError):
+    """No model route is configured (``LEMONCROW_LLM_BACKEND`` is ``none``): nothing was chosen, nothing is broken.
+
+    Kept apart from the other route errors so a surface can tell a person how to set a model up instead of repeating
+    the operator wording below.
+    """
+
+
 class IntelligenceDisabled(InternalLLMError):
     """The effective intelligence policy turns model routes off, or cannot be read (fail closed)."""
 
@@ -336,7 +344,7 @@ def resolve_driver_model(
         requested = configured
     if requested not in {"claude", "codex", "opencode", "ollama", "openai", "litellm"}:
         if requested == "none":
-            raise InternalLLMError(
+            raise NoProviderConfigured(
                 "Review Intelligence provider is disabled; configure a provider or select a local/subscription driver"
             )
         raise InternalLLMError(f"Unsupported Review Intelligence driver: {requested}")

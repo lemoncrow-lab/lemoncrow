@@ -54,7 +54,7 @@ def install(repo: Path, *args: str, ok: bool = True) -> Any:
 def test_print_shows_the_script_and_writes_nothing(plain: Path) -> None:
     result = install(plain, "--print")
     assert result.output == hooks.hook_script("pre-push")
-    assert result.output.startswith("#!/bin/sh\n# lemoncrow-review-hook v2 (pre-push)\n")
+    assert result.output.startswith("#!/bin/sh\n# lemoncrow-review-hook v3 (pre-push)\n")
     assert 'LEMONCROW_HOOK_STOP=87 "$LC" review hook run --pre-push --fail-on p0 --depth auto "$@"' in result.output
     assert not (plain / ".git" / "hooks" / "pre-push").exists()
     subprocess.run(["sh", "-n"], input=result.output, text=True, check=True)  # it parses
@@ -143,7 +143,7 @@ def stub_lc(tmp_path: Path) -> Path:
 
 
 def run_hook(
-    script: str, tmp_path: Path, bin_dir: Path, *, stdin: str = "", **env: str
+    script: str, tmp_path: Path, bin_dir: Path, *, stdin: str = "", cwd: Path | None = None, **env: str
 ) -> subprocess.CompletedProcess[str]:
     hook = tmp_path / "hook.sh"
     hook.write_text(script)
@@ -155,6 +155,7 @@ def run_hook(
         capture_output=True,
         env=full,
         check=False,
+        cwd=cwd or tmp_path,  # never this checkout: the script writes into the git directory it runs in
     )
 
 
@@ -213,7 +214,36 @@ def test_the_script_skips_on_request_and_never_blocks_for_want_of_lc(tmp_path: P
     empty = tmp_path / "empty"
     empty.mkdir()
     missing = run_hook(script, tmp_path, empty)
-    assert missing.returncode == 0 and "lc was not found; not reviewing this push" in missing.stderr
+    assert missing.returncode == 0  # no repository to remember the notice in: nothing to say, nothing blocked
+    assert missing.stderr == ""
+
+
+def test_a_hook_that_outlives_lc_says_so_once_and_then_stays_quiet(tmp_path: Path, plain: Path) -> None:
+    """``lc uninstall`` removes the hooks it recorded; one it never saw must not nag on every push."""
+
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    script = hooks.hook_script("pre-push", lc_path=str(tmp_path / "gone" / "lc"))
+    first = run_hook(script, tmp_path, empty, cwd=plain)
+    assert first.returncode == 0
+    assert "lc was not found" in first.stderr and "this is said once" in first.stderr
+    assert str(tmp_path / "hook.sh") in first.stderr  # the file to delete
+    assert first.stderr.count("\n") == 1
+    assert (plain / ".git" / hooks.MISSING_NOTICE_FILE).exists()
+    for _ in range(3):
+        again = run_hook(script, tmp_path, empty, cwd=plain)
+        assert again.returncode == 0 and again.stderr == "" and again.stdout == ""
+    # Another repository has not been told yet.
+    other = tmp_path / "other"
+    other.mkdir()
+    git(other, "init", "-q", "-b", "main")
+    assert "lc was not found" in run_hook(script, tmp_path, empty, cwd=other).stderr
+    # A commit hook says commit.
+    third = tmp_path / "third"
+    third.mkdir()
+    git(third, "init", "-q", "-b", "main")
+    commit = run_hook(hooks.hook_script("pre-commit"), tmp_path, empty, cwd=third)
+    assert commit.returncode == 0 and "this commit was not reviewed" in commit.stderr
 
 
 def test_the_pre_commit_script_calls_the_staged_review(tmp_path: Path, stub_lc: Path) -> None:

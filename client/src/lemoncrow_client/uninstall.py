@@ -6,12 +6,15 @@ The plan is built once, from what is on disk, and the same plan is printed, prev
 dry run cannot list something the real run does not remove, or the reverse. It has three parts:
 
 * **Installed by LemonCrow**: the commands, the Review client and engine (a Python environment), the installer's scripts and
-  Reader, the carried review results (a cache), the background server's process files and the lines the installer added to
-  your shell startup files (``~/.bashrc``, ``~/.profile`` ...). Removed after one question (or ``--yes``).
+  Reader, the carried review results (a cache), the background server's process files, the lines the installer added to
+  your shell startup files (``~/.bashrc``, ``~/.profile`` ...) and the git hooks ``lc review hook install`` wrote. A hook
+  is found by its marker line, in the repositories ``lc review hook install`` listed in ``installed-hooks.txt`` and in the
+  one you are standing in; it calls ``lc``, so it goes with ``lc`` and no repository keeps a hook for a command that is gone.
+  Removed after one question (or ``--yes``).
 * **Yours**: the settings file (it can hold an API key you saved), the reviews you opened in the Reader, the telemetry id of
   the full CLI, a hosted sign-in. Each group is asked about; ``--yes`` keeps them and ``--purge`` removes them.
-* **In your repositories**: the git hooks ``lc review hook install`` wrote (it keeps a list), and, for the repository you are
-  standing in, the ``.lemoncrow`` folder and the small files a review left. Asked about, never removed by ``--yes``.
+* **In your repositories**: for the repository you are standing in, the ``.lemoncrow`` folder and the small files a review
+  left. Asked about, never removed by ``--yes``.
 
 It never runs ``npm``, never touches coding-agent settings except through ``lc rt disable`` when Runtime is removed too, and
 never deletes a folder it does not recognise: what it leaves is listed.
@@ -57,7 +60,7 @@ class Step:
     path: Path | None = None
     #: A second line for the person: why it is there, or what is in it.
     note: str = ""
-    #: Which question covers it when it is asked about: ``data``, ``hooks`` or ``repo``.
+    #: Which question covers it when it is asked about: ``data`` or ``repo``.
     ask: str = ""
 
 
@@ -177,7 +180,7 @@ def build_plan(
     keep_shared = (
         product == "review" and runtime_present
     )  # Runtime still needs the scripts, the shell lines, the server
-    steps: list[Step] = []
+    steps: list[Step] = _hook_steps(state, cwd, user)
 
     def tilde(path: Path) -> str:
         return _tilde(path, user)
@@ -303,14 +306,23 @@ def build_plan(
     return steps
 
 
-def _repository_steps(state: Path, cwd: Path, user: Path) -> list[Step]:
-    steps: list[Step] = []
+def _repo_top(cwd: Path) -> Path | None:
+    top = _git(cwd, "rev-parse", "--show-toplevel")
+    return Path(top) if top else None
+
+
+def _hook_steps(state: Path, cwd: Path, user: Path) -> list[Step]:
+    """The hooks ``lc review hook install`` wrote, and the list it kept of them: installed by LemonCrow, so removed with it.
+
+    A hook is ours when it carries the marker line, wherever it is: in a repository the installer listed, or in the one
+    *cwd* is in. A listed path that is gone, or that someone has since replaced with their own hook, is not touched.
+    """
+
     seen: dict[Path, None] = {}
     for hook in _recorded_hooks(state):
         if _is_our_hook(hook):
             seen.setdefault(hook, None)
-    top = _git(cwd, "rev-parse", "--show-toplevel")
-    repo = Path(top) if top else None
+    repo = _repo_top(cwd)
     if repo is not None:
         hooks_dir = _git(repo, "rev-parse", "--git-path", "hooks")
         if hooks_dir:
@@ -318,30 +330,20 @@ def _repository_steps(state: Path, cwd: Path, user: Path) -> list[Step]:
             for name in ("pre-push", "pre-commit"):
                 if _is_our_hook(base / name):
                     seen.setdefault(base / name, None)
-    for hook in seen:
-        steps.append(
-            Step(
-                "repo",
-                "remove",
-                "A git hook written by lc review hook install",
-                hook,
-                _tilde(hook, user),
-                ask="hooks",
-            )
-        )
+    steps = [
+        Step("installed", "remove", "A git hook written by lc review hook install", hook, _tilde(hook, user))
+        for hook in seen
+    ]
     record = state / HOOK_RECORD
     if record.exists():
-        # Its own bookkeeping goes with the hooks it lists; with none left to list, it goes with the install.
-        steps.append(
-            Step(
-                "repo" if seen else "installed",
-                "remove",
-                "The list of hooks it keeps",
-                record,
-                _tilde(record, user),
-                ask="hooks" if seen else "",
-            )
-        )
+        # Its own bookkeeping goes with the hooks it lists.
+        steps.append(Step("installed", "remove", "The list of hooks it keeps", record, _tilde(record, user)))
+    return steps
+
+
+def _repository_steps(state: Path, cwd: Path, user: Path) -> list[Step]:
+    steps: list[Step] = []
+    repo = _repo_top(cwd)
     if repo is None:
         return steps
     proof = repo / _PROOF_FILE
@@ -530,9 +532,7 @@ def main(
         return 0
 
     asking = tty and not yes  # a person at the terminal, who will be asked about what is theirs
-    also = (
-        {"data", "hooks"} if purge else set()
-    )  # --purge answers for the machine's data; a repository's folder is asked
+    also = {"data"} if purge else set()  # --purge answers for the machine's data; a repository's folder is asked
     purged = [step for step in yours if step.ask in also]
     rest = [step for step in yours if step.ask not in also]
     title = "LemonCrow uninstall" + (" (dry run: nothing will be changed)" if dry else "")
@@ -581,7 +581,6 @@ def main(
         groups.setdefault(step.ask, []).append(step)
     questions = {
         "data": "Also delete your settings, saved reviews and sign-in?",
-        "hooks": "Also remove the git hooks listed above?",
         "repo": "Also remove the LemonCrow files in this repository?",
     }
     kept: list[Step] = []

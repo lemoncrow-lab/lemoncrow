@@ -210,6 +210,52 @@ def test_hosted_durable_submitter_receives_the_persisted_plan(tmp_path: Path) ->
     assert args[2] == "deep" and args[3] == "manual"
 
 
+def test_a_local_reader_with_no_ai_model_says_what_lc_review_ai_says(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The first thing the Reader says about AI is plain words and the CLI's next steps, from the CLI's own source."""
+
+    import shutil
+
+    from lemoncrow.pro.capabilities.review.pr_bot import local
+
+    monkeypatch.delenv("LEMONCROW_LLM_BACKEND", raising=False)
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
+    review = _review(tmp_path)
+    ai = _get(review, "projection").json()["ai_review"]
+    help_ = ai["setup_help"]
+    assert help_ == local.no_route_help(lambda _name: None).to_wire()
+    assert ai["error"] == help_["headline"] == "No AI model is set up."
+    # Every line the terminal prints is made of the parts the Reader shows.
+    key, agent = help_["steps"]
+    lines = local.no_route_text(lambda _name: None).splitlines()
+    assert lines[0] == f"{help_['headline']} {key['lead']}  {key['command']}   {key['note']}"
+    assert lines[1] == f"{agent['lead']}  {agent['command']}   {agent['note']}"
+    assert lines[2] == f"Details: {help_['docs_url']}"
+    assert "export ANTHROPIC_API_KEY=" in key["command"] and "lc review --ai --agent claude" in agent["command"]
+    assert "provider is disabled" not in json.dumps(ai)
+    plan = _get(review, "run-plan").json()
+    assert plan["ai_availability"] == {"available": False, "reason": local.NO_ROUTE_REASON, "executor": "local"}
+
+
+def test_a_configured_local_route_shows_no_setup_help(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LEMONCROW_LLM_BACKEND", "claude")
+    ai = _get(_review(tmp_path), "projection").json()["ai_review"]
+    assert "setup_help" not in ai and not ai["error"]
+
+
+def test_hosted_keeps_its_operator_wording_for_a_route_the_operator_has_not_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A viewer of a hosted workspace is not the one who sets a model up: no terminal steps are offered there."""
+
+    monkeypatch.delenv("LEMONCROW_LLM_BACKEND", raising=False)
+    review = _review(tmp_path, ai_review_submitter=lambda *_a, **_k: {"status": "queued"})
+    ai = _get(review, "projection").json()["ai_review"]
+    assert "setup_help" not in ai
+    assert "provider is disabled" in ai["error"]
+
+
 def test_run_specific_previews_then_adds_only_and_rejects_unknown_ids(tmp_path: Path) -> None:
     review = _review(tmp_path, base_config="review:\n  effort: quick\n")
     before = _get(review, "run-plan").json()["plan"]

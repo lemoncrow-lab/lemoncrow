@@ -460,6 +460,28 @@ def test_no_model_is_a_three_line_message_and_exit_3_not_a_green_run(
     assert hard.exit_code == 2 and hard.stderr == soft.stderr
 
 
+def test_a_no_key_rerun_after_a_carried_review_gives_the_same_three_lines(
+    ruled: Lab, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """One situation, one message: the carried findings are shown, flagged as not re-checked, then the help as ever."""
+
+    ruled.write({"src/auth.py": AUTH_BUGGY})
+    assert ruled.run().exit_code == 1  # the P0 is found, with a key, and carried
+    spent = len(ruled.model.calls)
+    monkeypatch.delenv("OPENAI_API_KEY")
+    monkeypatch.delenv("LEMONCROW_LLM_BACKEND")
+    _agents_on_path(tmp_path, monkeypatch)
+    again = ruled.run()
+    assert again.exit_code == 1  # the carried P0 still decides the exit code, as it does on a hook
+    assert "P0 · must fix  src/auth.py" in again.stdout
+    assert "Incomplete:" not in again.stdout
+    lines = again.stdout.splitlines()
+    at = lines.index("Not re-checked: these findings are from your last review of this change.")
+    assert lines[at + 1 : at + 4] == local.no_route_text(lambda _name: None).splitlines(), lines[at:]
+    assert "provider" not in again.stdout and "driver" not in again.stdout
+    assert len(ruled.model.calls) == spent  # nothing was spent re-checking
+
+
 def test_exactly_one_agent_on_the_path_is_suggested_by_name_and_never_run(
     lab: Lab, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

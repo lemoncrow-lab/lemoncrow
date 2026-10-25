@@ -33,6 +33,8 @@ Details: https://docs.lemoncrow.com/setup/ai-review
 
 and exits with status 3 (a script or CI step sees that the review did not run). A git hook never blocks on this: see [exit codes](../reference/cli.md#local-ai-review-and-git-hooks).
 
+If you reviewed this change before with a key, you see those findings first, under the line `Not re-checked: these findings are from your last review of this change.`, then the same three lines; the exit code stays the findings' (1 for an open P0), because nothing could re-check them. The local Reader says it the same way: `lc review` (no `--ai`) opens it, and its AI review line reads `No AI model is set up.` with the same key and agent commands and this page's link. AI review itself runs from your terminal with `lc review --ai`.
+
 ## Keep your key instead of exporting it
 
 ```bash

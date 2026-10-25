@@ -366,6 +366,7 @@ function AiReviewLine({
   const excluded = runCoverage?.excluded_by_policy ?? statusCoverage?.excluded_by_policy ?? [];
   const humanTargets = runCoverage?.human_deterministic_targets ?? statusCoverage?.human_deterministic_targets ?? 0;
   const checkedTargets = runCoverage?.ai_checked_targets ?? statusCoverage?.ai_context_eligible_targets ?? 0;
+  const setup = review.setup_help;
   const unavailable = error || review.error || runResult?.provider_errors?.[0] || "";
   const execution = review.execution;
   const trace = execution?.trace;
@@ -391,9 +392,11 @@ function AiReviewLine({
           ? "Not needed"
           : review.status === "ready"
             ? "Complete"
-            : review.status === "failed" || review.status === "cancelled" || unavailable
-              ? "Unavailable"
-              : "Not run";
+            : setup
+              ? "Not set up"
+              : review.status === "failed" || review.status === "cancelled" || unavailable
+                ? "Unavailable"
+                : "Not run";
   const sourceLocus = modelDataLocus === "customer_local"
     ? "Source/context stays customer-local for the model route."
     : modelDataLocus === "external"
@@ -445,8 +448,8 @@ function AiReviewLine({
         {!busy && unavailable && (
           <span className="inline-flex flex-wrap items-center gap-x-1.5 text-meta text-muted-foreground">
             {/* The provider's own message, without its exception class name; the Review itself is unaffected. */}
-            <span title={unavailable}>{unavailable.replace(/^[A-Za-z]+Error:\s*/, "")}</span>
-            <span>· deterministic Review remains available</span>
+            {!setup && <span title={unavailable}>{unavailable.replace(/^[A-Za-z]+Error:\s*/, "")}</span>}
+            <span>{setup ? "Deterministic Review remains available" : "· deterministic Review remains available"}</span>
           </span>
         )}
         {!busy && !stopping && cancellable && onCancelAiReview && (
@@ -460,6 +463,29 @@ function AiReviewLine({
           </UiButton>
         )}
       </div>
+
+      {!busy && setup && (
+        <div data-testid="ai-setup-help" className="space-y-1 text-caption leading-5 text-muted-foreground">
+          <p>
+            <span className="text-foreground">{setup.headline}</span> AI review runs from your terminal.
+          </p>
+          <ul className="space-y-0.5">
+            {setup.steps.map((step) => (
+              <li key={step.command}>
+                {step.lead}{" "}
+                <code className="rounded bg-muted/70 px-1.5 py-0.5 text-caption text-subtle">{step.command}</code>{" "}
+                {step.note}
+              </li>
+            ))}
+          </ul>
+          <p>
+            Details:{" "}
+            <a className="underline underline-offset-2" href={setup.docs_url} target="_blank" rel="noreferrer noopener">
+              {setup.docs_url.replace(/^https?:\/\//, "")}
+            </a>
+          </p>
+        </div>
+      )}
 
       {runResult?.depth_request && runResult.depth_request.state !== "honored" && runResult.depth_request.reason && (
         <div className="text-caption text-amber-300/90" data-testid="ai-depth-request">

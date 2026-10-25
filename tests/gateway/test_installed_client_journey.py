@@ -612,7 +612,8 @@ def test_zz_uninstall_lists_then_removes_what_the_installer_added_and_keeps_the_
     refused = journey.run("uninstall", "all", cwd=repo, extra=environment, ok=(2,))
     assert "Not a terminal, so nothing was removed" in refused.stdout and snapshot() == before
 
-    # --yes removes what the installer added; settings (they hold a key), the hook and the repository stay.
+    # --yes removes what the installer added, the git hook it wrote included (it calls the `lc` that goes);
+    # settings (they hold a key) and the repository's own files stay.
     done = journey.run("uninstall", "all", "--yes", cwd=repo, extra=environment)
     assert "Kept, as listed above. To remove your data too: lc uninstall all --purge" in done.stdout
     assert not (home / "review").exists() and not (home / "bin").exists() and not (home / "shell-env.sh").exists()
@@ -620,7 +621,8 @@ def test_zz_uninstall_lists_then_removes_what_the_installer_added_and_keeps_the_
     assert (user / ".bashrc").read_text(encoding="utf-8") == "export KEEP=1\n"
     assert (user / ".profile").read_text(encoding="utf-8") == "# my profile\n"
     assert settings_file.read_text(encoding="utf-8") == '{"llm.openai_api_key": "sk-keep-me"}'
-    assert hook.is_file() and (repo / ".lemoncrow" / "review.yaml").is_file()
+    assert not hook.exists() and not (home / "installed-hooks.txt").exists()
+    assert (repo / ".lemoncrow" / "review.yaml").is_file()
     assert not (tmp_path / "npm-ran").exists()  # never runs npm
     # Open a new terminal: the command is gone.
     assert not journey.lc.exists()
@@ -632,5 +634,5 @@ def test_zz_uninstall_lists_then_removes_what_the_installer_added_and_keeps_the_
     assert (
         uninstall.main(["all", "--purge"], sink, env={**os.environ, **journey.env, **environment}, cwd=repo) == 0
     ), sink.getvalue()
-    assert not settings_file.exists() and not hook.exists() and not (home / "installed-hooks.txt").exists()
+    assert not settings_file.exists() and not (home / "installed-hooks.txt").exists()
     assert (repo / ".lemoncrow" / "review.yaml").is_file()  # a repository's folder is never purged blind

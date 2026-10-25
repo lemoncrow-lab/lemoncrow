@@ -375,9 +375,46 @@ _AGENT_NAMES: Final[Mapping[str, str]] = {"claude": "Claude Code", "codex": "Cod
 AGENT_SETTING: Final[str] = "review.agent"
 
 
-def no_route_text(which: Callable[[str], str | None] | None = None) -> str:
-    """The three lines a person with no AI model set up reads: what is missing, the exact line to fix it with a key, and
-    the agent they could use instead, then where to read more.
+@dataclass(frozen=True, slots=True)
+class NoRouteHelp:
+    """What a person with no AI model set up is told: the parts of the message, so every surface says the same thing.
+
+    The terminal prints them as three lines (:meth:`text`); the Reader shows the same parts (:meth:`to_wire`). Both are
+    built here, once, so the wording of the key step, the agent step and the docs link cannot drift between them.
+    """
+
+    headline: str
+    key_lead: str
+    key_command: str
+    key_note: str
+    agent_lead: str
+    agent_command: str
+    agent_note: str
+    docs_url: str
+
+    def text(self) -> str:
+        return "\n".join(
+            (
+                f"{self.headline} {self.key_lead}  {self.key_command}   {self.key_note}",
+                f"{self.agent_lead}  {self.agent_command}   {self.agent_note}",
+                f"Details: {self.docs_url}",
+            )
+        )
+
+    def to_wire(self) -> dict[str, Any]:
+        return {
+            "headline": self.headline,
+            "steps": [
+                {"lead": self.key_lead, "command": self.key_command, "note": self.key_note},
+                {"lead": self.agent_lead, "command": self.agent_command, "note": self.agent_note},
+            ],
+            "docs_url": self.docs_url,
+        }
+
+
+def no_route_help(which: Callable[[str], str | None] | None = None) -> NoRouteHelp:
+    """The message for no AI model: what is missing, the exact line to fix it with a key, the agent they could use
+    instead, and where to read more.
 
     Nothing is run or chosen here. An agent CLI spends the person's own plan, so it is used only when ``--agent`` names it
     (once with ``--remember``, or each time); when exactly one is on the PATH the message names it, as the command to type.
@@ -388,18 +425,32 @@ def no_route_text(which: Callable[[str], str | None] | None = None) -> str:
     found = [name for name in _AGENT_CLIS if (which or shutil.which)(name)]
     if len(found) == 1:
         agent = (
-            f"Found {_AGENT_NAMES[found[0]]}:  lc review --ai --agent {found[0]}"
-            "   (uses its plan; add --remember to make it the default)"
+            f"Found {_AGENT_NAMES[found[0]]}:",
+            f"lc review --ai --agent {found[0]}",
+            "(uses its plan; add --remember to make it the default)",
         )
     else:
-        agent = "Or use an agent you are signed in to:  lc review --ai --agent claude   (also codex, opencode)"
-    return "\n".join(
-        (
-            "No AI model is set up. Set a key:  export ANTHROPIC_API_KEY=sk-ant-...   (or OPENAI_API_KEY=sk-...)",
-            agent,
-            f"Details: {DOCS_URL}",
+        agent = (
+            "Or use an agent you are signed in to:",
+            "lc review --ai --agent claude",
+            "(also codex, opencode)",
         )
+    return NoRouteHelp(
+        headline="No AI model is set up.",
+        key_lead="Set a key:",
+        key_command="export ANTHROPIC_API_KEY=sk-ant-...",
+        key_note="(or OPENAI_API_KEY=sk-...)",
+        agent_lead=agent[0],
+        agent_command=agent[1],
+        agent_note=agent[2],
+        docs_url=DOCS_URL,
     )
+
+
+def no_route_text(which: Callable[[str], str | None] | None = None) -> str:
+    """The three lines a person with no AI model set up reads in the terminal (see :func:`no_route_help`)."""
+
+    return no_route_help(which).text()
 
 
 def saved_agent(store_root: Path, which: Callable[[str], str | None] | None = None) -> str:
@@ -795,7 +846,13 @@ def render_text(report: LocalReport, *, style: Callable[..., str] | None = None,
         lines.append(f"Model: {report.model or 'none'} · depth {report.depth} · {usage_text(report.usage)}")
     shown_reason = report.incomplete_reason
     if report.incomplete and shown_reason and (view is None or shown_reason not in view.headline):
-        lines.append(paint(f"Incomplete: {plain(shown_reason)}", fg="yellow"))
+        if report.setup == "no_route" and report.setup_message:
+            # Findings carried from the last review, and nothing could re-check them: say so, then the same lines a
+            # person with no model gets when there is nothing to show, so one situation reads one way.
+            lines.append(paint("Not re-checked: these findings are from your last review of this change.", fg="yellow"))
+            lines.extend(report.setup_message.splitlines())
+        else:
+            lines.append(paint(f"Incomplete: {plain(shown_reason)}", fg="yellow"))
     for note in report.notes:
         lines.append(f"Note: {plain(note)}")
     if report.exit_code:

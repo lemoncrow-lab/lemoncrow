@@ -15,6 +15,10 @@ revision that cannot be resolved) never blocks without ``--strict``, and neither
 missing ``lc`` or an installation that lost a file: those exit 1 like a finding would, so the script cannot tell them
 apart by the status. It asks ``hook run`` to answer "stop" with a code nothing else produces
 (:data:`STOP_ENV`, :data:`STOP_CODE`) and lets everything else through with a one-line notice.
+
+``lc uninstall`` removes the hooks listed in ``installed-hooks.txt`` (see :func:`record_installed_hook`). A hook it could
+not find (a repository nobody recorded, a copy of the file) must not nag once ``lc`` is gone, so with no ``lc`` the script
+says so once per repository, names the file to delete, and from then on exits 0 in silence.
 """
 
 from __future__ import annotations
@@ -33,8 +37,11 @@ import click
 HOOK_KINDS = ("pre-push", "pre-commit")
 #: The line that marks a hook as ours; ``install`` tells its own hook from someone else's by it.
 HOOK_MARKER_PREFIX = "# lemoncrow-review-hook"
-#: The marker of the script written today. v1 called a bare ``lc`` from the PATH and let any crash stop the push.
-HOOK_MARKER = f"{HOOK_MARKER_PREFIX} v2"
+#: The marker of the script written today. v1 called a bare ``lc`` from the PATH and let any crash stop the push; v2
+#: said "lc was not found" on every push once ``lc`` was gone.
+HOOK_MARKER = f"{HOOK_MARKER_PREFIX} v3"
+#: Written in the repository's git directory the first time a hook finds ``lc`` gone, so it says so only once.
+MISSING_NOTICE_FILE = "lemoncrow-lc-missing"
 SKIP_ENV = "LEMONCROW_REVIEW_SKIP"
 #: The hook script sets this to ask ``hook run`` to answer "stop the push" with :data:`STOP_CODE` instead of 1 or 2.
 STOP_ENV = "LEMONCROW_HOOK_STOP"
@@ -91,7 +98,11 @@ def hook_script(kind: str, *, fail_on: str = "p0", strict: bool = False, depth: 
         f"LC={shlex.quote(lc_path)}\n"
         'if [ -z "$LC" ] || [ ! -x "$LC" ]; then LC=$(command -v lc 2>/dev/null) || LC=""; fi\n'
         'if [ -z "$LC" ]; then\n'
-        f'  echo "lemoncrow: lc was not found; not reviewing this {verb}." >&2\n'
+        # lc is gone (uninstalled, or not on this PATH): say so once for this repository, then stay quiet.
+        '  gitdir=$(git rev-parse --git-dir 2>/dev/null) || gitdir=""\n'
+        f'  if [ -n "$gitdir" ] && [ ! -e "$gitdir/{MISSING_NOTICE_FILE}" ] && : > "$gitdir/{MISSING_NOTICE_FILE}" 2>/dev/null; then\n'
+        f'    echo "lemoncrow: lc was not found, so this {verb} was not reviewed (this is said once). To stop this check, delete $0" >&2\n'
+        "  fi\n"
         "  exit 0\n"
         "fi\n"
         f'{STOP_ENV}={STOP_CODE} "$LC" review hook run {options} "$@"\n'
@@ -374,7 +385,9 @@ def hook_install(
         f"  It stops the {verb} while a finding at or above {fail_on} is open, and never because LemonCrow broke."
     )
     click.echo(f"  It calls {lc_path or 'the first `lc` on your PATH'}.")
-    click.echo(f"  Skip once with {SKIP_ENV}=1, or git's --no-verify. Remove it by deleting the file.")
+    click.echo(
+        f"  Skip once with {SKIP_ENV}=1, or git's --no-verify. Remove it by deleting the file (lc uninstall removes it too)."
+    )
 
 
 class _HookUsageError(click.UsageError):

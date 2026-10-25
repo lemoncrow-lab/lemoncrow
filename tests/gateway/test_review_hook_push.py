@@ -201,13 +201,30 @@ def test_a_crashing_lc_never_stops_a_push(setup: Setup) -> None:
     assert "lc exited 1); not blocking this push" in done.stderr
 
 
-def test_an_lc_that_is_gone_never_stops_a_push(setup: Setup) -> None:
+def test_an_lc_that_is_gone_never_stops_a_push_and_says_so_only_once(setup: Setup) -> None:
+    """The hook ``lc uninstall`` never found: a push still goes through, with one line the first time and none after."""
+
     setup.install()
     setup.lc.unlink()
     (setup.tools / "lc.py").unlink()
     done = setup.push()
     assert done.returncode == 0 and setup.remote_has_feature(), done.stderr
-    assert "lc was not found; not reviewing this push" in done.stderr
+    assert "lc was not found, so this push was not reviewed" in done.stderr and "delete" in done.stderr
+    assert ".git/hooks/pre-push" in done.stderr  # the file to delete, as git names it
+    # Every later push of the same repository: nothing from LemonCrow at all.
+    for branch in ("again", "and-again"):
+        git(setup.repo, "checkout", "-qb", branch)
+        quiet = subprocess.run(
+            ["git", "push", "origin", branch],
+            cwd=setup.repo,
+            env=setup.env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        assert quiet.returncode == 0, quiet.stderr
+        assert "lemoncrow" not in quiet.stderr.lower() and "lc was not found" not in quiet.stderr
 
 
 def test_the_hook_uses_the_lc_that_wrote_it_not_another_one_on_the_path(setup: Setup) -> None:
@@ -224,6 +241,19 @@ def test_the_hook_uses_the_lc_that_wrote_it_not_another_one_on_the_path(setup: S
     assert "P0 · must fix" in done.stderr and done.returncode != 0  # the recorded lc ran, and found the bug
 
 
+def test_a_v2_hook_that_nagged_on_every_push_is_upgraded_in_place(setup: Setup) -> None:
+    hook = setup.repo / ".git" / "hooks" / "pre-push"
+    hook.parent.mkdir(parents=True, exist_ok=True)
+    hook.write_text(
+        "#!/bin/sh\n# lemoncrow-review-hook v2 (pre-push)\nLC=''\n"
+        'if [ -z "$LC" ]; then\n  echo "lemoncrow: lc was not found; not reviewing this push." >&2\n  exit 0\nfi\n'
+    )
+    hook.chmod(0o755)
+    setup.install()  # no --force: it is ours
+    text = hook.read_text()
+    assert "lemoncrow-review-hook v3" in text and "this is said once" in text and os.access(hook, os.X_OK)
+
+
 def test_a_v1_hook_is_upgraded_in_place(setup: Setup) -> None:
     hook = setup.repo / ".git" / "hooks" / "pre-push"
     hook.parent.mkdir(parents=True, exist_ok=True)
@@ -233,4 +263,4 @@ def test_a_v1_hook_is_upgraded_in_place(setup: Setup) -> None:
     )
     hook.chmod(0o755)
     setup.install()  # no --force: it is ours, and the old one blocks a push when lc crashes
-    assert "lemoncrow-review-hook v2" in hook.read_text() and os.access(hook, os.X_OK)
+    assert "lemoncrow-review-hook v3" in hook.read_text() and os.access(hook, os.X_OK)

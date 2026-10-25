@@ -11098,6 +11098,18 @@ def register_review_api(
             logging.getLogger(__name__).warning("AI review readiness could not be read", exc_info=True)
             return "AI review readiness could not be read"
 
+    def _no_model_set_up(exc: BaseException) -> bool:
+        """Whether *exc* only says no model route is configured, on a server that runs AI review itself.
+
+        That is the local Reader: the person has not chosen a model yet, nothing is broken, and there is a terminal
+        command that fixes it. A hosted server queues AI review for an operator-managed route, so there the viewer
+        is not the one who sets a model up and the operator wording stays as it is.
+        """
+
+        from lemoncrow.pro.capabilities.review.intelligence_runtime import NoProviderConfigured
+
+        return ai_review_submitter is None and isinstance(exc, NoProviderConfigured)
+
     def _ai_review_projection(
         session: ReviewSession,
         revision: ReviewRevision,
@@ -11117,6 +11129,7 @@ def register_review_api(
         latest = runs[0] if runs else None
         annotations = _current_ai_annotations(session, revision)
         provider_error = ""
+        setup_help: dict[str, Any] | None = None
         resolved_driver = ""
         resolved_model = ""
         route_trust: ModelRouteTrust = "unknown"
@@ -11125,7 +11138,14 @@ def register_review_api(
             resolved_driver, resolved_model = resolved.driver, resolved.model
             route_trust = process_route_trust(resolved.driver)
         except Exception as exc:
-            provider_error = f"{type(exc).__name__}: {exc}"
+            if _no_model_set_up(exc):
+                from lemoncrow.pro.capabilities.review.pr_bot.local import no_route_help
+
+                # The same words and next steps `lc review --ai` prints with no model: one source, so they cannot drift.
+                setup_help = no_route_help().to_wire()
+                provider_error = str(setup_help["headline"])
+            else:
+                provider_error = f"{type(exc).__name__}: {exc}"
         access = {
             target.target_id: content_access_for_path(
                 target.path,
@@ -11193,6 +11213,7 @@ def register_review_api(
             "resolved_provider": resolved_driver,
             "resolved_model": resolved_model,
             "error": error,
+            **({"setup_help": setup_help} if setup_help is not None else {}),
             "auto_eligible": bool(
                 not historical
                 and state == "none"
@@ -12432,6 +12453,10 @@ def register_review_api(
         try:
             resolved = resolve_driver_model(None, None)
         except Exception as exc:
+            if _no_model_set_up(exc):
+                from lemoncrow.pro.capabilities.review.pr_bot.local import NO_ROUTE_REASON
+
+                return {"available": False, "reason": NO_ROUTE_REASON, "executor": "local"}
             return {"available": False, "reason": f"no AI provider is configured: {exc}", "executor": "local"}
         return {"available": True, "reason": "", "executor": "local", "provider": resolved.driver}
 

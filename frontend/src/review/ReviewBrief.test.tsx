@@ -1054,6 +1054,48 @@ describe("ReviewBrief AI review", () => {
     expect(screen.getAllByText(/isn't enabled for this workspace yet/i)).toHaveLength(1);
   });
 
+  it("tells a person with no AI model set up what to type, in the words `lc review --ai` uses", () => {
+    renderBrief(
+      projection({
+        ai_review: {
+          available: true,
+          status: "failed",
+          effort: "auto",
+          candidates: 1,
+          findings: 0,
+          error: "No AI model is set up.",
+          setup_help: {
+            headline: "No AI model is set up.",
+            steps: [
+              { lead: "Set a key:", command: "export ANTHROPIC_API_KEY=sk-ant-...", note: "(or OPENAI_API_KEY=sk-...)" },
+              {
+                lead: "Or use an agent you are signed in to:",
+                command: "lc review --ai --agent claude",
+                note: "(also codex, opencode)",
+              },
+            ],
+            docs_url: "https://docs.lemoncrow.com/setup/ai-review",
+          },
+          budget: { calls_used: 0, max_calls: 20 },
+        },
+      }),
+    );
+    const ai = screen.getByTestId("brief-ai-review");
+    expect(ai).toHaveTextContent("AI Review · Not set up");
+    const help = screen.getByTestId("ai-setup-help");
+    expect(help).toHaveTextContent("No AI model is set up.");
+    expect(help).toHaveTextContent("Set a key: export ANTHROPIC_API_KEY=sk-ant-... (or OPENAI_API_KEY=sk-...)");
+    expect(help).toHaveTextContent("Or use an agent you are signed in to: lc review --ai --agent claude (also codex, opencode)");
+    expect(help).toHaveTextContent("Details: docs.lemoncrow.com/setup/ai-review");
+    expect(screen.getByRole("link", { name: "docs.lemoncrow.com/setup/ai-review" })).toHaveAttribute(
+      "href",
+      "https://docs.lemoncrow.com/setup/ai-review",
+    );
+    // Said once, and never in the operator's words.
+    expect(ai).not.toHaveTextContent(/provider is disabled|InternalLLMError|Unavailable/);
+    expect(screen.getAllByText(/No AI model is set up/)).toHaveLength(1);
+  });
+
   it("does not repeat it as a second AI-unavailable line about explanations", () => {
     renderBrief(
       projection({

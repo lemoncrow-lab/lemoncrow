@@ -88,11 +88,11 @@ def box(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]:
     exclude.write_text("# mine\n/.lemoncrow-local-fs-proof\n/build\n")
     hook = repo / ".git" / "hooks" / "pre-push"
     hook.parent.mkdir(exist_ok=True)
-    hook.write_text("#!/bin/sh\n# lemoncrow-review-hook v2 (pre-push)\nexit 0\n")
+    hook.write_text("#!/bin/sh\n# lemoncrow-review-hook v3 (pre-push)\nexit 0\n")
     (state / "installed-hooks.txt").write_text(f"{hook}\n{tmp_path}/gone/.git/hooks/pre-push\n")
     other = tmp_path / "elsewhere" / ".git" / "hooks" / "pre-push"
     other.parent.mkdir(parents=True)
-    other.write_text("#!/bin/sh\n# lemoncrow-review-hook v2 (pre-push)\n")
+    other.write_text("#!/bin/sh\n# lemoncrow-review-hook v3 (pre-push)\n")
     with (state / "installed-hooks.txt").open("a") as record:
         record.write(f"{other}\n")
     # A fake npm that would record being run: the uninstall must never run it.
@@ -167,9 +167,15 @@ def test_yes_removes_what_the_installer_added_and_keeps_your_data(box: dict[str,
     assert (user / ".bashrc").read_text() == "export KEEP=1\n"
     assert (user / ".profile").read_text() == "# my profile\n"
     assert (user / ".zshrc").read_text() == "# untouched zsh\n"
-    # Repositories: not asked about under --yes, so untouched.
-    assert box["hook"].exists() and box["other_hook"].exists() and (box["repo"] / ".lemoncrow").exists()
+    # The git hooks it wrote go with `lc` (a hook for a command that is gone prints "lc was not found" on every push),
+    # found through its own list, in another repository too. A repository's own files are not asked about under --yes.
+    assert not box["hook"].exists() and not box["other_hook"].exists() and not (state / "installed-hooks.txt").exists()
+    assert (box["repo"] / ".lemoncrow").exists() and (box["repo"] / ".lemoncrow-local-fs-proof").exists()
+    assert (
+        "A git hook written by lc review hook install" in out.split("Keeps (yours")[0]
+    )  # under "Removes", not "Keeps"
     assert "Keeps (yours, or in your repositories;" in out and "Your settings" in out.split("Keeps (yours")[1]
+    assert "git hook" not in out.split("Keeps (yours")[1].split("Does not touch")[0]
     assert "Kept, as listed above. To remove your data too: lc uninstall all --purge" in out
     assert box["stop_log"].read_text().strip() == "stop"  # the server was stopped with its own helper
     assert not (box["tmp"] / "npm-was-run").exists()
@@ -182,9 +188,7 @@ def test_purge_removes_your_data_and_the_hooks_it_wrote_but_not_a_repositorys_fo
     assert code == 0, out
     assert not state.exists()  # nothing left, so the folder itself went
     assert not (user / ".config" / "lemoncrow").exists()
-    assert (
-        not box["hook"].exists() and not box["other_hook"].exists()
-    )  # found through its own list, in another repo too
+    assert not box["hook"].exists() and not box["other_hook"].exists()  # as under --yes: found through its own list
     assert (box["repo"] / ".lemoncrow" / "review.yaml").exists()  # a repository's folder is never purged blind
     assert (box["repo"] / ".lemoncrow-local-fs-proof").exists()
     assert "The .lemoncrow folder here" in out.split("Keeps (yours")[1]  # listed under what it keeps, not under --purge
@@ -193,17 +197,18 @@ def test_purge_removes_your_data_and_the_hooks_it_wrote_but_not_a_repositorys_fo
 
 def test_questions_are_asked_one_group_at_a_time_and_the_answers_decide(box: dict[str, Path]) -> None:
     state = box["state"]
-    code, out = run(["review"], box, answers=[True, False, True, True], tty=True)
+    code, out = run(["review"], box, answers=[True, False, True], tty=True)
     assert code == 0, out
     questions = out.split("QUESTIONS: ")[1].split(" | ")
     assert questions == [
         "Remove the items under 'Removes what the installer added'?",
         "Also delete your settings, saved reviews and sign-in?",
-        "Also remove the git hooks listed above?",
         "Also remove the LemonCrow files in this repository?",
     ]
     assert (state / "plugin_settings.json").exists()  # said no
-    assert not box["hook"].exists() and not box["other_hook"].exists()  # said yes
+    assert (
+        not box["hook"].exists() and not box["other_hook"].exists()
+    )  # part of the first yes: they call the lc it removes
     assert not (box["repo"] / ".lemoncrow").exists() and not (box["repo"] / ".lemoncrow-local-fs-proof").exists()
     exclude = (box["repo"] / ".git" / "info" / "exclude").read_text()
     assert exclude == "# mine\n/build\n"  # the line it added, not the person's own lines
@@ -223,10 +228,40 @@ def test_a_committed_review_yaml_is_the_teams_file_and_only_the_index_is_offered
         repo / ".lemoncrow" / "workspace"
     ).exists()  # --yes keeps it
     code, out = run(
-        ["review"], box, answers=[False, False, True], tty=True
-    )  # nothing installed is left to ask about; the repo question: yes
+        ["review"], box, answers=[False, True], tty=True
+    )  # nothing installed is left to ask about; your data: no; the repo question: yes
     assert (repo / ".lemoncrow" / "review.yaml").read_text() == "review:\n  strictness: 3\n"
     assert not (repo / ".lemoncrow" / "workspace").exists()
+
+
+def test_only_a_hook_with_our_marker_is_removed_and_a_dry_run_lists_every_one(box: dict[str, Path]) -> None:
+    """Hooks are found by the marker line: a hook someone replaced, or one that is gone, is never touched."""
+
+    replaced = box["tmp"] / "mine" / ".git" / "hooks" / "pre-push"
+    replaced.parent.mkdir(parents=True)
+    replaced.write_text("#!/bin/sh\necho my own check\n")
+    precommit = box["tmp"] / "second" / ".git" / "hooks" / "pre-commit"
+    precommit.parent.mkdir(parents=True)
+    precommit.write_text("#!/bin/sh\n# lemoncrow-review-hook v3 (pre-commit)\nexit 0\n")
+    with (box["state"] / "installed-hooks.txt").open("a") as record:
+        record.write(f"{replaced}\n{precommit}\n")
+    before = tree(box["tmp"])
+    code, out = run(["review", "--dry-run"], box)
+    assert code == 0 and tree(box["tmp"]) == before
+    removes = out.split("Would ask")[0]
+    for listed in (box["hook"], box["other_hook"], precommit):
+        assert str(listed) in removes, listed
+    assert str(replaced) not in out
+    assert run(["review", "--yes"], box)[0] == 0
+    assert not box["hook"].exists() and not box["other_hook"].exists() and not precommit.exists()
+    assert replaced.read_text() == "#!/bin/sh\necho my own check\n"
+
+
+def test_a_hook_in_the_repository_you_are_in_is_found_without_being_listed(box: dict[str, Path]) -> None:
+    (box["state"] / "installed-hooks.txt").unlink()
+    assert run(["review", "--yes"], box)[0] == 0
+    assert not box["hook"].exists()  # the cwd repository's own hook
+    assert box["other_hook"].exists()  # nothing told it about this one, and it is not where the person stands
 
 
 def test_saying_no_to_the_first_question_removes_nothing(box: dict[str, Path]) -> None:

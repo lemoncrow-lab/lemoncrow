@@ -139,6 +139,17 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 - **The Reader no longer opens on "LemonCrow policy removed" when your repository commits `.lemoncrow/review.yaml`.** A working-tree review left the whole `.lemoncrow/` folder out of the changed side but kept the committed config on the base side, so an unchanged file showed as a deleted, critical agent-instruction change and blocked auto-approval. The one committed `.lemoncrow/review.yaml` is now on both sides; the rest of `.lemoncrow/` stays out, and a real deletion still shows as one.
 - **The review engine builds again.** `pr_bot/model_failure.py` was missing from the engine allowlist, so the engine build and `test_review_engine_closure_contract` failed on the merged branch.
+- **The local Reader says what to do when no AI model is set up.** Its AI review line read "Review Intelligence
+  provider is disabled; configure a provider or select a local/subscription driver", with no next step. It now
+  says "No AI model is set up", the `export ANTHROPIC_API_KEY=...` line, the `lc review --ai --agent claude`
+  alternative and the docs link, built from the same source as the terminal message so the two cannot drift.
+  A no-key re-run after a review that left findings shows those findings marked "Not re-checked" above the same
+  three lines, not a one-line "Incomplete".
+- **`lc uninstall` removes the git hooks `lc review hook install` wrote** (found by their marker in the
+  repositories it listed, and in the one you run it in), without `--purge`: a hook calls `lc`, and one left behind
+  printed "lc was not found" on every push. A hook it never saw (v3 of the script) now says so once per repository,
+  names the file to delete, and stays silent after that; it still never blocks a push. `lc review hook install`
+  upgrades an older hook in place.
 - **`lc review` no longer ends in `ModuleNotFoundError: lemoncrow_client.session`** (also `--open`, `--json`
   and `lcr`; present in v0.8.0). The Review client armed the browser pairing through the Runtime session,
   which its wheel does not ship. It now pairs through the Review session, and a test copies exactly the shipped
