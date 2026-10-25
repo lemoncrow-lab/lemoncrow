@@ -83,7 +83,7 @@ import {
   type ReviewMapLocation,
 } from "./reviewMapLocation";
 import { withTransientRetry } from "./transientRetry";
-import { useReviewEnvironment, type ReviewDeploymentMode } from "./reviewEnvironment";
+import { unavailableFeaturesNotice, useReviewEnvironment, type ReviewDeploymentMode } from "./reviewEnvironment";
 import type { Draft } from "./annotationModel";
 import { markBelowThreshold } from "./findingThreshold";
 import { selectedNewSideTextFromPatch } from "./selectedNewSideText";
@@ -6140,17 +6140,17 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
     });
   }
 
-  // A feature the server declares off is hidden and named, so a missing
-  // control reads as "this server does not support X", never as a bug.
+  // A feature the server declares off is hidden and named, with the reason, so a
+  // missing control reads as "Ask is not available: it needs an AI model", never as a bug.
   if (reviewEnvironment.unsupported.length > 0 && !unsupportedNoticeDismissed) {
-    const features = reviewEnvironment.unsupported.join(", ");
+    const unavailable = unavailableFeaturesNotice(reviewEnvironment.unsupported);
     contextSignals.push({
       id: "capabilities-unsupported",
       tone: "neutral",
       icon: Puzzle,
-      label: `This server does not support ${features}`,
-      chipLabel: `Server does not support ${features}`,
-      detail: "The server's Review capability manifest turns this off, so the control is hidden. Upgrade or reconfigure the server to use it.",
+      label: unavailable.label,
+      chipLabel: unavailable.label,
+      detail: unavailable.detail,
       actions: (
         <UiButton
           unstyled

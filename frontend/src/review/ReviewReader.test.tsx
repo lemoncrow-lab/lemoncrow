@@ -1422,17 +1422,19 @@ describe("ReviewReader Brief", () => {
     expect(await screen.findByTestId("review-brief")).toBeInTheDocument();
   });
 
-  it("names a feature the server declares off instead of silently hiding it", async () => {
+  it("names a feature the server declares off, and why, instead of silently hiding it", async () => {
     environment.unsupported = ["Ask"];
     render(<ReviewReader />);
     expect(await screen.findByTestId("reader-stream-mock")).toBeInTheDocument();
-    expect((await screen.findAllByText(/does not support Ask/)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Ask is not available")).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Ask needs an AI model, and none is set up for this workspace yet/)).toBeInTheDocument();
+    expect(screen.queryByText(/does not support/i)).toBeNull(); // "server" is internal wording
   });
 
-  it("says nothing about unsupported features when the server supports them all", async () => {
+  it("says nothing about unavailable features when the server supports them all", async () => {
     render(<ReviewReader />);
     expect(await screen.findByTestId("reader-stream-mock")).toBeInTheDocument();
-    expect(screen.queryByText(/does not support/)).toBeNull();
+    expect(screen.queryByText(/is not available|does not support/)).toBeNull();
   });
 
   it("keeps Code as the only persistent Review category when Brief capability is off", async () => {

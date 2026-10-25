@@ -121,8 +121,12 @@ to the App's installation on GitHub later also stays off until you pick it. If y
 self-service connection, LemonCrow chooses the repositories for you; ask your contact to add or remove one.
 
 **Settings > Repositories** then shows each repository's readiness. Each row shows its sync state, credential state, last
-sync and last error, with **Retry sync** or **Reconnect** where they apply. Repositories are shown as `owner/name`. If a
-repository's source stays not loaded, contact LemonCrow.
+sync and last error, with **Retry sync** or **Reconnect** where they apply. Repositories are shown as `owner/name`. A
+repository GitHub syncs reads **Can review now** as soon as it is picked: its pull requests come from GitHub, so it needs
+no code index, and **Source / index** reads "Not needed" for it. It reads **Not ready** only when it is disabled, when
+GitHub access was lost (suspended, removed or revoked: use **Reconnect**) or when its last sync failed (**Retry sync**).
+"Not loaded" is the state of a repository that a developer's `lc` has not opened a source view of; it only matters for
+repositories LemonCrow sets up for you that way, and then you contact LemonCrow.
 
 ## 4. Invite people, and make them members
 

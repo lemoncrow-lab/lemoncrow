@@ -163,6 +163,15 @@ HOSTED_AI_REVIEW_NOT_ENABLED = "AI review on hosted isn't enabled for this works
 _ABSOLUTE_PATH = re.compile(r"(?<![\w.])(?:/[\w.@+~-]+){2,}/?")
 
 
+class SurfaceSourceUnavailable(RuntimeError, ValueError):
+    """No source tree can be read for a Snapshot: none was kept, and this server holds no checkout to take one from.
+
+    A pull request captured from its provider's API keeps only the files it changes, and a hosted server clones
+    nothing, so there is nothing to discover rendered surfaces in. That is a fact about the Snapshot, not a failure.
+    It stays a ``ValueError`` too, as the "not a git repository" error it replaces was, so no handler stops catching it.
+    """
+
+
 def _without_paths(reason: object) -> str:
     """An error text with absolute filesystem paths replaced, so a hosted Reader never prints a server path."""
 
@@ -13933,8 +13942,16 @@ def register_review_api(
                 source_state_projection.get("changed")
             )
         if durable_source_tree is not None or not checkout_is_exact:
+            from lemoncrow.pro.capabilities.review.gitdiff import detect_repo_root
             from lemoncrow.pro.capabilities.review.snapshot import ReviewSnapshotUnavailable
 
+            if durable_source_tree is None:
+                try:
+                    detect_repo_root(resolved_preview_repo)
+                except ValueError as exc:
+                    raise SurfaceSourceUnavailable(
+                        "no source tree was kept for this Snapshot, and this server has no checkout to read one from"
+                    ) from exc
             try:
                 surface_repo = _snapshot_side_tree(revision, side, resolved_preview_repo)
             except ReviewSnapshotUnavailable as exc:
@@ -13987,6 +14004,13 @@ def register_review_api(
         try:
             revision, registry, _runners, context = _surface_runtime(review_id, revision_id)
             surfaces, issues = _discover_surfaces(registry, context)
+        except SurfaceSourceUnavailable:
+            # Nothing to render surfaces from (see the exception): an honest empty list, not a banner on every Review.
+            return {
+                "revision_id": _requested_revision(_session(review_id), revision_id).id,
+                "surfaces": [],
+                "issues": [],
+            }
         except (OSError, RuntimeError, TypeError, ValueError) as exc:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail=f"review surface discovery failed: {_without_paths(exc)}"

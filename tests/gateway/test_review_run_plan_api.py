@@ -256,6 +256,39 @@ def test_hosted_keeps_its_operator_wording_for_a_route_the_operator_has_not_set(
     assert "provider is disabled" in ai["error"]
 
 
+def test_a_snapshot_with_no_source_tree_and_no_checkout_lists_no_surfaces_instead_of_failing(tmp_path: Path) -> None:
+    """A hosted pull request keeps only its changed files and the server clones nothing: the Reader's first load must not
+    answer 409 "not a git repository" (and print a banner on every Review) for the absence of something never kept."""
+
+    review = _review(tmp_path)
+    scratch = tmp_path / "scratch"  # what a hosted server hands the Reader: an empty directory, not a checkout
+    scratch.mkdir()
+    app = FastAPI()
+    register_review_api(
+        app,
+        review.store,
+        auth_dependency=make_token_dependency(TOKEN),
+        repo_root=scratch,
+        port=PORT,
+        session_repo_identity=str((tmp_path / "repo").resolve()),  # the Review was captured elsewhere, as in hosted
+        source_refresh_enabled=False,
+        live_journal_enabled=False,
+    )
+    client = TestClient(app, base_url=BASE, raise_server_exceptions=False)
+    listed = client.get(f"/api/reviews/{review.review_id}/surfaces", headers=HEADERS)
+    assert listed.status_code == 200, listed.text
+    assert listed.json() == {"revision_id": review.revision_id, "surfaces": [], "issues": []}
+    # Asking for a surface's preview is still refused, in words that say why and name no path or repository.
+    preview = client.get(
+        f"/api/reviews/{review.review_id}/surface-preview",
+        params={"provider": "web", "surface_id": "home"},
+        headers=HEADERS,
+    )
+    assert preview.status_code == 409
+    assert "no source tree was kept for this Snapshot" in preview.json()["detail"]
+    assert "git repository" not in preview.json()["detail"] and "/" not in preview.json()["detail"].replace("/ ", " ")
+
+
 def test_run_specific_previews_then_adds_only_and_rejects_unknown_ids(tmp_path: Path) -> None:
     review = _review(tmp_path, base_config="review:\n  effort: quick\n")
     before = _get(review, "run-plan").json()["plan"]

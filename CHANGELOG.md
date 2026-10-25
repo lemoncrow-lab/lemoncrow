@@ -150,6 +150,15 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   printed "lc was not found" on every push. A hook it never saw (v3 of the script) now says so once per repository,
   names the file to delete, and stays silent after that; it still never blocks a push. `lc review hook install`
   upgrades an older hook in place.
+- **A hosted workspace that syncs GitHub no longer opens on "Not ready" and a banner.** Settings > Repositories
+  called every GitHub-synced repository "Not ready ... Repair before reviewing ... contact LemonCrow" because no
+  developer's `lc` had a source view of it open, which pull requests never need, and showed an internal
+  `Repo_<hash>` id; Setup said the same. A repository GitHub syncs is now "Can review now" unless it is
+  disabled, GitHub access was lost or its last sync failed. And the Reader no longer opens on "Some review context
+  is unavailable: review surface discovery failed: not a git repository" for a pull request's Review, which keeps
+  only its changed files: the list of rendered surfaces is empty instead.
+- **"Server does not support Ask" is gone from the Reader.** It says "Ask is not available" and why: it needs an AI
+  model, and none is set up for this workspace yet.
 - **The Action's note about a linked issue it could not read is not an error.** Without the optional `issues: read`
   permission the summary says "issue #12 not read: this workflow's token lacks the optional issues: read permission
   (add it under permissions: to include linked issues)", and the setup guide says so beside the sample workflow.

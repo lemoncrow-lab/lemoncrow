@@ -40,10 +40,29 @@ interface DiscoveryDocument {
 
 /**
  * Reader features gated on the server's Review manifest. One declared off is
- * hidden *and* named, so a missing control reads as "this server does not
- * support X" rather than as a bug.
+ * hidden *and* named, so a missing control reads as "Ask is not available, and
+ * here is why" rather than as a bug.
  */
 const READER_GATED_FEATURES: ReadonlyArray<[keyof ReviewProductCapabilities, string]> = [["ask", "Ask"]];
+
+/**
+ * Why each gated feature can be off, in the words a reviewer uses. The server
+ * turns Ask off while no AI model is ready (hosted without a model route), so
+ * the reason is the missing model, not a server it should "upgrade".
+ */
+const FEATURE_OFF_REASON: Readonly<Record<string, string>> = {
+  Ask: "Ask needs an AI model, and none is set up for this workspace yet.",
+};
+
+/** The plain notice for features the server declares off: what is unavailable, why, and what still works. */
+export function unavailableFeaturesNotice(features: readonly string[]): { label: string; detail: string } {
+  const names = features.join(", ");
+  const reasons = features.map((feature) => FEATURE_OFF_REASON[feature]).filter(Boolean);
+  return {
+    label: `${names} ${features.length > 1 ? "are" : "is"} not available`,
+    detail: [...reasons, "The rest of the Review works without it."].join(" "),
+  };
+}
 
 const MODES = new Set<ReviewDeploymentMode>([
   "local",
