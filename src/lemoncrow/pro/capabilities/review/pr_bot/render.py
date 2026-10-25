@@ -340,6 +340,9 @@ class SummaryView:
     budget: str = ""
     #: Rules worth offering for what people dismissed (:func:`learning.suggest`), shown as YAML to copy.
     suggestions: tuple[RuleSuggestion, ...] = ()
+    #: The collapsed "Change diagram" block (G17, :mod:`diagram`), already built from the Architecture Delta; empty for none.
+    #: It is the first thing :func:`render_summary` gives up when the comment is too long.
+    diagram: str = ""
 
 
 def strip_text(facts: RunFacts) -> str:
@@ -588,6 +591,9 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
         lines += [_row(finding) for finding in shown]
     if held:
         lines += _held_back(held, detailed=level < 2)
+    if view.diagram:
+        # After the findings and before the receipt: a picture of the change, not part of the verdict.
+        lines += ["", view.diagram]
     if not opened:
         lines += ["", "<details><summary>What we checked</summary>", ""]
         lines += _receipt_lines(view)
@@ -735,11 +741,18 @@ def with_footer(body: str, footer: str) -> str:
 def render_summary(view: SummaryView) -> tuple[str, ReviewState]:
     """The summary comment and the state it carries, always within :data:`MAX_COMMENT`.
 
-    Detail is removed in order -- state text, then visible explanations, then the
-    prompt's -- and only then is the visible list cut, with the cut said out loud.
+    The change diagram is the first thing given up: before any finding's text is shortened, the whole diagram goes
+    (and the state stops recording it, since nothing was drawn). Then detail is removed in order -- state text, then
+    visible explanations, then the prompt's -- and only then is the visible list cut, with the cut said out loud.
     The state block is always last and always whole.
     """
 
+    if view.diagram:
+        state = shrink(view.state, 0)
+        visible, block = _visible(view, state, 0), dump_state(state)
+        if len(visible) + len(block) + 2 <= MAX_COMMENT:
+            return f"{visible}\n\n{block}", state
+        view = replace(view, diagram="", state=replace(view.state, diagram=""))
     for level in range(MAX_DETAIL + 1):
         state = shrink(view.state, level)
         visible, block = _visible(view, state, level), dump_state(state)

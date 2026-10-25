@@ -104,6 +104,7 @@ Notes on the workflow:
 | `max-runs-per-pr` | none | Stop reviewing a pull request after this many reviews of it (a whole number such as `5`). |
 | `review-drafts` | `false` | Review draft pull requests too. |
 | `on-push` | `true` | Re-review on each push to an open pull request. `false` reviews only when it opens. |
+| `diagram` | `auto` | `auto` adds the collapsed `Change diagram` to the summary when the pull request added or removed a relationship between files; `off` never builds it. See "Change diagram". |
 | `mention-aliases` | none | Extra handles the bot answers to besides `@lemoncrow`, comma separated (`@review-bot`). See "Chat in pull request threads". |
 | `chat-allowed-associations` | `OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR` | Whose mentions are answered, and whose reactions, replies and resolved threads teach the bot, by the `author_association` GitHub puts on the comment. |
 | `pr-number` | the event's pull request (also for a comment on one) | Set it for `workflow_dispatch` runs. |
@@ -119,6 +120,7 @@ LiteLLM users can set `model-provider: litellm` and the variables LiteLLM alread
 - a status strip: `Re-reviewed 38 changed lines · 1 new · 2 carried forward · 1 fixed since last review`;
 - findings sorted by severity, each linking to its inline thread. **P0** must fix, **P1** should fix, **P2** optional;
 - P2 findings in a collapsed block, `N low-priority findings held back`;
+- a collapsed `Change diagram` of the relationships the pull request added, removed or changed (see "Change diagram");
 - on a clean review, a collapsed `What we checked`: files, rules applied, depth;
 - collapsed blocks for feedback: `N findings dismissed by feedback`, `N instructions learned on this pull request` and `Suggested rules from feedback` (see "Learning from feedback");
 - a collapsed `Fix with your agent`: a prompt listing the open findings with `file:line`, and the checked replacement for each finding that has one, to paste into Claude Code, Codex or Cursor;
@@ -218,6 +220,8 @@ The summary ends with `<!-- lemoncrow:state v1 {json} -->`. Read it instead of s
 
 `context_tokens` is LemonCrow's own estimate (four characters per token) of the repository context in the prompts; it is part of `input_tokens`, not on top of it, and it is absent when no context was sent.
 
+`diagram` is absent until the Change diagram was drawn or ruled out. It is `<drawing version>:<16 hex digits of the drawn section>` when a diagram is in the comment, or `<version>:none` when the Architecture Delta was read and nothing was worth drawing. It is what lets a re-run on an unchanged head leave the comment alone (see "Change diagram").
+
 A finding's `state` is `new`, `carried`, `fixed`, `stale`, `unreported` ("no longer reported") or `suppressed` (a person told the bot not to flag it on this pull request). A finding also carries `impact` (the investigator's rating), `verified` (evidence from beyond its own changed code backs it), `anchor` (`cited` or `target`, see above) and `target_line` (where its code's change begins, which later pushes compare against) and `anchor_digest` (a digest of the lines it cited, which a later push uses to tell that they changed) when it has them, and, when it has a checked replacement, `suggestion` with the `suggestion_start` and `suggestion_end` lines it replaces. `units` and `units_truncated` hold what the next run compares against. Only a comment from a `Bot` account is trusted as this state.
 
 ## Pushes cost less
@@ -233,6 +237,50 @@ On a push, the Action reads the previous state, compares the new commit with it,
 - Auto investigates at most two hypotheses per run, however many risk signals a large change has. One it did not reach is **pending**, not reviewed: the headline says `Partially reviewed: N of M risk signals examined`, the status strip says `N risk signals not investigated yet`, and the next push competes for the cap again. Ask for `depth: thorough` to investigate more of them in one run.
 
 A push that changes nothing LemonCrow reviews makes no model call and posts nothing. A changed depth, rule set, content-access policy or review prompt re-reviews everything once, because last time's result no longer means the same thing.
+
+## Change diagram
+
+The summary can carry a collapsed **Change diagram**, after the findings and before the receipt: the relationships between files that the pull request added, removed or changed, as a [Mermaid](https://mermaid.js.org/) flowchart. GitHub draws it inline, so there is nothing to install and no image to host.
+
+```mermaid
+flowchart LR
+    classDef added fill:#dafbe1,stroke:#2da44e,stroke-width:2px,color:#1f2328
+    classDef changed fill:#fff8c5,stroke:#bf8700,stroke-width:4px,color:#1f2328
+    classDef context fill:#eaeef2,stroke:#8c959f,stroke-width:1px,color:#1f2328
+    subgraph g1["api"]
+        n1["orders.py"]:::changed
+    end
+    subgraph g2["core"]
+        n2["+ ledger.py"]:::added
+        n3["auth.py"]:::context
+    end
+    n1 -->|"+ post_entry"| n2
+    n2 -->|"+ authorize"| n3
+    linkStyle 0,1 stroke:#2da44e,stroke-width:2px
+```
+
+| Drawn as | Means |
+| --- | --- |
+| solid arrow, green node, `+` | a relationship (or file) the pull request added |
+| dashed arrow, red node, `−` | one it removed |
+| bold amber arrow or node | changed: a file the pull request edited, or a relationship whose reference count moved (`refs 1 → 3`) |
+| grey node | the other end of a changed relationship, which the pull request did not touch |
+
+An arrow points from the file that refers to another to the file it refers to. The legend sits under the block, and every node carries its own fill and text colour, so the diagram reads on GitHub's light and dark themes.
+
+**Why it never guesses.** The diagram is drawn from the Snapshot's Architecture Delta, the same comparison the Review Map shows: LemonCrow builds the file-reference graph of the pull request's merge base and of its head from the exact trees, and a relationship is drawn only if it is on one side and not the other (or its count differs). The delta's current-index context and its "known, but not compared" facts are ignored. No model is called, and no text a model wrote can reach the block: every label is a path or a symbol name from the delta, with quotes, brackets, angle brackets, pipes, backticks, `@` and anything else Mermaid or Markdown could act on turned into character entities. Only a flowchart is drawn, on purpose:
+
+- not a **sequence diagram**: a deterministic comparison of two source graphs knows that one file uses another, not in what order, and the diagram would have to invent the order;
+- not an **entity-relationship diagram**: the delta's nodes are files. A file under `migrations/` is flagged as persistence, but no table or column is named, so there is no entity to draw;
+- not a **class diagram**: the delta's relationships are references between files, not inheritance or implementation.
+
+**When there is none.** A pull request that adds or removes no relationship gets no diagram: a function body that changed, a count that moved with nothing added or removed, files added or deleted that nothing refers to. Nor does one that changes no code (the repository map reads no references from Markdown, JSON, YAML, TOML, HTML or CSS), and neither does a repository with more than 2,000 source files in the head tree (set `LEMONCROW_REVIEW_DIAGRAM_MAX_FILES` to raise or lower the limit). A skipped diagram never fails the review: a note in the job log says why.
+
+**Limits.** At most 25 nodes and 40 arrows. Past that, files are grouped by directory (as deep as keeps the nodes under the cap), the strongest relationships are kept, and the block says `N more relationships not shown`. The comment's own size limit is respected first: when the summary would pass 65,000 characters, the diagram is the first thing dropped, before any finding is shortened or cut.
+
+**Cost.** The delta parses every source file of both sides of the pull request with tree-sitter, about 10 to 25 milliseconds a file, once per head; that is why large repositories are skipped. It makes no model call and adds nothing to the review's cost line. A re-run on an unchanged head and merge base does not parse again: it reuses the block already in the comment, after checking it against the digest in the hidden state, and rewrites the comment only if the drawing would differ.
+
+**Turning it off.** Set `diagram: off` on the Action (or `--diagram off` on `lc review --pr N --ai --publish-bot`). Nothing is parsed, and a comment that had a diagram is rewritten once without it. There is no `.lemoncrow/review.yaml` key for it: the pull request bot has no settings loader for per-feature switches yet (the same reason `review.finding_threshold` is not applied there), so the Action input is the switch.
 
 ## Chat in pull request threads
 

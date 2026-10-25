@@ -51,6 +51,13 @@ inputs:
   on-push:
     description: Re-review on each push to an open pull request, not only when it opens.
     default: "true"
+  diagram:
+    description: >-
+      The collapsed "Change diagram" in the summary comment, auto or off. auto draws the relationships the pull request
+      added, removed or changed between files as a Mermaid diagram GitHub shows inline, only when there is one worth
+      drawing, from the Snapshot's architecture delta: no model call and nothing inferred. off never builds it (it
+      parses the repository's source on both sides of the pull request, which a very large repository may not want).
+    default: auto
   mention-aliases:
     description: >-
       Extra handles the bot answers to in pull request comments, comma separated (for example "@review-bot").
@@ -139,6 +146,7 @@ runs:
         LEMONCROW_REVIEW_CHAT_ASSOCIATIONS: ${{ inputs.chat-allowed-associations }}
         INPUT_MODEL: ${{ inputs.model }}
         DEPTH: ${{ inputs.depth }}
+        DIAGRAM: ${{ inputs.diagram }}
         FAIL_ON: ${{ inputs.fail-on }}
         MAX_USD: ${{ inputs.max-usd-per-pr }}
         MAX_RUNS: ${{ inputs.max-runs-per-pr }}
@@ -147,7 +155,7 @@ runs:
         set -euo pipefail
         # An input left empty must not hide LEMONCROW_REVIEW_MODEL set on the step that uses this action.
         if [ -n "$INPUT_MODEL" ]; then export LEMONCROW_REVIEW_MODEL="$INPUT_MODEL"; fi
-        args=(review --pr "$LEMONCROW_REVIEW_PR" --ai --publish-bot --depth "$DEPTH" --fail-on "$FAIL_ON")
+        args=(review --pr "$LEMONCROW_REVIEW_PR" --ai --publish-bot --depth "$DEPTH" --fail-on "$FAIL_ON" --diagram "${DIAGRAM:-auto}")
         if [ -n "$MAX_USD" ]; then args+=(--max-usd-per-pr "$MAX_USD"); fi
         if [ -n "$MAX_RUNS" ]; then args+=(--max-runs-per-pr "$MAX_RUNS"); fi
         if [ "$LEMONCROW_REVIEW_DRAFTS" = "true" ]; then args+=(--review-drafts); fi

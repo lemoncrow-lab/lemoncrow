@@ -53,6 +53,7 @@ def test_the_inputs_are_the_documented_ones_with_safe_defaults() -> None:
         "max-runs-per-pr",
         "review-drafts",
         "on-push",
+        "diagram",
         "mention-aliases",
         "chat-allowed-associations",
         "pr-number",
@@ -65,6 +66,8 @@ def test_the_inputs_are_the_documented_ones_with_safe_defaults() -> None:
         "auto",
     )
     assert (inputs["review-drafts"]["default"], inputs["on-push"]["default"]) == ("false", "true")
+    # The change diagram is on by default and costs nothing when the pull request has none worth drawing (G17).
+    assert inputs["diagram"]["default"] == "auto"
     # Chat: no alias unless asked for, and the people it answers default to those with a stake in the repository.
     assert inputs["mention-aliases"]["default"] == ""
     assert inputs["chat-allowed-associations"]["default"] == "OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR"
@@ -146,8 +149,12 @@ def test_the_review_step_runs_the_headless_command_with_the_workflow_token() -> 
         "--no-on-push",
         "--max-usd-per-pr",
         "--max-runs-per-pr",
+        "--diagram",
     ):
         assert flag in review["run"]
+    assert review["env"]["DIAGRAM"] == "${{ inputs.diagram }}"
+    # An empty input falls back to the default instead of failing the option parser.
+    assert '--diagram "${DIAGRAM:-auto}"' in review["run"]
 
 
 def test_the_action_ships_in_the_public_mirror() -> None:
@@ -268,7 +275,10 @@ def test_the_guide_never_recommends_pull_request_target() -> None:
 def test_the_documented_review_yaml_is_accepted_and_changes_nothing_it_should_not(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    (config,) = [text for text in fenced("yaml") if text.startswith("# .lemoncrow/review.yaml")]
+    # The guide shows two files with this header: the budget-and-rules one, and the `import:` one (own tests).
+    (config,) = [
+        text for text in fenced("yaml") if text.startswith("# .lemoncrow/review.yaml") and "\nrules:\n" in text
+    ]
     world = build_world(tmp_path, monkeypatch, {**BASE, ".lemoncrow/review.yaml": config})
     world.origin.push(FIRST_PUSH)
     report = world.review()
@@ -333,3 +343,28 @@ def test_the_guide_documents_learning_and_its_limits_and_the_sample_asks_for_no_
     (example,) = [text for text in fenced("yaml") if text.startswith('rules:\n  - stable_key: "learned-')]
     parsed = yaml.safe_load(example)
     assert set(parsed["rules"][0]) == {"stable_key", "instruction", "paths"}
+
+
+def test_the_guide_documents_the_change_diagram_and_how_to_turn_it_off() -> None:
+    """G17: what it shows, why it never guesses, what it costs, and the one switch."""
+
+    guide = GUIDE.read_text(encoding="utf-8")
+    for phrase in (
+        "## Change diagram",
+        "after the findings and before the receipt",
+        "**Why it never guesses.**",
+        "Architecture Delta",
+        "No model is called",
+        "not a **sequence diagram**",
+        "not an **entity-relationship diagram**",
+        "not a **class diagram**",
+        "`N more relationships not shown`",
+        "the diagram is the first thing dropped",
+        "`LEMONCROW_REVIEW_DIAGRAM_MAX_FILES`",
+        "Set `diagram: off`",
+        "There is no `.lemoncrow/review.yaml` key for it",
+    ):
+        assert phrase in guide, phrase
+    # The example in the guide is the grammar the code emits, so a reader can recognise what the bot posts.
+    (example,) = re.findall(r"```mermaid\n(.*?)```", guide, re.DOTALL)
+    assert example.startswith("flowchart LR\n") and ":::added" in example and "linkStyle" in example

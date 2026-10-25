@@ -263,6 +263,17 @@ class _ReviewCliProgress:
     help="With --ai, review pushes to an open pull request, not only when it opens (default: on).",
 )
 @click.option(
+    "--diagram",
+    type=click.Choice(["auto", "off"]),
+    default="auto",
+    show_default=True,
+    help=(
+        "With --publish-bot, the collapsed Change diagram in the summary comment: auto draws the relationships the "
+        "pull request added, removed or changed (from the Snapshot's architecture delta, no model call) when there is "
+        "one worth drawing; off never builds it."
+    ),
+)
+@click.option(
     "--title",
     "snapshot_title",
     default=None,
@@ -561,6 +572,7 @@ def review_cmd(
     max_runs_per_pr: int | None,
     review_drafts: bool,
     on_push: bool,
+    diagram: str,
     snapshot_title: str | None,
     intent_specs: tuple[str, ...],
     description_file: Path | None,
@@ -895,6 +907,7 @@ def review_cmd(
             max_runs_per_pr=max_runs_per_pr,
             review_drafts=review_drafts,
             on_push=on_push,
+            diagram=diagram,
             publish=publish_bot,
             dry_run=dry_run,
             with_impact=not no_impact,
@@ -1173,6 +1186,7 @@ def _review_pull_request_with_ai(
     max_runs_per_pr: int | None,
     review_drafts: bool,
     on_push: bool,
+    diagram: str,
     publish: bool,
     dry_run: bool,
     with_impact: bool,
@@ -1202,6 +1216,7 @@ def _review_pull_request_with_ai(
         with_impact=with_impact,
         max_usd_per_pr=max_usd_per_pr,
         max_runs_per_pr=max_runs_per_pr,
+        diagram=diagram,
     )
     try:
         report = run_pr_review(options, progress=lambda message: click.echo(f"  {message}…", err=True))

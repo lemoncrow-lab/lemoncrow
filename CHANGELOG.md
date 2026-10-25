@@ -21,6 +21,17 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   each push it re-reviews only what changed and carries unchanged findings forward without a
   model call. Same engine from the full CLI: `lc review --pr N --ai [--publish-bot]`.
   See [GitHub Action: AI pull request review](docs/setup/github-action.md).
+- **A change diagram in the pull request summary.** A collapsed `Change diagram` after the findings
+  draws, as a Mermaid flowchart GitHub shows inline, the relationships between files that the pull
+  request added (solid, `+`), removed (dashed, minus sign) or changed (bold), with the unchanged file
+  at the other end in grey. It comes from the Snapshot's Architecture Delta, which compares the merge
+  base with the head, so it never guesses: no model call, no model-written text, no current-index
+  context, no sequence, entity or class diagram the delta cannot support. It is drawn only when a
+  relationship was added or removed, at most 25 nodes (grouped by directory past that, with `N more
+  relationships not shown`), and is the first thing dropped when the comment nears GitHub's size
+  limit. `diagram: off` (or `--diagram off`) never builds it; a pull request that changes no code, or a
+  head tree of more than 2,000 source files, skips it. See
+  [Change diagram](docs/setup/github-action.md#change-diagram).
 - **Repository context for AI review on a model-API route.** A reviewer reached through
   an API key has no tools, so it could not see a caller in another file. Before each
   investigation it now gets a small deterministic pack from the pull request snapshot:

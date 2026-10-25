@@ -25,9 +25,9 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from lemoncrow.pro.capabilities.review.pr_bot import ci_env, learning
+from lemoncrow.pro.capabilities.review.pr_bot import ci_env, diagram, learning
 from lemoncrow.pro.capabilities.review.pr_bot.findings import BotFinding
 from lemoncrow.pro.capabilities.review.pr_bot.github import (
     BotGitHub,
@@ -60,6 +60,9 @@ from lemoncrow.pro.capabilities.review.sources.github import (
     resolve_pull_request,
     run_gh,
 )
+
+if TYPE_CHECKING:
+    from lemoncrow.pro.capabilities.review.pr_bot.engine import Captured
 
 FAIL_ON = ("none", "p0")
 # lc-debt: the repository's review.finding_threshold is not applied here, so P2 findings always show (held back, collapsed);
@@ -97,6 +100,9 @@ class RunOptions:
     #: and the ids among them whose thread was already told by the reply to that command.
     suppress: tuple[Suppression, ...] = ()
     told: frozenset[str] = frozenset()
+    #: The change diagram in the summary (G17): ``auto`` draws it when the Architecture Delta shows a relationship added
+    #: or removed, ``off`` never builds it.
+    diagram: str = "auto"
 
 
 @dataclass
@@ -170,6 +176,8 @@ def run_pr_review(
     options = replace(options, feedback_from=ci_env.chat_associations(environ))
     if options.fail_on not in FAIL_ON:
         raise PrReviewError(f"fail-on must be one of {', '.join(FAIL_ON)}")
+    if options.diagram not in diagram.DIAGRAM_MODES:
+        raise PrReviewError(f"diagram must be one of {', '.join(diagram.DIAGRAM_MODES)}")
     if (options.max_usd_per_pr is not None and options.max_usd_per_pr <= 0) or (
         options.max_runs_per_pr is not None and options.max_runs_per_pr < 1
     ):
@@ -330,6 +338,20 @@ def _chat(
         raise PrReviewError(str(exc)) from exc
 
 
+def _architecture_delta(captured: Captured, say: Callable[[str], None]) -> tuple[Mapping[str, Any] | None, str]:
+    """The Architecture Delta of the captured pull request for the change diagram, or why there is none.
+
+    Decoration must not cost a review: whatever the repository map does on an odd tree, the review goes on without
+    the diagram and the note says what failed.
+    """
+
+    try:
+        say("Reading the architecture delta")
+        return diagram.delta_for_capture(captured)
+    except Exception as exc:
+        return None, f"change diagram skipped: reading the architecture delta failed ({type(exc).__name__})"
+
+
 def _best_effort(action: Callable[[], object], notes: list[str], what: str) -> bool:
     """Run a write whose failure must not fail the review (a missing permission, a lost race)."""
 
@@ -377,6 +399,17 @@ def _review(
             structured_executor=structured_executor,
             only_targets=options.only_targets if narrow else None,
         )
+        # G17: read inside the scratch store, which is gone after this block. Never a reason to fail the review.
+        drawn = diagram.Diagram()
+        if ai.ran:
+            drawn = diagram.resolve(
+                options.diagram,
+                previous=previous,
+                existing_body=existing.body if existing is not None else "",
+                head_sha=head,
+                merge_base_sha=pull.merge_base_sha,
+                compute=lambda: _architecture_delta(captured, say),
+            )
     if not ai.ran:
         return _skip(name, f"AI review did not run: {ai.reason}")
 
@@ -392,6 +425,8 @@ def _review(
         intact=ai.intact,
     )
     report = RunReport(pr=name, head_sha=head)
+    if drawn.note:
+        report.notes.append(drawn.note)
     if unpriced:
         report.notes.append(
             "max-usd-per-pr is not enforced: the cost of this pull request's earlier reviews is unknown (the provider "
@@ -478,7 +513,9 @@ def _review(
     tracked, dropped = cap_findings(findings)
     # A run asked only to apply an instruction (`only_targets` empty) re-examines nothing: it is not another review.
     refresh = options.only_targets is not None and not options.only_targets
-    usage = previous.usage if refresh and previous is not None else ai.usage
+    # A re-run that has only a different diagram to say rewrites the comment, and says what the last review cost.
+    redrawn = report.noop and previous is not None and drawn.state != previous.diagram
+    usage = previous.usage if (refresh or redrawn) and previous is not None else ai.usage
     reviews = 1 if previous is None else previous.reviews + (0 if report.noop or refresh else 1)
     total = ai.usage if previous is None else previous.usage_total.plus(ai.usage)
     # Chat answers given while this review ran are in the summary now and not in `previous`: carry them, so a review
@@ -507,6 +544,7 @@ def _review(
         chats=chats,
         chat_usage=chat_usage,
         suppressions=learned.suppressions,
+        diagram=drawn.state,
     )
     reason = "model calls failed; see the workflow log" if ai.errors else (ai.reason if not ai.complete else "")
     uninvestigated = max(ai.candidates - ai.investigated, 0)
@@ -546,8 +584,13 @@ def _review(
         max_calls=ai.max_calls,
         fail_on=options.fail_on,
         suggestions=learning.suggest(ref.slug, learned.suppressions, tracked),
+        diagram=drawn.section,
     )
     body, posted_state = render_summary(summary_view)
+    # A diagram that appeared, changed or went away is a reason to rewrite a comment a re-run would leave alone. The
+    # state is compared after rendering: a diagram dropped to fit the comment is one that was not drawn.
+    if report.noop and previous is not None and posted_state.diagram != previous.diagram:
+        report.noop = False
     status = check_status(view, fail_on=options.fail_on)
     report.findings = tuple(tracked)
     report.state = posted_state
@@ -622,7 +665,11 @@ def _over_budget(
     # An instruction costs no model call, so it applies here too.
     learned = learning.learn(kept, previous.suppressions, (), commands=options.suppress, head=short(head))
     kept = learned.findings
-    state = replace(previous, findings=kept, usage=Usage(), suppressions=learned.suppressions)
+    # The diagram of the last review stays as it was (no model call, no new delta); a comment that no longer holds it
+    # is not described as having it.
+    section = diagram.reuse(existing.body, previous.diagram) if existing is not None else ""
+    shown = previous.diagram if section or previous.diagram == diagram.none_state() else ""
+    state = replace(previous, findings=kept, usage=Usage(), suppressions=learned.suppressions, diagram=shown)
     view = verdict(kept, complete=True, budget=spent)
     body, posted_state = render_summary(
         SummaryView(
@@ -638,6 +685,7 @@ def _over_budget(
             depth_label=previous.depth.capitalize(),
             fail_on=options.fail_on,
             budget=spent,
+            diagram=section,
         )
     )
     status = check_status(view, fail_on=options.fail_on)
