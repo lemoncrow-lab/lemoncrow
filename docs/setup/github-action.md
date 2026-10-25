@@ -832,6 +832,8 @@ lc review --pr 123 --ai --json               # machine-readable, with the commen
 
 All three forms print exactly what the bot would post (the summary comment, then each inline comment with the file and lines it would sit on) and write nothing to GitHub: reads only, no comment, no status. Only `--publish-bot` posts, and only in GitHub Actions.
 
+Because nothing is posted, a closed or merged pull request is reviewed here too, with one line saying so before the summary, so you can try the reviewer on history. The Action itself still skips a closed pull request (`skipped: pull request is closed`).
+
 If `opengrep` is on your `PATH` the same security scan runs here too (see "Security scan"); without it the scan is skipped silently.
 
 Without a pull request, the same review runs on the working tree, the staged changes or a range, and posts nothing anywhere:

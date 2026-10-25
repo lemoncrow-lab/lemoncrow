@@ -156,6 +156,11 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   reviewed, the summary and each inline comment (with its file and lines) are printed exactly as the bot would post
   them, and nothing is written to GitHub. Only `--publish-bot`, in GitHub Actions, posts. `lc review --help` and the
   installed client's `lc review --ai --help` say so.
+- **A closed or merged pull request can be reviewed from a terminal.** Nothing refused it but the Action's own
+  rule (a closed pull request is skipped, with a `skipped: pull request is closed` status), so nobody could try
+  the reviewer on history. A preview (`lc review --pr N --ai`, with or without `--dry-run`) now reviews it and
+  says once, in the notes, that it is closed or merged and nothing will be posted. The Action and
+  `--publish-bot` still skip closed pull requests exactly as before.
 - **A review on the `claude` agent CLI reports what it cost, and `--max-usd-per-pr` holds there.** The CLI's
   result carries a total cost for each call (`total_cost_usd`, its list-price estimate: a subscription is not
   billed per call), and LemonCrow dropped it, so the summary showed no cost and the dollar cap could not be

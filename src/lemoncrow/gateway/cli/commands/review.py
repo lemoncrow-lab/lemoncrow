@@ -220,7 +220,7 @@ class _ReviewCliProgress:
         "Run the AI review headlessly on your own model route (no browser, no server) and print the findings: of "
         "the pull request --pr names, or, with no --pr, of the working tree, --staged, REV or --base/--head, posting "
         "nothing. With --pr it prints what the bot would post (the summary and each inline comment with its place) and "
-        "writes nothing to GitHub. Needs ANTHROPIC_API_KEY or OPENAI_API_KEY, or LEMONCROW_LLM_BACKEND. A local "
+        "writes nothing to GitHub, so it also reviews a closed or merged pull request. Needs ANTHROPIC_API_KEY or OPENAI_API_KEY, or LEMONCROW_LLM_BACKEND. A local "
         "review exits 0 when clean, 1 when a finding at or above --fail-on is open, 2 when incomplete with --strict, "
         "3 on a usage error."
     ),
@@ -709,7 +709,8 @@ def review_cmd(
     A pull request, on your own model (needs the `gh` CLI):
       --pr N --ai            review it and print what the bot would post:
                              the summary and each inline comment with its
-                             place. Nothing is written to GitHub.
+                             place. Nothing is written to GitHub, so a
+                             closed or merged pull request works too.
       --pr N --ai --dry-run  the same; --dry-run just says so.
       --pr N --publish-bot   post those comments as a bot. Only in GitHub
                              Actions; from a terminal add --dry-run (or use

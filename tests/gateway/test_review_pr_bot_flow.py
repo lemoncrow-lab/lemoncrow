@@ -350,6 +350,45 @@ def test_a_closed_pull_request_is_skipped_and_says_so_on_the_head(world: World) 
     )
 
 
+def test_a_dry_run_reviews_a_closed_pull_request_and_says_once_that_nothing_is_posted(world: World) -> None:
+    """Nothing is posted, so there is no reason to refuse a closed pull request: try the reviewer on history."""
+
+    world.origin.push(FIRST_PUSH)
+    world.github.state = "closed"
+    report = world.review(dry_run=True)
+
+    assert not report.skipped and world.model.calls, "the closed pull request was reviewed"
+    assert [note for note in report.notes if "closed" in note] == [
+        f"{SLUG}#{NUMBER} is closed; reviewing it anyway. Nothing will be posted."
+    ]
+    assert report.findings and report.summary and report.published == {"dry_run": True}
+    assert report.inline_bodies, "and the comments it would have posted are there to print"
+    assert world.github.statuses == [] and world.github.issue_comments == [] and world.github.review_posts == 0
+    assert [call for call in world.github.calls if call[0] != "GET"] == [], "reads only"
+
+
+def test_a_merged_pull_request_is_called_merged_in_that_note(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    world.origin.push(FIRST_PUSH)
+    world.github.state = "closed"
+    closed_row = world.github._pull
+    monkeypatch.setattr(world.github, "_pull", lambda: {**closed_row(), "merged": True})
+    report = world.review(dry_run=True)
+    assert not report.skipped
+    assert f"{SLUG}#{NUMBER} is merged; reviewing it anyway. Nothing will be posted." in report.notes
+    assert not any("closed" in note for note in report.notes), "said once, in one word"
+
+
+def test_an_open_pull_request_gets_no_closed_note_and_a_real_run_still_skips_a_closed_one(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    assert not any("reviewing it anyway" in note for note in world.review(dry_run=True).notes)
+    world.github.state = "closed"
+    skipped = world.review()  # not a dry run: the Action's case
+    assert skipped.skipped and skipped.reason == f"{SLUG}#{NUMBER} is closed; nothing to review."
+    assert not skipped.notes and [row["description"] for row in world.github.statuses] == [
+        "skipped: pull request is closed"
+    ]
+
+
 def test_a_skip_that_cannot_post_its_status_still_skips_quietly(world: World) -> None:
     world.origin.push(FIRST_PUSH)
     world.github.draft = True

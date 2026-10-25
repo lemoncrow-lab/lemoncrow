@@ -191,6 +191,32 @@ def test_a_dry_run_json_carries_the_comments_and_so_does_ai_alone(ci: Any, monke
     assert json.loads(invoke(ci[0], "--pr", "7", "--ai", "--json").stdout)["comments"] == comments
 
 
+def test_ai_reviews_a_closed_pull_request_and_says_once_that_nothing_is_posted(
+    ci: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    ci[1].state = "closed"
+    result = invoke(ci[0], "--pr", "7", "--ai")
+    assert result.exit_code == 0, result.output
+    assert result.output.count("is closed; reviewing it anyway. Nothing will be posted.") == 1
+    assert "lets a missing principal through" in result.stdout and "--- inline comment on src/auth.py:" in result.stdout
+    assert _writes(ci[1]) == [] and ci[1].statuses == [] and ci[1].issue_comments == []
+    wire = json.loads(invoke(ci[0], "--pr", "7", "--ai", "--json").stdout)
+    assert wire["skipped"] is False and any("reviewing it anyway" in note for note in wire["notes"])
+
+
+def test_the_bot_in_actions_still_skips_a_closed_pull_request_and_says_so_on_the_head(
+    ci: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    ci[1].state = "closed"
+    result = invoke(ci[0], "--pr", "7", "--publish-bot")
+    assert result.exit_code == 0 and result.stdout.startswith("::notice title=LemonCrow Review::")
+    assert "is closed; nothing to review." in result.stdout and ci[2].calls == []
+    assert [row["description"] for row in ci[1].statuses] == ["skipped: pull request is closed"]
+    assert ci[1].issue_comments == []
+
+
 def test_publishing_in_actions_writes_the_comment_and_the_status_and_says_so(
     ci: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

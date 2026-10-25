@@ -88,7 +88,8 @@ def _store_root() -> Path:
     metavar="NUMBER|URL",
     help=(
         "Review a GitHub pull request from inside a clone of its repository (needs the `gh` CLI). Prints what the bot "
-        "would post, the summary and each inline comment with its place; writes nothing to GitHub."
+        "would post, the summary and each inline comment with its place; writes nothing to GitHub, so a closed or "
+        "merged pull request works too."
     ),
 )
 @click.option(
