@@ -150,6 +150,12 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   on an ordinary change in a repository with no rules (a utility function, a snake_case file name) none is raised,
   and `lc review --ai` printed `No must-fix findings` with `Model: none · no model calls` and nothing else, which
   reads as an AI verdict. A line under `Model:` now says no model was asked and how to have it check the change.
+- **A review on the `claude` agent CLI reports what it cost, and `--max-usd-per-pr` holds there.** The CLI's
+  result carries a total cost for each call (`total_cost_usd`, its list-price estimate: a subscription is not
+  billed per call), and LemonCrow dropped it, so the summary showed no cost and the dollar cap could not be
+  enforced on that route. It is now recorded as the call's cost, in the plain and the streaming mode. Codex
+  reports tokens only and OpenCode's usage is not read, so those routes still show no cost; no price is ever
+  invented.
 - **A review on the `claude` agent CLI reports the tokens it used.** The CLI's result carries its token counts,
   and LemonCrow dropped them: every line said "tokens not reported" and the JSON had `null` counts. They are now
   read from the result (prompt tokens include the cached part, as on the API routes). A dollar cost stays

@@ -183,7 +183,7 @@ No LemonCrow host is contacted. LiteLLM's price table is read from its own packa
 - on a clean review, a collapsed `What we checked`: files, rules applied, depth, and what the security scan did (see "Security scan");
 - collapsed blocks for feedback: `N findings dismissed by feedback`, `N instructions learned on this pull request` and `Suggested rules from feedback` (see "Learning from feedback");
 - a collapsed `Fix with your agent`: a prompt listing the open findings with `file:line`, and the checked replacement for each finding that has one, to paste into Claude Code, Codex or Cursor;
-- a footer with the model, depth, model calls and tokens, how much of those tokens was repository context (`~3k of it repository context`, see below), and an estimated cost when LemonCrow's local price table knows the model. It never guesses a price: an unknown model shows tokens only.
+- a footer with the model, depth, model calls and tokens, how much of those tokens was repository context (`~3k of it repository context`, see below), and an estimated cost when the provider reports one, when LemonCrow's local price table knows the model, or when the claude CLI route (`lc review --agent claude`) reports its own figure. It never guesses a price: an unknown model that reports none shows tokens only.
 
 **Inline comments** for P0 and P1 findings (P2 too at strictness 1, none at all in summary-only mode): a title with the badge, why, the consequence, a one-click GitHub `suggestion` block only when the finding carries a fix LemonCrow has checked against the commit (see [Suggested fixes](#suggested-fixes)), and a one-line trailer naming the rule and the context it relied on, when there are any (see [Attribution trailers](#attribution-trailers)). P2 findings stay in the summary.
 
@@ -698,7 +698,7 @@ When either is reached, the next push is **not reviewed**: the model is not call
 
 Limits to know:
 
-- `max-usd-per-pr` needs a **known cost**: the one the provider reports (the LiteLLM route does), or a model the local price table knows exactly. If the cost is unknown it cannot be held to a dollar figure: the run says so in its notes and does not count it as spent. `max-runs-per-pr` needs no price.
+- `max-usd-per-pr` needs a **known cost**: the one the provider reports (the LiteLLM route does), the one the claude CLI reports for each call (`lc review --agent claude`; Codex and OpenCode report none), or a model the local price table knows exactly. If the cost is unknown it cannot be held to a dollar figure: the run says so in its notes and does not count it as spent. `max-runs-per-pr` needs no price.
 - The total is what finished runs saved. A run cancelled by `concurrency` before it wrote its summary spent money that no state records, so it is not counted; neither is a pull request whose summary comment was deleted, which starts from zero.
 - A rerun of a commit that was already reviewed is never a budget event: it costs nothing.
 
