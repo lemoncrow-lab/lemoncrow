@@ -2902,6 +2902,14 @@ def _run_independent_review_stages(
                     candidates,
                     limit=profile.max_hypotheses,
                 )
+                if not hypotheses:
+                    # Every hypothesis the model proposed named a category or a target the triage did not raise together
+                    # (a real model does this on a change with many risk signals). Investigate the highest-ranked
+                    # candidates directly, as a review without synthesis does, rather than pay for the call and look at
+                    # nothing.
+                    hypotheses = tuple(
+                        _direct_hypothesis(candidate) for candidate in candidates[: profile.max_hypotheses]
+                    )
         else:
             chosen = cover if cover is not None else candidates[: profile.max_hypotheses]
             hypotheses = tuple(_direct_hypothesis(candidate) for candidate in chosen)

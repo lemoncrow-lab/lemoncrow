@@ -137,6 +137,27 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Fixed
 
+- **A model set with no driver no longer reads as "AI review is turned off".** `lc settings set intelligence.model X`
+  without `intelligence.driver` makes the settings contradict each other; the review said "AI review is turned off"
+  and told you to run `lc settings set intelligence.enabled true`, which changes nothing. It now says the setting is
+  wrong and gives the two ways out (`lc settings set intelligence.driver NAME`, `lc settings reset intelligence.model`).
+- **A review no longer pays for a hypothesis call and then examines nothing.** On a change with many risk signals
+  the model's proposed hypotheses can pair a category with a target the triage raised for another category; all of
+  them were dropped, so the one call was spent, no investigation ran, and the summary said "0 of 39 risk signals
+  examined (the depth limit)". When none of the proposed hypotheses is allowed, the highest-ranked candidates are
+  investigated directly, as a review without that call does.
+- **A local review that asked the model nothing says so.** The model is asked only about a risk signal or a rule;
+  on an ordinary change in a repository with no rules (a utility function, a snake_case file name) none is raised,
+  and `lc review --ai` printed `No must-fix findings` with `Model: none · no model calls` and nothing else, which
+  reads as an AI verdict. A line under `Model:` now says no model was asked and how to have it check the change.
+- **A review on the `claude` agent CLI reports the tokens it used.** The CLI's result carries its token counts,
+  and LemonCrow dropped them: every line said "tokens not reported" and the JSON had `null` counts. They are now
+  read from the result (prompt tokens include the cached part, as on the API routes). A dollar cost stays
+  unreported: a subscription process has none to bill.
+- **`lc review --pr N --publish-bot --dry-run` prints the comments it would post.** It printed the headline and
+  "would post N inline comment(s) and the summary above", with no summary above it. It now prints the summary
+  comment (without its hidden state block) and each inline comment with the file and lines it would sit on, and
+  `--json` carries them under `comments`. Found by the first run against a real model and real GitHub.
 - **The Reader no longer opens on "LemonCrow policy removed" when your repository commits `.lemoncrow/review.yaml`.** A working-tree review left the whole `.lemoncrow/` folder out of the changed side but kept the committed config on the base side, so an unchanged file showed as a deleted, critical agent-instruction change and blocked auto-approval. The one committed `.lemoncrow/review.yaml` is now on both sides; the rest of `.lemoncrow/` stays out, and a real deletion still shows as one.
 - **The review engine builds again.** `pr_bot/model_failure.py` was missing from the engine allowlist, so the engine build and `test_review_engine_closure_contract` failed on the merged branch.
 - **The local Reader says what to do when no AI model is set up.** Its AI review line read "Review Intelligence

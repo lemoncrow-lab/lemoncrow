@@ -113,6 +113,21 @@ def ruled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Lab:
     return make_lab(tmp_path, monkeypatch, {**BASE, ".lemoncrow/review.yaml": RULE})
 
 
+def test_a_change_no_risk_signal_or_rule_matches_says_that_no_model_was_asked(lab: Lab) -> None:
+    lab.write({"src/mathx.py": "def clamp(value, low, high):\n    return max(low, min(value, high))\n"})
+    lab.commit("add clamp")
+    lab.write({"src/mathx.py": "def clamp(value, low, high):\n    return max(low, min(value, high - 1))\n"})
+    result = lab.run()
+    assert result.exit_code == 0, result.output
+    assert "No must-fix findings" in result.stdout
+    assert local.NO_MODEL_ASKED in result.stdout and "no model calls" in result.stdout
+    assert lab.model.calls == []
+    # A change with a risk signal is investigated, and then the line has no place.
+    lab.write({"src/auth.py": AUTH_BUGGY})
+    asked = lab.run("--fresh")
+    assert lab.model.calls and local.NO_MODEL_ASKED not in asked.stdout
+
+
 # --------------------------------------------------------------------------- #
 # the same findings and severity as the pull request bot, rendered for a terminal
 # --------------------------------------------------------------------------- #
@@ -545,6 +560,19 @@ def test_the_kill_switch_is_respected_and_no_model_is_called(lab: Lab) -> None:
     assert soft.exit_code == 3 and "AI review is turned off" in soft.stderr
     assert "lc settings set intelligence.enabled true" in soft.stderr
     assert lab.run("--strict").exit_code == 2
+    assert lab.model.calls == []
+
+
+def test_a_model_with_no_driver_is_a_wrong_setting_not_a_switched_off_review(lab: Lab) -> None:
+    lab.store.mkdir(parents=True, exist_ok=True)
+    (lab.store / "plugin_settings.json").write_text(json.dumps({"intelligence.model": "sonnet"}))
+    lab.write({"src/auth.py": AUTH_BUGGY})
+    done = lab.run()
+    assert done.exit_code == 3 and "requires a pinned driver" in done.stderr
+    # The advice fits the cause: it does not send the person to a switch that was never off.
+    assert "intelligence.enabled" not in done.stderr and "turned off" not in done.stderr
+    assert "lc settings set intelligence.driver claude" in done.stderr
+    assert "lc settings reset intelligence.model" in done.stderr
     assert lab.model.calls == []
 
 

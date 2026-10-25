@@ -74,6 +74,33 @@ def parse_structured_json(output: str, *, driver: str) -> dict[str, Any]:
     return parsed
 
 
+def claude_usage_report(result: Mapping[str, Any]) -> dict[str, int]:
+    """The token counts a claude CLI result reports (its ``usage``), in the keys ``execute_structured`` reads.
+
+    The CLI's ``input_tokens`` leaves out the cached prompt; the prompt tokens reported here include it, the way the
+    API routes count them, with the cached part also named on its own. ``{}`` when the result reports no usage.
+    """
+
+    usage = result.get("usage")
+    if not isinstance(usage, Mapping):
+        return {}
+
+    def count(name: str) -> int | None:
+        value = usage.get(name)
+        return value if type(value) is int and value >= 0 else None
+
+    fresh, output = count("input_tokens"), count("output_tokens")
+    if fresh is None or output is None:
+        return {}
+    read, written = count("cache_read_input_tokens") or 0, count("cache_creation_input_tokens") or 0
+    return {
+        "input_tokens": fresh + read + written,
+        "output_tokens": output,
+        "cached_input_tokens": read,
+        "cache_write_input_tokens": written,
+    }
+
+
 def parse_codex_events(
     output: str, *, on_usage_reported: Callable[[Mapping[str, Any]], None] | None = None
 ) -> dict[str, Any]:
@@ -627,6 +654,13 @@ def _execute_cli_structured(
                 return parse_opencode_events(completed.stdout)
             if driver == "codex":
                 return parse_codex_events(completed.stdout, on_usage_reported=on_usage_reported)
+            if on_usage_reported is not None:
+                try:
+                    reported_result = json.loads(completed.stdout)
+                except ValueError:
+                    reported_result = None
+                if isinstance(reported_result, Mapping) and (reported_usage := claude_usage_report(reported_result)):
+                    on_usage_reported(reported_usage)
             return parse_structured_json(completed.stdout, driver=driver)
 
         final_structured: dict[str, Any] | None = None
@@ -668,6 +702,8 @@ def _execute_cli_structured(
                         if isinstance(delta, Mapping) and str(delta.get("type") or "") == "text_delta":
                             emit_raw(str(delta.get("text") or ""))
                 elif event_type == "result":
+                    if on_usage_reported is not None and (reported_usage := claude_usage_report(event)):
+                        on_usage_reported(reported_usage)
                     structured = event.get("structured_output")
                     if isinstance(structured, dict):
                         final_structured = structured
@@ -756,6 +792,7 @@ __all__ = [
     "ExecutionOrigin",
     "ReviewToolProfile",
     "SourceKind",
+    "claude_usage_report",
     "parse_codex_events",
     "parse_opencode_events",
     "parse_structured_json",

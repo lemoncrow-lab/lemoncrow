@@ -467,6 +467,21 @@ def saved_agent(store_root: Path, which: Callable[[str], str | None] | None = No
     return saved if saved in _AGENT_CLIS and (which or shutil.which)(saved) else ""
 
 
+#: How ``intelligence_policy`` words a policy that cannot be used (as opposed to one switched off).
+POLICY_INVALID = "intelligence policy is invalid"
+
+
+def _policy_fix(why: str) -> str:
+    """What to do about an invalid intelligence policy: a model set with no driver is the usual cause."""
+
+    if "requires a pinned driver" in why:
+        return (
+            "Name the driver: lc settings set intelligence.driver claude (or codex, opencode, openai, litellm, "
+            "ollama), or drop the model: lc settings reset intelligence.model"
+        )
+    return "Fix the setting it names: lc settings"
+
+
 def _route_state(environ: Mapping[str, str], store_root: Path, report: LocalReport) -> tuple[str, str]:
     """``("", "")`` when a model can be used; else ``(kind, why)``: ``disabled`` (the switch is off) or ``no_route``.
 
@@ -489,6 +504,9 @@ def _route_state(environ: Mapping[str, str], store_root: Path, report: LocalRepo
         ci_env.apply_model_route(route, os.environ)  # the drivers read the process environment
     status, why = engine.route_problem()
     if status == "disabled":
+        if why.startswith(POLICY_INVALID):
+            # Not the switch: the settings contradict each other, so turning the switch on would change nothing.
+            return "disabled", f"AI review is not set up ({why}). {_policy_fix(why)}"
         return "disabled", f"AI review is turned off ({why}). Turn it on: lc settings set intelligence.enabled true"
     if status:
         if why.startswith("Unsupported"):
@@ -796,6 +814,13 @@ def plain(text: str) -> str:
 _BADGE_COLOR: Final[Mapping[str, str]] = {"p0": "red", "p1": "yellow", "p2": "bright_black"}
 
 
+#: Said under a local review that made no model call because nothing in the change matched a risk signal or a rule.
+NO_MODEL_ASKED = (
+    "No model was asked about this change: no risk signal matched it and no review rule covers it. "
+    "To have the model check it, add a rule under rules: in .lemoncrow/review.yaml."
+)
+
+
 def render_text(report: LocalReport, *, style: Callable[..., str] | None = None, show_all: bool = False) -> str:
     """The report for a terminal. *style* is ``click.style`` (or ``None`` for plain text)."""
 
@@ -844,6 +869,10 @@ def render_text(report: LocalReport, *, style: Callable[..., str] | None = None,
     if report.state is not None:
         lines.append(_coverage_line(report))
         lines.append(f"Model: {report.model or 'none'} · depth {report.depth} · {usage_text(report.usage)}")
+        if report.rereviewed and report.candidates == 0 and report.usage.calls == 0 and report.complete:
+            # The model is asked only about a risk signal or a rule. A clean verdict that asked it nothing is not an
+            # AI verdict, and a first run on an ordinary change would otherwise read as one.
+            lines.append(NO_MODEL_ASKED)
     shown_reason = report.incomplete_reason
     if report.incomplete and shown_reason and (view is None or shown_reason not in view.headline):
         if report.setup == "no_route" and report.setup_message:
@@ -913,6 +942,7 @@ __all__ = [
     "EXIT_INCOMPLETE",
     "EXIT_USAGE",
     "LOCAL_FAIL_ON",
+    "NO_MODEL_ASKED",
     "LocalOptions",
     "LocalReport",
     "LocalReviewError",

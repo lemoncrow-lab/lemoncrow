@@ -156,14 +156,16 @@ def _review_pull_request_with_ai(
     if as_json:
         _emit(report.to_wire(), as_json=True)
     elif not report.skipped:
+        previewed = bool(report.published.get("dry_run"))
         if isinstance(report.published.get("chat"), dict):
             _emit_chat(report, dry_run=dry_run)
-        elif report.published:
+        elif report.published and not previewed:
             _emit_bot_publication(report)
         else:
+            # A dry run shows the exact summary comment, not only its headline: that is what it is for.
             click.echo(strip_state(report.summary))
         if dry_run and not isinstance(report.published.get("chat"), dict):
-            click.echo(f"\nDry run: would post {len(report.inline_bodies)} inline comment(s) and the summary above.")
+            _emit_dry_run_comments(report)
     if report.exit_code:
         ctx.exit(report.exit_code)
 
@@ -240,6 +242,15 @@ def _review_local_with_ai(
         )
     if report.exit_code:
         ctx.exit(report.exit_code)
+
+
+def _emit_dry_run_comments(report: Any) -> None:
+    """What a ``--publish-bot --dry-run`` would post besides the summary above: each inline comment, with its place."""
+
+    count = len(report.inline_bodies)
+    click.echo(f"\nDry run: would post {count} inline comment(s) and the summary above. Nothing was posted.")
+    for where, body in zip(report.inline_where, report.inline_bodies, strict=False):
+        click.echo(f"\n--- inline comment on {where} ---\n{body}")
 
 
 def _emit_chat(report: Any, *, dry_run: bool) -> None:

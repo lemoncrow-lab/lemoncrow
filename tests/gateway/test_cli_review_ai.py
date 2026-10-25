@@ -102,6 +102,33 @@ def test_json_output_is_the_machine_readable_result(ci: Any, monkeypatch: pytest
     assert ci[1].statuses == [] and ci[1].issue_comments == []
 
 
+def test_a_dry_run_prints_the_summary_and_each_inline_comment_it_would_post(
+    ci: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    result = invoke(ci[0], "--pr", "7", "--publish-bot", "--dry-run")
+    assert result.exit_code == 0, result.output
+    out = result.stdout
+    # The summary comment itself (not only its headline), without the hidden state block.
+    assert "**No must-fix findings** · 1 should-fix" in out and "lemoncrow:state" not in out
+    assert "lets a missing principal through" in out
+    # Then each inline comment, with the place it would go.
+    assert "Dry run: would post 1 inline comment(s) and the summary above. Nothing was posted." in out
+    assert "--- inline comment on src/auth.py:" in out
+    assert out.index("--- inline comment on") > out.index("Dry run: would post")
+    assert ci[1].statuses == [] and ci[1].issue_comments == []
+
+
+def test_a_dry_run_json_carries_the_comments_and_a_plain_run_does_not(ci: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    wire = json.loads(invoke(ci[0], "--pr", "7", "--publish-bot", "--dry-run", "--json").stdout)
+    comments = wire["comments"]
+    assert "lets a missing principal through" in comments["summary"] and "lemoncrow:state" not in comments["summary"]
+    (inline,) = comments["inline"]
+    assert inline["where"].startswith("src/auth.py:") and inline["body"]
+    assert "comments" not in json.loads(invoke(ci[0], "--pr", "7", "--ai", "--json").stdout)
+
+
 def test_publishing_in_actions_writes_the_comment_and_the_status_and_says_so(
     ci: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
