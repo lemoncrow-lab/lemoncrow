@@ -206,6 +206,7 @@ import {
   fetchReviewDependencies,
   fetchReviewProjectContext,
 } from "./reviewApi";
+import { isLocalBrowserUnpaired } from "./localBrowser";
 import type {
   Annotation,
   AnnotationDraft,
@@ -808,9 +809,11 @@ function streamAccessLoss(status: number): "forbidden" | "gone" {
 }
 
 /** A load refusal no retry can fix: the review is gone, or this account may not open it. */
-function missingReviewState(reason: unknown): "" | "not_found" | "no_access" {
+function missingReviewState(reason: unknown): "" | "not_found" | "no_access" | "unpaired" {
   const status = reviewErrorStatus(reason);
   if (status === 404) return "not_found";
+  // A browser the terminal never paired is not an account that lost access: no administrator is involved.
+  if (isLocalBrowserUnpaired(reason)) return "unpaired";
   // 401 here is what remains after the request's own sign-in recovery.
   if (status === 403 || status === 401) return "no_access";
   return "";
@@ -892,7 +895,7 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
   const selectedHistoricalRevisionNumber = historicalRevisionNumber ?? 0;
   const [authed, setAuthed] = useState(true);
   const [preparationId, setPreparationId] = useState("");
-  const [reviewMissing, setReviewMissing] = useState<"" | "none" | "not_found" | "no_access">("");
+  const [reviewMissing, setReviewMissing] = useState<"" | "none" | "not_found" | "no_access" | "unpaired">("");
   // The live stream reported that this open Review was revoked or removed.
   const [accessLost, setAccessLost] = useState<"" | "forbidden" | "gone">("");
   const [preparationStage, setPreparationStage] = useState("");
@@ -5610,6 +5613,23 @@ export default function ReviewReader({ sourceProbeIntervalMs = SOURCE_PROBE_INTE
         <div className="max-w-md">
           <div className="text-heading font-semibold text-foreground">This review link is incomplete</div>
           <p className="mt-1 text-caption leading-5 text-muted-foreground">For a local review, reopen it from the terminal with <code className="text-subtle">lc review --open</code>.</p>
+        </div>
+      </div>
+    );
+  }
+  if (reviewMissing === "unpaired" && !overview) {
+    // The refusal a local browser gets before the terminal has connected it. Retry works once `lc review` has run.
+    return (
+      <div className="flex h-screen items-center justify-center bg-background px-6 text-subtle">
+        <div className="w-full max-w-md" role="alert">
+          <div className="text-heading font-semibold text-foreground">This browser isn't connected to your local review</div>
+          <div className="mt-1 text-caption leading-5 text-muted-foreground">
+            Run <code className="text-subtle">lc review --open</code> in your terminal and this page opens already connected, or run{" "}
+            <code className="text-subtle">lc review</code> again in your project. Then retry here.
+          </div>
+          <UiButton type="button" disabled={Boolean(busy)} onClick={() => void reloadReader()} className="mt-4">
+            {busy === "reload" ? "Retrying…" : "Retry"}
+          </UiButton>
         </div>
       </div>
     );

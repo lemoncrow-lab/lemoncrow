@@ -4,7 +4,7 @@
 
 There are two `lc` command trees:
 
-- **The installed client.** `curl -fsSL https://lemoncrow.com/install.sh | bash` installs it. It carries Review capture (`lc review`, `lcr`), Runtime Lite (`lc with`, `lc rt ...`), and product management (`lc status`, `lc update`, `lc uninstall`, `lc auth`).
+- **The installed client.** `curl -fsSL https://lemoncrow.com/install.sh | bash` installs it. It carries Review capture (`lc review`, `lcr`), the AI review in the terminal (`lc review --ai`, `lc review hook`, `lc review init-action`, `lc review config`), Runtime Lite (`lc with`, `lc rt ...`), and product management (`lc status`, `lc update`, `lc uninstall`, `lc auth`).
 - **The full CLI.** A LemonCrow source checkout runs it as `uv run lc ...` (see [Installation](../setup/installation.md#source-checkout--contributor-setup)). It adds the commands marked *full CLI* below. The installed client recognizes those commands and says where they live instead of running them.
 
 For the exact flags supported by your installed version, use built-in help:
@@ -106,7 +106,7 @@ The common case is:
 lc review --open
 ```
 
-With no explicit range, Review uses the current working-tree change; on a clean tree it falls back to the latest commit and says so. `--open` is the default; `--no-open` captures and prints the Review URL without opening a browser.
+With no explicit range, Review uses the current working-tree change; on a clean tree it falls back to the latest commit and says so. `--open` is the default; `--no-open` captures and prints the Review URL without opening a browser. A plain `lc review` never calls a model: it captures the change and opens the Reader. Add `--ai` to get an AI review in the terminal (below).
 
 The installed client accepts these options (`lc review --help` lists them):
 
@@ -119,8 +119,13 @@ lc review --title "Auth TTL"     # set the Review title
 lc review --no-impact            # skip impact analysis
 lc review --reopen-review        # restore an archived matching Review
 lc review --json                 # machine-readable output
-lc review watch                  # keep the Review current as source settles
+lc review --ai                   # AI review printed in the terminal (see below)
+lc review hook install           # git hook: AI review before each push
+lc review init-action            # write the GitHub Action workflow
+lc review config --effective     # the review rules this repository sets
 ```
+
+Opening the Reader from the printed URL of `--no-open` shows "This browser isn't connected to your local review" until the terminal has connected that browser; run `lc review --open` (or `lc review` again) and retry.
 
 Marking, commenting, changes since your review, and feedback for the author happen in the Review Reader (**Mark reviewed**, **Add comment**, **Changed since your review**, **Copy feedback**, **Send to agent**).
 
@@ -134,24 +139,24 @@ lc review --feedback
 lc review --finish
 lc review --current
 lc review --resume-author
-lc review --pr 123
-lc review --pr 123 --ai --depth auto   # AI review in the terminal or CI; --publish-bot posts it as a bot
-lc review --ai                        # AI review of the working tree (or --staged, REV, --base/--head); posts nothing
-lc review hook install                # a git hook that runs it before a push (--pre-commit: before a commit)
-lc review init-action                 # write the GitHub Action workflow for this repository
 lc review data-flow
-lc review config --effective            # the merged review rules (review.yaml, import.rules_files, AGENTS.md) and their sources
-lc review config --dry-run --pr 123   # which rules would apply to that pull request's files
 lc review diagnostics
 lc review observation-worker check --server URL --pins pins.json
 ```
 
 ### Local AI review and git hooks
 
-`lc review --ai` reviews a change that has no pull request, on your own model key, and posts nothing anywhere. It runs the engine path the [GitHub Action](../setup/github-action.md) runs (capture, the AI stage, the same severity rule), so a finding has the same severity here as on a pull request.
+Everything in this section runs from the installed `lc` and from a source checkout alike. The installed client starts the Review engine's interpreter on it (the installer puts the engine at `~/.lemoncrow/review/engine`), so there is one `lc` and one help. A client with no local engine (a Hosted install) says how to get one. These four commands are the only ones that can call a model, and only `--ai` makes `lc review` do so: a key in your environment, or `--agent`, `--pr` and `--fail-on` on their own, never start a review that costs money.
+
+### Local AI review and git hooks
+
+`lc review --ai` reviews a change that has no pull request, on your own model key or a signed-in agent CLI, and posts nothing anywhere. It runs the engine path the [GitHub Action](../setup/github-action.md) runs (capture, the AI stage, the same severity rule), so a finding has the same severity here as on a pull request.
 
 ```bash
+export ANTHROPIC_API_KEY=sk-ant-...   # or OPENAI_API_KEY; or skip the key and use --agent below
 lc review --ai                         # the working tree against HEAD (the last commit when the tree is clean)
+lc review --ai --agent claude          # review with your signed-in Claude Code instead (also codex, opencode)
+lc review --pr 123 --ai                # a GitHub pull request (needs the gh CLI); prints, posts nothing
 lc review --ai --staged                # exactly what is staged
 lc review --ai main...HEAD             # a branch against its merge base with main (or REV, or --base/--head)
 lc review --ai --fail-on p1 --strict   # stricter exit codes, for a hook or a script
@@ -191,7 +196,7 @@ Nothing to review (no changed files) is `0` and needs no model. An error inside 
 
 **Noise controls.** The review reads the `review:` block of `.lemoncrow/review.yaml` as committed at the base of the range (`HEAD` for the working tree and the staged changes), as the pull request bot reads it from the merge base: `strictness` / `finding_threshold` hold back the open findings below the threshold, `rules.<key>.severity` sets the severity of the findings that cite a rule, and `ignore` keeps files out of the review. A held-back finding is shown once, in a `held back below strictness 3` section, counted in the headline (`1 held back`) and listed under `held_back` in `--json`; it is in no verdict count and never makes `--fail-on` exit `1`. A P0 is never held back. Lowering the threshold shows the finding again on the next run with no new model call. See [Reducing noise](../setup/github-action.md#reducing-noise).
 
-**Model route.** Your own: `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, or `LEMONCROW_LLM_BACKEND` for LiteLLM, Ollama or a local agent CLI (`claude`, `codex`, `opencode`) with its variables, as `--pr N --ai` uses. The intelligence policy and its kill switch apply: with AI turned off, nothing is sent and the review is incomplete (exit `0`, or `2` under `--strict`).
+**Model route.** Your own, in this order: `--agent claude|codex|opencode` (a local agent CLI you are signed in to; it uses that tool's own plan and is only ever used when named), an explicit `LEMONCROW_LLM_BACKEND` (LiteLLM, OpenAI, Ollama or an agent CLI) with its variables, `ANTHROPIC_API_KEY`, then `OPENAI_API_KEY`. With only a key, the installed engine calls the provider over HTTPS itself and needs no SDK; set `ANTHROPIC_BASE_URL` or `LEMONCROW_OPENAI_BASE_URL` to use a gateway or a local server. With none of them the review does not run: it prints the commands to set one up, exits `0` (or `2` under `--strict`), and nothing is sent anywhere. The intelligence policy and its kill switch apply: with AI turned off, nothing is sent and the review is incomplete.
 
 **Carried results.** Like the bot, the review keeps its result between runs, in a small file under the LemonCrow root (`review-local-ai/`), one per change: the working tree and the staged changes of a branch, or a range's base and the branch it ends on. A re-run reviews only what changed since: on an unchanged tree no model call is made and the open findings still decide the exit code; after an edit only the changed files go to the model; a fixed finding is closed. A changed review policy or depth reviews everything once; `--fresh` does so on request. `--max-usd-per-pr` and `--max-runs-per-pr` limit what one change may cost over its runs, read from the same carried usage; when they are reached nothing new is reviewed and the findings stand.
 
@@ -205,7 +210,9 @@ lc review hook install --pre-commit           # review what is staged before eac
 lc review hook install --force                # replace a hook that already exists
 ```
 
-The script is a few lines of shell around `lc review hook run`. For a push it reviews what the push would publish: the commits of each pushed branch that the remote does not have (from where a new branch leaves the default branch). Branch deletions and tags are skipped. A review that cannot be done lets the push through and says why, unless the hook was installed with `--strict`. Skip it once with `LEMONCROW_REVIEW_SKIP=1 git push` (`git push --no-verify` skips every hook). The installer never overwrites a hook that exists, whether another tool's or an earlier one of its own with other options, without `--force`; installing the same hook twice writes nothing the second time. A model call happens on every push with new code, so keep the depth at `auto` for hooks.
+The script is a few lines of shell around `lc review hook run`. It calls the absolute path of the `lc` that wrote it (the first `lc` on your PATH only if that file is gone), so a different `lc` earlier on the PATH is never the hook's. For a push it reviews what the push would publish: the commits of each pushed branch that the remote does not have (from where a new branch leaves the default branch). Branch deletions and tags are skipped.
+
+**A hook never stops a push because LemonCrow broke.** It stops it for two reasons only: an open finding at or above `--fail-on`, and, if it was installed with `--strict`, a review that could not finish. No key, a provider error, a spent budget, a crashing or missing `lc`, a broken installation: the push goes through, with one line saying why. (The script asks `hook run` to answer "stop" with the exit status 87, which a crash cannot produce, and treats every other status as "let it through".) Skip it once with `LEMONCROW_REVIEW_SKIP=1 git push` (`git push --no-verify` skips every hook). The installer never overwrites a hook that exists, whether another tool's or one of its own with other options, without `--force`; an older LemonCrow hook (v1, which let a crashing `lc` stop the push) is replaced, and installing the same hook twice writes nothing the second time. A model call happens on every push with new code, so keep the depth at `auto` for hooks.
 
 **`lc review init-action`** writes `.github/workflows/lemoncrow-review.yml` from the setup guide's sample (`--provider anthropic|openai`, `--fail-on none|p0`, `--chat` to add the comment triggers, `--force` to replace an existing file) and prints the steps left to you: adding the secret and pinning the SHA. See [GitHub Action](../setup/github-action.md#install-the-github-action).
 

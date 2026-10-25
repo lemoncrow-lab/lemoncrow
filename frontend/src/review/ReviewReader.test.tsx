@@ -10,6 +10,7 @@ import {
   ProductCapabilitiesProvider,
   REVIEW_ONLY_PRODUCT_CAPABILITIES,
 } from "../lib/RuntimeCapabilities";
+import { LOCAL_BROWSER_RECONNECT_MESSAGE } from "./localBrowser";
 import ReviewReader from "./ReviewReader";
 import { readReviewBacktrail, writeReviewBacktrail } from "./reviewBacktrail";
 import { commentDraftKey } from "./reviewDraftPersistence";
@@ -2081,6 +2082,22 @@ describe("ReviewReader R22 shell", () => {
 
     expect(await screen.findByText("30 streamed targets")).toBeTruthy();
     expect(api.fetchOverview).toHaveBeenCalledTimes(2);
+  });
+
+  it("a browser the terminal never connected is told to run lc review, not to ask an administrator", async () => {
+    api.fetchOverview.mockRejectedValueOnce(
+      Object.assign(new Error(LOCAL_BROWSER_RECONNECT_MESSAGE), { status: 401 }),
+    );
+
+    render(<ReviewReader />);
+
+    expect(await screen.findByText("This browser isn't connected to your local review")).toBeTruthy();
+    expect(screen.getByText("lc review --open")).toBeTruthy();
+    expect(screen.queryByText(/administrator/)).toBeNull();
+    expect(screen.queryByText("You no longer have access to this review")).toBeNull();
+    // Connecting from the terminal, then retrying, opens the review.
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("30 streamed targets")).toBeTruthy();
   });
 
   it("a 403 on load says access was lost and offers All reviews instead of a Retry that cannot work", async () => {

@@ -31,6 +31,15 @@ import click
 
 from lemoncrow.gateway.cli.commands._shared import _emit
 from lemoncrow.gateway.cli.commands.review_record_cli import ReviewCommand
+from lemoncrow.pro.capabilities.review.local_cli.ai import (
+    AGENT_CLIS,
+    DEFAULT_LOCAL_FAIL_ON,
+    _check_ai_review_flags,
+    _LocalUsageError,
+    _review_local_with_ai,
+    _review_pull_request_with_ai,
+    use_agent_cli,
+)
 
 if TYPE_CHECKING:  # `from __future__ import annotations` keeps this import out of the runtime path.
     from collections.abc import Callable, Mapping, Sequence
@@ -218,6 +227,12 @@ class _ReviewCliProgress:
         "With --pr, post the AI findings to the pull request as a bot: one summary comment and inline comments, "
         "event COMMENT only. Runs in GitHub Actions with the workflow's GITHUB_TOKEN. Implies --ai."
     ),
+)
+@click.option(
+    "--agent",
+    type=click.Choice(AGENT_CLIS),
+    default=None,
+    help="With --ai, review with a local agent CLI you are signed in to instead of an API key (uses that tool's plan).",
 )
 @click.option(
     "--depth",
@@ -590,6 +605,7 @@ def review_cmd(
     dry_run: bool,
     ai_review: bool,
     publish_bot: bool,
+    agent: str | None,
     depth: str,
     fail_on: str | None,
     strict: bool,
@@ -700,7 +716,10 @@ def review_cmd(
         raise click.ClickException("--fix and --apply-fix are mutually exclusive")
     if with_conflict_markers and not apply_fix_snapshot:
         raise click.ClickException("--with-conflict-markers requires --apply-fix")
+    if agent and not (ai_review or publish_bot):
+        raise click.ClickException("--agent applies to an --ai review")
     if ai_review or publish_bot:
+        use_agent_cli(agent)
         _check_ai_review_flags(
             pr_spec=pr_spec,
             publish_pr=publish_pr,
@@ -1220,217 +1239,6 @@ def _intent_payload(repo_root: Path, specs: tuple[str, ...], description_file: P
         title, _newline, body = text.strip().partition("\n")
         payload["description"] = {"title": title.strip().lstrip("#").strip()[:300], "body": body.strip()}
     return payload
-
-
-class _LocalUsageError(click.ClickException):
-    """A request a local review cannot serve: exit code 3, so a hook can tell it from a finding (1)."""
-
-    exit_code = 3
-
-
-#: ``--fail-on`` for a local review when the flag is not given (mirrors ``local.DEFAULT_FAIL_ON``, which this module
-#: does not import so that ``lc --help`` pays for nothing).
-DEFAULT_LOCAL_FAIL_ON = "p0"
-
-
-def _check_ai_review_flags(*, pr_spec: str | None, publish_pr: bool, publish_bot: bool, others: Sequence[str]) -> None:
-    if pr_spec is None:
-        if publish_bot:
-            raise click.ClickException("--publish-bot posts to a pull request; add --pr NUMBER|URL")
-        if publish_pr:
-            raise _LocalUsageError("--publish posts your review to a pull request; a local --ai review posts nothing")
-        if others:
-            raise _LocalUsageError(f"--ai reviews a change on its own; drop {', '.join(others)}")
-        return
-    if publish_pr:
-        raise click.ClickException(
-            "--publish posts your own review as you; --publish-bot posts AI findings as a bot. Use one of them"
-        )
-    if others:
-        raise click.ClickException(
-            f"--ai and --publish-bot review a pull request on their own; drop {', '.join(others)}"
-        )
-
-
-_WORKFLOW_COMMAND = {"notice": "notice", "warning": "warning", "error": "error"}
-
-
-def _review_pull_request_with_ai(
-    ctx: click.Context,
-    repo_root: Path | None,
-    pr_spec: str,
-    *,
-    depth: str,
-    fail_on: str,
-    max_usd_per_pr: float | None,
-    max_runs_per_pr: int | None,
-    review_drafts: bool,
-    on_push: bool,
-    diagram: str,
-    publish: bool,
-    dry_run: bool,
-    with_impact: bool,
-    as_json: bool,
-) -> None:
-    """``--ai`` / ``--publish-bot``: review a pull request headlessly, in process, on your own model route."""
-
-    import os
-
-    from lemoncrow.pro.capabilities.review.gitdiff import detect_repo_root
-    from lemoncrow.pro.capabilities.review.pr_bot.runner import PrReviewError, RunOptions, run_pr_review
-    from lemoncrow.pro.capabilities.review.pr_bot.state import strip_state
-
-    try:
-        root = detect_repo_root(repo_root)
-    except ValueError as exc:
-        raise click.ClickException(str(exc)) from exc
-    options = RunOptions(
-        pr=pr_spec,
-        repo_root=root,
-        depth=depth,
-        fail_on=fail_on,
-        review_drafts=review_drafts,
-        on_push=on_push,
-        publish=publish,
-        dry_run=dry_run,
-        with_impact=with_impact,
-        max_usd_per_pr=max_usd_per_pr,
-        max_runs_per_pr=max_runs_per_pr,
-        diagram=diagram,
-    )
-    try:
-        report = run_pr_review(options, progress=lambda message: click.echo(f"  {message}…", err=True))
-    except PrReviewError as exc:
-        raise click.ClickException(str(exc)) from exc
-    in_actions = os.environ.get("GITHUB_ACTIONS") == "true"
-    if report.skipped and report.reason:
-        if in_actions:
-            click.echo(f"::{_WORKFLOW_COMMAND.get(report.level, 'notice')} title=LemonCrow Review::{report.reason}")
-        else:
-            click.echo(report.reason, err=True)
-    for note in report.notes:
-        click.echo(f"  ! {note}", err=True)
-    step_summary = os.environ.get("GITHUB_STEP_SUMMARY", "")
-    if in_actions and step_summary and report.summary:
-        # The run page shows the review even when the comment could not be posted (or on a dry run).
-        with open(step_summary, "a", encoding="utf-8") as handle:
-            handle.write(strip_state(report.summary) + "\n")
-    if as_json:
-        _emit(report.to_wire(), as_json=True)
-    elif not report.skipped:
-        if isinstance(report.published.get("chat"), dict):
-            _emit_chat(report, dry_run=dry_run)
-        elif report.published:
-            _emit_bot_publication(report)
-        else:
-            click.echo(strip_state(report.summary))
-        if dry_run and not isinstance(report.published.get("chat"), dict):
-            click.echo(f"\nDry run: would post {len(report.inline_bodies)} inline comment(s) and the summary above.")
-    if report.exit_code:
-        ctx.exit(report.exit_code)
-
-
-def _review_local_with_ai(
-    ctx: click.Context,
-    repo_root: Path | None,
-    *,
-    store_root: Path,
-    rev: str | None,
-    base_rev: str | None,
-    head_rev: str | None,
-    staged: bool,
-    working_tree: bool,
-    depth: str,
-    fail_on: str,
-    strict: bool,
-    fresh: bool,
-    max_usd: float | None,
-    max_runs: int | None,
-    with_impact: bool,
-    as_json: bool,
-    no_color: bool,
-    show_all: bool,
-) -> None:
-    """``--ai`` with no ``--pr``: review the working tree, the index or a range, post nothing, exit for a hook."""
-
-    import os
-
-    from lemoncrow.pro.capabilities.review.gitdiff import detect_repo_root
-    from lemoncrow.pro.capabilities.review.pr_bot.local import (
-        LocalOptions,
-        LocalReviewError,
-        render_text,
-        run_local_review,
-    )
-
-    try:
-        root = detect_repo_root(repo_root)
-    except ValueError as exc:
-        raise _LocalUsageError(str(exc)) from exc
-    options = LocalOptions(
-        repo_root=root,
-        store_root=store_root,
-        rev=rev,
-        base=base_rev,
-        head=head_rev,
-        staged=staged,
-        working_tree=working_tree,
-        depth=depth,
-        fail_on=fail_on,
-        strict=strict,
-        with_impact=with_impact,
-        fresh=fresh,
-        max_usd=max_usd,
-        max_runs=max_runs,
-    )
-    try:
-        report = run_local_review(options, progress=lambda message: click.echo(f"  {message}…", err=True))
-    except LocalReviewError as exc:
-        raise _LocalUsageError(str(exc)) from exc
-    plain = no_color or bool(os.environ.get("NO_COLOR"))
-    if as_json:
-        _emit(report.to_wire(), as_json=True)
-    else:
-        click.echo(
-            render_text(report, style=None if plain else click.style, show_all=show_all),
-            nl=False,
-            color=False if plain else None,
-        )
-    if report.exit_code:
-        ctx.exit(report.exit_code)
-
-
-def _emit_chat(report: Any, *, dry_run: bool) -> None:
-    """What a chat run (a comment that mentioned the bot) did."""
-
-    chat = report.published["chat"]
-    if dry_run:
-        click.echo(f"Dry run: would reply ({chat.get('kind')}):\n")
-        click.echo("\n".join(report.inline_bodies))
-        return
-    click.echo(f"Chat             {chat.get('kind')}: {chat.get('reply_url') or 'no reply posted'}")
-    if isinstance(report.published.get("chat_total"), dict):
-        click.echo(f"Chat answers     {report.published['chat_total']['answers']} on this pull request")
-
-
-def _emit_bot_publication(report: Any) -> None:
-    published = report.published
-    verdict = report.verdict
-    if verdict is not None:
-        click.echo(verdict.headline)
-    if published.get("summary_url"):
-        click.echo(f"Summary comment  {published['summary_url']}")
-    if "inline" in published:
-        click.echo(f"Inline comments  {published['inline']}")
-    if published.get("learned"):
-        click.echo(f"Learned          {published['learned']} thread(s) told what was learned from feedback")
-    if published.get("replied"):
-        click.echo(f"Fixed threads    {published['replied']} replied, {published.get('resolved', 0)} resolved")
-    status = published.get("status")
-    if isinstance(status, dict):
-        click.echo(f"Status           {status['state']}: {status['description']}")
-    if report.noop:
-        click.echo("Nothing changed since the last review; nothing posted.")
 
 
 def _publish_pull_request(config: Any, repo_root: Path, pr_spec: str, *, dry_run: bool, as_json: bool) -> None:

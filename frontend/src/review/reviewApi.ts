@@ -1,3 +1,4 @@
+import { LOCAL_BROWSER_RECONNECT_MESSAGE } from "./localBrowser";
 import { subscribeReviewState } from "./reviewStateEvents";
 /**
  * The Review fetch layer. The machine credential never enters JavaScript.
@@ -105,6 +106,8 @@ import type {
   SavedInboxFilter,
   SavedInboxFilterList,
 } from "./types";
+export { LOCAL_BROWSER_RECONNECT_MESSAGE };
+
 let reviewId = "";
 let browserSession = "";
 let localBrowserClaim: Promise<Response> | null = null;
@@ -293,10 +296,6 @@ function forgetBrowserSession(): void {
     // Nothing else to clear.
   }
 }
-
-/** Shown when this browser has no usable local capability and no CLI pairing is armed. */
-export const LOCAL_BROWSER_RECONNECT_MESSAGE =
-  "This browser is not connected to LemonCrow Review. Run `lc review --open` in your terminal to reconnect.";
 
 /** Renew a capability once it is a day old so active browsers never need re-pairing. */
 const BROWSER_SESSION_RENEW_AFTER_S = 24 * 60 * 60;

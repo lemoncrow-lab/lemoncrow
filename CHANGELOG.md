@@ -89,6 +89,34 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   `lc review init-action [--provider anthropic|openai] [--fail-on none|p0] [--chat]` writes
   `.github/workflows/lemoncrow-review.yml` from the setup guide's sample and prints the two steps left to
   you, the secret and the pinned SHA. See [Importing review rules](docs/setup/importing-review-rules.md).
+- **AI review in the terminal from the installed `lc`.** `lc review --ai`, `lc review hook install`,
+  `lc review init-action` and `lc review config` now run from the `lc` the installer puts on your PATH, not
+  only from a source checkout: the client starts the Review engine's interpreter on them, so there is one `lc`
+  and one help (`lc review --help` lists them). `lc review` itself still calls no model, even with a key in your
+  environment; `--ai` is the only switch that does. With only `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` set the
+  installed engine calls the provider over HTTPS itself (no SDK to install); `--agent claude|codex|opencode`
+  reviews with an agent CLI you are signed in to. With no model set up the review prints the two commands that
+  fix it.
+
+### Fixed
+
+- **`lc review` no longer ends in `ModuleNotFoundError: lemoncrow_client.session`** (also `--open`, `--json`
+  and `lcr`; present in v0.8.0). The Review client armed the browser pairing through the Runtime session,
+  which its wheel does not ship. It now pairs through the Review session, and a test copies exactly the shipped
+  files into a fresh interpreter and imports them all.
+- **A git hook never blocks a push because LemonCrow broke.** The v0.8.0 pre-push hook ran whatever `lc` was
+  first on the PATH and passed on its exit status, so a crashing `lc` (exit 1, the same as "a finding is open")
+  refused every push with a traceback. The hook now calls the absolute `lc` that wrote it and stops only for an
+  open finding at or above `--fail-on`, or an incomplete review under `--strict`; anything else lets the push
+  through with one line. Reinstall it (`lc review hook install`) to replace an older hook.
+- **The Review engine ships `config_import.py` and `repo_context.py`** (the Reader answered HTTP 500 on a build
+  from this branch) and `diff-match-patch` (re-anchoring a comment whose text changed). The engine build now
+  imports every module it ships.
+- **The Reader was unstyled in v0.8.0**: `frontend/postcss.config.js` was missing from the public mirror, so the
+  release build skipped Tailwind and shipped raw `@tailwind` directives (11.7 KB of CSS instead of 97 KB). The
+  build now refuses such a bundle.
+- **An unconnected browser is told so**: the printed URL of `lc review --no-open` now says "This browser isn't
+  connected to your local review" with the command to run, instead of "ask your administrator".
 
 ### Changed
 

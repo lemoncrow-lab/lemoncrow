@@ -338,9 +338,26 @@ def _prune(folder: Path) -> None:
 # --------------------------------------------------------------------------- #
 
 NO_ROUTE: Final[str] = (
-    "no model route is configured: set ANTHROPIC_API_KEY or OPENAI_API_KEY, or LEMONCROW_LLM_BACKEND "
-    "(openai, litellm, ollama, or an agent CLI: claude, codex, opencode) with its provider variables"
+    "no model route is configured. Set a key, for example `export ANTHROPIC_API_KEY=sk-ant-...` "
+    "(or OPENAI_API_KEY), or review with a local agent CLI you are signed in to: `lc review --ai --agent claude` "
+    "(also codex, opencode)"
 )
+_AGENT_CLIS: Final[tuple[str, ...]] = ("claude", "codex", "opencode")
+
+
+def no_route_text(which: Callable[[str], str | None] | None = None) -> str:
+    """:data:`NO_ROUTE`, naming the agent CLI that is on the PATH when there is one. Nothing is run or chosen here:
+    an agent CLI spends the person's own plan, so it is used only when ``--agent`` asks for it by name."""
+
+    import shutil
+
+    found = [name for name in _AGENT_CLIS if (which or shutil.which)(name)]
+    if not found:
+        return NO_ROUTE
+    return (
+        "no model route is configured. Set a key, for example `export ANTHROPIC_API_KEY=sk-ant-...` "
+        f"(or OPENAI_API_KEY), or use the agent CLI on your PATH: `lc review --ai --agent {found[0]}`"
+    )
 
 
 def _model_problem(environ: Mapping[str, str]) -> str:
@@ -355,7 +372,8 @@ def _model_problem(environ: Mapping[str, str]) -> str:
     if status == "disabled":
         return f"AI review is turned off ({why})"
     if status:
-        return f"{NO_ROUTE}. {why}".strip()
+        # "provider is disabled; configure a provider" only repeats NO_ROUTE; a driver that is not supported is news.
+        return f"{no_route_text()}. {why}".strip() if why.startswith("Unsupported") else no_route_text()
     return ""
 
 

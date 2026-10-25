@@ -73,10 +73,13 @@ lc rt enable claude --hosted
 
 Signing in does not change a local integration into hosted execution. Local Runtime Lite stays local. `lc code` is an explicit Hosted Runtime entry point.
 
-Review what an agent changed:
+Review what an agent changed, then get an AI review of it in your terminal:
 
 ```bash
-lc review --open
+cd your-project
+lc review                          # capture the change and open it in the Reader; calls no model
+export ANTHROPIC_API_KEY=sk-ant-...   # or OPENAI_API_KEY, or use a signed-in agent: --agent claude
+lc review --ai                     # AI review printed here; posts nothing
 ```
 
 Runtime and Review remain separate product surfaces: Runtime does not require
@@ -130,6 +133,18 @@ Start with the local review reader:
 lc review           # freeze the current change and open the Review Reader
 lc review --staged  # exactly what you are about to commit
 lc review --no-open # capture and print the Review URL without opening a browser
+```
+
+A plain `lc review` never calls a model, even when a key is in your environment:
+a key exported for other tools is not consent to spend. Ask for the AI review
+with `--ai`, in the same installed `lc`:
+
+```bash
+lc review --ai                  # AI review of your change, printed in the terminal
+lc review --ai --agent claude   # use your signed-in Claude Code (or codex, opencode) instead of a key
+lc review hook install          # before each push; it stops only on a real finding, never because LemonCrow failed
+lc review init-action           # write the GitHub Action workflow for pull requests
+lc review config --effective    # the review rules this repository sets
 ```
 
 <p align="center">
@@ -207,7 +222,7 @@ Replace `<commit-sha>` with the full SHA of a commit of the public repository
 (there is no moving `v1` tag; the guide explains how to find the SHA).
 The full workflow, permissions, fork-pull-request behavior and limits are in
 [Install the GitHub Action](docs/setup/github-action.md). To try it without
-CI: `lc review --pr 123 --ai` (full Review CLI) prints the findings and posts
+CI: `lc review --pr 123 --ai` prints the findings and posts
 nothing.
 
 ---
