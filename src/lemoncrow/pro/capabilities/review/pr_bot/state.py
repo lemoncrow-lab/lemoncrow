@@ -33,6 +33,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.findings import (
     BotFinding,
     finding_from_wire,
 )
+from lemoncrow.pro.capabilities.review.pr_bot.impact import Impact
 from lemoncrow.pro.capabilities.review.pr_bot.suppression import (
     MAX_SUPPRESSIONS,
     Suppression,
@@ -170,6 +171,11 @@ class ReviewState:
     #: block instead of recomputing it, and rewrites the comment only when the drawing differs. ``""``: none was drawn
     #: (turned off, too large, not computed, or dropped to fit the comment).
     diagram: str = ""
+    #: The deterministic impact label the summary shows (:class:`impact.Impact`), as :meth:`Impact.to_state` writes it:
+    #: ``high:security+persistence:12:340``. Kept so a summary that is re-rendered without a review (a spent budget)
+    #: still says it, and so a re-run on an unchanged head rewrites the comment when the rule gives another answer.
+    #: ``""``: none was computed.
+    impact: str = ""
 
     def open_findings(self) -> tuple[BotFinding, ...]:
         return tuple(finding for finding in self.findings if finding.is_open)
@@ -235,6 +241,8 @@ def state_wire(state: ReviewState) -> dict[str, Any]:
         **({"suppressions": [row.to_wire() for row in state.suppressions]} if state.suppressions else {}),
         # Absent until a diagram was drawn or ruled out, so a state written before G17 round-trips unchanged.
         **({"diagram": state.diagram} if state.diagram else {}),
+        # Absent until an impact was computed, so a state written before it round-trips unchanged.
+        **({"impact": state.impact} if state.impact else {}),
     }
 
 
@@ -294,6 +302,7 @@ def parse_state(body: str) -> ReviewState | None:
     chats = raw.get("chats")
     held = raw.get("suppressions")
     drawn = raw.get("diagram")
+    weighed = raw.get("impact")
     return ReviewState(
         head_sha=head,
         base_sha=_sha(raw, "base_sha"),
@@ -320,6 +329,7 @@ def parse_state(body: str) -> ReviewState | None:
             if row is not None
         ),
         diagram=drawn if isinstance(drawn, str) and DIAGRAM_STATE.match(drawn) else "",
+        impact=weighed if isinstance(weighed, str) and Impact.from_state(weighed) is not None else "",
     )
 
 

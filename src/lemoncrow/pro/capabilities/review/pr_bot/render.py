@@ -17,7 +17,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Final
 
-from lemoncrow.pro.capabilities.review.pr_bot import attribution
+from lemoncrow.pro.capabilities.review.pr_bot import attribution, impact
 from lemoncrow.pro.capabilities.review.pr_bot.findings import (
     SEVERITY_BADGE,
     SEVERITY_MEANING,
@@ -376,6 +376,9 @@ class SummaryView:
     #: The collapsed "Change diagram" block (G17, :mod:`diagram`), already built from the Architecture Delta; empty for none.
     #: It is the first thing :func:`render_summary` gives up when the comment is too long.
     diagram: str = ""
+    #: The named risks this review examined and what became of each (:func:`impact.risk_rows`), found first. The
+    #: collapsed "Risks examined" block lists up to :data:`impact.MAX_ROWS` of them; empty: no risk signal in the change.
+    risks: tuple[impact.RiskRow, ...] = ()
 
 
 def strip_text(facts: RunFacts) -> str:
@@ -622,7 +625,11 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
         if view.budget
         else strip_text(view.facts)
     )
-    lines = [SUMMARY_MARKER, head, "", f"<sub>{strip}</sub>"]
+    lines = [SUMMARY_MARKER, head]
+    weighed = impact.Impact.from_state(state.impact)
+    if weighed is not None:
+        lines += ["", f"**{weighed.label}** · {weighed.summary()} <sub>(from the change itself, not a model)</sub>"]
+    lines += ["", f"<sub>{strip}</sub>"]
     if state.findings_dropped:
         lines += [
             "",
@@ -636,6 +643,9 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
                 lines += _trail_line(finding)
     if held:
         lines += _held_back(held, detailed=level < 2, trails=level < 1)
+    if view.risks and level < 2:
+        # Before the diagram, which is what gives way first, and after the findings, which it explains.
+        lines += ["", *_risk_lines(view.risks)]
     if view.diagram:
         # After the findings and before the receipt: a picture of the change, not part of the verdict.
         lines += ["", view.diagram]
@@ -719,6 +729,61 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
         ]
     lines += ["", "---", f"<sub>{_footer(view)}</sub>"]
     return "\n".join(lines)
+
+
+_OUTCOME_TEXT: Final[dict[str, str]] = {
+    "found": "Found",
+    "pending": "Not investigated yet",
+    "cleared": "Examined, nothing found",
+}
+
+
+def _risk_row(row: impact.RiskRow) -> str:
+    """``- **Found** — `src/auth.py:1-4`: security · 1 finding``. Every word is fixed or a path, rule key or number."""
+
+    # A rule's key says more than the word "rule", so the key stands in for it.
+    named = [category for category in row.categories if not (category == "critical_rule" and row.rules)]
+    what = ", ".join(impact.CATEGORY_WORDS.get(category, category.replace("_", " ")) for category in named)
+    parts = [f"- **{_OUTCOME_TEXT[row.outcome]}** — `{trimmed(code(row.scope), 100)}`" + (f": {what}" if what else "")]
+    if row.rules:
+        parts.append("rule " + ", ".join(f"`{trimmed(code(key), 40)}`" for key in row.rules[:2]))
+    if row.outcome == "found":
+        parts.append(plural(row.findings, "open finding"))
+    elif row.earlier:
+        parts.append("examined in an earlier review, unchanged since")
+    return " · ".join(parts)
+
+
+def _risk_lines(rows: Sequence[impact.RiskRow]) -> list[str]:
+    """The collapsed "Risks examined" block: a count line, then up to :data:`impact.MAX_ROWS` rows and ``+N more``."""
+
+    tally = impact.counts(rows)
+    seen = tally["found"] + tally["cleared"]
+    heading = f"Risks examined: {seen} of {len(rows)}"
+    if tally["found"]:
+        heading += f" · {tally['found']} found"
+    if tally["pending"]:
+        heading += f" · {tally['pending']} not investigated yet"
+    lines = [f"<details><summary>{heading}</summary>", ""]
+    lines += [_risk_row(row) for row in rows[: impact.MAX_ROWS]]
+    rest = rows[impact.MAX_ROWS :]
+    if rest:
+        left = impact.counts(rest)
+        lines.append(
+            f"- +{len(rest)} more ("
+            + ", ".join(
+                f"{left[outcome]} {_OUTCOME_TEXT[outcome].lower()}" for outcome in impact.OUTCOMES if left[outcome]
+            )
+            + ")"
+        )
+    lines += [
+        "",
+        'These are the places in the change that carry a risk signal, found without a model. "Examined, nothing found" '
+        "means a model looked at that code and reported nothing, not that it is safe.",
+        "",
+        "</details>",
+    ]
+    return lines
 
 
 def _receipt_lines(view: SummaryView) -> list[str]:

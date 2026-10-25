@@ -117,9 +117,11 @@ LiteLLM users can set `model-provider: litellm` and the variables LiteLLM alread
 **One summary comment**, found and updated in place by a hidden marker (`<!-- lemoncrow:summary v1 -->`), so a push edits it instead of adding another:
 
 - a verdict line that agrees with the status: `1 must-fix before merge`, `Partially reviewed: 2 of 3 risk signals examined` when the review finished but left risk signals unexamined, `Review incomplete: <why>` when it could not finish, or `No must-fix findings` only when every risk signal was examined;
+- an impact line under the verdict, `High impact`, `Medium impact` or `Low impact`, computed from the change by a fixed rule and shown with its reasons (see "Impact and the risks examined");
 - a status strip: `Re-reviewed 38 changed lines · 1 new · 2 carried forward · 1 fixed since last review`;
 - findings sorted by severity, each linking to its inline thread and, when it cites a rule or an excerpt of another file, ending in an attribution trailer (see "Attribution trailers"). **P0** must fix, **P1** should fix, **P2** optional;
 - P2 findings in a collapsed block, `N low-priority findings held back`;
+- a collapsed `Risks examined`: each changed piece of code that carries a risk signal and whether it was found, examined with nothing found, or not investigated yet;
 - a collapsed `Change diagram` of the relationships the pull request added, removed or changed (see "Change diagram");
 - on a clean review, a collapsed `What we checked`: files, rules applied, depth;
 - collapsed blocks for feedback: `N findings dismissed by feedback`, `N instructions learned on this pull request` and `Suggested rules from feedback` (see "Learning from feedback");
@@ -179,6 +181,48 @@ Rule used: `no-secrets-in-logs` · Context used: `src/handlers.py:12-18` (caller
 - **`AGENTS.md` and `CLAUDE.md`** are context only. The investigator is shown them, but a finding has no reference to cite them by, so nothing proves it relied on them and no trailer names them.
 - **In the state.** The trailers travel in the hidden state (`used`, at most five items per finding and a count of the rest), so a carried finding keeps its trailer in the summary with no model call. They are the first detail given up when the state has to shrink to fit the comment, before any finding text. An inline comment that is already posted is not edited by later pushes, so its trailer is the one it had when it was posted.
 
+### Impact and the risks examined
+
+Two lines of the summary say what the change is and what the review looked at, before you read a single finding. Neither calls a model, and neither is ever an input to an approval, the check or `fail-on`.
+
+**The impact label** is **High impact**, **Medium impact** or **Low impact**, on its own line under the verdict, with its reasons and size:
+
+```text
+**High impact** · security-sensitive code, persistence or a migration · 12 files, 340 changed lines (from the change itself, not a model)
+```
+
+It is the blast radius of the pull request, not a judgment of its quality: a careful change to the auth code is still High impact. It is computed from the change itself by this rule, so the same pull request gets the same label on every run and on every machine:
+
+| What the change shows | Points |
+| --- | --- |
+| a path your policy marks `critical` or `high` (`review.focus` in `.lemoncrow/review.yaml`) | 4 |
+| security-sensitive code (auth, tokens, secrets, credentials, crypto) | 2 |
+| payments code (a `payment`, `billing`, `invoice`, `checkout`, `stripe` or `ledger` path) | 2 |
+| persistence or a migration (a migration, schema, database or `.sql` change) | 2 |
+| an API contract (an API route, endpoint, protocol or wire change) | 1 |
+| concurrency or shared state (async, locks, queues, transactions) | 1 |
+| code a critical rule covers (a rule you wrote in `.lemoncrow/review.yaml`; an imported advisory rule adds nothing) | 1 |
+| a sizeable change (8 or more files, or 250 or more changed lines) | 1 |
+| a large change (25 or more files, or 1,000 or more changed lines) | 2 |
+
+High is 4 points or more, Medium 2 or 3, Low 0 or 1. The signals are the ones the review already uses to decide what to investigate (the same deterministic risk markers on path, symbol and the queue's reasons), plus the path policy from the trusted base; payments is the one family this adds, by path only. Generated, vendored, mechanical, comment-only and formatting-only changes count for nothing, so a lockfile bump is not a large change. The size is the whole pull request, not only what the last push changed. A model's rating, its wording and any comment on the pull request are not inputs: a finding titled "critical impact" changes nothing here. The label is kept in the hidden state (`impact`), so a summary that is re-rendered without a review (a spent budget) still says it, and `--json` carries it as `impact`.
+
+**Risks examined** is a collapsed block listing each changed piece of code that carries a risk signal and what the review did about it, found first, then the ones not yet looked at, then the ones with nothing found:
+
+```text
+Risks examined: 2 of 3 · 1 found · 1 not investigated yet
+- Found — `src/auth.py:1-4 (authorize)`: security · 1 open finding
+- Not investigated yet — `src/cache.py:4-5 (remember)`: performance
+- Examined, nothing found — `src/token.py:1-2 (verify)`: security
+```
+
+- **Found**: a finding is open about that code. **Examined, nothing found**: a model call about that code returned and the review reported nothing. **Not investigated yet**: no call about it has returned (Auto's two investigations, a failed call or a spent budget); the next push or `@lemoncrow review thorough` competes for them again, and the headline says `Partially reviewed` until they are done. The words are never "safe" or "cleared": `Examined, nothing found` means a model looked at that code and reported nothing, not that it is safe, because a model that does not find a bug has not proved there is none.
+- It names the categories a call actually covered for code it examined, and every category the signal carries for code it did not, so it never claims a check that was not asked. A critical rule that covers the code is named by its key.
+- Code that was examined by an earlier review and has not changed since is listed too, marked `examined in an earlier review, unchanged since`, so the list covers the whole pull request and not only the last push.
+- Up to seven rows are shown, then `+N more` with how many of each kind. The block comes after the findings and before the change diagram, and on a clean review it sits beside `What we checked`.
+- Every word is fixed or is a path, a symbol name or a rule key from your repository (neutralised like every path in a comment). No finding title, explanation or rating is in it.
+- Limit: the list is rebuilt by each review and is not kept in the hidden state, so the summary written when a spent budget stops a push does not repeat it (it keeps the impact label).
+
 ### The check
 
 The `LemonCrow Review` commit status is set on the reviewed head, with a link to the summary comment:
@@ -231,6 +275,8 @@ The summary ends with `<!-- lemoncrow:state v1 {json} -->`. Read it instead of s
   "usage_total": {"calls": 5, "input_tokens": 30000, "output_tokens": 2000, "cost_usd": 0.01, "context_tokens": 11800}
 }
 ```
+
+`impact` (top level, absent until computed) is the impact label in its compact form, `<level>:<reasons joined by +>:<files>:<changed lines>`, for example `high:security+persistence:12:340`; `--json` carries it as an object with `level`, `label`, `reasons`, `score`, `files` and `lines`. (A finding's own `impact` is the investigator's rating, a different thing.)
 
 `context_tokens` is LemonCrow's own estimate (four characters per token) of the repository context in the prompts; it is part of `input_tokens`, not on top of it, and it is absent when no context was sent.
 

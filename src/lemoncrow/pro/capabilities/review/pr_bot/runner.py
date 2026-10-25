@@ -27,7 +27,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from lemoncrow.pro.capabilities.review.pr_bot import ci_env, diagram, learning
+from lemoncrow.pro.capabilities.review.pr_bot import ci_env, diagram, impact, learning
 from lemoncrow.pro.capabilities.review.pr_bot.findings import BotFinding
 from lemoncrow.pro.capabilities.review.pr_bot.github import (
     BotGitHub,
@@ -147,6 +147,7 @@ class RunReport:
             ),
             "status": None if self.status is None else {"state": self.status[0], "description": self.status[1]},
             "findings": [finding.to_wire() for finding in self.findings],
+            "impact": _impact_wire(self.state),
             "usage": None if self.state is None else self.state.usage.to_wire(),
             "usage_total": None if self.state is None else self.state.usage_total.to_wire(),
             "published": self.published,
@@ -154,6 +155,11 @@ class RunReport:
             "noop": self.noop,
             "notes": list(self.notes),
         }
+
+
+def _impact_wire(state: ReviewState | None) -> dict[str, Any] | None:
+    found = impact.Impact.from_state(state.impact) if state is not None else None
+    return None if found is None else found.to_wire()
 
 
 def _skip(pr: str, reason: str, *, level: str = "notice", exit_code: int = 0) -> RunReport:
@@ -545,6 +551,7 @@ def _review(
         chat_usage=chat_usage,
         suppressions=learned.suppressions,
         diagram=drawn.state,
+        impact=ai.impact,
     )
     reason = "model calls failed; see the workflow log" if ai.errors else (ai.reason if not ai.complete else "")
     uninvestigated = max(ai.candidates - ai.investigated, 0)
@@ -585,11 +592,17 @@ def _review(
         fail_on=options.fail_on,
         suggestions=learning.suggest(ref.slug, learned.suppressions, tracked),
         diagram=drawn.section,
+        risks=impact.risk_rows(ai.signals, tracked),
     )
     body, posted_state = render_summary(summary_view)
-    # A diagram that appeared, changed or went away is a reason to rewrite a comment a re-run would leave alone. The
-    # state is compared after rendering: a diagram dropped to fit the comment is one that was not drawn.
-    if report.noop and previous is not None and posted_state.diagram != previous.diagram:
+    # A diagram that appeared, changed or went away, or an impact the rule now words differently, is a reason to rewrite
+    # a comment a re-run would leave alone. The state is compared after rendering: a diagram dropped to fit the comment
+    # is one that was not drawn.
+    if (
+        report.noop
+        and previous is not None
+        and (posted_state.diagram, posted_state.impact) != (previous.diagram, previous.impact)
+    ):
         report.noop = False
     status = check_status(view, fail_on=options.fail_on)
     report.findings = tuple(tracked)

@@ -13,6 +13,7 @@ step:
   summary comment that carries it to the next run. No database survives a CI job.
 * ``reconcile`` -- new, carried forward, fixed or stale, per finding.
 * ``attribution`` -- the rule and context a finding cites, read from its validated refs, for the trailer.
+* ``impact`` -- the deterministic impact label and the named risks a review examined (no model, no model text).
 * ``render`` -- the summary, inline comment and "Fix with your agent" text.
 * ``github`` -- the bot's GitHub calls (comments, review, threads, status).
 * ``engine`` -- capture and the in-process AI review stage.

@@ -26,6 +26,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from lemoncrow.pro.capabilities.review.pr_bot import impact as impact_mod
 from lemoncrow.pro.capabilities.review.pr_bot.findings import Located, locate_target
 from lemoncrow.pro.capabilities.review.pr_bot.state import ReviewState, Usage, cap_units, unit_token
 
@@ -105,6 +106,11 @@ class AiStage:
     #: Ids of the earlier open findings whose cited lines are still in the file, word for word, wherever they now
     #: sit: the code those findings were about has not changed, whatever else did.
     intact: tuple[str, ...] = ()
+    #: The deterministic impact of the whole change as :meth:`impact.Impact.to_state` writes it (``""``: not computed),
+    #: and every changed target that carries a risk signal with what this run did about it (:mod:`impact`). Both come
+    #: from the Snapshot's targets and nothing a model said.
+    impact: str = ""
+    signals: tuple[impact_mod.Signal, ...] = ()
 
     @property
     def ran(self) -> bool:
@@ -437,29 +443,47 @@ class _Examined:
     def __init__(self, inner: Callable[..., StructuredExecution]) -> None:
         self.inner = inner
         self.targets: set[str] = set()
+        #: ``{target id: categories a returned call asked about it}``: what "examined" meant for each target.
+        self.categories: dict[str, set[str]] = {}
 
     def __call__(self, **kwargs: Any) -> StructuredExecution:
         execution = self.inner(**kwargs)
-        self.targets.update(self._targets(kwargs.get("prompt")))
+        category, ids = self._scope(kwargs.get("prompt"))
+        self.targets.update(ids)
+        for target_id in ids:
+            if category:
+                self.categories.setdefault(target_id, set()).add(category)
         return execution
 
     @staticmethod
     def _targets(prompt: object) -> set[str]:
+        return _Examined._scope(prompt)[1]
+
+    @staticmethod
+    def _scope(prompt: object) -> tuple[str, set[str]]:
+        """``(category, target ids)`` a prompt asks about; ``("", set())`` for one this cannot read."""
+
         try:
             blocks = json.loads(str(prompt))
         except ValueError:
-            return set()
+            return "", set()
         if not isinstance(blocks, dict):
-            return set()
+            return "", set()
         hypothesis = blocks.get("hypothesis")
         if isinstance(hypothesis, dict) and isinstance(hypothesis.get("value"), dict):
             ids = hypothesis["value"].get("target_ids")
-            return {item for item in ids if isinstance(item, str)} if isinstance(ids, list) else set()
+            category = hypothesis["value"].get("category")
+            return (
+                category if isinstance(category, str) else "",
+                {item for item in ids if isinstance(item, str)} if isinstance(ids, list) else set(),
+            )
         if "question" in blocks:  # a per-rule question: the targets under that rule's paths
             source = blocks.get("snapshot_source")
             value = source.get("value") if isinstance(source, dict) else None
-            return {key for key in value if isinstance(key, str)} if isinstance(value, dict) else set()
-        return set()
+            return "critical_rule", (
+                {key for key in value if isinstance(key, str)} if isinstance(value, dict) else set()
+            )
+        return "", set()
 
 
 def _prior_rows(previous: ReviewState | None, changed: Collection[str]) -> tuple[dict[str, Any], ...]:
@@ -575,6 +599,23 @@ def _execute(
     locations = {target.target_id: locate_target(target) for target in targets}
     intact = _intact_findings(captured, previous)
     rules = tuple(rule.stable_key for rule in governance.rules)
+    # The change's impact and its risk signals, from the whole Snapshot and by fixed rules (no model, no model text).
+    risk_candidates = generate_candidates(targets, rules=tuple(governance.rules))
+    weighed = impact_mod.assess(targets, risk_candidates).to_state()
+    rule_keys = {rule.ref: rule.stable_key for rule in governance.rules}
+
+    def signals(
+        asked: set[str], categories: Mapping[str, set[str]], kept: Mapping[str, str]
+    ) -> tuple[impact_mod.Signal, ...]:
+        reviewed = {
+            target.target_id
+            for target in targets
+            if target.target_id in units and kept.get(units[target.target_id][0]) == units[target.target_id][1]
+        }
+        return impact_mod.signals_for(
+            targets, risk_candidates, changed=asked, asked=categories, reviewed=reviewed, rule_keys=rule_keys
+        )
+
     # What the trusted base's import.rules_files and AGENTS.md / CLAUDE.md contributed (G10).
     imports = governance.imports
     base = AiStage(
@@ -589,6 +630,7 @@ def _execute(
         policy=previous.policy if narrow and previous is not None else digest,
         depth=depth,
         max_calls=stage_plan.max_review_calls or ModelCallBudget.from_env(max_calls=1).max_review_calls,
+        impact=weighed,
     )
     if not changed:
         kept, truncated = cap_units(_tokens(targets, units, pending=()))
@@ -600,6 +642,7 @@ def _execute(
             units_truncated=truncated,
             model=previous.model if previous else "",
             intact=intact,
+            signals=signals(set(), {}, kept),
         )
 
     budget = ModelCallBudget.from_env(max_calls=1)
@@ -677,4 +720,5 @@ def _execute(
         examined=tuple(sorted(examined.targets)),
         answers=dict(result.prior_answers),
         intact=intact,
+        signals=signals(set(changed_ids), examined.categories, kept),
     )
