@@ -109,7 +109,7 @@ def begin_cli_telemetry(
     from lemoncrow.core.service.telemetry import emit_product, set_process_telemetry_session
     from lemoncrow.core.service.telemetry.banner import maybe_show_banner
 
-    maybe_show_banner()
+    maybe_show_banner(announce=invocation == "interactive")  # a person ran this: tell them, once, wherever stderr goes
     if invocation != "interactive":
         set_process_telemetry_session("")
         return "", time.perf_counter()
