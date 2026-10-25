@@ -799,7 +799,7 @@ lc review --ai --fail-on p0 --json  # exit 1 while a P0 is open; machine-readabl
 lc review hook install              # a pre-push hook that runs it on what you are about to push
 ```
 
-It uses the same findings, severity, noise controls (threshold and strictness, `ignore`, per-rule severity, read from `.lemoncrow/review.yaml` at the base) and carried results as the bot (a re-run on an unchanged tree makes no model call) and respects the intelligence policy and its kill switch; it does not run the security scan, which is part of the pull request review. The exit codes and the hook are in [the CLI reference](../reference/cli.md#local-ai-review-and-git-hooks).
+It uses the same findings, severity, noise controls (threshold and strictness, `ignore`, per-rule severity, read from `.lemoncrow/review.yaml`: your working tree for a local review, the base for a pull request) and carried results as the bot (a re-run on an unchanged tree makes no model call) and respects the intelligence policy and its kill switch; it does not run the security scan, which is part of the pull request review. The exit codes and the hook are in [the CLI reference](../reference/cli.md#local-ai-review-and-git-hooks).
 
 `--publish-bot` itself runs only in GitHub Actions: on a laptop your `gh` login is a person, and AI output must not be posted under a person's name. This is the full Review CLI (`uv run lc review` in a source checkout).
 

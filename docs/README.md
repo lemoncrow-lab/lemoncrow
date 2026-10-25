@@ -36,7 +36,14 @@ lc code
 
 For local Runtime Lite, use `lc with claude|codex|opencode|pi`, Cursor's installed integration, or a persistent `lc rt enable <host>` integration.
 
-Open Review:
+Get an AI review of your own change in your terminal (a key, or an agent you are signed in to; [details](./setup/ai-review.md)):
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...      # or OPENAI_API_KEY; or skip it and add --agent claude below
+cd your-project && lc review --ai        # lc review --ai --agent claude uses Claude Code instead of a key
+```
+
+Or look at the change in the browser first (no model is called):
 
 ```bash
 lc review --open
@@ -46,6 +53,7 @@ lc review --open
 
 | Document | What it covers |
 | --- | --- |
+| [Your first AI review](./setup/ai-review.md) | Install, a key or `--agent`, `lc review --ai`: three steps, what it says when something is missing, saving a key |
 | [Installation](./setup/installation.md) | Install, first run, external-agent integrations, `lc code`, and uninstall |
 | [LemonCrow Pro: Hosted Runtime](./setup/pro-hosted-runtime.md) | Pro onboarding: install, `lc rt enable --hosted`, sign-in, device approval, and checking hosted search |
 | [Privacy & network](./setup/privacy.md) | What stays local, what can make network calls, and telemetry |

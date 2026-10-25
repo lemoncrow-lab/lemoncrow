@@ -73,7 +73,7 @@ The installed `lc` client carries Review capture, the AI review in the terminal 
 | You ran | What it means |
 | --- | --- |
 | `unknown command: host` | Use `lc rt host`. Other Runtime verbs also live under `lc rt` |
-| `unknown command: usage`, `doctor`, `settings` | Full CLI only. Check this install with `lc status` and `lc rt status` |
+| `unknown command: usage`, `doctor` | Full CLI only. Check this install with `lc status` and `lc rt status` |
 | `lc session ... is not part of serverless Runtime Lite` (also `run`, `context`, `rt model`, `rt savings`, `rt work`, `rt map`, `rt dashboard`) | Full CLI only |
 | `lc rt telemetry ...` | The installed client sends no product telemetry (`lc audit` shows `"product_telemetry": false`), so there is nothing to turn off |
 | `unknown review option: --since-my-review` (also `--mark`, `--comment`, `--feedback`, ...) | Full Review CLI only. Use the Review Reader (`lc review --open`) to mark, comment, see changes since your review and copy feedback |
@@ -85,12 +85,15 @@ The installed `lc` client carries Review capture, the AI review in the terminal 
 
 | It says | Do this |
 | --- | --- |
-| `no model route is configured` | `export ANTHROPIC_API_KEY=sk-ant-...` (or `OPENAI_API_KEY`) and run it again, or `lc review --ai --agent claude` (also `codex`, `opencode`) to use an agent CLI you are signed in to |
-| `Anthropic rejected the API key (HTTP 401): check ANTHROPIC_API_KEY` | The key is wrong or revoked. Nothing was reviewed and nothing is billed |
+| `No AI model is set up. Set a key: export ANTHROPIC_API_KEY=...` | `export ANTHROPIC_API_KEY=sk-ant-...` (or `OPENAI_API_KEY`) and run it again, or `lc review --ai --agent claude` (also `codex`, `opencode`) to use an agent you are signed in to; add `--remember` once to make it the default. [Your first AI review](./ai-review.md) |
+| `Anthropic rejected the API key (HTTP 401): check ANTHROPIC_API_KEY.` | The key is wrong or revoked. Nothing was reviewed and nothing is billed |
+| `Anthropic says your account has no credit left (HTTP 400): add credit at ...` | Add credit at the billing page it names, then run it again |
+| `Anthropic rate limit reached (HTTP 429): wait a minute and run it again.` | Wait; an unchanged tree makes no new model call |
 | `could not reach Anthropic` | A network or proxy problem; `ANTHROPIC_BASE_URL` points a gateway or a local server |
-| `AI review is turned off` | The intelligence policy's kill switch is off in `.lemoncrow` or your settings |
+| `AI review is turned off` | The intelligence policy's kill switch is off: `lc settings set intelligence.enabled true` |
+| `lc settings set` says nothing about where the key went | It says `Stored as plain text in .../plugin_settings.json, readable only by you (mode 600)`; there is no system keychain |
 
-The review exits `0` when it could not run, so a hook or script never fails because of it; add `--strict` to make that exit `2`. A pre-push hook never stops a push because LemonCrow broke: it stops only for an open finding at or above `--fail-on`, or, with `--strict`, an incomplete review.
+When the review could not run, `lc review --ai` exits `3` (`2` with `--strict`) so a script can tell it did not happen; a git hook exits `0` instead. A pre-push hook never stops a push because LemonCrow broke: it stops only for an open finding at or above `--fail-on`, or, with `--strict`, an incomplete review.
 
 ## Runtime Lite index problems
 

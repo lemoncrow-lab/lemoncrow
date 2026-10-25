@@ -98,6 +98,27 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   reviews with an agent CLI you are signed in to. With no model set up the review prints the two commands that
   fix it.
 
+- **Your first AI review is three steps, and every error says what to do next.** Install, then
+  `export ANTHROPIC_API_KEY=...` (or `OPENAI_API_KEY`), or name an agent you are signed in to, then
+  `lc review --ai` ([Your first AI review](docs/setup/ai-review.md)). With no model set up, `lc review --ai` now prints
+  three lines (the `export` line, the `--agent claude|codex|opencode` alternative, one docs link) and exits 3,
+  where it used to print a paragraph of internal terms and exit 0 (a hook still fails open; `--strict` still exits 2).
+  When exactly one of `claude`, `codex` or `opencode` is on the PATH the message names it as the command to type, and
+  never starts it: `--agent NAME` is what spends your plan, and `--agent NAME --remember` saves it as the route to use
+  whenever no key is set (an exported key wins; `lc settings reset review.agent` undoes it). A key the provider
+  rejects, an account with no credit and a rate limit are each one sentence (exit 3), with no LiteLLM banner.
+- **`lc settings` in the installed client, and saved keys are owner-only.** `lc settings set llm.anthropic_api_key`
+  (new) or `llm.openai_api_key` saves a key without it reaching your shell history (leave the value out to be asked),
+  says where it went, and writes `plugin_settings.json` mode 600; an older world-readable copy is fixed the next time
+  anything is saved. There is no system keychain.
+- **A local review reads your working tree's `.lemoncrow/review.yaml`.** A file you have written and not committed
+  yet applies to `lc review --ai`, and the output says which config it used in one line (`Config: ...`). Pull request
+  reviews and the Action still read the committed base. `lc review config --effective` now shows `strictness`,
+  `ignore`, `inline_comments`, `max_files` and per-rule severities, each with its source, and lists
+  `.lemoncrow/review.yaml` among the files read.
+- **The full engine says its telemetry is on, once.** One line on standard error on the first run, also when piped,
+  with the command that turns it off. The default is unchanged.
+
 ### Fixed
 
 - **`lc review` no longer ends in `ModuleNotFoundError: lemoncrow_client.session`** (also `--open`, `--json`
@@ -120,6 +141,13 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Changed
 
+- **`lc uninstall` lists what it removes, and cleans up after itself.** It prints one plan (the same for `--dry-run`),
+  removes what the installer added (commands, the Review client and engine, the installer's scripts, the background
+  server, the lines in every shell startup file it may have written to, not only the first) and asks before it deletes
+  anything of yours (settings and saved keys, the reviews you opened, the git hooks it wrote, a repository's
+  `.lemoncrow` folder). `--yes` skips the question and keeps your data; `--purge` removes it. Without a terminal it
+  removes nothing until `--yes`. The source checkout's `scripts/uninstall.sh` no longer runs `npm uninstall -g`, and
+  its `--dry-run` no longer says "Removed".
 - **Session import now reports through the telemetry rollup.** The periodic
   session import used to POST per-session stats to a separate sync endpoint,
   a leftover from the project's earlier name. It now sends a count-only

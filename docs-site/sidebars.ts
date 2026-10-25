@@ -18,6 +18,11 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: "doc",
+          id: "setup/ai-review",
+          label: "Your first AI review",
+        },
+        {
+          type: "doc",
           id: "setup/pro-hosted-runtime",
           label: "LemonCrow Pro: Hosted Runtime",
         },

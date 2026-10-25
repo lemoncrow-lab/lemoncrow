@@ -37,11 +37,15 @@ preserve human review state across revisions.
 
 ## Quick start
 
-Install LemonCrow:
+Three steps to an AI review of your own change, in your terminal:
 
 ```bash
-curl -fsSL https://lemoncrow.com/install.sh | bash
+curl -fsSL https://lemoncrow.com/install.sh | bash         # 1. install
+export ANTHROPIC_API_KEY=sk-ant-...                         # 2. a key (or OPENAI_API_KEY), or skip it and use an agent you are signed in to
+cd your-project && lc review --ai                           # 3. the review, printed here; it posts nothing
 ```
+
+No key? Use the agent you already have, with no key: `lc review --ai --agent claude` (also `codex`, `opencode`). Add `--remember` once and `lc review --ai` uses it whenever no key is set. If there is neither, `lc review --ai` says what to do in three lines and exits 3. To keep a key instead of exporting it in every terminal: `lc settings set llm.anthropic_api_key` (asks for it; stored in `~/.lemoncrow/plugin_settings.json`, readable only by you). [Your first AI review](docs/setup/ai-review.md) has the details.
 
 The installer asks nothing. It installs Local Review: the `lc` client (`lc` and `lcr` are real executables, not shell aliases) and a loopback Review server on port 7420. No account or sign-in is needed. Pass `--hosted` (alias `--cloud`) for Hosted Review at api.lemoncrow.com instead, which needs an invited account; run `lc auth login` next. Runtime is fetched once, the first time you run `lc rt enable <host>` (`claude`, `codex`, or `opencode`). To pre-install it, pass `--product runtime` or `--product both`, adding `--agent <host>` to enable an agent. `--dry-run` prints the plan; `--url` and `--port` are the other flags. Environment overrides: `LEMONCROW_RELEASE_TAG`, `LEMONCROW_RELEASE_BASE_URL` (alternate asset base, for example `file://` for a local rehearsal), and `LEMONCROW_NO_LAZY_INSTALL=1` to disable the first-use fetch. Upgrading from an earlier release? Read the [behaviour changes](CHANGELOG.md#behaviour-changes-for-local-installs) first.
 
@@ -73,13 +77,10 @@ lc rt enable claude --hosted
 
 Signing in does not change a local integration into hosted execution. Local Runtime Lite stays local. `lc code` is an explicit Hosted Runtime entry point.
 
-Review what an agent changed, then get an AI review of it in your terminal:
+To look at the change in the browser first (no model is called):
 
 ```bash
-cd your-project
-lc review                          # capture the change and open it in the Reader; calls no model
-export ANTHROPIC_API_KEY=sk-ant-...   # or OPENAI_API_KEY, or use a signed-in agent: --agent claude
-lc review --ai                     # AI review printed here; posts nothing
+lc review                          # capture the change and open it in the Reader
 ```
 
 Runtime and Review remain separate product surfaces: Runtime does not require
@@ -362,7 +363,10 @@ installs send no product telemetry. `lc audit` prints
 `"product_telemetry": false`, and there is nothing to turn off.
 
 The full LemonCrow engine you run from a source checkout (`uv run lc ...`)
-sends anonymous aggregate telemetry, **on by default**. It contains aggregate
+sends anonymous aggregate telemetry, **on by default**, and says so once, on your
+first run: `Telemetry is on: LemonCrow sends anonymous counts and timings, never
+code, prompts or file paths. Turn it off: lc rt telemetry remote off (or DO_NOT_TRACK=1).`
+It contains aggregate
 counts, bucketed durations, dollar estimates, hashed install/session
 identifiers, version, host source, retrieval domain, and timestamps. It does
 **not** contain source code, prompts, repository paths, file paths, or symbol
@@ -425,14 +429,16 @@ has to reread without outsourcing the engineering judgment.
 
 ### Removal
 
-Check state, update, and remove products with the client. Uninstall needs a
-product and never prompts:
+Check state, update, and remove products with the client. `lc uninstall` lists exactly
+what it will remove first, and asks before it deletes anything of yours (your settings,
+the reviews you opened, a git hook it wrote, a repository's `.lemoncrow` folder):
 
 ```bash
 lc status
 lc update                      # re-runs the installer for each installed product; host registrations are untouched
-lc uninstall review            # or: runtime | all
-lc uninstall all --dry-run     # preview
+lc uninstall all --dry-run     # list what would be removed; changes nothing
+lc uninstall all               # asks; add --yes to skip the question (your data stays) or --purge to remove it too
+lc uninstall review            # or: runtime
 ```
 
 ### Building from source
