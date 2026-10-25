@@ -563,6 +563,19 @@ def test_the_kill_switch_is_respected_and_no_model_is_called(lab: Lab) -> None:
     assert lab.model.calls == []
 
 
+def test_a_model_with_no_driver_is_a_wrong_setting_not_a_switched_off_review(lab: Lab) -> None:
+    lab.store.mkdir(parents=True, exist_ok=True)
+    (lab.store / "plugin_settings.json").write_text(json.dumps({"intelligence.model": "sonnet"}))
+    lab.write({"src/auth.py": AUTH_BUGGY})
+    done = lab.run()
+    assert done.exit_code == 3 and "requires a pinned driver" in done.stderr
+    # The advice fits the cause: it does not send the person to a switch that was never off.
+    assert "intelligence.enabled" not in done.stderr and "turned off" not in done.stderr
+    assert "lc settings set intelligence.driver claude" in done.stderr
+    assert "lc settings reset intelligence.model" in done.stderr
+    assert lab.model.calls == []
+
+
 @pytest.mark.parametrize(
     "refusal",
     [

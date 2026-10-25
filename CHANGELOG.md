@@ -137,6 +137,10 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Fixed
 
+- **A model set with no driver no longer reads as "AI review is turned off".** `lc settings set intelligence.model X`
+  without `intelligence.driver` makes the settings contradict each other; the review said "AI review is turned off"
+  and told you to run `lc settings set intelligence.enabled true`, which changes nothing. It now says the setting is
+  wrong and gives the two ways out (`lc settings set intelligence.driver NAME`, `lc settings reset intelligence.model`).
 - **A review no longer pays for a hypothesis call and then examines nothing.** On a change with many risk signals
   the model's proposed hypotheses can pair a category with a target the triage raised for another category; all of
   them were dropped, so the one call was spent, no investigation ran, and the summary said "0 of 39 risk signals

@@ -467,6 +467,21 @@ def saved_agent(store_root: Path, which: Callable[[str], str | None] | None = No
     return saved if saved in _AGENT_CLIS and (which or shutil.which)(saved) else ""
 
 
+#: How ``intelligence_policy`` words a policy that cannot be used (as opposed to one switched off).
+POLICY_INVALID = "intelligence policy is invalid"
+
+
+def _policy_fix(why: str) -> str:
+    """What to do about an invalid intelligence policy: a model set with no driver is the usual cause."""
+
+    if "requires a pinned driver" in why:
+        return (
+            "Name the driver: lc settings set intelligence.driver claude (or codex, opencode, openai, litellm, "
+            "ollama), or drop the model: lc settings reset intelligence.model"
+        )
+    return "Fix the setting it names: lc settings"
+
+
 def _route_state(environ: Mapping[str, str], store_root: Path, report: LocalReport) -> tuple[str, str]:
     """``("", "")`` when a model can be used; else ``(kind, why)``: ``disabled`` (the switch is off) or ``no_route``.
 
@@ -489,6 +504,9 @@ def _route_state(environ: Mapping[str, str], store_root: Path, report: LocalRepo
         ci_env.apply_model_route(route, os.environ)  # the drivers read the process environment
     status, why = engine.route_problem()
     if status == "disabled":
+        if why.startswith(POLICY_INVALID):
+            # Not the switch: the settings contradict each other, so turning the switch on would change nothing.
+            return "disabled", f"AI review is not set up ({why}). {_policy_fix(why)}"
         return "disabled", f"AI review is turned off ({why}). Turn it on: lc settings set intelligence.enabled true"
     if status:
         if why.startswith("Unsupported"):
