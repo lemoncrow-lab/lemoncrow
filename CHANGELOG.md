@@ -150,6 +150,9 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   printed "lc was not found" on every push. A hook it never saw (v3 of the script) now says so once per repository,
   names the file to delete, and stays silent after that; it still never blocks a push. `lc review hook install`
   upgrades an older hook in place.
+- **The Action's note about a linked issue it could not read is not an error.** Without the optional `issues: read`
+  permission the summary says "issue #12 not read: this workflow's token lacks the optional issues: read permission
+  (add it under permissions: to include linked issues)", and the setup guide says so beside the sample workflow.
 - **`lc review` no longer ends in `ModuleNotFoundError: lemoncrow_client.session`** (also `--open`, `--json`
   and `lcr`; present in v0.8.0). The Review client armed the browser pairing through the Runtime session,
   which its wheel does not ship. It now pairs through the Review session, and a test copies exactly the shipped

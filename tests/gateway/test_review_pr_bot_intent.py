@@ -219,8 +219,12 @@ def test_an_issue_the_token_cannot_read_is_skipped_with_a_note_and_the_review_go
     assert [row["ref"] for row in prompt["linked_issues"]["value"]] == ["#13"]  # the readable one is used
     assert "Bounds the cache" in prompt["pr_description"]["value"]["body"]
     body = world.github.summary_comments()[0]["body"]
-    assert "intent: issue #12 could not be read (no permission: the token needs issues: read); skipped" in body
-    assert any("issue #12 could not be read" in note for note in report.notes)
+    assert (
+        "intent: issue #12 not read: this workflow's token lacks the optional issues: read permission "
+        "(add it under permissions: to include linked issues)"
+    ) in body
+    assert "could not be read" not in body  # the sample leaves the permission out on purpose: not a failure
+    assert any("issue #12 not read" in note for note in report.notes)
     assert report.findings and not report.skipped  # the review itself was not affected
     assert world.github.last_status()["state"] == "success"
 

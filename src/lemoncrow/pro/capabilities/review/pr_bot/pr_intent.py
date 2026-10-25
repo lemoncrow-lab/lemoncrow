@@ -169,7 +169,7 @@ def gather(github: BotGitHub, facts: PullFacts, captured: Captured, *, budget: i
         try:
             row = github.issue(number)
         except GitHubCliError as exc:
-            skipped.append(f"issue #{number} could not be read ({_why(str(exc))}); skipped")
+            skipped.append(_unread_issue_note(number, str(exc)))
             continue
         if "pull_request" in row:
             skipped.append(f"#{number} is a pull request, not an issue; skipped")
@@ -206,14 +206,25 @@ def gather(github: BotGitHub, facts: PullFacts, captured: Captured, *, budget: i
     return IntentNote(described=described, titled=titled, issues=tuple(read), skipped=tuple(skipped))
 
 
+def _unread_issue_note(number: int, message: str) -> str:
+    """Why a linked issue was not read. A 403 is the sample workflow's own choice (``issues: read`` is optional, left out on
+    purpose), so it reads as the optional permission it is, with the fix, and not as a failure on the first review."""
+
+    status = re.search(r"\(HTTP (\d{3})\)", message)
+    if status is not None and status.group(1) == "403":
+        return (
+            f"issue #{number} not read: this workflow's token lacks the optional issues: read permission "
+            "(add it under permissions: to include linked issues)"
+        )
+    return f"issue #{number} could not be read ({_why(message)}); skipped"
+
+
 def _why(message: str) -> str:
     """A short, safe reason from a ``gh`` error: its HTTP status or its first words."""
 
     status = re.search(r"\(HTTP (\d{3})\)", message)
     if status is not None:
-        return {"403": "no permission: the token needs issues: read", "404": "not found or not visible"}.get(
-            status.group(1), f"HTTP {status.group(1)}"
-        )
+        return {"404": "not found or not visible"}.get(status.group(1), f"HTTP {status.group(1)}")
     return " ".join(message.split())[:60] or "unknown error"
 
 

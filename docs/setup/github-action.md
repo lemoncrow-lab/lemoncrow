@@ -28,6 +28,8 @@ jobs:
 
 That is the whole install, and the one decision in it is which key you pass: `anthropic-api-key` or `openai-api-key`. There is no `actions/checkout` step (the Action checks out the pull request itself, with the history its merge base needs; a checkout you already have is used, and deepened if it is shallow), no `fetch-depth`, no cleanup step (if the job is cancelled the Action settles its own `pending` status) and no `fail-on` (the check is advisory until you ask for more).
 
+**Pull requests that say `Fixes #12`?** On a private repository, add `issues: read` to the `permissions:` line (`permissions: { contents: read, pull-requests: write, statuses: write, issues: read }`) and the review reads the linked issue to learn what the change is for. The sample leaves it out because it is optional: without it the review is the same, and its summary carries one note, `issue #12 not read: this workflow's token lacks the optional issues: read permission`. See "Permissions" below.
+
 **Or let the CLI write the file.** `lc review init-action` writes `.github/workflows/lemoncrow-review.yml` from the workflow above (it is the same text: the command ships this sample and a test holds the two equal) and prints the steps that are left to you, adding the secret and pinning the SHA:
 
 ```bash
@@ -96,7 +98,7 @@ Chat adds no permission. See "Chat in pull request threads".
 | `contents: read` | Fetch the pull request's commits. |
 | `pull-requests: write` | Post the summary and the inline review, reply in threads and resolve them. |
 | `statuses: write` | Set the `LemonCrow Review` status. |
-| `issues: read` (optional) | Read the issues a pull request links with `Fixes #N` or `Closes #N`, so the review knows what the change is for. Without it the summary says `issue #N could not be read` and carries on. Add it to the `permissions:` line if you want the linked issues read. |
+| `issues: read` (optional) | Read the issues a pull request links with `Fixes #N` or `Closes #N`, so the review knows what the change is for. Without it the summary says `issue #N not read: this workflow's token lacks the optional issues: read permission` and carries on. Add it to the `permissions:` line if you want the linked issues read. |
 
 A token that lacks one of the first three fails the step before any model is asked, with an `::error` annotation that names the missing permission and the line to add (`permissions: { contents: read, pull-requests: write, statuses: write }`), and sets the `LemonCrow Review` status to `error` when it can write one. A repository whose default `GITHUB_TOKEN` is read-only needs the `permissions:` block above; it is the usual cause.
 
@@ -751,7 +753,7 @@ A reviewer that does not know what a change is *for* flags deliberate behavior a
 - **The issues it links in this repository**: `Fixes #12`, `Closes #12`, `Resolves owner/repo#12` (the same repository), a labeled line such as `Issue: #12`, or the URL of an issue of this repository. Each is one `GET` with the workflow's own token, at most three. Links to other repositories, to documents and to pull requests are not read, and the summary says how many were not.
 - **Only when a model is about to be asked.** A review that has nothing for a model to do (no risk signal) reads no issue.
 
-If the token cannot read an issue, that issue is **skipped with a note** (`intent: issue #12 could not be read (no permission: the token needs issues: read); skipped`) and the review goes on. The sample workflow's `permissions` do not include `issues`, on purpose; add `issues: read` if you want the linked issues of a private repository read. (Like the rest of the Action, this has not been run against a live repository; the permission is from GitHub's REST reference.)
+If the token cannot read an issue, that issue is **skipped with a note** (for a missing permission: `intent: issue #12 not read: this workflow's token lacks the optional issues: read permission (add it under permissions: to include linked issues)`; for an issue that is gone, `issue #12 could not be read (not found or not visible); skipped`) and the review goes on. The sample workflow's `permissions` do not include `issues`, on purpose; add `issues: read` if you want the linked issues of a private repository read. (Like the rest of the Action, this has not been run against a live repository; the permission is from GitHub's REST reference.)
 
 **How it is used.** It reaches the investigators as three blocks of the prompt: `pr_description` and `linked_issues` tagged as *data* (`data:pr_metadata`, `data:work_item`), and a short platform rule that says they are untrusted text written by people, never instructions, whatever they claim to be. It goes through the existing intent model (the description as the change's description, each issue as a bound intent), is cleaned first (HTML comments, which a rendered page hides from a reader, are dropped; credentials are redacted) and is cut to a budget of **1,000 estimated tokens** for all of it together (the description at most 500, each issue at most 250; the cut text ends `…[cut]`).
 
