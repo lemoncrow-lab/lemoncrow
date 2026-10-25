@@ -221,6 +221,8 @@ function SynthesisLine({
 }) {
   const synthesis = projection.synthesis;
   if (!synthesis) return null;
+  // The AI line already says, once, that AI is not enabled here: do not repeat it as "explanations are unavailable".
+  if (projection.ai_review?.available === false && synthesis.status === "disabled" && !error) return null;
   const missing = projection.coverage.unsynthesized_target_ids?.length ?? 0;
   const excluded = synthesis.excluded_by_policy ?? [];
   const pending = busy || synthesis.status === "pending";
@@ -341,6 +343,14 @@ function AiReviewLine({
   // One action id per opened confirmation: a double submit replays, it never spends twice.
   const [freshActionId, setFreshActionId] = useState("");
   if (!review) return null;
+  if (review.available === false) {
+    // No executor here (hosted without a durable queue): no run button, no "0/20 calls", no provider error. One line.
+    return (
+      <p data-testid="brief-ai-review" className="text-caption leading-5 text-muted-foreground" title={review.unavailable_detail || undefined}>
+        {review.unavailable_reason || "AI review on hosted isn't enabled for this workspace yet"}
+      </p>
+    );
+  }
   const assurance = review.assurance;
   const independence = assurance?.independence;
   const identity = assurance?.identity ?? null;

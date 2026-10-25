@@ -3444,6 +3444,15 @@ export interface ReviewAiAssurance {
 }
 
 export interface ReviewAiReviewStatus {
+  /**
+   * Whether this deployment can run AI review at all. `false` (hosted without an executor) hides every control
+   * that would start one; absent means available, as every server before this field behaved.
+   */
+  available?: boolean;
+  /** The one sentence to show when `available` is false. */
+  unavailable_reason?: string;
+  /** The technical cause, for operators. */
+  unavailable_detail?: string;
   status: "none" | "skipped_unnecessary" | "pending" | "ready" | "failed" | "cancelled";
   effort: "auto" | "quick" | "thorough" | "deep";
   candidates: number;

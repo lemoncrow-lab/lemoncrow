@@ -79,12 +79,34 @@ export type ProductFeature =
   | "runtime.project_knowledge"
   | "runtime.knowledge";
 
+/**
+ * What a hosted workspace can do now, as the server reports it with the account (`/v1/account` `workspace`).
+ * Every part is optional: an absent part is unknown, and the shell then keeps what it would show anyway.
+ * It only ever narrows what is shown (a tab with no data, a button that cannot work).
+ */
+export interface WorkspaceReadiness {
+  /** Coding-agent telemetry exists, so Home, Activity and Usage have data. */
+  agentActivity?: boolean;
+  /** The viewer can open an indexed project in Code. */
+  codeIndex?: boolean;
+  /** Hosted AI review has an executor; `reason` is the one sentence to show when it has none. */
+  reviewAi?: { available: boolean; reason: string };
+  github?: {
+    connection: "organization_installation" | "deployment_managed" | "not_connected";
+    selfService: boolean;
+    /** `null`: LemonCrow chose the repositories (deployment managed). */
+    repositoriesEnabled: number | null;
+  };
+}
+
 export interface LemonCrowCapabilities {
   schemaVersion: 1;
   products: Record<ProductId, ProductState>;
   features: Record<ProductFeature, boolean>;
   /** Existing fine-grained Runtime flags; retained as the Runtime implementation contract. */
   runtime: RuntimeCapabilities;
+  /** Hosted only: what this workspace can do now. Absent for local deployments. */
+  workspace?: WorkspaceReadiness;
 }
 
 export const LOCAL_RUNTIME_CAPABILITIES: RuntimeCapabilities = {
@@ -254,6 +276,35 @@ interface ProductDiscoveryDocument {
 
 interface ProductAccountDocument {
   products?: unknown;
+  workspace?: unknown;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+/** The workspace readiness an account document carries; anything malformed is left unknown. */
+export function parseWorkspaceReadiness(value: unknown): WorkspaceReadiness | undefined {
+  const raw = asRecord(value);
+  if (!raw) return undefined;
+  const out: WorkspaceReadiness = {};
+  if (typeof raw.agent_activity === "boolean") out.agentActivity = raw.agent_activity;
+  if (typeof raw.code_index === "boolean") out.codeIndex = raw.code_index;
+  const ai = asRecord(raw.review_ai);
+  if (ai && typeof ai.available === "boolean") out.reviewAi = { available: ai.available, reason: String(ai.reason ?? "") };
+  const github = asRecord(raw.github);
+  const connection = github?.connection;
+  if (
+    github &&
+    (connection === "organization_installation" || connection === "deployment_managed" || connection === "not_connected")
+  ) {
+    out.github = {
+      connection,
+      selfService: github.self_service === true,
+      repositoriesEnabled: typeof github.repositories_enabled === "number" ? github.repositories_enabled : null,
+    };
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function discoveryMode(document: ProductDiscoveryDocument, fallback: LemonCrowCapabilities): Exclude<ProductMode, "none"> {
@@ -315,11 +366,33 @@ export function parseProductCapabilities(
   };
 }
 
+/**
+ * Narrow the features to what the workspace has data and executors for. A tab that would only say
+ * "unavailable" is not offered; the server still refuses the routes behind it.
+ */
+function applyWorkspaceReadiness(
+  capabilities: LemonCrowCapabilities,
+  workspace: WorkspaceReadiness | undefined,
+): LemonCrowCapabilities {
+  if (!workspace) return capabilities;
+  const features = { ...capabilities.features };
+  if (workspace.agentActivity === false) {
+    features["runtime.runs"] = false;
+    features["core.usage"] = false;
+  }
+  if (workspace.codeIndex === false) {
+    features["runtime.code"] = false;
+    features["runtime.code_map"] = false;
+  }
+  return { ...capabilities, features, workspace };
+}
+
 export function applyProductEntitlements(
   capabilities: LemonCrowCapabilities,
   account: ProductAccountDocument,
 ): LemonCrowCapabilities {
-  if (!Array.isArray(account.products)) return capabilities;
+  const workspace = parseWorkspaceReadiness(account.workspace);
+  if (!Array.isArray(account.products)) return applyWorkspaceReadiness(capabilities, workspace);
   const granted = new Set(
     account.products.filter((value): value is "review" | "runtime" => value === "review" || value === "runtime"),
   );
@@ -329,16 +402,19 @@ export function applyProductEntitlements(
     const entitled = granted.has(product);
     products[product] = { ...base, entitled, available: base.available && entitled };
   }
-  return {
-    ...capabilities,
-    products,
-    features: features(
-      products.review.available,
-      products.runtime.available,
-      capabilities.runtime,
-      capabilities.features["review.ask"],
-    ),
-  };
+  return applyWorkspaceReadiness(
+    {
+      ...capabilities,
+      products,
+      features: features(
+        products.review.available,
+        products.runtime.available,
+        capabilities.runtime,
+        capabilities.features["review.ask"],
+      ),
+    },
+    workspace,
+  );
 }
 
 interface ProductDiscoveryResult {

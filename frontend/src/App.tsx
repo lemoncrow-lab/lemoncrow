@@ -492,7 +492,20 @@ function ProductGate({
   if (!productAvailable(capabilities, product)) {
     return product === "review" && ReviewUnavailable ? <ReviewUnavailable /> : <ProductUnavailable product={product} />;
   }
-  return feature && !capabilities.features[feature] ? <HostedOnlyPage /> : children;
+  if (feature && !capabilities.features[feature]) {
+    // A hosted workspace that has no data for a page does not offer it: Home says what to do next.
+    return capabilities.products.core.mode === "hosted" ? <Navigate to="/home" replace /> : <HostedOnlyPage />;
+  }
+  return children;
+}
+
+/** Hosted: a page the workspace has nothing to show on sends the visitor Home rather than to an empty page. */
+function FeatureRoute({ feature, children }: { feature: ProductFeature; children: React.ReactNode }) {
+  const capabilities = useProductCapabilities();
+  if (capabilities.products.core.mode === "hosted" && !capabilities.features[feature]) {
+    return <Navigate to="/home" replace />;
+  }
+  return children;
 }
 
 /**
@@ -738,8 +751,8 @@ export default function App({
                   {/* ReviewPreparation above draws this route; without Review it gets the plan page. */}
                   <Route path="/reviews/preparing/:preparationId" element={<ProductGate product="review">{null}</ProductGate>} />
                   <Route path="/home" element={<PageHome />} />
-                  <Route path="/activity" element={<ProductGate product="runtime"><PageRuns /></ProductGate>} />
-                  <Route path="/activity/:id" element={<ProductGate product="runtime"><PageRuns /></ProductGate>} />
+                  <Route path="/activity" element={<ProductGate product="runtime"><FeatureRoute feature="runtime.runs"><PageRuns /></FeatureRoute></ProductGate>} />
+                  <Route path="/activity/:id" element={<ProductGate product="runtime"><FeatureRoute feature="runtime.runs"><PageRuns /></FeatureRoute></ProductGate>} />
                   <Route path="/runs/*" element={<LegacyRunsRedirect />} />
                   <Route
                     path="/code"
@@ -755,7 +768,7 @@ export default function App({
                   <Route path="/knowledge/project" element={<ProductGate product="runtime" feature="runtime.project_knowledge"><PageKnowledge /></ProductGate>} />
                   <Route path="/knowledge/:section" element={<KnowledgeSectionGate><PageKnowledge /></KnowledgeSectionGate>} />
                   <Route path="/knowledge/:section/:rubricId" element={<KnowledgeSectionGate><PageKnowledge /></KnowledgeSectionGate>} />
-                  <Route path="/usage" element={<PageUsage />} />
+                  <Route path="/usage" element={<FeatureRoute feature="core.usage"><PageUsage /></FeatureRoute>} />
                   <Route
                     path="/reviews"
                     element={

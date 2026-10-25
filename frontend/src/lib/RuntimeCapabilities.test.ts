@@ -171,6 +171,48 @@ describe("product capability discovery", () => {
     );
   });
 
+  it("offers only the tabs a hosted workspace has data for, from what the account reports", () => {
+    const account = {
+      products: ["review", "runtime"],
+      workspace: {
+        agent_activity: false,
+        code_index: false,
+        review_ai: { available: false, reason: "AI review on hosted isn't enabled for this workspace yet" },
+        github: { connection: "not_connected", self_service: true, repositories_enabled: 0 },
+      },
+    };
+    const capabilities = applyProductEntitlements(LOCAL_PRODUCT_CAPABILITIES, account);
+
+    expect(capabilities.features["runtime.runs"]).toBe(false);
+    expect(capabilities.features["core.usage"]).toBe(false);
+    expect(capabilities.features["runtime.code_map"]).toBe(false);
+    expect(capabilities.features["runtime.code"]).toBe(false);
+    // Review is untouched: this only narrows the dashboards that would be empty.
+    expect(capabilities.features["review.directory"]).toBe(true);
+    expect(capabilities.workspace).toEqual({
+      agentActivity: false,
+      codeIndex: false,
+      reviewAi: { available: false, reason: "AI review on hosted isn't enabled for this workspace yet" },
+      github: { connection: "not_connected", selfService: true, repositoriesEnabled: 0 },
+    });
+  });
+
+  it("keeps every tab for a part the account leaves unknown or reports as available", () => {
+    const unknown = applyProductEntitlements(LOCAL_PRODUCT_CAPABILITIES, { products: ["review", "runtime"], workspace: {} });
+    expect(unknown.features["runtime.runs"]).toBe(true);
+    expect(unknown.features["core.usage"]).toBe(true);
+    expect(unknown.workspace).toBeUndefined();
+
+    const showcase = applyProductEntitlements(LOCAL_PRODUCT_CAPABILITIES, {
+      products: ["review", "runtime"],
+      workspace: { agent_activity: true, code_index: true, github: { connection: "bogus" } },
+    });
+    expect(showcase.features["runtime.runs"]).toBe(true);
+    expect(showcase.features["core.usage"]).toBe(true);
+    expect(showcase.features["runtime.code_map"]).toBe(true);
+    expect(showcase.workspace).toEqual({ agentActivity: true, codeIndex: true });
+  });
+
   it("honors Review Ask capability independently of Review installation", () => {
     const capabilities = parseProductCapabilities(
       {

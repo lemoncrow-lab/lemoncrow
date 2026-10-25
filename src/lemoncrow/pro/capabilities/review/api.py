@@ -158,6 +158,16 @@ _HOSTED_OWNED: tuple[str, ...] = ("comments", "judgments", "requests", "outcomes
 _HOSTED_RESULT_LIMIT = 64 * 1024
 #: Trust T2 shadow and on-mode consistency lines (operator telemetry, never product UI).
 _TRUST_LOG = logging.getLogger("lemoncrow.review.trust")
+#: The one sentence people see where a hosted workspace cannot run AI review (the technical cause stays in `detail`).
+HOSTED_AI_REVIEW_NOT_ENABLED = "AI review on hosted isn't enabled for this workspace yet"
+_ABSOLUTE_PATH = re.compile(r"(?<![\w.])(?:/[\w.@+~-]+){2,}/?")
+
+
+def _without_paths(reason: object) -> str:
+    """An error text with absolute filesystem paths replaced, so a hosted Reader never prints a server path."""
+
+    return _ABSOLUTE_PATH.sub("<path>", str(reason))
+
 
 # Emitted as real response headers, not a <meta> tag: a meta CSP cannot carry
 # frame-ancestors, and frame-ancestors is exactly the clause that matters here
@@ -1778,6 +1788,7 @@ def register_review_api(
     ai_review_submitter: Callable[..., Mapping[str, Any]] | None = None,
     ai_review_job_lookup: Callable[[ReviewSession, ReviewRevision], Mapping[str, Any] | None] | None = None,
     ai_review_job_cancel: Callable[[ReviewSession, ReviewRevision, str], Mapping[str, Any]] | None = None,
+    ai_review_unavailable: Callable[[], str] | None = None,
     background_budget: Any | None = None,
     acting_reviewer_id: Callable[[], str] | None = None,
     github_publish_enabled: bool = False,
@@ -11061,6 +11072,21 @@ def register_review_api(
             and (annotation.revision_id == revision.id or annotation.id in anchored_here)
         )
 
+    def _ai_unavailable_reason() -> str:
+        """Why a durable executor cannot run AI review for this deployment now (``""``: it can).
+
+        Asked of the composition per call, never cached: an operator wiring the queue or the model route
+        turns AI review on without a restart of every open Reader.
+        """
+
+        if ai_review_unavailable is None:
+            return ""
+        try:
+            return str(ai_review_unavailable() or "")
+        except Exception:  # an unreadable readiness probe must not offer a run it cannot promise
+            logging.getLogger(__name__).warning("AI review readiness could not be read", exc_info=True)
+            return "AI review readiness could not be read"
+
     def _ai_review_projection(
         session: ReviewSession,
         revision: ReviewRevision,
@@ -11141,7 +11167,12 @@ def register_review_api(
         error = provider_error or (
             "" if latest is None or latest.status not in {"failed", "cancelled"} else latest.error
         )
+        unavailable_reason = _ai_unavailable_reason() if ai_review_submitter is not None else ""
         projection = {
+            # Whether this deployment can run AI review at all; false hides every control that would start one.
+            "available": not unavailable_reason,
+            "unavailable_reason": HOSTED_AI_REVIEW_NOT_ENABLED if unavailable_reason else "",
+            "unavailable_detail": unavailable_reason,
             "status": state,
             "effort": effort,
             "candidates": len(candidates),
@@ -12059,6 +12090,10 @@ def register_review_api(
                         else {"status": "none", "revision_id": revision.id, "auto_event_driven": True}
                     )
                 }
+            unavailable = _ai_unavailable_reason()
+            if unavailable:
+                # The Reader hides the control; a direct call gets the same plain answer, not a queue error.
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=HOSTED_AI_REVIEW_NOT_ENABLED)
             queued = _submit_durable_ai_review(
                 session,
                 revision,
@@ -12372,6 +12407,14 @@ def register_review_api(
         """Whether AI entries can execute here; deterministic entries never depend on it."""
 
         if ai_review_submitter is not None:
+            reason = _ai_unavailable_reason()
+            if reason:
+                return {
+                    "available": False,
+                    "reason": HOSTED_AI_REVIEW_NOT_ENABLED,
+                    "detail": reason,
+                    "executor": "durable",
+                }
             return {"available": True, "reason": "", "executor": "durable"}
         from lemoncrow.pro.capabilities.review.intelligence_runtime import resolve_driver_model
 
@@ -13910,7 +13953,7 @@ def register_review_api(
             surfaces, issues = _discover_surfaces(registry, context)
         except (OSError, RuntimeError, TypeError, ValueError) as exc:
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail=f"review surface discovery failed: {exc}"
+                status_code=status.HTTP_409_CONFLICT, detail=f"review surface discovery failed: {_without_paths(exc)}"
             ) from exc
         preview_registry = previews_module.built_in_preview_registry()
         comparator_registry = comparisons_module.built_in_comparator_registry()
@@ -13961,7 +14004,7 @@ def register_review_api(
             )
         except (OSError, RuntimeError, TypeError, ValueError) as exc:
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail=f"review surface discovery failed: {exc}"
+                status_code=status.HTTP_409_CONFLICT, detail=f"review surface discovery failed: {_without_paths(exc)}"
             ) from exc
         surface = next((item for item in surfaces if item.provider == provider and item.id == surface_id), None)
         if surface is None:

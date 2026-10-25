@@ -1028,6 +1028,59 @@ describe("ReviewBrief AI review", () => {
     expect(onRunAiReview).toHaveBeenCalledWith("thorough");
   });
 
+  it("says once that AI review is not enabled and offers no run, count or provider error", async () => {
+    const onRunAiReview = vi.fn();
+    renderBrief(
+      projection({
+        ai_review: {
+          available: false,
+          unavailable_reason: "AI review on hosted isn't enabled for this workspace yet",
+          unavailable_detail: "hosted durable Review Intelligence queue is not configured",
+          status: "none",
+          effort: "auto",
+          candidates: 1,
+          findings: 0,
+          error: "Review Intelligence provider is disabled; configure a provider or select a local/subscription driver",
+          budget: { calls_used: 0, max_calls: 20 },
+        },
+      }),
+      { onRunAiReview },
+    );
+    const ai = screen.getByTestId("brief-ai-review");
+    expect(ai).toHaveTextContent("AI review on hosted isn't enabled for this workspace yet");
+    expect(ai).not.toHaveTextContent(/provider is disabled|calls used|AI Review ·/i);
+    expect(screen.queryByRole("button", { name: "Run deeper review" })).toBeNull();
+    expect(screen.queryByText("Run details")).toBeNull();
+    expect(screen.getAllByText(/isn't enabled for this workspace yet/i)).toHaveLength(1);
+  });
+
+  it("does not repeat it as a second AI-unavailable line about explanations", () => {
+    renderBrief(
+      projection({
+        ai_review: {
+          available: false,
+          unavailable_reason: "AI review on hosted isn't enabled for this workspace yet",
+          status: "none",
+          effort: "auto",
+          candidates: 0,
+          findings: 0,
+          budget: { calls_used: 0, max_calls: 20 },
+        },
+        synthesis: {
+          status: "disabled",
+          model: "",
+          error: "AI explanations are disabled",
+          candidates: 0,
+          rejected_count: 0,
+          unsynthesized: 0,
+        },
+      }),
+    );
+    expect(screen.getByTestId("brief-ai-review")).toHaveTextContent("AI review on hosted isn't enabled for this workspace yet");
+    expect(screen.queryByText(/AI explanations are unavailable/)).toBeNull();
+    expect(screen.queryByTestId("brief-synthesis")).toBeNull();
+  });
+
   it.each([
     ["repository_model_ceiling", "at this repository's limit"],
     ["organization_model_budget", "waiting for your organization's share"],

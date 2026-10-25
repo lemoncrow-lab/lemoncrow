@@ -354,7 +354,9 @@ export default function RunPlanPanel({
         )}
         {data.ai_availability && !data.ai_availability.available && (
           <div className="text-micro leading-relaxed text-amber-300/80" data-testid="run-plan-ai-unavailable">
-            AI review unavailable: {data.ai_availability.reason}. Deterministic checks still run.
+            {data.ai_availability.executor === "durable"
+              ? `${data.ai_availability.reason}. Deterministic checks still run.`
+              : `AI review unavailable: ${data.ai_availability.reason}. Deterministic checks still run.`}
           </div>
         )}
         {plan.run_on_note && <div className="text-micro text-amber-300/80">{plan.run_on_note}</div>}
