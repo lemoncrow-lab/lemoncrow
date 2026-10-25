@@ -315,6 +315,36 @@ def test_chat_is_wired_through_the_gate_and_the_review_step_and_documented() -> 
     assert "OWNER`, `MEMBER`, `COLLABORATOR` or `CONTRIBUTOR`" in guide
 
 
+def test_the_guide_documents_the_review_command_and_the_help_text_lists_it() -> None:
+    """Item 3: `@lemoncrow review` is in the command table, its rules are stated, and the bot's own help says it too."""
+
+    from lemoncrow.pro.capabilities.review.pr_bot import chat
+
+    guide = GUIDE.read_text(encoding="utf-8")
+    for phrase in (
+        "@lemoncrow review [quick|auto|thorough|deep]",
+        "**`review`.**",
+        "It is the review a push runs, started by a person",
+        "on a draft",
+        "`quick` is understood but runs Auto",
+        "Nothing has changed since my last review",
+        "A deeper depth on the same commit re-examines it all",
+        "`max-runs-per-pr` and `max-usd-per-pr` apply as they do to a push",
+        "even when nothing has changed",
+        "reacts with eyes",
+        "never set to `pending` by a command",
+        "POST /pulls/comments/{id}/reactions",
+    ):
+        assert phrase in guide, phrase
+    # The sample asks for no new permission, and the Action's own words agree with the guide.
+    assert documented_workflow()["permissions"] == {"contents": "read", "pull-requests": "write", "statuses": "write"}
+    assert (
+        "@lemoncrow review" in manifest()["description"]
+        and "@lemoncrow review" in manifest()["inputs"]["depth"]["description"]
+    )
+    assert "`{handle} review [quick|auto|thorough|deep]`" in chat.HELP
+
+
 def test_the_guide_documents_learning_and_its_limits_and_the_sample_asks_for_no_extra_permission() -> None:
     """G9: feedback is read with the permissions the sample already has, and wider learning is explicit and inert."""
 

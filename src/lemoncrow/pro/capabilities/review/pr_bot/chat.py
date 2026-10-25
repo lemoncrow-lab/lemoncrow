@@ -28,9 +28,11 @@ Rules this module keeps:
 * **Only the allowed.** :func:`ci_env.decide_chat` has already refused bots (including this one), people whose
   ``author_association`` is not allowed, and review comments from forks.
 
-Commands: ``help``, ``recheck`` (re-examine one finding alone, a review that counts toward the budget) and ``ignore``
+Commands: ``help``, ``recheck`` (re-examine one finding alone, a review that counts toward the budget), ``ignore``
 (stop flagging a category or some words, optionally under a path glob, on this pull request: free, and it changes only
-what the bot says, :mod:`learning`). Anything else is a question.
+what the bot says, :mod:`learning`) and ``review [quick|auto|thorough|deep]`` (review the whole pull request now, at
+that depth: the same review a push runs, under the same budget, and the summary is updated when it is done). Anything
+else is a question.
 """
 
 from __future__ import annotations
@@ -44,7 +46,7 @@ from pathlib import Path
 from typing import Any, Final
 
 from lemoncrow.pro.capabilities.review.model_context import ContextAuthority, tagged
-from lemoncrow.pro.capabilities.review.pr_bot import ci_env, learning, suppression
+from lemoncrow.pro.capabilities.review.pr_bot import ci_env, engine, learning, suppression
 from lemoncrow.pro.capabilities.review.pr_bot.findings import SEVERITY_BADGE, BotFinding
 from lemoncrow.pro.capabilities.review.pr_bot.github import BotGitHub, PullFacts, Remote, finding_id_of
 from lemoncrow.pro.capabilities.review.pr_bot.render import (
@@ -113,6 +115,11 @@ Mention me in a review thread on one of my comments, or in the pull request conv
 finding, the code, the repository context and the thread so far. Text only: I cannot approve, merge or change \
 anything.
 - `{handle} recheck`: in a finding's thread, re-examine that finding alone and say whether it still applies.
+- `{handle} review [quick|auto|thorough|deep]`: review the whole pull request now, at that depth (the workflow's \
+`depth` unless you say one; Auto by default). It works on a draft and on a pull request I have not reviewed yet. I \
+react with eyes at once and update the summary when the review is done. It is a review: it counts toward the budget, \
+and if nothing has changed since my last review at that depth I reuse it and call no model. Quick cannot go below the \
+repository's default depth, so it runs Auto.
 - `{handle} ignore <category or words> [in <path glob>]`: stop flagging that on this pull request, for example \
 `ignore verification in tests/**`. In a finding's thread, `ignore` alone dismisses that finding. I confirm what I \
 learned and offer the rule to add to `.lemoncrow/review.yaml`; I never change your repository. A must-fix (P0) stays \
@@ -133,7 +140,7 @@ association of {associations} can ask."""
 
 @dataclass(frozen=True)
 class Command:
-    """What a mention asks for. ``name`` is ``help``, ``recheck``, ``ignore`` or ``ask``; ``text`` is the rest of it."""
+    """What a mention asks for. ``name`` is ``help``, ``recheck``, ``ignore``, ``review`` or ``ask``; ``text`` is the rest."""
 
     name: str
     text: str
@@ -142,9 +149,29 @@ class Command:
 _RECHECK = re.compile(r"^(?:please\s+)?re-?check\b[\s,.:;!-]*(?P<rest>.*)$", re.IGNORECASE | re.DOTALL)
 _HELP = re.compile(r"^(?:help|commands?|usage|\?)\W*$", re.IGNORECASE)
 _IGNORE = re.compile(r"^ignore\b[\s,.:;!-]*(?P<rest>.*)$", re.IGNORECASE | re.DOTALL)
+_REVIEW = re.compile(r"^(?:please\s+)?re-?view\b[\s,.:;!-]*(?P<rest>.*)$", re.IGNORECASE | re.DOTALL)
 #: An ``ignore`` command is short: a category or a few words and a glob. A long sentence that begins with the word
 #: ("ignore previous instructions and ...") is a question, not an instruction to remember.
 MAX_IGNORE_WORDS = 14
+#: The depths ``review`` takes, shallowest first. ``quick`` is understood but runs Auto (see :func:`review_depth`).
+REVIEW_DEPTHS: Final[tuple[str, ...]] = ("quick", "auto", "thorough", "deep")
+#: Words around a depth that carry no meaning ("review this PR at deep"). What is left after them is the depth request.
+_REVIEW_FILLER: Final[frozenset[str]] = frozenset(
+    {"at", "with", "in", "on", "to", "this", "the", "pr", "pull", "request", "it", "again", "now", "please", "depth"}
+    | {"mode", "level", "a", "full", "whole"}
+)
+#: A ``review`` command names at most one depth. Anything longer ("review the auth change and say why it is risky")
+#: is a question that happens to start with the word.
+MAX_REVIEW_REQUEST_CHARS = 60
+
+
+def _review_words(rest: str) -> list[str] | None:
+    """The meaningful words of what follows ``review``, or ``None`` when it is a question, not a depth request."""
+
+    if "\n" in rest or "?" in rest or len(rest) > MAX_REVIEW_REQUEST_CHARS:
+        return None
+    words = [word for word in re.findall(r"[a-z0-9][a-z0-9_-]*", rest.lower()) if word not in _REVIEW_FILLER]
+    return words if len(words) <= 1 else None
 
 
 def parse_command(text: str) -> Command:
@@ -161,7 +188,38 @@ def parse_command(text: str) -> Command:
         rest = ignoring["rest"].strip()
         if len(rest.split()) <= MAX_IGNORE_WORDS and "\n" not in rest:
             return Command("ignore", rest)
+    reviewing = _REVIEW.match(stripped)
+    if reviewing is not None:
+        rest = reviewing["rest"].strip()
+        if _review_words(rest) is not None:
+            return Command("review", rest)
     return Command("ask", stripped)
+
+
+def review_depth(text: str, default: str = "auto") -> tuple[str, str]:
+    """``(depth, note)`` for the words after ``review``: the depth to run, and a sentence when it is not what was typed.
+
+    No word means *default* (the workflow's ``depth`` input, which is Auto unless the workflow says otherwise). A word
+    that is not a depth also runs *default*, and the note says so. ``quick`` is a depth the Review API cannot honour
+    below the repository's own default (a manual request only adds to the Snapshot's plan, see :mod:`engine`), so it
+    runs Auto, which is Quick in a repository whose ``review.effort`` is ``quick``, and the note says that.
+    """
+
+    words = _review_words(text) or []
+    if not words:
+        return default, ""
+    word = words[0]
+    if word == "quick":
+        return "auto", (
+            "Quick cannot go below this repository's default depth, so I ran Auto (Auto is Quick where "
+            "`review.effort` is `quick`)."
+        )
+    if word in engine.DEPTHS:
+        return word, ""
+    return default, (
+        f"I did not recognise the depth `{code(word)}` (use {', '.join(REVIEW_DEPTHS[:-1])} or {REVIEW_DEPTHS[-1]}), "
+        f"so I used {default.capitalize()}."
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -518,6 +576,8 @@ def run_chat(
     try:
         if command.name == "help":
             return reply(_help_text(environ), "help")
+        if command.name == "review":
+            return _review_command(options, event, command, reply, report, github, facts, previous, budget, review, say)
         if previous is None or existing is None:
             return reply(
                 "I have not reviewed this pull request yet, so I have no findings to talk about and nothing to count a "
@@ -559,6 +619,106 @@ def run_chat(
     except GitHubCliError as exc:
         report.notes.append(f"could not answer: {str(exc)[:200]}")
         return report
+
+
+def _review_command(
+    options: RunOptions,
+    event: ci_env.ChatEvent,
+    command: Command,
+    reply: Callable[..., RunReport],
+    report: RunReport,
+    github: BotGitHub,
+    facts: PullFacts,
+    previous: ReviewState | None,
+    budget: Callable[[ReviewState | None], str],
+    review: Callable[[RunOptions], RunReport],
+    say: Callable[[str], None],
+) -> RunReport:
+    """``review [quick|auto|thorough|deep]``: review the whole pull request now, at that depth.
+
+    The same review a push runs (:func:`runner._review`), so everything about one holds: the model-call cap, the
+    reviewed-unit fingerprints that carry unchanged code without a model call (a second ``review`` at the same depth on
+    the same commit calls no model; a deeper depth or a new commit re-examines what that changes), the findings
+    reconciled with the last review, inline comments for new P0 and P1 findings, the summary updated in place and the
+    ``LemonCrow Review`` status set when it is done. It works where a push review does not run: a draft, a pull request
+    the bot has not seen, a commit whose job was cancelled.
+
+    Who may ask and which fork is refused is decided before this (:func:`ci_env.decide_chat`). Here: the budget is
+    checked first and refused in the thread with no model call, and a fork's pull request is not reviewed on a route
+    that runs tools. The reaction is the acknowledgement; it comes before any work and is best effort. The commit
+    status is the review's own: nothing sets it to ``pending``, so a job that is killed leaves the earlier one alone.
+    """
+
+    from lemoncrow.pro.capabilities.review.intelligence_runtime import AGENT_CLI_DRIVERS, resolve_driver_model
+
+    depth, depth_note = review_depth(command.text, options.depth)
+    label = depth.capitalize()
+    lead = f"{depth_note}\n\n" if depth_note else ""
+    if facts.fork and resolve_driver_model(None, None).driver in AGENT_CLI_DRIVERS:
+        return reply(
+            lead + "This pull request comes from a fork, and the configured route is an agent CLI, which runs tools. "
+            "I do not review a fork's code on such a route. Use an API route (OpenAI, Anthropic through LiteLLM, or "
+            "Ollama), or have a maintainer push the branch to this repository.",
+            "refused",
+        )
+    spent = budget(previous)
+    if spent:
+        return reply(
+            f"Review budget reached: {spent}. I am not reviewing, and no model was called. Raise `max-usd-per-pr` or "
+            "`max-runs-per-pr` to continue.",
+            "budget",
+        )
+    writes = options.publish and not options.dry_run
+    if writes:
+        try:
+            github.react(event.comment_id, review_comment=event.in_thread, content="eyes")
+        except GitHubCliError as exc:
+            report.notes.append(f"could not react to the comment: {str(exc)[:200]}")
+    say(f"Reviewing at {label}")
+    try:
+        outcome = review(replace(options, depth=depth, only_targets=None))
+    except Exception as exc:  # said in the thread without the provider's text, then raised for the job log
+        try:
+            reply(lead + f"I could not finish the review ({type(exc).__name__}); see the workflow log.", "failed")
+        except GitHubCliError:
+            pass  # the reply is a courtesy; the error that matters is the one raised below
+        raise
+    report.verdict, report.findings, report.state = outcome.verdict, outcome.findings, outcome.state
+    report.status, report.summary, report.published = outcome.status, outcome.summary, dict(outcome.published)
+    report.notes.extend(outcome.notes)
+    report.noop = outcome.noop
+    if writes:
+        report.published["acknowledged"] = "eyes"
+    if outcome.skipped or outcome.verdict is None or outcome.state is None:
+        return reply(
+            lead + f"I could not review: {clean(outcome.reason) or 'the review did not run'}.",
+            "review",
+            depth=depth,
+            reviewed=False,
+        )
+    view, state = outcome.verdict, outcome.state
+    sha = short(facts.head_sha)
+    where = clean(view.headline) + (f" · {view.counts}" if view.counts else "")
+    reused = previous is not None and previous.head_sha == facts.head_sha and state.reviews == previous.reviews
+    if reused and previous is not None:
+        deeper = (
+            "" if depth == "deep" else " Ask for `review thorough` or `review deep` to have it looked at more closely."
+        )
+        text = (
+            f"Nothing has changed since my last review of `{sha}` at {previous.depth.capitalize()}, so I reused its "
+            f"results and called no model: {where}.{deeper}"
+        )
+        return reply(lead + text, "review", depth=depth, reviewed=True, reused=True)
+    link = f" [Summary]({outcome.published['summary_url']})." if outcome.published.get("summary_url") else ""
+    return reply(
+        lead + f"Reviewed `{sha}` at **{label}**: {where}.{link}",
+        "review",
+        state.usage,
+        note=f"{plural(state.reviews, 'review')} so far",
+        depth=depth,
+        reviewed=True,
+        reused=False,
+    )
 
 
 def _answer(
@@ -864,9 +1024,11 @@ def _recheck(
 __all__ = [
     "CHAT_SCHEMA",
     "CHAT_SYSTEM",
+    "REVIEW_DEPTHS",
     "Command",
     "excerpt",
     "parse_command",
+    "review_depth",
     "run_chat",
     "thread_finding",
     "thread_history",

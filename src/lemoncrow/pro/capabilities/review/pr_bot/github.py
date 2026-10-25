@@ -411,6 +411,20 @@ class BotGitHub:
             raise GitHubCliError(f"GitHub did not return the reply on thread {root_id} of {self.pr.url}")
         return replace(written, body=body)
 
+    def react(self, comment_id: int, *, review_comment: bool, content: str = "eyes") -> None:
+        """Put the reaction *content* (``eyes``, ``+1``, ...) on a comment: the quickest answer to "did the bot see it".
+
+        *review_comment* is a comment in a review thread (``pull_request_review_comment``); otherwise it is a
+        conversation comment. Covered by ``pull-requests: write``, like the replies.
+        """
+
+        kind = "pulls" if review_comment else "issues"
+        gh_json(
+            self.runner,
+            ["api", "--method", "POST", f"repos/{self.pr.slug}/{kind}/comments/{comment_id}/reactions", "--input", "-"],
+            json.dumps({"content": content}),
+        )
+
     def post_comment(self, body: str) -> Remote:
         """A new comment in the pull request's conversation."""
 

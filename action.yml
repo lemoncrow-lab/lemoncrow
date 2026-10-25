@@ -1,7 +1,8 @@
 name: LemonCrow Review
 description: >-
   AI pull request review on your own model key. Posts one summary comment and inline findings as a bot,
-  on each push re-reviews only what changed, answers @lemoncrow questions in the pull request's threads, and learns from reactions, replies and ignore commands.
+  on each push re-reviews only what changed, answers @lemoncrow questions in the pull request's threads, reviews
+  the whole pull request on "@lemoncrow review [depth]", and learns from reactions, replies and ignore commands.
 author: LemonCrow
 branding:
   icon: eye
@@ -27,7 +28,8 @@ inputs:
   depth:
     description: >-
       Review depth, auto, thorough or deep. auto follows review.effort in .lemoncrow/review.yaml; the others go
-      deeper. The hard model-call cap applies at every depth.
+      deeper. The hard model-call cap applies at every depth. It is also the depth of an "@lemoncrow review" comment
+      that names none.
     default: auto
   fail-on:
     description: >-
