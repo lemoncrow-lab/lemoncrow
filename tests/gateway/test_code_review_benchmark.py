@@ -1,7 +1,9 @@
 """The published code-review benchmark table: one JSON file, rendered into the README and the landing site.
 
-The committed file is the real state (LemonCrow pending, so nothing is published). Every published-state test builds a
-clearly FAKE LemonCrow block in a temporary copy of the repository; no fake figure is ever written into the checkout.
+The committed file is the real state, pending or published: the one test of it asserts that it is valid and that the README
+is in step, and no other test reads LemonCrow's block from the checkout. Every test that needs a state builds it in a
+temporary copy of the repository: the pending ones reset the block to ``{"status": "pending"}``, the published ones merge
+a clearly FAKE LemonCrow block through the real importer. No fake figure is ever written into the checkout.
 """
 
 from __future__ import annotations
@@ -94,8 +96,14 @@ RESCORED_ID = load()["third_party"][2]["id"]
 RESCORED_TOOL = load()["third_party"][2]["tool"]
 
 
+def pending(data: dict[str, Any]) -> dict[str, Any]:
+    """*data* with LemonCrow (and the rescored row) pending, whatever state the committed file is in."""
+
+    return {**copy.deepcopy(data), "lemoncrow": {"status": "pending"}, "competitor_rescored": None}
+
+
 def make_root(tmp_path: Path) -> Path:
-    """A temporary repository with the real published file, the real README and the real docs the tests read."""
+    """A temporary repository with the published file and the README as committed (pending or published)."""
 
     for relative in (bench.DATA_RELPATH, bench.README_RELPATH):
         target = tmp_path / relative
@@ -125,6 +133,15 @@ def verified(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+def pending_root(tmp_path: Path) -> Path:
+    """A temporary repository whose file is pending, with the README rendered from it by the real command."""
+
+    root = make_root(tmp_path)
+    (root / bench.DATA_RELPATH).write_text(bench.dump(pending(bench.load(root))), encoding="utf-8")
+    assert bench.main(["--root", str(root)]) == 0
+    return root
+
+
 def published_root(tmp_path: Path, *, rescored: bool = False) -> tuple[Path, dict[str, Any]]:
     """A temporary repository whose file has FAKE LemonCrow figures merged in through the real importer."""
 
@@ -149,13 +166,15 @@ def test_the_committed_file_is_valid_and_the_readme_is_in_step_with_it() -> None
     assert bench.main(["--check"]) == 0
 
 
-def test_while_lemoncrow_is_pending_nothing_is_rendered_and_the_markers_enclose_nothing() -> None:
-    data = load()
+def test_while_lemoncrow_is_pending_nothing_is_rendered_and_the_markers_enclose_nothing(tmp_path: Path) -> None:
+    root = pending_root(tmp_path)
+    data = bench.load(root)
     assert data["lemoncrow"] == {"status": "pending"}
     assert data["competitor_rescored"] is None
+    assert bench.problems(data, root) == []
     assert bench.rows(data) == []
     assert bench.render_section(data) == ""
-    readme = (ROOT / bench.README_RELPATH).read_text(encoding="utf-8")
+    readme = (root / bench.README_RELPATH).read_text(encoding="utf-8")
     assert readme.count(bench.START) == readme.count(bench.END) == 1
     assert readme.split(bench.START, 1)[1].split(bench.END, 1)[0].strip() == ""
     assert f"{bench.START}\n{bench.END}" in readme  # not even a blank line, so nothing renders
@@ -167,7 +186,7 @@ def test_while_lemoncrow_is_pending_nothing_is_rendered_and_the_markers_enclose_
 
 
 def test_a_competitor_figure_alone_is_never_rendered_even_with_a_rescored_block() -> None:
-    data = load()
+    data = pending(load())
     data["competitor_rescored"] = {"status": "pending"}
     assert bench.problems(data, ROOT) == []
     assert bench.render_section(data) == ""
@@ -375,7 +394,7 @@ def test_the_landing_copy_is_the_file_plus_a_source_note_and_is_checked(tmp_path
 
 
 def test_a_pending_file_renders_an_empty_readme_section_and_a_pending_landing_copy(tmp_path: Path) -> None:
-    root = make_root(tmp_path / "repo")
+    root = pending_root(tmp_path / "repo")
     landing = make_landing(tmp_path)
     before = (root / bench.README_RELPATH).read_text(encoding="utf-8")
     assert bench.main(["--root", str(root), "--landing", str(landing)]) == 0
@@ -561,12 +580,11 @@ def test_third_party_rows_need_a_source_a_date_and_a_reporter_and_must_add_up() 
 
 
 def test_unread_sources_do_not_block_a_pending_file_but_do_block_a_published_one(tmp_path: Path) -> None:
-    data = load()
-    assert bench.problems(data, ROOT) == []
-    pending = copy.deepcopy(data)
-    for row in pending["third_party"]:
+    assert bench.problems(load(), ROOT) == []  # the committed file, in whatever state it is
+    unread_pending = pending(load())
+    for row in unread_pending["third_party"]:
         row["verification"]["status"] = "search_retrieval"
-    assert pending["lemoncrow"] == {"status": "pending"} and bench.problems(pending) == []
+    assert unread_pending["lemoncrow"] == {"status": "pending"} and bench.problems(unread_pending) == []
     _, published = published_root(tmp_path)
     assert bench.problems(published) == []
     unread = copy.deepcopy(published)

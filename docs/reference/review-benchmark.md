@@ -2,7 +2,7 @@
 
 The Gate I harness ([review evaluation](review-evaluation.md)) replays 16 synthetic cases offline and has never seen a real provider. This benchmark is the other half: it runs the pull request reviewer, the one the [GitHub Action](../setup/github-action.md) runs, on real pull requests with a real model, and writes down what it cost and what it found.
 
-**Status: the harness is built and tested end to end with a scripted model. No live run has been done, so this repository holds no cost per review, no catch rate and no comparison with another reviewer.** Every number a report prints says which driver made it, and a report from anything but a live run says "do not quote it" at the top.
+**Status: the harness is built and tested end to end with a scripted model, and has run live on the 50-pull-request golden-comment set (claude CLI, Sonnet, 2026-10-26). The published result, at thorough depth, is the LemonCrow row of the [code-review benchmark table](../../README.md#code-review-benchmark), with its raw run report. No run has used an API-key route or simulated a push, and the nine-pull-request seed corpus has no live result, so it holds no catch rate yet.** Every number a report prints says which driver made it, and a report from anything but a live run says "do not quote it" at the top.
 
 ## Run it
 

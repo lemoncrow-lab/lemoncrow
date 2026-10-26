@@ -2,8 +2,9 @@
 
 Every report here comes out of the real command over a tiny invented answer key (``golden_support``) with a stand-in judge,
 and the round-trip tests hand the written file to the real importer (``scripts/render_code_review_benchmark.py``) on a
-temporary copy of the published file whose dataset is made to match that tiny corpus. Nothing is real: the comments, the
-costs and the commits are invented, and no tool is named (the published file's own first row stands in for "another tool").
+temporary copy of the published file whose dataset is made to match that tiny corpus and whose LemonCrow block is reset to
+pending, so the tests hold whether the committed file is pending or published. Nothing is real: the comments, the costs
+and the commits are invented, and no tool is named (the published file's own first row stands in for "another tool").
 """
 
 from __future__ import annotations
@@ -214,9 +215,12 @@ def tool_options() -> list[str]:
 
 
 def published_copy(tmp_path: Path, setup: Setup) -> Path:
-    """A temporary repository root: the real published file and README, the dataset made to match the tiny corpus.
+    """A temporary repository root: the published file with the dataset made to match the tiny corpus, and a pending run.
 
-    Three pull requests in two repositories; six golden comments, two of them Low, so four are scored.
+    Three pull requests in two repositories; six golden comments, two of them Low, so four are scored. The committed
+    file may already carry a real 50-pull-request run, which does not fit this dataset: the copy gets LemonCrow and the
+    rescored row reset to pending and the README section emptied, and only the file and the README are copied, so no
+    raw run report of the checkout comes along.
     """
 
     root = tmp_path / "repo"
@@ -224,6 +228,8 @@ def published_copy(tmp_path: Path, setup: Setup) -> Path:
         (root / relative).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / relative, root / relative)
     data = copy.deepcopy(bench.load(root))
+    data["lemoncrow"] = {"status": "pending"}
+    data["competitor_rescored"] = None
     spots = [data["dataset"]["origin"], data["dataset"]["answer_key"], data["method"]["source"]]
     for spot in (*spots, *data["third_party"], *data["vendor_claims"]):
         spot["verification"]["status"] = "primary_read"  # as it must be before anything is published
@@ -236,7 +242,10 @@ def published_copy(tmp_path: Path, setup: Setup) -> Path:
     ]
     dataset["answer_key"].update(commit=setup.commit, golden_comments=6, low_severity=2, scored_comments=4)
     (root / bench.DATA_RELPATH).write_text(bench.dump(data), encoding="utf-8")
-    assert bench.problems(bench.load(root), root) == []
+    readme = root / bench.README_RELPATH
+    readme.write_text(bench.splice(readme.read_text(encoding="utf-8"), ""), encoding="utf-8")
+    assert bench.problems(bench.load(root), root) == [] and not (root / bench.RUNS_RELPATH).exists()
+    assert bench.check(root) == []
     return root
 
 

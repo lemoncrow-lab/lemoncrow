@@ -241,6 +241,24 @@ status to require and the fork-pull-request behavior are in
 would post, and posts nothing.
 
 <!-- lemoncrow:benchmark:start -->
+
+### Code-review benchmark
+
+F-score on the public 50-PR code-review benchmark, highest first. Rows scored by LemonCrow's judge are our own runs; every other row is a figure its source published. Each row links its source.
+
+| Tool | Precision | Recall | F-score | Median cost / PR | Scored by |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Augment Code Review | 65% | 55% | 59% | n/a | Augment's judge, its own tool ([source](https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results), 2025-12-11) |
+| Cursor Bugbot | 60% | 41% | 49% | n/a | Augment's judge ([source](https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results), 2025-12-11) |
+| **LemonCrow** | **43%** | **48%** | **46%** | **$0.52** | LemonCrow's judge ([run report](https://github.com/lemoncrow-lab/lemoncrow/blob/main/evals/review/published/runs/lemoncrow-2026-10-26.json), 2026-10-26) |
+| Greptile | 45% | 45% | 45% | n/a | Augment's judge ([source](https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results), 2025-12-11) |
+| Codex Code Review | 68% | 29% | 41% | n/a | Augment's judge ([source](https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results), 2025-12-11) |
+| CodeRabbit | 36% | 43% | 39% | n/a | Augment's judge ([source](https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results), 2025-12-11) |
+| Claude Code | 23% | 51% | 31% | n/a | Augment's judge ([source](https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results), 2025-12-11) |
+| GitHub Copilot | 20% | 34% | 25% | n/a | Augment's judge ([source](https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results), 2025-12-11) |
+
+**Method.** 50 pull requests from Sentry, Cal.com, Grafana, Keycloak, Discourse (Python, TypeScript, Go, Java, Ruby), the set Greptile published ([AI Code Review Benchmarks 2025](https://www.greptile.com/benchmarks), 2025-07), scored against the answer key Augment Code expanded ([golden_comments @ 3f2c8ab](https://github.com/ai-code-review-evaluations/golden_comments/tree/3f2c8ab794b4ed71c099cbf0a7670555e90906dc)): 97 comments count, after dropping 40 Low-severity ones. An LLM judge decides whether a tool's comment and an answer-key comment refer to the same underlying issue (not by file or line number). Low-severity answer-key comments count as neither a true positive, a false negative nor a false positive. LemonCrow's row is our own run on 2026-10-26: review model sonnet through claude at depth thorough, engine 0.8.0 (00b8f16), judged by sonnet with a prompt whose sha256 starts cfe685620f23. The 50 reviews made 350 model calls and cost $28.75 in all; the median pull request took 7 calls. Every comment and judgment is in the [raw run report](https://github.com/lemoncrow-lab/lemoncrow/blob/main/evals/review/published/runs/lemoncrow-2026-10-26.json). The other rows are the figures Augment Code published ([We benchmarked 7 AI code review tools on large open-source projects. Here are the results.](https://www.augmentcode.com/blog/we-benchmarked-7-ai-code-review-tools-on-real-world-prs-here-are-the-results), 2025-12-11; run 2025-11-14, default settings, their judge). We did not re-run those tools, so the columns are not strictly like for like. Greptile reports an 82% catch rate (41 of 50 pull requests) on this set ([AI Code Review Benchmarks 2025](https://www.greptile.com/benchmarks), 2025-07): it counts whether the tool commented on the one hidden bug in each of the 50 pull requests, and does not count false positives, style suggestions or unrelated comments against it. A recall-type figure on one bug per pull request with false alarms ignored; it cannot be compared with precision-aware F-scores.
+
 <!-- lemoncrow:benchmark:end -->
 
 ---

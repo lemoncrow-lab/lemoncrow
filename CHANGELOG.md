@@ -84,8 +84,14 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   a baseline reviewer's comments (you name its bot with `--reviewer-login`; there is no default);
   `derive-label` builds a label from a later fix
   commit and never invents one. Live runs need `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, stop
-  at `--max-usd` and refuse CI. Nothing is measured yet. See
+  at `--max-usd` and refuse CI. See
   [Review benchmark on real pull requests](docs/reference/review-benchmark.md).
+- **A measured result on the public 50-PR code-review benchmark.** The README's benchmark table and the
+  landing site now carry LemonCrow's row: precision 43%, recall 48%, F-score 46% at thorough depth, a median
+  $0.52 and 7 model calls a pull request (claude CLI on Sonnet, run 2026-10-26, scored by LemonCrow's judge),
+  with every comment and judgment in the raw run report under `evals/review/published/runs/`. The other
+  rows are figures their sources published with their own judge, so the table says they are not strictly
+  like for like. No run has used an API-key route yet.
 - **`golden-score` writes the run summary the published benchmark table imports.** When every pull request
   of the corpus was scored, no review was partial, the reviews were a live provider run and every cost is
   known, the JSON report of `lc dev eval review golden-score` carries a `benchmark_summary` (precision, recall
