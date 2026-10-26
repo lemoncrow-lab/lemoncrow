@@ -228,6 +228,71 @@ def test_pack_places_groups_first_fit_in_the_order_given() -> None:
     assert [[len(g) for g in b] for b in bins] == [[6, 3], [6, 3]]
 
 
+def test_rounds_run_the_first_wave_whole_and_stop_at_the_first_clean_round_after_it() -> None:
+    ran: list[int] = []
+
+    def run(item: int) -> int:
+        ran.append(item)
+        return item
+
+    clean = lambda _result: True  # noqa: E731
+    results = ai_coverage.run_rounds(list(range(20)), run, empty=clean)
+    assert results == list(range(9)), "six together, then one round of three that found nothing"
+    assert sorted(ran) == list(range(9)), "nothing below the clean round was started"
+    # Fewer items than a wave are run whole, whatever they find.
+    assert ai_coverage.run_rounds(list(range(4)), run, empty=clean) == [0, 1, 2, 3]
+    assert ai_coverage.run_rounds([], run, empty=clean) == []
+    assert ai_coverage.run_rounds(list(range(7)), run, empty=clean) == list(range(7)), "a short last round ends it"
+
+
+def test_a_round_with_one_result_that_is_not_empty_goes_on_to_the_next() -> None:
+    found = {7}  # the second round holds the only finding
+    results = ai_coverage.run_rounds(list(range(20)), lambda item: item, empty=lambda result: result not in found)
+    assert results == list(range(12)), "round two (6 7 8) had a finding, round three (9 10 11) had none"
+    everything = ai_coverage.run_rounds(list(range(20)), lambda item: item, empty=lambda _result: False)
+    assert everything == list(range(20)), "while every round finds something the whole change is covered"
+
+
+def test_the_rounds_never_stop_when_told_not_to_and_leave_the_protected_items_to_the_first_wave() -> None:
+    assert ai_coverage.run_rounds(
+        list(range(20)), lambda item: item, empty=lambda _r: True, stop_on_clean=False
+    ) == list(range(20))
+    # Eight leading items are not to be skipped (a repository's own rules): they all run before anything is judged.
+    results = ai_coverage.run_rounds(list(range(30)), lambda item: item, empty=lambda _r: True, protected=8)
+    assert results == list(range(11))
+
+
+def test_rounds_run_the_first_wave_together_then_three_at_a_time_in_the_callers_context() -> None:
+    import contextvars
+    import threading
+    import time
+
+    marker: contextvars.ContextVar[str] = contextvars.ContextVar("marker", default="unset")
+    marker.set("caller")
+    lock = threading.Lock()
+    live = 0
+    peak: list[int] = []
+    seen: list[str] = []
+
+    def run(_item: int) -> int:
+        nonlocal live
+        with lock:
+            live += 1
+            peak.append(live)
+            seen.append(marker.get())
+        time.sleep(0.05)
+        with lock:
+            live -= 1
+        return 0
+
+    ai_coverage.run_rounds(list(range(12)), run, empty=lambda _r: False)
+    assert max(peak) == ai_coverage.FIRST_WAVE, "the first wave runs together; no round runs more than a wave"
+    assert set(seen) == {"caller"}, "each call runs in a copy of the caller's context"
+    peak.clear()
+    ai_coverage.run_rounds(list(range(3)), run, empty=lambda _r: False, first=0, size=3)
+    assert max(peak) == 3
+
+
 def test_room_leaves_space_for_a_context_pack_but_never_less_than_a_floor() -> None:
     assert ai_coverage.room_tokens() == ai_coverage.BATCH_INPUT_TOKENS - ai_coverage.PROMPT_OVERHEAD_TOKENS
     assert ai_coverage.room_tokens(context_tokens=3000) == ai_coverage.room_tokens() - 3000

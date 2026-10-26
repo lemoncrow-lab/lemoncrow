@@ -12,8 +12,10 @@ decides *which* targets are worth a look, and in what order, is in ``ai_review``
 
 from __future__ import annotations
 
+import contextvars
 import difflib
 from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any, Final
 
@@ -33,6 +35,11 @@ MIN_ROOM_TOKENS: Final[int] = 3_000
 MAX_DIFF_CHARS: Final[int] = 16_000
 #: Investigation calls that run at the same time.
 MAX_PARALLEL_CALLS: Final[int] = 6
+#: The batches of a change that run before anything is judged: one full parallel wave. A change of ordinary size
+#: (a review is three to five batches at the median) never gets past it, so nothing here changes what it costs.
+FIRST_WAVE: Final[int] = MAX_PARALLEL_CALLS
+#: Past the first wave a change is covered, best ranked first, in rounds of this many batches (half a wave).
+TAIL_ROUND: Final[int] = MAX_PARALLEL_CALLS // 2
 
 
 def estimate_tokens(text: str) -> int:
@@ -278,3 +285,51 @@ def pack[T](groups: Sequence[T], cost: Callable[[Sequence[T]], int], room: int) 
         else:
             bins.append([group])
     return bins
+
+
+# --------------------------------------------------------------------------- #
+# running the batches
+# --------------------------------------------------------------------------- #
+
+
+def run_rounds[T, R](
+    items: Sequence[T],
+    run: Callable[[T], R],
+    *,
+    empty: Callable[[R], bool],
+    stop_on_clean: bool = True,
+    protected: int = 0,
+    first: int = FIRST_WAVE,
+    size: int = TAIL_ROUND,
+    workers: int = MAX_PARALLEL_CALLS,
+) -> list[R]:
+    """Run *run* over *items*, best ranked first, and return the results of the ones it ran: always a prefix of *items*.
+
+    The first ``max(first, protected)`` items run together, *workers* at a time; *protected* is how many leading items
+    must run whatever happens (the questions a repository's own rules ask). The rest follow in rounds of *size*, and a
+    round in which every result is *empty* (a call that came back clean) ends the run: what is ranked below a clean
+    round is not run. The items are ranked by how likely they are to hold a defect, so a round that found nothing says
+    the ones below it are less likely to than the ones already looked at. With *stop_on_clean* false every item runs.
+    Each call runs in a copy of the caller's context (a bound intelligence policy holds in every thread).
+    """
+
+    def go(batch: Sequence[T]) -> list[R]:
+        if len(batch) <= 1:
+            return [run(item) for item in batch]
+        contexts = [contextvars.copy_context() for _ in batch]
+        with ThreadPoolExecutor(max_workers=min(len(batch), workers)) as pool:
+            return list(pool.map(lambda pair: pair[0].run(run, pair[1]), zip(contexts, batch, strict=True)))
+
+    if not stop_on_clean:
+        return go(items)
+    ahead = max(first, protected)
+    results = go(items[:ahead])
+    position = ahead
+    while position < len(items):
+        batch = items[position : position + size]
+        done = go(batch)
+        results += done
+        position += len(batch)
+        if all(empty(result) for result in done):
+            break
+    return results

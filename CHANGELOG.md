@@ -270,6 +270,16 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Changed
 
+- **A very large pull request's review ends at the first clean round past its first six calls.** The calls of a
+  pull request review are ranked by how likely they are to find a defect. The first six still run together; past
+  them the review goes on three at a time and stops at the first round whose calls all come back clean, so the
+  later, lower-ranked calls that would have found nothing are not paid for. What was left is pending (the headline
+  reads `Partially reviewed`, the next push or re-run competes for it), and the check for repeats can now run on a
+  change that used to spend the whole cap. A review of up to six calls, which is nearly every pull request, is
+  unchanged, and `deep` and a question one of your rules asks are never cut. `LEMONCROW_REVIEW_TAIL_STOP=off` covers
+  the whole tail up to the cap, as before. On the 30 development pull requests of the public benchmark, the three
+  with more than six calls made 37 instead of 50 calls at Auto; none of the three has a catch before or after, so
+  the benchmark cannot say what the cut tail was worth.
 - **The pull request review reports more of the defects it looks at, and fewer repeats.** On 30 real pull requests of
   a public benchmark (the `claude` agent CLI, Auto), the share of the key's counted defects found rose from 28% to
   45 to 50%, with precision at 44 to 51% (47% before) and 5.0 to 5.2 model calls a review (5.0 before). Four changes:
