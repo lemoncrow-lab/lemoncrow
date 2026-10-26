@@ -469,7 +469,7 @@ def _totals(scores: Sequence[PrScore]) -> dict[str, Any]:
 
 
 def _by(scores: Sequence[PrScore], attribute: str) -> dict[str, Any]:
-    keys = sorted({getattr(s, attribute) for s in scores})
+    keys = sorted({getattr(s, attribute) for s in scores if s.resolution is not None})
     return {key: _totals([s for s in scores if getattr(s, attribute) == key]) for key in keys}
 
 
@@ -513,7 +513,7 @@ def _cost(scores: Sequence[PrScore]) -> dict[str, Any] | None:
 def _judge_summary(scores: Sequence[PrScore], judge: Judge) -> dict[str, Any]:
     verdicts = [s.judge for s in scores if s.judge is not None]
     spent = [v.usage for v in verdicts]
-    models = sorted({m for v in verdicts for m in [v.model_reported] if m})
+    models = sorted({m.strip() for v in verdicts for m in v.model_reported.split(",") if m.strip()})
     total_usd, usd_unknown = _sum_known([u.usd for u in spent if u.calls])
     return {
         **dict(judge.identity),

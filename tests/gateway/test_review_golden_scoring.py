@@ -89,7 +89,7 @@ class FakeJudge:
             JudgeUsage(calls=1, input_tokens=100, output_tokens=10, usd=0.02, seconds=2.0),
             False,
             "d" * 64,
-            "fake-1",
+            "claude-a, claude-b",
         )
 
 
@@ -263,6 +263,10 @@ def test_the_report_sums_counts_over_pull_requests_by_language_and_leaves_unscor
     assert cost["usd"]["total"] == 0.5 and cost["usd"]["unknown_prs"] == 1  # unknown is not zero
     assert cost["model_calls"]["total"] == 4 and cost["wall_seconds"]["total"] == 40.0
     assert report["judge"]["questions"] == 2 and report["judge"]["cost_now"]["calls"] == 2
+    assert report["judge"]["model_reported"] == [
+        "claude-a",
+        "claude-b",
+    ]  # one model per entry, however the CLI listed them
     markdown = render_markdown(report)
     assert "| **All** | 2 | 3 | 1 | 0 |" in markdown and "alpha-02" in markdown and "not scored" in markdown
     json.dumps(report)  # plain data
@@ -561,7 +565,9 @@ def test_the_command_scores_a_benchmark_report_and_a_rerun_costs_nothing(
     assert (tmp_path / "out" / "r1.md").is_file() and "precision" in result.output
     assert len(asks) == 1
 
-    again = run_cli(*common, "--out-dir", str(tmp_path / "out"), "--name", "r2", "--pr", "alpha-01")
+    again = run_cli(
+        *common, "--out-dir", str(tmp_path / "out"), "--name", "r2"
+    )  # no --pr: the pull requests the report holds
     assert again.exit_code == 0 and len(asks) == 1  # answered from the cache
     rescored = json.loads((tmp_path / "out" / "r2.json").read_text())
     assert rescored["judge"]["answered_from_cache"] == 1 and rescored["judge"]["cost_now"]["calls"] == 0
@@ -570,27 +576,23 @@ def test_the_command_scores_a_benchmark_report_and_a_rerun_costs_nothing(
     assert "1 judge calls" not in run_cli(*common, "--plan").output  # now cached: nothing to ask
 
 
-def test_the_command_exits_3_and_lists_what_it_could_not_score(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_command_exits_3_and_lists_what_it_could_not_score(tmp_path: Path) -> None:
     key_dir, commit = make_key(tmp_path)
     corpus_path = write_corpus(tmp_path, commit)
+    failed = {"status": "error", "reason": "capture failed", "errors": ["capture failed: no"], "findings": []}
     report_path = tmp_path / "bench.json"
-    report_path.write_text(json.dumps(benchmark_report()), encoding="utf-8")
-    result = run_cli(
-        "--corpus",
-        str(corpus_path),
-        "--golden-dir",
-        str(key_dir),
-        "--judge-cache",
-        str(tmp_path / "jc"),
-        "--report",
-        str(report_path),
-        "--out-dir",
-        str(tmp_path / "out"),
-        "--name",
-        "none",
-    )
+    report_path.write_text(json.dumps(benchmark_report(**{"alpha-01": failed})), encoding="utf-8")
+    base = ["--corpus", str(corpus_path), "--golden-dir", str(key_dir), "--judge-cache", str(tmp_path / "jc")]
+    result = run_cli(*base, "--report", str(report_path), "--out-dir", str(tmp_path / "out"), "--name", "none")
     assert result.exit_code == 3
-    assert json.loads((tmp_path / "out" / "none.json").read_text())["scored_prs"] == 0
+    report = json.loads((tmp_path / "out" / "none.json").read_text())
+    # Only the pull request the report holds is in play, and a language with nothing scored is not a row of zeros.
+    assert report["scored_prs"] == 0 and [item["id"] for item in report["unscored"]] == ["alpha-01"]
+    assert report["by_language"] == {}
+    empty = tmp_path / "empty.json"
+    empty.write_text(json.dumps(benchmark_report()), encoding="utf-8")
+    nothing = run_cli(*base, "--report", str(empty), "--out-dir", str(tmp_path / "out"))
+    assert nothing.exit_code == 1 and "holds none of this corpus" in nothing.output
 
 
 def test_the_command_needs_exactly_one_source_and_an_out_dir_outside_the_checkout(tmp_path: Path) -> None:

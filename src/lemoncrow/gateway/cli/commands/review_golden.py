@@ -141,6 +141,12 @@ def golden_score(
     ids = [pr.id for pr in golden.corpus.prs]
     if report_path is not None:
         report_in = json.loads(report_path.read_text(encoding="utf-8"))
+        if not pr_ids:
+            # A report made with --pr covers only those pull requests; the rest of the corpus was not asked for.
+            present = {str(item.get("id")) for item in report_in.get("prs", ())}
+            pr_ids = tuple(pr_id for pr_id in ids if pr_id in present)
+            if not pr_ids:
+                raise click.ClickException(f"{report_path.name} holds none of this corpus's pull requests")
         try:
             submissions = golden_scoring.submissions_from_benchmark_report(
                 report_in, depth, ids, threshold=finding_threshold

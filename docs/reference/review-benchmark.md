@@ -36,7 +36,7 @@ Both defaults are provisional: the point of the benchmark is to choose the defau
 A live run refuses to start without a ceiling, refuses to run in CI or under pytest, and checks the ceiling before every call.
 
 - `--max-usd 20` stops the run once the dollars spent reach 20. It needs every call to have a price: the provider's own figure, else the local price table for a model it knows exactly, else the rates you pass with `--input-usd-per-mtok` and `--output-usd-per-mtok`. A call with none of the three stops the run with a message, rather than being counted as free. With the OpenAI route and a model the price table lacks it refuses to start.
-- `--max-calls 400` stops after that many model calls, whatever they cost. Use it with `--plan`, which prints the most calls the run can make: the investigator ladder per review (quick 1, auto 3, thorough 6, deep 10, under the product's hard cap of 20 calls per review), times the reviews, plus two reviews per simulated push.
+- `--max-calls 400` stops after that many model calls, whatever they cost. Use it with `--plan`, which prints the most calls the run can make: the investigator ladder per review (quick 1, auto 6, thorough 6, deep 10, under the product's hard cap of 20 calls per review), times the reviews, plus two reviews per simulated push.
 - The ceiling is checked between calls. Calls already running when it is reached finish, so a run can pass `--max-usd` by what a few parallel calls cost (at most the investigators of the deepest depth). The report says so.
 - Reviews run depth by depth across all pull requests, then the pushes, so a ceiling that stops the run leaves every pull request with the cheaper depths. A stopped run is a partial report; it is never filled in.
 - The benchmark clears `LEMONCROW_REVIEW_INTELLIGENCE_MAX_COST` for the run: that per-call ceiling stops every call on a route that reports no cost, and the benchmark has its own.
@@ -127,6 +127,53 @@ uv run lemoncrow dev eval review benchmark --corpus evals/review/seeded_public_b
 
 Nothing has been run against a model. A catch rate from these files is not the vendor's published catch rate: that one counts a single hidden bug per pull request and ignores false alarms, this one counts every fixed bug it can pin and reports noise beside it, on eighteen pull requests, not fifty.
 
+## The golden-comment benchmark
+
+A public 50-PR benchmark set with an independently expanded answer key: five repositories in five languages (Python, TypeScript, Go, Java, Ruby), ten pull requests each, and for each pull request a list of the issues known to be in it (145 in the README of the key; its JSON files list 137), each with a severity. The question it answers is the one the other corpora cannot: how many of the listed issues does a reviewer's posted comments name (recall), and how many of those comments name a listed issue (precision), on the same 50 changes, whoever the reviewer is.
+
+`evals/review/golden_comment_prs.yaml` is a `visibility: private` corpus: commit ids, titles and the address of each pull request's entry in the key, no source and no golden comment. It is left out of the public mirror. The key has no licence, so it is never copied into this repository: the corpus pins it by commit, and the scorer reads it from a checkout at that commit (`--golden-dir`, or cloned into the store at run time) and refuses any other.
+
+### Scoring
+
+For each pull request a judge is asked once which posted comments and which golden comments refer to **the same underlying issue**. Then:
+
+- a posted comment is a **true positive** when it is assigned one to one to a golden comment, a **false positive** when it is not (the same issue said twice is one true positive and one false positive; the report also gives a `lenient` count that makes the repeat a true positive);
+- a golden comment nobody was assigned is a **false negative**;
+- a golden comment of severity `Low` is excluded from all three, and so is a posted comment that matches only a `Low` one;
+- a comment that matches two golden comments counts once, and the assignment is the largest one-to-one matching, deterministic: most severe golden comment first;
+- precision = TP / (TP + FP), recall = TP / (TP + FN), F is their harmonic mean, summed over pull requests first, and reported overall and per language and repository, with recall by golden severity.
+
+What counts as **posted** for LemonCrow is what a user sees: an inline comment for each P0 and P1 finding and a line in the summary's list for each P2 (`--finding-threshold high` drops the P2). The cost columns come from the benchmark report of the same run: model calls, tokens, dollars (the provider's own figure) and wall time per pull request. A pull request whose review did not run, or whose judge failed, is listed as not scored and is in no total; it is never counted as zero.
+
+The judge is fixed and recorded in every report: the claude CLI's `sonnet` alias with no tools and no settings, in an empty directory, one prompt (`golden-judge-1`, digest in the report), schema-checked JSON. It returns the pairs it considers the same issue; it does not choose the assignment. Its answers are cached by a digest of what it was asked (prompt version, model, the text of every posted comment, the whole golden set with severities), so scoring the same comments again is free and gives the same numbers. A different prompt or model is a different judge and is not comparable.
+
+### Run it
+
+```bash
+# 0. What would be asked of the judge. No model call.
+uv run lemoncrow dev eval review golden-score --corpus evals/review/golden_comment_prs.yaml \
+    --report ~/lc-bench-reports/<name>.json --plan
+
+# 1. Review the pull requests through the claude CLI route (scratch store; a ceiling is required).
+export LEMONCROW_ROOT=~/lc-bench-root LEMONCROW_LLM_BACKEND=claude
+uv run lemoncrow settings set intelligence.driver claude && uv run lemoncrow settings set intelligence.model sonnet
+uv run lemoncrow dev eval review benchmark --corpus evals/review/golden_comment_prs.yaml \
+    --depth auto --no-pushes --max-usd 40 --workdir ~/lc-bench-work --out-dir ~/lc-bench-reports --name golden-auto
+
+# 2. Score the posted findings against the answer key.
+uv run lemoncrow dev eval review golden-score --corpus evals/review/golden_comment_prs.yaml \
+    --report ~/lc-bench-reports/golden-auto.json --depth auto --out-dir ~/lc-bench-reports
+```
+
+Another reviewer's comments are scored by the same command and the same judge: save them one file per pull request id (`{"comments": [{"id", "path", "lines", "text"}]}`) and pass `--reviewer-comments DIR --reviewer-label NAME`. Both reports go outside the checkout (`--out-dir` is required), because they hold the reviewers' comment texts. `--cached-only` never calls the judge.
+
+### What it does not say
+
+- Its pull requests were chosen by the set's author, and five of the fifty heads are single commits written for the set, so a reviewer that has seen the public repositories is not tested on unseen code.
+- The golden comments are one team's judgement, extended by hand; a real defect the key does not list counts against the reviewer as a false positive.
+- The judge is a model. Its decisions are in the report (`judge_pairs`, with a reason) and can be read; nothing here measures how often it is wrong.
+- A saved comment of another reviewer is only as complete as the way it was saved; the report says when a page showed fewer comments than the reviewer's own summary counted.
+
 ## The first run: pull requests another reviewer already commented on
 
 A customer's pull requests that another reviewer already commented on are a ready-made comparison on the same code: that other reviewer is the **baseline reviewer**. What you need from them is a list of pull request URLs and read access (`gh auth login` with an account that can read those repositories, and `git` able to fetch them, for instance after `gh auth setup-git`), the login the baseline reviewer's bot comments as (for example `review-bot[bot]`; there is no default, it is on the comments), and their agreement to use their pull requests: the corpus is an organization corpus, which records who approved it.
@@ -182,6 +229,7 @@ Then, and only then, change the landing page's numeric rule (the test in the lan
 | --- | --- |
 | `evals/review/real_prs.yaml` | the public seed corpus |
 | `evals/review/seeded_public_bugs*.yaml` | the seeded-bug corpora: public (permissive licence) and private |
+| `evals/review/golden_comment_prs.yaml` | the golden-comment corpus: 50 pull requests, private |
 | `evals/review/reports/` | where reports go; ignored by git except its README |
 | `src/lemoncrow/pro/capabilities/review/evaluation/real_prs.py` | corpus format and loader |
 | `…/evaluation/label_derivation.py` | `derive-label` |
@@ -190,9 +238,13 @@ Then, and only then, change the landing page's numeric rule (the test in the lan
 | `…/evaluation/baseline_reviews.py` | the importer for a baseline reviewer's comments |
 | `…/evaluation/corpus_init.py` | `init-corpus` |
 | `…/evaluation/benchmark_report.py` | the JSON and markdown report, and the checklist |
-| `src/lemoncrow/gateway/cli/commands/review_benchmark.py` | the commands |
+| `…/evaluation/golden_comments.py`, `golden_judge.py`, `golden_scoring.py` | the golden corpus and answer key, the judge and its cache, the scorer and its report |
+| `…/review/git_env.py` | the environment for git run on another repository (drops `GIT_DIR` and its relatives) |
+| `src/lemoncrow/gateway/cli/commands/review_benchmark.py`, `review_golden.py` | the commands |
 | `tests/gateway/test_review_benchmark*.py` | the tests, with a local git origin and a scripted model |
 | `tests/gateway/test_review_seeded_corpus.py` | the seeded-bug corpora as data: they parse, are pinned and labelled, and obey the licence rule |
+| `tests/gateway/test_review_golden_*.py` | the golden corpus and key, the matching rules, the judge cache and the command, with a fake judge |
+| `tests/gateway/test_review_git_env.py` | a git command for a throwaway repository never follows an inherited `GIT_DIR` |
 
 ## Limits
 
