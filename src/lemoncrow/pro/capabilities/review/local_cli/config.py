@@ -11,6 +11,10 @@ then ``AGENTS.md`` and ``CLAUDE.md`` as context.
 warning with its source file. ``--dry-run`` takes the files a pull request changes (``--pr``, ``--head`` or ``--files``)
 and shows which rules would apply to each and which files the model would never read. No model is called and nothing is
 written.
+
+``import PATH`` is the one subcommand: it brings another review tool's config over (:mod:`.import_config`), mapping its
+settings to the closest LemonCrow ones and writing ``.lemoncrow/review.yaml``. It is routed here, so ``lc review config``
+keeps one name for "what applies" and "bring it over".
 """
 
 from __future__ import annotations
@@ -299,7 +303,39 @@ def resolve_pull_request_range(repo: Path, spec: str) -> tuple[str, str, str]:
     )
 
 
-@click.command("config")
+class ConfigCommand(click.Command):
+    """``lc review config``: a first argument ``import`` runs :func:`...import_config.import_cmd`, anything else is the view."""
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        if args and args[0] == "import":
+            ctx.meta["lemoncrow.config_import"] = list(args[1:])
+            return []
+        return super().parse_args(ctx, args)
+
+    def invoke(self, ctx: click.Context) -> Any:
+        routed = ctx.meta.pop("lemoncrow.config_import", None)
+        if routed is None:
+            return super().invoke(ctx)
+        from lemoncrow.pro.capabilities.review.local_cli.import_config import import_cmd
+
+        with import_cmd.make_context("import", routed, parent=ctx) as sub_ctx:
+            return import_cmd.invoke(sub_ctx)
+
+    def format_epilog(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        super().format_epilog(ctx, formatter)
+        with formatter.section("Subcommands"):
+            formatter.write_dl(
+                [
+                    (
+                        "import PATH [--dry-run] [--force]",
+                        "Bring another review tool's config over: map its settings, list its rules, write "
+                        ".lemoncrow/review.yaml, and print what was carried, mapped and dropped.",
+                    )
+                ]
+            )
+
+
+@click.command("config", cls=ConfigCommand)
 @click.option(
     "--effective", "effective", is_flag=True, help="Print the effective merged rules, with the file each came from."
 )
@@ -350,6 +386,10 @@ def config_cmd(
     only), from your working tree: what lc review --ai uses on your own change. With --base REF (or --pr) it reads the
     trusted base instead, which is what a pull request review uses; a pull request that edits those files cannot change
     its own review.
+
+    Moving from another review tool: `lc review config import PATH` reads its config folder (or file), maps each setting
+    to the closest LemonCrow setting, writes .lemoncrow/review.yaml for you and prints a report of what was carried,
+    mapped and not carried.
     """
 
     if not effective and not dry_run:

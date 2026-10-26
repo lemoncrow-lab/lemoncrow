@@ -1,6 +1,6 @@
 # Importing review rules
 
-A team that already wrote down how its code should be reviewed does not have to write it again. To bring rules from another tool, copy them into a file in your repository, or point `import.rules_files` in `.lemoncrow/review.yaml` at the file they already live in. LemonCrow reads those files, and your `AGENTS.md` / `CLAUDE.md`, from the same trusted base as `.lemoncrow/review.yaml`, turns the rules into review rules, and says out loud what it did not use. Nothing to convert, nothing to upload. Early access, like the [GitHub Action](github-action.md) it runs in.
+A team that already wrote down how its code should be reviewed does not have to write it again. To bring a config over from another review tool, run `lc review config import <folder>` ([Moving from another review tool](#moving-from-another-review-tool)): it maps the settings, lists the rules, writes `.lemoncrow/review.yaml` and prints what it carried, mapped and could not carry. To bring rules by hand, copy them into a file in your repository, or point `import.rules_files` in `.lemoncrow/review.yaml` at the file they already live in. LemonCrow reads those files, and your `AGENTS.md` / `CLAUDE.md`, from the same trusted base as `.lemoncrow/review.yaml`, turns the rules into review rules, and says out loud what it did not use. Nothing to upload. Early access, like the [GitHub Action](github-action.md) it runs in.
 
 Rules that live only on another tool's servers (a dashboard, a learned or suggested rule) cannot be read: copy their text into a file once. Nothing else is read unless you list it, so to stop using an old rules file, delete it or take it out of the list.
 
@@ -61,10 +61,9 @@ rules:
 | `rule` | Required. The rule's text, cut at 800 characters. |
 | `scope` | Optional. Repository-relative path globs. A scope that cannot be read (a path that climbs out of the repository, an empty list) skips the rule instead of widening it to every path. |
 | `enabled` | Optional. `false` leaves the rule out; the view says it was disabled. |
+| `severity` | Not read from a rules file (a rules file holds rules, not settings). `lc review config import` writes it to `review.rules.<key>.severity`; until then the view warns and names the key. |
 
-Anything else, in a rule or at the top of the file, is ignored with a warning. A file that is not valid, or has no `rules` list, imports nothing and says so.
-
-Settings of another tool's file (a strictness, ignore patterns, a severity per rule) are not carried over, by design. Their native counterparts are `review.strictness`, `review.ignore` and `review.rules` in `.lemoncrow/review.yaml`, read from the merge base like the rest; see [Reducing noise](github-action.md#reducing-noise). A rule's severity there is set by its key, which is the key `lc review config --effective` prints for an imported rule.
+A key LemonCrow has never heard of, in a rule or at the top of the file, is ignored with a warning. A key that is a *setting* of another review tool's file (a strictness, ignore patterns, comment types, a free-text brief, a severity per rule, a pull request filter) gets a warning that says what it would have been and where it goes. A rules file only holds rules, so those settings live in `review:` of `.lemoncrow/review.yaml`, read from the merge base like the rest (see [Reducing noise](github-action.md#reducing-noise)), and the warning goes away once that file holds them. A rule's severity there is set by its key, which is the key `lc review config --effective` prints for an imported rule. A file that is not valid, or has no `rules` list, imports nothing and says so.
 
 ## Imported rules are advisory
 
@@ -139,9 +138,55 @@ import:
 
 `agent_docs_globs` takes repository paths or globs (at most 32). A listed file applies to every path unless its name or front matter scopes it, as above. A glob needs the list of files in the trusted base, which the Action and the local CLI have; where there is none it is reported and matches nothing, so list the files by path. A path the base does not hold, or a glob that matches nothing, is a warning. With `agent_docs: false` the list is ignored, and the view says so.
 
-### Moving from another review tool
+## Moving from another review tool
 
-What carries over is what is written as text in your repository: the instruction files above, and rules you copy into a file that `import.rules_files` lists (a markdown file as it is, or a `rules` list with `id`, `rule`, `scope` and `enabled`; the severity of each rule and every setting of the other tool, such as a strictness level or ignore patterns, are not read and are reported if they appear in a file you list). What lives only on the other tool's servers (a dashboard, a rule it learned) cannot be read: copy its text into a file once. Run `lc review config --effective` on your default branch to see exactly what was found, then `lc review init-action` to write the workflow ([GitHub Action](github-action.md)).
+```bash
+lc review config import team-review/            # a folder: reads config.json and rules.md in it
+lc review config import team-review/config.json # or one settings file, or one .md rules file
+lc review config import team-review/ --dry-run  # the report only; writes nothing
+```
+
+One path in, a working `.lemoncrow/review.yaml` out, and a short report. The command reads only the path you give it. It maps each setting of the file to the closest setting LemonCrow has, lists the rules under `import.rules_files` (where they are read as advisory rules, see above), writes the result, and prints which settings it **carried over**, which it **mapped to something close**, and which it **did not carry**, each with the reason and the closest thing LemonCrow has. Nothing is sent anywhere and no model is called.
+
+| The file says | LemonCrow gets | Notes |
+| --- | --- | --- |
+| `strictness` 1 to 3 | `review.strictness`, the same number | Same scale (1 reports everything, 3 never comments on P2). The default differs: at 2 LemonCrow holds P2 in a collapsed block with no inline comment, so use 1 for inline P2 comments. |
+| `ignorePatterns` (gitignore lines) | `review.ignore` (path globs) | A name matches at any depth, a leading `/` or a slash in the middle anchors it, `dir/` means everything under it. LemonCrow also hides an ignored file from the model as context, not only from the review. Negated lines (`!keep/**`) cannot be expressed and a pattern that would ignore everything is refused; both are named. |
+| `commentTypes` | nothing to set for `logic` and `syntax`; `[]` becomes `review.inline_comments: false` | LemonCrow reports defects only. `style` and `info` have no counterpart and are dropped with the closest advice (state the convention as a rule, or list the style guide in `import.agent_docs_globs`). There is no repository-wide switch for a finding category. |
+| `instructions` (free text) | `.lemoncrow/review-instructions.md`, listed in `import.agent_docs_globs` | **Context, not an order.** Free text is not a rule (a rule is checked for violations), and project conventions are background the model is told never to follow as an instruction, inside a 600 to 2,000 token budget shared with `AGENTS.md`. "Do not comment on X" is therefore not enforced; the enforced settings are `review.ignore` (paths) and `review.strictness` (volume). |
+| a rule's `severity` (`low`, `medium`, `high`) | `review.rules.<key>.severity`: `high` is `p1`, `medium` and `low` are `p2` | **Never above P1.** A P0 needs a critical rule, or evidence from outside the model's own code (`criticality.severity_for`); a settings file is neither, so a file that asks for `critical` or `p0` is written as `p1` and the report says so. LemonCrow has no rule severity below P2, so `medium` and `low` both become `p2`. A finding that cites the rule gets that severity in place of the ordinary ladder's, so to make a rule a gate later, list it under `import.critical` and delete its `review.rules` entry (a severity there would keep it at P1 or P2). |
+| `fileChangeLimit` | `review.max_files` | A pull request over the limit is not skipped: the highest-risk files are reviewed first and the next run takes the rest. |
+| `updateSummaryOnly` | `review.inline_comments: false` | Summary only. |
+| `autoReview`, `labels`, branch and author filters, `ignoreKeywords`, `effort`, `statusCheck`, `fixWithAI`, summary sections, `hideFooter`, `autoApprove`, `disabledRules` and the rest of a tool's switches | dropped | Each is reported with why LemonCrow has no setting (often: the workflow decides which pull requests run, or the layout is fixed) and the closest thing it has. |
+
+What it writes, and what it never does:
+
+- `.lemoncrow/review.yaml` with `review:` and `import:` blocks, and `.lemoncrow/review-instructions.md` when there are instructions. Commit them to your default branch: a review reads its config from the merge base, so the pull request that adds them is still reviewed under the old settings.
+- It never overwrites what you wrote. A `.lemoncrow/review.yaml` with no `review:` or `import:` block gets them appended and keeps every character of its own text. One that already has either block is left alone, the block to add is printed, and the exit status is 1; `--force` merges instead (your values win and are named in the report, lists are joined, and the file is rewritten, so its comments are not kept). A different instructions file is replaced only with `--force`. Running it again changes nothing.
+- A folder is read at the level you name. LemonCrow has one policy file and no per-folder cascade, so run it for the folder that holds the settings you want; settings in nested folders are not merged.
+- A rule's key is `imported:<file>:<id>` (the report and `lc review config --effective` print it), and every imported rule is advisory until you list it under `import.critical`.
+
+The report, shortened:
+
+```text
+Imported review config from team-review/ (config.json, rules.md)
+
+Carried over (2)
+  strictness  ->  review.strictness: 3
+  ignorePatterns  ->  review.ignore: 3 globs
+Mapped to the closest LemonCrow setting (2)
+  instructions  ->  .lemoncrow/review-instructions.md, listed in import.agent_docs_globs
+  severity: high (1 rule: no-raw-sql)  ->  review.rules.<key>.severity: p1
+Not carried (2)
+  commentTypes: style    LemonCrow posts no style comments and cannot be told to. Closest: ...
+  labels                 Which pull requests are reviewed is decided by the workflow's own filters ...
+Rules: 4 read through import.rules_files (config.json, rules.md) as advisory rules ...
+Wrote .lemoncrow/review.yaml
+```
+
+**Why the folder is not found by itself.** LemonCrow never names another vendor's product in its code or its docs (a repository test enforces it), so it cannot look for another tool's folder by name. Pointing at the folder once is the discovery: the command writes the `import` block that makes it found from then on, and nothing in a repository is read as another tool's config until a person says so.
+
+What lives only on the other tool's servers (a dashboard, a rule it learned, a suggested rule, an organization-enforced rule) cannot be read: copy the text of a rule into a file once. The instruction files of your coding tools (`AGENTS.md`, `.cursor/rules` and the rest, above) need no import. Run `lc review config --effective` on your default branch to see exactly what applies, then `lc review init-action` to write the workflow ([GitHub Action](github-action.md)).
 
 ## See what will apply
 

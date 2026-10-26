@@ -23,6 +23,10 @@ schema, and a missing file is a policy error. This module is the advisory one: e
 violation is a P1 or P2 and never a P0) unless ``import.critical`` in ``.lemoncrow/review.yaml`` lists its key, and a
 file that is missing or unreadable is a warning, never an error.
 
+A *setting* of another tool's file found in a rules file (a strictness, ignore patterns, comment types, a free-text brief,
+a rule's severity) is not applied from there. :mod:`settings_import` names it for what it is, says where it goes, and goes
+quiet once ``.lemoncrow/review.yaml`` holds it; ``lc review config import`` writes it.
+
 Nothing here ever reads the head. Everything is bounded: a file count, a rule count, a rule length and a token budget
 for imported rules; a per-depth token budget for the conventions excerpt (the repository-context approach: estimated
 tokens at four characters each, a ceiling per depth, an environment override). Content the content-access policy denies
@@ -42,6 +46,7 @@ from typing import TYPE_CHECKING, Any, Final, Literal
 
 import yaml
 
+from lemoncrow.pro.capabilities.review import settings_import
 from lemoncrow.pro.capabilities.review.model_context import ContextAuthority, tagged
 from lemoncrow.pro.capabilities.review.rules import (
     ContentAccessRule,
@@ -106,7 +111,7 @@ NoteKind = Literal["warning", "overridden", "disabled", "dropped", "unavailable"
 # local CLI); the hosted trusted-base capture does not fetch these files, and `project_future_policy` reports a head
 # edit only to a rules file listed by exact path; upgrade: capture the paths in `providers/github.py` and list the base
 # tree there.
-_ENTRY_KEYS: Final[frozenset[str]] = frozenset({"id", "rule", "scope", "enabled"})
+_ENTRY_KEYS: Final[frozenset[str]] = frozenset({"id", "rule", "scope", "enabled", "severity"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -364,6 +369,9 @@ class _Collector:
     read: Callable[[str], TrustedBaseDocument]
     options: ImportOptions
     native_keys: frozenset[str]
+    #: The ``review:`` and ``import:`` blocks of ``.lemoncrow/review.yaml``, so a setting in a rules file is called carried
+    #: (and not warned about) once the file holds what it maps to.
+    configured: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     sources: list[ImportSource] = field(default_factory=list)
     rules: list[ImportedRule] = field(default_factory=list)
     keys: dict[str, str] = field(default_factory=dict)  # rule key -> the file that set it
@@ -537,8 +545,15 @@ def _load_structured(state: _Collector, document: TrustedBaseDocument) -> None:
     raw = _structured_object(document, state.notes)
     if raw is None:
         return
-    for key in sorted(str(key) for key in raw if key != "rules"):
-        state.note("warning", document.path, f"unknown key {key!r} ignored")
+    for key, value in sorted(
+        ((str(name), item) for name, item in raw.items() if name != "rules"), key=lambda pair: pair[0]
+    ):
+        # A setting of another tool's file is named for what it is and where it would go; any other key is just unknown.
+        noted = settings_import.setting_note(key, value, path=document.path, configured=state.configured)
+        if noted is None:
+            state.note("warning", document.path, f"unknown key {key!r} ignored")
+        else:
+            state.note(noted[0], document.path, noted[1])
     rows = raw.get("rules")
     if rows is None:
         state.note("warning", document.path, "has no rules list; nothing imported from it")
@@ -577,6 +592,11 @@ def _load_structured(state: _Collector, document: TrustedBaseDocument) -> None:
             # A scope that cannot be read must not widen the rule to every path.
             state.note("warning", document.path, f"{label}: {exc}; the rule was skipped, not widened to every path")
             continue
+        if "severity" in entry:
+            kind, message = settings_import.severity_note(
+                rule_id, entry["severity"], path=document.path, configured=state.configured
+            )
+            state.note(kind, document.path, message)
         _add_rule(state, document=document, rule_id=_key_id(rule_id), text=text, scope=scope)
 
 
@@ -916,7 +936,8 @@ def load_imports(
     """
 
     chosen = options or ImportOptions()
-    state = _Collector(read_base_document, chosen, frozenset(native_keys), notes=list(chosen.notes))
+    configured = settings_import.configured_settings(read_base_document(REVIEW_CONFIG).content)
+    state = _Collector(read_base_document, chosen, frozenset(native_keys), configured, notes=list(chosen.notes))
     for path in _rules_file_paths(state, chosen.rules_files, base_paths):
         document = state.document(path, "imported rules")
         if document is None:

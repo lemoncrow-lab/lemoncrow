@@ -123,6 +123,7 @@ lc review --ai                   # AI review printed in the terminal (see below)
 lc review hook install           # git hook: AI review before each push
 lc review init-action            # write the GitHub Action workflow
 lc review config --effective     # the review settings and rules in force, each with the file it came from
+lc review config import FOLDER   # bring another review tool's config over: map its settings, write .lemoncrow/review.yaml, print what was carried and dropped
 ```
 
 Opening the Reader from the printed URL of `--no-open` shows "This browser isn't connected to your local review" until the terminal has connected that browser; run `lc review --open` (or `lc review` again) and retry.

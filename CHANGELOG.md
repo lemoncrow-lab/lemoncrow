@@ -114,6 +114,22 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   `lc review init-action [--provider anthropic|openai] [--fail-on none|p0] [--chat]` writes
   `.github/workflows/lemoncrow-review.yml` from the setup guide's sample and prints the two steps left to
   you, the secret and the pinned SHA. See [Importing review rules](docs/setup/importing-review-rules.md).
+- **`lc review config import PATH` brings another review tool's config over, setting by setting.** One path (a
+  folder with `config.json` and `rules.md`, or one settings or rules file) in, `.lemoncrow/review.yaml` out, with a
+  short report of what was carried over, what was mapped to something close, and what was not carried and why.
+  `strictness` becomes `review.strictness`; `ignorePatterns` (gitignore lines) become `review.ignore` globs, and a
+  negated line or a pattern that would ignore everything is named and not carried; `commentTypes` needs nothing for
+  `logic` and `syntax` (LemonCrow reports defects only), `[]` becomes `review.inline_comments: false`, and `style` and
+  `info` are dropped with the closest advice; `instructions` becomes a conventions file listed in
+  `import.agent_docs_globs`, and the report says it is context the model is told never to follow, not an order; a
+  rule's `severity` becomes `review.rules.<key>.severity` as `p1` (high) or `p2` (medium, low), and **a settings file
+  can never write above P1** (a P0 needs a critical rule or evidence beyond the model's own code), so a file that asks
+  for `critical` or `p0` is written as `p1` and the report says so. `fileChangeLimit` and `updateSummaryOnly` map to
+  `review.max_files` and `review.inline_comments: false`. Every other switch is reported with why LemonCrow has no
+  setting and the closest thing it has. The command never overwrites what you wrote (an existing
+  `.lemoncrow/review.yaml` gets the blocks appended, or is left alone with the block printed; `--force` merges,
+  `--dry-run` writes nothing), and it names no vendor: the folder is the one argument, so pointing at it is the
+  discovery. See [Moving from another review tool](docs/setup/importing-review-rules.md#moving-from-another-review-tool).
 - **AI review in the terminal from the installed `lc`.** `lc review --ai`, `lc review hook install`,
   `lc review init-action` and `lc review config` now run from the `lc` the installer puts on your PATH, not
   only from a source checkout: the client starts the Review engine's interpreter on them, so there is one `lc`
@@ -270,6 +286,12 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Changed
 
+- **A setting in a rules file is named for what it is, and is quiet once `.lemoncrow/review.yaml` carries it.**
+  `strictness`, `commentTypes`, `ignorePatterns`, `instructions`, `fileChangeLimit`, `updateSummaryOnly`, a rule's
+  `severity` and the switches that have no counterpart used to be "unknown key ignored". Each now gets a warning that
+  says what it would have been and where it goes (`strictness is a setting, and a rules file holds rules, so it is not
+  applied here. Closest: review.strictness: 3 ...`), and `lc review config --effective` stops warning about the ones
+  `.lemoncrow/review.yaml` already holds. A key that is not a setting is still `unknown key ... ignored`.
 - **The pull request review reports more of the defects it looks at, and fewer repeats.** On 30 real pull requests of
   a public benchmark (the `claude` agent CLI, Auto), the share of the key's counted defects found rose from 28% to
   45 to 50%, with precision at 44 to 51% (47% before) and 5.0 to 5.2 model calls a review (5.0 before). Four changes:
