@@ -33,8 +33,8 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   workflow is named `LemonCrow` so `LemonCrow Review` is the one status to require. One content-keyed
   cache holds the scanner and the parser bundle, the runner's own Python is used, LiteLLM's price table
   is no longer fetched at runtime, and a review call asks for at most 8,192 output tokens instead of
-  the model's maximum. Auto now examines every risk signal of a pull request with up to six (about 1.4
-  cents each) instead of calling a five-file pull request "Partially reviewed". README, guide and
+  the model's maximum. Auto looks at every changed code target of a pull request that fits the call cap
+  instead of calling a five-file pull request "Partially reviewed" (see Changed). README, guide and
   `lc review init-action` show one pin line, and the release notes print it with the real commit.
   See [GitHub Action: AI pull request review](docs/setup/github-action.md).
 - **A change diagram in the pull request summary.** A collapsed `Change diagram` after the findings
@@ -146,10 +146,10 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   them were dropped, so the one call was spent, no investigation ran, and the summary said "0 of 39 risk signals
   examined (the depth limit)". When none of the proposed hypotheses is allowed, the highest-ranked candidates are
   investigated directly, as a review without that call does.
-- **A local review that asked the model nothing says so.** The model is asked only about a risk signal or a rule;
-  on an ordinary change in a repository with no rules (a utility function, a snake_case file name) none is raised,
-  and `lc review --ai` printed `No must-fix findings` with `Model: none · no model calls` and nothing else, which
-  reads as an AI verdict. A line under `Model:` now says no model was asked and how to have it check the change.
+- **A local review that asked the model nothing says so.** A change that holds no code to review (only
+  documentation, generated or vendored files, formatting) and no rule asks the model nothing, and `lc review --ai`
+  printed `No must-fix findings` with `Model: none · no model calls` and nothing else, which reads as an AI verdict.
+  A line under `Model:` now says no model was asked and how to have it check the change.
 - **A review on the `claude` agent CLI reports the tokens it used.** The CLI's result carries its token counts,
   and LemonCrow dropped them: every line said "tokens not reported" and the JSON had `null` counts. They are now
   read from the result (prompt tokens include the cached part, as on the API routes). A dollar cost stays
@@ -203,6 +203,30 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Changed
 
+- **The pull request review looks at every changed code target, and shows the model the diff.** A real-model run
+  caught none of three planted bugs on default settings, for four reasons, each fixed for the pull request review
+  (`lc review --ai`, `lc review --pr N --ai --publish-bot` and the Action; the Reader and the hosted worker are
+  unchanged). The model was asked only about a keyword or a rule, so an ordinary changed function was never read:
+  every changed function, block or file is now investigated, risk signals and rules first, and a signal is a lens on
+  the general question (find any defect) rather than the whole question. Generated, vendored, lockfile,
+  documentation, binary and data files, deleted files and formatting- or comment-only changes cost no call. The
+  investigator saw the new text, so a removed guard or a flipped condition was invisible: it now sees the unified
+  diff, removed lines included, besides the new code, and a change that only removes code is shown as the removed
+  code (cited lines are still checked against the head). `_`, `-`, `.`, `/` and camelCase now break words in the
+  risk markers, so `service_secrets.py`, `review_worker.py` and `getAuthToken` match like `secrets.py` and
+  `auth.py`. A hypothesis the model proposes for a changed target is no longer dropped because its category
+  differs from the one the keyword raised, a finding filed under another category than the question is kept, and
+  a second defect in the same code is reported as a finding of its own. Targets are batched so that a call carries
+  about 12,000 estimated input tokens (small files with a risk signal share a call, plain production code fills the
+  room, a big file is cut into several), within the unchanged cap of 20 model calls. Auto is complete whenever the
+  batches fit the cap, and otherwise ranked (a rule, a risk signal in production code, plain production code,
+  configuration, test code; the larger change first) and says `Partially reviewed: N of M changed areas examined`.
+  A small pull request (1 to 3 files) is 2 or 3 calls, about 4.5 to 11 cents on a $3 and $15 per million token
+  model; about 10 files is 4 or 5 calls (14 to 15 cents); 15 files and 755 lines is 7 calls (26 cents); a pull
+  request of 40 files or more reaches the cap (up to about 87 cents). Severity, noise controls, the summary format
+  and carry-forward are unchanged, so a finding only the model made is still at most a P1. Re-reviewing after
+  this update reviews everything once, because the prompt and the question changed. See
+  [What gets a model call](docs/setup/github-action.md#what-gets-a-model-call).
 - **`lc uninstall` lists what it removes, and cleans up after itself.** It prints one plan (the same for `--dry-run`),
   removes what the installer added (commands, the Review client and engine, the installer's scripts, the background
   server, the lines in every shell startup file it may have written to, not only the first) and asks before it deletes
