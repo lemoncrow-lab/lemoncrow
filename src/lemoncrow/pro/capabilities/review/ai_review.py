@@ -606,10 +606,10 @@ PR_INVESTIGATION_SCHEMA: dict[str, Any] = {
     ],
 }
 #: The most further findings one investigation may add; more are ignored.
-MAX_OTHER_FINDINGS = 3
+MAX_OTHER_FINDINGS = 6
 #: Bump when ``PR_INVESTIGATION_SCHEMA`` or the instructions below change: a pull request review's reusable
 #: results (``pr_bot.engine.policy_digest``) are only valid for the fields it asked for.
-PR_FIELDS_VERSION = 6
+PR_FIELDS_VERSION = 7
 _PR_FIELD_RULES = f"""
 Also return severity: low, medium or high, the defect's impact on the cited code. high means it will break correctness,
 security or stored data in normal use (a crash, a wrong result, data loss, an authorization bypass) and you can point
@@ -617,7 +617,7 @@ at the exact lines; medium, a likely defect with limited impact; low, minor or u
 high rating is posted as a must-fix only when evidence_refs also include evidence from outside the changed code that
 shows the problem (a check, a static_finding, or a repo_context excerpt of another file, such as a caller the change
 breaks). The target and source refs of the changed code itself do not count. Cite only refs that really support the
-finding. When unsure, rate lower.
+finding. Rate the defect's impact, not your confidence: a real defect with a small effect is low, and is still reported.
 Also return lines: null, or an object with start_line and end_line (1-based, counted from the excerpt's start_line, so
 they are line numbers of the file) for the specific line, or short range of at most {finding_replacement.MAX_CITED_LINES}
 lines, where the defect is. Point at the line that is wrong, not at the start of the function. The comment is posted
@@ -635,11 +635,13 @@ when the input has no prior_findings."""
 #: Said to every pull request investigation (``other_findings`` and a category of the defect's own).
 _PR_OTHER_RULES = f"""
 category is the category of the defect you found, which need not be the hypothesis's: a hypothesis about an API contract
-that turns up a wrong result is reported as correctness. Also return other_findings: an empty list, or up to
-{MAX_OTHER_FINDINGS} further distinct defects you found in these same targets, each with the same fields as your answer
-except status (list only a defect you could confirm; your answer itself describes the most serious one). The same
-standard applies to each: a concrete failing input or state, exact lines and evidence_refs from the registry. The same
-defect twice, or a defect in code the change did not touch, is not a further finding."""
+that turns up a wrong result is reported as correctness. Report every distinct defect you can support, not only the
+first: your answer describes the most serious one, and other_findings lists each further one, an empty list or up to
+{MAX_OTHER_FINDINGS}, with the same fields as your answer except status. A file with one defect often has another, so keep
+reading after the first. The same standard applies to each: a concrete failing input or state, exact lines and
+evidence_refs from the registry. The same defect twice, in two places or worded two ways, is one finding: name every
+place in its explanation. A defect in code the change did not touch is not a finding unless the change makes it
+reachable or worse; code the change adds, moves or copies into a new place is the change's own, whoever wrote it first."""
 #: Said to an investigation that is shown ``change_diff``.
 _PR_DIFF_RULES = """
 change_diff is this pull request's own unified diff of these targets ("-" removed, "+" added, a space for context) and
@@ -648,14 +650,21 @@ against what it put in its place. A defect is often a guard, check, validation, 
 change took away or weakened, a condition or operator it flipped or loosened, a case it no longer handles, or a caller
 it no longer satisfies. Line numbers you return are lines of the file after the change (the numbers after "+" in a
 hunk header), counted as snapshot_source counts them, never the diff's own row numbers. A file whose change_diff row says
-"added" is new: all of it is the change. A snapshot_source entry whose side is "old" is code the change removes: it exists
-only before the change, so judge what its absence does to what is left and to its callers, and return lines: null for it."""
+"added" is new: all of it is the change, code moved or copied from elsewhere included.
+A snapshot_source entry whose side is "old" is code the change removes: it exists only before the change, so judge what
+its absence does to what is left and to its callers, and return lines: null for it."""
 #: What a careful reviewer looks for in changed code, in any language. Said to every pull request investigation.
 _PR_DEFECT_SOURCES = """Typical sources, in any language: an error that is ignored or swallowed, a null, nil or undefined
 that can reach a use, a boundary or off-by-one, a comparison or operator that changed meaning, a lost or reordered step,
 shared state that is mutated or aliased, a resource that is not released, a call that is not awaited, a loop or retry
-with no bound. When nothing is wrong, return not_confirmed: a clean answer is a successful outcome and an invented defect
-is the worst one."""
+with no bound.
+Before you report a defect, and before you dismiss one, check it against the code: if you can read other files, look
+up the callers, the definitions and the tests of what the change alters and rule out that something else already
+handles it. Do not leave a defect out because its effect is small, it is rarely reached, or the code around it is also
+untidy: report it and rate it low. Leave it out when the code shows it cannot happen, or when it is only style, naming,
+a missing test or taste.
+When nothing is wrong, return not_confirmed with no further findings: a clean answer is a successful outcome. A wrong
+report costs the author time, so name the failing case before you report; a real defect left unreported costs more."""
 #: Said to a general look (``ReviewHypothesis.general``): changed code that no risk signal pointed at.
 _PR_GENERAL_RULES = """
 This is a general review of changed code that no specific risk signal pointed at. Look for defects in this order:
@@ -934,6 +943,10 @@ _NOT_REVIEWED_CATEGORIES = frozenset({"docs", "vendor", "generated"})
 #: Files that are data, not code, whatever directory they sit in: recorded test snapshots, images as text, source maps,
 #: tables, and the checksum files of a module system.
 _DATA_SUFFIXES = (".snap", ".svg", ".map", ".csv", ".tsv", ".sum")
+#: Directories that hold a program's translated strings, and the formats those strings come in. A message catalogue is
+#: data a translator edits; a call about it only reads keys and quotation marks.
+_TRANSLATION_DIRECTORIES = frozenset({"locales", "locale", "i18n", "l10n", "translations"})
+_TRANSLATION_SUFFIXES = (".json", ".po", ".pot", ".xlf", ".xliff", ".properties", ".yml", ".yaml", ".arb", ".resx")
 
 
 def not_worth_a_look(target: ReviewTarget, facts: Mapping[str, ai_coverage.FileFacts] | None = None) -> str:
@@ -967,6 +980,9 @@ def not_worth_a_look(target: ReviewTarget, facts: Mapping[str, ai_coverage.FileF
         return category
     if target.path.lower().endswith(_DATA_SUFFIXES):
         return "generated"
+    lowered = target.path.lower()
+    if lowered.endswith(_TRANSLATION_SUFFIXES) and _TRANSLATION_DIRECTORIES & set(lowered.split("/")[:-1]):
+        return "a translation file"
     return ""
 
 
@@ -980,7 +996,9 @@ def changed_file_facts(store: Any, revision: ReviewRevision) -> dict[str, ai_cov
 
 
 #: The reasons (:func:`not_worth_a_look`) that are about the kind of file, not about the change in it.
-_FILE_KIND_REASONS = frozenset({"a dependency lockfile", "binary", "deleted", *_NOT_REVIEWED_CATEGORIES})
+_FILE_KIND_REASONS = frozenset(
+    {"a dependency lockfile", "a translation file", "binary", "deleted", *_NOT_REVIEWED_CATEGORIES}
+)
 
 
 def pr_candidates(
@@ -2050,6 +2068,7 @@ def _finding_from_row(
         return None
 
     finding_targets = set(target_ids)
+    anchored = False
     for ref in evidence_refs:
         entry = registry_by_ref[ref]
         bound_targets = set(entry.target_ids)
@@ -2058,8 +2077,17 @@ def _finding_from_row(
         if entry.kind == "target":
             if not bound_targets <= finding_targets:
                 return None
-        elif not bound_targets & finding_targets:
+            anchored = True
+        elif bound_targets & finding_targets:
+            anchored = True
+        elif entry.kind != "source":
             return None
+    # A defect is often only visible against another changed file of the same call (a caller, a base class, a schema),
+    # and the exact source of that file is then rightly cited beside the finding's own. It is evidence of this change,
+    # but it is not independent evidence (``_corroborated``), so it can never lift a severity. What is still refused is
+    # a finding none of whose evidence is about its own targets.
+    if not anchored:
+        return None
     # Finding identity is semantic, not execution identity. Provider/model/run
     # provenance remains on the finding, but a re-run or incremental Snapshot
     # must be able to re-bind the same concern without manufacturing a new issue.
