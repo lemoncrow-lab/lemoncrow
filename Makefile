@@ -296,6 +296,8 @@ oss-test: ## Install both products from freshly staged assets into a temp home (
 		export XDG_DATA_HOME="$$tmp/xdg/data" XDG_STATE_HOME="$$tmp/xdg/state"; \
 		export CLAUDE_CONFIG_DIR="$$HOME/.claude" CODEX_HOME="$$HOME/.codex" PI_CODING_AGENT_DIR="$$HOME/.pi/agent"; \
 		unset PYTHONPATH PYTHONHOME LEMONCROW_RUNTIME_INSTALL_ROOT LEMONCROW_REVIEW_INSTALL_ROOT LEMONCROW_HOSTED_INSTALL_ROOT LEMONCROW_REVIEW_ENGINE_ROOT; \
+		: "the user systemd manager never reads a unit under the temporary HOME, so run the server unsupervised"; \
+		export LEMONCROW_LOCAL_SERVER_SUPERVISOR=none; \
 		mkdir -p "$$HOME"; \
 		cleanup() { LEMONCROW_HOME="$$test_state" LEMONCROW_LOCAL_SERVER_PORT="$(OSS_TEST_PORT)" bash "$$test_state/install/scripts/local_server.sh" stop >/dev/null 2>&1 || true; rm -rf "$$tmp"; }; \
 		trap cleanup EXIT INT TERM; \
