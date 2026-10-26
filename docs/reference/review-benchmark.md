@@ -39,7 +39,7 @@ A live run refuses to start without a ceiling, refuses to run in CI or under pyt
 - `--max-calls 400` stops after that many model calls, whatever they cost. Use it with `--plan`, which prints the most calls the run can make: what one review can make at each depth (quick 1, and the product's hard cap of 20 calls for auto, thorough and deep, because Auto makes one call per batch of changed code and so depends on the size of the change; an Auto review of an ordinary pull request makes 2 to 7), times the reviews, plus two reviews per simulated push.
 - The ceiling is checked between calls. Calls already running when it is reached finish, so a run can pass `--max-usd` by what a few parallel calls cost (at most the investigators of the deepest depth). The report says so.
 - Reviews run depth by depth across all pull requests, then the pushes, so a ceiling that stops the run leaves every pull request with the cheaper depths. A stopped run is a partial report; it is never filled in.
-- The benchmark clears `LEMONCROW_REVIEW_INTELLIGENCE_MAX_COST` for the run: that per-call ceiling stops every call on a route that reports no cost, and the benchmark has its own.
+- The benchmark clears `LEMONCROW_REVIEW_INTELLIGENCE_MAX_COST` for the run: that per-call ceiling is checked after each call and discards one that comes in over it (or whose cost cannot be worked out), and the benchmark has its own, checked before every call.
 
 Start with `--max-usd 2 --depth auto --pr black-3564` to see the first numbers before spending more.
 

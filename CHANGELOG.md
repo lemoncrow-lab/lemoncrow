@@ -191,6 +191,15 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Fixed
 
+- **The per-call cost ceiling prices a call the provider reports no cost for.** `per_review_model_cost_usd`
+  (`LEMONCROW_REVIEW_INTELLIGENCE_MAX_COST`) read only the provider's own figure, so with LiteLLM as locked
+  (`response_cost` is `None` for `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-haiku-5-5` and `claude-fable-5-1`) and on the
+  SDK-free Anthropic and OpenAI routes it refused every call, though the local price table prices those models exactly.
+  It now falls back to that table, on the call's own tokens (cache reads and writes at their own rates, Haiku 5.5 at its
+  over-100,000-token rates), still checked after each call and against that call alone. A model the table does not list is
+  refused with a message naming it and the way out (a price in `~/.lemoncrow/pricing.yaml`, or no ceiling). The same pricing
+  now serves the footer, `max-usd-per-pr` and the benchmark, which had billed a prompt's cached tokens twice (as input and
+  again as cache hits) and Haiku 5.5's higher rates only on the tokens past 100,000 instead of on the whole request.
 - **The review prices Claude Haiku 5.5, and prices Claude Sonnet 5.5 cache hits at their real rate.** The local
   price table had no entry for `claude-haiku-5-5`: the id fell through to the nearest sibling (Haiku 4.5, ten
   times the price), which the review's cost lookup refuses, so a review on it showed no cost and `max-usd-per-pr`
@@ -200,11 +209,6 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   pricing page lists $0.10 (0.05 times the input price, as for Opus 5.5). Sonnet 5.5, Opus 5.5 and Fable 5.1 were
   already priced; a test now fails when a model the guide, `action.yml` or the benchmark reference names has no
   exact price. Both fixes are from Anthropic's pricing page of 2026-10-26.
-- **The guide no longer says every Anthropic run reports its cost.** A per-call dollar ceiling
-  (`per_review_model_cost_usd`) needs the provider's own figure, and LiteLLM (as locked) prices
-  `claude-sonnet-4-6` but not `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-haiku-5-5` or `claude-fable-5-1`, so
-  with one of them the ceiling stops every call; `max-usd-per-pr`, the footer and the benchmark's `--max-usd` use
-  LemonCrow's own table for those and work.
 - **A spent review budget no longer leaves the job green behind a red check.** With `fail-on: p0` (or `p1`) and an
   open P0 (or P1) from the last review, a push that was not reviewed because `max-runs-per-pr` or `max-usd-per-pr`
   was reached set the status to `failure` but exited 0. The job now fails with the status, as it does for a review

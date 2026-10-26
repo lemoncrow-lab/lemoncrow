@@ -204,6 +204,56 @@ class ModelCallUsage:
         )
 
 
+def exact_table_cost_usd(model: str, usage: ModelCallUsage) -> float | None:
+    """USD for one call at the local price table's own rate for *model*, on the call's reported tokens.
+
+    The one place a call without a provider figure is priced: the bot's footer, the benchmark and the per-call cost
+    ceiling all come here. ``None`` when the table has no exact entry for the model (a nearest sibling's rate is
+    refused, never guessed) or the call reported no token counts.
+    """
+
+    from lemoncrow.core.capabilities.pricing import exact_model_pricing
+
+    if usage.input_tokens is None or usage.output_tokens is None:
+        return None
+    pricing = exact_model_pricing(model)
+    if pricing is None:
+        return None
+    return pricing.call_cost_usd(
+        prompt_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        cache_read_tokens=usage.cache_read_input_tokens or 0,
+        cache_write_tokens=usage.cache_write_input_tokens or 0,
+    )
+
+
+def _unpriced_call_error(model: str, usage: ModelCallUsage, attempts: int) -> str:
+    """Why a call under a cost ceiling has no cost to compare, and what to do about it.
+
+    Called only when neither the provider's figure nor :func:`exact_table_cost_usd` gave one.
+    """
+
+    from lemoncrow.core.foundation.paths import default_store_root
+
+    named = model or "the model"
+    remove = "remove the cost ceiling (per_review_model_cost_usd, LEMONCROW_REVIEW_INTELLIGENCE_MAX_COST)"
+    if attempts > 1:
+        return (
+            "provider did not report cost for the whole call: an earlier attempt failed with no usage, so the "
+            f"requested cost budget cannot be verified; {remove}"
+        )
+    if usage.input_tokens is None or usage.output_tokens is None:
+        return (
+            f"provider reported neither a cost nor token counts for {named}, so the requested cost budget cannot be "
+            f"verified; use a route that reports usage, or {remove}"
+        )
+    return (
+        f"provider did not report cost and the local price table has no exact price for {named}, so the requested "
+        f"cost budget cannot be verified; set a price override for it in {default_store_root() / 'pricing.yaml'}, "
+        f"or {remove}"
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class ResolvedDriver:
     driver: ReviewIntelligenceDriver
@@ -1110,18 +1160,29 @@ def _run_intelligence(
             )
 
         if request.budget.max_cost is not None:
-            if execution_usage.provider_cost is None:
+            # Checked after the call, against that one call's own cost (the money is already spent; an over-ceiling
+            # result is discarded): the provider's figure, else the exact local price on the call's own tokens.
+            call_cost = execution_usage.provider_cost
+            priced_locally = call_cost is None
+            if call_cost is None:
+                call_cost = exact_table_cost_usd(resolved.model, execution_usage)
+            if call_cost is None:
                 return finish(
                     "failed",
                     usage=execution_usage,
-                    error="provider did not report cost; requested cost budget cannot be verified",
+                    error=_unpriced_call_error(resolved.model, execution_usage, attempts),
                     observed=executed_identity,
                 )
-            if execution_usage.provider_cost > request.budget.max_cost:
+            if call_cost > request.budget.max_cost:
                 return finish(
                     "failed",
                     usage=execution_usage,
-                    error="Review Intelligence provider cost budget exceeded",
+                    error=(
+                        f"Review Intelligence cost budget exceeded: the call came to ${call_cost:.6f} at the local "
+                        f"price table's rate, over the ${request.budget.max_cost:.6f} ceiling"
+                        if priced_locally
+                        else "Review Intelligence provider cost budget exceeded"
+                    ),
                     observed=executed_identity,
                 )
         return finish("ready", result=execution.result, usage=execution_usage, observed=executed_identity)
@@ -1147,6 +1208,7 @@ __all__ = [
     "RouteOverrideRefused",
     "StructuredExecution",
     "build_intelligence_identity",
+    "exact_table_cost_usd",
     "execute_structured",
     "intelligence_input_digest",
     "require_intelligence_enabled",
