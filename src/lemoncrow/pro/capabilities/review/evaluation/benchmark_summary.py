@@ -9,7 +9,8 @@ A summary is written when, and only when, the scoring is publishable:
 * every pull request of the corpus was scored, none was unscored and no review was partial;
 * the judge was the fixed one, and the report carries the full digest of its prompt;
 * for LemonCrow's own reviews: the benchmark was a live provider run at the product's default finding threshold, no
-  pull request has an unknown cost, and the report names the review's model, route and depth and the commit that ran;
+  pull request has an unknown cost, and the report names the review's model, route and depth and the commit that ran,
+  on a checkout with no uncommitted changes to tracked files (a report that does not say is accepted);
 * for another tool's comments: the person said which tool they are and where they came from
   (:class:`CompetitorRow`), because the code cannot know.
 
@@ -305,9 +306,14 @@ def _review(reviewer: Mapping[str, Any], gaps: list[str]) -> dict[str, str]:
 
 
 def _engine(reviewer: Mapping[str, Any], version: str, gaps: list[str]) -> dict[str, str]:
-    commit = _object(reviewer.get("benchmark_code")).get("git_head")
+    code = _object(reviewer.get("benchmark_code"))
+    commit = code.get("git_head")
     if not (isinstance(commit, str) and _SHA40.fullmatch(commit)):
         gaps.append("the benchmark report did not record the 40-hex git commit it ran on")
+    if code.get("dirty") is True:
+        gaps.append(
+            "the benchmark ran on a checkout with uncommitted changes to tracked files, so its commit is not the code that ran"
+        )
     if not version.strip():
         gaps.append("the engine version is unknown")
     return {"version": version.strip(), "commit": str(commit)}

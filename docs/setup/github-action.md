@@ -167,7 +167,7 @@ The hosts a run contacts, for an egress allowlist:
 | `pypi.org`, `files.pythonhosted.org` | installing LemonCrow's pinned dependencies | always |
 | `github.com`, `release-assets.githubusercontent.com` | the security scanner (Opengrep, checksum verified) and the tree-sitter parser bundle | only when the cache misses |
 
-No LemonCrow host is contacted. LiteLLM's price table is read from its own package (`LITELLM_LOCAL_MODEL_COST_MAP=True`), not fetched from GitHub's main branch. A parser bundle that cannot be downloaded leaves the change diagram out and the review otherwise unchanged.
+No LemonCrow host is contacted: the step that runs `lc` sets `DO_NOT_TRACK=1`, which turns off the engine's anonymous telemetry and its first-run "Telemetry is on" notice. LiteLLM's price table is read from its own package (`LITELLM_LOCAL_MODEL_COST_MAP=True`), not fetched from GitHub's main branch. A parser bundle that cannot be downloaded leaves the change diagram out and the review otherwise unchanged.
 
 ## What the bot posts
 

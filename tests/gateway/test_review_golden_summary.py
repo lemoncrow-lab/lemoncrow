@@ -363,6 +363,19 @@ def test_a_benchmark_report_that_did_not_record_its_commit_gets_no_summary(setup
     assert "benchmark_summary" not in report and "40-hex git commit" in report["benchmark_summary_omitted"]
 
 
+@pytest.mark.parametrize("dirty", [True, False])
+def test_a_benchmark_report_from_a_checkout_with_uncommitted_changes_gets_no_summary(setup: Setup, dirty: bool) -> None:
+    runs = benchmark_report()
+    runs["run"]["code"] = {"git_head": ENGINE_COMMIT, "dirty": dirty}
+    report, markdown, _ = setup.lemoncrow(runs)
+    assert report["reviewer"]["benchmark_code"] == {"git_head": ENGINE_COMMIT, "dirty": dirty}
+    if dirty:
+        assert "benchmark_summary" not in report and "Ready to publish: no" in markdown
+        assert "uncommitted changes to tracked files" in report["benchmark_summary_omitted"]
+    else:  # a clean tree is accepted, as is a report without the field
+        assert report["benchmark_summary"]["engine"]["commit"] == ENGINE_COMMIT
+
+
 def test_the_review_model_and_route_are_recorded_in_the_reviewer_block(setup: Setup) -> None:
     report, _, _ = setup.lemoncrow()
     assert (report["reviewer"]["benchmark_driver"], report["reviewer"]["benchmark_model"]) == (
@@ -425,6 +438,7 @@ def both(first: Any, second: Any) -> Any:
         (put("cost.model_calls.unknown_prs", 1), "cost of some reviews is unknown"),
         (put("cost.prs", 2), "cost of some reviews is unknown"),
         (put("cost.usd.median", None), "cost figures are not all numbers"),
+        (put("reviewer.benchmark_code.dirty", True), "uncommitted changes to tracked files"),
         (put("key.commit", "abc"), "40-hex commit"),
         (put("generated_at", "yesterday"), "no generated_at date"),
         (put("overall.golden_counted", 9), "are not its 3 caught plus 1 missed"),

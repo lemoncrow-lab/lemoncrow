@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 from lemoncrow.core.foundation.identity import get_anon_id
+from lemoncrow.core.service.telemetry import config as config_mod
 from lemoncrow.core.service.telemetry import emit_product
 from lemoncrow.core.service.telemetry import public_rollup as public_rollup_mod
 from lemoncrow.core.service.telemetry.banner import maybe_show_banner
@@ -37,6 +38,17 @@ def telemetry_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("LEMONCROW_TELEMETRY_ACK", str(tmp_path / "telemetry_ack"))
     monkeypatch.setenv("LEMONCROW_TELEMETRY", "0")
     return db_path
+
+
+@pytest.fixture()
+def telemetry_allowed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Telemetry on, as on a first run: nothing from the developer's own shell, config or policy is read."""
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_CONFIG", str(tmp_path / "telemetry.toml"))
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_POLICY", str(tmp_path / "policy.toml"))
+    monkeypatch.setattr(config_mod, "_system_policy_path", lambda: tmp_path / "system-policy.toml")
+    for name in ("DO_NOT_TRACK", "LEMONCROW_TELEMETRY"):
+        monkeypatch.delenv(name, raising=False)
+    return tmp_path
 
 
 def test_emit_product_allowlists_scrubs_and_keeps_local_store(
@@ -336,7 +348,7 @@ def test_config_round_trip_and_lexical_matcher_never_emits_input_text(
     assert "/home/me" not in str(captured)
 
 
-def test_first_run_banner_shows_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_first_run_banner_shows_once(telemetry_allowed: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LEMONCROW_TELEMETRY_ACK", str(tmp_path / "ack"))
     monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
 
@@ -367,7 +379,9 @@ def test_first_run_banner_shows_once(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert stream.value == ""
 
 
-def test_banner_auto_acknowledges_in_non_tty_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_banner_auto_acknowledges_in_non_tty_context(
+    telemetry_allowed: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """When telemetry is enabled but the stream is not a TTY (e.g. MCP subprocess),
     the banner should not be shown, but the ack should still be written silently
     so the frontend/CLI don't keep showing it."""
@@ -404,7 +418,7 @@ def test_banner_auto_acknowledges_in_non_tty_context(tmp_path: Path, monkeypatch
 
 
 def test_a_person_running_a_command_is_told_once_even_when_stderr_is_not_a_terminal(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    telemetry_allowed: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The audit: the first run wrote its telemetry id and acknowledged the banner without a word (a piped run)."""
     ack_file = tmp_path / "ack"
@@ -434,6 +448,64 @@ def test_a_person_running_a_command_is_told_once_even_when_stderr_is_not_a_termi
     ack_file.unlink()
     daemon = Pipe()  # a daemon, hook or statusline never announces; it only acknowledges, as before
     assert maybe_show_banner(daemon) is False and daemon.value == "" and ack_file.exists()
+
+
+@pytest.mark.parametrize(("switch", "value"), [("DO_NOT_TRACK", "1"), ("LEMONCROW_TELEMETRY", "off")])
+def test_the_banner_does_not_say_telemetry_is_on_when_an_environment_switch_turned_it_off(
+    telemetry_allowed: Path, monkeypatch: pytest.MonkeyPatch, switch: str, value: str
+) -> None:
+    """The Action sets DO_NOT_TRACK=1 and promises nothing is sent; its job log must not say otherwise."""
+    ack_file = telemetry_allowed / "ack"
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_ACK", str(ack_file))
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    monkeypatch.setenv(switch, value)
+
+    class Pipe:
+        def __init__(self) -> None:
+            self.value = ""
+
+        def isatty(self) -> bool:
+            return False
+
+        def write(self, text: str) -> int:
+            self.value += text
+            return len(text)
+
+        def flush(self) -> None:
+            pass
+
+    job_log = Pipe()
+    assert maybe_show_banner(job_log, announce=True) is False and job_log.value == ""
+    assert not ack_file.exists()  # never told "on", so never marked as told
+
+    monkeypatch.delenv(switch)  # a later run with telemetry on is still told, once
+    assert maybe_show_banner(job_log, announce=True) is True and "Telemetry is on" in job_log.value
+
+
+def test_the_banner_does_not_say_telemetry_is_on_after_the_person_turned_it_off(
+    telemetry_allowed: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LEMONCROW_TELEMETRY_ACK", str(telemetry_allowed / "ack"))
+    monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+    save_telemetry_config(remote_enabled=False)  # lc rt telemetry remote off
+
+    class Terminal:
+        def __init__(self) -> None:
+            self.value = ""
+
+        def isatty(self) -> bool:
+            return True
+
+        def write(self, text: str) -> int:
+            self.value += text
+            return len(text)
+
+        def flush(self) -> None:
+            pass
+
+    terminal = Terminal()
+    assert maybe_show_banner(terminal) is False and terminal.value == ""
+    assert not (telemetry_allowed / "ack").exists()
 
 
 def test_emit_product_call_sites_use_allowlisted_props() -> None:

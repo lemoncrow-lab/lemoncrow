@@ -308,6 +308,8 @@ def benchmark(
             reviewer_logins=tuple(logins),
             fetch_baseline=fetch_baseline,
         )
+        # Read before the run: a long run can outlast a commit, and the report must name the code that ran.
+        head, dirty = _git_head(checkout), _git_dirty(checkout)
         started = datetime.now(UTC)
         results, ledger, facts = run_benchmark(corpus, options, say=lambda message: click.echo(message, err=True))
     except BenchmarkError as exc:
@@ -323,7 +325,8 @@ def benchmark(
         name=base,
         command=_command_line(click.get_current_context()),
         code={
-            "git_head": _git_head(checkout),
+            "git_head": head,
+            **({} if dirty is None else {"dirty": dirty}),
             "prompt_version": ai_review.PROMPT_VERSION,
             "schema_version": ai_review.SCHEMA_VERSION,
             "repo_context": {"enabled": repo_context_enabled(), "version": CONTEXT_VERSION},
@@ -385,6 +388,27 @@ def _git_head(checkout: Path | None) -> str:
     except (OSError, subprocess.SubprocessError):
         return ""
     return completed.stdout.strip() if completed.returncode == 0 else ""
+
+
+def _git_dirty(checkout: Path | None) -> bool | None:
+    """Whether the checkout has uncommitted changes to tracked files; ``None`` when git cannot say."""
+
+    import subprocess
+
+    if checkout is None:
+        return None
+    try:
+        completed = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            cwd=checkout,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return bool(completed.stdout.strip()) if completed.returncode == 0 else None
 
 
 def _summary(report: dict[str, Any]) -> str:
