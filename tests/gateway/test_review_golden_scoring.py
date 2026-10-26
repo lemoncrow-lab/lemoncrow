@@ -348,6 +348,7 @@ def test_another_reviewers_comment_files_are_read_and_a_missing_file_is_an_unrev
     got = load_reviewer_comments(tmp_path, ["alpha-01", "alpha-02"])
     assert [(c.path, c.line, c.text) for c in got["alpha-01"].comments] == [("a.py", 5, "t"), ("", 0, "u")]
     assert "2 of 4" in got["alpha-01"].note and got["alpha-01"].reviewed
+    assert not got["alpha-01"].complete  # comments the page hid were never read: a partial review, not a clean zero
     assert not got["alpha-02"].reviewed
 
 
@@ -503,6 +504,9 @@ def test_the_judge_identity_names_the_model_and_the_prompt() -> None:
     assert judge.identity["driver"] == "claude" and judge.identity["model"] == "sonnet"
     assert judge.identity["prompt_version"] == golden_judge.JUDGE_PROMPT_VERSION
     assert len(judge.identity["prompt_digest"]) == 16
+    assert len(judge.identity["prompt_sha256"]) == 64 and judge.identity["prompt_sha256"].startswith(
+        judge.identity["prompt_digest"]
+    )
 
 
 # --------------------------------------------------------------------------- #

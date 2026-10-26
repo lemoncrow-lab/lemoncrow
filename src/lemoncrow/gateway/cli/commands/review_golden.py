@@ -14,6 +14,15 @@ The judge is fixed (the claude CLI's ``sonnet``, one prompt) and its answers are
 run over the same comments is free. ``--plan`` prints how many judge calls a run would make and calls none. The answer key
 is read from a checkout pinned by the corpus (``--golden-dir``, or cloned at run time) and is never copied into this
 repository. See ``docs/reference/review-benchmark.md``.
+
+When the scoring is publishable the JSON report also carries a ``benchmark_summary`` that ``make benchmark-publish RUN=...``
+imports (``evals/review/published/README.md``); otherwise the report says why not. A report of another reviewer's comments
+needs the ``--tool-id``, ``--tool-name`` and ``--comments-*`` options to become a row of the published table::
+
+    uv run lemoncrow dev eval review golden-score --corpus evals/review/golden_comment_prs.yaml \\
+        --reviewer-comments ~/bench-data/comments --out-dir ~/lc-bench-reports \\
+        --tool-id some-tool --tool-name "Some Tool" --comments-description "its posted comments, read on the PR pages" \\
+        --comments-url https://example.com/where-they-are --comments-collected-on 2031-01-02
 """
 
 from __future__ import annotations
@@ -66,6 +75,36 @@ EXIT_UNSCORED = 3
 )
 @click.option("--reviewer-label", default="", help="What to call the reviewer in the report.")
 @click.option(
+    "--tool-id",
+    default=None,
+    metavar="ID",
+    help="With --reviewer-comments, for the benchmark_summary: the tool's id in the published file (a lowercase slug).",
+)
+@click.option(
+    "--tool-name",
+    default=None,
+    metavar="NAME",
+    help="With --reviewer-comments, for the benchmark_summary: the tool's name exactly as the published file spells it.",
+)
+@click.option(
+    "--comments-description",
+    default=None,
+    metavar="TEXT",
+    help="With --reviewer-comments, for the benchmark_summary: what the comments are and how they were taken.",
+)
+@click.option(
+    "--comments-url",
+    default=None,
+    metavar="URL",
+    help="With --reviewer-comments, for the benchmark_summary: an https URL of where the comments were taken from.",
+)
+@click.option(
+    "--comments-collected-on",
+    default=None,
+    metavar="YYYY-MM-DD",
+    help="With --reviewer-comments, for the benchmark_summary: the day the comments were collected.",
+)
+@click.option(
     "--judge-cache",
     "cache_dir",
     type=click.Path(path_type=Path, file_okay=False),
@@ -98,6 +137,11 @@ def golden_score(
     finding_threshold: str | None,
     comments_dir: Path | None,
     reviewer_label: str,
+    tool_id: str | None,
+    tool_name: str | None,
+    comments_description: str | None,
+    comments_url: str | None,
+    comments_collected_on: str | None,
     cache_dir: Path | None,
     cached_only: bool,
     pr_ids: tuple[str, ...],
@@ -111,9 +155,10 @@ def golden_score(
     Exit status: 0 all scored, 1 an error, 3 some pull requests could not be scored (they are listed and in no total).
     """
 
+    from lemoncrow import __version__ as engine_version
     from lemoncrow.core.foundation.paths import default_store_root
     from lemoncrow.gateway.cli.commands.review_benchmark import _checkout_root, _gate_root
-    from lemoncrow.pro.capabilities.review.evaluation import golden_scoring
+    from lemoncrow.pro.capabilities.review.evaluation import benchmark_summary, golden_scoring
     from lemoncrow.pro.capabilities.review.evaluation.corpus import CorpusError, bundled_roots
     from lemoncrow.pro.capabilities.review.evaluation.golden_comments import (
         GoldenError,
@@ -126,6 +171,17 @@ def golden_score(
         raise click.UsageError(
             "name exactly one source of comments: --report (LemonCrow) or --reviewer-comments (another reviewer)"
         )
+    competitor = benchmark_summary.CompetitorRow(
+        tool_id or "", tool_name or "", comments_description or "", comments_url or "", comments_collected_on or ""
+    )
+    if competitor.given():
+        if comments_dir is None:
+            raise click.UsageError(
+                "--tool-id, --tool-name and --comments-* describe another reviewer: use --reviewer-comments"
+            )
+        if wrong := competitor.malformed():
+            raise click.UsageError("; ".join(wrong))
+    limited_to = tuple(pr_ids)  # the person's --pr, before a report narrows the pull requests to the ones it holds
     gate_root = _gate_root()
     checkout = _checkout_root(gate_root)
     if corpus_path is None:
@@ -161,6 +217,8 @@ def golden_score(
             "finding_threshold": finding_threshold or "default",
             "benchmark_report": report_path.name,
             "benchmark_basis": run.get("basis", ""),
+            "benchmark_driver": run.get("driver", ""),
+            "benchmark_model": run.get("model", ""),
             "benchmark_code": run.get("code", {}),
             "description": f"LemonCrow's AI review at depth {depth}: the findings the bot would post (benchmark report {report_path.name}).",
         }
@@ -209,6 +267,12 @@ def golden_score(
     report = golden_scoring.build_report(
         golden, scores, judge, name=base, reviewer=reviewer, generated_at=started.isoformat(timespec="seconds")
     )
+    benchmark_summary.attach(
+        report,
+        benchmark_summary.build_benchmark_summary(
+            report, engine_version=engine_version, competitor=competitor, limited_to=limited_to
+        ),
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / f"{base}.json").write_text(
         json.dumps(report, indent=2, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8"
@@ -243,4 +307,8 @@ def _summary(report: dict[str, Any]) -> str:
         f"  judge {judge['driver']}/{judge['model']}: {judge['asked_now']} asked now, {judge['answered_from_cache']} cached, "
         f"{judge['cost_now']['calls']} calls"
     )
+    if "benchmark_summary" in report:
+        lines.append("  ready to publish: benchmark_summary written (make benchmark-publish RUN=<the .json report>)")
+    elif report.get("benchmark_summary_omitted"):
+        lines.append(f"  ready to publish: nothing yet ({report['benchmark_summary_omitted']})")
     return "\n".join(lines)

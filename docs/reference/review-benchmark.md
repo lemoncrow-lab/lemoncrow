@@ -167,6 +167,8 @@ uv run lemoncrow dev eval review golden-score --corpus evals/review/golden_comme
 
 Another reviewer's comments are scored by the same command and the same judge: save them one file per pull request id (`{"comments": [{"id", "path", "lines", "text"}]}`) and pass `--reviewer-comments DIR --reviewer-label NAME`. Both reports go outside the checkout (`--out-dir` is required), because they hold the reviewers' comment texts. `--cached-only` never calls the judge.
 
+When every pull request was scored, no review was partial and the reviews were a live run with every cost known, the JSON report also carries a `benchmark_summary`, and `make benchmark-publish RUN=<report>.json` takes it into the published table. Otherwise the report has no summary and says why. For another reviewer's comments add `--tool-id`, `--tool-name`, `--comments-description`, `--comments-url` and `--comments-collected-on`: the command cannot know which tool they are or where they came from. What the summary holds, and every reason it is left out, is in `evals/review/published/README.md`.
+
 ### What it does not say
 
 - Its pull requests were chosen by the set's author, and five of the fifty heads are single commits written for the set, so a reviewer that has seen the public repositories is not tested on unseen code.
