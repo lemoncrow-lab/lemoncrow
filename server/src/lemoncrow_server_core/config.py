@@ -82,7 +82,7 @@ class EngineServerConfig:
         return _is_loopback(self.listen_host)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class LocalServerConfig(EngineServerConfig):
     """Single-user public composition, permanently constrained to loopback."""
 
