@@ -465,7 +465,11 @@ def test_a_bad_run_writes_nothing(tmp_path: Path, capsys: pytest.CaptureFixture[
 def test_a_run_with_unread_sources_is_refused_until_they_are_read(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    root = make_root(tmp_path / "repo")  # the committed file: every third-party row is search_retrieval
+    root = make_root(tmp_path / "repo")
+    data = bench.load(root)
+    data["dataset"]["origin"]["verification"]["status"] = "search_retrieval"
+    data["third_party"][0]["verification"]["status"] = "search_retrieval"
+    (root / bench.DATA_RELPATH).write_text(bench.dump(data), encoding="utf-8")
     before = (root / bench.README_RELPATH).read_bytes()
     assert bench.main(["--root", str(root), "--from-run", str(run_file(tmp_path, fake_summary()))]) == 1
     err = capsys.readouterr().err
@@ -558,8 +562,11 @@ def test_third_party_rows_need_a_source_a_date_and_a_reporter_and_must_add_up() 
 
 def test_unread_sources_do_not_block_a_pending_file_but_do_block_a_published_one(tmp_path: Path) -> None:
     data = load()
-    assert all(row["verification"]["status"] == "search_retrieval" for row in data["third_party"])
     assert bench.problems(data, ROOT) == []
+    pending = copy.deepcopy(data)
+    for row in pending["third_party"]:
+        row["verification"]["status"] = "search_retrieval"
+    assert pending["lemoncrow"] == {"status": "pending"} and bench.problems(pending) == []
     _, published = published_root(tmp_path)
     assert bench.problems(published) == []
     unread = copy.deepcopy(published)

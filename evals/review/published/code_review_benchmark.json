@@ -104,9 +104,9 @@
         "date": "2025-12-11"
       },
       "verification": {
-        "status": "search_retrieval",
+        "status": "primary_read",
         "checked_on": "2026-10-26",
-        "note": "The same figures came back from every web-search retrieval of the post that listed this row. The post itself could not be read from the build session (egress policy refused www.augmentcode.com with a 403 on CONNECT). The post's prose and its table disagree in places and other Augment pages give other figures; see third_party_discrepancies."
+        "note": "Compared row by row with the post's results table, read from the page itself by the owner on 2026-10-26 (the page shows 'Last updated: Jun 18, 2026'); the figures match."
       }
     },
     {
@@ -128,9 +128,9 @@
         "date": "2025-12-11"
       },
       "verification": {
-        "status": "search_retrieval",
+        "status": "primary_read",
         "checked_on": "2026-10-26",
-        "note": "The same figures came back from every web-search retrieval of the post that listed this row. The post itself could not be read from the build session (egress policy refused www.augmentcode.com with a 403 on CONNECT). One other Augment page gives a different F-score for this tool (54); see third_party_discrepancies."
+        "note": "Compared row by row with the post's results table, read from the page itself by the owner on 2026-10-26 (the page shows 'Last updated: Jun 18, 2026'); the figures match."
       }
     },
     {
@@ -152,9 +152,9 @@
         "date": "2025-12-11"
       },
       "verification": {
-        "status": "search_retrieval",
+        "status": "primary_read",
         "checked_on": "2026-10-26",
-        "note": "The same figures came back from every web-search retrieval of the post that listed this row. The post itself could not be read from the build session (egress policy refused www.augmentcode.com with a 403 on CONNECT)."
+        "note": "Compared row by row with the post's results table, read from the page itself by the owner on 2026-10-26 (the page shows 'Last updated: Jun 18, 2026'); the figures match."
       }
     },
     {
@@ -176,9 +176,9 @@
         "date": "2025-12-11"
       },
       "verification": {
-        "status": "search_retrieval",
+        "status": "primary_read",
         "checked_on": "2026-10-26",
-        "note": "The same figures came back from every web-search retrieval of the post that listed this row. The post itself could not be read from the build session (egress policy refused www.augmentcode.com with a 403 on CONNECT). The post's prose gives 70 and 30 for precision and recall; see third_party_discrepancies."
+        "note": "Compared row by row with the post's results table, read from the page itself by the owner on 2026-10-26 (the page shows 'Last updated: Jun 18, 2026'); the figures match."
       }
     },
     {
@@ -200,9 +200,9 @@
         "date": "2025-12-11"
       },
       "verification": {
-        "status": "search_retrieval",
+        "status": "primary_read",
         "checked_on": "2026-10-26",
-        "note": "The same figures came back from every web-search retrieval of the post that listed this row. The post itself could not be read from the build session (egress policy refused www.augmentcode.com with a 403 on CONNECT). The post's prose lists this row's figures slightly differently; see third_party_discrepancies."
+        "note": "Compared row by row with the post's results table, read from the page itself by the owner on 2026-10-26 (the page shows 'Last updated: Jun 18, 2026'); the figures match."
       }
     },
     {
@@ -224,9 +224,9 @@
         "date": "2025-12-11"
       },
       "verification": {
-        "status": "search_retrieval",
+        "status": "primary_read",
         "checked_on": "2026-10-26",
-        "note": "The same figures came back from every web-search retrieval of the post that listed this row. The post itself could not be read from the build session (egress policy refused www.augmentcode.com with a 403 on CONNECT). Augment split this tool's single long comment into separate comments with an LLM before scoring (golden_comments README, Adjustments for Claude Code)."
+        "note": "Compared row by row with the post's results table, read from the page itself by the owner on 2026-10-26 (the page shows 'Last updated: Jun 18, 2026'); the figures match."
       }
     },
     {
@@ -248,18 +248,18 @@
         "date": "2025-12-11"
       },
       "verification": {
-        "status": "search_retrieval",
+        "status": "primary_read",
         "checked_on": "2026-10-26",
-        "note": "The same figures came back from every web-search retrieval of the post that listed this row. The post itself could not be read from the build session (egress policy refused www.augmentcode.com with a 403 on CONNECT)."
+        "note": "Compared row by row with the post's results table, read from the page itself by the owner on 2026-10-26 (the page shows 'Last updated: Jun 18, 2026'); the figures match."
       }
     }
   ],
   "third_party_discrepancies": [
-    "Augment's post: its prose gives its own recall as 57 where the table gives 55, and gives Codex Code Review 70 precision and 30 recall where the table gives 68 and 29. The rows above use the table.",
+    "Augment's post: the description of its precision-recall scatter plot gives approximate readings that differ by a point or two from its table (Augment Code Review about 57 recall; Codex Code Review 70 precision and 30 recall; CodeRabbit 35 and 45; Claude Code 22 and 50; GitHub Copilot 20 and 35). The rows above use the table, which the post presents as the results.",
     "Another Augment page (its product page) gives a different F-score for Cursor Bugbot (54 against 49).",
-    "The golden_comments README names seven tools including Graphite (and treats Claude Code separately, under Adjustments); the post's table, as retrieved, has rows for Claude Code and GitHub Copilot and none for Graphite, which is why only these seven rows are used. The README's golden-comment counts (145) do not match the files at the pinned commit (137).",
-    "Augment has since published a different benchmark (an offline run reporting F1 53.8 for its own tool and 44.9 for Cursor Bugbot, with other tools' precision and recall). It is another set and method; none of it is used here.",
-    "Every row here was read by web-search retrieval of the post, not from the page itself. Before this table is published, someone who can open the post must compare it row by row and set each verification status to primary_read."
+    "The golden_comments README names seven tools including Graphite (and treats Claude Code separately, under Adjustments); the post's table has rows for Claude Code and GitHub Copilot and none for Graphite, which is why only these seven rows are used. The README's golden-comment counts (145) do not match the files at the pinned commit (137).",
+    "The post was first published on 11 Dec 2025 and shows 'Last updated: Jun 18, 2026'; the table as read on 2026-10-26 is the one used. Its run date (14 Nov 2025, default settings) comes from the golden_comments README.",
+    "Augment has since published a different benchmark (an offline run reporting F1 53.8 for its own tool and 44.9 for Cursor Bugbot, with other tools' precision and recall). It is another set and method; none of it is used here."
   ],
   "vendor_claims": [
     {
