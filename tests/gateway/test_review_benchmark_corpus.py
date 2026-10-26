@@ -131,6 +131,34 @@ def test_invalid_corpora_say_what_is_wrong(tmp_path: Path, origin: Any, mutate: 
     assert expected in problems(tmp_path, origin, mutate)
 
 
+def test_a_private_corpus_may_carry_a_copyleft_licence_but_a_public_one_may_not(tmp_path: Path, origin: Any) -> None:
+    def private(document: dict[str, Any]) -> None:
+        document["visibility"] = "private"
+        document["prs"][0]["license"] = "AGPL-3.0"
+
+    corpus = load(tmp_path, origin, private)
+    assert corpus.visibility == "private" and corpus.prs[0].license == "AGPL-3.0"
+    assert corpus.summary()["visibility"] == "private"
+
+    def public(document: dict[str, Any]) -> None:
+        document["prs"][0]["license"] = "AGPL-3.0"
+
+    assert "permissive license" in problems(tmp_path, origin, public)
+
+
+def test_a_private_corpus_still_refuses_a_customer_review_as_provenance(tmp_path: Path, origin: Any) -> None:
+    def customer(document: dict[str, Any]) -> None:
+        document["visibility"] = "private"
+        document["prs"][0]["provenance"]["source"] = "organization_review"
+
+    assert "not allowed in a private corpus" in problems(tmp_path, origin, customer)
+
+
+def test_an_unknown_visibility_is_refused(tmp_path: Path, origin: Any) -> None:
+    with pytest.raises(CorpusError, match="visibility must be public, private or organization"):
+        load(tmp_path, origin, lambda d: d.update(visibility="internal"))
+
+
 def test_a_pull_request_known_to_be_clean_says_so_and_an_unlabelled_one_does_not_claim_it(
     tmp_path: Path, origin: Any
 ) -> None:
@@ -346,3 +374,46 @@ def test_a_pure_insertion_points_at_the_line_before_it(tmp_path: Path) -> None:
     derived = derive_label(repo.root, fix, introduced, pull=7)
     (region,) = derived.regions
     assert region.kind == "insertion" and region.start_line == region.end_line
+
+
+def test_within_change_keeps_only_the_fix_sites_the_reviewed_change_added(tmp_path: Path) -> None:
+    repo = Repo(tmp_path / "r")
+    repo.commit("base", {"lib.py": LIB_V1, "other.py": "X = 1\nY = 2\n"})
+    introduced = repo.commit("Add the bonus (#7)", {"lib.py": LIB_V2})
+    # One wide fix: the bug in the added line, and an unrelated edit to a file the pull request never touched.
+    fix = repo.commit("Fix total, introduced in #7", {"lib.py": LIB_V2_FIXED, "other.py": "X = 1\nY = 3\n"})
+
+    wide = derive_label(repo.root, fix, introduced, pull=7)
+    narrow = derive_label(repo.root, fix, introduced, pull=7, within_change=True)
+
+    assert {r.path for r in wide.regions} == {"lib.py", "other.py"}
+    assert {r.path for r in narrow.regions} == {"lib.py"} and narrow.within_change
+    assert any("other.py" in note and "not on a line the reviewed change added" in note for note in narrow.notes)
+    assert (
+        "kept only where the reviewed change itself added or changed the line"
+        in narrow.label("lib")["evidence"]["derivation"]
+    )
+    assert "kept only where" not in wide.label("lib")["evidence"]["derivation"]
+
+
+def test_within_change_refuses_a_fix_that_edits_none_of_the_added_lines(tmp_path: Path) -> None:
+    repo = Repo(tmp_path / "r")
+    repo.commit("base", {"lib.py": LIB_V1, "other.py": "X = 1\n"})
+    introduced = repo.commit("Add the bonus (#7)", {"lib.py": LIB_V2})
+    fix = repo.commit("Fix other, introduced in #7", {"other.py": "X = 2\n"})
+
+    assert derive_label(repo.root, fix, introduced, pull=7).regions[0].path == "other.py"
+    with pytest.raises(DerivationError, match="the reviewed change added"):
+        derive_label(repo.root, fix, introduced, pull=7, within_change=True)
+
+
+def test_within_change_keeps_an_insertion_on_a_line_the_change_added(tmp_path: Path) -> None:
+    repo = Repo(tmp_path / "r")
+    repo.commit("base", {"lib.py": LIB_V1})
+    introduced = repo.commit("Add a guard (#7)", {"lib.py": LIB_V1 + "\n\ndef guarded(x):\n    return x\n"})
+    fix = repo.commit(
+        "Fix guarded, introduced in #7",
+        {"lib.py": LIB_V1 + "\n\ndef guarded(x):\n    assert x\n    return x\n"},
+    )
+    (region,) = derive_label(repo.root, fix, introduced, pull=7, within_change=True).regions
+    assert region.kind == "insertion"

@@ -34,7 +34,9 @@ from typing import Any, Final, Literal, cast
 
 import yaml
 
-CorpusVisibility = Literal["public", "internal", "organization"]
+#: ``private`` is the real-PR corpus's own (``real_prs.py``): public pull requests of repositories whose licence a
+#: public corpus may not carry, kept in the checkout but left out of the public mirror.
+CorpusVisibility = Literal["public", "internal", "private", "organization"]
 CaseKind = Literal["defect", "clean"]
 ProvenanceSource = Literal["synthetic", "public_repository", "internal_repository", "organization_review"]
 
