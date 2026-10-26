@@ -12,7 +12,7 @@ import yaml
 
 from lemoncrow.pro.capabilities.review.intelligence_runtime import ModelCallUsage, StructuredExecution
 from lemoncrow.pro.capabilities.review.sources.github import GitHubCliError
-from tests.gateway.pr_bot_support import NUMBER, SLUG, FakeGitHub, FakeModel, World, build_world
+from tests.gateway.pr_bot_support import NUMBER, SLUG, FakeGitHub, FakeModel, World, build_world, one_call_per_file
 
 CONFIG = ".lemoncrow/review.yaml"
 
@@ -89,8 +89,13 @@ class IntentGitHub(FakeGitHub):
 
 
 def intent_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, files: dict[str, str]) -> World:
-    """``build_world`` with a GitHub that can hold a pull request description and issues."""
+    """``build_world`` with a GitHub that can hold a pull request description and issues.
 
+    Each changed file gets a call of its own: whether an investigator is shown the author's intent depends on the
+    categories of its call, so these tests need a call about the cache that is not also about authorization.
+    """
+
+    one_call_per_file(monkeypatch)
     world = build_world(tmp_path, monkeypatch, files)
     world.github = IntentGitHub(world.origin)
     for name in ("LEMONCROW_REVIEW_INTENT", "LEMONCROW_REVIEW_INTENT_TOKENS"):

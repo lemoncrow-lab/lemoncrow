@@ -687,10 +687,11 @@ def test_a_finding_that_cites_a_matching_static_result_is_verified_and_a_p0(
     # The investigator was offered the scanner's result as evidence, bound to that file's target.
     offered = [row for seen in model.evidence_seen for row in seen["evidence"] if row["kind"] == "static_finding"]
     assert any(OS_RULE in row["label"] and "app/handlers.py:14" in row["label"] for row in offered)
-    # The scanner's result is the security question about handlers.py; hashing.py (no signal) is looked at in general.
+    # The scanner's result is the security question about handlers.py; hashing.py (no signal) is looked at in general,
+    # in the same call, which has room for both.
     asked = [(call["category"], call["path"]) for call in model.calls]
     assert ("security", "app/handlers.py") in asked and [c for c, _ in asked].count("security") == 1
-    assert ("correctness", "app/hashing.py") in asked
+    assert {"app/handlers.py", "app/hashing.py"} <= set(model.files_seen())
     # It is one finding, not also a raw one; the warning stays a held-back P2 of its own.
     assert [(f.severity, f.static_check) for f in raw(report)] == [("p2", HASH_RULE)]
     inline = [body for body in report.inline_bodies if "Static check:" in body]

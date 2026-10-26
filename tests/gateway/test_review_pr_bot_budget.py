@@ -26,6 +26,7 @@ from tests.gateway.pr_bot_support import (
     RULE,
     World,
     build_world,
+    one_call_per_file,
 )
 
 TITLE = "lets a missing principal through"
@@ -115,12 +116,15 @@ def test_without_a_budget_nothing_changes(world: World) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_a_dollar_cap_is_enforced_from_the_cumulative_cost_in_the_state(world: World) -> None:
+def test_a_dollar_cap_is_enforced_from_the_cumulative_cost_in_the_state(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    one_call_per_file(monkeypatch)  # the three files would share one call; the cost below is of one call each
     world.origin.push(FIRST_PUSH)
     first = world.review(max_usd_per_pr=1.00)
     assert first.state is not None and first.state.usage_total.cost_usd is not None
     spent = first.state.usage_total.cost_usd
-    assert 0.2 < spent < 1.0, "two priced calls of a million tokens"
+    assert 0.2 < spent < 1.0, "three priced calls of a million tokens"
 
     # Under the cap a second review still runs (and adds to the total).
     world.origin.push({"src/token.py": "def verify(token):\n    return token == 'x'\n"}, "add token")

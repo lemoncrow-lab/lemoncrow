@@ -26,7 +26,7 @@ from lemoncrow.pro.capabilities.review.config_import import (
     conventions_for_paths,
     effective_wire,
 )
-from tests.gateway.pr_bot_support import BASE, FIRST_PUSH, World, build_world
+from tests.gateway.pr_bot_support import BASE, FIRST_PUSH, World, build_world, one_call_per_file
 from tests.gateway.test_review_config_import import REVIEW_YAML, _governance, _notes, _review
 
 CURSOR_STYLE = (
@@ -410,7 +410,10 @@ def switched(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[World, Re
     return world, seen
 
 
-def test_the_investigator_is_shown_the_files_that_apply_to_the_code_it_reads(switched: tuple[World, Recorder]) -> None:
+def test_the_investigator_is_shown_the_files_that_apply_to_the_code_it_reads(
+    switched: tuple[World, Recorder], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    one_call_per_file(monkeypatch)  # a prompt about one file names the conventions of that file; the next test: several
     world, seen = switched
     world.review()
     shown = seen.documents_by_path()
@@ -435,6 +438,30 @@ def test_the_investigator_is_shown_the_files_that_apply_to_the_code_it_reads(swi
     conventions = json.dumps([row.get("project_conventions") for row in seen.prompts])
     assert "Report nothing" not in conventions and "Edited by the PR" not in conventions
     assert "Src conventions" in everything
+
+
+def test_a_call_that_carries_several_files_is_given_the_conventions_of_each_nearest_first(
+    switched: tuple[World, Recorder],
+) -> None:
+    """Small files share a call; its conventions are those that apply to any of them, and nothing that scopes elsewhere."""
+
+    world, seen = switched
+    world.review()
+    carrying = [
+        row
+        for row in seen.prompts
+        if "hypothesis" in row
+        and {"src/auth.py", "src/cache.py"} <= {value["path"] for value in row["snapshot_source"]["value"].values()}
+    ]
+    assert len(carrying) == 1, "the small files are asked about in one call"
+    documents = [row["path"] for row in carrying[0]["project_conventions"]["value"]["documents"]]
+    assert documents == [
+        ".claude/rules/auth.md",
+        ".cursor/rules/cache.mdc",
+        "src/AGENTS.md",
+        "AGENTS.md",
+        ".github/copilot-instructions.md",
+    ]
 
 
 def test_other_tools_files_are_data_to_the_investigator_never_instructions(switched: tuple[World, Recorder]) -> None:

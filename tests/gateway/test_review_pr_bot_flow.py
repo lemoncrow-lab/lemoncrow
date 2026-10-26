@@ -72,8 +72,10 @@ def test_a_first_review_posts_one_summary_and_inline_comments_for_p0_and_p1_only
     report = world.review()
 
     assert not report.skipped
-    # The two risk signals, and plain.py too: changed code that no keyword marks is looked at in general.
-    assert sorted(world.model.paths()) == ["src/auth.py", "src/cache.py", "src/plain.py"]
+    # The two risk signals, and plain.py too (changed code that no keyword marks is looked at in general). Three small
+    # files fit one call, so one call is made, and each file's own bug is reported on that file.
+    assert world.model.files_seen() == ["src/auth.py", "src/cache.py", "src/plain.py"]
+    assert len(world.model.calls) == 1
     findings = by_title(report)
     assert findings["lets a missing principal through"].severity == "p1"
     assert findings["grows without a bound"].severity == "p2"
@@ -110,7 +112,7 @@ def test_the_report_and_the_posted_state_agree(world: World) -> None:
     assert report.state is not None and state == report.state
     wire = report.to_wire()
     assert wire["head_sha"] == world.origin.head and wire["verdict"]["p1"] == 1 and wire["verdict"]["p2"] == 1
-    assert wire["usage"]["calls"] == 3 and wire["status"]["state"] == "success"
+    assert wire["usage"]["calls"] == 1 and wire["status"]["state"] == "success"
     assert {row["id"] for row in wire["findings"]} == {finding.id for finding in state.findings}
     json.dumps(wire)  # serializable as is
 
@@ -185,7 +187,7 @@ def test_a_push_re_reviews_only_the_changed_file_and_carries_the_rest_without_a_
     assert "<details><summary>1 finding fixed since last review</summary>" in body
     state = posted_state(world)
     assert state.head_sha == world.origin.head and state.reviews == 2
-    assert state.usage.calls == 1 and state.usage_total.calls == 4, "three calls the first time (plain.py too), one now"
+    assert state.usage.calls == 1 and state.usage_total.calls == 2, "one call the first time (plain.py too), one now"
 
 
 def test_a_fixed_finding_gets_a_reply_and_its_thread_is_resolved(world: World) -> None:
@@ -266,7 +268,7 @@ def test_a_failed_model_call_is_retried_next_push_even_for_unchanged_code(world:
     world.model.fail = False
     world.model.reset()
     fixed = world.review()
-    assert sorted(world.model.paths()) == ["src/auth.py", "src/cache.py", "src/plain.py"]
+    assert world.model.files_seen() == ["src/auth.py", "src/cache.py", "src/plain.py"]
     assert fixed.state is not None and fixed.state.complete and len(fixed.findings) == 2
     assert len(posted_state(world).reviewed_units) == 3 and world.github.review_posts == 1
 
@@ -554,6 +556,7 @@ def test_the_model_route_comes_from_the_environment_keys(world: World, monkeypat
 
 
 def test_the_hard_call_cap_still_bounds_the_review(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    one_call_per_file(monkeypatch)  # a test about the call cap: tiny files do not share a call here
     world.origin.push(FIRST_PUSH)
     monkeypatch.setenv("LEMONCROW_REVIEW_INTELLIGENCE_MAX_CALLS", "1")
     report = world.review()

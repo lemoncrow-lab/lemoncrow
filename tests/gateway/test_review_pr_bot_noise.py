@@ -249,7 +249,8 @@ def test_an_ignored_path_gets_no_finding_and_the_model_never_reads_it(
     world.origin.push(FIRST_PUSH)
     report = world.review()
     assert set(by_title(report)) == {AUTH_TITLE}
-    assert world.model.paths() == ["src/auth.py", "src/plain.py"]  # plain.py is looked at in general; cache.py never is
+    # plain.py is looked at in general (in the same call, the files being small); cache.py never is
+    assert world.model.files_seen() == ["src/auth.py", "src/plain.py"] and len(world.model.calls) == 1
     assert not any("src/cache.py" in json.dumps(prompt) for prompt in seen.prompts)
     assert not any(CACHE_TITLE in json.dumps(prompt) for prompt in seen.prompts)
     body = summary_of(world)
@@ -549,7 +550,7 @@ def test_a_changed_threshold_rewrites_the_summary_of_an_unchanged_head(
     assert "1 finding held back below strictness 3" in body and "low-priority finding held back" not in body
     assert again.state is not None and again.state.view == "high:inline"
     assert again.state.reviews == first.state.reviews  # not another review
-    assert "this review: 3 model calls" in body  # the cost of the review that was last made (plain.py is looked at too)
+    assert "this review: 1 model call" in body  # the cost of the review that was last made (one call for the 3 files)
 
 
 def test_a_budget_notice_keeps_showing_what_the_last_review_showed(
@@ -589,7 +590,7 @@ def test_above_max_files_the_riskiest_files_are_reviewed_first_and_the_rest_are_
     world.origin.push(MANY)
     report = world.review()
     body = summary_of(world)
-    assert sorted(world.model.paths()) == ["src/auth.py", "src/cache.py"]  # the two files with a risk signal
+    assert world.model.files_seen() == ["src/auth.py", "src/cache.py"]  # the two files with a risk signal
     assert set(by_title(report)) == {AUTH_TITLE, CACHE_TITLE}
     assert "> **Large pull request: 5 files, over the limit of 2.** Reviewed the 2 highest-risk files first." in body
     assert "3 lower-risk files are not reviewed yet: " in body
