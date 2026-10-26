@@ -134,9 +134,27 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   `.lemoncrow/review.yaml` among the files read.
 - **The full engine says its telemetry is on, once.** One line on standard error on the first run, also when piped,
   with the command that turns it off. The default is unchanged.
+- **A pull request review that reads like a report, with a score, a summary and a picture.** The summary comment
+  now opens with `Confidence Score: N/5` (worked out from the verdict, never by a model: an open P0 is 1, three or
+  more P1 is 2, one or two P1 is 3, only P2 is 4, clean is 5, and a partial review is never 5), then an impact
+  label with one sentence, the verdict, a numbered `Findings` list with P0/P1/P2 badges and links to the inline
+  threads, a `Summary` (an intro and three or four bullets) and a `Diagram`, a collapsed `Fix with agent prompt`
+  and a footer with the reviewed commit. Inline comments carry a badge, a collapsed `Prompt To Fix With AI` and the
+  rule or context they used. The sentence, the summary and the diagram come from one extra cheap model call per
+  review, which is counted in the call cap and the cost, is skipped on a trivial change or an unchanged head, and
+  returns structure, not markup: LemonCrow checks every node against the changed files and symbols and draws the
+  Mermaid itself. A review leaves a status reaction on the comment that asked for it (eyes while it runs, then a
+  thumbs up, or a confused face when it could not finish); reacting on the pull request itself or on a conversation
+  comment needs `issues: write` on the workflow token, and without it the reaction is skipped and nothing else
+  changes. `lc review --ai` prints the same structure in plain text. See
+  [what the bot posts](docs/setup/github-action.md#what-the-bot-posts).
 
 ### Fixed
 
+- **The change diagram no longer draws a file as a different name or as an error.** Mermaid 11 reads a label as
+  Markdown: `__init__.py` was drawn as a bold "init.py", and a label that began with `+ ` (every added file and
+  relationship) was drawn as "Unsupported markdown: list". An underscore at the edge of a word and a leading list
+  marker are now written as entities, and the added sign goes against the name.
 - **A model set with no driver no longer reads as "AI review is turned off".** `lc settings set intelligence.model X`
   without `intelligence.driver` makes the settings contradict each other; the review said "AI review is turned off"
   and told you to run `lc settings set intelligence.enabled true`, which changes nothing. It now says the setting is

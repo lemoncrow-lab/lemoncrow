@@ -63,7 +63,7 @@ Everything below is a `with:` input of the Action step, and every one has a defa
 | `strictness` | the file, else `2` | `1`, `2` or `3`: how much the bot reports (`1` also comments on P2, `3` never does). See "Reducing noise". |
 | `anthropic-api-key`, `openai-api-key` | none | The model key, from a secret. Pass one. Both work as environment variables too, but the input keeps the key away from the steps that do not need it. |
 | `security-scan` | `auto` | `auto` runs a pinned, checksum-verified [Opengrep](https://github.com/opengrep/opengrep) over the changed files; `off` downloads and runs nothing. See "Security scan". |
-| `diagram` | `auto` | The collapsed `Change diagram` in the summary, drawn only when the pull request added or removed a relationship between files. `off` never builds it. |
+| `diagram` | `auto` | The open `### Diagram` in the summary, drawn on a pull request that is not trivial: the diagram the model proposed, checked and drawn by LemonCrow, else the one from the Architecture Delta when it added or removed a relationship between files. `off` never builds either. |
 | `max-usd-per-pr`, `max-runs-per-pr` | none | Stop reviewing a pull request after this many dollars, or this many reviews, in total. See "A budget per pull request". |
 | `model` | the provider's | A model id. Anthropic defaults to `claude-sonnet-4-6`, OpenAI to `gpt-4o-mini`. |
 | `review-drafts`, `on-push` | `false`, `true` | Review draft pull requests too; re-review on each push. |
@@ -99,6 +99,7 @@ Chat adds no permission. See "Chat in pull request threads".
 | `pull-requests: write` | Post the summary and the inline review, reply in threads and resolve them. |
 | `statuses: write` | Set the `LemonCrow Review` status. |
 | `issues: read` (optional) | Read the issues a pull request links with `Fixes #N` or `Closes #N`, so the review knows what the change is for. Without it the summary says `issue #N not read: this workflow's token lacks the optional issues: read permission` and carries on. Add it to the `permissions:` line if you want the linked issues read. |
+| `issues: write` (optional) | React with 👀, then 👍 or 😕, on the pull request itself and on `@lemoncrow review` comments typed in the conversation. GitHub lists those two reaction endpoints under `issues: write` alone, so `pull-requests: write` does not cover them; without it the reaction is skipped silently and nothing else changes (see "Reactions"). A trigger typed in a review thread needs only `pull-requests: write`. |
 
 A token that lacks one of the first three fails the step before any model is asked, with an `::error` annotation that names the missing permission and the line to add (`permissions: { contents: read, pull-requests: write, statuses: write }`), and sets the `LemonCrow Review` status to `error` when it can write one. A repository whose default `GITHUB_TOKEN` is read-only needs the `permissions:` block above; it is the usual cause.
 
@@ -133,7 +134,7 @@ The job stays green when only the model failed and `fail-on` is `none`, because 
 | `review-drafts` | `false` | Review draft pull requests too. |
 | `on-push` | `true` | Re-review on each push to an open pull request. `false` reviews only when it opens. |
 | `security-scan` | `auto` | `auto` installs a pinned [Opengrep](https://github.com/opengrep/opengrep) release (checksum verified, cached) and scans the files the pull request changed; `off` downloads and runs nothing. See "Security scan". |
-| `diagram` | `auto` | `auto` adds the collapsed `Change diagram` to the summary when the pull request added or removed a relationship between files; `off` never builds it. See "Change diagram". |
+| `diagram` | `auto` | `auto` adds the open `### Diagram` to the summary of a pull request that is not trivial (the model's checked proposal, else the Architecture Delta's flowchart); `off` never builds either. See "Diagram". |
 | `strictness` | none (the file, else `2`) | `1`, `2` or `3`: how much the bot reports. An alias for `finding_threshold`; `.lemoncrow/review.yaml` wins. See "Reducing noise". |
 | `inline-comments` | none (the file, else `true`) | `false` is summary-only mode: nothing on the diff, every finding listed in the summary. `.lemoncrow/review.yaml` wins. |
 | `max-files` | none (the file, else `100`) | A pull request with more files is reviewed highest-risk files first, and the rest are named and reviewed next, never skipped. `0` means no limit. `.lemoncrow/review.yaml` wins. |
@@ -170,28 +171,86 @@ No LemonCrow host is contacted. LiteLLM's price table is read from its own packa
 
 ## What the bot posts
 
-**One summary comment**, found and updated in place by a hidden marker (`<!-- lemoncrow:summary v1 -->`), so a push edits it instead of adding another:
+**One summary comment**, found and updated in place by a hidden marker (`<!-- lemoncrow:summary v1 -->`), so a push edits it instead of adding another. It reads the same way on every review, top to bottom:
 
-- a verdict line that agrees with the status: `1 must-fix before merge`, `Partially reviewed: 2 of 3 risk signals examined` when the review finished but left risk signals unexamined, `Review incomplete: <why>` when it could not finish, or `No must-fix findings` only when every risk signal was examined;
-- an impact line under the verdict, `High impact`, `Medium impact` or `Low impact`, computed from the change by a fixed rule and shown with its reasons (see "Impact and the risks examined");
-- a status strip: `Re-reviewed 38 changed lines · 1 new · 2 carried forward · 1 fixed since last review`;
-- when the pull request has more files than `max_files`, a block quote under the status strip saying how many files, which were left for the next run, and that the review is partial;
-- findings sorted by severity, each linking to its inline thread and, when it cites a rule or an excerpt of another file, ending in an attribution trailer (see "Attribution trailers"). **P0** must fix, **P1** should fix, **P2** optional;
-- P2 findings in a collapsed block, `N low-priority findings held back`; with a stricter setting, findings below your threshold are counted in the headline (`· 2 held back`) and listed once in their own collapsed block (see "Reducing noise");
-- a collapsed `Risks examined`: each changed piece of code that carries a risk signal and whether it was found, examined with nothing found, or not investigated yet;
-- a collapsed `Change diagram` of the relationships the pull request added, removed or changed (see "Change diagram");
-- on a clean review, a collapsed `What we checked`: files, rules applied, depth, and what the security scan did (see "Security scan");
-- collapsed blocks for feedback: `N findings dismissed by feedback`, `N instructions learned on this pull request` and `Suggested rules from feedback` (see "Learning from feedback");
-- a collapsed `Fix with your agent`: a prompt listing the open findings with `file:line`, and the checked replacement for each finding that has one, to paste into Claude Code, Codex or Cursor;
-- a footer with the model, depth, model calls and tokens, how much of those tokens was repository context (`~3k of it repository context`, see below), and an estimated cost when LemonCrow's local price table knows the model. It never guesses a price: an unknown model shows tokens only.
+1. **The re-review line.** A small `Re-review: comment `@lemoncrow review``. LemonCrow has no hosted one-click button, and a comment starts a review only where the workflow listens to comments (see "Add chat"); in a workflow that does not, the line says to re-run the job instead, so it never promises what would do nothing.
+2. **`Confidence Score: N/5`** as a heading, and a rule under it. N is read off the same facts as the verdict, the status and `fail-on`, so it cannot disagree with them (see "The confidence score").
+3. **`**[Low|Medium|High impact]**` and one sentence** saying what the pull request does: the overview's sentence, else the pull request's title. A small line under it gives the reasons for the label, computed from the change by a fixed rule (see "Impact and the risks examined").
+4. **The verdict paragraph**, which agrees with the status: `1 must-fix before merge`, `Partially reviewed: 2 of 3 risk signals examined` when the review finished but left risk signals unexamined, `Review incomplete: <why>` when it could not finish, or `No must-fix findings` only when every risk signal was examined. Under it, a status strip (`Re-reviewed 38 changed lines · 1 new · 2 carried forward · 1 fixed since last review`) and, when the pull request has more files than `max_files`, a block quote saying how many files were left for the next run.
+5. **`### Findings`**, numbered, P0 first, then P1: each is its severity badge, its title in bold linking to its inline thread, then the `path` and the lines. When a finding cites a rule or an excerpt of another file, a small line under it says so (see "Attribution trailers"). P2 findings continue the numbering in a collapsed block, `N low-priority findings held back`; with a stricter setting, findings below your threshold are counted in the verdict (`· 2 held back`) and listed once in their own collapsed block (see "Reducing noise").
+6. **`### Summary`**: one intro sentence and three or four bullets of what changed (see "The overview").
+7. **`### Diagram`**, open: a flowchart or sequence diagram of the change, when it is not trivial (see "Diagram").
+8. **`Fix with agent prompt`**, collapsed: one prompt listing every open finding with `file:line`, and the checked replacement for each finding that has one, to paste into Claude Code, Codex or Cursor.
+9. Collapsed blocks for what the review looked at and what people said: `Risks examined` (each changed piece of code that carries a risk signal and whether it was found, examined with nothing found, or not investigated yet), `N findings fixed since last review` (each with a `Fixed` badge), `N findings dismissed by feedback`, `N instructions learned on this pull request` and `Suggested rules from feedback` (see "Learning from feedback").
+10. **On a clean review, `### What we checked`**: the files, the risk signals and how many were examined, the rules applied, the depth, and what the security scan did (see "Security scan"). A clean review is a list of named, countable things, never just "no comments".
+11. **The footer**: `Reviews (N) · Last reviewed commit: the commit subject, as a link · Reviewed by LemonCrow`, and under it the model, the depth, the model calls and tokens of this review (the overview call is one of them), how much of those tokens was repository context (`~3k of it repository context`, see below), and an estimated cost when LemonCrow's local price table knows the model. It never guesses a price: an unknown model shows tokens only.
 
-**Inline comments** for P0 and P1 findings (P2 too at strictness 1, none at all in summary-only mode): a title with the badge, why, the consequence, a one-click GitHub `suggestion` block only when the finding carries a fix LemonCrow has checked against the commit (see [Suggested fixes](#suggested-fixes)), and a one-line trailer naming the rule and the context it relied on, when there are any (see [Attribution trailers](#attribution-trailers)). P2 findings stay in the summary.
+**The badges** are four small images (`P0`, `P1`, `P2` and `Fixed`) served from `https://lemoncrow.com/badges/` in the design system's colours, each written as `<img alt="P1" src="https://lemoncrow.com/badges/p1.svg?v=1" align="top">`. The alt text is the badge's text, so a comment still reads when an image cannot load, and `?v=1` is bumped when a badge changes so GitHub's image cache lets go of the old one. The images are fetched by the reader's browser through GitHub's image proxy; the Action itself sends nothing to LemonCrow.
+
+**Inline comments** for P0 and P1 findings (P2 too at strictness 1, none at all in summary-only mode). Each has, in this order:
+
+1. the badge and the title in bold, on one line;
+2. the body: what fails, why, and the consequence;
+3. a one-click GitHub `suggestion` block, only when the finding carries a fix LemonCrow has checked against the commit (see [Suggested fixes](#suggested-fixes));
+4. a rule, then a collapsed **`Prompt To Fix With AI`**: a block to paste into a coding agent holding `Path:`, `Line:`, the comment as written, the checked replacement when there is one, and the instruction to verify that the problem is real in the current code and to fix it in the smallest way, or to say why the comment is wrong and change nothing;
+5. an attribution trailer naming the rule and the context the finding relied on, when there are any (see [Attribution trailers](#attribution-trailers));
+6. a last small line that says what the badge means and where the comment came from (`Should fix (P1) · LemonCrow AI review`, or `LemonCrow security scan (Opengrep) · not yet confirmed by the AI review`).
+
+P2 findings stay in the summary.
 
 **Where a comment sits.** The investigator names the line, or short range (at most 8 lines), of the new file that the defect is on, and LemonCrow checks the claim before it places a comment by it: the lines must exist in the file at the reviewed commit, be lines the model was shown, and sit inside one hunk of the pull request's diff (the lines GitHub lets a comment attach to; GitHub's own diff is checked again when the comment is posted). If the claim fails any check, or the model named no line, the comment falls back to the first lines of the code the pull request changed in that function or file, which may not be the line that is wrong. The hidden state records which happened as `anchor`: `cited` or `target`. A comment cannot move once it is posted, so a finding that already has a thread stays on the lines the thread is on in the summary and the fix prompt, however the code shifts under later pushes; a finding with no thread follows its code.
 
 A hidden JSON block closes the summary (see below), and every inline comment carries `<!-- lemoncrow:finding <id> -->` and `<!-- lemoncrow:fingerprint fp-… -->`. The fingerprint (category, code and rules) does not change when the model words the same problem differently. It is what stops a duplicate: right before posting, the bot looks for its own earlier comment on the same file with the same fingerprint, and if there is one it adopts that comment as the finding's thread instead of posting a second. That covers a run that `concurrency` cancelled after it posted a comment but before it saved the summary, which carries the state; a comment whose finding was closed (the bot replied that it was fixed) or that belongs to another finding is not adopted, so a bug that comes back, or a second bug in the same function, still gets its own comment.
 
 Findings are AI output, so they are never posted as an approval or a change request: the bot's reviews use event `COMMENT` only, and human review state stays human. Anything the model wrote is neutralised before it is posted: it cannot forge the markers above, mention people, load images or open HTML blocks.
+
+### The confidence score
+
+`Confidence Score: N/5` is computed, not judged. It is read off the verdict that also sets the headline, the `LemonCrow Review` status and `fail-on`, so the score can never contradict the verdict (a review that says `1 must-fix before merge` is never a 4):
+
+| What the review found | Score |
+| --- | --- |
+| an open P0 (must fix) | **1** |
+| three or more open P1 | **2** |
+| one or two open P1, and no P0 | **3** |
+| only P2 findings open | **4** |
+| nothing open, and every risk signal examined | **5** |
+
+What the review could not look at lowers the ceiling and never raises the number: a **partial** review (risk signals left unexamined, a large pull request cut to its riskiest files) is at most **4**, and one that is **incomplete** (a model call failed, the call cap ran out) or did not run (the pull request's review budget is spent) is at most **3**. Findings held back below your threshold are not counted, because the verdict does not count them. A 5 therefore means a finished review of every risk signal that found nothing open. It is also in `--json` as `verdict.confidence`.
+
+The score says how confident the review is that the pull request is ready, from what it found; it does not say how risky the change is. That is the impact label next to it: a careful change to the auth code is **High impact** and can still be a 5.
+
+### The overview
+
+One more model call per review writes the sentence under the score, the `### Summary` and, when it helps, the `### Diagram`. It is one call, made after the investigators, through the same route and under the same policy, and it is **counted in the review's model-call cap and in its usage and cost** (the footer's `3 model calls` includes it).
+
+**It answers in structure, never in markup.** The model returns a sentence, an intro, up to four bullets and, optionally, the nodes and edges of a diagram. LemonCrow checks all of it and writes the Mermaid itself; nothing the model returns reaches the pull request as Markdown or Mermaid text, and what it wrote is neutralised like every other model text (no hidden marker, mention, image, link target or HTML block).
+
+**What it may not do.**
+
+- **Judge.** The verdict, the score and the status come from the findings and the review's coverage, never from this call. A sentence that sounds like a verdict (`safe to merge`, `no issues`, `LGTM`, a score) is dropped, so the overview cannot contradict the score above it.
+- **Name what it was not shown.** Every node of a diagram must be a changed file, a changed symbol or one of a short list of generic actors (`User`, `Client`, `Browser`, `Server`, `API`, `Backend`, `Frontend`, `Database`, `Cache`, `Queue`, `External API`, `CLI`, `Worker`, `Scheduler`); any other node is dropped with its edges, and a diagram needs two nodes and an edge after that, or there is none.
+- **See what you keep from it.** A path your content-access policy denies (and `review.ignore`, which is one) is not in the prompt, by name or by diff. The prompt is the pull request's title, its description (cut, with credentials removed), a list of at most 40 changed files with their sizes, the changed symbols and at most 9,000 characters of diff, all tagged as data. On an agent-CLI route the call runs in an empty directory, so the model has no repository to read, only the prompt.
+
+**When it is not made.** On a trivial change (at most two files and twenty changed lines, generated and vendored files not counted), where there is nothing to summarise or draw; when the model-call cap is already spent; when the review itself had a model failure (a provider that is down is not asked for one more thing); and on a re-review of a head and merge base it already settled: the overview is carried in the summary's hidden state (`overview` and `overview_for`), so a re-run, `@lemoncrow review` on the same commit or a budget stop reuses it with no model call. A new push asks again. A call that fails is a line in the job log (`overview skipped: the model call failed (RuntimeError)`, never the provider's own words), not an error: the sentence under the score is then the pull request's title, there is no `### Summary`, and the next run of the same commit asks again. An answer with nothing usable in it is settled and not bought a second time.
+
+**What it costs.** One call whose prompt is the title, a cut description, a file list and a bounded diff (at most 9,000 characters of diff, so it does not grow with the pull request) and whose answer is a few hundred tokens. Measured on two real reviews of a three-file change through the claude CLI's `sonnet` alias: 5,300 and 6,000 characters of prompt (about 1,300 to 1,500 tokens), 370 and 460 output tokens, 5 seconds, and $0.008 and $0.019 at the CLI's list price, which was 12% and 8% of those two reviews and one call of five and of seven. Two reviews are an anecdote, not a measurement; see "Cost and limits".
+
+### Reactions
+
+The review's progress shows as reactions, where the person who started it will look: on the `@lemoncrow review` comment that asked for it, or on the pull request itself for a review a push or an open started. When the review starts the bot reacts with 👀. When it ends the 👀 comes off and a 👍 goes on if the review ran to its end (whatever it found: a review that found a P0 ran) or a 😕 if it could not run or could not finish (a model call failed, the model-call cap ran out, the pull request's review budget is spent). On the pull request itself the other reaction of an earlier run is taken off too, so it shows only the latest outcome.
+
+Reactions are **best effort and never a failure**: a reaction GitHub refuses never fails the review, changes the status or turns the job red.
+
+**Which permission.** GitHub's REST reference lists the three endpoints under different permissions:
+
+| A reaction on | Endpoint | Token permission |
+| --- | --- | --- |
+| a comment in a review thread | `POST /pulls/comments/{id}/reactions` | `pull-requests: write` |
+| a comment in the conversation | `POST /issues/comments/{id}/reactions` | `issues: write` |
+| the pull request itself | `POST /issues/{number}/reactions` | `issues: write` |
+
+The sample workflow grants `contents: read`, `pull-requests: write` and `statuses: write`, and **`pull-requests: write` does not cover the last two**: GitHub's list gives them `issues: write` alone (unlike commenting on a pull request, which either permission covers). So out of the box only a trigger typed in a review thread gets its reactions, and the other two are skipped without a word in the job log, since a refusal is the expected outcome there. The review itself is unaffected: the `LemonCrow Review` status still goes `pending` and then to the verdict. If you want the 👀 and 👍 on the pull request and on conversation comments, add `issues: write` to the `permissions:` line (see "Permissions"); it is optional and the Action never asks for it.
 
 ### Severity
 
@@ -226,10 +285,10 @@ Limits: a replacement is never offered for a file with CRLF or other ambiguous l
 
 ### Attribution trailers
 
-Every inline comment, and the row of each open finding in the summary, ends with a one-line trailer naming what the finding relied on, so you can check it or argue with it:
+Every inline comment (after its `Prompt To Fix With AI` block), and the row of each open finding in the summary (in a small line under it), carries a one-line trailer naming what the finding relied on, so you can check it or argue with it. The labels are bold, the way a reviewer cites a rule:
 
 ```text
-Rule used: `no-secrets-in-logs` · Context used: `src/handlers.py:12-18` (caller)
+**Rule used:** `no-secrets-in-logs` · **Context used:** `src/handlers.py:12-18` (caller)
 ```
 
 - **Where it comes from.** Only from the finding's validated references, never from its wording. The investigator names its evidence by reference, and the engine refuses a finding whose references are not in the list it built for that run. The trailer reads two kinds: the rule reference (the key of a rule you wrote in `.lemoncrow/review.yaml`, or imported through `import.rules_files`) and the evidence references that point at an excerpt of another file from the repository context pack (the file, the lines and the kind: caller, definition, test or config). A static-analysis finding, a recorded check or an attached artifact is named by kind only (`Static finding used`). The finding's own code and exact source are never listed: every finding has both, so they would say nothing. A sentence in a title or an explanation that looks like a trailer is the model's sentence, and is not one.
@@ -240,13 +299,16 @@ Rule used: `no-secrets-in-logs` · Context used: `src/handlers.py:12-18` (caller
 
 ### Impact and the risks examined
 
-Two lines of the summary say what the change is and what the review looked at, before you read a single finding. Neither calls a model, and neither is ever an input to an approval, the check or `fail-on`.
+Two things in the summary say how much the change could break and what the review looked at, before you read a single finding. Neither calls a model, and neither is ever an input to an approval, the check or `fail-on`.
 
-**The impact label** is **High impact**, **Medium impact** or **Low impact**, on its own line under the verdict, with its reasons and size:
+**The impact label** is **[High impact]**, **[Medium impact]** or **[Low impact]**, in brackets and bold in front of the one sentence that says what the pull request does (under the confidence score), with its reasons and size in a small line beneath:
 
 ```text
-**High impact** · security-sensitive code, persistence or a migration · 12 files, 340 changed lines (from the change itself, not a model)
+**[High impact]** Adds a ledger and posts an entry for every order
+<sub>security-sensitive code, persistence or a migration · 12 files, 340 changed lines · from the change itself, not a model</sub>
 ```
+
+The sentence is the overview's (see "The overview"), else the pull request's title; the label and the line under it are computed and never come from a model.
 
 It is the blast radius of the pull request, not a judgment of its quality: a careful change to the auth code is still High impact. It is computed from the change itself by this rule, so the same pull request gets the same label on every run and on every machine:
 
@@ -277,7 +339,7 @@ Risks examined: 2 of 3 · 1 found · 1 not investigated yet
 - **Found (held back)**: the only findings about that code sit below your threshold (see "Reducing noise"), so the verdict counts none of them. It is counted apart in the heading (`1 found (held back)`) and listed after the risks the verdict counts, so it never reads as a plain `Found` beside a verdict that says nothing is wrong.
 - It names the categories a call actually covered for code it examined, and every category the signal carries for code it did not, so it never claims a check that was not asked. A critical rule that covers the code is named by its key.
 - Code that was examined by an earlier review and has not changed since is listed too, marked `examined in an earlier review, unchanged since`, so the list covers the whole pull request and not only the last push.
-- Up to seven rows are shown, then `+N more` with how many of each kind. The block comes after the findings and before the change diagram, and on a clean review it sits beside `What we checked`.
+- Up to seven rows are shown, then `+N more` with how many of each kind. The block comes after the fix prompt, and on a clean review it sits beside `What we checked`.
 - Every word is fixed or is a path, a symbol name or a rule key from your repository (neutralised like every path in a comment). No finding title, explanation or rating is in it.
 - Limit: the list is rebuilt by each review and is not kept in the hidden state, so the summary written when a spent budget stops a push does not repeat it (it keeps the impact label).
 
@@ -329,7 +391,7 @@ The summary ends with `<!-- lemoncrow:state v1 {json} -->`. Read it instead of s
   "pull_request": "acme/widgets#7",
   "head_sha": "…", "base_sha": "…", "merge_base_sha": "…",
   "depth": "auto", "model": "openai/gpt-4o-mini", "complete": true, "reviews": 2,
-  "verdict": {"p0": 0, "p1": 1, "p2": 1},
+  "verdict": {"p0": 0, "p1": 1, "p2": 1}, "confidence": 3,
   "findings": [{"id": "finding-…", "fingerprint": "fp-…", "severity": "p1", "state": "new",
                 "path": "src/auth.py", "line": 2, "end_line": 4, "title": "…", "thread_id": 1002}],
   "usage": {"calls": 2, "input_tokens": 12000, "output_tokens": 800, "cost_usd": 0.004, "context_tokens": 5200},
@@ -339,9 +401,13 @@ The summary ends with `<!-- lemoncrow:state v1 {json} -->`. Read it instead of s
 
 `impact` (top level, absent until computed) is the impact label in its compact form, `<level>:<reasons joined by +>:<files>:<changed lines>`, for example `high:security+persistence:12:340`; `--json` carries it as an object with `level`, `label`, `reasons`, `score`, `files` and `lines`. (A finding's own `impact` is the investigator's rating, a different thing.)
 
+`confidence` is the score the summary shows (1 to 5, see "The confidence score"), so a tool reads it as data instead of scraping the heading; `--json` carries it as `verdict.confidence`. It is absent in a state written before it existed.
+
+`overview` (absent until one was made) is what the overview call returned after LemonCrow checked it: `one_line`, `intro`, `bullets` and, when there is one, the `diagram` structure (`kind`, `nodes` of `id`, `name` and `kind`, and `edges` of `from`, `to` and `label`). `overview_for` is the change it was decided for, `<head sha>:<merge base sha>`, which is what lets a re-run of the same change reuse it, even when it is none by design, with no model call (see "The overview"). `head_title` is the subject line of the reviewed commit, for the footer's link.
+
 `context_tokens` is LemonCrow's own estimate (four characters per token) of the repository context in the prompts; it is part of `input_tokens`, not on top of it, and it is absent when no context was sent.
 
-`diagram` is absent until the Change diagram was drawn or ruled out. It is `<drawing version>:<16 hex digits of the drawn section>` when a diagram is in the comment, or `<version>:none` when the Architecture Delta was read and nothing was worth drawing. It is what lets a re-run on an unchanged head leave the comment alone (see "Change diagram").
+`diagram` is absent until the diagram was drawn or ruled out. It is `<drawing version>:<16 hex digits of the drawn section>` when a diagram is in the comment, or `<version>:none` when nothing was worth drawing. It is what lets a re-run on an unchanged head leave the comment alone (see "Diagram").
 
 `view` is `<threshold>:<inline|summary>` (`high:summary`) when the repository's noise controls changed what the summary shows, and absent for the default presentation. It lets a re-run of an unchanged commit rewrite the comment when the threshold or `inline_comments` changed, and lets a run that reviews nothing because the budget is spent keep showing what the last review showed (see "Reducing noise"). Findings held back below the threshold are still in `findings`: the state is the whole truth, the comment is what the settings let through.
 
@@ -361,11 +427,28 @@ On a push, the Action reads the previous state, compares the new commit with it,
 
 A push that changes nothing LemonCrow reviews makes no model call and posts nothing. A changed depth, rule set, content-access policy or review prompt re-reviews everything once, because last time's result no longer means the same thing.
 
-## Change diagram
+## Diagram
 
-The summary can carry a collapsed **Change diagram**, after the findings and before the receipt: the relationships between files that the pull request added, removed or changed, as a [Mermaid](https://mermaid.js.org/) flowchart. GitHub draws it inline, so there is nothing to install and no image to host.
+The summary can carry an open **`### Diagram`**, after the summary and before the agent prompt: a [Mermaid](https://mermaid.js.org/) flowchart or sequence diagram of the pull request. GitHub draws it inline, so there is nothing to install and no image to host. Its first line is the neutral theme directive, so it reads on GitHub's light and dark themes. There are two sources, and the first one that has a diagram wins.
+
+**1. The model's proposal, drawn by LemonCrow.** On a pull request that is not trivial, the overview call (see "The overview") may propose a diagram as *structure*: nodes and edges with short labels, never Mermaid. LemonCrow keeps a node only if it names a changed file, a changed symbol or one of the generic actors, keeps an edge only if both its ends survived, needs two nodes and an edge, allows at most 12 nodes and 16 edges, and then writes the Mermaid itself: ids are counters (`n1`, `n2`), every label is escaped to character entities (a quote, bracket, angle bracket, pipe, backtick, `@`, `#`, `;` or `%` in a label can neither close it, start a tag or a comment, mention anyone nor open a fence), a file is a box, a symbol a rounded box and an actor a stadium, and a `sequence` diagram is its edges as messages in the order given.
 
 ```mermaid
+%%{init: {'theme': 'neutral'}}%%
+flowchart TD
+    n1["client.py"]
+    n2("authorize")
+    n3(["External API"])
+    n1 -->|"checks token"| n2
+    n1 -->|"retries call"| n3
+```
+
+A caption under the block says what it is: *sketched by the model from the diff; every box is a changed file, a changed symbol or a generic actor; the arrows are its reading of the change and are not checked against the code.* That last part is true and is why the diagram is a sketch: LemonCrow can prove every name is real, not that every arrow is.
+
+**2. The Architecture Delta, when the model gave none.** The same comparison the Review Map shows: LemonCrow builds the file-reference graph of the pull request's merge base and of its head from the exact trees, and draws a relationship only if it is on one side and not the other (or its count differs). Nothing is inferred and no model is called; every label is a path or a symbol name from the delta, escaped as above.
+
+```mermaid
+%%{init: {'theme': 'neutral'}}%%
 flowchart LR
     classDef added fill:#dafbe1,stroke:#2da44e,stroke-width:2px,color:#1f2328
     classDef changed fill:#fff8c5,stroke:#bf8700,stroke-width:4px,color:#1f2328
@@ -374,11 +457,11 @@ flowchart LR
         n1["orders.py"]:::changed
     end
     subgraph g2["core"]
-        n2["+ ledger.py"]:::added
+        n2["+ledger.py"]:::added
         n3["auth.py"]:::context
     end
-    n1 -->|"+ post_entry"| n2
-    n2 -->|"+ authorize"| n3
+    n1 -->|"+post_entry"| n2
+    n2 -->|"+authorize"| n3
     linkStyle 0,1 stroke:#2da44e,stroke-width:2px
 ```
 
@@ -389,21 +472,15 @@ flowchart LR
 | bold amber arrow or node | changed: a file the pull request edited, or a relationship whose reference count moved (`refs 1 → 3`) |
 | grey node | the other end of a changed relationship, which the pull request did not touch |
 
-An arrow points from the file that refers to another to the file it refers to. The legend sits under the block, and every node carries its own fill and text colour, so the diagram reads on GitHub's light and dark themes.
+An arrow points from the file that refers to another to the file it refers to. The legend sits under the block, and every node carries its own fill and text colour. This source only draws a flowchart, on purpose: a deterministic comparison of two source graphs knows that one file uses another, not in what order (no sequence diagram), names no table or column (no entity-relationship diagram) and sees references between files, not inheritance (no class diagram). At most 25 nodes and 40 arrows; past that, files are grouped by directory, the strongest relationships are kept, and the block says `N more relationships not shown`.
 
-**Why it never guesses.** The diagram is drawn from the Snapshot's Architecture Delta, the same comparison the Review Map shows: LemonCrow builds the file-reference graph of the pull request's merge base and of its head from the exact trees, and a relationship is drawn only if it is on one side and not the other (or its count differs). The delta's current-index context and its "known, but not compared" facts are ignored. No model is called, and no text a model wrote can reach the block: every label is a path or a symbol name from the delta, with quotes, brackets, angle brackets, pipes, backticks, `@` and anything else Mermaid or Markdown could act on turned into character entities. Only a flowchart is drawn, on purpose:
+**When there is none.** A **trivial** change (at most two files and twenty changed lines, generated and vendored files not counted) gets no diagram from either source: two boxes and an arrow is noise, and the section is open. A change with no relationship added or removed and no proposal gets none. Nor does one that changes no code (the repository map reads no references from Markdown, JSON, YAML, TOML, HTML or CSS), and neither does a repository with more than 2,000 source files in the head tree (set `LEMONCROW_REVIEW_DIAGRAM_MAX_FILES` to raise or lower the limit) when the delta would be the source. A skipped diagram never fails the review: a note in the job log says why.
 
-- not a **sequence diagram**: a deterministic comparison of two source graphs knows that one file uses another, not in what order, and the diagram would have to invent the order;
-- not an **entity-relationship diagram**: the delta's nodes are files. A file under `migrations/` is flagged as persistence, but no table or column is named, so there is no entity to draw;
-- not a **class diagram**: the delta's relationships are references between files, not inheritance or implementation.
+**Size.** The comment's own limit is respected first: when the summary would pass 65,000 characters, the diagram is the first thing dropped, before any finding is shortened or cut, and the hidden state stops recording it.
 
-**When there is none.** A pull request that adds or removes no relationship gets no diagram: a function body that changed, a count that moved with nothing added or removed, files added or deleted that nothing refers to. Nor does one that changes no code (the repository map reads no references from Markdown, JSON, YAML, TOML, HTML or CSS), and neither does a repository with more than 2,000 source files in the head tree (set `LEMONCROW_REVIEW_DIAGRAM_MAX_FILES` to raise or lower the limit). A skipped diagram never fails the review: a note in the job log says why.
+**Cost.** The model's proposal is part of the overview call and adds nothing to it. The delta parses every source file of both sides of the pull request with tree-sitter, about 10 to 25 milliseconds a file, once per head, which is why large repositories are skipped for it; it makes no model call. A re-run on an unchanged head and merge base does not ask or parse again: the overview in the hidden state redraws the same picture, and a delta block already in the comment is reused after checking it against the digest in the state, and the comment is rewritten only if the drawing would differ.
 
-**Limits.** At most 25 nodes and 40 arrows. Past that, files are grouped by directory (as deep as keeps the nodes under the cap), the strongest relationships are kept, and the block says `N more relationships not shown`. The comment's own size limit is respected first: when the summary would pass 65,000 characters, the diagram is the first thing dropped, before any finding is shortened or cut.
-
-**Cost.** The delta parses every source file of both sides of the pull request with tree-sitter, about 10 to 25 milliseconds a file, once per head; that is why large repositories are skipped. It makes no model call and adds nothing to the review's cost line. A re-run on an unchanged head and merge base does not parse again: it reuses the block already in the comment, after checking it against the digest in the hidden state, and rewrites the comment only if the drawing would differ.
-
-**Turning it off.** Set `diagram: off` on the Action (or `--diagram off` on `lc review --pr N --ai --publish-bot`). Nothing is parsed, and a comment that had a diagram is rewritten once without it. There is no `.lemoncrow/review.yaml` key for it: the pull request bot reads only the noise controls from that file (see "Reducing noise"), not per-feature switches, so the Action input is the switch.
+**Turning it off.** Set `diagram: off` on the Action (or `--diagram off` on `lc review --pr N --ai --publish-bot`). Neither source is built, and a comment that had a diagram is rewritten once without it; the overview's sentence and summary stay. There is no `.lemoncrow/review.yaml` key for it: the pull request bot reads only the noise controls from that file (see "Reducing noise"), not per-feature switches, so the Action input is the switch.
 
 ## Security scan
 
@@ -493,11 +570,11 @@ Mention the bot and it answers where you asked. The same Action does it: the wor
 - **What is reused.** Reviewed units are compared by content and by depth. The same commit at the same depth has nothing to look at again: no model is called, the reply says `Nothing has changed since my last review of <sha> at Auto … reused its results`, the summary is not rewritten and no review is counted. A new commit is reviewed from what changed since the last review (everything else is carried forward), so it costs what a push would. A deeper depth on the same commit re-examines it all at that depth, because depth is part of what "reviewed" means. A later push reviews at the workflow's depth, which re-examines everything once if the command used another.
 - **Who and where.** Exactly the people and rules chat uses: an allowed `author_association`, never a bot, never from a review comment on a fork's pull request. A fork's pull request can be reviewed from its conversation (`issue_comment` runs with this repository's secrets, and the Action reads the fork's git objects and runs none of them), except on an agent-CLI route, which is refused there because it runs tools.
 - **Budget.** It is a review: it adds one to `reviews`, its calls and cost to `usage_total`, and `max-runs-per-pr` and `max-usd-per-pr` apply as they do to a push. When the budget is spent the thread gets `Review budget reached: … no model was called` and nothing else happens, even when nothing has changed.
-- **Acknowledgement.** The bot reacts with eyes to the comment before it starts, best effort: a token without the permission skips the reaction and the review goes on, with a line in the job log. When the review is done it replies in the same thread or conversation with the depth, the verdict and a link to the summary, which has been updated in place. The `LemonCrow Review` status is set when the review finishes; it is never set to `pending` by a command, so a job that is killed leaves the earlier status as it was.
+- **Acknowledgement.** The bot reacts with eyes to the comment before it starts and, when the review is done, takes the eyes off and leaves a thumbs up (it ran) or a confused face (it could not run or could not finish); see "Reactions". It is best effort: a token without the permission skips the reaction and the review goes on. When the review is done it also replies in the same thread or conversation with the depth, the verdict and a link to the summary, which has been updated in place. The `LemonCrow Review` status is set when the review finishes; it is never set to `pending` by a command, so a job that is killed leaves the earlier status as it was.
 
-**Permissions.** None beyond the sample's. A reply in a review thread is `POST /pulls/{n}/comments/{id}/replies`, a conversation answer is `POST /issues/{n}/comments` and the eyes reaction of `review` is `POST /pulls/comments/{id}/reactions` or `POST /issues/comments/{id}/reactions`; all of them are covered by `pull-requests: write`, which GitHub's REST reference is understood to list (as an alternative to `issues: write`) for commenting on a pull request, and which the summary comment already relies on. Add `issues: write` only if you pass your own `github-token` that was issued with the `Issues` permission and not `Pull requests`. This was written from GitHub's documentation, not checked against a live repository (nothing in this Action has been); if a conversation answer fails with `Resource not accessible by integration`, add `issues: write`.
+**Permissions.** None beyond the sample's, except for one courtesy. A reply in a review thread is `POST /pulls/{n}/comments/{id}/replies` and a conversation answer is `POST /issues/{n}/comments`; both are covered by `pull-requests: write`, which GitHub's REST reference lists (as an alternative to `issues: write`) for commenting on a pull request, and which the summary comment already relies on. The reactions are different: the eyes, thumbs up and confused face of `review` are `POST /pulls/comments/{id}/reactions` on a comment in a review thread (covered by `pull-requests: write`) but `POST /issues/comments/{id}/reactions` on a comment in the conversation, which GitHub lists under `issues: write` alone. So with the sample's permissions, a `review` typed in the conversation is reviewed and answered but not reacted to, silently; add `issues: write` for the reactions (see "Reactions"). This was written from GitHub's published permission list, not checked against a live repository (nothing in this Action has been).
 
-**Limits.** The reply goes up when the model has finished; the only "working on it" marker is the eyes reaction of a `review` command. A `review` and a push can run at the same time (a comment has a concurrency group of its own, so neither cancels the other); both review, and the later write to the summary wins. A chat job installs the Action (a few seconds to a minute) and captures the pull request, so an answer takes about as long as the start of a review plus one model call. Two answers that finish in the same instant can be counted once. A mention is answered from the commit the pull request is at now, and the finding from the last review; if they differ the prompt says the review is not current.
+**Limits.** The reply goes up when the model has finished; the only "working on it" marker is the eyes reaction of a `review` command (which needs the permission above). A `review` and a push can run at the same time (a comment has a concurrency group of its own, so neither cancels the other); both review, and the later write to the summary wins. A chat job installs the Action (a few seconds to a minute) and captures the pull request, so an answer takes about as long as the start of a review plus one model call. Two answers that finish in the same instant can be counted once. A mention is answered from the commit the pull request is at now, and the finding from the last review; if they differ the prompt says the review is not current.
 
 ## Learning from feedback
 
@@ -661,6 +738,7 @@ For the threshold, `inline_comments` and `max_files` the order is: `.lemoncrow/r
 ## Cost and limits
 
 - Every review runs under a hard cap of 20 model calls. Formatting-only and comment-only changes cost zero calls.
+- **The overview** (the sentence under the score, the summary and the diagram, see "The overview") is one more call per review, made after the investigators and counted in the cap, the usage and the cost the footer shows. It is skipped on a trivial change and on a re-run of a commit it already settled, so a re-run costs it nothing, and a push pays it once.
 - **What Auto costs.** Auto examines every risk signal of a small change: one investigation per file and kind of signal (security, persistence, API, concurrency, performance, a rule of yours), up to six signals, with no extra call spent choosing among them; a function that is several changed scopes is asked about once, so it is reported once. At about 2,000 input and 500 output tokens a call, a Sonnet-class model ($3 and $15 per million tokens) costs about 1.4 cents an investigation, so a small pull request costs about 1.4 cents per signal (two signals: 3 cents; six: 8 cents), and a push re-asks only the scopes it changed. A change with more than six signals keeps the two-investigation Auto (plus one call that groups the signals), says `Partially reviewed: N of M risk signals examined`, and costs about 4 cents; `depth: thorough` or `deep` examine more of them and cost about three and five times as much. If you would rather have the cheaper, narrower Auto on every pull request, cap the calls in `.lemoncrow/review.yaml` (`per_review_model_calls`): Auto then investigates the highest-ranked signals the cap allows and the summary says how many it reached. Each call also asks for at most 8,192 output tokens (`LEMONCROW_REVIEW_MAX_OUTPUT_TOKENS` changes it), so no single call can cost more than a few cents of output.
 - Lower the cap, or pick the depth, in `.lemoncrow/review.yaml`. It is read from the pull request's **merge base**, never from the pull request's own branch, so a pull request cannot loosen its own review:
 
