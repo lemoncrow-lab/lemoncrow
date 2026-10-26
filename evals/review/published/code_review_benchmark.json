@@ -45,9 +45,9 @@
       "date": "2025-07",
       "date_kind": "evaluation run",
       "verification": {
-        "status": "search_retrieval",
+        "status": "primary_read",
         "checked_on": "2026-10-26",
-        "note": "Described from web-search retrievals of the page and from the answer key's README, which names it as the dataset's origin. The page itself could not be read from the build session (egress policy refused www.greptile.com with a 403 on CONNECT), so the wording is not confirmed against the live page."
+        "note": "Confirmed by the owner from the page on 2026-10-26 (provided as a structured summary of it): a July 2025 run of five tools on 50 real bugs, ten in each of Sentry (Python), Cal.com (TypeScript), Grafana (Go), Keycloak (Java) and Discourse (Ruby), recreated as pull requests and reviewed at default settings."
       }
     },
     "answer_key": {
@@ -280,9 +280,9 @@
         "date_kind": "evaluation run"
       },
       "verification": {
-        "status": "search_retrieval",
+        "status": "primary_read",
         "checked_on": "2026-10-26",
-        "note": "From web-search retrievals of the page, which agreed on 82% (41 of 50), 58% (29), 54% (27), 44% (22) and 6% (3) for the five tools. www.greptile.com is unreachable from the build session (egress policy refused it with a 403 on CONNECT), so the page was not read."
+        "note": "Confirmed by the owner from the page on 2026-10-26 (provided as a structured summary of it): Greptile 41 of 50 (82%), Cursor Bugbot 29 (58%), GitHub Copilot 27 (54%), CodeRabbit 22 (44%), Graphite 3 (6%); the primary metric is the detection rate of the one target bug per pull request, and precision and false positives are not measured. The page's per-repository counts give Copilot 26, not 27; Greptile's own figures (8, 8, 8, 8, 9 = 41) reconcile."
       }
     }
   ],
