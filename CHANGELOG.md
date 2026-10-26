@@ -151,6 +151,10 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Fixed
 
+- **The claude CLI route no longer fails on prompts over 128 KiB; the prompt goes on standard input.** A large
+  review prompt failed before the CLI started (`[Errno 7] Argument list too long`) because Linux caps one command-line
+  argument at 128 KiB. `lc review --agent claude`, the Action with driver `claude`, and the Codex route (`codex exec -`)
+  now send the prompt on standard input. The OpenCode route still passes it as an argument.
 - **The change diagram no longer draws a file as a different name or as an error.** Mermaid 11 reads a label as
   Markdown: `__init__.py` was drawn as a bold "init.py", and a label that began with `+ ` (every added file and
   relationship) was drawn as "Unsupported markdown: list". An underscore at the edge of a word and a leading list

@@ -413,7 +413,7 @@ def test_an_unreadable_cache_entry_is_asked_again(tmp_path: Path) -> None:
 
 
 def fake_claude(tmp_path: Path, replies: list[str]) -> tuple[Path, Path]:
-    """A stand-in ``claude`` that logs its arguments and working directory and prints the next reply."""
+    """A stand-in ``claude`` that logs its arguments, standard input and working directory and prints the next reply."""
 
     log = tmp_path / "claude.log"
     state = tmp_path / "claude.count"
@@ -424,7 +424,7 @@ def fake_claude(tmp_path: Path, replies: list[str]) -> tuple[Path, Path]:
         f"replies = {replies!r}\n"
         f"count = int(open({str(state)!r}).read()) if os.path.exists({str(state)!r}) else 0\n"
         f"open({str(state)!r}, 'w').write(str(count + 1))\n"
-        f"open({str(log)!r}, 'a').write(json.dumps({{'argv': sys.argv[1:], 'cwd': os.getcwd(), 'listing': os.listdir('.')}}) + '\\n')\n"
+        f"open({str(log)!r}, 'a').write(json.dumps({{'argv': sys.argv[1:], 'stdin': sys.stdin.read(), 'cwd': os.getcwd(), 'listing': os.listdir('.')}}) + '\\n')\n"
         "sys.stdout.write(replies[min(count, len(replies) - 1)])\n",
         encoding="utf-8",
     )
@@ -472,7 +472,10 @@ def test_the_claude_cli_judge_runs_with_no_tools_no_settings_and_an_empty_direct
     )
     schema = json.loads(argv[argv.index("--json-schema") + 1])
     assert schema["required"] == ["pairs"]
-    prompt = argv[argv.index("-p") + 1]
+    # The prompt is on stdin, not argv: one argv element is capped at 128 KiB.
+    assert argv[argv.index("-p") + 1].startswith("--")
+    prompt = entry["stdin"]
+    assert not any("same underlying issue" in arg for arg in argv)
     assert "same underlying issue" in prompt and "the cache is stale" in prompt and "cache never invalidated" in prompt
     assert entry["listing"] == []  # an empty working directory: the repository under review is not there
     assert entry["cwd"] != str(tmp_path) and "lemoncrow-golden-judge-" in entry["cwd"]

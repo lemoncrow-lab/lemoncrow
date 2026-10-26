@@ -314,8 +314,8 @@ class ClaudeCliJudge:
             json.dumps(dict(JUDGE_SCHEMA), separators=(",", ":")),
             "--model",
             JUDGE_MODEL,
+            # The prompt goes on stdin: one argv element is capped at 128 KiB, and a judged review can be larger.
             "-p",
-            instruction,
             "--output-format",
             "json",
         ]
@@ -325,7 +325,13 @@ class ClaudeCliJudge:
                 started = time.monotonic()
                 try:
                     completed = subprocess.run(
-                        command, cwd=empty, capture_output=True, text=True, check=False, timeout=self._timeout
+                        command,
+                        cwd=empty,
+                        input=instruction,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                        timeout=self._timeout,
                     )
                 except (OSError, subprocess.TimeoutExpired) as exc:
                     last = f"{type(exc).__name__}: {exc}"

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -64,7 +66,7 @@ def test_claude_review_ask_uses_partial_stream_json(monkeypatch: pytest.MonkeyPa
         "handoff_instruction": "",
     }
 
-    def fake_stream(command, *, cwd, env, on_stdout, timeout):
+    def fake_stream(command, *, cwd, env, on_stdout, timeout, stdin_text=None):
         captured["command"] = list(command)
         events = [
             {
@@ -223,7 +225,7 @@ def test_agent_cli_ask_drivers_are_read_only_and_parse_json(
     claude_mcp: list[dict[str, object]] = []
     monkeypatch.setattr(intelligence_drivers.shutil, "which", lambda name: f"/usr/bin/{name}")
 
-    def fake_run(command, *, cwd, env=None, capture_output, text, check, timeout):
+    def fake_run(command, *, cwd, env=None, input=None, capture_output, text, check, timeout):
         commands.append((list(command), Path(cwd)))
         if driver == "claude":
             config_path = Path(command[command.index("--mcp-config") + 1])
@@ -312,7 +314,7 @@ def test_opencode_review_ask_uses_ollama_and_lemoncrow_mcp(
     monkeypatch.setattr("lemoncrow.core.capabilities.providers.config.load_providers_config", lambda _root: Config())
     captured: dict[str, object] = {}
 
-    def fake_run(command, *, cwd, env=None, capture_output, text, check, timeout):
+    def fake_run(command, *, cwd, env=None, input=None, capture_output, text, check, timeout):
         captured["command"] = list(command)
         captured["cwd"] = Path(cwd)
         captured["env"] = dict(env or {})
@@ -374,7 +376,7 @@ def test_opencode_review_ask_uses_native_model_catalog_and_existing_auth(
 
     captured: dict[str, object] = {}
 
-    def fake_run(command, *, cwd, env=None, capture_output, text, check, timeout):
+    def fake_run(command, *, cwd, env=None, input=None, capture_output, text, check, timeout):
         captured["command"] = list(command)
         captured["cwd"] = Path(cwd)
         captured["env"] = dict(env or {})
@@ -425,7 +427,7 @@ def test_codex_human_and_code_ask_never_load_user_config_shell_or_repo_rules(
     commands: list[tuple[list[str], Path]] = []
     monkeypatch.setattr(intelligence_drivers.shutil, "which", lambda name: f"/usr/bin/{name}")
 
-    def fake_run(command, *, cwd, env=None, capture_output, text, check, timeout):
+    def fake_run(command, *, cwd, env=None, input=None, capture_output, text, check, timeout):
         commands.append((list(command), Path(cwd)))
         body = {"intent": "question", "body": "Grounded answer", "handoff_instruction": ""}
         return SimpleNamespace(returncode=0, stdout=json.dumps(body), stderr="")
@@ -644,3 +646,147 @@ def test_codex_reports_tokens_and_no_cost(monkeypatch: pytest.MonkeyPatch, tmp_p
 
     assert (usage.calls, usage.input_tokens, usage.output_tokens) == (1, 1200, 80)
     assert (usage.provider_cost, usage.currency) == (None, None)
+
+
+# One argv element is capped at 128 KiB (MAX_ARG_STRLEN on Linux): a real Review prompt over that failed to start the CLI
+# (`[Errno 7] Argument list too long`). The prompt goes on standard input; these tests run a real child process, as the
+# fake in the plain-mode tests above cannot show an argv limit.
+_LARGE_PROMPT = "".join(f"line {i}: ünï ✓ {'x' * 40}\n" for i in range(6000))
+
+
+def _fake_agent_cli(tmp_path: Path, name: str, stdout: str) -> tuple[Path, Path, Path]:
+    """A stand-in ``claude``/``codex`` that logs its argv, keeps all of its stdin, and prints ``stdout``."""
+
+    argv_log, stdin_log = tmp_path / f"{name}-argv.json", tmp_path / f"{name}-stdin.txt"
+    script = tmp_path / "bin" / name
+    script.parent.mkdir()
+    script.write_text(
+        f"#!{sys.executable}\n"
+        "import json, sys\n"
+        f"open({str(argv_log)!r}, 'w').write(json.dumps(sys.argv[1:]))\n"
+        f"open({str(stdin_log)!r}, 'wb').write(sys.stdin.buffer.read())\n"
+        f"sys.stdout.write({stdout!r})\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    return script, argv_log, stdin_log
+
+
+@pytest.mark.parametrize("streaming", [False, True], ids=["plain", "streaming"])
+@pytest.mark.parametrize("driver", ["claude", "codex"])
+def test_a_prompt_over_128_kib_reaches_the_cli_on_stdin_not_argv(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, driver: str, streaming: bool
+) -> None:
+    structured = _CLAUDE_RESULT["structured_output"]
+    if driver == "claude":
+        stdout = json.dumps(_CLAUDE_RESULT) + "\n"
+    else:
+        stdout = "".join(
+            json.dumps(event) + "\n"
+            for event in (
+                {"type": "item.completed", "item": {"type": "agent_message", "text": json.dumps(structured)}},
+                {
+                    "type": "turn.completed",
+                    "usage": {"input_tokens": 1200, "cached_input_tokens": 200, "output_tokens": 80},
+                },
+            )
+        )
+    script, argv_log, stdin_log = _fake_agent_cli(tmp_path, driver, stdout)
+    monkeypatch.setattr(intelligence_drivers.shutil, "which", lambda name: str(script) if name == driver else None)
+    project_root = tmp_path / "snapshot"
+    project_root.mkdir()
+    reported: list[dict[str, int | float]] = []
+    assert len(_LARGE_PROMPT.encode()) > 300 * 1024
+
+    result = _human_ask_cli(
+        driver=driver,  # type: ignore[arg-type]
+        model="sonnet" if driver == "claude" else "gpt-test",
+        system="system",
+        prompt=_LARGE_PROMPT,
+        project_root=project_root,
+        on_usage_reported=reported.append,
+        **({"on_raw_delta": lambda _fragment: None} if streaming else {}),
+    )
+
+    assert result == structured
+    assert len(reported) == 1
+    if driver == "claude":
+        assert reported[0]["cost_usd"] == 0.0369 and reported[0]["input_tokens"] == 18661
+    else:
+        assert reported[0]["input_tokens"] == 1200
+    # The CLI read the whole prompt (system text first, the 300 KB context last) from its standard input...
+    received = stdin_log.read_bytes().decode("utf-8")
+    assert received.startswith("system\n\n") and received.endswith(_LARGE_PROMPT)
+    # ...and none of it was on the command line.
+    argv = json.loads(argv_log.read_text())
+    assert max(len(arg.encode()) for arg in argv) < 128 * 1024
+    assert not any("line 0: " in arg or "Review context:" in arg for arg in argv)
+    if driver == "claude":
+        assert argv[argv.index("-p") + 1].startswith("--"), "`-p` takes no prompt: claude reads stdin"
+    else:
+        assert argv[-1] == "-", "`codex exec -` reads its prompt from stdin"
+        assert "--skip-git-repo-check" in argv
+
+
+def test_the_streaming_runner_feeds_a_large_stdin_while_it_drains_the_output(tmp_path: Path) -> None:
+    """A child that echoes as it reads fills the stdout pipe long before stdin is written: no deadlock."""
+
+    echo = "import sys\nfor line in sys.stdin:\n    sys.stdout.write(line)\n    sys.stdout.flush()\n"
+    text = "".join(f"{i}: {'y' * 90}\n" for i in range(20_000))  # ~1.9 MB, far over the pipe buffers
+    lines: list[str] = []
+
+    returncode, stdout, stderr = intelligence_drivers._run_streaming_process(
+        [sys.executable, "-c", echo],
+        cwd=tmp_path,
+        env=None,
+        on_stdout=lines.append,
+        timeout=60.0,
+        stdin_text=text,
+    )
+
+    assert (returncode, stderr) == (0, "")
+    assert stdout == text and "".join(lines) == text
+
+
+def test_the_streaming_runner_does_not_fail_when_the_cli_exits_without_reading_stdin(tmp_path: Path) -> None:
+    started = time.monotonic()
+
+    returncode, stdout, _stderr = intelligence_drivers._run_streaming_process(
+        [sys.executable, "-c", "print('done')"],
+        cwd=tmp_path,
+        env=None,
+        on_stdout=lambda _line: None,
+        timeout=30.0,
+        stdin_text="z" * (4 * 1024 * 1024),
+    )
+
+    assert (returncode, stdout) == (0, "done\n")
+    assert time.monotonic() - started < 10.0
+
+
+def test_the_streaming_runner_still_times_out_and_cancels_when_the_cli_never_reads_stdin(tmp_path: Path) -> None:
+    """The stdin write blocks on a full pipe; the timeout and the cancellation check must not wait for it."""
+
+    never_reads = [sys.executable, "-u", "-c", "import time; print('READY', flush=True); time.sleep(30)"]
+    big = "z" * (4 * 1024 * 1024)
+
+    started = time.monotonic()
+    with pytest.raises(intelligence_drivers.subprocess.TimeoutExpired):
+        intelligence_drivers._run_streaming_process(
+            never_reads, cwd=tmp_path, env=None, on_stdout=lambda _line: None, timeout=1.0, stdin_text=big
+        )
+    assert time.monotonic() - started < 6.0
+
+    started = time.monotonic()
+    ready: list[str] = []
+    with pytest.raises(intelligence_drivers.CliExecutionCancelled):
+        intelligence_drivers._run_streaming_process(
+            never_reads,
+            cwd=tmp_path,
+            env=None,
+            on_stdout=ready.append,
+            timeout=30.0,
+            cancellation=lambda: bool(ready),
+            stdin_text=big,
+        )
+    assert time.monotonic() - started < 6.0
