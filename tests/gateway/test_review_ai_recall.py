@@ -205,3 +205,188 @@ def test_a_message_catalogue_is_not_worth_a_call_and_its_name_is_no_risk(path: s
 )
 def test_code_that_lives_beside_a_catalogue_or_is_named_after_one_still_gets_a_look(path: str) -> None:
     assert ai_review.not_worth_a_look(_changed(path)) == ""
+
+
+# --------------------------------------------------------------------------- #
+# one defect found by two calls is one finding: the repeat check of a pull request review
+# --------------------------------------------------------------------------- #
+
+AUTH_TITLE = "lets a missing principal through"
+CACHE_TITLE = "grows without a bound"
+TOKEN_TITLE = "compares secrets without a constant-time check"
+
+
+def _three_findings() -> dict[str, str]:
+    from tests.gateway.pr_bot_support import AUTH_BUGGY, CACHE_BUGGY, TOKEN_BUGGY
+
+    return {"src/auth.py": AUTH_BUGGY, "src/cache.py": CACHE_BUGGY, "src/token.py": TOKEN_BUGGY}
+
+
+@pytest.fixture
+def world(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
+    from tests.gateway.pr_bot_support import BASE, build_world
+
+    return build_world(tmp_path, monkeypatch, BASE)
+
+
+def test_a_review_with_three_findings_asks_once_which_of_them_repeat_each_other(world: Any) -> None:
+    world.origin.push(_three_findings())
+    world.model.repeats = [(AUTH_TITLE, CACHE_TITLE)]
+
+    report = world.review()
+
+    assert sorted(finding.title for finding in report.findings) == [TOKEN_TITLE, AUTH_TITLE]
+    (asked,) = world.model.dedupes
+    rows = asked["findings"]["value"]
+    assert {row["title"] for row in rows} == {
+        AUTH_TITLE,
+        CACHE_TITLE,
+        TOKEN_TITLE,
+    }, "every finding is shown, not a group"
+    assert {row["path"] for row in rows} == {"src/auth.py", "src/cache.py", "src/token.py"}
+    assert asked["overlap_groups"] == [[row["id"] for row in rows]]
+
+
+def test_the_check_keeps_every_finding_it_names_no_repeat_of(world: Any) -> None:
+    world.origin.push(_three_findings())
+
+    report = world.review()
+
+    assert len(report.findings) == 3 and len(world.model.dedupes) == 1
+
+
+def test_fewer_than_three_findings_cost_no_repeat_check(world: Any) -> None:
+    from tests.gateway.pr_bot_support import AUTH_BUGGY, CACHE_BUGGY
+
+    world.origin.push({"src/auth.py": AUTH_BUGGY, "src/cache.py": CACHE_BUGGY})
+
+    report = world.review()
+
+    assert len(report.findings) == 2 and world.model.dedupes == []
+
+
+def test_the_repeat_check_can_be_turned_off(world: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LEMONCROW_REVIEW_DUPLICATE_CHECK", "off")
+    world.origin.push(_three_findings())
+    world.model.repeats = [(AUTH_TITLE, CACHE_TITLE)]
+
+    report = world.review()
+
+    assert len(report.findings) == 3 and world.model.dedupes == []
+    assert ai_review.duplicate_check_enabled({}) and not ai_review.duplicate_check_enabled(
+        {ai_review.DUPLICATES_ENV: "0"}
+    )
+
+
+def test_a_repeat_check_the_model_cannot_answer_keeps_the_findings_and_does_not_fail_the_review(world: Any) -> None:
+    from tests.gateway.pr_bot_support import FakeModel
+
+    class RefusesTheCheck(FakeModel):
+        def _dedupe(self, prompt: dict[str, Any]) -> Any:
+            raise RuntimeError("provider unavailable")
+
+    world.model = RefusesTheCheck()
+    world.origin.push(_three_findings())
+
+    report = world.review()
+
+    assert len(report.findings) == 3
+    assert report.exit_code == 0 and "model calls failed" not in report.reason
+
+
+def _confirmed(finding_id: str, *targets: str) -> Any:
+    return ai_review.ConfirmedFinding(
+        id=finding_id,
+        run_id="run-1",
+        category="correctness",
+        target_ids=tuple(targets),
+        title=finding_id,
+        explanation="e",
+        consequence="c",
+        evidence_refs=(),
+        rule_refs=(),
+        driver="claude",
+        model="sonnet",
+    )
+
+
+def _decide(
+    monkeypatch: pytest.MonkeyPatch, names: list[str], decisions: list[dict[str, Any]], *, paths: Any
+) -> list[str]:
+    def fake_runtime(**_: Any) -> IntelligenceRunOutcome:
+        return IntelligenceRunOutcome(
+            run_id="r",
+            status="ready",
+            result={"decisions": decisions},
+            driver="claude",
+            model="sonnet",
+            usage=ModelCallUsage(),
+            provider_calls_this_request=1,
+            duration_ms=1,
+            cache_hit=False,
+        )
+
+    monkeypatch.setattr(ai_review, "_execute_runtime", fake_runtime)
+    kept, _outcome = ai_review._semantic_dedupe(
+        store=None,
+        revision=None,  # type: ignore[arg-type]
+        route=None,  # type: ignore[arg-type]
+        findings=[_confirmed(name, TARGET_A) for name in names],
+        budget=None,  # type: ignore[arg-type]
+        policy_context=None,
+        snapshot_root=None,  # type: ignore[arg-type]
+        structured_executor=None,  # type: ignore[arg-type]
+        cancellation=None,
+        paths=paths,
+    )
+    return [finding.id for finding in kept]
+
+
+def test_a_pull_request_decision_names_the_repeats_among_all_the_findings_and_the_rest_stay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = {name: "pkg/a.py" for name in ("f1", "f2", "f3", "f4")}
+
+    kept = _decide(monkeypatch, ["f1", "f2", "f3", "f4"], [{"finding_ids": ["f2", "f4"], "keep_id": "f4"}], paths=paths)
+
+    assert kept == ["f1", "f3", "f4"]
+
+
+def test_a_decision_naming_a_stranger_or_keeping_one_outside_its_ids_changes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = {name: "pkg/a.py" for name in ("f1", "f2", "f3")}
+
+    kept = _decide(
+        monkeypatch,
+        ["f1", "f2", "f3"],
+        [
+            {"finding_ids": ["f1", "f9"], "keep_id": "f1"},  # one real id is not a pair
+            {"finding_ids": ["f1", "f2"], "keep_id": "f9"},  # keeps a finding that is not one of them
+        ],
+        paths=paths,
+    )
+
+    assert kept == ["f1", "f2", "f3"]
+
+
+def test_a_finding_kept_by_one_decision_is_not_dropped_by_the_next(monkeypatch: pytest.MonkeyPatch) -> None:
+    paths = {name: "pkg/a.py" for name in ("f1", "f2", "f3")}
+
+    kept = _decide(
+        monkeypatch,
+        ["f1", "f2", "f3"],
+        [{"finding_ids": ["f1", "f2"], "keep_id": "f1"}, {"finding_ids": ["f2", "f3"], "keep_id": "f2"}],
+        paths=paths,
+    )
+
+    assert kept == [
+        "f1",
+        "f2",
+    ], "f3 repeats f2 and f2 repeats f1: the chain is not followed past a finding that was kept"
+
+
+def test_the_readers_groups_are_still_decided_whole(monkeypatch: pytest.MonkeyPatch) -> None:
+    kept = _decide(monkeypatch, ["f1", "f2", "f3"], [{"finding_ids": ["f1", "f2"], "keep_id": "f1"}], paths=None)
+
+    assert kept == ["f1", "f2", "f3"], "a subset of the Reader's group is not a decision"
