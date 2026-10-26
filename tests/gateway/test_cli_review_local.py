@@ -216,6 +216,7 @@ def test_the_severity_is_the_one_the_pull_request_bot_stores(ruled: Lab) -> None
         "p0": 1,
         "p1": 1,
         "p2": 1,
+        "confidence": 1,
     }
 
 
@@ -265,6 +266,7 @@ def test_a_p2_under_strictness_3_never_counts_toward_fail_on_and_is_in_the_json(
         "p0": 0,
         "p1": 0,
         "p2": 0,
+        "confidence": 5,
         "held_back": 1,
     }
     assert [(row["severity"], row["title"], row["state"]) for row in wire["held_back"]] == [("p2", CACHE_TITLE, "new")]
@@ -642,7 +644,7 @@ def test_an_unexpected_error_in_the_review_is_incomplete_and_never_exit_1(
         (["--mark", "src/a.py"], "--ai reviews a change on its own; drop --mark"),
         (["--list-reviews"], "drop --current/--resume-author/--list-reviews"),
         (["--publish"], "a local --ai review posts nothing"),
-        (["--dry-run"], "--dry-run only applies to --publish or --publish-bot"),
+        (["--dry-run"], "a local --ai review already posts nothing; add --pr NUMBER|URL to preview a pull request"),
         (["--base", "no-such-revision"], "no-such-revision"),
         (["no-such-revision..HEAD"], "no-such-revision"),
         (["--max-usd-per-pr", "0"], "0 is not in the range"),
@@ -760,7 +762,7 @@ def test_json_is_a_stable_machine_readable_result(ruled: Lab) -> None:
         "fail_on": "p1",
         "strict": False,
     }
-    assert set(wire["verdict"]) == {"state", "headline", "p0", "p1", "p2"}
+    assert set(wire["verdict"]) == {"state", "headline", "p0", "p1", "p2", "confidence"}
     assert wire["complete"] is True and wire["incomplete_reason"] == ""
     assert set(wire["coverage"]) == {"files", "targets", "rereviewed", "unchanged", "candidates", "investigated"}
     assert wire["coverage"]["files"] == ["src/auth.py", "src/cache.py"]

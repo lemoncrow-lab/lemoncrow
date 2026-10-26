@@ -110,7 +110,12 @@ def _review_pull_request_with_ai(
     with_impact: bool,
     as_json: bool,
 ) -> None:
-    """``--ai`` / ``--publish-bot``: review a pull request headlessly, in process, on your own model route."""
+    """``--ai`` / ``--publish-bot``: review a pull request headlessly, in process, on your own model route.
+
+    Only ``--publish-bot`` writes to GitHub. ``--ai`` alone and ``--ai --dry-run`` are the same preview as
+    ``--publish-bot --dry-run``: the pull request is read and reviewed, and the summary and every inline comment the bot
+    would post are printed, with nothing written. The runner is given a preview, so the three forms cannot differ.
+    """
 
     import os
 
@@ -122,6 +127,7 @@ def _review_pull_request_with_ai(
         root = detect_repo_root(repo_root)
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
+    preview = dry_run or not publish
     options = RunOptions(
         pr=pr_spec,
         repo_root=root,
@@ -129,8 +135,8 @@ def _review_pull_request_with_ai(
         fail_on=fail_on,
         review_drafts=review_drafts,
         on_push=on_push,
-        publish=publish,
-        dry_run=dry_run,
+        publish=True,
+        dry_run=preview,
         with_impact=with_impact,
         max_usd_per_pr=max_usd_per_pr,
         max_runs_per_pr=max_runs_per_pr,
@@ -158,13 +164,13 @@ def _review_pull_request_with_ai(
     elif not report.skipped:
         previewed = bool(report.published.get("dry_run"))
         if isinstance(report.published.get("chat"), dict):
-            _emit_chat(report, dry_run=dry_run)
+            _emit_chat(report, dry_run=preview)
         elif report.published and not previewed:
             _emit_bot_publication(report)
         else:
             # A dry run shows the exact summary comment, not only its headline: that is what it is for.
             click.echo(strip_state(report.summary))
-        if dry_run and not isinstance(report.published.get("chat"), dict):
+        if preview and not isinstance(report.published.get("chat"), dict):
             _emit_dry_run_comments(report)
     if report.exit_code:
         ctx.exit(report.exit_code)

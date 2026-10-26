@@ -48,6 +48,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 BACKEND_ENV = "LEMONCROW_LLM_BACKEND"
 MODEL_ENV = "LEMONCROW_REVIEW_MODEL"
@@ -332,6 +333,31 @@ _INLINE_CODE = re.compile(r"`[^`\n]*`")
 _QUOTE = re.compile(r"^[ \t]*>.*$", re.MULTILINE)
 #: Text the bot writes into its own comments. A comment that carries one is the bot's, whoever the login says posted it.
 _OWN_MARKER = "<!-- lemoncrow:"
+
+
+def chat_wired(env: Mapping[str, str], repo_root: Path) -> bool | None:
+    """Whether this workflow listens to comments, which is what makes ``@lemoncrow review`` do something.
+
+    A comment event running this job says so. Otherwise the workflow file named by ``GITHUB_WORKFLOW_REF`` is read from the
+    checkout and looked at for the two comment triggers. ``None`` when that cannot be told (not in Actions, the file is
+    not in the checkout): the caller then says what is usually true. Reads one small file under *repo_root*, nothing else.
+    """
+
+    if str(env.get("GITHUB_EVENT_NAME") or "") in CHAT_EVENTS:
+        return True
+    repository = str(env.get("GITHUB_REPOSITORY") or "")
+    named = str(env.get("GITHUB_WORKFLOW_REF") or "").partition("@")[0]
+    if not repository or not named.startswith(f"{repository}/"):
+        return None
+    root = repo_root.resolve()
+    target = (root / named[len(repository) + 1 :]).resolve()
+    if root not in target.parents or not target.is_file():
+        return None
+    try:
+        text = target.read_text(encoding="utf-8", errors="replace")[:200_000]
+    except OSError:
+        return None
+    return any(trigger in text for trigger in CHAT_EVENTS)
 
 
 def chat_mentions(env: Mapping[str, str]) -> tuple[str, ...]:

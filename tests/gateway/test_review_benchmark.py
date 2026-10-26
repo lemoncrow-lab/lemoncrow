@@ -324,6 +324,9 @@ def test_a_missed_label_says_whether_the_model_was_ever_asked(tmp_path: Path) ->
 def test_the_ceiling_stops_the_run_and_leaves_a_partial_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     one_call_per_file(monkeypatch)  # the pull request's two small files get a call each, so a ceiling can cut one
     world = World(tmp_path)
+    # shop-12's Auto review asks the model twice (one call per file here: `one_call_per_file` keeps its two small files from
+    # sharing one), so a ceiling of 1 falls inside that review. A ceiling equal to its call count would let it finish and
+    # refuse only the next pull request's first call.
     results, ledger, facts, options = world.run(max_calls=1, depths=("auto", "deep"))
 
     assert ledger.stopped == "the call ceiling of 1 was reached" and ledger.calls == 1

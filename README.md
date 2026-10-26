@@ -237,8 +237,11 @@ prints (a commit, not a branch: the commit is the version that reviews). The
 options (depth, `fail-on`, strictness, chat, budgets), the permissions, the one
 status to require and the fork-pull-request behavior are in
 [Install the GitHub Action](docs/setup/github-action.md). To try it without CI:
-`lc review --pr 123 --ai` prints the findings and posts
-nothing.
+`lc review --pr 123 --ai` prints the summary and each inline comment the bot
+would post, and posts nothing.
+
+<!-- lemoncrow:benchmark:start -->
+<!-- lemoncrow:benchmark:end -->
 
 ---
 

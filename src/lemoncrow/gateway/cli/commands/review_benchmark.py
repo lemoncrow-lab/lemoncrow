@@ -79,8 +79,9 @@ def _plan_text(corpus: RealPrCorpus, depths: tuple[str, ...], driver: str, pushe
             if pushes
             else ""
         ),
-        f"at most {worst} model calls in all: the investigator ladder per review "
-        "(quick 1, auto 3, thorough 6, deep 10, under the hard cap of 20)",
+        f"at most {worst} model calls in all: what one review can make at each depth "
+        f"({', '.join(f'{name} {count}' for name, count in CALLS_AT_MOST.items())}; the hard cap is 20, and an Auto review "
+        "of an ordinary pull request makes a handful)",
         "dollars cannot be bounded before a call returns its tokens: the ceiling stops the run, not this plan",
     ]
     for pr in corpus.prs:
@@ -514,6 +515,12 @@ def import_reviews(
     default=None,
     help="Comma-separated identifiers to keep (default: all the candidates, to be trimmed by hand).",
 )
+@click.option(
+    "--within-change",
+    is_flag=True,
+    help="Keep only fix sites on lines the reviewed change itself added or changed (a wide fix otherwise labels code "
+    "the pull request never touched).",
+)
 def derive_label_command(
     repo: Path,
     fix: str,
@@ -525,6 +532,7 @@ def derive_label_command(
     title: str,
     license_id: str,
     symbols: str | None,
+    within_change: bool,
 ) -> None:
     """Print a corpus entry for a bug fixed by a later commit, derived from git alone.
 
@@ -537,7 +545,7 @@ def derive_label_command(
     from lemoncrow.pro.capabilities.review.evaluation.label_derivation import DerivationError, derive_label, pr_entry
 
     try:
-        derivation = derive_label(repo, fix, introduced, head=head, pull=pull)
+        derivation = derive_label(repo, fix, introduced, head=head, pull=pull, within_change=within_change)
     except DerivationError as exc:
         raise click.ClickException(str(exc)) from exc
     chosen = [part.strip() for part in symbols.split(",") if part.strip()] if symbols is not None else None

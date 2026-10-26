@@ -17,7 +17,7 @@ Why a pack and not a tool loop for API routes: the API clients (``openai_client`
 structured call with ``response_format=json_object`` and have no function-calling loop, so a tool loop would need
 a new multi-turn client in two providers, per-turn token accounting and a way to keep every extra turn inside the
 call cap -- and a model-driven loop spends an unpredictable number of calls. The pack adds **no** model call (the
-1/2/5/9 investigator ladder and the 20-call cap are untouched) and its size is a known ceiling per depth.
+20-call cap is untouched) and its size is a known ceiling per depth.
 
 What it is built from, all existing:
 
@@ -121,7 +121,7 @@ class ContextBudget:
 
 
 _MIB = 1024 * 1024
-#: The context budget per depth. It scales with the investigator ladder (1/2/5/9 calls): a deeper review is asked
+#: The context budget per depth. It scales with the depth: a deeper review is asked
 #: to be more thorough, so each of its calls may carry more. A pack never adds a call.
 BUDGETS: Final[Mapping[str, ContextBudget]] = {
     "quick": ContextBudget(1_500, 3, 3, 1, 1, 16, 1_000, 3_000, 8 * _MIB),
@@ -1270,12 +1270,15 @@ def old_source_reader(store: Any, revision: Any, repo_root: Path) -> Callable[[s
             return None
         import subprocess
 
+        from lemoncrow.pro.capabilities.review.git_env import git_environment
+
         try:
             completed = subprocess.run(
                 ["git", "-C", str(repo_root), "show", f"{base}:{path}"],
                 capture_output=True,
                 check=False,
                 timeout=20,
+                env=git_environment(),
             )
         except (OSError, subprocess.SubprocessError):
             return None

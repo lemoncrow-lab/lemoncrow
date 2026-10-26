@@ -49,6 +49,11 @@ MAX_COMMENT: Final[int] = 65_000
 STATUS_CONTEXT: Final[str] = "LemonCrow Review"
 #: Findings whose full text goes into the agent prompt; the rest are listed by location.
 PROMPT_FINDINGS: Final[int] = 25
+#: Where the severity badges are served from (the landing site's ``public/badges/``, drawn from the design tokens), and
+#: the version that is part of each URL: bump it when a badge file changes, or GitHub's image cache keeps the old one.
+#: A badge is an image with its text as the alt text, so a comment still reads when the image cannot load.
+BADGE_BASE_URL: Final[str] = "https://lemoncrow.com/badges"
+BADGE_VERSION: Final[int] = 1
 
 _ZWSP = "​"
 _DANGEROUS_TAG = re.compile(
@@ -87,6 +92,22 @@ def short(sha: str) -> str:
     return sha[:7]
 
 
+def _badge_image(name: str, alt: str) -> str:
+    return f'<img alt="{alt}" src="{BADGE_BASE_URL}/{name}.svg?v={BADGE_VERSION}" align="top">'
+
+
+def badge(severity: str) -> str:
+    """The badge image of a severity (``p0``, ``p1``, ``p2``); its alt text is ``P0``, ``P1`` or ``P2``."""
+
+    return _badge_image(severity, SEVERITY_BADGE[severity])
+
+
+def fixed_badge() -> str:
+    """The badge image of a finding that was fixed; its alt text is ``Fixed``."""
+
+    return _badge_image("fixed", "Fixed")
+
+
 # --------------------------------------------------------------------------- #
 # verdict and check status
 # --------------------------------------------------------------------------- #
@@ -109,6 +130,26 @@ class Verdict:
     #: An ``incomplete`` review whose model calls failed (a rejected key, no credit, a provider that was down): its
     #: check is ``error`` whatever ``fail-on`` says, because nothing was reviewed that could be called a pass.
     failed: bool = False
+
+    @property
+    def confidence(self) -> int:
+        """The confidence score, 1 to 5, read off the same facts as the headline, the status and ``fail-on``.
+
+        An open P0 is **1**. Without one, three or more open P1 are **2** and one or two are **3**. With neither, open P2
+        findings are **4** and nothing open is **5**. What the review could not look at lowers the ceiling, never raises
+        the number: a partial review (risk signals left unexamined, a large pull request cut to its riskiest files) is at
+        most **4**, and one that is incomplete (a model call failed, the call cap ran out) or did not run (the review budget
+        is spent) is at most **3**. Findings held back below the repository's threshold are not counted here, as they are
+        not in the verdict. So a score of 5 means a finished review of every risk signal that found nothing open, and the
+        score cannot disagree with the headline above or the status below it, because they are all computed from this.
+        """
+
+        if self.p0:
+            return 1
+        if self.p1:
+            return 2 if self.p1 >= 3 else 3
+        ceiling = {"clean": 5, "partial": 4}.get(self.state, 3)
+        return min(ceiling, 4 if self.p2 else 5)
 
     @property
     def counts(self) -> str:
@@ -244,12 +285,14 @@ def usage_text(usage: Usage) -> str:
 
 
 def trailer(finding: BotFinding) -> str:
-    """What a finding relied on, in one line: ``Rule used: `key` · Context used: `path:1-9` (caller) · +2 more``.
+    """What a finding relied on, in one line: ``**Rule used:** `key` · **Context used:** `path:1-9` (caller) · +2 more``.
 
     Built only from the finding's validated rule and evidence refs (:attr:`BotFinding.used`, see :mod:`attribution`),
     never from the title, explanation or consequence a model wrote. At most :data:`attribution.MAX_SHOWN` items are
     named, rules first; the rest are counted. Each name is a rule key or a file path, both of which a repository chooses,
-    so they go through :func:`code` like every other path in a comment. ``""`` when the finding cites none of them.
+    so they go through :func:`code` like every other path in a comment. The labels are bold, the way a reviewer reads a
+    rule citation (``**Rule used:**``); the words are fixed by :data:`attribution.GROUPS`. ``""`` when the finding cites
+    none of them.
     """
 
     listed, more = attribution.items(finding.used)
@@ -264,7 +307,7 @@ def trailer(finding: BotFinding) -> str:
         elif item.group == "ctx":
             names.append(f"`{trimmed(code(item.text), 80)}` ({item.detail})")
     parts = [
-        f"{attribution.GROUPS[group]}: {', '.join(names)}" if names else attribution.GROUPS[group]
+        f"**{attribution.GROUPS[group]}:** {', '.join(names)}" if names else f"**{attribution.GROUPS[group]}**"
         for group, names in groups.items()
     ]
     rest = len(listed) - len(shown) + more
@@ -273,8 +316,64 @@ def trailer(finding: BotFinding) -> str:
     return " · ".join(parts)
 
 
+#: What the agent prompt of an inline comment asks for, after the comment itself.
+FIX_INSTRUCTION: Final[str] = (
+    "Verify that the problem is real in the current code, then fix it in the smallest way that keeps the rest of the "
+    "behaviour. If the comment is wrong, say why and change nothing."
+)
+
+
+def _lines_of(start: int, end: int) -> str:
+    return f"{start}-{end}" if end > start else str(start)
+
+
+def comment_prompt(finding: BotFinding) -> str:
+    """The text of the ``Prompt To Fix With AI`` block under an inline comment: where, what, and what to do about it.
+
+    It is written to be pasted into a coding agent: the path and line, the comment as the reviewer wrote it (title,
+    explanation, consequence) and the checked replacement when the finding has one, then :data:`FIX_INSTRUCTION`.
+    Everything a model wrote goes through :func:`clean`; the path is a repository's own and goes through :func:`code`.
+    """
+
+    start, end = finding.span
+    lines = [
+        "This is a comment left during a code review.",
+        f"Path: {code(finding.path)}",
+        f"Line: {_lines_of(start, end)}",
+        "",
+        "Comment:",
+        f"**{clean(finding.title)}**",
+    ]
+    if finding.explanation:
+        lines.append(clean(finding.explanation))
+    if finding.consequence:
+        lines += ["", f"**Consequence:** {clean(finding.consequence)}"]
+    if finding.has_suggestion:
+        fence = fence_for(finding.suggestion)
+        covers = (
+            f"lines {finding.suggestion_start}-{finding.suggestion_end}"
+            if (finding.suggestion_end > finding.suggestion_start)
+            else f"line {finding.suggestion_start}"
+        )
+        # The code stays at column 0: its indentation is part of the edit.
+        lines += [
+            "",
+            f"Suggested replacement for {covers}, checked against this commit:",
+            fence,
+            finding.suggestion.rstrip("\n"),
+            fence,
+        ]
+    lines += ["", FIX_INSTRUCTION]
+    return "\n".join(lines)
+
+
 def inline_comment(finding: BotFinding) -> str:
-    """A finding as an inline review comment: badge and title, why, the consequence, a suggestion if one exists.
+    """A finding as an inline review comment, in the order a reader takes it in.
+
+    The badge and the bold title on the first line; the body (what fails, why, the consequence); the checked
+    ``suggestion`` block when there is one; a rule, then a collapsed ``Prompt To Fix With AI`` block (:func:`comment_prompt`)
+    to paste into an agent; the attribution trailer when the finding cites a rule or an excerpt; and a last small line
+    that says what the badge means and where the comment came from. The hidden markers close it.
 
     The suggestion is a GitHub ``suggestion`` fence, which replaces exactly the lines the comment covers
     (:meth:`BotFinding.span`, which is the lines the suggestion was verified for). The model's code is posted as
@@ -282,9 +381,7 @@ def inline_comment(finding: BotFinding) -> str:
     when it is parsed (``finding_replacement.parse_replacement``).
     """
 
-    flag = " · security" if finding.scan else ""
-    badge = f"**{SEVERITY_BADGE[finding.severity]} · {SEVERITY_MEANING[finding.severity]}{flag}**"
-    lines = [f"{badge} — {clean(finding.title)}"]
+    lines = [f"{badge(finding.severity)} **{clean(finding.title)}**"]
     if finding.explanation:
         lines += ["", clean(finding.explanation)]
     if finding.consequence:
@@ -292,15 +389,30 @@ def inline_comment(finding: BotFinding) -> str:
     if finding.has_suggestion:
         fence = fence_for(finding.suggestion)
         lines += ["", f"{fence}suggestion", finding.suggestion.rstrip("\n"), fence]
+    prompt = comment_prompt(finding)
+    fence = fence_for(prompt)
+    lines += [
+        "",
+        "---",
+        "",
+        "<details><summary>Prompt To Fix With AI</summary>",
+        "",
+        f"{fence}text",
+        prompt,
+        fence,
+        "",
+        "</details>",
+    ]
     if trail := trailer(finding):
-        lines += ["", f"<sub>{trail}</sub>"]
+        lines += ["", trail]
     if finding.static_check:
         # The scanner rule behind it (a raw result, or the evidence an investigator's finding cited).
         lines += ["", f"Static check: {code(finding.static_check)}"]
+    meaning = f"{SEVERITY_MEANING[finding.severity].capitalize()} ({SEVERITY_BADGE[finding.severity]})"
     if finding.scan:
-        lines += ["", "<sub>LemonCrow security scan (Opengrep) · not yet confirmed by the AI review</sub>"]
+        lines += ["", f"<sub>{meaning} · LemonCrow security scan (Opengrep) · not yet confirmed by the AI review</sub>"]
     else:
-        lines += ["", "<sub>LemonCrow AI review</sub>"]
+        lines += ["", f"<sub>{meaning} · LemonCrow AI review</sub>"]
     if FINGERPRINT.fullmatch(finding.fingerprint):
         lines.append(FINGERPRINT_MARKER.format(fingerprint=finding.fingerprint))
     lines.append(FINDING_MARKER.format(finding_id=finding.id))
@@ -311,7 +423,7 @@ def reply_text(finding: BotFinding) -> str:
     """The thread reply for a finding that is no longer open, with a marker so a re-run replies once."""
 
     if finding.state == "fixed":
-        text = f"Fixed in {short(finding.resolved_in)}."
+        text = f"{fixed_badge()} Fixed in {short(finding.resolved_in)}."
     elif finding.state == "unreported":
         text = (
             f"No longer reported in {short(finding.resolved_in)}: the code around it changed and this review did not "
@@ -437,6 +549,11 @@ class SummaryView:
     #: the settings left out or could not do; both built by ``notices``, empty for none.
     banner: str = ""
     notes: str = ""
+    #: The pull request's title: what the one-sentence description under the score falls back to when there is no overview.
+    title: str = ""
+    #: Whether a comment can start a review, which is whether the workflow listens to comments (chat); ``None``: not known.
+    #: It decides what the re-review line at the top says.
+    chat: bool | None = None
 
 
 def strip_text(facts: RunFacts) -> str:
@@ -482,27 +599,42 @@ def _tag(finding: BotFinding) -> str:
     return f"fixed in {short(finding.resolved_in)}" if finding.state == "fixed" else "no longer applies"
 
 
-def _row(finding: BotFinding, *, link: bool = True) -> str:
+def _row(finding: BotFinding, *, link: bool = True, number: int = 0) -> str:
+    """One finding as a list item: the badge, the bold title (a link to its thread when it has one), then where and how new.
+
+    *number* is its place in the numbered findings list; ``0`` makes a bullet (a collapsed list that is not the findings).
+    """
+
     title = clean(finding.title)
-    label = f"[{title}]({finding.thread_url})" if link and finding.thread_url else title
+    label = f"**[{title}]({finding.thread_url})**" if link and finding.thread_url else f"**{title}**"
     flag = " · security" if finding.scan else ""
-    return f"- **{SEVERITY_BADGE[finding.severity]}** {label} — `{_where(finding)}` · {_tag(finding)}{flag}"
+    marker = f"{number}." if number else "-"
+    return f"{marker} {badge(finding.severity)} {label} — `{_where(finding)}` · {_tag(finding)}{flag}"
+
+
+def _closed_row(finding: BotFinding) -> str:
+    """A finding that is no longer open: struck through, with the Fixed badge when a later push fixed it."""
+
+    mark = f"{fixed_badge()} " if finding.state == "fixed" else ""
+    return f"- {mark}~~{clean(finding.title)}~~ — `{_where(finding)}` · {_tag(finding)}"
 
 
 def _trail_line(finding: BotFinding) -> list[str]:
     """The indented attribution line under a finding's row in the summary, or nothing."""
 
     trail = trailer(finding)
-    return [f"  <sub>{trail}</sub>"] if trail else []
+    return [f"   <sub>{trail}</sub>"] if trail else []
 
 
-def _held_back(findings: Sequence[BotFinding], *, detailed: bool, trails: bool = True) -> list[str]:
+def _held_back(findings: Sequence[BotFinding], *, detailed: bool, trails: bool = True, first: int = 1) -> list[str]:
+    """The collapsed list of the findings the threshold keeps out of the rows (P2 by default), numbered on from *first*."""
+
     heading = plural(len(findings), "low-priority finding") + " held back"
     lines = ["", f"<details><summary>{heading}</summary>", ""]
-    for finding in findings:
-        lines.append(_row(finding, link=False))
+    for number, finding in enumerate(findings, first):
+        lines.append(_row(finding, link=False, number=number))
         if detailed and finding.explanation:
-            lines.append(f"  {clean(trimmed(finding.explanation, 240))}")
+            lines.append(f"   {clean(trimmed(finding.explanation, 240))}")
         if trails:
             lines += _trail_line(finding)
     lines += ["", "</details>"]
@@ -675,23 +807,65 @@ def _suggested_edit(finding: BotFinding) -> list[str]:
     ]
 
 
-def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
-    """The readable part of the comment at one detail level (0 full; higher drops explanation text too)."""
+#: The top line of the summary: how to ask for another review. A comment starts one only where the workflow listens to
+#: comments (chat), so the line says what is true for this repository.
+REREVIEW_CHAT: Final[str] = "Re-review: comment `@lemoncrow review`"
+REREVIEW_RERUN: Final[str] = (
+    "Re-review: re-run the workflow job (a comment `@lemoncrow review` does it once the workflow listens to comments, "
+    "see the setup guide)"
+)
+#: The most characters of the pull request's title or the model's sentence on the impact line.
+MAX_ONE_LINE: Final[int] = 160
 
-    findings = sorted(view.findings, key=sort_key)
-    opened = [finding for finding in findings if finding.is_open]
-    closed = [
-        finding for finding in findings if not finding.is_open and finding.state not in {"unreported", "suppressed"}
-    ]
-    unreported = [finding for finding in findings if finding.state == "unreported"]
-    dismissed = [finding for finding in findings if finding.state == "suppressed"]
-    # What the repository's threshold lets through: below it a finding is counted and listed once, never a row, an
-    # inline comment, a part of the verdict or of the fix prompt. A P0 is always surfaced.
+
+def _impact_lines(view: SummaryView, state: ReviewState) -> list[str]:
+    """``**[Medium impact]** <one sentence>`` and, under it, the reasons the label rests on.
+
+    The sentence is the overview's one-liner (the model's, neutralised), else the pull request's title; the label is the
+    fixed rule of :mod:`impact` and is shown with its reasons so a reader can check it.
+    """
+
+    weighed = impact.Impact.from_state(state.impact)
+    sentence = clean(trimmed(state.overview.one_line if state.overview is not None else "", MAX_ONE_LINE))
+    sentence = sentence or clean(trimmed(view.title, MAX_ONE_LINE))
+    lead = f"**[{weighed.label}]**" if weighed is not None else ""
+    lines = [f"{lead} {sentence}".strip()] if lead or sentence else []
+    if weighed is not None:
+        lines.append(f"<sub>{weighed.summary()} · from the change itself, not a model</sub>")
+    return lines
+
+
+def _summary_lines(state: ReviewState) -> list[str]:
+    """``### Summary``: one intro sentence and a few bullets of what changed, from the overview; nothing without one."""
+
+    found = state.overview
+    if found is None or not (found.intro or found.bullets):
+        return []
+    lines = ["", "### Summary", ""]
+    if found.intro:
+        lines += [clean(found.intro), ""] if found.bullets else [clean(found.intro)]
+    lines += [f"- {clean(bullet)}" for bullet in found.bullets]
+    return lines
+
+
+def _surfaced(view: SummaryView) -> tuple[list[BotFinding], list[BotFinding]]:
+    """``(open findings the repository's threshold lets through, open findings below it)``, each sorted.
+
+    What the threshold lets through is what the verdict counts, what is a row or listed and what the fix prompt names;
+    below it a finding is counted and listed once, never a row, an inline comment, a part of the verdict or of the fix
+    prompt. A P0 is always surfaced.
+    """
+
+    opened = [finding for finding in sorted(view.findings, key=sort_key) if finding.is_open]
     below = view.noise.held_back(opened)
-    opened = [finding for finding in opened if view.noise.tier(finding.severity) != "held"]
-    shown = [finding for finding in opened if view.noise.tier(finding.severity) == "row"]
-    held = [finding for finding in opened if view.noise.tier(finding.severity) == "listed"]
-    result = verdict(
+    return [finding for finding in opened if view.noise.tier(finding.severity) != "held"], below
+
+
+def summary_verdict(view: SummaryView) -> Verdict:
+    """The verdict the summary shows, which is the one its headline, its confidence score and the status are read from."""
+
+    opened, below = _surfaced(view)
+    return verdict(
         opened,
         complete=view.facts.complete,
         reason=view.incomplete_reason,
@@ -704,6 +878,26 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
         total_files=view.facts.total_files,
     )
 
+
+def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
+    """The readable part of the comment at one detail level (0 full; higher drops explanation text too).
+
+    Top to bottom: the marker and the re-review line; the confidence score and a rule; the impact line; the verdict
+    paragraph; ``Findings``; ``Summary``; ``Diagram``; the agent prompt; then the collapsed blocks (risks examined, what
+    was fixed, dismissed or learned) and, on a clean review, ``What we checked``; the footer last.
+    """
+
+    findings = sorted(view.findings, key=sort_key)
+    opened, below = _surfaced(view)
+    closed = [
+        finding for finding in findings if not finding.is_open and finding.state not in {"unreported", "suppressed"}
+    ]
+    unreported = [finding for finding in findings if finding.state == "unreported"]
+    dismissed = [finding for finding in findings if finding.state == "suppressed"]
+    shown = [finding for finding in opened if view.noise.tier(finding.severity) == "row"]
+    held = [finding for finding in opened if view.noise.tier(finding.severity) == "listed"]
+    result = summary_verdict(view)
+
     head = f"**{result.headline}**" + (f" · {result.counts}" if result.counts else "")
     strip = (
         f"This push was not reviewed; the findings below are from the last review, of {short(view.head_sha)}. "
@@ -713,10 +907,19 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
     )
     if view.receipt.security_unavailable and not view.budget:
         strip += " · security scan unavailable"
-    lines = [SUMMARY_MARKER, head]
-    weighed = impact.Impact.from_state(state.impact)
-    if weighed is not None:
-        lines += ["", f"**{weighed.label}** · {weighed.summary()} <sub>(from the change itself, not a model)</sub>"]
+    rereview = REREVIEW_RERUN if view.chat is False else REREVIEW_CHAT
+    lines = [
+        SUMMARY_MARKER,
+        f"<sub>{rereview}</sub>",
+        "",
+        f"<h2>Confidence Score: {result.confidence}/5</h2>",
+        "",
+        "---",
+        "",
+    ]
+    if impact_lines := _impact_lines(view, state):
+        lines += [*impact_lines, ""]
+    lines.append(head)
     lines += ["", f"<sub>{strip}</sub>"]
     if view.banner:
         lines += ["", view.banner]
@@ -727,29 +930,52 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
             "",
             f"{plural(state.findings_dropped, 'more finding')} not tracked: over the {len(state.findings)}-finding limit.",
         ]
+    if shown or held or below:
+        lines += ["", "### Findings"]
     if shown:
         lines.append("")
-        for finding in shown:
-            lines.append(_row(finding))
+        for number, finding in enumerate(shown, 1):
+            lines.append(_row(finding, number=number))
             if level < 1:
                 lines += _trail_line(finding)
     if held:
-        lines += _held_back(held, detailed=level < 2, trails=level < 1)
+        lines += _held_back(held, detailed=level < 2, trails=level < 1, first=len(shown) + 1)
     if below:
         lines += _below_threshold(below, view.noise, trails=level < 1)
-    if view.risks and level < 2:
-        # Before the diagram, which is what gives way first, and after the findings, which it explains.
-        lines += ["", *_risk_lines(view.risks)]
+    lines += _summary_lines(state)
     if view.diagram:
-        # After the findings and before the receipt: a picture of the change, not part of the verdict.
+        # After the summary: a picture of the change, not part of the verdict. Open, and the first thing given up when
+        # the comment is too long.
         lines += ["", view.diagram]
+    if opened:
+        prompt = agent_prompt(
+            opened,
+            pull_number=view.pull_number,
+            repository=view.repository,
+            head_sha=view.head_sha,
+            detailed=level < 3,
+        )
+        fence = fence_for(prompt)
+        lines += [
+            "",
+            "<details><summary>Fix with agent prompt</summary>",
+            "",
+            "Paste this into Claude Code, Codex or Cursor, in a checkout of this branch.",
+            "",
+            f"{fence}text",
+            prompt,
+            fence,
+            "",
+            "</details>",
+        ]
+    if view.risks and level < 2:
+        lines += ["", *_risk_lines(view.risks)]
     if not opened:
-        lines += ["", "<details><summary>What we checked</summary>", ""]
+        lines += ["", "### What we checked", ""]
         lines += _receipt_lines(view)
-        lines += ["", "</details>"]
     if closed:
         lines += ["", f"<details><summary>{plural(len(closed), 'finding')} fixed since last review</summary>", ""]
-        lines += [f"- ~~{clean(finding.title)}~~ — `{_where(finding)}` · {_tag(finding)}" for finding in closed]
+        lines += [_closed_row(finding) for finding in closed]
         lines += ["", "</details>"]
     if dismissed:
         by_id = {row.id: row for row in state.suppressions}
@@ -757,8 +983,8 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
         for finding in dismissed:
             row = by_id.get(finding.suppressed_by)
             why = how_phrase(row) if row is not None else "dismissed by feedback"
-            badge = f"**{SEVERITY_BADGE[finding.severity]}** " if finding.severity == "p0" else ""
-            lines.append(f"- {badge}{clean(finding.title)} — `{_where(finding)}` · {why}")
+            mark = f"{badge('p0')} " if finding.severity == "p0" else ""
+            lines.append(f"- {mark}{clean(finding.title)} — `{_where(finding)}` · {why}")
         lines += ["", "Held back on this pull request only; they count toward no verdict.", "", "</details>"]
     if unreported:
         heading = plural(len(unreported), "finding") + " no longer reported, not confirmed fixed"
@@ -796,27 +1022,6 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
             "",
             f"{fence}yaml",
             text.rstrip("\n"),
-            fence,
-            "",
-            "</details>",
-        ]
-    if opened:
-        prompt = agent_prompt(
-            opened,
-            pull_number=view.pull_number,
-            repository=view.repository,
-            head_sha=view.head_sha,
-            detailed=level < 3,
-        )
-        fence = fence_for(prompt)
-        lines += [
-            "",
-            "<details><summary>Fix with your agent</summary>",
-            "",
-            "Paste this into Claude Code, Codex or Cursor, in a checkout of this branch.",
-            "",
-            f"{fence}text",
-            prompt,
             fence,
             "",
             "</details>",
@@ -930,10 +1135,28 @@ def _receipt_lines(view: SummaryView) -> list[str]:
     return lines
 
 
-def footer_text(state: ReviewState, *, model_label: str, depth_label: str, head_sha: str, commit_url: str) -> str:
-    """The summary's last line. Everything in it is held by the state, so a chat answer can rewrite it in place."""
+PRODUCT_URL: Final[str] = "https://lemoncrow.com"
+#: The most characters of the reviewed commit's subject line in the footer.
+MAX_COMMIT_TITLE: Final[int] = 80
 
-    reviewed = f"[{short(head_sha)}]({commit_url})" if commit_url else short(head_sha)
+
+def _link_text(text: str) -> str:
+    """A commit subject as the text of a Markdown link: a person wrote it, so no bracket, backtick or markup survives."""
+
+    return " ".join(clean(text).replace("[", "(").replace("]", ")").replace("`", "'").split())
+
+
+def footer_text(state: ReviewState, *, model_label: str, depth_label: str, head_sha: str, commit_url: str) -> str:
+    """The summary's last lines, in one ``<sub>``: ``Reviews (N) · Last reviewed commit: [title](url) · Reviewed by
+    LemonCrow``, then the model, depth, model calls, tokens and estimated cost of this review and of all of them.
+
+    The cost line is LemonCrow's own, so a team sees what each review costs. Everything in it is held by the state (the
+    commit's subject too), so a chat answer can rewrite it in place.
+    """
+
+    label = trimmed(_link_text(state.head_title), MAX_COMMIT_TITLE) or short(head_sha)
+    reviewed = f"[{label}]({commit_url})" if commit_url else label
+    first = f"Reviews ({state.reviews}) · Last reviewed commit: {reviewed} · Reviewed by [LemonCrow]({PRODUCT_URL})"
     parts = [
         clean(model_label) or "model not reported",
         depth_label,
@@ -943,8 +1166,7 @@ def footer_text(state: ReviewState, *, model_label: str, depth_label: str, head_
         parts.append(f"all {state.reviews} reviews: {usage_text(state.usage_total)}")
     if state.chats:
         parts.append(f"{plural(state.chats, 'chat answer')}: {usage_text(state.chat_usage)}")
-    parts.append(f"reviewed {reviewed}")
-    return " · ".join(parts)
+    return f"{first}<br>{' · '.join(parts)}"
 
 
 def _footer(view: SummaryView) -> str:
@@ -981,12 +1203,14 @@ def render_summary(view: SummaryView) -> tuple[str, ReviewState]:
     The state block is always last and always whole.
     """
 
+    view = replace(view, state=replace(view.state, confidence=summary_verdict(view).confidence))
     if view.diagram:
         state = shrink(view.state, 0)
         visible, block = _visible(view, state, 0), dump_state(state)
         if len(visible) + len(block) + 2 <= MAX_COMMENT:
             return f"{visible}\n\n{block}", state
-        view = replace(view, diagram="", state=replace(view.state, diagram=""))
+        dropped = view.state.overview.without_diagram() if view.state.overview is not None else None
+        view = replace(view, diagram="", state=replace(view.state, diagram="", overview=dropped))
     for level in range(MAX_DETAIL + 1):
         state = shrink(view.state, level)
         visible, block = _visible(view, state, level), dump_state(state)

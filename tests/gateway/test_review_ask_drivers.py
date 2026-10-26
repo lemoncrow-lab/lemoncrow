@@ -482,6 +482,7 @@ _CLAUDE_RESULT = {
 
 def test_claude_usage_report_counts_the_cached_prompt_as_prompt_tokens() -> None:
     assert intelligence_drivers.claude_usage_report(_CLAUDE_RESULT) == {
+        "cost_usd": 0.0369,
         "input_tokens": 6 + 16364 + 2291,
         "output_tokens": 862,
         "cached_input_tokens": 16364,
@@ -502,12 +503,24 @@ def test_claude_usage_report_is_empty_when_the_cli_reports_no_usable_counts(resu
     assert intelligence_drivers.claude_usage_report(result) == {}
 
 
+def test_claude_usage_report_takes_the_cost_the_cli_reports_and_invents_none() -> None:
+    assert intelligence_drivers.claude_usage_report({"total_cost_usd": 0.0377945}) == {"cost_usd": 0.0377945}
+    assert intelligence_drivers.claude_usage_report({"total_cost_usd": 0}) == {"cost_usd": 0.0}, "a free call is a cost"
+    # A cost that is not a plain non-negative number is not a cost: nothing is recorded for it.
+    for bad in (None, "0.02", True, -0.01, float("nan"), float("inf"), [0.02]):
+        assert intelligence_drivers.claude_usage_report({"total_cost_usd": bad}) == {}, bad
+    # Tokens without a cost stay tokens only: the cost key is never filled in from anything but the CLI's figure.
+    assert "cost_usd" not in intelligence_drivers.claude_usage_report(
+        {"usage": {"input_tokens": 3, "output_tokens": 4}}
+    )
+
+
 @pytest.mark.parametrize("streaming", [False, True])
 def test_claude_review_reports_the_tokens_the_cli_used(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, streaming: bool
 ) -> None:
     monkeypatch.setattr(intelligence_drivers.shutil, "which", lambda name: f"/usr/bin/{name}")
-    reported: list[dict[str, int]] = []
+    reported: list[dict[str, int | float]] = []
     project_root = tmp_path / "snapshot"
     project_root.mkdir()
     stdout = json.dumps(_CLAUDE_RESULT)
@@ -531,8 +544,10 @@ def test_claude_review_reports_the_tokens_the_cli_used(
     )
 
     assert result["body"] == "Grounded answer"
+    # The tokens, and the dollar figure the CLI itself reported (`total_cost_usd`), in the plain and the streaming mode.
     assert reported == [
         {
+            "cost_usd": 0.0369,
             "input_tokens": 18661,
             "output_tokens": 862,
             "cached_input_tokens": 16364,
@@ -566,3 +581,66 @@ def test_execute_structured_returns_the_claude_cli_tokens_in_the_call_usage(
     usage = execution.usage
     assert (usage.calls, usage.input_tokens, usage.output_tokens) == (1, 18661, 862)
     assert (usage.cache_read_input_tokens, usage.cache_write_input_tokens) == (16364, 2291)
+    # The CLI's own `total_cost_usd` is the call's cost, in dollars.
+    assert (usage.provider_cost, usage.currency) == (0.0369, "USD")
+
+
+def test_a_claude_result_that_reports_no_cost_leaves_the_call_unpriced(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(intelligence_drivers.shutil, "which", lambda name: f"/usr/bin/{name}")
+    result = {key: value for key, value in _CLAUDE_RESULT.items() if key != "total_cost_usd"}
+    monkeypatch.setattr(
+        intelligence_drivers.subprocess,
+        "run",
+        lambda command, **_kwargs: SimpleNamespace(returncode=0, stdout=json.dumps(result), stderr=""),
+    )
+    project_root = tmp_path / "snapshot"
+    project_root.mkdir()
+
+    usage = intelligence_runtime.execute_structured(
+        system="system",
+        prompt="{}",
+        output_schema=ask.ASK_OUTPUT_SCHEMA,
+        driver="claude",
+        model="sonnet",
+        project_root=project_root,
+        origin="machine",
+    ).usage
+
+    assert usage.input_tokens == 18661, "the tokens are still taken"
+    assert (usage.provider_cost, usage.currency) == (None, None), "no price is ever worked out for the CLI route"
+
+
+def test_codex_reports_tokens_and_no_cost(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Codex's `turn.completed` carries token counts only, so its calls stay unpriced (`cost not reported`)."""
+
+    monkeypatch.setattr(intelligence_drivers.shutil, "which", lambda name: f"/usr/bin/{name}")
+    events = [
+        {
+            "type": "item.completed",
+            "item": {"type": "agent_message", "text": json.dumps(_CLAUDE_RESULT["structured_output"])},
+        },
+        {"type": "turn.completed", "usage": {"input_tokens": 1200, "cached_input_tokens": 200, "output_tokens": 80}},
+    ]
+    stdout = "\n".join(json.dumps(event) for event in events)
+    monkeypatch.setattr(
+        intelligence_drivers.subprocess,
+        "run",
+        lambda command, **_kwargs: SimpleNamespace(returncode=0, stdout=stdout, stderr=""),
+    )
+    project_root = tmp_path / "snapshot"
+    project_root.mkdir()
+
+    usage = intelligence_runtime.execute_structured(
+        system="system",
+        prompt="{}",
+        output_schema=ask.ASK_OUTPUT_SCHEMA,
+        driver="codex",
+        model="gpt-test",
+        project_root=project_root,
+        origin="machine",
+    ).usage
+
+    assert (usage.calls, usage.input_tokens, usage.output_tokens) == (1, 1200, 80)
+    assert (usage.provider_cost, usage.currency) == (None, None)

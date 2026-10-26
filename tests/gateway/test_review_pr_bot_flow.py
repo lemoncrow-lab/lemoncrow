@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 
 from lemoncrow.pro.capabilities.review.api import make_token_dependency, register_review_api
 from lemoncrow.pro.capabilities.review.pr_bot import engine
+from lemoncrow.pro.capabilities.review.pr_bot.render import badge, fixed_badge
 from lemoncrow.pro.capabilities.review.pr_bot.runner import PrPermissionError, PrReviewError, RunReport
 from lemoncrow.pro.capabilities.review.pr_bot.state import dump_state, parse_state
 from lemoncrow.pro.capabilities.review.sources.github import resolve_pull_request
@@ -84,14 +85,13 @@ def test_a_first_review_posts_one_summary_and_inline_comments_for_p0_and_p1_only
     assert world.github.review_posts == 1
     (inline,) = world.github.inline()
     assert (inline["path"], inline["user"]["type"]) == ("src/auth.py", "Bot")
-    assert inline["body"].startswith("**P1 · should fix** — lets a missing principal through")
+    assert inline["body"].startswith(f"{badge('p1')} **lets a missing principal through**")
     assert "<!-- lemoncrow:finding finding-" in inline["body"]
     assert world.github.reviews[0]["body"].strip().startswith("<!-- lemoncrow:op=bot-")
 
     (summary,) = world.github.summary_comments()
-    assert summary["body"].startswith(
-        "<!-- lemoncrow:summary v1 -->\n**No must-fix findings** · 1 should-fix · 1 optional"
-    )
+    assert summary["body"].startswith("<!-- lemoncrow:summary v1 -->\n")
+    assert "**No must-fix findings** · 1 should-fix · 1 optional" in summary["body"].split("\n")
     assert "<details><summary>1 low-priority finding held back</summary>" in summary["body"]
     assert f"[lets a missing principal through](https://github.com/{SLUG}/pull/{NUMBER}#discussion_r" in summary["body"]
     state = posted_state(world)
@@ -112,7 +112,8 @@ def test_the_report_and_the_posted_state_agree(world: World) -> None:
     assert report.state is not None and state == report.state
     wire = report.to_wire()
     assert wire["head_sha"] == world.origin.head and wire["verdict"]["p1"] == 1 and wire["verdict"]["p2"] == 1
-    assert wire["usage"]["calls"] == 1 and wire["status"]["state"] == "success"
+    assert wire["usage"]["calls"] == 2, "one investigation (the three small files share it) and the overview"
+    assert wire["verdict"]["confidence"] == 3 and wire["status"]["state"] == "success"
     assert {row["id"] for row in wire["findings"]} == {finding.id for finding in state.findings}
     json.dumps(wire)  # serializable as is
 
@@ -141,8 +142,9 @@ def test_a_rerun_on_the_same_head_posts_no_duplicates_and_calls_no_model(world: 
     assert world.github.review_posts == 1 and len(world.github.inline()) == 1
     assert len(world.github.summary_comments()) == 1 and world.github.summary_comments()[0]["body"] == body
     new_writes = [call for call in world.github.calls if call[0] in {"POST", "PATCH"}][len(writes) :]
-    # Only the status is written again (pending, then the same verdict): no comment, review or reply.
-    assert new_writes and all("/statuses/" in path for _, path in new_writes)
+    # Only the status and the reactions are written again: no comment, review or reply.
+    assert new_writes and all("/statuses/" in path or path.endswith("/reactions") for _, path in new_writes)
+    assert [path for _, path in new_writes if "/statuses/" in path], "the status is set again"
     assert [(f.id, f.state) for f in again.findings] == [(f.id, "carried") for f in first.findings]
 
 
@@ -187,7 +189,7 @@ def test_a_push_re_reviews_only_the_changed_file_and_carries_the_rest_without_a_
     assert "<details><summary>1 finding fixed since last review</summary>" in body
     state = posted_state(world)
     assert state.head_sha == world.origin.head and state.reviews == 2
-    assert state.usage.calls == 1 and state.usage_total.calls == 2, "one call the first time (plain.py too), one now"
+    assert state.usage.calls == 2 and state.usage_total.calls == 4, "each review: one investigation and its overview"
 
 
 def test_a_fixed_finding_gets_a_reply_and_its_thread_is_resolved(world: World) -> None:
@@ -200,7 +202,7 @@ def test_a_fixed_finding_gets_a_reply_and_its_thread_is_resolved(world: World) -
 
     (reply,) = world.github.replies()
     assert reply["in_reply_to_id"] == thread["id"]
-    assert reply["body"].startswith(f"Fixed in {world.origin.head[:7]}.")
+    assert reply["body"].startswith(fixed_badge()) and f"Fixed in {world.origin.head[:7]}." in reply["body"]
     assert world.github.threads[thread["id"]]["resolved"] is True
 
     # A later run replies and resolves nothing more.
@@ -260,7 +262,8 @@ def test_a_failed_model_call_is_retried_next_push_even_for_unchanged_code(world:
         "error",
         "Review incomplete: model calls failed; see the workflow log",
     )
-    assert status["target_url"].endswith("#issuecomment-1001"), "the check links to the summary comment"
+    summary_id = world.github.summary_comments()[0]["id"]
+    assert status["target_url"].endswith(f"#issuecomment-{summary_id}"), "the check links to the summary comment"
     assert broken.annotations and broken.annotations[0][0] == "error"
     # No call returned, so no file counts as reviewed: every one of them is asked again.
     assert len(posted_state(world).reviewed_units) == 0
@@ -354,6 +357,45 @@ def test_a_closed_pull_request_is_skipped_and_says_so_on_the_head(world: World) 
     )
 
 
+def test_a_dry_run_reviews_a_closed_pull_request_and_says_once_that_nothing_is_posted(world: World) -> None:
+    """Nothing is posted, so there is no reason to refuse a closed pull request: try the reviewer on history."""
+
+    world.origin.push(FIRST_PUSH)
+    world.github.state = "closed"
+    report = world.review(dry_run=True)
+
+    assert not report.skipped and world.model.calls, "the closed pull request was reviewed"
+    assert [note for note in report.notes if "closed" in note] == [
+        f"{SLUG}#{NUMBER} is closed; reviewing it anyway. Nothing will be posted."
+    ]
+    assert report.findings and report.summary and report.published == {"dry_run": True}
+    assert report.inline_bodies, "and the comments it would have posted are there to print"
+    assert world.github.statuses == [] and world.github.issue_comments == [] and world.github.review_posts == 0
+    assert [call for call in world.github.calls if call[0] != "GET"] == [], "reads only"
+
+
+def test_a_merged_pull_request_is_called_merged_in_that_note(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    world.origin.push(FIRST_PUSH)
+    world.github.state = "closed"
+    closed_row = world.github._pull
+    monkeypatch.setattr(world.github, "_pull", lambda: {**closed_row(), "merged": True})
+    report = world.review(dry_run=True)
+    assert not report.skipped
+    assert f"{SLUG}#{NUMBER} is merged; reviewing it anyway. Nothing will be posted." in report.notes
+    assert not any("closed" in note for note in report.notes), "said once, in one word"
+
+
+def test_an_open_pull_request_gets_no_closed_note_and_a_real_run_still_skips_a_closed_one(world: World) -> None:
+    world.origin.push(FIRST_PUSH)
+    assert not any("reviewing it anyway" in note for note in world.review(dry_run=True).notes)
+    world.github.state = "closed"
+    skipped = world.review()  # not a dry run: the Action's case
+    assert skipped.skipped and skipped.reason == f"{SLUG}#{NUMBER} is closed; nothing to review."
+    assert not skipped.notes and [row["description"] for row in world.github.statuses] == [
+        "skipped: pull request is closed"
+    ]
+
+
 def test_a_skip_that_cannot_post_its_status_still_skips_quietly(world: World) -> None:
     world.origin.push(FIRST_PUSH)
     world.github.draft = True
@@ -417,14 +459,14 @@ def test_a_p0_fails_the_status_only_when_fail_on_p0_is_set(ruled: World) -> None
     final = ruled.github.last_status()
     assert final["state"] == "success" and final["description"] == "1 must-fix before merge (advisory: fail-on is off)"
     body = ruled.github.summary_comments()[0]["body"]
-    assert body.split("\n")[1].startswith("**1 must-fix before merge**")
+    assert any(line.startswith("**1 must-fix before merge**") for line in body.split("\n"))
 
     blocking = ruled.review(fail_on="p0")
     assert blocking.status == ("failure", "1 must-fix before merge")
     assert ruled.github.last_status()["state"] == "failure"
     assert ruled.github.last_status()["description"] == "1 must-fix before merge"
     # The P0 has an inline comment; verdict, summary line and status all say the same thing.
-    assert any(row["body"].startswith("**P0 · must fix**") for row in ruled.github.inline())
+    assert any(row["body"].startswith(f"{badge('p0')} **") for row in ruled.github.inline())
 
 
 def test_no_p0_is_a_success_whatever_fail_on_says(world: World) -> None:
@@ -660,7 +702,7 @@ def test_a_review_that_examined_two_of_three_risk_signals_is_partial_not_clean(
     # a full review either: the check says "Partially reviewed", never "No must-fix findings".
     assert report.status == ("success", headline)
     body = world.github.summary_comments()[0]["body"]
-    assert body.split("\n")[1] == f"**{headline}**"
+    assert f"**{headline}**" in body.split("\n")
     assert "1 risk signal not investigated yet" in body and "No must-fix findings" not in body
     pending, final = world.github.statuses
     assert (pending["state"], final["state"], final["description"]) == ("pending", "success", headline)

@@ -22,6 +22,7 @@ from lemoncrow.pro.capabilities.review.pr_bot import learning
 from lemoncrow.pro.capabilities.review.pr_bot import suppression as sup
 from lemoncrow.pro.capabilities.review.pr_bot.findings import BotFinding, fingerprint_for
 from lemoncrow.pro.capabilities.review.pr_bot.github import FeedbackThread, Reaction, ThreadComment
+from lemoncrow.pro.capabilities.review.pr_bot.render import badge
 from lemoncrow.pro.capabilities.review.pr_bot.state import parse_state
 from tests.gateway.pr_bot_support import AUTH_BUGGY, BASE, TOKEN_BUGGY, World, build_world
 
@@ -159,7 +160,7 @@ def test_an_authors_feedback_on_their_own_p0_is_recorded_and_answered_and_change
     assert "dismissed by feedback" not in body, "nothing was dismissed"
     assert "Suggested rules from feedback" not in body, "a dismissal that did not happen is not offered as a rule"
     assert "a must-fix (P0) it covers stays open" in body and "`alice`" in body
-    assert body.split("\n")[1].startswith("**1 must-fix before merge**")
+    assert any(line.startswith("**1 must-fix before merge**") for line in body.split("\n"))
     assert report.published["declined"] == 1
 
     # Saying it again, or on a later push, does not get the same answer twice, and the P0 is still there.
@@ -213,7 +214,7 @@ def test_a_maintainers_thumbs_down_on_the_same_p0_suppresses_it_and_the_summary_
     dismissed = next(
         line for line in body.splitlines() if "lets a missing principal through" in line and "thumbs-down" in line
     )
-    assert "**P0**" in dismissed and "thumbs-down from `maria`" in dismissed
+    assert badge("p0") in dismissed and "thumbs-down from `maria`" in dismissed
     (row,) = state_of(world).suppressions
     assert (row.by, row.source, row.dismisses_p0) == ("maria", "reaction", True)
     (told,) = learned(world, auth)
@@ -495,7 +496,7 @@ def test_an_ignore_command_from_a_maintainer_dismisses_the_p0_and_the_summary_na
         for line in summary_of(world).splitlines()
         if "lets a missing principal through" in line and "asked for it" in line
     )
-    assert "**P0**" in dismissed and "`maria` asked for it" in dismissed
+    assert badge("p0") in dismissed and "`maria` asked for it" in dismissed
 
 
 def test_a_category_ignore_from_a_maintainer_covers_the_p0_too(world: World) -> None:

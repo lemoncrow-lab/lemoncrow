@@ -14,6 +14,7 @@ read-only machine profile.
 from __future__ import annotations
 
 import json
+import math
 import os
 import queue
 import shutil
@@ -74,16 +75,23 @@ def parse_structured_json(output: str, *, driver: str) -> dict[str, Any]:
     return parsed
 
 
-def claude_usage_report(result: Mapping[str, Any]) -> dict[str, int]:
-    """The token counts a claude CLI result reports (its ``usage``), in the keys ``execute_structured`` reads.
+def claude_usage_report(result: Mapping[str, Any]) -> dict[str, int | float]:
+    """What a claude CLI result reports about its own use, in the keys ``execute_structured`` reads.
 
-    The CLI's ``input_tokens`` leaves out the cached prompt; the prompt tokens reported here include it, the way the
-    API routes count them, with the cached part also named on its own. ``{}`` when the result reports no usage.
+    The tokens come from its ``usage``. The CLI's ``input_tokens`` leaves out the cached prompt; the prompt tokens
+    reported here include it, the way the API routes count them, with the cached part also named on its own. The dollar
+    figure is the CLI's own ``total_cost_usd`` (its list-price estimate for the call, the share its helper model took
+    included), under ``cost_usd``: it is passed on exactly as reported, and no price is worked out here. A key is
+    absent when the result does not report it, so ``{}`` means the result reports nothing usable.
     """
 
+    report: dict[str, int | float] = {}
+    cost = result.get("total_cost_usd")
+    if isinstance(cost, (int, float)) and not isinstance(cost, bool) and math.isfinite(cost) and cost >= 0:
+        report["cost_usd"] = float(cost)
     usage = result.get("usage")
     if not isinstance(usage, Mapping):
-        return {}
+        return report
 
     def count(name: str) -> int | None:
         value = usage.get(name)
@@ -91,14 +99,15 @@ def claude_usage_report(result: Mapping[str, Any]) -> dict[str, int]:
 
     fresh, output = count("input_tokens"), count("output_tokens")
     if fresh is None or output is None:
-        return {}
+        return report
     read, written = count("cache_read_input_tokens") or 0, count("cache_creation_input_tokens") or 0
-    return {
-        "input_tokens": fresh + read + written,
-        "output_tokens": output,
-        "cached_input_tokens": read,
-        "cache_write_input_tokens": written,
-    }
+    report.update(
+        input_tokens=fresh + read + written,
+        output_tokens=output,
+        cached_input_tokens=read,
+        cache_write_input_tokens=written,
+    )
+    return report
 
 
 def parse_codex_events(

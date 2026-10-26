@@ -206,7 +206,11 @@ class _ReviewCliProgress:
     "--dry-run",
     "dry_run",
     is_flag=True,
-    help="With --publish or --publish-bot, show what would be posted and post nothing.",
+    help=(
+        "With --pr, show what would be posted (the summary comment and each inline comment, with its file and lines) "
+        "and post nothing. --pr N --ai already works this way, so there --dry-run only says it out loud; it also "
+        "applies to --publish-bot and --publish."
+    ),
 )
 @click.option(
     "--ai",
@@ -215,8 +219,10 @@ class _ReviewCliProgress:
     help=(
         "Run the AI review headlessly on your own model route (no browser, no server) and print the findings: of "
         "the pull request --pr names, or, with no --pr, of the working tree, --staged, REV or --base/--head, posting "
-        "nothing. Needs ANTHROPIC_API_KEY or OPENAI_API_KEY, or LEMONCROW_LLM_BACKEND. A local review exits 0 when "
-        "clean, 1 when a finding at or above --fail-on is open, 2 when incomplete with --strict, 3 on a usage error."
+        "nothing. With --pr it prints what the bot would post (the summary and each inline comment with its place) and "
+        "writes nothing to GitHub, so it also reviews a closed or merged pull request. Needs ANTHROPIC_API_KEY or OPENAI_API_KEY, or LEMONCROW_LLM_BACKEND. A local "
+        "review exits 0 when clean, 1 when a finding at or above --fail-on is open, 2 when incomplete with --strict, "
+        "3 on a usage error."
     ),
 )
 @click.option(
@@ -225,7 +231,8 @@ class _ReviewCliProgress:
     is_flag=True,
     help=(
         "With --pr, post the AI findings to the pull request as a bot: one summary comment and inline comments, "
-        "event COMMENT only. Runs in GitHub Actions with the workflow's GITHUB_TOKEN. Implies --ai."
+        "event COMMENT only. The only flag that writes to GitHub, and only in GitHub Actions, with the workflow's "
+        "GITHUB_TOKEN; to see the same comments from a terminal use --pr N --ai (or add --dry-run). Implies --ai."
     ),
 )
 @click.option(
@@ -697,6 +704,17 @@ def review_cmd(
     exit code is for a hook -- 0 clean, 1 while a finding at or above --fail-on is open, 2 when incomplete with
     --strict, 3 on a usage error. `lc review hook install` runs it before a push; `lc review init-action` writes
     the GitHub Action workflow.
+
+    \b
+    A pull request, on your own model (needs the `gh` CLI):
+      --pr N --ai            review it and print what the bot would post:
+                             the summary and each inline comment with its
+                             place. Nothing is written to GitHub, so a
+                             closed or merged pull request works too.
+      --pr N --ai --dry-run  the same; --dry-run just says so.
+      --pr N --publish-bot   post those comments as a bot. Only in GitHub
+                             Actions; from a terminal add --dry-run (or use
+                             --ai) to see them instead.
     """
     from lemoncrow.core.foundation.paths import default_store_root
     from lemoncrow.pro.capabilities.review.gitdiff import detect_repo_root, resolve_rev_range
@@ -941,9 +959,14 @@ def review_cmd(
     if publish_pr and pr_spec is None:
         raise click.ClickException("--publish needs --pr NUMBER|URL")
     local_ai = ai_review and not publish_bot and pr_spec is None
-    if dry_run and not (publish_pr or publish_bot):
+    if dry_run and not (publish_pr or (pr_spec is not None and (ai_review or publish_bot))):
         raise (_LocalUsageError if local_ai else click.ClickException)(
-            "--dry-run only applies to --publish or --publish-bot"
+            "--dry-run previews what a pull request review would post: "
+            + (
+                "a local --ai review already posts nothing; add --pr NUMBER|URL to preview a pull request"
+                if local_ai
+                else "use it with --pr NUMBER|URL and --ai, --publish-bot or --publish"
+            )
         )
     if (strict or fresh) and not local_ai:
         raise click.ClickException("--strict and --fresh apply to a local --ai review (no --pr)")

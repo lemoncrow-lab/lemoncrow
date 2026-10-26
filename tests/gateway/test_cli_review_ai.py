@@ -58,7 +58,7 @@ def invoke(origin: Origin, *args: str) -> Any:
         (["--pr", "7", "--ai", "--mark", "src/a.py"], "drop --mark"),
         (["--pr", "7", "--ai", "--list-reviews"], "drop --current/--resume-author/--list-reviews"),
         (["--pr", "7", "--ai", "--base", "main"], "--pr picks the range itself"),
-        (["--pr", "7", "--dry-run"], "--dry-run only applies to --publish or --publish-bot"),
+        (["--pr", "7", "--dry-run"], "use it with --pr NUMBER|URL and --ai, --publish-bot or --publish"),
         (["--pr", "7", "--ai", "--fail-on", "p1"], "--fail-on p1 is for a local --ai review"),
         (["--pr", "7", "--ai", "--fail-on", "p2"], "is not one of"),
         (["--pr", "7", "--ai", "--strict"], "--strict and --fresh apply to a local --ai review"),
@@ -87,6 +87,68 @@ def test_a_local_ai_review_prints_the_findings_and_posts_nothing(ci: Any, monkey
     assert ci[1].statuses == [] and ci[1].issue_comments == []
 
 
+def test_ai_alone_prints_the_inline_comments_too_not_only_the_summary(ci: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """`--pr N --ai` is a preview of what the bot would post: the summary and each inline comment with its place."""
+
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    out = invoke(ci[0], "--pr", "7", "--ai").stdout
+    assert "Dry run: would post 1 inline comment(s) and the summary above. Nothing was posted." in out
+    assert "--- inline comment on src/auth.py:" in out
+
+
+def _writes(github: Any) -> list[tuple[str, str]]:
+    return [call for call in github.calls if call[0] != "GET"]
+
+
+def test_ai_with_dry_run_is_the_obvious_preview_and_writes_nothing(ci: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    result = invoke(ci[0], "--pr", "7", "--ai", "--dry-run")
+    assert result.exit_code == 0, result.output
+    out = result.stdout
+    assert "**No must-fix findings** · 1 should-fix" in out and "lemoncrow:state" not in out
+    assert "Dry run: would post 1 inline comment(s) and the summary above. Nothing was posted." in out
+    assert "--- inline comment on src/auth.py:" in out
+    assert _writes(ci[1]) == [] and ci[1].statuses == [] and ci[1].issue_comments == []
+
+
+def test_the_three_forms_of_a_pull_request_preview_print_the_same_thing(
+    ci: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    forms = (["--ai"], ["--ai", "--dry-run"], ["--publish-bot", "--dry-run"])
+    outputs = [invoke(ci[0], "--pr", "7", *form).stdout for form in forms]
+    assert outputs[0] == outputs[1] == outputs[2] and "--- inline comment on" in outputs[0]
+    assert _writes(ci[1]) == [], "none of the three wrote to GitHub"
+    wires = [json.loads(invoke(ci[0], "--pr", "7", *form, "--json").stdout) for form in forms]
+    assert all(wire["dry_run"] is True and wire["comments"] == wires[0]["comments"] for wire in wires)
+
+
+def test_ai_in_actions_still_posts_nothing_and_only_publish_bot_writes(
+    ci: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    assert invoke(ci[0], "--pr", "7", "--ai").exit_code == 0
+    assert _writes(ci[1]) == [] and ci[1].statuses == [] and ci[1].issue_comments == []
+    assert invoke(ci[0], "--pr", "7", "--publish-bot").exit_code == 0
+    assert _writes(ci[1]) != [] and ci[1].issue_comments, "--publish-bot is the one form that writes"
+
+
+def test_the_installed_engine_command_takes_dry_run_with_a_pull_request(
+    ci: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from lemoncrow.pro.capabilities.review.local_cli import main as engine
+
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    repo = ["--repo-root", str(ci[0].clone)]
+    plain = CliRunner().invoke(engine.review_cmd, [*repo, "--pr", "7"])
+    dry = CliRunner().invoke(engine.review_cmd, [*repo, "--pr", "7", "--dry-run"])
+    assert plain.exit_code == 0 and dry.exit_code == 0, (plain.output, dry.output)
+    assert plain.stdout == dry.stdout and "--- inline comment on src/auth.py:" in dry.stdout
+    assert _writes(ci[1]) == []
+    refused = CliRunner().invoke(engine.review_cmd, [*repo, "--dry-run"])
+    assert refused.exit_code == 3 and "add --pr NUMBER|URL to preview a pull request" in refused.output
+
+
 def test_json_output_is_the_machine_readable_result(ci: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     result = invoke(ci[0], "--pr", "7", "--publish-bot", "--dry-run", "--json")
@@ -94,7 +156,14 @@ def test_json_output_is_the_machine_readable_result(ci: Any, monkeypatch: pytest
     wire = json.loads(result.stdout)
     assert wire["schema"] == 1 and wire["dry_run"] is True and wire["skipped"] is False
     assert wire["pull_request"] == f"{SLUG}#{NUMBER}" and wire["head_sha"] == ci[0].head
-    assert wire["verdict"] == {"state": "clean", "headline": "No must-fix findings", "p0": 0, "p1": 1, "p2": 0}
+    assert wire["verdict"] == {
+        "state": "clean",
+        "headline": "No must-fix findings",
+        "p0": 0,
+        "p1": 1,
+        "p2": 0,
+        "confidence": 3,
+    }
     assert wire["status"] == {"state": "success", "description": "No must-fix findings; 1 should-fix"}
     (finding,) = wire["findings"]
     assert finding["severity"] == "p1" and finding["state"] == "new" and finding["path"] == "src/auth.py"
@@ -119,14 +188,60 @@ def test_a_dry_run_prints_the_summary_and_each_inline_comment_it_would_post(
     assert ci[1].statuses == [] and ci[1].issue_comments == []
 
 
-def test_a_dry_run_json_carries_the_comments_and_a_plain_run_does_not(ci: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_dry_run_json_carries_the_comments_and_so_does_ai_alone(ci: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     wire = json.loads(invoke(ci[0], "--pr", "7", "--publish-bot", "--dry-run", "--json").stdout)
     comments = wire["comments"]
     assert "lets a missing principal through" in comments["summary"] and "lemoncrow:state" not in comments["summary"]
     (inline,) = comments["inline"]
     assert inline["where"].startswith("src/auth.py:") and inline["body"]
-    assert "comments" not in json.loads(invoke(ci[0], "--pr", "7", "--ai", "--json").stdout)
+    assert json.loads(invoke(ci[0], "--pr", "7", "--ai", "--json").stdout)["comments"] == comments
+
+
+def test_ai_reviews_a_closed_pull_request_and_says_once_that_nothing_is_posted(
+    ci: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    ci[1].state = "closed"
+    result = invoke(ci[0], "--pr", "7", "--ai")
+    assert result.exit_code == 0, result.output
+    assert result.output.count("is closed; reviewing it anyway. Nothing will be posted.") == 1
+    assert "lets a missing principal through" in result.stdout and "--- inline comment on src/auth.py:" in result.stdout
+    assert _writes(ci[1]) == [] and ci[1].statuses == [] and ci[1].issue_comments == []
+    wire = json.loads(invoke(ci[0], "--pr", "7", "--ai", "--json").stdout)
+    assert wire["skipped"] is False and any("reviewing it anyway" in note for note in wire["notes"])
+
+
+def test_the_bot_in_actions_still_skips_a_closed_pull_request_and_says_so_on_the_head(
+    ci: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    ci[1].state = "closed"
+    result = invoke(ci[0], "--pr", "7", "--publish-bot")
+    assert result.exit_code == 0 and result.stdout.startswith("::notice title=LemonCrow Review::")
+    assert "is closed; nothing to review." in result.stdout and ci[2].calls == []
+    assert [row["description"] for row in ci[1].statuses] == ["skipped: pull request is closed"]
+    assert ci[1].issue_comments == []
+
+
+def test_a_failed_model_call_in_a_terminal_does_not_send_you_to_a_workflow_log(
+    ci: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    ci[2].fail = "RuntimeError: provider unavailable"
+    result = invoke(ci[0], "--pr", "7", "--ai")
+    assert result.exit_code == 0, result.output
+    assert "! model call errors: " in result.output and "provider unavailable" in result.output
+    assert "Review incomplete: model calls failed; see the model call errors line" in result.stdout
+    assert "workflow log" not in result.output
+    assert _writes(ci[1]) == []
+
+
+def test_the_same_failure_in_actions_still_points_at_the_workflow_log(ci: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    ci[2].fail = "RuntimeError: provider unavailable"
+    result = invoke(ci[0], "--pr", "7", "--ai")
+    assert "Review incomplete: model calls failed; see the workflow log" in result.stdout
 
 
 def test_publishing_in_actions_writes_the_comment_and_the_status_and_says_so(
@@ -191,3 +306,11 @@ def test_help_documents_the_bot_flags() -> None:
     result = CliRunner().invoke(cli, ["review", "--help"])
     for flag in ("--ai", "--publish-bot", "--depth", "--fail-on", "--review-drafts", "--on-push"):
         assert flag in result.output
+
+
+def test_help_explains_the_three_forms_of_a_pull_request_review() -> None:
+    text = " ".join(CliRunner().invoke(cli, ["review", "--help"]).output.split())
+    assert "--pr N --ai review it and print what the bot would post" in text
+    assert "--pr N --ai --dry-run the same" in text
+    assert "--pr N --publish-bot post those comments as a bot. Only in GitHub Actions" in text
+    assert "--dry-run With --pr, show what would be posted" in text

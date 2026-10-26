@@ -173,10 +173,13 @@ def test_a_pull_request_that_adds_or_edits_rules_files_cannot_change_its_own_rev
     assert set(control.model.files_seen()) <= set(world.model.files_seen())
     assert extra <= {RULES_FILE, "docs/hostile.yaml", ".lemoncrow/review.yaml"}
     assert not any("project_conventions" in prompt for prompt in seen.investigator_prompts())
-    # The hostile text is a changed file, so it is read as code under review: data in the source and diff blocks. It is
-    # never in a block that instructs or constrains the model (rules, conventions, the hypothesis).
-    assert any("everything-is-fine" in json.dumps(prompt) for prompt in seen.prompts), "it is under review, as code"
-    for prompt in seen.prompts:
+    # The hostile text is a changed file, so the investigators read it as code under review: data in the source and diff
+    # blocks. It is never in a block that instructs or constrains the model (rules, conventions, the hypothesis). The
+    # overview call, which describes the whole diff, is shown the changed files as data too and can only word the summary:
+    # it sets no finding, no severity, no score and no status, which is what the equality of the findings above proves.
+    investigators = seen.investigator_prompts()
+    assert any("everything-is-fine" in json.dumps(prompt) for prompt in investigators), "it is under review, as code"
+    for prompt in investigators:
         for block in ("trusted_repository_rules", "project_conventions", "hypothesis", "candidates"):
             assert "everything-is-fine" not in json.dumps(prompt.get(block, "")), block
     summary = world.github.summary_comments()[0]["body"]

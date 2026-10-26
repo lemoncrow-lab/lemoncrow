@@ -46,7 +46,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
-from lemoncrow.pro.capabilities.review.pr_bot import ci_env
+from lemoncrow.pro.capabilities.review.pr_bot import ci_env, impact, overview
 from lemoncrow.pro.capabilities.review.pr_bot.findings import (
     SEVERITY_BADGE,
     SEVERITY_MEANING,
@@ -216,10 +216,12 @@ class LocalReport:
                     "p0": self.verdict.p0,
                     "p1": self.verdict.p1,
                     "p2": self.verdict.p2,
+                    "confidence": self.verdict.confidence,
                     # As the pull request bot's result: absent when nothing is held back.
                     **({"held_back": self.verdict.held} if self.verdict.held else {}),
                 }
             ),
+            **({"overview": self.state.overview.to_wire()} if self.state is not None and self.state.overview else {}),
             "complete": not self.incomplete,
             "incomplete_reason": self.incomplete_reason,
             "exit": {
@@ -682,7 +684,21 @@ def run_local_review(
                     return _decided(report)
                 say("Running the AI review" if previous is None else "Re-reviewing what changed")
                 ai = engine.run_ai_stage(
-                    captured, depth=options.depth, previous=previous, structured_executor=structured_executor
+                    captured,
+                    depth=options.depth,
+                    previous=previous,
+                    structured_executor=structured_executor,
+                    # A person at the command gets the overview (one more model call); a git hook, which must stay
+                    # cheap and fail open, does not.
+                    overview=(
+                        overview.Request(
+                            identity=f"{head_id}:{rng.merge_base_sha}",
+                            previous=previous.overview if previous is not None else None,
+                            previous_identity=previous.overview_for if previous is not None else "",
+                        )
+                        if options.fail_setup
+                        else None
+                    ),
                 )
         except Exception as exc:  # a bug or a refusal in the review is an incomplete review, never a found P0 (exit 1)
             problem = f"the review could not run ({type(exc).__name__}: {trimmed(str(exc), 200)})"
@@ -753,6 +769,9 @@ def run_local_review(
         usage=ai.usage,
         usage_total=ai.usage if previous is None else previous.usage_total.plus(ai.usage),
         view=noise.view_code(),
+        impact=ai.impact,
+        overview=ai.overview if options.fail_setup else (previous.overview if previous is not None else None),
+        overview_for=ai.overview_for if options.fail_setup else (previous.overview_for if previous is not None else ""),
     )
     try:
         state = save_state(path, state)
@@ -791,6 +810,8 @@ def run_local_review(
     report.model = ai.model
     report.cached = ai.status == "nothing_changed"
     report.notes.extend(f"config: {note}" for note in noise.notes)
+    if ai.overview_note:
+        report.notes.append(ai.overview_note)
     if ai.ignored:
         report.notes.append(f"{plural(len(ai.ignored), 'file')} left out by review.ignore")
     if refused:
@@ -873,14 +894,19 @@ def render_text(report: LocalReport, *, style: Callable[..., str] | None = None,
     if view is not None:
         mark = {"must_fix": "red", "clean": "green"}.get(view.state, "yellow")
         counts = f" · {view.counts}" if view.counts else ""
+        # The same top as the pull request comment: the score, the impact and what the change does, then the verdict.
+        lines.append(paint(f"Confidence Score: {view.confidence}/5", fg=mark, bold=True))
+        lines.extend(_impact_lines(report, paint))
         lines.append(paint(plain(view.headline) + counts, fg=mark, bold=True))
     if report.cached:
         lines.append("Nothing changed since the last review of this scope: its results are reused, with no model call.")
     lines.append("")
     shown = [finding for finding in opened if finding.severity != "p2"]
     listed = [finding for finding in opened if finding.severity == "p2"]
-    for finding in shown:
-        lines.extend(_finding_lines(finding, paint))
+    if shown or listed:
+        lines.append(paint("Findings", bold=True))
+    for number, finding in enumerate(shown, 1):
+        lines.extend(_finding_lines(finding, paint, number))
     if listed:
         lines.append(paint(f"{plural(len(listed), 'optional finding')} (P2):", dim=True))
         lines.extend(_one_line_rows(listed, show_all=show_all))
@@ -892,6 +918,7 @@ def render_text(report: LocalReport, *, style: Callable[..., str] | None = None,
         lines.append(paint(f"{heading}; not counted toward --fail-on. A P0 is never held back:", dim=True))
         lines.extend(_one_line_rows(sorted(report.held, key=sort_key), show_all=show_all))
         lines.append("")
+    lines.extend(_summary_lines(report, paint))
     closed = [finding for finding in report.findings if finding.state == "fixed"]
     if closed:
         lines.append(f"Fixed since the last review: {', '.join(plain(finding.title) for finding in closed)}")
@@ -942,11 +969,38 @@ def _where(finding: BotFinding) -> str:
     return f"{path}:{finding.line}" + (f"-{finding.end_line}" if finding.end_line > finding.line else "")
 
 
-def _finding_lines(finding: BotFinding, paint: Callable[..., str]) -> list[str]:
+def _impact_lines(report: LocalReport, paint: Callable[..., str]) -> list[str]:
+    """``[Medium impact] <what the change does>`` and the reasons the label rests on, as the pull request comment has them."""
+
+    weighed = impact.Impact.from_state(report.state.impact) if report.state is not None else None
+    described = report.state.overview.one_line if report.state is not None and report.state.overview else ""
+    lead = f"[{weighed.label}]" if weighed is not None else ""
+    lines = [f"{lead} {plain(described)}".strip()] if lead or described else []
+    if weighed is not None:
+        lines.append(paint(f"  {weighed.summary()} (from the change itself, not a model)", dim=True))
+    return lines
+
+
+def _summary_lines(report: LocalReport, paint: Callable[..., str]) -> list[str]:
+    """``Summary``: one intro sentence and a few bullets of what changed, from the overview; nothing without one."""
+
+    found = report.state.overview if report.state is not None else None
+    if found is None or not (found.intro or found.bullets):
+        return []
+    lines = [paint("Summary", bold=True)]
+    if found.intro:
+        lines.append(f"  {plain(found.intro)}")
+    lines.extend(f"  - {plain(bullet)}" for bullet in found.bullets)
+    lines.append("")
+    return lines
+
+
+def _finding_lines(finding: BotFinding, paint: Callable[..., str], number: int = 0) -> list[str]:
     badge = SEVERITY_BADGE.get(finding.severity, finding.severity.upper())
     meaning = SEVERITY_MEANING.get(finding.severity, "")
     head = paint(f"{badge} · {meaning}", fg=_BADGE_COLOR.get(finding.severity, "white"), bold=True)
-    lines = [f"{head}  {_where(finding)}  [{plain(finding.category)}]", f"    {plain(finding.title)}"]
+    place = f"{number}. " if number else ""
+    lines = [f"{place}{head}  {_where(finding)}  [{plain(finding.category)}]", f"    {plain(finding.title)}"]
     if finding.explanation:
         lines.append(f"    {plain(finding.explanation)}")
     if finding.consequence:

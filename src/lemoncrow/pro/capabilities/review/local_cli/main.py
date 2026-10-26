@@ -23,6 +23,7 @@ from lemoncrow.pro.capabilities.review.local_cli.ai import (
     AGENT_CLIS,
     DEFAULT_LOCAL_FAIL_ON,
     _check_ai_review_flags,
+    _LocalUsageError,
     _review_local_with_ai,
     _review_pull_request_with_ai,
     use_agent_cli,
@@ -85,7 +86,17 @@ def _store_root() -> Path:
     "pr_spec",
     default=None,
     metavar="NUMBER|URL",
-    help="Review a GitHub pull request from inside a clone of its repository (needs the `gh` CLI). Prints; posts nothing.",
+    help=(
+        "Review a GitHub pull request from inside a clone of its repository (needs the `gh` CLI). Prints what the bot "
+        "would post, the summary and each inline comment with its place; writes nothing to GitHub, so a closed or "
+        "merged pull request works too."
+    ),
+)
+@click.option(
+    "--dry-run",
+    "dry_run",
+    is_flag=True,
+    help="With --pr: the same as leaving it out. A pull request review here already posts nothing and prints what the bot would.",
 )
 @click.option(
     "--agent",
@@ -153,6 +164,7 @@ def review_cmd(
     staged: bool,
     working_tree: bool,
     pr_spec: str | None,
+    dry_run: bool,
     agent: str | None,
     remember: bool,
     depth: str,
@@ -170,7 +182,8 @@ def review_cmd(
     """Review a change with AI on your own model route, and print the findings.
 
     Reviews the working tree by default, or --staged, REV, or --base/--head. Needs ANTHROPIC_API_KEY or
-    OPENAI_API_KEY in the environment, or --agent for a signed-in agent CLI. Posts nothing anywhere.
+    OPENAI_API_KEY in the environment, or --agent for a signed-in agent CLI. Posts nothing anywhere. With --pr N it
+    reviews a pull request and prints what the bot would post: the summary and each inline comment, with its place.
 
     \b
     Exit status: 0 clean, 1 a finding at or above --fail-on is open, 2 incomplete with --strict, 3 it could not
@@ -180,6 +193,11 @@ def review_cmd(
 
     del ai
     use_agent_cli(agent, remember=remember, store_root=_store_root())
+    if dry_run and pr_spec is None:
+        raise _LocalUsageError(
+            "--dry-run previews what a pull request review would post: a local --ai review already posts nothing; "
+            "add --pr NUMBER|URL to preview a pull request"
+        )
     if pr_spec is not None:
         if rev or base_rev or head_rev or staged or working_tree:
             raise click.ClickException(
@@ -202,7 +220,7 @@ def review_cmd(
             on_push=True,
             diagram="auto",
             publish=False,
-            dry_run=False,
+            dry_run=dry_run,
             with_impact=not no_impact,
             as_json=as_json,
         )

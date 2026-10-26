@@ -134,9 +134,27 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   `.lemoncrow/review.yaml` among the files read.
 - **The full engine says its telemetry is on, once.** One line on standard error on the first run, also when piped,
   with the command that turns it off. The default is unchanged.
+- **A pull request review that reads like a report, with a score, a summary and a picture.** The summary comment
+  now opens with `Confidence Score: N/5` (worked out from the verdict, never by a model: an open P0 is 1, three or
+  more P1 is 2, one or two P1 is 3, only P2 is 4, clean is 5, and a partial review is never 5), then an impact
+  label with one sentence, the verdict, a numbered `Findings` list with P0/P1/P2 badges and links to the inline
+  threads, a `Summary` (an intro and three or four bullets) and a `Diagram`, a collapsed `Fix with agent prompt`
+  and a footer with the reviewed commit. Inline comments carry a badge, a collapsed `Prompt To Fix With AI` and the
+  rule or context they used. The sentence, the summary and the diagram come from one extra cheap model call per
+  review, which is counted in the call cap and the cost, is skipped on a trivial change or an unchanged head, and
+  returns structure, not markup: LemonCrow checks every node against the changed files and symbols and draws the
+  Mermaid itself. A review leaves a status reaction on the comment that asked for it (eyes while it runs, then a
+  thumbs up, or a confused face when it could not finish); reacting on the pull request itself or on a conversation
+  comment needs `issues: write` on the workflow token, and without it the reaction is skipped and nothing else
+  changes. `lc review --ai` prints the same structure in plain text. See
+  [what the bot posts](docs/setup/github-action.md#what-the-bot-posts).
 
 ### Fixed
 
+- **The change diagram no longer draws a file as a different name or as an error.** Mermaid 11 reads a label as
+  Markdown: `__init__.py` was drawn as a bold "init.py", and a label that began with `+ ` (every added file and
+  relationship) was drawn as "Unsupported markdown: list". An underscore at the edge of a word and a leading list
+  marker are now written as entities, and the added sign goes against the name.
 - **A model set with no driver no longer reads as "AI review is turned off".** `lc settings set intelligence.model X`
   without `intelligence.driver` makes the settings contradict each other; the review said "AI review is turned off"
   and told you to run `lc settings set intelligence.enabled true`, which changes nothing. It now says the setting is
@@ -150,6 +168,30 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   documentation, generated or vendored files, formatting) and no rule asks the model nothing, and `lc review --ai`
   printed `No must-fix findings` with `Model: none · no model calls` and nothing else, which reads as an AI verdict.
   A line under `Model:` now says no model was asked and how to have it check the change.
+- **`lc review --pr N --ai --dry-run` works, and the three ways to look at a pull request agree.** It was refused
+  ("--dry-run only applies to --publish or --publish-bot"), and `--pr N --ai` printed only the summary. Now
+  `--pr N --ai`, `--pr N --ai --dry-run` and `--pr N --publish-bot --dry-run` are one preview: the pull request is
+  reviewed, the summary and each inline comment (with its file and lines) are printed exactly as the bot would post
+  them, and nothing is written to GitHub. Only `--publish-bot`, in GitHub Actions, posts. `lc review --help` and the
+  installed client's `lc review --ai --help` say so.
+- **A closed or merged pull request can be reviewed from a terminal.** Nothing refused it but the Action's own
+  rule (a closed pull request is skipped, with a `skipped: pull request is closed` status), so nobody could try
+  the reviewer on history. A preview (`lc review --pr N --ai`, with or without `--dry-run`) now reviews it and
+  says once, in the notes, that it is closed or merged and nothing will be posted. The Action and
+  `--publish-bot` still skip closed pull requests exactly as before.
+- **A terminal run no longer says "see the workflow log", or names an environment variable.** A review run
+  from a terminal that could not reach its model said `model calls failed; see the workflow log`, and the other
+  causes told you to check a secret or re-run a job: there is no workflow, secret or job there. In a terminal the
+  headline now says `see the model call errors line` (the error is printed with the review, and in `--json`) and
+  the other causes name your API key and say to run it again; the Action's wording is unchanged. The change
+  diagram's skipped note, shown on every review of a large repository, no longer names
+  `LEMONCROW_REVIEW_DIAGRAM_MAX_FILES`; the guide still documents it.
+- **A review on the `claude` agent CLI reports what it cost, and `--max-usd-per-pr` holds there.** The CLI's
+  result carries a total cost for each call (`total_cost_usd`, its list-price estimate: a subscription is not
+  billed per call), and LemonCrow dropped it, so the summary showed no cost and the dollar cap could not be
+  enforced on that route. It is now recorded as the call's cost, in the plain and the streaming mode. Codex
+  reports tokens only and OpenCode's usage is not read, so those routes still show no cost; no price is ever
+  invented.
 - **A review on the `claude` agent CLI reports the tokens it used.** The CLI's result carries its token counts,
   and LemonCrow dropped them: every line said "tokens not reported" and the JSON had `null` counts. They are now
   read from the result (prompt tokens include the cached part, as on the API routes). A dollar cost stays

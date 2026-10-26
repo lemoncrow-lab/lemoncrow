@@ -66,6 +66,7 @@ from lemoncrow.pro.capabilities.review.evaluation.scoring import (
     compare_reviewers,
     match_labels,
 )
+from lemoncrow.pro.capabilities.review.git_env import git_environment
 from lemoncrow.pro.capabilities.review.intelligence_runtime import ModelCallUsage, StructuredExecution
 
 SCHEMA: Final[int] = 1
@@ -81,8 +82,12 @@ _GIT_IDENTITY: Final[dict[str, str]] = {
     "GIT_AUTHOR_DATE": "2000-01-01T00:00:00+0000",
     "GIT_COMMITTER_DATE": "2000-01-01T00:00:00+0000",
 }
-#: The most calls a review at each depth may make: the investigator ladder plus its synthesis, and the hard cap of 20.
-CALLS_AT_MOST: Final[Mapping[str, int]] = {"quick": 1, "auto": 3, "thorough": 6, "deep": 10}
+#: The most calls a review at each depth may make. Quick makes one. Auto makes one call per batch of changed code (about
+#: 12,000 input tokens each, ``ai_coverage.BATCH_INPUT_TOKENS``), and thorough and deep add a synthesis and up to 4 or 8
+#: hypotheses on top, so how many depends on the size of the change and the only bound that holds for any change is the
+#: hard cap of 20. (The benchmark asks for no overview call.)
+HARD_CAP: Final[int] = 20
+CALLS_AT_MOST: Final[Mapping[str, int]] = {"quick": 1, "auto": HARD_CAP, "thorough": HARD_CAP, "deep": HARD_CAP}
 FAKE_USD_PER_MTOK: Final[tuple[float, float]] = (1.0, 5.0)
 
 
@@ -559,7 +564,7 @@ def git(
         cwd=repo,
         input=input_bytes,
         capture_output=True,
-        env={**os.environ, **_GIT_IDENTITY, **(env or {})},
+        env=git_environment({**_GIT_IDENTITY, **(env or {})}),
         timeout=900,
         check=False,
     )
@@ -593,7 +598,11 @@ class Workspace:
 
     def has(self, sha: str) -> bool:
         completed = subprocess.run(
-            ["git", "cat-file", "-e", f"{sha}^{{commit}}"], cwd=self.repo, capture_output=True, check=False
+            ["git", "cat-file", "-e", f"{sha}^{{commit}}"],
+            cwd=self.repo,
+            capture_output=True,
+            check=False,
+            env=git_environment(),
         )
         return completed.returncode == 0
 

@@ -50,6 +50,16 @@ benchmarks/
 # Built-in Review evaluation corpus (synthetic, Apache-2.0), fixtures and Gate I
 # baseline. Organization corpora are never committed (tests enforce it).
 evals/review/
+# The seeded-bug corpus of repositories a public corpus may not carry (copyleft or source-available licences): commit
+# ids and fix subjects only, `visibility: private`; its reports go outside the checkout.
+!evals/review/seeded_public_bugs_nonpermissive.yaml
+# Its tests read that file, so they stay private with it.
+!tests/gateway/test_review_seeded_corpus_nonpermissive.py
+# The golden-comment corpus: 50 pull requests of repositories a public corpus may not carry, scored against an answer key
+# that has no licence (the key itself is never in this repository). Commit ids and titles only; reports go outside.
+!evals/review/golden_comment_prs.yaml
+# Its tests read that file, so they stay private with it.
+!tests/gateway/test_review_golden_corpus_shipped.py
 # Regression tests of the private code-intelligence engine (enterprise/runtime)
 # live under tests/private/ and are never published. Public tests reach the
 # engine only via the `private_engine` marker (skipped when it is absent).
@@ -78,6 +88,8 @@ evals/review/
 !tests/test_release_gate.py
 !tests/test_release_canary_env.py
 !tests/test_release_record.py
+# Imports scripts/release_gate.py, release_impact.py and release_record.py, which are private.
+!tests/test_release_impact.py
 !tests/test_verify_compiled_candidate.py
 # The support-matrix renderer reads the private status index; only its page is public.
 !tests/gateway/test_support_matrix.py
@@ -206,6 +218,8 @@ scripts/mirror.py
 scripts/public-paths.txt
 scripts/reconcile.sh
 scripts/refresh_model_prices.py
+# Renders the published code-review benchmark table (README and landing copy) from evals/review/published/; its test is public.
+scripts/render_code_review_benchmark.py
 scripts/release_changelog.py
 scripts/release_notes.py
 scripts/release_preflight.py
