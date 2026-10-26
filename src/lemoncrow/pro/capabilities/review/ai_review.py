@@ -2658,36 +2658,8 @@ def coverage_units(
                 add(piece, tier)
             else:
                 packable.setdefault(tier, []).append(piece)
-    for tier, pieces in packable.items():
-        pieces.sort(key=lambda piece: (-piece.score, -size(piece.target_ids), paths.get(piece.target_ids[0], "")))
-        for shared in ai_coverage.pack(
-            pieces, lambda bin_: cost([i for piece in bin_ for i in piece.target_ids]), room
-        ):
-            first = shared[0]
-            joined = tuple(dict.fromkeys(i for piece in shared for i in piece.target_ids))
-            add(
-                (
-                    first
-                    if len(shared) == 1
-                    else replace(
-                        first,
-                        target_ids=joined,
-                        score=max(piece.score for piece in shared),
-                        rationale=tuple(dict.fromkeys(reason for piece in shared for reason in piece.rationale)),
-                        scope=_scope_of(joined, targets),
-                        also=tuple(
-                            dict.fromkeys(
-                                category
-                                for piece in shared
-                                for category in (piece.category, *piece.also)
-                                if category != first.category
-                            )
-                        ),
-                    )
-                ),
-                tier,
-            )
-
+    # The changed code with no risk signal, by file; the plain production code is offered to the calls that carry a risk
+    # signal first (it fills their room), and the rest, and the configuration and test code, get calls of their own.
     groups: dict[int, list[list[str]]] = {_TIER_GENERAL: [], _TIER_CONFIG: [], _TIER_TEST: []}
     leftover = [(path, [i for i in ids if i not in absorbed]) for path, ids in general_by_file.items()]
     for _path, rest in sorted(leftover, key=lambda item: (-size(item[1]), item[0])):
@@ -2696,21 +2668,57 @@ def coverage_units(
         category = _file_category(targets[rest[0]], facts)
         tier = _TIER_TEST if category == "test" else _TIER_CONFIG if category == "config" else _TIER_GENERAL
         groups[tier].extend(ai_coverage.chunks(rest, cost, room))
+
+    def general_unit(ids: Sequence[str]) -> ReviewCandidate:
+        return ReviewCandidate(
+            category="correctness",
+            target_ids=tuple(ids),
+            score=_GENERAL_SCORE,
+            rationale=("changed code that no specific risk signal pointed at: a general review for defects",),
+            scope=_general_scope([targets[i] for i in ids if i in targets]),
+            general=True,
+        )
+
+    plain = [general_unit(group) for group in groups[_TIER_GENERAL]]
+    groups[_TIER_GENERAL] = []
+    for tier, pieces in packable.items():
+        pieces.sort(key=lambda piece: (-piece.score, -size(piece.target_ids), paths.get(piece.target_ids[0], "")))
+        if tier == _TIER_SIGNAL:
+            pieces.extend(plain)  # signals first: first-fit gives them the first calls, and plain code the room left
+            plain = []
+        for shared in ai_coverage.pack(
+            pieces, lambda bin_: cost([i for piece in bin_ for i in piece.target_ids]), room
+        ):
+            signals_in = [piece for piece in shared if not piece.general]
+            first = signals_in[0] if signals_in else shared[0]
+            joined = tuple(dict.fromkeys(i for piece in shared for i in piece.target_ids))
+            if len(shared) == 1:
+                unit = first
+            elif not signals_in:
+                unit = general_unit(joined)
+            else:
+                unit = replace(
+                    first,
+                    target_ids=joined,
+                    score=max(piece.score for piece in signals_in),
+                    rationale=tuple(dict.fromkeys(reason for piece in signals_in for reason in piece.rationale)),
+                    scope=_scope_of(joined, targets),
+                    also=tuple(
+                        dict.fromkeys(
+                            category
+                            for piece in signals_in
+                            for category in (piece.category, *piece.also)
+                            if category != first.category
+                        )
+                    ),
+                )
+            add(unit, tier if signals_in else _TIER_GENERAL)
     for tier, tier_groups in groups.items():
         for packed in ai_coverage.pack(tier_groups, lambda bin_: cost([i for group in bin_ for i in group]), room):
-            ids = tuple(i for group in packed for i in group)
-            members = [targets[i] for i in ids if i in targets]
-            add(
-                ReviewCandidate(
-                    category="correctness",
-                    target_ids=ids,
-                    score=_GENERAL_SCORE,
-                    rationale=("changed code that no specific risk signal pointed at: a general review for defects",),
-                    scope=_general_scope(members),
-                    general=True,
-                ),
-                tier,
-            )
+            add(general_unit([i for group in packed for i in group]), tier)
+    if plain:  # no production signal to ride in: the plain production code gets calls of its own
+        for plain_bin in ai_coverage.pack(plain, lambda bin_: cost([i for p in bin_ for i in p.target_ids]), room):
+            add(general_unit([i for p in plain_bin for i in p.target_ids]), _TIER_GENERAL)
     return tuple(unit for _key, unit in sorted(units, key=lambda item: item[0]))
 
 

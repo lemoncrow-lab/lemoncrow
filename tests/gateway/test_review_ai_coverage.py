@@ -278,15 +278,19 @@ def test_several_small_files_travel_in_one_call_and_a_big_one_is_cut_into_severa
     assert len({t for unit in big for t in unit.target_ids}) == 5, "no target is lost or repeated"
 
 
-def test_a_risk_signal_keeps_its_own_question_and_takes_its_files_plain_code_along() -> None:
+def test_a_risk_signal_keeps_its_own_question_and_plain_code_fills_the_room_of_its_call() -> None:
     units = units_for(
         [("a", "src/auth.py", 300), ("b", "src/auth.py", 300), ("c", "src/pricing.py", 300)],
         candidates=[signal("security", "a")],
     )
-    by_category = {unit.category: unit for unit in units if not unit.general}
-    assert set(by_category["security"].target_ids) == {"a", "b"}, "the plain code of the same file rides along"
-    general = [unit for unit in units if unit.general]
-    assert len(general) == 1 and general[0].target_ids == ("c",)
+    (unit,) = units
+    assert (unit.category, set(unit.target_ids), unit.general) == ("security", {"a", "b", "c"}, False)
+    assert unit.target_ids[:2] == ("a", "b"), "the file's own plain code comes right after the signal"
+    # Too big to share: the plain file gets a general call of its own, ranked after the signal's.
+    apart = units_for(
+        [("a", "src/auth.py", 300), ("c", "src/pricing.py", 6000)], candidates=[signal("security", "a")], room=1000
+    )
+    assert [(unit.target_ids, unit.general) for unit in apart] == [(("a",), False), (("c",), True)]
 
 
 def test_small_files_with_a_risk_signal_share_a_call_whatever_the_signal_and_the_call_names_them_all() -> None:
@@ -350,6 +354,7 @@ def test_the_order_spends_a_short_budget_on_production_code_before_test_code() -
         ],
         candidates=candidates,
         category={"tests/test_auth.py": "test", "tests/test_pricing.py": "test", "deploy/values.yaml": "config"},
+        room=200,  # one tiny target fills a call, so the order of the calls is the order of the work
     )
     assert [unit.target_ids for unit in units] == [("r",), ("s",), ("g",), ("c",), ("ts",), ("t",)]
     assert [unit.general for unit in units] == [False, False, True, True, False, True]
@@ -472,7 +477,8 @@ def test_quick_looks_at_the_highest_ranked_work_with_one_call_and_leaves_the_res
     )
     assert len(seen) == 1, "quick is one call"
     assert result.checked_target_ids == ("target-auth", "target-plain"), "both were set out to be looked at"
-    assert seen[0]["prompt"]["hypothesis"]["value"]["target_ids"] == ["target-auth"], "the risk signal ranks first"
+    first = seen[0]["prompt"]["hypothesis"]["value"]["target_ids"]
+    assert first[0] == "target-auth", "the risk signal ranks first, and the plain code rides in its call"
 
 
 def test_the_investigators_prompt_carries_the_diff_and_the_pr_rules_for_every_pr_call(tmp_path: Path) -> None:
@@ -682,3 +688,19 @@ def test_files_with_different_risk_signals_share_a_call_and_each_risk_still_read
     rows = [row for row in body.split("\n") if row.startswith("- **Examined, nothing found**")]
     assert any("`src/auth.py" in row and "security" in row for row in rows)
     assert any("`src/cache.py" in row and "performance" in row for row in rows)
+
+
+def test_plain_production_code_rides_in_a_call_that_has_room_and_only_otherwise_gets_one_of_its_own() -> None:
+    with_signal = units_for(
+        [("s", "src/auth.py", 300), ("p", "src/pricing.py", 300)], candidates=[signal("security", "s")]
+    )
+    assert [(set(unit.target_ids), unit.general) for unit in with_signal] == [({"s", "p"}, False)]
+    without = units_for([("p", "src/pricing.py", 300), ("q", "src/billing.py", 300)])
+    assert [(set(unit.target_ids), unit.general) for unit in without] == [({"p", "q"}, True)]
+    # Configuration and test code never ride in a production call: they are ranked after it.
+    mixed = units_for(
+        [("s", "src/auth.py", 300), ("c", "deploy/values.yaml", 300), ("t", "tests/test_x.py", 300)],
+        candidates=[signal("security", "s")],
+        category={"deploy/values.yaml": "config", "tests/test_x.py": "test"},
+    )
+    assert [set(unit.target_ids) for unit in mixed] == [{"s"}, {"c"}, {"t"}]
