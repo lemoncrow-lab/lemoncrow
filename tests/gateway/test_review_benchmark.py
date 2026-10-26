@@ -301,9 +301,12 @@ def test_a_missed_label_says_whether_the_model_was_ever_asked(tmp_path: Path) ->
 
 def test_the_ceiling_stops_the_run_and_leaves_a_partial_report(tmp_path: Path) -> None:
     world = World(tmp_path)
-    results, ledger, facts, options = world.run(max_calls=2, depths=("auto", "deep"))
+    # shop-12's Auto review asks the model twice (one investigation per file with a risk signal; the grouping call that
+    # once made it three is gone), so a ceiling of 1 falls inside that review. A ceiling equal to its call count would
+    # let it finish and refuse only the next pull request's first call.
+    results, ledger, facts, options = world.run(max_calls=1, depths=("auto", "deep"))
 
-    assert ledger.stopped == "the call ceiling of 2 was reached" and ledger.calls == 2
+    assert ledger.stopped == "the call ceiling of 1 was reached" and ledger.calls == 1
     first, second = results
     assert first.reviews["auto"].stopped_by_budget and not first.reviews["auto"].complete
     assert second.reviews["auto"].status == "skipped" and second.reviews["auto"].reason == ledger.stopped

@@ -82,7 +82,9 @@ _GIT_IDENTITY: Final[dict[str, str]] = {
     "GIT_COMMITTER_DATE": "2000-01-01T00:00:00+0000",
 }
 #: The most calls a review at each depth may make: the investigator ladder plus its synthesis, and the hard cap of 20.
-CALLS_AT_MOST: Final[Mapping[str, int]] = {"quick": 1, "auto": 3, "thorough": 6, "deep": 10}
+#: Auto is one synthesis and two investigations, or, for a change with three to six risk signals, up to six
+#: investigations of their own and no synthesis (``ai_review.AUTO_FULL_COVERAGE_SIGNALS``).
+CALLS_AT_MOST: Final[Mapping[str, int]] = {"quick": 1, "auto": 6, "thorough": 6, "deep": 10}
 FAKE_USD_PER_MTOK: Final[tuple[float, float]] = (1.0, 5.0)
 
 
