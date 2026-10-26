@@ -67,7 +67,11 @@ from lemoncrow.pro.capabilities.review.evaluation.scoring import (
     match_labels,
 )
 from lemoncrow.pro.capabilities.review.git_env import git_environment
-from lemoncrow.pro.capabilities.review.intelligence_runtime import ModelCallUsage, StructuredExecution
+from lemoncrow.pro.capabilities.review.intelligence_runtime import (
+    ModelCallUsage,
+    StructuredExecution,
+    exact_table_cost_usd,
+)
 
 SCHEMA: Final[int] = 1
 DEPTHS: Final[tuple[str, ...]] = ("quick", "auto", "thorough", "deep")
@@ -203,12 +207,9 @@ class Pricer:
 
     @staticmethod
     def _table(model: str) -> Any | None:
-        from lemoncrow.core.capabilities.pricing import get_model_pricing
+        from lemoncrow.core.capabilities.pricing import exact_model_pricing
 
-        if not model:
-            return None
-        pricing = get_model_pricing(model)
-        return pricing if pricing.known and not pricing.approximate else None
+        return exact_model_pricing(model)
 
     def price(self, execution: StructuredExecution) -> tuple[float | None, str]:
         usage = execution.usage
@@ -216,19 +217,9 @@ class Pricer:
             return float(usage.provider_cost), "provider"
         if usage.input_tokens is None or usage.output_tokens is None:
             return None, "unknown"
-        table = self._table(execution.model)
-        if table is not None:
-            return (
-                float(
-                    table.cost_usd(
-                        input_tokens=usage.input_tokens,
-                        output_tokens=usage.output_tokens,
-                        cache_read_tokens=usage.cache_read_input_tokens or 0,
-                        cache_write_tokens=usage.cache_write_input_tokens or 0,
-                    )
-                ),
-                "price_table",
-            )
+        priced = exact_table_cost_usd(execution.model, usage)
+        if priced is not None:
+            return float(priced), "price_table"
         if self.input_rate is not None and self.output_rate is not None:
             return (
                 usage.input_tokens * self.input_rate + usage.output_tokens * self.output_rate

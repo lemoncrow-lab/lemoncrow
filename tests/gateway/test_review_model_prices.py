@@ -5,7 +5,8 @@ sibling's rate is refused, never guessed), else, for the benchmark only, the per
 ``--output-usd-per-mtok``. On the Action's Anthropic route the provider figure is LiteLLM's ``response_cost``, which is
 ``None`` for a model LiteLLM's bundled price map does not list, and the SDK-free HTTPS route reports none at all. So for
 a current model it is the local table (``pricing.yaml`` over the bundled LiteLLM map) that decides whether the footer
-shows a cost and whether ``max-usd-per-pr`` and the benchmark's ``--max-usd`` can be enforced.
+shows a cost and whether ``max-usd-per-pr``, the per-call ceiling (``per_review_model_cost_usd``) and the benchmark's
+``--max-usd`` can be enforced.
 
 These tests fix what that table holds for the models the guide, ``action.yml`` and the benchmark reference name, in both
 shapes it is read in: from the installed LiteLLM package, and from the snapshot bundled with LemonCrow when LiteLLM is
@@ -24,7 +25,11 @@ from lemoncrow.core.capabilities import pricing
 from lemoncrow.core.capabilities.pricing import get_model_pricing
 from lemoncrow.infra.internal_llm import openai_client
 from lemoncrow.pro.capabilities.review.evaluation.benchmark import Pricer
-from lemoncrow.pro.capabilities.review.intelligence_runtime import ModelCallUsage, StructuredExecution
+from lemoncrow.pro.capabilities.review.intelligence_runtime import (
+    ModelCallUsage,
+    StructuredExecution,
+    exact_table_cost_usd,
+)
 from lemoncrow.pro.capabilities.review.pr_bot import ci_env
 from lemoncrow.pro.capabilities.review.pr_bot.engine import call_usage
 
@@ -100,6 +105,8 @@ def test_a_current_model_has_an_exact_price_with_the_published_rates(price_table
 @pytest.mark.parametrize("model", sorted(PUBLISHED_RATES))
 def test_the_bot_and_the_benchmark_price_a_call_that_reports_no_cost(price_table: str, model: str) -> None:
     rate_in, rate_out, rate_read, rate_write, _ = PUBLISHED_RATES[model]
+    # The route's prompt tokens include the cached part: 10,000 prompt tokens, of which 4,000 are read from the cache
+    # and 2,000 written to it, leave 4,000 to bill as plain input.
     used = ModelCallUsage(
         calls=1,
         input_tokens=10_000,
@@ -107,12 +114,27 @@ def test_the_bot_and_the_benchmark_price_a_call_that_reports_no_cost(price_table
         cache_read_input_tokens=4_000,
         cache_write_input_tokens=2_000,
     )
-    expected = (10_000 * rate_in + 500 * rate_out + 4_000 * rate_read + 2_000 * rate_write) / 1_000_000
+    expected = (4_000 * rate_in + 500 * rate_out + 4_000 * rate_read + 2_000 * rate_write) / 1_000_000
     for name in (model, f"anthropic/{model}"):
         assert call_usage(name, used).cost_usd == pytest.approx(expected)
+        assert exact_table_cost_usd(name, used) == pytest.approx(expected)  # the per-call cost ceiling's price
         assert Pricer().can_price(name)
         cost, source = Pricer().price(execution(name, used))
         assert source == "price_table" and cost == pytest.approx(expected)
+
+
+@pytest.mark.usefixtures("price_table")
+def test_the_bot_the_benchmark_and_the_cost_ceiling_price_haiku_5_5_by_prompt_length() -> None:
+    # 150,000 prompt tokens, 100,000 of them cache reads: the whole request bills at the over-100,000 card.
+    used = ModelCallUsage(calls=1, input_tokens=150_000, output_tokens=1_000, cache_read_input_tokens=100_000)
+    expected = (50_000 * 0.50 + 1_000 * 2.50 + 100_000 * 0.05) / 1_000_000
+    short = ModelCallUsage(calls=1, input_tokens=100_000, output_tokens=1_000, cache_read_input_tokens=60_000)
+    expected_short = (40_000 * 0.10 + 1_000 * 0.50 + 60_000 * 0.01) / 1_000_000
+
+    assert call_usage("claude-haiku-5-5", used).cost_usd == pytest.approx(expected)
+    assert Pricer().price(execution("claude-haiku-5-5", used)) == (pytest.approx(expected), "price_table")
+    assert exact_table_cost_usd("claude-haiku-5-5", used) == pytest.approx(expected)
+    assert exact_table_cost_usd("claude-haiku-5-5", short) == pytest.approx(expected_short)
 
 
 @pytest.mark.usefixtures("price_table")

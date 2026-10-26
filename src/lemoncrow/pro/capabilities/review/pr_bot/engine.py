@@ -369,19 +369,9 @@ def call_usage(model: str, used: ModelCallUsage) -> Usage:
 def _price(model: str, used: ModelCallUsage) -> float | None:
     """USD for one call at the local price table's rate -- only for a model it knows exactly, on reported tokens."""
 
-    from lemoncrow.core.capabilities.pricing import get_model_pricing
+    from lemoncrow.pro.capabilities.review.intelligence_runtime import exact_table_cost_usd
 
-    if not model or used.input_tokens is None or used.output_tokens is None:
-        return None
-    pricing = get_model_pricing(model)
-    if not pricing.known or pricing.approximate:
-        return None
-    return pricing.cost_usd(
-        input_tokens=used.input_tokens,
-        output_tokens=used.output_tokens,
-        cache_read_tokens=used.cache_read_input_tokens or 0,
-        cache_write_tokens=used.cache_write_input_tokens or 0,
-    )
+    return exact_table_cost_usd(model, used)
 
 
 def _mount(captured: Captured, submit: Callable[..., Mapping[str, Any]] | None = None) -> Any:
