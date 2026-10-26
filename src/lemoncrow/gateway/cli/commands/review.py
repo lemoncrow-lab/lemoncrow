@@ -319,7 +319,7 @@ class _ReviewCliProgress:
     default="auto",
     show_default=True,
     help=(
-        "With --publish-bot, the collapsed Change diagram in the summary comment: auto draws the relationships the "
+        "With --publish-bot, the open Diagram section of the summary comment: auto draws the relationships the "
         "pull request added, removed or changed (from the Snapshot's architecture delta, no model call) when there is "
         "one worth drawing; off never builds it."
     ),

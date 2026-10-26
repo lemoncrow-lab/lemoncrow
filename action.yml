@@ -83,7 +83,7 @@ inputs:
     default: auto
   diagram:
     description: >-
-      The collapsed "Change diagram" in the summary comment, auto or off. auto draws the relationships the pull request
+      The "Diagram" section of the summary comment, open by default, auto or off. auto draws the relationships the pull request
       added, removed or changed between files as a Mermaid diagram GitHub shows inline, only when there is one worth
       drawing, from the Snapshot's architecture delta: no model call and nothing inferred. off never builds it (it
       parses the repository's source on both sides of the pull request, which a very large repository may not want).
@@ -272,6 +272,9 @@ runs:
         # No runtime downloads the review does not need: LiteLLM's price table is read from its own package instead of
         # fetched from GitHub's main branch, and the tree-sitter parser bundle lands in the cached directory.
         LITELLM_LOCAL_MODEL_COST_MAP: "True"
+        # The Action sends nothing to LemonCrow (docs/setup/github-action.md). DO_NOT_TRACK turns off the engine's anonymous
+        # telemetry and its first-run "Telemetry is on" line, which a fresh runner would otherwise print in every job log.
+        DO_NOT_TRACK: "1"
         XDG_CACHE_HOME: ${{ runner.temp }}/lemoncrow-cache/xdg
       run: |
         set -euo pipefail

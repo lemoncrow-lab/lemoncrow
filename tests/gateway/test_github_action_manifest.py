@@ -522,6 +522,22 @@ def test_the_guide_documents_the_diagram_its_two_sources_and_how_to_turn_it_off(
     )
 
 
+def test_the_input_and_the_command_help_call_the_diagram_open_as_the_summary_renders_it() -> None:
+    """The section is a heading and a block with no ``<details`` (tests/gateway/test_review_pr_bot_diagram.py): never "collapsed"."""
+
+    from click.testing import CliRunner
+
+    from lemoncrow.gateway.cli.commands.review import review_cmd
+
+    described = " ".join(manifest()["inputs"]["diagram"]["description"].split())
+    assert described.startswith('The "Diagram" section of the summary comment, open by default')
+    helped = " ".join(CliRunner().invoke(review_cmd, ["--help"]).output.split())
+    assert "the open Diagram section of the summary comment" in helped
+    for text in (described, helped):
+        assert "collapsed Change diagram" not in text and 'collapsed "Change diagram"' not in text
+    assert "`### Diagram`**, open" in GUIDE.read_text(encoding="utf-8")
+
+
 def test_the_guide_documents_the_reference_layout_the_score_the_overview_the_badges_and_the_reactions() -> None:
     """The summary comment top to bottom, how the score is computed, what the overview call is and costs, which
     permission a reaction needs, and where the badges come from."""
@@ -696,6 +712,18 @@ def test_no_runtime_download_the_review_does_not_need() -> None:
         "raw.githubusercontent.com"
         not in guide.split("### Caching and network")[1].split("## What the bot posts")[0].split("No LemonCrow host")[0]
     )
+
+
+def test_the_step_that_runs_the_engine_turns_its_telemetry_off_and_the_guide_says_so() -> None:
+    """The guide promises nothing is sent to LemonCrow, so the engine's own opt-out is set where the engine runs."""
+
+    runs_the_engine = [step for step in steps(manifest()) if "bin/lemoncrow" in str(step.get("run", ""))]
+    assert [step["name"] for step in runs_the_engine] == ["Review the pull request"]
+    assert runs_the_engine[0]["env"]["DO_NOT_TRACK"] == "1"
+    guide = GUIDE.read_text(encoding="utf-8")
+    assert "Nothing is sent to LemonCrow." in guide
+    network = guide.split("### Caching and network")[1].split("## What the bot posts")[0]
+    assert "sets `DO_NOT_TRACK=1`" in network
 
 
 def test_the_install_step_uses_the_runners_python_only_when_it_is_a_supported_one(tmp_path: Path) -> None:

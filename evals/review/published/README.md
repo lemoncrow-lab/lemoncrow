@@ -88,7 +88,7 @@ when, and only when, the scoring is publishable, and every value in it is read f
 | `date`, `prs_reviewed`, `answer_key_commit` | the date of the score report (UTC), the pull requests scored, the answer key's pinned commit |
 | `judge` | the judge's model, and the full SHA-256 of its fixed prompt (the report's `prompt_digest` is the first 16 hex of it) |
 | `review` | the benchmark report's model and driver (`route`), and the depth that was scored |
-| `engine` | `commit` is the git head the benchmark ran on (as the benchmark recorded it); `version` is the LemonCrow version that scored the report |
+| `engine` | `commit` is the git head the benchmark ran on (read when the run started, as the benchmark recorded it); `version` is the LemonCrow version that scored the report |
 | `cost` | the report's `cost` block: median and total dollars and model calls over the pull requests |
 
 A report of another tool's comments is a `competitor_rescored` row. The command cannot know which tool the comments are or
@@ -104,7 +104,8 @@ Markdown report says it in one sentence under "Ready to publish") when any of th
 - the judge was not the fixed one, or the report does not carry the full digest of its prompt;
 - for LemonCrow's reviews: the benchmark was not a live provider run, the findings were counted at a finding threshold
   other than the product's default, a review's cost is unknown (a missing cost is not zero), or the report does not name
-  the review's model and route or the git commit it ran on;
+  the review's model and route or the git commit it ran on, or the benchmark ran on a checkout with uncommitted changes to
+  tracked files (`dirty` is true in the report's code block; a report without the field is accepted);
 - precision or recall is undefined (no comment scored, or no golden comment counted), or the report's counts do not add up;
 - for another tool's comments: any of the five options is missing or malformed.
 

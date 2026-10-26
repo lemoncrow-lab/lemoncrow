@@ -37,7 +37,7 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   instead of calling a five-file pull request "Partially reviewed" (see Changed). README, guide and
   `lc review init-action` show one pin line, and the release notes print it with the real commit.
   See [GitHub Action: AI pull request review](docs/setup/github-action.md).
-- **A change diagram in the pull request summary.** A collapsed `Change diagram` after the findings
+- **A change diagram in the pull request summary.** An open `Diagram` section after the findings
   draws, as a Mermaid flowchart GitHub shows inline, the relationships between files that the pull
   request added (solid, `+`), removed (dashed, minus sign) or changed (bold), with the unchanged file
   at the other end in grey. It comes from the Snapshot's Architecture Delta, which compares the merge
@@ -160,6 +160,18 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Fixed
 
+- **The review benchmark records the commit it started on, and whether the tree was dirty.** The benchmark read
+  `git rev-parse HEAD` after the run, so a commit made during a long run was recorded in place of the one that
+  ran. It now reads the head before the run starts and adds `dirty` (uncommitted changes to tracked files, from
+  `git status --porcelain --untracked-files=no`; left out when git cannot say) to the report's `code` block.
+  `golden-score` writes no `benchmark_summary` for a run whose `dirty` is true and says why; a report without
+  the field is accepted as before.
+- **The GitHub Action's job log no longer says telemetry is on.** The guide promises "Nothing is sent to
+  LemonCrow", but the engine printed `Telemetry is on: ...` on a fresh runner. The step that runs `lc` now sets
+  `DO_NOT_TRACK=1`, and the first-run notice is no longer printed (or recorded as shown) while telemetry is off
+  by `DO_NOT_TRACK`, `LEMONCROW_TELEMETRY=off`, `lc rt telemetry remote off` or an administrator policy.
+- **The `diagram` input and `lc review --diagram` no longer call the diagram section collapsed.** The `### Diagram`
+  section is open in the summary comment (as the guide and the tests have it); only the wording was wrong.
 - **The claude CLI route no longer fails on prompts over 128 KiB; the prompt goes on standard input.** A large
   review prompt failed before the CLI started (`[Errno 7] Argument list too long`) because Linux caps one command-line
   argument at 128 KiB. `lc review --agent claude`, the Action with driver `claude`, and the Codex route (`codex exec -`)

@@ -629,6 +629,78 @@ def test_the_scripted_driver_writes_a_json_and_a_markdown_report(tmp_path: Path)
     assert report["pushes"]["auto"]["pushes"] == 0
 
 
+def benchmark_in(
+    world: World, checkout: Path, monkeypatch: pytest.MonkeyPatch, *, during_run: Any = None
+) -> dict[str, Any]:
+    """The scripted benchmark CLI run from *checkout*; ``during_run`` is called once the run has started."""
+
+    from lemoncrow.pro.capabilities.review.evaluation import benchmark as engine
+
+    real = engine.run_benchmark
+
+    def run_benchmark(*args: Any, **kwargs: Any) -> Any:
+        if during_run is not None:
+            during_run()
+        return real(*args, **kwargs)
+
+    monkeypatch.chdir(checkout)
+    monkeypatch.setattr(engine, "run_benchmark", run_benchmark)
+    out = world.root / "reports"
+    result = invoke(
+        "--corpus", str(world.corpus_path), "--driver", "fake", "--depth", "auto", "--no-pushes",
+        "--workdir", str(world.workdir), "--out-dir", str(out), "--name", "run",
+    )  # fmt: skip
+    assert result.exit_code == 0, result.output
+    code: dict[str, Any] = json.loads((out / "run.json").read_text(encoding="utf-8"))["run"]["code"]
+    return code
+
+
+def checkout_with_one_commit(root: Path) -> tuple[Path, str]:
+    checkout = root / "checkout"
+    checkout.mkdir()
+    git(checkout, "init", "-q", "-b", "main")
+    (checkout / "tracked.txt").write_text("one\n", encoding="utf-8")
+    git(checkout, "add", "-A")
+    git(checkout, "commit", "-qm", "first")
+    return checkout, git(checkout, "rev-parse", "HEAD")
+
+
+def test_the_report_names_the_commit_the_run_started_on_not_one_made_while_it_ran(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkout, started_on = checkout_with_one_commit(tmp_path)
+
+    def commit_during_the_run() -> None:
+        (checkout / "tracked.txt").write_text("two\n", encoding="utf-8")
+        git(checkout, "commit", "-qam", "made while the benchmark ran")
+
+    code = benchmark_in(World(tmp_path), checkout, monkeypatch, during_run=commit_during_the_run)
+    assert git(checkout, "rev-parse", "HEAD") != started_on  # the commit really landed during the run
+    assert code["git_head"] == started_on and code["dirty"] is False
+
+
+def test_the_report_says_whether_tracked_files_had_uncommitted_changes_when_the_run_started(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkout, started_on = checkout_with_one_commit(tmp_path)
+    (checkout / "untracked.txt").write_text("not tracked\n", encoding="utf-8")  # a new file is not a change to one
+    world = World(tmp_path)
+    assert benchmark_in(world, checkout, monkeypatch)["dirty"] is False
+
+    (checkout / "tracked.txt").write_text("edited\n", encoding="utf-8")
+    code = benchmark_in(world, checkout, monkeypatch)
+    assert code["dirty"] is True and code["git_head"] == started_on
+
+
+def test_outside_a_git_checkout_the_report_has_no_commit_and_no_dirty_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    code = benchmark_in(World(tmp_path), plain, monkeypatch)
+    assert code["git_head"] == "" and "dirty" not in code
+
+
 def test_the_command_is_reachable_where_the_notes_name_it(tmp_path: Path) -> None:
     for path in (["eval", "review", "benchmark"], ["eval", "review-benchmark"]):
         result = CliRunner().invoke(developer_tools, [*path, "--help"], catch_exceptions=False)

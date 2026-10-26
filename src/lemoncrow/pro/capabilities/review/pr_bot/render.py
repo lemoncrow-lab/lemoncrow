@@ -537,7 +537,7 @@ class SummaryView:
     budget: str = ""
     #: Rules worth offering for what people dismissed (:func:`learning.suggest`), shown as YAML to copy.
     suggestions: tuple[RuleSuggestion, ...] = ()
-    #: The collapsed "Change diagram" block (G17, :mod:`diagram`), already built from the Architecture Delta; empty for none.
+    #: The open "### Diagram" section (G17, :mod:`diagram`), already built from the Architecture Delta; empty for none.
     #: It is the first thing :func:`render_summary` gives up when the comment is too long.
     diagram: str = ""
     #: The named risks this review examined and what became of each (:func:`impact.risk_rows`), found first. The

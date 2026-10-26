@@ -40,7 +40,8 @@ In the full engine, anonymous remote telemetry is **ON by default**, and the fir
 command you run says so, once, on standard error (also when it is piped):
 `Telemetry is on: LemonCrow sends anonymous counts and timings, never code, prompts or file paths. Turn it off: lc rt telemetry remote off (or DO_NOT_TRACK=1).`
 Turn it off with `lc rt telemetry remote off`, or set `DO_NOT_TRACK=1` or
-`LEMONCROW_TELEMETRY=off`.
+`LEMONCROW_TELEMETRY=off`; while it is off, that line is not printed. The
+[GitHub Action](github-action.md) sets `DO_NOT_TRACK=1` on the step that runs `lc`.
 
 - **Inspect** what is collected locally: `lc rt telemetry show`
 - **See status:** `lc rt telemetry status --json`
