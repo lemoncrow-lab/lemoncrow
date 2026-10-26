@@ -160,6 +160,20 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Fixed
 
+- **The review prices Claude Haiku 5.5, and prices Claude Sonnet 5.5 cache hits at their real rate.** The local
+  price table had no entry for `claude-haiku-5-5`: the id fell through to the nearest sibling (Haiku 4.5, ten
+  times the price), which the review's cost lookup refuses, so a review on it showed no cost and `max-usd-per-pr`
+  and the benchmark's `--max-usd` could not be enforced, and the usage reports priced it, marked approximate, at Haiku 4.5's rates.
+  It is now an exact entry with both rate cards (up to 100,000 prompt tokens: $0.10 and $0.50 per million tokens;
+  over that: $0.50 and $2.50). Claude Sonnet 5.5 cache hits were priced at $0.20 per million tokens; Anthropic's
+  pricing page lists $0.10 (0.05 times the input price, as for Opus 5.5). Sonnet 5.5, Opus 5.5 and Fable 5.1 were
+  already priced; a test now fails when a model the guide, `action.yml` or the benchmark reference names has no
+  exact price. Both fixes are from Anthropic's pricing page of 2026-10-26.
+- **The guide no longer says every Anthropic run reports its cost.** A per-call dollar ceiling
+  (`per_review_model_cost_usd`) needs the provider's own figure, and LiteLLM (as locked) prices
+  `claude-sonnet-4-6` but not `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-haiku-5-5` or `claude-fable-5-1`, so
+  with one of them the ceiling stops every call; `max-usd-per-pr`, the footer and the benchmark's `--max-usd` use
+  LemonCrow's own table for those and work.
 - **The review benchmark records the commit it started on, and whether the tree was dirty.** The benchmark read
   `git rev-parse HEAD` after the run, so a commit made during a long run was recorded in place of the one that
   ran. It now reads the head before the run starts and adds `dirty` (uncommitted changes to tracked files, from
@@ -270,6 +284,13 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Changed
 
+- **The Action guide's cost section separates what was measured from what is estimated.** The table of 5.5 to 87
+  cents was arithmetic on planned prompt sizes, never run on a model API, and the guide and this file disagreed by
+  about a cent (the guide included the overview call, this file did not). It is now one table, labelled an estimate,
+  with the sum shown and the overview added as its own column. Beside it, labelled by route, are the figures
+  measured on the `claude` agent CLI with Sonnet 5.5 over 50 real public pull requests: `auto` 4.9 calls, $0.16
+  median and $0.28 mean a review; `thorough` 7.0 calls, $0.52 median and $0.58 mean (the CLI's list price with its
+  prompt cache). No review has been run on an API key, and push cost is unmeasured; the guide says both.
 - **The pull request review reports more of the defects it looks at, and fewer repeats.** On 30 real pull requests of
   a public benchmark (the `claude` agent CLI, Auto), the share of the key's counted defects found rose from 28% to
   45 to 50%, with precision at 44 to 51% (47% before) and 5.0 to 5.2 model calls a review (5.0 before). Four changes:
@@ -302,9 +323,11 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
   room, a big file is cut into several), within the unchanged cap of 20 model calls. Auto is complete whenever the
   batches fit the cap, and otherwise ranked (a rule, a risk signal in production code, plain production code,
   configuration, test code; the larger change first) and says `Partially reviewed: N of M changed areas examined`.
-  A small pull request (1 to 3 files) is 2 or 3 calls, about 4.5 to 11 cents on a $3 and $15 per million token
-  model; about 10 files is 4 or 5 calls (14 to 15 cents); 15 files and 755 lines is 7 calls (26 cents); a pull
-  request of 40 files or more reaches the cap (up to about 87 cents). Severity, noise controls, the summary format
+  The cost of the investigations is an estimate, not a measurement on a model API: the prompt sizes planned for
+  twelve real pull requests, priced at $3 and $15 per million tokens. A small pull request (1 to 3 files) is 2 or 3
+  calls, about 4.5 to 11 cents; about 10 files is 4 or 5 calls (14 to 15 cents); 15 files and 755 lines is 7 calls
+  (26 cents); a pull request of 40 files or more reaches the cap (up to about 87 cents). The overview call adds
+  about 1 cent to all but the last; the guide's "Cost and limits" shows the sums. Severity, noise controls, the summary format
   and carry-forward are unchanged, so a finding only the model made is still at most a P1. Re-reviewing after
   this update reviews everything once, because the prompt and the question changed. See
   [What gets a model call](docs/setup/github-action.md#what-gets-a-model-call).

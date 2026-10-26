@@ -19,6 +19,9 @@ from lemoncrow.core.capabilities.savings_summary import resolve_model_id
 # Sonnet 5's launch rates ($2/$10 + standard cache multipliers) became the
 # standard price; the planned Sep 1, 2026 increase to $3/$15 was cancelled.
 _SONNET_5_RATES = (2.0, 10.0, 0.2, 2.5)
+# Sonnet 5.5 has the same $2/$10, but its cache hits are 0.05x the input price ($0.10), not Sonnet 5's 0.1x ($0.20)
+# (Anthropic's pricing page, footnote 2, 2026-10-26).
+_SONNET_5_5_RATES = (2.0, 10.0, 0.1, 2.5)
 
 # model -> (input, output, cache_read, cache_write) USD per 1M tokens
 _FULL_WINDOW_STANDARD: dict[str, tuple[float, float, float, float]] = {
@@ -29,7 +32,7 @@ _FULL_WINDOW_STANDARD: dict[str, tuple[float, float, float, float]] = {
     "claude-opus-4-6": (5.0, 25.0, 0.5, 6.25),
     "claude-opus-5-5": (4.0, 20.0, 0.2, 5.0),
     "claude-sonnet-5": _SONNET_5_RATES,
-    "claude-sonnet-5-5": _SONNET_5_RATES,
+    "claude-sonnet-5-5": _SONNET_5_5_RATES,
     "claude-sonnet-4-6": (3.0, 15.0, 0.3, 3.75),
 }
 
@@ -87,7 +90,7 @@ def test_sonnet_5_5_uses_the_shipped_full_window_rates() -> None:
         pricing.cache_write_1h,
         pricing.thinking,
         pricing.context_window,
-    ) == (2.0, 10.0, 0.2, 2.5, 4.0, 10.0, 1_000_000)
+    ) == (2.0, 10.0, 0.1, 2.5, 4.0, 10.0, 1_000_000)
     assert pricing.long_context_threshold() == 0
 
 
