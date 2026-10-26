@@ -245,6 +245,20 @@ loosely, to [Keep a Changelog](https://keepachangelog.com/) and
 
 ### Changed
 
+- **The pull request review reports more of the defects it looks at, and fewer repeats.** On 30 real pull requests of
+  a public benchmark (the `claude` agent CLI, Auto), the share of the key's counted defects found rose from 28% to
+  45 to 50%, with precision at 44 to 51% (47% before) and 5.0 to 5.2 model calls a review (5.0 before). Four changes:
+  a finding that cites the exact source of another changed file of its own call is no longer dropped after its call
+  was paid for (7 of the 44 findings of the first run, three of them real catches; that source is never independent
+  evidence, so no severity changes); the investigator is asked for every defect it can support instead of a verdict on
+  the signal that flagged the code (up to six further findings per call instead of three, check callers and
+  definitions before reporting or dismissing a defect, report a small defect and rate it low, treat code a change
+  moves or copies as the change's own, and in test code report only a test that is wrong, not timing or flakiness
+  worries); message catalogues (`locales`, `i18n`, `l10n`, `translations`) cost no call; and a review with three or more
+  findings spends one call, while the cap has one, on a check for findings that are one defect reported twice
+  (`LEMONCROW_REVIEW_DUPLICATE_CHECK=off` skips it; a call it cannot answer leaves the findings alone). Severity, noise
+  controls and the 20-call cap are unchanged. Re-reviewing after this update reviews everything once, because the
+  instructions changed. See [What gets a model call](docs/setup/github-action.md#what-gets-a-model-call).
 - **The pull request review looks at every changed code target, and shows the model the diff.** A real-model run
   caught none of three planted bugs on default settings, for four reasons, each fixed for the pull request review
   (`lc review --ai`, `lc review --pr N --ai --publish-bot` and the Action; the Reader and the hosted worker are
