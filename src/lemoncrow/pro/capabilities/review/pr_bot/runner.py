@@ -768,7 +768,8 @@ def _review(
         view=noise.view_code(),
     )
     reason = failure.headline if failure is not None else (ai.reason if not ai.complete else "")
-    uninvestigated = max(ai.candidates - ai.investigated, 0)
+    uninvestigated = max(ai.candidates - ai.investigated, 0) + max(ai.general - ai.general_investigated, 0)
+    unit = "changed area" if ai.general else "risk signal"
     # Findings below the repository's threshold are tracked in the state (lowering the threshold shows them again with no
     # new review) but are in no verdict count: they are counted as held back, and listed once in the summary.
     below = noise.held_back(tracked)
@@ -776,12 +777,13 @@ def _review(
         [finding for finding in tracked if finding not in below],
         complete=ai.complete,
         reason=reason,
-        signals=ai.candidates,
+        signals=ai.candidates + ai.general,
         uninvestigated=uninvestigated,
         held=len(below),
         deferred_files=len(ai.deferred_files),
         total_files=ai.total_files,
         model_failed=failure is not None,
+        unit=unit,
     )
     summary_view = SummaryView(
         state=state,
@@ -797,6 +799,7 @@ def _review(
             unreported=len(_state_is(tracked, "unreported")),
             complete=ai.complete,
             uninvestigated=uninvestigated,
+            unit=unit,
             suppressed=len(_state_is(tracked, "suppressed")),
             deferred_files=len(ai.deferred_files),
             total_files=ai.total_files,
@@ -806,6 +809,8 @@ def _review(
             targets=len(ai.target_ids),
             candidates=ai.candidates,
             investigated=ai.investigated,
+            general=ai.general,
+            general_investigated=ai.general_investigated,
             rules=ai.rules,
             unchanged=ai.unchanged,
             imported=ai.imported,

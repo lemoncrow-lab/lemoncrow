@@ -524,7 +524,7 @@ def test_the_risks_list_agrees_with_what_was_found_cleared_and_left_pending(
     world.model.reset()
     world.origin.push({"src/plain.py": "VALUE = 3\n"}, "touch an unrelated file")
     world.review()
-    assert world.model.paths() == ["src/cache.py"]
+    assert world.model.paths() == ["src/cache.py", "src/plain.py"], "the pending signal, and the file touched"
     block = risks_block(world)
     assert block[0] == "<details><summary>Risks examined: 3 of 3 · 1 found</summary>"
     rows = [row for row in block if row.startswith("- **")]
@@ -545,6 +545,8 @@ def test_a_clean_review_keeps_its_receipt_and_adds_the_named_list(world: World) 
 def test_more_than_seven_risks_are_cut_with_a_count_of_the_rest(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # The hard cap on model calls leaves two of the nine signals investigated (Auto otherwise looks at all of them).
+    monkeypatch.setenv("LEMONCROW_REVIEW_INTELLIGENCE_MAX_CALLS", "2")
     many = build_world(tmp_path, monkeypatch, {**BASE, **{f"src/auth/m{i}.py": "VALUE = 1\n" for i in range(9)}})
     many.origin.push({f"src/auth/m{i}.py": "VALUE = 2\n" for i in range(9)})
     many.review()

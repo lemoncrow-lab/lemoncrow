@@ -430,7 +430,10 @@ def test_the_investigator_is_shown_the_files_that_apply_to_the_code_it_reads(swi
     ]
     everything = json.dumps(seen.prompts)
     assert "Docs conventions" not in everything  # docs/AGENTS.md scopes to docs/, which the pull request does not touch
-    assert "Report nothing" not in everything and "Edited by the PR" not in everything  # the base governs
+    # The base governs. A rules file the pull request wrote is changed code under review (data in the source block), so
+    # its text may be in a prompt, but never as one of the conventions the investigator is told to follow.
+    conventions = json.dumps([row.get("project_conventions") for row in seen.prompts])
+    assert "Report nothing" not in conventions and "Edited by the PR" not in conventions
     assert "Src conventions" in everything
 
 

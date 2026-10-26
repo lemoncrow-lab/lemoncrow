@@ -132,11 +132,13 @@ def verdict(
     deferred_files: int = 0,
     total_files: int = 0,
     model_failed: bool = False,
+    unit: str = "risk signal",
 ) -> Verdict:
     """The one verdict line. A review that could not finish, or left risk signals unexamined, never reads as clean.
 
-    ``signals`` is how many changed targets carry a risk signal and ``uninvestigated`` how many of them no model
-    call reached; Auto looks at two however many there are. ``budget`` is why the pull request's review budget is
+    ``signals`` is how many changed targets the review set out to look at and ``uninvestigated`` how many of them no
+    model call reached (the hard cap on model calls leaves a very large change partly pending). ``unit`` names them:
+    ``risk signal`` when every one carries a risk signal, ``changed area`` when the review also looks at other changed code. ``budget`` is why the pull request's review budget is
     spent, when it is. A found P0 (even an earlier one nobody could re-check) still reads as a P0.
 
     ``held`` is how many open findings sit below the repository's threshold: *findings* must hold only what is
@@ -160,7 +162,7 @@ def verdict(
         return Verdict("partial", headline, 0, p1, p2, held)
     if uninvestigated > 0:
         total = max(signals, uninvestigated)
-        noun = "risk signal" if total == 1 else "risk signals"
+        noun = unit if total == 1 else f"{unit}s"
         headline = f"Partially reviewed: {total - uninvestigated} of {total} {noun} examined"
         return Verdict("partial", headline, 0, p1, p2, held)
     return Verdict("clean", "No must-fix findings", 0, p1, p2, held)
@@ -369,6 +371,8 @@ class RunFacts:
     stale: int
     complete: bool = True
     uninvestigated: int = 0
+    #: What ``uninvestigated`` counts: ``risk signal``, or ``changed area`` when the review also looks at other changed code.
+    unit: str = "risk signal"
     unreported: int = 0
     #: Findings held back by feedback in this run (G9): a person said not to flag them on this pull request.
     suppressed: int = 0
@@ -386,6 +390,9 @@ class Receipt:
     candidates: int
     investigated: int
     rules: tuple[str, ...]
+    #: Changed code with no risk signal that the review also looked at, and how much of it a model call returned for.
+    general: int = 0
+    general_investigated: int = 0
     unchanged: int = 0
     #: Import warnings, said out loud rather than silently dropped (``ImportedConfig.receipt_lines``).
     imported: tuple[str, ...] = ()
@@ -448,7 +455,7 @@ def strip_text(facts: RunFacts) -> str:
     if facts.suppressed:
         parts.append(f"{facts.suppressed} dismissed by feedback")
     if facts.uninvestigated:
-        parts.append(f"{plural(facts.uninvestigated, 'risk signal')} not investigated yet")
+        parts.append(f"{plural(facts.uninvestigated, facts.unit)} not investigated yet")
     if not facts.complete:
         parts.append("incomplete")
     return " · ".join(parts)
@@ -688,8 +695,9 @@ def _visible(view: SummaryView, state: ReviewState, level: int) -> str:
         opened,
         complete=view.facts.complete,
         reason=view.incomplete_reason,
-        signals=view.receipt.candidates,
+        signals=view.receipt.candidates + view.receipt.general,
         uninvestigated=view.facts.uninvestigated,
+        unit=view.facts.unit,
         budget=view.budget,
         held=len(below),
         deferred_files=view.facts.deferred_files,
@@ -901,9 +909,14 @@ def _receipt_lines(view: SummaryView) -> list[str]:
     rules = ", ".join(f"`{code(rule)}`" for rule in receipt.rules[:10]) or "none configured"
     lines = [
         f"- Files: {plural(len(receipt.files), 'file')}" + (f" ({shown}{more})" if receipt.files else ""),
-        f"- Targets in this change: {receipt.targets}; risk signals: {receipt.candidates}; "
-        f"investigated by the model: {receipt.investigated}"
-        + (" (the depth limit)" if receipt.investigated < receipt.candidates else ""),
+        f"- Targets in this change: {receipt.targets}; risk signals: {receipt.candidates}"
+        + (f"; other changed code: {receipt.general}" if receipt.general else "")
+        + f"; investigated by the model: {receipt.investigated + receipt.general_investigated}"
+        + (
+            " (the depth limit)"
+            if receipt.investigated + receipt.general_investigated < receipt.candidates + receipt.general
+            else ""
+        ),
         f"- Rules applied: {rules}",
         f"- Depth: {view.depth_label}" + (f", up to {plural(view.max_calls, 'model call')}" if view.max_calls else ""),
     ]

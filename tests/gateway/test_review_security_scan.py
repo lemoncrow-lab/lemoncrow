@@ -686,8 +686,11 @@ def test_a_finding_that_cites_a_matching_static_result_is_verified_and_a_p0(
     assert finding.static_check == OS_RULE and finding.path == "app/handlers.py"
     # The investigator was offered the scanner's result as evidence, bound to that file's target.
     offered = [row for seen in model.evidence_seen for row in seen["evidence"] if row["kind"] == "static_finding"]
-    assert offered and OS_RULE in offered[0]["label"] and "app/handlers.py:14" in offered[0]["label"]
-    assert [call["category"] for call in model.calls] == ["security"] and model.calls[0]["path"] == "app/handlers.py"
+    assert any(OS_RULE in row["label"] and "app/handlers.py:14" in row["label"] for row in offered)
+    # The scanner's result is the security question about handlers.py; hashing.py (no signal) is looked at in general.
+    asked = [(call["category"], call["path"]) for call in model.calls]
+    assert ("security", "app/handlers.py") in asked and [c for c, _ in asked].count("security") == 1
+    assert ("correctness", "app/hashing.py") in asked
     # It is one finding, not also a raw one; the warning stays a held-back P2 of its own.
     assert [(f.severity, f.static_check) for f in raw(report)] == [("p2", HASH_RULE)]
     inline = [body for body in report.inline_bodies if "Static check:" in body]
@@ -759,7 +762,7 @@ def test_a_raw_result_nobody_confirmed_is_a_p1_security_finding_that_can_never_f
     assert wire["security"]["elsewhere"] == 1 and wire["security"]["tool"] == "Opengrep"
     assert any(row.get("scan") and row.get("static_check") == OS_RULE for row in wire["findings"])
     # The investigator was asked, with the scanner's result as evidence, and did not confirm it.
-    assert model.calls and all(call["category"] == "security" for call in model.calls)
+    assert model.calls and any(call["category"] == "security" for call in model.calls)
 
 
 def test_the_receipt_names_what_the_scan_did(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -807,7 +810,8 @@ def test_a_scanner_that_fails_does_not_fail_the_review_and_the_summary_says_so(
 def test_a_missing_binary_in_actions_says_why_and_still_reviews(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    world, _scanner, _model = scanning_world(tmp_path, monkeypatch)
+    world, _scanner, model = scanning_world(tmp_path, monkeypatch)
+    model.forget.add(BUG)  # a clean review: the receipt that carries the cause is shown
     monkeypatch.setenv("LEMONCROW_OPENGREP_BIN", "")
     monkeypatch.setenv(
         "LEMONCROW_OPENGREP_NOTE", "checksum mismatch for opengrep_manylinux_x86: the download was not installed"

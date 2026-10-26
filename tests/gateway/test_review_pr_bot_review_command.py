@@ -340,11 +340,13 @@ def test_a_command_review_counts_as_a_review_so_the_run_cap_is_reached(world: Wo
 
 
 def test_a_dollar_budget_counts_what_the_command_cost(world: World) -> None:
-    reviewed(world, max_usd_per_pr=0.0008)
-    first = world.chat("@lemoncrow review deep", max_usd_per_pr=0.0008)
+    # Each fake call costs $0.00027 and the first review makes three (a risk signal each in auth.py and cache.py, and
+    # plain.py as changed code with no signal), so $0.0012 leaves room for exactly one more command.
+    reviewed(world, max_usd_per_pr=0.0012)
+    first = world.chat("@lemoncrow review deep", max_usd_per_pr=0.0012)
     assert first.published["chat"]["kind"] == "review", "the first review cost less than the cap"
-    refused = world.chat("@lemoncrow review thorough", max_usd_per_pr=0.0008)
-    assert refused.published["chat"]["kind"] == "budget" and "spent of $0.0008 allowed" in answer(world)
+    refused = world.chat("@lemoncrow review thorough", max_usd_per_pr=0.0012)
+    assert refused.published["chat"]["kind"] == "budget" and "spent of $0.0012 allowed" in answer(world)
 
 
 def test_a_pull_request_from_a_fork_is_reviewed_from_the_conversation_on_an_api_route(world: World) -> None:

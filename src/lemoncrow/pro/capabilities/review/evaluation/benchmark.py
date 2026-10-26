@@ -756,6 +756,8 @@ class RunRecord:
     unchanged: int = 0
     candidates: int = 0
     investigated: int = 0
+    #: Changed code with no risk signal that the review also set out to look at (``AiStage.general``).
+    general: int = 0
     changed_lines: int = 0
     context_tokens: int = 0
     states: dict[str, int] = field(default_factory=dict)
@@ -810,6 +812,7 @@ class RunRecord:
             "unchanged_targets": self.unchanged,
             "risk_candidates": self.candidates,
             "investigated": self.investigated,
+            **({"other_changed_code": self.general} if self.general else {}),
             "changed_lines": self.changed_lines,
             "states": dict(self.states),
             "errors": list(self.errors),
@@ -923,6 +926,7 @@ def run_review(
     record.unchanged = ai.unchanged
     record.candidates = ai.candidates
     record.investigated = ai.investigated
+    record.general = ai.general
     record.changed_lines = ai.changed_lines
     record.context_tokens = int(ai.usage.context_tokens)
     record.stopped_by_budget = bool(meter.refused)
@@ -1321,7 +1325,7 @@ def score_run(
                 "cause": (
                     "asked_not_reported"
                     if {region.path for region in label.regions} & asked
-                    else ("no_risk_candidate" if run.candidates == 0 else "not_asked")
+                    else ("no_risk_candidate" if run.candidates == 0 and run.general == 0 else "not_asked")
                 ),
             }
             for label in score.missed

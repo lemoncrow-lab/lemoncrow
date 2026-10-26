@@ -429,6 +429,10 @@ class FakeModel:
         """``BUG`` titles whose finding cites the line its ``BUG:`` marker is really on (a careful model)."""
         self.lines: dict[str, tuple[int, int]] = {}
         """``BUG`` title -> the (start, end) lines the model claims, right or wrong; wins over ``cite_lines``."""
+        self.report_all = False
+        """Whether every ``BUG:`` line the call is shown is reported (the first as the answer, the rest as ``other_findings``)."""
+        self.category: dict[str, str] = {}
+        """``BUG`` title -> the category the model files that finding under, instead of the hypothesis's own."""
         self.forget: set[str] = set()
         """``BUG`` titles the model fails to report even though the code still says so (it does not repeat itself)."""
         self.answer_prior = True
@@ -454,7 +458,14 @@ class FakeModel:
         self.calls.clear()
 
     def paths(self) -> list[str]:
+        """The file of the first target of each investigation call, sorted (one entry per call)."""
+
         return sorted(call["path"] for call in self.calls)
+
+    def files_seen(self) -> list[str]:
+        """Every file any investigation call was shown code of, sorted and without repeats."""
+
+        return sorted({path for call in self.calls for path in call.get("paths", [call["path"]])})
 
     def _chat(self, kwargs: dict[str, Any]) -> StructuredExecution:
         prompt = json.loads(kwargs["prompt"])
@@ -484,7 +495,18 @@ class FakeModel:
         source = prompt["snapshot_source"]["value"]
         text = "\n".join(str(source[target].get("text", "")) for target in targets if target in source)
         path = str(source[targets[0]]["path"])
-        self.calls.append({"path": path, "targets": targets, "category": hypothesis["category"]})
+        self.calls.append(
+            {
+                "path": path,
+                "paths": list(dict.fromkeys(str(source[target]["path"]) for target in targets if target in source)),
+                "targets": targets,
+                "category": hypothesis["category"],
+                "general": bool(hypothesis.get("general")),
+                "diff": (prompt.get("change_diff") or {}).get("value") or [],
+                "system": kwargs["system"],
+                "prompt": prompt,
+            }
+        )
         self.evidence_seen.append({"path": path, "evidence": prompt["evidence_registry"]["value"]})
         if self.fail:
             raise RuntimeError(self.fail if isinstance(self.fail, str) else "provider unavailable")
@@ -523,7 +545,7 @@ class FakeModel:
                 ]
             result = {
                 "status": "confirmed",
-                "category": hypothesis["category"],
+                "category": self.category.get(title, hypothesis["category"]),
                 "target_ids": targets,
                 "title": title,
                 "explanation": f"The change in {path} {title}.",
@@ -536,6 +558,23 @@ class FakeModel:
                     result["severity"] = self.severity[title]
                 result["replacement"] = self.replacements.get(title)
                 result["lines"] = self._claimed_lines(title, source[targets[0]])
+        if "other_findings" in kwargs["output_schema"]["properties"]:
+            extra = re.findall(r"BUG: (.+)", text)[1:] if self.report_all and found is not None else []
+            result["other_findings"] = [
+                {
+                    "category": self.category.get(more.strip(), hypothesis["category"]),
+                    "target_ids": targets,
+                    "title": more.strip(),
+                    "explanation": f"The change in {path} {more.strip()}.",
+                    "consequence": "Callers can reach the guarded behavior without the check.",
+                    "evidence_refs": [f"target:{target}" for target in targets],
+                    "rule_refs": [],
+                    "severity": "medium",
+                    "lines": None,
+                    "replacement": None,
+                }
+                for more in extra
+            ]
         if "prior_findings" in kwargs["output_schema"]["properties"]:
             result["prior_findings"] = self._prior_answers(asked, text) if self.answer_prior else []
         return StructuredExecution(result=result, driver="openai", model=self.model, usage=usage)

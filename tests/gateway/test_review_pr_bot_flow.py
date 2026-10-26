@@ -71,7 +71,8 @@ def test_a_first_review_posts_one_summary_and_inline_comments_for_p0_and_p1_only
     report = world.review()
 
     assert not report.skipped
-    assert sorted(world.model.paths()) == ["src/auth.py", "src/cache.py"]
+    # The two risk signals, and plain.py too: changed code that no keyword marks is looked at in general.
+    assert sorted(world.model.paths()) == ["src/auth.py", "src/cache.py", "src/plain.py"]
     findings = by_title(report)
     assert findings["lets a missing principal through"].severity == "p1"
     assert findings["grows without a bound"].severity == "p2"
@@ -108,7 +109,7 @@ def test_the_report_and_the_posted_state_agree(world: World) -> None:
     assert report.state is not None and state == report.state
     wire = report.to_wire()
     assert wire["head_sha"] == world.origin.head and wire["verdict"]["p1"] == 1 and wire["verdict"]["p2"] == 1
-    assert wire["usage"]["calls"] == 2 and wire["status"]["state"] == "success"
+    assert wire["usage"]["calls"] == 3 and wire["status"]["state"] == "success"
     assert {row["id"] for row in wire["findings"]} == {finding.id for finding in state.findings}
     json.dumps(wire)  # serializable as is
 
@@ -183,7 +184,7 @@ def test_a_push_re_reviews_only_the_changed_file_and_carries_the_rest_without_a_
     assert "<details><summary>1 finding fixed since last review</summary>" in body
     state = posted_state(world)
     assert state.head_sha == world.origin.head and state.reviews == 2
-    assert state.usage.calls == 1 and state.usage_total.calls == 3
+    assert state.usage.calls == 1 and state.usage_total.calls == 4, "three calls the first time (plain.py too), one now"
 
 
 def test_a_fixed_finding_gets_a_reply_and_its_thread_is_resolved(world: World) -> None:
@@ -258,13 +259,13 @@ def test_a_failed_model_call_is_retried_next_push_even_for_unchanged_code(world:
     )
     assert status["target_url"].endswith("#issuecomment-1001"), "the check links to the summary comment"
     assert broken.annotations and broken.annotations[0][0] == "error"
-    # Only the file with no risk signal counts as reviewed; the two the model failed on are not.
-    assert len(posted_state(world).reviewed_units) == 1
+    # No call returned, so no file counts as reviewed: every one of them is asked again.
+    assert len(posted_state(world).reviewed_units) == 0
 
     world.model.fail = False
     world.model.reset()
     fixed = world.review()
-    assert sorted(world.model.paths()) == ["src/auth.py", "src/cache.py"]
+    assert sorted(world.model.paths()) == ["src/auth.py", "src/cache.py", "src/plain.py"]
     assert fixed.state is not None and fixed.state.complete and len(fixed.findings) == 2
     assert len(posted_state(world).reviewed_units) == 3 and world.github.review_posts == 1
 
@@ -555,16 +556,20 @@ def test_the_hard_call_cap_still_bounds_the_review(world: World, monkeypatch: py
     world.origin.push(FIRST_PUSH)
     monkeypatch.setenv("LEMONCROW_REVIEW_INTELLIGENCE_MAX_CALLS", "1")
     report = world.review()
-    assert len(world.model.calls) == 1
-    assert report.state is not None and not report.state.complete
-    assert "**Review incomplete: the model-call budget ran out**" in world.github.summary_comments()[0]["body"]
+    # The plan never exceeds the cap, so the review is not "incomplete": it looked at the highest-ranked work, said that
+    # the rest is pending, and the next push competes for the cap again.
+    assert len(world.model.calls) == 1 and world.model.paths() == ["src/auth.py"]
+    assert report.verdict is not None and report.verdict.headline == "Partially reviewed: 1 of 3 changed areas examined"
+    body = world.github.summary_comments()[0]["body"]
+    assert "**Partially reviewed: 1 of 3 changed areas examined**" in body
+    assert "2 changed areas not investigated yet" in body
 
 
 def test_a_depth_that_cannot_cover_the_candidates_says_so_instead_of_passing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The repository asks for Quick (depth auto follows review.effort). Quick spends one call, so with two
-    # risk candidates it covers neither: that must read as incomplete, never as a clean review.
+    # The repository asks for Quick (depth auto follows review.effort). Quick spends one call: it looks at the
+    # highest-ranked work and says the rest is pending. It must never read as a clean review.
     base = {
         "src/cache.py": BASE["src/cache.py"],
         "src/query.py": "def run(q):\n    return q\n",
@@ -575,14 +580,15 @@ def test_a_depth_that_cannot_cover_the_candidates_says_so_instead_of_passing(
         {"src/cache.py": CACHE_BUGGY, "src/query.py": "def run(q):\n    return q.all()  # BUG: unbounded\n"}
     )
     report = world.review()
-    reason = "quick depth cannot cover 2 risk candidates; ask for more depth"
-    assert world.model.calls == [] and report.state is not None and not report.state.complete
-    assert report.status == ("success", f"Review incomplete: {reason}")
-    assert f"**Review incomplete: {reason}**" in report.summary
-    assert world.review(fail_on="p0").status == ("error", f"Review incomplete: {reason}")
-    # Nothing candidate-bearing counted as reviewed, so asking for more depth examines both.
+    headline = "Partially reviewed: 1 of 2 risk signals examined"
+    assert len(world.model.calls) == 1 and report.state is not None and report.state.complete
+    assert report.status is not None and report.status[1].startswith(headline)  # "; 1 optional" follows: it found one
+    assert f"**{headline}**" in report.summary
+    assert "1 risk signal not investigated yet" in report.summary
+    # The signal not reached is pending, so asking for more depth examines both.
+    world.model.reset()
     world.review(depth="deep")
-    assert sorted(world.model.paths())[-2:] == ["src/cache.py", "src/query.py"]
+    assert {"src/cache.py", "src/query.py"} <= set(world.model.files_seen())
 
 
 def test_a_risk_candidate_beyond_the_call_cap_is_said_so_and_investigated_on_a_later_push(
@@ -605,7 +611,8 @@ def test_a_risk_candidate_beyond_the_call_cap_is_said_so_and_investigated_on_a_l
     world.model.reset()
     world.origin.push({"src/plain.py": "VALUE = 3\n"}, "touch an unrelated file")
     second = world.review()
-    assert world.model.paths() == ["src/cache.py"]  # auth.py and token.py were reviewed and are carried
+    # cache.py was left over, and plain.py is changed code of its own; auth.py and token.py were reviewed and are carried.
+    assert world.model.paths() == ["src/cache.py", "src/plain.py"]
     states = {f.title: f.state for f in second.findings}
     assert states == {
         "lets a missing principal through": "carried",
@@ -617,7 +624,7 @@ def test_a_risk_candidate_beyond_the_call_cap_is_said_so_and_investigated_on_a_l
     world.model.reset()
     world.origin.push({"src/plain.py": "VALUE = 4\n"}, "touch it again")
     third = world.review()
-    assert world.model.calls == [] and {f.state for f in third.findings} == {"carried"}
+    assert world.model.paths() == ["src/plain.py"] and {f.state for f in third.findings} == {"carried"}
     assert len(world.github.inline()) == 2  # the two P1s, once each; the P2 found on push two is held back
 
 

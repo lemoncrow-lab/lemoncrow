@@ -167,9 +167,18 @@ def test_a_pull_request_that_adds_or_edits_rules_files_cannot_change_its_own_rev
     report = world.review()
     # The review is exactly what it is without those edits: the same findings, from the same files, under the base's rules.
     assert {finding.title for finding in report.findings} == expected
-    assert sorted(world.model.paths()) == sorted(control.model.paths())
+    # The files the base's review looks at are looked at, and the only extra ones are the files the change itself wrote
+    # (they are changed configuration, so they are read as code under review, never obeyed as rules).
+    extra = set(world.model.files_seen()) - set(control.model.files_seen())
+    assert set(control.model.files_seen()) <= set(world.model.files_seen())
+    assert extra <= {RULES_FILE, "docs/hostile.yaml", ".lemoncrow/review.yaml"}
     assert not any("project_conventions" in prompt for prompt in seen.investigator_prompts())
-    assert not any("everything-is-fine" in json.dumps(prompt) for prompt in seen.prompts)
+    # The hostile text is a changed file, so it is read as code under review: data in the source and diff blocks. It is
+    # never in a block that instructs or constrains the model (rules, conventions, the hypothesis).
+    assert any("everything-is-fine" in json.dumps(prompt) for prompt in seen.prompts), "it is under review, as code"
+    for prompt in seen.prompts:
+        for block in ("trusted_repository_rules", "project_conventions", "hypothesis", "candidates"):
+            assert "everything-is-fine" not in json.dumps(prompt.get(block, "")), block
     summary = world.github.summary_comments()[0]["body"]
     assert "everything-is-fine" not in summary
 

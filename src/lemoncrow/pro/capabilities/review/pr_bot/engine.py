@@ -92,6 +92,10 @@ class AiStage:
     unchanged: int = 0
     candidates: int = 0
     investigated: int = 0
+    #: Changed code with no risk signal that the review set out to look at (``ai_review.general_review_targets``), and
+    #: how many of it a model call about it returned for. ``candidates`` and ``investigated`` count the risk signals only.
+    general: int = 0
+    general_investigated: int = 0
     rules: tuple[str, ...] = ()
     #: Settings imported from another tool's config that have no behavior here ("strictness 3: imported, not applied").
     imported: tuple[str, ...] = ()
@@ -608,10 +612,6 @@ def _intact_findings(captured: Captured, previous: ReviewState | None) -> tuple[
     return tuple(old.id for old in wanted if old.path in sources and lines_intact(sources[old.path], old.anchor_digest))
 
 
-def _candidates_phrase(candidates: int) -> str:
-    return f"{candidates} risk candidate" + ("" if candidates == 1 else "s")
-
-
 def _tokens(
     targets: tuple[ReviewTarget, ...], units: Mapping[str, tuple[str, str]], *, pending: Collection[str]
 ) -> dict[str, str]:
@@ -637,7 +637,12 @@ def _execute(
     inputs: NoiseInputs | None = None,
     intent_loader: Callable[[Captured], IntentNote] | None = None,
 ) -> AiStage:
-    from lemoncrow.pro.capabilities.review.ai_review import generate_candidates, run_independent_review
+    from lemoncrow.pro.capabilities.review.ai_review import (
+        changed_file_facts,
+        general_review_targets,
+        pr_candidates,
+        run_independent_review,
+    )
     from lemoncrow.pro.capabilities.review.independence import configured_reviewer_routes
     from lemoncrow.pro.capabilities.review.intelligence_policy import review_intelligence_policy
     from lemoncrow.pro.capabilities.review.intelligence_runtime import (
@@ -655,6 +660,9 @@ def _execute(
     # Lines the security scan reported an error-level result on (recorded before this stage): they make a target a
     # ``security`` candidate, which ranks a large pull request, names a risk signal and is investigated.
     security_lines = static_security_lines(store, revision)
+    # What the packet knows of each changed file (its kind, whether it is binary or deleted): which changed code is worth
+    # a model call, and which keyword in a name is not a risk (a lockfile called ``package-lock.json``).
+    facts = changed_file_facts(store, revision)
     # The noise controls, from the trusted base's .lemoncrow/review.yaml (never the pull request's copy). An ignored path
     # is out of the review: it is not a target, and an ai_denied content-access row keeps it from every prompt.
     noise = _noise_policy(context, governance, inputs)
@@ -713,8 +721,8 @@ def _execute(
             pending_review,
             limit=noise.max_files,
             total_files=len({target.path for target in targets}),
-            candidates=generate_candidates(
-                pending_review, rules=tuple(governance.rules), security_lines=security_lines
+            candidates=pr_candidates(
+                pending_review, rules=tuple(governance.rules), security_lines=security_lines, facts=facts
             ),
             criticality=(lambda path: triage.classify(path).criticality) if triage is not None else None,
             order={target.target_id: index for index, target in enumerate(targets)},
@@ -725,7 +733,7 @@ def _execute(
     intact = _intact_findings(captured, previous)
     rules = tuple(rule.stable_key for rule in governance.rules)
     # The change's impact and its risk signals, from the whole Snapshot and by fixed rules (no model, no model text).
-    risk_candidates = generate_candidates(targets, rules=tuple(governance.rules), security_lines=security_lines)
+    risk_candidates = pr_candidates(targets, rules=tuple(governance.rules), security_lines=security_lines, facts=facts)
     weighed = impact_mod.assess(targets, risk_candidates).to_state()
     rule_keys = {rule.ref: rule.stable_key for rule in governance.rules}
 
@@ -778,13 +786,17 @@ def _execute(
     examined = _Examined(structured_executor or execute_structured)
     candidate_ids = {
         target_id
-        for candidate in generate_candidates(changed, rules=tuple(governance.rules), security_lines=security_lines)
+        for candidate in pr_candidates(
+            changed, rules=tuple(governance.rules), security_lines=security_lines, facts=facts
+        )
         for target_id in candidate.target_ids
     }
+    # A model is about to be asked when the change carries a risk signal or any other changed code worth a look.
+    asking = bool(candidate_ids) or bool(general_review_targets(changed, facts, exclude=candidate_ids))
     # What the author says the change is for: read only when a model is about to be asked (each linked issue is a GET),
     # recorded on the Snapshot as bound intent, and shown to the investigators as small, cleaned, untrusted data.
-    note = intent_loader(captured) if intent_loader is not None and candidate_ids else None
-    intent_block = pr_intent.prompt_block(store, session.id) if pr_intent.enabled() and candidate_ids else None
+    note = intent_loader(captured) if intent_loader is not None and asking else None
+    intent_block = pr_intent.prompt_block(store, session.id) if pr_intent.enabled() and asking else None
     with bound_intelligence_policy(review_intelligence_policy(policy)):
         result: IndependentReviewResult = run_independent_review(
             store=store,
@@ -815,19 +827,18 @@ def _execute(
     context_tokens = context.get("estimated_tokens")
     if isinstance(context_tokens, int) and context_tokens > 0:
         usage = replace(usage, context_tokens=context_tokens)
-    # Reviewed means a model call about the target returned (or it carried no risk signal). A candidate no call
-    # reached -- a failed call, a spent budget, Auto's cap on investigations -- is pending: it is retried on the next
-    # push and competes for the cap again, so a large pull request is covered over its pushes, never silently skipped.
-    uncovered = result.status == "skipped_unnecessary" and result.candidates > 0
+    # Reviewed means a model call about the target returned (or there was nothing to look at in it: documentation, a
+    # generated file, a formatting-only change). A target no call reached -- a failed call, a spent budget, the hard cap
+    # on model calls -- is pending: it is retried on the next push and competes for the cap again, so a large pull
+    # request is covered over its pushes, never silently skipped.
     complete = result.status in {"completed", "skipped_unnecessary"} and not result.provider_errors
-    complete = complete and not result.skipped_by_budget and not uncovered
+    complete = complete and not result.skipped_by_budget
     # A deferred file was not looked at at all: pending like a risk signal no call reached.
-    pending = (candidate_ids - examined.targets) | deferred_ids
+    other_ids = set(result.general_target_ids) - candidate_ids
+    pending = ((candidate_ids | other_ids) - examined.targets) | deferred_ids
     why = ""
     if result.skipped_by_budget:
         why = "the model-call budget ran out"
-    elif uncovered:
-        why = f"{stage_plan.effort} depth cannot cover {_candidates_phrase(result.candidates)}; ask for more depth"
     kept, truncated = cap_units(_tokens(targets, units, pending=pending))
     if narrow and previous is not None:
         # Only the targets that were looked at again are newly reviewed; the rest stay as the last review left them.
@@ -849,6 +860,8 @@ def _execute(
         changed_files=len({target.path for target in changed}),
         candidates=len(candidate_ids),
         investigated=len(candidate_ids & examined.targets),
+        general=len(other_ids),
+        general_investigated=len(other_ids & examined.targets),
         usage=usage,
         model=served or (f"{result.driver}/{result.model}" if result.driver else ""),
         max_calls=result.calls_max,

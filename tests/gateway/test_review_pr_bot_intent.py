@@ -267,7 +267,9 @@ def test_a_review_that_asks_no_model_reads_no_issue(tmp_path: Path, monkeypatch:
     world = intent_world(tmp_path, monkeypatch, BASE)
     github = github_of(world)
     github.body, github.issues[12] = "Fixes #12", {"title": "t", "body": "b", "state": "open"}
-    world.origin.push({"src/plain.py": "VALUE = 2\n"})  # no risk signal: nothing for a model to do
+    world.origin.push(
+        {"README.md": "# Widgets\n\nNow with more widgets.\n"}
+    )  # documentation: nothing for a model to do
     world.review()
     assert world.model.calls == [] and github.issue_reads == []
     world.review()  # and a push that changes nothing

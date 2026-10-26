@@ -34,7 +34,7 @@ from lemoncrow.pro.capabilities.review.evaluation.benchmark import (
 from lemoncrow.pro.capabilities.review.evaluation.benchmark_report import build_report, render_markdown
 from lemoncrow.pro.capabilities.review.evaluation.real_prs import RealPrCorpus, load_real_pr_corpus
 from lemoncrow.pro.capabilities.review.intelligence_runtime import ModelCallUsage, StructuredExecution
-from tests.gateway.benchmark_support import Origin, corpus_dict, make_origin, write_corpus
+from tests.gateway.benchmark_support import Origin, corpus_dict, git, make_origin, write_corpus
 
 DEPTHS = ("quick", "auto", "deep")
 
@@ -144,9 +144,11 @@ def test_an_unlabelled_pull_request_gets_cost_and_findings_but_no_catch_or_noise
 def test_quick_is_the_trusted_bases_review_effort_and_calls_the_model_at_most_once(shared: dict[str, Any]) -> None:
     quick = pr(shared["report"], "shop-14")["depths"]["quick"]
     assert quick["status"] == "ran" and quick["complete"] and quick["model_calls"] <= 1
-    # Quick does not pick one of several independent targets: that PR is reported incomplete, with the product's reason.
+    # Several independent targets: Quick spends its one call on the highest-ranked work and leaves the rest pending
+    # (the review says so: "Partially reviewed"), where it used to make no call at all and report itself incomplete.
     multi = pr(shared["report"], "shop-12")["depths"]["quick"]
-    assert not multi["complete"] and "cannot cover" in multi["reason"] and multi["model_calls"] == 0
+    assert multi["status"] == "ran" and multi["model_calls"] == 1
+    assert 0 < multi["investigated"] < multi["risk_candidates"], "one call reached some of the risk signals, not all"
 
 
 def test_depth_raises_the_calls_and_the_cost(shared: dict[str, Any]) -> None:
@@ -251,10 +253,15 @@ def test_a_scripted_report_says_so_and_no_number_in_it_is_ready_to_publish(share
     assert "wall_seconds" in markdown and "Reference team (a projection)" in markdown
 
 
-def test_an_incomplete_review_is_not_scored_as_having_missed_a_label(shared: dict[str, Any]) -> None:
-    run = pr(shared["report"], "shop-12")["depths"]["quick"]
-    assert run["complete"] is False and "labels" not in run
-    assert "cannot cover" in shared["markdown"]
+def test_an_incomplete_review_is_not_scored_as_having_missed_a_label(tmp_path: Path) -> None:
+    """A review the call ceiling cut short never finished: it has no catch or miss to score."""
+
+    world = World(tmp_path)
+    results, ledger, facts, options = world.run(max_calls=1, depths=("auto",), pushes=False)
+    report = build_report(world.corpus(), options, results, ledger, facts, name="cut")
+    run = pr(report, "shop-12")["depths"]["auto"]
+    assert run["complete"] is False and run["stopped_by_budget"] and "labels" not in run
+    assert "the call ceiling of 1 was reached" in render_markdown(report)
 
 
 def test_a_missed_label_says_whether_the_model_was_ever_asked(tmp_path: Path) -> None:
@@ -272,6 +279,16 @@ def test_a_missed_label_says_whether_the_model_was_ever_asked(tmp_path: Path) ->
             "labels": [{**pricing, "id": "ghost-2", "regions": [{"path": "src/helpers.py", "lines": [2, 2]}]}],
         }
     )  # fmt: skip
+    # shop-15 changes only documentation, so triage finds nothing a model could look at.
+    notes = world.origin.path / "docs" / "notes.md"
+    notes.parent.mkdir()
+    notes.write_text("Notes.\n", encoding="utf-8")
+    git(world.origin.path, "add", "-A")
+    git(world.origin.path, "commit", "-qm", "Notes (#16)")
+    docs_only = git(world.origin.path, "rev-parse", "HEAD")
+    last = document["prs"][-1]
+    last["base_sha"], last["head_sha"], last["provenance"]["commit"] = world.origin.helper, docs_only, docs_only
+    last["labels"][0]["regions"] = [{"path": "docs/notes.md", "lines": [1, 1]}]
     world.corpus_path.write_text(yaml.safe_dump(document), encoding="utf-8")
     results, ledger, facts, options = world.run(depths=("auto",), pushes=False)
     report = build_report(world.corpus(), options, results, ledger, facts, name="causes")
@@ -301,9 +318,9 @@ def test_a_missed_label_says_whether_the_model_was_ever_asked(tmp_path: Path) ->
 
 def test_the_ceiling_stops_the_run_and_leaves_a_partial_report(tmp_path: Path) -> None:
     world = World(tmp_path)
-    results, ledger, facts, options = world.run(max_calls=2, depths=("auto", "deep"))
+    results, ledger, facts, options = world.run(max_calls=1, depths=("auto", "deep"))
 
-    assert ledger.stopped == "the call ceiling of 2 was reached" and ledger.calls == 2
+    assert ledger.stopped == "the call ceiling of 1 was reached" and ledger.calls == 1
     first, second = results
     assert first.reviews["auto"].stopped_by_budget and not first.reviews["auto"].complete
     assert second.reviews["auto"].status == "skipped" and second.reviews["auto"].reason == ledger.stopped

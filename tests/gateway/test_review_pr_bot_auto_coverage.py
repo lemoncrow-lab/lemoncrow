@@ -1,9 +1,10 @@
-"""Auto covers every risk signal of a small change, within the hard call cap; a large one stays honestly partial.
+"""Auto looks at every changed code target within the hard call cap; a change too big for the cap stays honestly partial.
 
-The default depth used to investigate two signals and call a change with three "Partially reviewed", which is what the
-very first pull request of a team read. Up to ``AUTO_FULL_COVERAGE_SIGNALS`` signals each get an investigation of their
-own (no call is spent choosing among them), the hard cap still applies, and above the limit the summary says how many
-signals it reached.
+The model used to be asked only about a keyword "risk signal", two (later up to six) at a time, so ordinary changed code
+was never looked at and a change with a few signals read "Partially reviewed". Now every risk signal gets its own
+investigation, all the other changed code worth a look goes in batches that fit a prompt, no call is spent choosing among
+them, and only a change whose calls do not fit the hard cap on model calls is left partly pending (the summary says how
+much, and the next push competes for the cap again).
 """
 
 from __future__ import annotations
@@ -12,11 +13,6 @@ from pathlib import Path
 
 import pytest
 
-from lemoncrow.pro.capabilities.review.ai_review import (
-    AUTO_FULL_COVERAGE_SIGNALS,
-    ReviewCandidate,
-    _auto_cover,
-)
 from tests.gateway.pr_bot_support import BASE, World, build_world
 
 SIGNAL_OLD = "def check(token):\n    return True\n"
@@ -31,17 +27,13 @@ def world_with(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, signals: int) ->
     return build_world(tmp_path, monkeypatch, {**BASE, **signal_files(signals, SIGNAL_OLD)})
 
 
-def candidate(category: str, *targets: str, score: int = 100) -> ReviewCandidate:
-    return ReviewCandidate(category, targets, score, ("a reason",), ", ".join(targets))  # type: ignore[arg-type]
-
-
-# --------------------------------------------------------------------------- #
-# the whole pull request, end to end
-# --------------------------------------------------------------------------- #
+@pytest.fixture
+def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> World:
+    return build_world(tmp_path, monkeypatch, {**BASE, "src/token.py": "def verify(token):\n    return True\n"})
 
 
 def test_a_small_change_has_every_risk_signal_examined_and_reads_clean(world: World) -> None:
-    """The case from the audit: three risk signals, nothing found. It is no longer "Partially reviewed: 2 of 3"."""
+    """The case from the audit: three risk signals, nothing found. It is never "Partially reviewed: 2 of 3"."""
 
     world.origin.push(
         {
@@ -61,13 +53,8 @@ def test_a_small_change_has_every_risk_signal_examined_and_reads_clean(world: Wo
     assert "not investigated yet" not in world.github.summary_comments()[0]["body"]
 
 
-@pytest.fixture
-def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> World:
-    return build_world(tmp_path, monkeypatch, {**BASE, "src/token.py": "def verify(token):\n    return True\n"})
-
-
-@pytest.mark.parametrize("signals", [3, AUTO_FULL_COVERAGE_SIGNALS])
-def test_up_to_the_limit_every_signal_gets_an_investigation(
+@pytest.mark.parametrize("signals", [3, 6, 12])
+def test_every_signal_gets_an_investigation_while_the_calls_fit_the_cap(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, signals: int
 ) -> None:
     world = world_with(tmp_path, monkeypatch, signals)
@@ -77,18 +64,18 @@ def test_up_to_the_limit_every_signal_gets_an_investigation(
     assert report.verdict is not None and report.verdict.state == "clean"
 
 
-def test_above_the_limit_auto_keeps_its_two_investigations_and_says_partially_reviewed(
+def test_a_change_whose_calls_do_not_fit_the_hard_cap_keeps_the_highest_ranked_and_says_partially_reviewed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    signals = AUTO_FULL_COVERAGE_SIGNALS + 1
+    signals = 25  # the hard cap on model calls is 20
     world = world_with(tmp_path, monkeypatch, signals)
     world.origin.push(signal_files(signals, SIGNAL_NEW))
     report = world.review()
-    assert world.model.paths()[0] == "(synthesis)" and len(world.model.paths()) == 3
-    headline = f"Partially reviewed: 2 of {signals} risk signals examined"
+    assert len(world.model.paths()) == 20 and "(synthesis)" not in world.model.paths()
+    headline = f"Partially reviewed: 20 of {signals} risk signals examined"
     assert report.verdict is not None and (report.verdict.state, report.verdict.headline) == ("partial", headline)
     assert report.status == ("success", headline), "partial stays a pass that says what it covered"
-    assert f"{signals - 2} risk signals not investigated yet" in world.github.summary_comments()[0]["body"]
+    assert f"{signals - 20} risk signals not investigated yet" in world.github.summary_comments()[0]["body"]
 
 
 def test_the_hard_cap_on_model_calls_limits_how_far_a_small_change_is_covered(
@@ -100,68 +87,48 @@ def test_the_hard_cap_on_model_calls_limits_how_far_a_small_change_is_covered(
     report = world.review()
     assert len(world.model.paths()) == 4
     assert report.verdict is not None and report.verdict.headline == "Partially reviewed: 4 of 6 risk signals examined"
-    # The next push competes for the cap again: the two signals left are examined, and then nothing is owed.
+    # The next push competes for the cap again: the two signals left are examined (and the file touched, which is
+    # changed code of its own), and then nothing is owed.
     reviewed = set(world.model.paths())
     world.model.reset()
     world.origin.push({"src/plain.py": "VALUE = 3\n"}, "touch an unrelated file")
     done = world.review()
-    left = {path for path in world.model.paths() if path != "(synthesis)"}
+    left = {path for path in world.model.files_seen() if path != "src/plain.py"}
     assert len(left) == 2 and not left & reviewed
+    assert "src/plain.py" in world.model.files_seen()
     assert done.verdict is not None and done.verdict.state == "clean"
 
 
-def test_an_explicit_depth_is_unchanged(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_changed_code_with_no_risk_signal_makes_the_partial_headline_count_changed_areas(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Once the review also looks at plain code, the count is of everything it set out to look at, and says so."""
+
+    monkeypatch.setenv("LEMONCROW_REVIEW_INTELLIGENCE_MAX_CALLS", "2")
+    world = world_with(tmp_path, monkeypatch, 2)
+    world.origin.push(
+        {
+            **signal_files(2, SIGNAL_NEW),
+            "src/plain.py": "VALUE = 3\n",
+            "src/other.py": "def other():\n    return 2\n",
+        }
+    )
+    report = world.review()
+    # The two risk signals rank first; the two plain files are pending.
+    assert sorted(world.model.paths()) == ["src/token/m0.py", "src/token/m1.py"]
+    assert report.verdict is not None and report.verdict.state == "partial"
+    assert report.verdict.headline == "Partially reviewed: 2 of 4 changed areas examined"
+    assert "2 changed areas not investigated yet" in world.github.summary_comments()[0]["body"]
+
+
+def test_an_explicit_depth_goes_beyond_auto_and_never_below_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Thorough covers the change exactly as Auto does, then spends what is left of the cap on hypotheses the model
+    proposes (one synthesis call first); it does not look at less."""
+
     world = world_with(tmp_path, monkeypatch, 3)
     world.origin.push(signal_files(3, SIGNAL_NEW))
     world.review(depth="thorough")
-    assert world.model.paths()[0] == "(synthesis)"
-
-
-# --------------------------------------------------------------------------- #
-# the selection itself
-# --------------------------------------------------------------------------- #
-
-
-def test_one_candidate_per_target_in_rank_order_and_none_outside_the_window() -> None:
-    ranked = [candidate("security", f"t{i}", score=100 - i) for i in range(4)]
-    cover = _auto_cover(ranked, paths={}, calls_left=20)
-    assert cover is not None and [c.target_ids for c in cover] == [("t0",), ("t1",), ("t2",), ("t3",)]
-    assert _auto_cover(ranked[:2], paths={}, calls_left=20) is None, "two signals are the normal Auto"
-    too_many = [candidate("security", f"t{i}") for i in range(AUTO_FULL_COVERAGE_SIGNALS + 1)]
-    assert _auto_cover(too_many, paths={}, calls_left=20) is None
-    assert _auto_cover(ranked, paths={}, calls_left=0) is None
-
-
-def test_a_target_with_two_categories_costs_one_call_and_a_rule_covers_its_targets_with_one() -> None:
-    ranked = [
-        candidate("security", "a", score=100),
-        candidate("correctness", "a", score=80),
-        candidate("critical_rule", "b", "c", score=90),
-        candidate("performance", "d", score=72),
-    ]
-    cover = _auto_cover(ranked, paths={}, calls_left=20)
-    assert cover is not None and [(c.category, c.target_ids) for c in cover] == [
-        ("security", ("a",)),
-        ("critical_rule", ("b", "c")),
-        ("performance", ("d",)),
-    ]
-
-
-def test_targets_of_one_file_that_share_a_signal_are_asked_about_together() -> None:
-    """A function is often several targets (its signature, its body, a hunk); one question each yields one finding each."""
-
-    ranked = [candidate("security", "z", score=95)] + [
-        candidate("api_compatibility", f"t{i}", score=90) for i in range(3)
-    ]
-    paths = {"t0": "pricing.py", "t1": "pricing.py", "t2": "pricing.py", "z": "auth.py"}
-    cover = _auto_cover(ranked, paths=paths, calls_left=20)
-    assert cover is not None and [(c.category, c.target_ids) for c in cover] == [
-        ("security", ("z",)),
-        ("api_compatibility", ("t0", "t1", "t2")),
-    ]
-
-
-def test_the_cap_keeps_the_highest_ranked() -> None:
-    ranked = [candidate("security", f"t{i}", score=100 - i) for i in range(5)]
-    cover = _auto_cover(ranked, paths={}, calls_left=3)
-    assert cover is not None and [c.target_ids for c in cover] == [("t0",), ("t1",), ("t2",)]
+    paths = world.model.paths()
+    assert paths[0] == "(synthesis)"
+    assert {"src/token/m0.py", "src/token/m1.py", "src/token/m2.py"} <= set(world.model.files_seen())
+    assert len(paths) > 3 + 1, "the proposed hypotheses are investigated on top of the coverage"

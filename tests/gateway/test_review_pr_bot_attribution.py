@@ -292,7 +292,8 @@ def test_a_carried_finding_keeps_its_trailer_in_the_summary_without_a_model_call
     world.model.reset()
     world.origin.push({"src/plain.py": "VALUE = 5\n"}, "touch another file")
     report = world.review()
-    assert world.model.calls == [] and {f.state for f in report.findings} == {"carried"}
+    # The file touched is changed code of its own and is looked at; the finding's file is not asked about again.
+    assert world.model.files_seen() == ["src/plain.py"] and {f.state for f in report.findings} == {"carried"}
     assert "  <sub>Rule used: `no-bug-markers`</sub>" in summary(world).split("\n")
     assert len(world.github.inline()) == 2, "the comments were posted once and are not edited"
 

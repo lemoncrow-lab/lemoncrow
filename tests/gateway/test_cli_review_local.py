@@ -113,19 +113,24 @@ def ruled(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Lab:
     return make_lab(tmp_path, monkeypatch, {**BASE, ".lemoncrow/review.yaml": RULE})
 
 
-def test_a_change_no_risk_signal_or_rule_matches_says_that_no_model_was_asked(lab: Lab) -> None:
-    lab.write({"src/mathx.py": "def clamp(value, low, high):\n    return max(low, min(value, high))\n"})
-    lab.commit("add clamp")
-    lab.write({"src/mathx.py": "def clamp(value, low, high):\n    return max(low, min(value, high - 1))\n"})
+def test_a_change_with_no_code_to_review_and_no_rule_says_that_no_model_was_asked(lab: Lab) -> None:
+    lab.write({"docs/guide.md": "# Guide\n\nUse clamp.\n"})
+    lab.commit("add a guide")
+    lab.write({"docs/guide.md": "# Guide\n\nUse clamp with care.\n"})
     result = lab.run()
     assert result.exit_code == 0, result.output
     assert "No must-fix findings" in result.stdout
     assert local.NO_MODEL_ASKED in result.stdout and "no model calls" in result.stdout
     assert lab.model.calls == []
-    # A change with a risk signal is investigated, and then the line has no place.
+    # Ordinary changed code with no keyword is looked at now, and a risk signal is investigated too.
+    lab.write({"src/mathx.py": "def clamp(value, low, high):\n    return max(low, min(value, high))\n"})
+    plain = lab.run("--fresh")
+    assert [call["category"] for call in lab.model.calls] == [
+        "correctness"
+    ] and local.NO_MODEL_ASKED not in plain.stdout
     lab.write({"src/auth.py": AUTH_BUGGY})
     asked = lab.run("--fresh")
-    assert lab.model.calls and local.NO_MODEL_ASKED not in asked.stdout
+    assert any(call["category"] == "security" for call in lab.model.calls) and local.NO_MODEL_ASKED not in asked.stdout
 
 
 # --------------------------------------------------------------------------- #
@@ -399,12 +404,13 @@ def test_an_incomplete_review_fails_open_and_exits_2_only_under_strict(
     lab.write({"src/auth.py": AUTH_BUGGY, "src/cache.py": CACHE_BUGGY})
     open_ = lab.run()
     assert open_.exit_code == 0
-    assert "Review incomplete: the model-call budget ran out" in open_.stdout
+    assert "Partially reviewed: 1 of 2 risk signals examined" in open_.stdout
     assert len(lab.model.calls) == 1  # the cap still bounds the review
     lab.forget_calls()
     strict = lab.run("--strict", "--fresh")
     assert strict.exit_code == 2
-    assert "Exit 2: the review is incomplete and --strict is set: the model-call budget ran out" in strict.stdout
+    reason = "Partially reviewed: 1 of 2 risk signals examined"
+    assert f"Exit 2: the review is incomplete and --strict is set: {reason}" in strict.stdout
     assert lab.wire("--strict", "--fresh", ok=(2,))["complete"] is False
 
 
@@ -414,7 +420,10 @@ def test_a_found_p0_outranks_an_incomplete_review_under_strict(ruled: Lab, monke
     monkeypatch.setenv("LEMONCROW_REVIEW_INTELLIGENCE_MAX_CALLS", "1")
     ruled.write({"src/cache.py": CACHE_BUGGY, "src/token.py": TOKEN_BUGGY})
     result = ruled.run("--strict")  # the cap leaves new work unreviewed: incomplete, but the open P0 still decides
-    assert result.exit_code == 1 and "Incomplete:" in result.stdout
+    assert result.exit_code == 1 and "Incomplete: Partially reviewed: 1 of 2 risk signals examined" in result.stdout
+    # The signal that waited is examined by the next run (the cap allows one call). Two more arrive: the open P0 is not
+    # what fails this run, so the partial coverage is.
+    ruled.write({"src/queue.py": "def push(item):\n    return item\n", "src/lock.py": "def take():\n    return 1\n"})
     assert ruled.run("--strict", "--fail-on", "none").exit_code == 2
 
 

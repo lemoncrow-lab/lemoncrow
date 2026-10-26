@@ -249,7 +249,7 @@ def test_an_ignored_path_gets_no_finding_and_the_model_never_reads_it(
     world.origin.push(FIRST_PUSH)
     report = world.review()
     assert set(by_title(report)) == {AUTH_TITLE}
-    assert world.model.paths() == ["src/auth.py"]
+    assert world.model.paths() == ["src/auth.py", "src/plain.py"]  # plain.py is looked at in general; cache.py never is
     assert not any("src/cache.py" in json.dumps(prompt) for prompt in seen.prompts)
     assert not any(CACHE_TITLE in json.dumps(prompt) for prompt in seen.prompts)
     body = summary_of(world)
@@ -456,7 +456,9 @@ def test_a_pull_request_cannot_loosen_its_own_review_by_editing_the_config(
     world.origin.push({**FIRST_PUSH, CONFIG: RULE + HOSTILE_CONFIG})
     report = world.review(fail_on="p0")
     assert {f.title: f.severity for f in report.findings} == {f.title: f.severity for f in expected.findings}
-    assert sorted(world.model.paths()) == sorted(control.model.paths())
+    # The same files are looked at; the only extra one is the config the change itself rewrote, read as code under review.
+    assert set(control.model.files_seen()) <= set(world.model.files_seen())
+    assert set(world.model.files_seen()) - set(control.model.files_seen()) <= {CONFIG}
     assert inline_titles(world) == inline_titles(control) and report.status == expected.status
     body = summary_of(world)
     assert "held back below" not in body and "left out by" not in body and "Large pull request" not in body
@@ -547,7 +549,7 @@ def test_a_changed_threshold_rewrites_the_summary_of_an_unchanged_head(
     assert "1 finding held back below strictness 3" in body and "low-priority finding held back" not in body
     assert again.state is not None and again.state.view == "high:inline"
     assert again.state.reviews == first.state.reviews  # not another review
-    assert "this review: 2 model calls" in body  # the cost of the review that was last made
+    assert "this review: 3 model calls" in body  # the cost of the review that was last made (plain.py is looked at too)
 
 
 def test_a_budget_notice_keeps_showing_what_the_last_review_showed(

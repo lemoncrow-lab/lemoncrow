@@ -156,12 +156,18 @@ class LocalReport:
     state: ReviewState | None = None
     complete: bool = True
     incomplete_reason: str = ""
+    #: The review finished but left part of the change unexamined (the hard cap on model calls). An open must-fix decides
+    #: the verdict line, but the coverage is still partial: ``--strict`` and the machine result say so.
+    partial: bool = False
     files: tuple[str, ...] = ()
     targets: int = 0
     rereviewed: int = 0
     unchanged: int = 0
     candidates: int = 0
     investigated: int = 0
+    #: Changed code with no risk signal that the review also looked at, and how much of it a model call returned for.
+    general: int = 0
+    general_investigated: int = 0
     usage: Usage = field(default_factory=Usage)
     model: str = ""
     notes: list[str] = field(default_factory=list)
@@ -180,8 +186,10 @@ class LocalReport:
 
     @property
     def incomplete(self) -> bool:
-        return not self.complete or (
-            self.verdict is not None and self.verdict.state in {"incomplete", "partial", "budget"}
+        return (
+            not self.complete
+            or self.partial
+            or (self.verdict is not None and self.verdict.state in {"incomplete", "partial", "budget"})
         )
 
     def open_findings(self) -> tuple[BotFinding, ...]:
@@ -231,6 +239,11 @@ class LocalReport:
                 "unchanged": self.unchanged,
                 "candidates": self.candidates,
                 "investigated": self.investigated,
+                **(
+                    {"other_changed_code": self.general, "other_changed_code_investigated": self.general_investigated}
+                    if self.general
+                    else {}
+                ),
             },
             "depth": self.depth,
             "model": self.model,
@@ -710,15 +723,16 @@ def run_local_review(
         reason = "model calls failed: " + trimmed(_plain_error(ai.errors[0]), 160)
     elif not ai.complete:
         reason = ai.reason
-    uninvestigated = max(ai.candidates - ai.investigated, 0)
+    uninvestigated = max(ai.candidates - ai.investigated, 0) + max(ai.general - ai.general_investigated, 0)
     view = _judged(
         report,
         noise,
         tracked,
         complete=ai.complete,
         reason=reason,
-        signals=ai.candidates,
+        signals=ai.candidates + ai.general,
         uninvestigated=uninvestigated,
+        unit="changed area" if ai.general else "risk signal",
     )
     same_tree = previous is not None and previous.head_sha == head_id and previous.complete
     noop = ai.status == "nothing_changed" and same_tree
@@ -750,14 +764,29 @@ def run_local_review(
     report.complete = ai.complete and not ai.errors
     if not ai.complete or ai.errors:
         report.incomplete_reason = reason
-    elif view.state == "partial":
-        report.incomplete_reason = view.headline  # finished, but risk signals were left unexamined
+    elif uninvestigated > 0:
+        # Finished, but part of the change was left unexamined. An open must-fix takes the headline, so the partial one
+        # is written for the reason.
+        report.partial = True
+        report.incomplete_reason = (
+            view.headline
+            if view.state == "partial"
+            else verdict(
+                [],
+                complete=True,
+                signals=ai.candidates + ai.general,
+                uninvestigated=uninvestigated,
+                unit="changed area" if ai.general else "risk signal",
+            ).headline
+        )
     report.files = ai.files
     report.targets = len(ai.target_ids)
     report.rereviewed = len(ai.rereviewed)
     report.unchanged = ai.unchanged
     report.candidates = ai.candidates
     report.investigated = ai.investigated
+    report.general = ai.general
+    report.general_investigated = ai.general_investigated
     report.usage = ai.usage
     report.model = ai.model
     report.cached = ai.status == "nothing_changed"
@@ -814,10 +843,11 @@ def plain(text: str) -> str:
 _BADGE_COLOR: Final[Mapping[str, str]] = {"p0": "red", "p1": "yellow", "p2": "bright_black"}
 
 
-#: Said under a local review that made no model call because nothing in the change matched a risk signal or a rule.
+#: Said under a local review that made no model call because the change holds no code to look at.
 NO_MODEL_ASKED = (
-    "No model was asked about this change: no risk signal matched it and no review rule covers it. "
-    "To have the model check it, add a rule under rules: in .lemoncrow/review.yaml."
+    "No model was asked about this change: it holds no changed code to review (only documentation, generated or "
+    "vendored files, or formatting) and no review rule covers it. To have the model check it anyway, add a rule under "
+    "rules: in .lemoncrow/review.yaml."
 )
 
 
@@ -869,9 +899,16 @@ def render_text(report: LocalReport, *, style: Callable[..., str] | None = None,
     if report.state is not None:
         lines.append(_coverage_line(report))
         lines.append(f"Model: {report.model or 'none'} · depth {report.depth} · {usage_text(report.usage)}")
-        if report.rereviewed and report.candidates == 0 and report.usage.calls == 0 and report.complete:
-            # The model is asked only about a risk signal or a rule. A clean verdict that asked it nothing is not an
-            # AI verdict, and a first run on an ordinary change would otherwise read as one.
+        if (
+            report.rereviewed
+            and report.candidates == 0
+            and report.general == 0
+            and report.usage.calls == 0
+            and report.complete
+        ):
+            # The model is asked about changed code and about each rule. A clean verdict that asked it nothing (the
+            # change holds only documentation, generated or vendored files, or formatting) is not an AI verdict, and
+            # would otherwise read as one.
             lines.append(NO_MODEL_ASKED)
     shown_reason = report.incomplete_reason
     if report.incomplete and shown_reason and (view is None or shown_reason not in view.headline):
@@ -930,8 +967,10 @@ def _coverage_line(report: LocalReport) -> str:
     text = f"Reviewed {plural(reviewed, 'target')} in this run"
     if report.unchanged:
         text += f"; {report.unchanged} unchanged since the last review (carried, no model call)"
-    if report.candidates and report.investigated < report.candidates:
-        text += f"; {report.investigated} of {plural(report.candidates, 'risk signal')} examined"
+    asked = report.candidates + report.general
+    if asked and report.investigated + report.general_investigated < asked:
+        unit = "changed area" if report.general else "risk signal"
+        text += f"; {report.investigated + report.general_investigated} of {plural(asked, unit)} examined"
     return text + f" · {plural(len(report.files), 'file')} in the range"
 
 

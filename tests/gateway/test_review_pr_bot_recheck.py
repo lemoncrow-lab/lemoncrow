@@ -75,7 +75,8 @@ def test_a_target_that_did_not_change_is_not_re_asked_so_its_finding_is_carried_
     world.model.reset()
     world.origin.push({"src/plain.py": "VALUE = 5\n"}, "touch another file")
     kept = only(world.review().findings)
-    assert kept.state == "carried" and world.model.paths() == [] and world.model.prior_seen == []
+    # The finding's file is not asked about again (the file touched is, as changed code of its own).
+    assert kept.state == "carried" and world.model.paths() == ["src/plain.py"] and world.model.prior_seen == []
 
 
 # --------------------------------------------------------------------------- #
