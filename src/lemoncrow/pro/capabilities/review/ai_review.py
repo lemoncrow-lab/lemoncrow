@@ -143,7 +143,7 @@ _MARKERS: dict[FindingCategory, tuple[str, ...]] = {
     ),
     "api_compatibility": (
         "/api/",
-        " api ",
+        "api",
         "route",
         "endpoint",
         "protocol",
@@ -692,35 +692,44 @@ def _target_text(target: ReviewTarget) -> str:
             *target.reasons,
             *(reason.detail for reason in target.priority.reasons),
         )
-    ).lower()
+    )
 
 
-#: Markers that also match their plural and inside snake_case names
-#: (``migrations/``, ``migration_helpers.py``, ``db_migration``), but never as
-#: part of a longer word (``immigration``).
-_SNAKE_CASE_STEMS: frozenset[str] = frozenset({"migration"})
-_WORD_CHAR = re.compile(r"[A-Za-z0-9_]")
+#: Splits a camelCase or PascalCase name at its word boundaries (``userAuth`` -> ``user Auth``, ``RBACPolicy`` ->
+#: ``RBAC Policy``). The matcher reads the text both ways, so a marker is found in either spelling.
+_CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
+#: A marker is a *word* of the text. Anything that is not a letter or a digit breaks words: ``_``, ``-``, ``.``, ``/``
+#: and a space, so ``user_auth.py``, ``review-worker.yaml`` and ``service_secrets.py`` carry ``auth``, ``worker`` and
+#: ``secret``, while ``author``, ``immigration`` and ``rapid`` carry none of ``auth``, ``migration`` and ``api``.
+_NOT_ALNUM = "[^A-Za-z0-9]+"
+_BEFORE_WORD = r"(?<![A-Za-z0-9])"
+_AFTER_WORD = r"(?![A-Za-z0-9])"
+#: A word marker also matches its plural (``secrets``, ``migrations``, ``indexes``); these are the irregular ones.
+_PLURAL_FORMS: dict[str, str] = {"query": r"quer(?:y|ies)"}
 
 
 def _marker_pattern(marker: str) -> re.Pattern[str]:
-    """One marker's matcher over lower-cased target text.
+    """One marker's matcher over the text of a target.
 
-    A word marker needs a non-word character (not ``_``) on each side. The
-    boundary is asserted only where the marker itself ends in a word character:
-    a punctuation-delimited marker (``/api/``, ``.sql``, `` api ``) carries its
-    own delimiter, so ``src/api/users.py``, ``api/users.py`` and
-    ``0001_init.sql`` match while ``rapid/`` and ``.sqlite3`` do not.
+    A word marker (``auth``, ``state machine``, ``n+1``) must be a whole word: a letter or digit on neither side
+    (``_``, ``-``, ``.``, ``/`` and a space all break words), with an optional plural (``s``, ``es``, ``ies``) and
+    any run of non-alphanumerics between the words of a phrase. A marker that starts or ends with punctuation
+    (``/api/``, ``.sql``) carries its own delimiter on that side: ``src/api/users.py``, ``api/users.py`` and
+    ``0001_init.sql`` match while ``rapid/`` and ``.sqlite3`` do not. Surrounding spaces mean "this word" (`` api ``).
     """
 
-    escaped = re.escape(marker)
-    if marker in _SNAKE_CASE_STEMS:
-        return re.compile(rf"(?<![A-Za-z0-9]){escaped}s?(?![A-Za-z0-9])")
-    before = r"(?<![A-Za-z0-9_])" if _WORD_CHAR.fullmatch(marker[0]) else ""
-    after = r"(?![A-Za-z0-9_])" if _WORD_CHAR.fullmatch(marker[-1]) else ""
-    if marker.startswith("/"):
+    word = marker.strip()
+    if word.startswith("/"):
         # A path-segment marker also names a directory at the repository root.
-        return re.compile(r"(?:^|(?<=/))" + re.escape(marker[1:]) + after)
-    return re.compile(before + escaped + after)
+        return re.compile(r"(?:^|(?<=/))" + re.escape(word[1:]))
+    parts = word.split()
+    first_alnum, last_alnum = word[0].isalnum(), word[-1].isalnum()
+    escaped = [re.escape(part) for part in parts]
+    if first_alnum and last_alnum and word[-1].isalpha():
+        last = parts[-1]
+        escaped[-1] = _PLURAL_FORMS.get(last, re.escape(last) + "(?:e?s)?")
+    body = _NOT_ALNUM.join(escaped)
+    return re.compile((_BEFORE_WORD if first_alnum else "") + body + (_AFTER_WORD if last_alnum else ""))
 
 
 _MARKER_PATTERNS: dict[FindingCategory, tuple[tuple[str, re.Pattern[str]], ...]] = {
@@ -729,10 +738,13 @@ _MARKER_PATTERNS: dict[FindingCategory, tuple[tuple[str, re.Pattern[str]], ...]]
 
 
 def _marker_categories(text: str) -> tuple[FindingCategory, ...]:
+    """The categories whose markers appear in *text*, read as written and with its camelCase names split."""
+
+    views = tuple(dict.fromkeys((text.lower(), _CAMEL_BOUNDARY.sub(" ", text).lower())))
     return tuple(
         category
         for category, patterns in _MARKER_PATTERNS.items()
-        if any(pattern.search(text) for _marker, pattern in patterns)
+        if any(pattern.search(view) for view in views for _marker, pattern in patterns)
     )
 
 
