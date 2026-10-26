@@ -136,6 +136,12 @@ def _isolate_workspace_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> I
     for env_var in list(os.environ):
         if env_var.startswith("CLAUDE_CODE_"):
             monkeypatch.delenv(env_var, raising=False)
+    # A git hook, `git rebase -x` or `git bisect run` hands its children GIT_DIR and friends; a test that builds a throwaway
+    # repository would then run git on the real one.
+    from lemoncrow.pro.capabilities.review.git_env import REPOSITORY_LOCATION_VARIABLES
+
+    for env_var in REPOSITORY_LOCATION_VARIABLES:
+        monkeypatch.delenv(env_var, raising=False)
     for env_var in (
         "CLAUDE_PROJECT_DIR",
         "LEMONCROW_MCP_TOOL_PROFILE",

@@ -13,6 +13,8 @@ from typing import Any
 
 import yaml
 
+from lemoncrow.pro.capabilities.review.git_env import git_environment
+
 IDENTITY = {
     "GIT_AUTHOR_NAME": "T",
     "GIT_AUTHOR_EMAIL": "t@example.invalid",
@@ -39,10 +41,8 @@ REPORTS_V2 = "def monthly(customers):\n    return sum(1 for c in customers if c)
 
 
 def git(cwd: Path, *args: str) -> str:
-    import os
-
     return subprocess.run(
-        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True, env={**os.environ, **IDENTITY}
+        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True, env=git_environment(IDENTITY)
     ).stdout.strip()
 
 

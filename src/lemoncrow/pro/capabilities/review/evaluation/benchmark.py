@@ -66,6 +66,7 @@ from lemoncrow.pro.capabilities.review.evaluation.scoring import (
     compare_reviewers,
     match_labels,
 )
+from lemoncrow.pro.capabilities.review.git_env import git_environment
 from lemoncrow.pro.capabilities.review.intelligence_runtime import ModelCallUsage, StructuredExecution
 
 SCHEMA: Final[int] = 1
@@ -82,7 +83,9 @@ _GIT_IDENTITY: Final[dict[str, str]] = {
     "GIT_COMMITTER_DATE": "2000-01-01T00:00:00+0000",
 }
 #: The most calls a review at each depth may make: the investigator ladder plus its synthesis, and the hard cap of 20.
-CALLS_AT_MOST: Final[Mapping[str, int]] = {"quick": 1, "auto": 3, "thorough": 6, "deep": 10}
+#: Auto is one synthesis and two investigations, or, for a change with three to six risk signals, up to six
+#: investigations of their own and no synthesis (``ai_review.AUTO_FULL_COVERAGE_SIGNALS``).
+CALLS_AT_MOST: Final[Mapping[str, int]] = {"quick": 1, "auto": 6, "thorough": 6, "deep": 10}
 FAKE_USD_PER_MTOK: Final[tuple[float, float]] = (1.0, 5.0)
 
 
@@ -559,7 +562,7 @@ def git(
         cwd=repo,
         input=input_bytes,
         capture_output=True,
-        env={**os.environ, **_GIT_IDENTITY, **(env or {})},
+        env=git_environment({**_GIT_IDENTITY, **(env or {})}),
         timeout=900,
         check=False,
     )
@@ -593,7 +596,11 @@ class Workspace:
 
     def has(self, sha: str) -> bool:
         completed = subprocess.run(
-            ["git", "cat-file", "-e", f"{sha}^{{commit}}"], cwd=self.repo, capture_output=True, check=False
+            ["git", "cat-file", "-e", f"{sha}^{{commit}}"],
+            cwd=self.repo,
+            capture_output=True,
+            check=False,
+            env=git_environment(),
         )
         return completed.returncode == 0
 

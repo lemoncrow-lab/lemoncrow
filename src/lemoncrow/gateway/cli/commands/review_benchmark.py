@@ -80,7 +80,7 @@ def _plan_text(corpus: RealPrCorpus, depths: tuple[str, ...], driver: str, pushe
             else ""
         ),
         f"at most {worst} model calls in all: the investigator ladder per review "
-        "(quick 1, auto 3, thorough 6, deep 10, under the hard cap of 20)",
+        f"({', '.join(f'{name} {count}' for name, count in CALLS_AT_MOST.items())}, under the hard cap of 20)",
         "dollars cannot be bounded before a call returns its tokens: the ceiling stops the run, not this plan",
     ]
     for pr in corpus.prs:
