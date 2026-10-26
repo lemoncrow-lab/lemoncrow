@@ -100,7 +100,32 @@ uv run lemoncrow dev eval review derive-label --repo ./clone --fix <fix sha> --i
     --id my-case --repository OWNER/NAME --pull 123 --title '…' --license MIT --symbols distinctive_name
 ```
 
-and paste the entry into the corpus. Take the licence from the repository's `LICENSE` file at the reviewed commit. A pull request whose bug you cannot trace this way stays unlabelled (`labelled: false`): it yields cost and findings but no catch or noise rate. A pull request you know to be clean says `labelled: true` with no labels, so that every finding on it counts as noise. Never write a label from a diff you read yourself.
+and paste the entry into the corpus. Add `--within-change` when the fix is wider than the pull request: it keeps only the fix sites on lines the reviewed change itself added or changed (the diff between its base and its head), so a fix that renames a method in nine files does not label the eight the pull request never touched. Take the licence from the repository's `LICENSE` file at the reviewed commit. A pull request whose bug you cannot trace this way stays unlabelled (`labelled: false`): it yields cost and findings but no catch or noise rate. A pull request you know to be clean says `labelled: true` with no labels, so that every finding on it counts as noise. Never write a label from a diff you read yourself.
+
+## The seeded public bugs
+
+A second kind of corpus starts from a published set instead of from the history: the seeded-bug set that a commercial code-review vendor released with its 2025 benchmark. It is five repositories (Sentry, Cal.com, Grafana, Keycloak, Discourse), ten pull requests each, every one a historical upstream change re-opened as a pull request in a fork. Reviewing the same changes lets LemonCrow's catch, noise and cost be set beside what that vendor's reviewer did on them.
+
+| File | Visibility | Repositories | Pull requests | Labels |
+| --- | --- | --- | --- | --- |
+| `evals/review/seeded_public_bugs.yaml` | `public` | keycloak/keycloak (Apache-2.0, Java) | 4 | 7 |
+| `evals/review/seeded_public_bugs_nonpermissive.yaml` | `private`, not in the public mirror | getsentry/sentry (Python), calcom/cal.com (TypeScript), grafana/grafana (Go), discourse/discourse (Ruby) | 14 | 17 |
+
+The split is the licence rule: a public corpus carries only permissively licensed repositories, so the other four are `visibility: private` (accepted by the loader for public-repository provenance of any licence; the file holds commit ids, line numbers and fix subjects, no source, and `scripts/public-paths.txt` leaves it out of the mirror). Write its reports outside the checkout with `--out-dir`.
+
+What is the same as the vendor's set: the change under review. Each entry pins the upstream `base_sha`..`head_sha` of the historical change (patch-identical to what the fork's pull request shows). What is not: the labels. The vendor scored one hidden bug per pull request and has not published which; here a pull request is labelled with the later upstream fix or fixes that edited lines it added (`derive-label --within-change`, so `attribution` is `blame` or `fix_message`), and an entry exists only where such a fix exists. Eighteen of the fifty pull requests have one; the rest were planted by the vendor (no upstream fix exists), have no later fix that edits their lines, were reverted whole, or change only styles. No `pushes:` are simulated, because those fixes landed months later and do not apply on the reviewed head.
+
+```bash
+# What it would do: no model call, nothing fetched.
+uv run lemoncrow dev eval review benchmark --corpus evals/review/seeded_public_bugs.yaml --depth quick,auto,deep --max-usd 20 --plan
+uv run lemoncrow dev eval review benchmark --corpus evals/review/seeded_public_bugs_nonpermissive.yaml --depth quick,auto,deep --max-usd 20 --plan
+
+# Run it (needs a key; start small).
+uv run lemoncrow dev eval review benchmark --corpus evals/review/seeded_public_bugs.yaml --depth auto --max-usd 5
+uv run lemoncrow dev eval review benchmark --corpus evals/review/seeded_public_bugs_nonpermissive.yaml --depth auto --max-usd 15 --out-dir ~/lc-bench-reports
+```
+
+Nothing has been run against a model. A catch rate from these files is not the vendor's published catch rate: that one counts a single hidden bug per pull request and ignores false alarms, this one counts every fixed bug it can pin and reports noise beside it, on eighteen pull requests, not fifty.
 
 ## The first run: pull requests another reviewer already commented on
 
@@ -156,6 +181,7 @@ Then, and only then, change the landing page's numeric rule (the test in the lan
 | Path | What it is |
 | --- | --- |
 | `evals/review/real_prs.yaml` | the public seed corpus |
+| `evals/review/seeded_public_bugs*.yaml` | the seeded-bug corpora: public (permissive licence) and private |
 | `evals/review/reports/` | where reports go; ignored by git except its README |
 | `src/lemoncrow/pro/capabilities/review/evaluation/real_prs.py` | corpus format and loader |
 | `…/evaluation/label_derivation.py` | `derive-label` |
@@ -166,6 +192,7 @@ Then, and only then, change the landing page's numeric rule (the test in the lan
 | `…/evaluation/benchmark_report.py` | the JSON and markdown report, and the checklist |
 | `src/lemoncrow/gateway/cli/commands/review_benchmark.py` | the commands |
 | `tests/gateway/test_review_benchmark*.py` | the tests, with a local git origin and a scripted model |
+| `tests/gateway/test_review_seeded_corpus.py` | the seeded-bug corpora as data: they parse, are pinned and labelled, and obey the licence rule |
 
 ## Limits
 
