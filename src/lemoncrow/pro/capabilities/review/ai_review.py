@@ -2588,8 +2588,9 @@ def _outcome_accounting(
 _TIER_RULE, _TIER_SIGNAL, _TIER_GENERAL, _TIER_CONFIG, _TIER_TEST_SIGNAL, _TIER_TEST = range(6)
 
 
-#: Test files the packet's own classification (``gitdiff.classify_path``: a ``test``/``tests``/``spec`` directory,
-#: ``test_x.py``, ``x_test.go``, ``x.test.ts``, ``x.spec.ts``) misses: Ruby specs and the JVM and .NET ``XTest`` classes.
+#: Test files the packet's own classification (``gitdiff.classify_path``: a ``test``/``tests``/``spec``/``e2e`` or
+#: example directory, ``test_x.py``, ``x_test.go``, ``x.test.ts``, ``x.spec.ts``, ``x.e2e.ts``) misses: Ruby specs and
+#: the JVM and .NET ``XTest`` classes.
 _EXTRA_TEST_NAME = re.compile(r"(?:_spec\.rb|(?:Tests?|IT|Spec)\.(?:java|kt|scala|cs|groovy))$")
 
 

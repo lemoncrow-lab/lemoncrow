@@ -47,7 +47,8 @@ SKIPPED_DIRS = frozenset(
     }
 )
 THIS_FILE = Path(__file__).resolve()
-#: The published benchmark table (marketing copy) and the one file it is rendered from. See the module docstring.
+#: The published benchmark table (marketing copy), the one file it is rendered from, and the run reports that file
+#: links. See the module docstring.
 BENCHMARK_MARKERS = (b"<!-- lemoncrow:benchmark:start -->", b"<!-- lemoncrow:benchmark:end -->")
 BENCHMARK_DATA = "evals/review/published/code_review_benchmark.json"
 BENCHMARK_RUNS = ("evals/review/published/runs/", ".json")
@@ -238,7 +239,7 @@ def test_the_skipped_directories_are_not_scanned(tmp_path: Path) -> None:
     assert offenders(tmp_path, probe, _walked_files(tmp_path, probe.roots)) == []
 
 
-# --- the published benchmark table: the competitor's name may appear in exactly two places ------------------------
+# --- the published benchmark table: the competitor's name may appear in exactly three places ----------------------
 
 COMPETITOR = next(rule for rule in FORBIDDEN if rule.label == "competitor name")
 NAME = COMPETITOR.needle.decode()

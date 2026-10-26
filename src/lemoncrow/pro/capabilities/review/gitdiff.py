@@ -82,13 +82,17 @@ _STATUS_CHAR_TO_STATUS: dict[str, FileStatus] = {
     "?": "added",
 }
 
-_TEST_SEGMENTS = frozenset({"tests", "test", "__tests__", "spec"})
-_TEST_BASENAME_RE = re.compile(r"^test_|_test\.|\.test\.|\.spec\.")
+#: Test code, and the example and playground apps that only demonstrate the product: neither ships to users.
+_TEST_SEGMENTS = frozenset(
+    {"tests", "test", "__tests__", "spec", "e2e", "examples", "example", "playground", "playgrounds"}
+)
+_TEST_BASENAME_RE = re.compile(r"^test_|_test\.|\.test\.|\.spec\.|\.e2e\.")
 _VENDOR_SEGMENTS = frozenset({"vendor", "node_modules", "third_party", "3rdparty", ".venv", "site-packages", "bundle"})
 _GENERATED_BASENAME_RE = re.compile(r"(\.lock|\.min\.js|\.pb\.go|_pb2\.py|\.generated\.[a-z]+)$")
 _GENERATED_BASENAMES = frozenset({"uv.lock", "package-lock.json", "poetry.lock", "Cargo.lock"})
 _GENERATED_MARKERS = ("@generated", "DO NOT EDIT")
-_DOC_SUFFIXES = frozenset({".md", ".rst", ".txt", ".adoc"})
+#: Prose, MDX pages and Cursor rules files (``.mdc``).
+_DOC_SUFFIXES = frozenset({".md", ".mdx", ".mdc", ".rst", ".txt", ".adoc"})
 _CONFIG_SUFFIXES = frozenset({".json", ".yaml", ".yml", ".toml", ".ini", ".cfg"})
 _CONFIG_BASENAMES = frozenset({"Makefile", "Dockerfile"})
 
