@@ -14,7 +14,10 @@ name: LemonCrow
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-permissions: { contents: read, pull-requests: write, statuses: write }
+permissions:
+  contents: read        # fetch the pull request's commits
+  pull-requests: write  # the summary comment, inline findings, thread replies and resolves
+  statuses: write       # the "LemonCrow Review" commit status
 jobs:
   review:
     runs-on: ubuntu-latest
@@ -28,7 +31,10 @@ jobs:
 
 That is the whole install, and the one decision in it is which key you pass: `anthropic-api-key` or `openai-api-key`. There is no `actions/checkout` step (the Action checks out the pull request itself, with the history its merge base needs; a checkout you already have is used, and deepened if it is shallow), no `fetch-depth`, no cleanup step (if the job is cancelled the Action settles its own `pending` status) and no `fail-on` (the check is advisory until you ask for more).
 
-**Pull requests that say `Fixes #12`?** On a private repository, add `issues: read` to the `permissions:` line (`permissions: { contents: read, pull-requests: write, statuses: write, issues: read }`) and the review reads the linked issue to learn what the change is for. The sample leaves it out because it is optional: without it the review is the same, and its summary carries one note, `issue #12 not read: this workflow's token lacks the optional issues: read permission`. See "Permissions" below.
+**The permissions are the least that works.** Each of the three is used by something the Action always does, and a token without one fails the run with a message that names it. Two more are optional and left out on purpose, each one line under `permissions:`; "Permissions" below says what each adds and what you lose without it:
+
+- **Pull requests that say `Fixes #12`?** On a private repository, add `issues: read` and the review reads the linked issue to learn what the change is for. Without it the review is the same, and its summary carries one note, `issue #12 not read: this workflow's token lacks the optional issues: read permission`.
+- **Want the 👀 and 👍 on the pull request itself, and on an `@lemoncrow review` typed in the conversation?** Add `issues: write` (it includes `issues: read`). Without it those reactions are skipped silently and nothing else changes.
 
 **Or let the CLI write the file.** `lc review init-action` writes `.github/workflows/lemoncrow-review.yml` from the workflow above (it is the same text: the command ships this sample and a test holds the two equal) and prints the steps that are left to you, adding the secret and pinning the SHA:
 
@@ -36,7 +42,7 @@ That is the whole install, and the one decision in it is which key you pass: `an
 lc review init-action                           # the workflow above
 lc review init-action --chat                    # plus the chat triggers of "Add chat" below
 lc review init-action --provider openai         # pass openai-api-key instead of anthropic-api-key
-lc review init-action --fail-on p0              # fail the check while a P0 is open (default: none, advisory)
+lc review init-action --fail-on p0              # fail the check while a P0 is open (p1: while a P0 or P1 is; default: none, advisory)
 lc review init-action --force                   # replace a workflow file that already exists
 ```
 
@@ -50,7 +56,7 @@ Pin a commit, not a branch: the Action installs LemonCrow from its own checkout 
 
 ## The check to require
 
-There is exactly one status to require in branch protection: **`LemonCrow Review`**, the commit status the bot sets on the head commit (it is listed on the pull request as `LemonCrow Review`, with no slash). The sample's workflow is called `LemonCrow` and its job `review`, so the job's own check reads `LemonCrow / review (pull_request)`: it says the job ran, not what the review found, and it is not the one to require. With `fail-on: p0` the two agree (the job fails when the status does), without it the job stays green on purpose. Read "Required checks and skipped runs" before you require it.
+There is exactly one status to require in branch protection: **`LemonCrow Review`**, the commit status the bot sets on the head commit (it is listed on the pull request as `LemonCrow Review`, with no slash). The sample's workflow is called `LemonCrow` and its job `review`, so the job's own check reads `LemonCrow / review (pull_request)`: it says the job ran, not what the review found, and it is not the one to require. With `fail-on: p0` or `p1` the two agree (the job fails when the status does), without it the job stays green on purpose. Read "Required checks and skipped runs" before you require it.
 
 ## Options
 
@@ -59,7 +65,7 @@ Everything below is a `with:` input of the Action step, and every one has a defa
 | Option | Default | What it does |
 | --- | --- | --- |
 | `depth` | `auto` | How hard the review looks. `auto` looks at every changed code target, in as few calls as fit a prompt, up to the hard cap of 20 model calls, and says `Partially reviewed` for what the cap left; `thorough` and `deep` cover the change the same way and spend what is left of the cap on hypotheses the model proposes, so they cost more. See "What gets a model call" and "Cost and limits". |
-| `fail-on` | `none` | `p0` fails the `LemonCrow Review` status, and the job, while a P0 finding is open and when the review could not run. `none` keeps the check advisory. Start at `none` for a few weeks. |
+| `fail-on` | `none` | `p0` fails the `LemonCrow Review` status, and the job, while a P0 finding is open and when the review could not run. `p1` does the same while a P0 **or a P1** is open, so it blocks on every "should fix" too; read "What `p1` gates on" before you choose it. `none` keeps the check advisory. Start at `none` for a few weeks. |
 | `strictness` | the file, else `2` | `1`, `2` or `3`: how much the bot reports (`1` also comments on P2, `3` never does). See "Reducing noise". |
 | `anthropic-api-key`, `openai-api-key` | none | The model key, from a secret. Pass one. Both work as environment variables too, but the input keeps the key away from the steps that do not need it. |
 | `security-scan` | `auto` | `auto` runs a pinned, checksum-verified [Opengrep](https://github.com/opengrep/opengrep) over the changed files; `off` downloads and runs nothing. See "Security scan". |
@@ -89,19 +95,25 @@ jobs:
     steps: # … unchanged
 ```
 
-Chat adds no permission. See "Chat in pull request threads".
+Chat adds no required permission: its replies and answers are covered by the same `pull-requests: write`. The one optional extra is `issues: write`, for the 👀 on a command typed in the conversation (see "Permissions"). See "Chat in pull request threads".
 
 ### Permissions
 
-| Permission | Why |
-| --- | --- |
-| `contents: read` | Fetch the pull request's commits. |
-| `pull-requests: write` | Post the summary and the inline review, reply in threads and resolve them. |
-| `statuses: write` | Set the `LemonCrow Review` status. |
-| `issues: read` (optional) | Read the issues a pull request links with `Fixes #N` or `Closes #N`, so the review knows what the change is for. Without it the summary says `issue #N not read: this workflow's token lacks the optional issues: read permission` and carries on. Add it to the `permissions:` line if you want the linked issues read. |
-| `issues: write` (optional) | React with 👀, then 👍 or 😕, on the pull request itself and on `@lemoncrow review` comments typed in the conversation. GitHub lists those two reaction endpoints under `issues: write` alone, so `pull-requests: write` does not cover them; without it the reaction is skipped silently and nothing else changes (see "Reactions"). A trigger typed in a review thread needs only `pull-requests: write`. |
+Read off the calls the Action makes (`pr_bot/github.py`, `reactions.py`, `checkout.py`, `ci_env.py`) and GitHub's REST reference, which lists the token permission each endpoint needs. A `write` includes the `read` of the same permission, and a `permissions:` block gives `none` to every permission it does not name.
 
-A token that lacks one of the first three fails the step before any model is asked, with an `::error` annotation that names the missing permission and the line to add (`permissions: { contents: read, pull-requests: write, statuses: write }`), and sets the `LemonCrow Review` status to `error` when it can write one. A repository whose default `GITHUB_TOKEN` is read-only needs the `permissions:` block above; it is the usual cause.
+| Permission | Needed | What uses it | Without it |
+| --- | --- | --- | --- |
+| `contents: read` | always | The fetch of the pull request's head and base commits, and the checkout the Action makes when the job has none. | The checkout step stops the job before anything is installed, with an `::error` naming `contents: read`, and sets the status to `error` when it can. |
+| `pull-requests: write` | always | `POST /repos/{owner}/{repo}/pulls/{number}/reviews` (the inline findings, event `COMMENT`); `POST /repos/{owner}/{repo}/pulls/{number}/comments/{id}/replies` (a reply in a review thread: a chat answer, `Fixed in <sha>`); the GraphQL `resolveReviewThread` mutation (closing a fixed finding's thread, best effort); `POST` and `DELETE /repos/{owner}/{repo}/pulls/comments/{id}/reactions` (👀 and 👍 on a comment in a review thread, and taking the 👀 off again). `POST /repos/{owner}/{repo}/issues/{number}/comments` and `PATCH /repos/{owner}/{repo}/issues/comments/{id}` (the summary comment, and a chat answer in the conversation) accept it too, as an alternative to `issues: write` for a pull request. | The run stops before the model is asked, with an `::error` naming it and the one-line fix, and an `error` status. Nothing is spent. |
+| `statuses: write` | always | `POST /repos/{owner}/{repo}/statuses/{sha}`: the `LemonCrow Review` status, `pending` when the review starts, the verdict when it ends, `skipped: <reason>` for a run that does not review, and the `error` of the Action's last step. | The run stops before the model is asked, with an `::error` naming it. No status can be posted, so a required check waits (see "Required checks and skipped runs"). |
+| `issues: read` (optional) | no | `GET /repos/{owner}/{repo}/issues/{number}` for each issue a pull request links with `Fixes #N` or `Closes #N`, so the review knows what the change is for. Public repositories need nothing. | The summary says `issue #N not read: this workflow's token lacks the optional issues: read permission` and the review carries on. |
+| `issues: write` (optional) | no | `POST` and `DELETE /repos/{owner}/{repo}/issues/{number}/reactions` (👀, then 👍 or 😕, on the pull request itself) and `POST` and `DELETE /repos/{owner}/{repo}/issues/comments/{id}/reactions` (the same on an `@lemoncrow review` typed in the conversation). GitHub lists these endpoints under `issues: write` alone, so `pull-requests: write` does not cover them (see "Reactions"). | The reaction is skipped without a word in the log and nothing else changes: the review, the summary, the status and every answer are the same. A command typed in a review thread needs only `pull-requests: write`, so it keeps its reactions. |
+
+**What each feature needs.** The review, the status and the skipped-run status need the first three and nothing else. **Chat** (`@lemoncrow` questions, `review`, `recheck`, `ignore`) needs no permission beyond them: a reply in a review thread and an answer in the conversation are both covered by `pull-requests: write`; only the 👀 acknowledgement of a command typed in the conversation needs `issues: write`, and without it the answer still comes, when the model has finished, with no "working on it" marker. **Learning from reactions** only reads: one GraphQL `reviewThreads` query per 100 threads returns each thread's comments and the reactions on them and, for a person who reacted without ever commenting, `GET /repos/{owner}/{repo}/collaborators/{login}/permission` tells whether they have write access. Neither needs a write permission; if GitHub refuses the second for the workflow token, that person's reaction counts for nothing (see "Who may teach it"), and every other signal is unaffected.
+
+A token that lacks one of the first three fails the step before any model is asked, with an `::error` annotation that names the missing permission and the line to add (`permissions: { contents: read, pull-requests: write, statuses: write }`), and sets the `LemonCrow Review` status to `error` when it can write one. A repository whose default `GITHUB_TOKEN` is read-only needs the `permissions:` block above; it is the usual cause. To take both optional permissions, add one line to the block: `issues: write  # optional: 👀 and 👍 on the pull request, and on a command typed in the conversation` (it covers `issues: read` as well).
+
+This table was written from GitHub's documentation and the Action's code, and checked only against a fake GitHub: nothing in the Action has been run on a live repository yet, so the first run on a scratch repository is where each row is confirmed.
 
 ### When something is wrong
 
@@ -109,14 +121,14 @@ The Action says so in four places: an `::error` annotation on the run page (show
 
 | What went wrong | `LemonCrow Review` status | Annotation | Job |
 | --- | --- | --- | --- |
-| The key is rejected (expired, revoked, wrong), the account has no credit, the rate limit is hit, the model name is unknown, or the provider is down | `error`: `Review incomplete: <cause>; <fix>`, also the summary's headline | `::error` naming the cause and the fix, e.g. `Anthropic rejected the API key (HTTP 401). Check the secret passed as anthropic-api-key` | Green. Red with `fail-on: p0`. |
+| The key is rejected (expired, revoked, wrong), the account has no credit, the rate limit is hit, the model name is unknown, or the provider is down | `error`: `Review incomplete: <cause>; <fix>`, also the summary's headline | `::error` naming the cause and the fix, e.g. `Anthropic rejected the API key (HTTP 401). Check the secret passed as anthropic-api-key` | Green. Red with `fail-on: p0` or `p1`. |
 | No key was passed | `error`: `No model key: pass anthropic-api-key or openai-api-key` | `::error` with both ways to pass a key | Red |
 | The token cannot write comments or the status | `error` when the token can write one | `::error` naming `pull-requests: write` or `statuses: write` and the one-line fix, `permissions: { contents: read, pull-requests: write, statuses: write }` | Red |
 | The checkout is shallow and cannot be deepened, or the pull request cannot be fetched | `error` | `::error` naming `fetch-depth: 0` (or `contents: read`) | Red |
 | The job is cancelled or times out mid-review | `error`: `The review job failed or was cancelled before it finished. Re-run it.` (set by the Action's last step, with a link to the run) | a warning from that step | Red (cancelled) |
-| A P0 is open and `fail-on: p0` | `failure` | none | Red |
+| A P0 is open and `fail-on` is `p0` or `p1`, or a P1 is open and `fail-on: p1` | `failure` | none | Red |
 
-The job stays green when only the model failed and `fail-on` is `none`, because the check is advisory by default: the status and the annotation are the signal. A team that wants a red job sets `fail-on: p0`, and then **`fail-on: p0` makes the job fail exactly when the status is `failure` or `error`.**
+The job stays green when only the model failed and `fail-on` is `none`, because the check is advisory by default: the status and the annotation are the signal. A team that wants a red job sets `fail-on: p0` or `fail-on: p1`, and then **`fail-on` makes the job fail exactly when the status is `failure` or `error`.**
 
 ### Inputs
 
@@ -128,7 +140,7 @@ The job stays green when only the model failed and `fail-on` is `none`, because 
 | `model-provider` | `auto` | `anthropic`, `openai` or `litellm`. `auto` uses the key you passed (Anthropic first when both are set). |
 | `model` | the provider's own | Model id (also `LEMONCROW_REVIEW_MODEL`). OpenAI defaults to `gpt-4o-mini`; Anthropic to `claude-sonnet-4-6`. Both are provisional until review cost per catch is measured. |
 | `depth` | `auto` | `auto`, `thorough` or `deep`. `auto` follows `review.effort` in `.lemoncrow/review.yaml` (Auto by default, `quick` if you set it there); the others go deeper for the run. It is also the depth of an `@lemoncrow review` comment that names none. |
-| `fail-on` | `none` | `p0` fails the `LemonCrow Review` status, and the job, while a P0 finding is open or when the review could not run. The pull request's author cannot dismiss a P0 (see "Learning from feedback"). |
+| `fail-on` | `none` | `p0` fails the `LemonCrow Review` status, and the job, while a P0 finding is open or when the review could not run. `p1` does the same while a P0 or a P1 is open (see "What `p1` gates on"). `none` keeps it advisory. The pull request's author cannot dismiss a P0 (see "Learning from feedback"). |
 | `max-usd-per-pr` | none | Stop reviewing a pull request once its reviews have cost this many US dollars in total (a number such as `2.50`). See "A budget per pull request". |
 | `max-runs-per-pr` | none | Stop reviewing a pull request after this many reviews of it (a whole number such as `5`). |
 | `review-drafts` | `false` | Review draft pull requests too. |
@@ -265,10 +277,10 @@ One rule gives each finding its severity, and everything the bot shows reads tha
 - **Rated** is the investigator's own `low`, `medium` or `high` for the impact of the defect on the code it cites. It only nominates a finding: it can lower one, and it can never make one P0 on its own. Its wording is never read, so a title that says "critical" changes nothing.
 - **Verified** means evidence from beyond the finding's own changed code backs it, evidence the model did not write: a recorded check, an attached artifact, a static-analysis result, or an excerpt of a *different* file from the repository context pack (a caller the change breaks, a test, a definition). The finding's own changed unit and the exact source of that same unit do **not** count, because every changed unit comes with both and the model is shown those bytes anyway; neither does an excerpt of the finding's own file, or a related repository. A model's rating of `high` with nothing but the changed code behind it is therefore a **P1**, never a P0, and so never fails the check. What the Action can corroborate today is the pack and, unless you turn it off, the security scan (see "Security scan"): it records no other checks of its own, so a P0 needs a finding whose cause the pack shows in another file (the stale caller of a function whose behavior the change broke), a scanner result on a changed line that the finding cites, or a rule you wrote. Expect P0 to be rare; that is the point.
 - **Unrated** findings (a model that gave no rating) keep the severity of their category: P1 for correctness, security, concurrency, persistence and API findings, P2 for performance and verification. Unrated is never low and never P0.
-- A finding carried forward whose re-check failed on a push is **unverified** until a later check succeeds, so a P0 drops to P1 meanwhile. That review is incomplete, so with `fail-on: p0` the status is `error`, not a pass. A critical rule keeps its P0: your rule, not the model, made it a gate.
+- A finding carried forward whose re-check failed on a push is **unverified** until a later check succeeds, so a P0 drops to P1 meanwhile. That review is incomplete, so with `fail-on: p0` or `p1` the status is `error`, not a pass. A critical rule keeps its P0: your rule, not the model, made it a gate.
 - **Rules**: every rule you write in `.lemoncrow/review.yaml` is a critical rule, and a violation is P0 only when the finding cites the rule it violates, which the Action requires of every rule finding. A rule imported through `import.rules_files` is **advisory**: its violation is P1 or P2 and never P0, unless `import.critical` in `.lemoncrow/review.yaml` lists it (see [Importing review rules](#importing-review-rules)). A finding that names no rule is held to the ordinary ladder, P1 at most.
 
-The categories that can reach P0 and the rule above are fixed in this release: there is no setting for them yet. `fail-on: p0` therefore gates your own rules and the findings LemonCrow could back with evidence. Start with `fail-on: none` (the sample's default), read the P0s for a few weeks, and switch to `p0` when you trust them.
+The categories that can reach P0 and the rule above are fixed in this release: there is no setting for them yet. `fail-on: p0` therefore gates your own rules and the findings LemonCrow could back with evidence; `fail-on: p1` adds every should-fix, which is mostly what the model rated `high` with only the changed code behind it (see "What `p1` gates on"). Start with `fail-on: none` (the sample's default), read the P0s and P1s for a few weeks, and switch to `p0` or `p1` when you trust them.
 
 ### Suggested fixes
 
@@ -349,16 +361,27 @@ The `LemonCrow Review` commit status is set on the reviewed head, with a link to
 
 | Situation | Status |
 | --- | --- |
-| No P0 finding, everything the review set out to look at examined | `success`, `No must-fix findings` |
-| No P0 finding, but part of the change was not examined | `success`, described `Partially reviewed: N of M changed areas examined` (`risk signals` when every one carries a signal) |
-| No P0 finding, but a large pull request was cut to its highest-risk files | `success`, described `Partially reviewed: N of M files, highest risk first` |
-| A P0 finding and `fail-on: p0` | `failure` |
+| No P0 finding (and, under `fail-on: p1`, no P1), everything the review set out to look at examined | `success`, `No must-fix findings` |
+| Nothing open that `fail-on` counts, but part of the change was not examined | `success`, described `Partially reviewed: N of M changed areas examined` (`risk signals` when every one carries a signal) |
+| Nothing open that `fail-on` counts, but a large pull request was cut to its highest-risk files | `success`, described `Partially reviewed: N of M files, highest risk first` |
+| A P0 finding and `fail-on: p0` or `p1` | `failure`, described `N must-fix before merge` |
 | A P0 finding and `fail-on: none` | `success`, described as advisory |
+| No P0 finding, a P1 finding and `fail-on: p1` | `failure`, described `N should-fix before merge (fail-on: p1)`, whatever else the review found or could not do |
 | A model call failed (rejected key, no credit, rate limit, unknown model, provider down) | `error`, described `Review incomplete: <cause>; <fix>`, whatever `fail-on` says |
-| Review incomplete for another reason (the call budget ran out) | `error` with `fail-on: p0`, otherwise `success` saying it is incomplete |
+| Review incomplete for another reason (the call budget ran out) | `error` with `fail-on: p0` or `p1`, otherwise `success` saying it is incomplete |
 | The token cannot write comments or the status, or the pull request cannot be fetched | `error` when the token can write one, with an `::error` annotation naming the fix (see "When something is wrong") |
 
 `LemonCrow Review` is the one check to require in branch protection if you want the review to block; read "Required checks and skipped runs" below first. The workflow's own job check (`LemonCrow / review`) says only that the job ran: see "The check to require".
+
+#### What `p1` gates on
+
+`fail-on: p1` is `p0` with one more severity: the status, and the job with it, fail while any open P0 **or P1** finding exists, and when the review could not run (a model call failed, the call budget ran out), exactly as `p0` does. A P2 never gates.
+
+- **One severity, one count.** A finding's severity is set by the rule in "Severity" and kept on the finding; the badge, the verdict line, the status and `fail-on` all read that stored answer, and `p1` only changes which of the three they add up. So the status can never fail on a finding the summary does not list as open. A finding held back below your threshold (`finding_threshold: critical` holds back P1) is not open for the verdict, so it does not gate.
+- **It also gates a review that did not look at everything.** An open P1 fails the status when the review is partial, when the pull request's review budget is spent (the earlier review's open findings still stand), and when a re-check failed and the finding is carried forward unverified.
+- **Expect more red than with `p0`.** A P1 is any other `high` finding (usually one with only the changed code behind it) plus the `medium` findings that are verified: mostly a judgment of the model, not a corroborated bug. Some will be wrong. Start at `none`, read what it would have blocked for a few weeks, then choose.
+- **A P1 can be dismissed by its author.** The rule that only an owner, member or collaborator who did not open the pull request can dismiss a P0 (see "Learning from feedback") covers P0 only. Under `p1`, anyone on `chat-allowed-associations`, the author included, can dismiss a P1 with a thumbs-down, a reply, a resolved thread or `@lemoncrow ignore`, and the check then turns green on the next run. That is the way out of a wrong P1; if you need a gate its author cannot clear, use `p0` and require a human review in branch protection.
+- **The same setting is on the command line:** `lc review --ai --fail-on p1` exits 1 while a P0 or P1 is open, with the rule above; `lc review init-action --fail-on p1` writes the workflow with the input set.
 
 #### Required checks and skipped runs
 
@@ -373,13 +396,20 @@ A required status check waits for a status with that exact name on the head comm
 | A Dependabot run with no model key | `skipped: Dependabot run without a model key` |
 | A pull request from a fork | **none posted**, see below |
 
-**Fork pull requests cannot be covered this way.** A `pull_request` run from a fork gets a read-only token, so it cannot write a status at all; the Action does not try, and prints a notice saying so. If you require `LemonCrow Review` and accept pull requests from forks, those pull requests will wait on it. Use a path of your own for them: do not make the check required, or let a maintainer run the workflow by hand for the fork's pull request (see "Pull requests from forks"; that run writes the status as the maintainer's workflow), or set the status from a trusted workflow of yours that is allowed to write it. The Action will not do this for you: the safe way to get a write token on a fork's pull request is the `pull_request_target` event, which it refuses.
+The status is `POST /repos/{owner}/{repo}/statuses/{sha}`, which needs `statuses: write`, the permission the sample grants. Whether a run's token has it is decided by GitHub from the event, as its documentation of the `GITHUB_TOKEN` describes:
 
-Dependabot-triggered runs are not covered either by default. They have no access to repository secrets (no model key), and they are understood to get a read-only `GITHUB_TOKEN` as well; that is not something this guide has confirmed against GitHub's documentation, so check GitHub's documentation for Dependabot and GitHub Actions before relying on a status from a Dependabot run. If the token cannot write, the Action posts nothing, prints a notice, and still exits 0; a required check will then wait.
+- **A `pull_request` run from a fork has a read-only token and no secrets, whatever the workflow's `permissions:` says.** GitHub documents that the `permissions:` key can lower a fork's token and add read permissions to it, but typically cannot grant it write access. The Action cannot post for it, so it does not try: it exits 0, prints a notice saying why, and posts nothing, not a status and not a review. If you require `LemonCrow Review` and accept pull requests from forks, those pull requests will wait on it. The remedies, in the order to prefer them:
+  1. Do not make the check required if you accept fork pull requests.
+  2. Let a maintainer run the workflow by hand for the fork's pull request (see "Pull requests from forks"): that run is yours, from your default branch, with a write token, and it reviews and sets the status.
+  3. Set the status from a small workflow of your own triggered by `workflow_run`, which GitHub documents as running with the base repository's secrets and write token even when the run that triggered it had neither. It must not check out or run the fork's code. The Action will not do this for you.
+  4. GitHub has one setting that does give a fork's `pull_request` run a write token: **Send write tokens to workflows from pull requests**, in the repository's Actions settings, available for private and internal repositories only. It does not help here: the Action never attempts a write on a fork run, whatever its token holds, and it will not review the fork either. The safe way to get a write token on a fork's pull request is the `pull_request_target` event, which the Action refuses.
+- **A run that Dependabot triggers has a read-only token by default and takes its secrets from Dependabot secrets, not from the repository's Actions secrets.** That is GitHub's documentation for the `pull_request`, `pull_request_review`, `pull_request_review_comment` and `push` events (for `pull_request_target`, the same when the base ref was created by Dependabot). Unlike a fork's, this token is not capped: the same page says to use the workflow's `permissions:` key to raise it, which the sample's block does, so a Dependabot run can post its `skipped: Dependabot run without a model key` status. If the token still cannot write (an organization or repository setting can keep it read-only), the Action posts nothing, prints a notice, and still exits 0; a required check will then wait. To have Dependabot's pull requests reviewed instead of skipped, add the model key under **Settings > Secrets and variables > Dependabot**; the review then needs the same three permissions as any other.
+- **A `pull_request_target` run is refused** with a red job (exit 1) and posts no status: use the `pull_request` event.
+- **A job that GitHub itself skips** (a job-level `if:` that is false, or a `branches:` or `paths:` filter that does not match) never starts the Action, so nothing can post for it. Do not require `LemonCrow Review` for a workflow filtered that way (see "Filters of the workflow").
 
 A skipped run is never a failure, and a failed attempt to post the skipped status is never one either.
 
-**A partial review is `success` on purpose.** Auto looks at every changed code target when the calls it needs fit the hard cap of 20 model calls, which an ordinary pull request of a few dozen files does. A larger one gets the cap spent on the highest-ranked work (see "What gets a model call"), and failing the check on every pull request that big would block merges for something its author cannot fix. What it will not do is look like full coverage: the headline, the check description and the status strip all say `Partially reviewed` and how many areas were reached, the check never says `No must-fix findings` for it, and a P0 found in what was examined still fails the check under `fail-on: p0`. The areas left are still owed: the next run (a push, or a re-run of the job) competes for the cap again until they are all examined, and what was already reviewed is not asked again.
+**A partial review is `success` on purpose.** Auto looks at every changed code target when the calls it needs fit the hard cap of 20 model calls, which an ordinary pull request of a few dozen files does. A larger one gets the cap spent on the highest-ranked work (see "What gets a model call"), and failing the check on every pull request that big would block merges for something its author cannot fix. What it will not do is look like full coverage: the headline, the check description and the status strip all say `Partially reviewed` and how many areas were reached, the check never says `No must-fix findings` for it, and a P0 found in what was examined still fails the check under `fail-on: p0` (and a P1, under `p1`). The areas left are still owed: the next run (a push, or a re-run of the job) competes for the cap again until they are all examined, and what was already reviewed is not asked again.
 
 ### The hidden state
 
@@ -594,9 +624,9 @@ Other emoji are neutral. A thumbs-down wins over a reply, a reply over a resolve
 
 **When it takes effect.** GitHub sends no event when someone reacts, so a reaction is read by the next run: a push, a re-run of the workflow, or a `recheck` or `ignore`, which re-render the summary. An `ignore` is a comment event, so with the chat triggers it applies at once (a reply that does not mention the bot is read by the next run, like a reaction): the summary and the `LemonCrow Review` status are re-rendered from the same findings with no model call (a pull request that has moved on since the last review keeps the instruction in the state for the next review instead, and says so). A suppressed finding is closed: it counts toward no verdict and no check, posts no inline comment, and keeps its thread, in a collapsed `N findings dismissed by feedback` block. A later push that reports the same concern, even worded differently, is held back the same way, because a dismissal learned from a reaction is the finding's *fingerprint* (category, code and rules, not its words). That also means a second, different problem in the same function is held back with it; use a reply to say which.
 
-**Who may teach it.** The same `author_association` allow-list as chat (`chat-allowed-associations`, default `OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR`). A reaction carries no association, so the Action takes the one GitHub put on a comment of theirs on this pull request (or the pull request's author association) and otherwise looks up their repository permission (`GET /repos/{owner}/{repo}/collaborators/{user}/permission`): `write`, `maintain` and `admin` count as a collaborator, anything else, and any lookup GitHub refuses, counts for nothing. Bots and apps are never listened to. Reactions, replies and resolutions from anyone else are ignored without a word. Anyone on the list may dismiss a P1 or a P2, the pull request's author included; a P0 needs more (next paragraph).
+**Who may teach it.** The same `author_association` allow-list as chat (`chat-allowed-associations`, default `OWNER,MEMBER,COLLABORATOR,CONTRIBUTOR`). A reaction carries no association, so the Action takes the one GitHub put on a comment of theirs on this pull request (or the pull request's author association) and otherwise looks up their repository permission (`GET /repos/{owner}/{repo}/collaborators/{user}/permission`): `write`, `maintain` and `admin` count as a collaborator, anything else, and any lookup GitHub refuses, counts for nothing. Bots and apps are never listened to. Reactions, replies and resolutions from anyone else are ignored without a word. Anyone on the list may dismiss a P1 or a P2, the pull request's author included (under `fail-on: p1` that is a P1 that blocks the merge: see "What `p1` gates on"); a P0 needs more (next paragraph).
 
-**Who may dismiss a must-fix (P0).** With `fail-on: p0` a P0 is what blocks the merge, so whoever may dismiss it holds the key to the gate. A P0 is therefore dismissed only by an **owner, member or collaborator who did not open the pull request**, whatever `chat-allowed-associations` says. Feedback on a P0 from anyone else is **recorded but not applied**:
+**Who may dismiss a must-fix (P0).** With `fail-on: p0` (or `p1`) a P0 is what blocks the merge, so whoever may dismiss it holds the key to the gate. A P0 is therefore dismissed only by an **owner, member or collaborator who did not open the pull request**, whatever `chat-allowed-associations` says. Feedback on a P0 from anyone else is **recorded but not applied**:
 
 - the pull request's author, by any of the four ways (a thumbs-down, a "won't fix" reply, a resolved thread, an `ignore` command);
 - the bot's own account (the account that wrote the finding's comment, even when a personal access token makes it look like a user);
@@ -919,7 +949,10 @@ on:
   workflow_dispatch:
     inputs:
       pr: {description: Pull request number, required: true}
-permissions: { contents: read, pull-requests: write, statuses: write }
+permissions:
+  contents: read        # fetch the pull request's commits
+  pull-requests: write  # the summary comment, inline findings, thread replies and resolves
+  statuses: write       # the "LemonCrow Review" commit status
 jobs:
   review:
     runs-on: ubuntu-latest
@@ -932,7 +965,7 @@ jobs:
 
 LemonCrow fetches the pull request's git objects and sends the diff to your model; it does not run it. Send only pull requests you are willing to show your model provider.
 
-Dependabot runs also have no repository secrets, so they are skipped with a notice. Adding the model key under Dependabot secrets is necessary to review them, and may not be enough: runs Dependabot triggers are understood to get a read-only `GITHUB_TOKEN`, in which case the review runs but cannot post a comment or a status. That is not confirmed in this guide; check GitHub's documentation for Dependabot and GitHub Actions and your workflow's permissions before relying on it.
+Dependabot runs also have no repository secrets, so they are skipped with a notice and a `skipped: Dependabot run without a model key` status (see "Required checks and skipped runs"). GitHub documents the token of a run Dependabot triggers as read-only by default, with secrets taken from Dependabot secrets rather than Actions secrets; unlike a fork's, it is raised by the workflow's `permissions:` key, which the sample sets. To have Dependabot's pull requests reviewed, add the model key under **Settings > Secrets and variables > Dependabot**.
 
 ## Try it locally first
 

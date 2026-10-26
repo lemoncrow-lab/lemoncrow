@@ -120,7 +120,10 @@ def _store_root() -> Path:
     "--fail-on",
     type=click.Choice(["none", "p0", "p1"]),
     default=None,
-    help="Exit 1 while a finding at or above this severity is open (none, p0 or p1; default p0).",
+    help=(
+        "Exit 1 while a finding at or above this severity is open (none, p0 or p1; default p0). p1 fails on a P0 or a "
+        "P1. With --pr N --publish-bot it also fails the LemonCrow Review commit status (default none)."
+    ),
 )
 @click.option(
     "--strict",
@@ -204,10 +207,6 @@ def review_cmd(
                 "--pr picks the range itself; drop REV, --base, --head, --staged and --working-tree"
             )
         _check_ai_review_flags(pr_spec=pr_spec, publish_pr=False, publish_bot=False, others=[])
-        if fail_on == "p1":
-            raise click.ClickException(
-                "--fail-on p1 is for a local --ai review; a pull request's status takes none or p0"
-            )
         _review_pull_request_with_ai(
             ctx,
             repo_root,

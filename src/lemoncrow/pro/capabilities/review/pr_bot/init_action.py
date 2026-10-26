@@ -6,7 +6,7 @@ to that sample the lines the guide shows as additions:
 
 * ``chat=True`` adds the two comment triggers and the job condition the guide's "Chat in pull request threads" shows;
 * ``provider`` picks which key the sample passes (``anthropic-api-key``, or ``openai-api-key`` for OpenAI);
-* ``fail_on="p0"`` adds the ``fail-on: p0`` line the guide's options table describes.
+* ``fail_on="p0"`` or ``"p1"`` adds the ``fail-on:`` line the guide's options table describes.
 
 An edit whose anchor is gone from the sample raises :class:`WorkflowTemplateError`, which the test of every option
 combination turns into a failing test the day the guide changes shape.
@@ -24,7 +24,7 @@ from typing import Final
 TEMPLATE: Final[str] = "lemoncrow-review.workflow.yml"
 WORKFLOW_PATH: Final[str] = ".github/workflows/lemoncrow-review.yml"
 PROVIDERS: Final[tuple[str, ...]] = ("anthropic", "openai")
-FAIL_ON: Final[tuple[str, ...]] = ("none", "p0")
+FAIL_ON: Final[tuple[str, ...]] = ("none", "p0", "p1")
 SECRETS: Final[dict[str, str]] = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY"}
 #: The Action's input that carries each provider's key.
 KEY_INPUTS: Final[dict[str, str]] = {"anthropic": "anthropic-api-key", "openai": "openai-api-key"}
@@ -54,10 +54,17 @@ CHAT_CONDITION: Final[str] = (
 )
 _ANTHROPIC_KEY = "          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}\n"
 _OPENAI_KEY = "          openai-api-key: ${{ secrets.OPENAI_API_KEY }}\n"
-GATING: Final[str] = (
-    '          # Fails the "LemonCrow Review" check (and this job) while a P0 finding is open. Remove it to stay advisory.\n'
-    "          fail-on: p0\n"
-)
+#: The ``fail-on`` line for each gating value, with the comment that says what it does.
+GATING: Final[dict[str, str]] = {
+    "p0": (
+        '          # Fails the "LemonCrow Review" check (and this job) while a P0 finding is open. Remove it to stay advisory.\n'
+        "          fail-on: p0\n"
+    ),
+    "p1": (
+        '          # Fails the "LemonCrow Review" check (and this job) while a P0 or P1 finding is open. Remove it to stay advisory.\n'
+        "          fail-on: p1\n"
+    ),
+}
 
 
 class WorkflowTemplateError(RuntimeError):
@@ -93,9 +100,9 @@ def render_workflow(*, provider: str = "anthropic", fail_on: str = "none", chat:
         text = _edited(text, _RUNS_ON, _RUNS_ON + CHAT_CONDITION, "the job's runs-on line")
     if provider == "openai":
         text = _edited(text, _ANTHROPIC_KEY, _OPENAI_KEY, "the Anthropic key line")
-    if fail_on == "p0":
+    if fail_on in GATING:
         key = _OPENAI_KEY if provider == "openai" else _ANTHROPIC_KEY
-        text = _edited(text, key, key + GATING, "the key line the fail-on setting follows")
+        text = _edited(text, key, key + GATING[fail_on], "the key line the fail-on setting follows")
     return text
 
 

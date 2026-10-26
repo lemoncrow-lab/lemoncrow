@@ -11,7 +11,7 @@ import pytest
 import yaml
 
 from lemoncrow.pro.capabilities.review.pr_bot import ci_env, init_action
-from tests.gateway.pr_bot_support import BASE, FIRST_PUSH, build_world
+from tests.gateway.pr_bot_support import BASE, FIRST_PUSH, SLUG, build_world
 
 ROOT = Path(__file__).resolve().parents[2]
 ACTION = ROOT / "action.yml"
@@ -224,7 +224,8 @@ def test_the_documented_workflow_is_the_minimal_one_with_one_step_and_one_decisi
     block = documented_block()
     workflow = documented_workflow()
     assert block == init_action.sample(), "the guide leads with the very file `lc review init-action` writes"
-    assert len(block.strip().splitlines()) <= 12
+    # Twelve lines of workflow and three of permissions: each permission is one line with a comment saying what uses it.
+    assert len(block.strip().splitlines()) <= 15
     assert workflow["permissions"] == {"contents": "read", "pull-requests": "write", "statuses": "write"}
     trigger = trigger_of(workflow)
     assert list(trigger) == ["pull_request"]
@@ -798,9 +799,10 @@ def test_every_failure_the_guide_promises_is_in_its_table() -> None:
         "No model key: pass anthropic-api-key or openai-api-key",
         "`pull-requests: write` or `statuses: write`",
         "permissions: { contents: read, pull-requests: write, statuses: write }",
+        "`fail-on` is `p0` or `p1`",
         "`fetch-depth: 0`",
         "The review job failed or was cancelled before it finished. Re-run it.",
-        "**`fail-on: p0` makes the job fail exactly when the status is `failure` or `error`.**",
+        "**`fail-on` makes the job fail exactly when the status is `failure` or `error`.**",
     ):
         assert phrase in table, phrase
     assert "issues: read" in guide.split("### Permissions")[1].split("### When something is wrong")[0]
@@ -834,3 +836,225 @@ def test_the_guide_documents_the_security_scan_its_licensing_and_how_to_add_rule
 
     block_config = security.parse_security_block(block)
     assert block_config.rules == ("security/rules", "security/payments.yaml") and not block_config.notes
+
+
+# --------------------------------------------------------------------------- #
+# fail-on: p1, skipped runs and read-only tokens, and the permissions the features need
+# --------------------------------------------------------------------------- #
+
+
+def section(heading: str, until: str) -> str:
+    """The guide's text from *heading* up to *until* (both exact lines or fragments)."""
+
+    text = GUIDE.read_text(encoding="utf-8")
+    return text.split(heading, 1)[1].split(until, 1)[0]
+
+
+def test_fail_on_takes_none_p0_or_p1_and_every_place_that_describes_it_says_so() -> None:
+    from click.testing import CliRunner
+
+    from lemoncrow.gateway.cli import cli
+    from lemoncrow.pro.capabilities.review.pr_bot import runner
+    from lemoncrow.pro.capabilities.review.pr_bot.findings import FAIL_ON
+
+    assert FAIL_ON == ("none", "p0", "p1") and runner.FAIL_ON == FAIL_ON
+    spec = manifest()["inputs"]["fail-on"]
+    description = " ".join(str(spec["description"]).split())
+    assert spec["default"] == "none", "the default stays advisory"
+    assert description.startswith("none, p0 or p1.")
+    assert '"p1" does the same while a P0 or a P1 is open' in description
+    assert '"none" keeps it advisory' in description and "when the review could not run" in description
+    # The review step hands the value to the command unchanged; the command, not the manifest, checks it.
+    assert '--fail-on "$FAIL_ON"' in step_named("Review the pull request")["run"]
+    guide = GUIDE.read_text(encoding="utf-8")
+    options = section("## Options", "### Add chat")
+    inputs = section("### Inputs", "### Notes on the workflow")
+    assert "`p1` does the same while a P0 **or a P1** is open" in options
+    assert '`p1` does the same while a P0 or a P1 is open (see "What `p1` gates on")' in inputs
+    for phrase in (
+        "#### What `p1` gates on",
+        "the status, and the job with it, fail while any open P0 **or P1** finding exists, and when the review could not run",
+        "A P2 never gates.",
+        "`N should-fix before merge (fail-on: p1)`",
+        "**One severity, one count.**",
+        "`finding_threshold: critical` holds back P1",
+        "**A P1 can be dismissed by its author.**",
+        "covers P0 only",
+        "`lc review --ai --fail-on p1`",
+        "`lc review init-action --fail-on p1`",
+    ):
+        assert phrase in guide, phrase
+    help_text = " ".join(CliRunner().invoke(cli, ["review", "init-action", "--help"]).output.split())
+    assert "p1 while a P0 or P1 is" in help_text and "none keeps it advisory" in help_text
+    assert "`--fail-on none|p0|p1`" in (ROOT / "docs" / "reference" / "cli.md").read_text(encoding="utf-8")
+
+
+def test_the_guide_says_what_a_read_only_token_can_and_cannot_do_for_a_skipped_run() -> None:
+    """A skipped run posts ``skipped:`` where the token can write a status; where it cannot, the guide says so plainly."""
+
+    required = section("#### Required checks and skipped runs", "### The hidden state")
+    for phrase in (
+        "it posts a `success` status with a description that starts `skipped:`",
+        "`POST /repos/{owner}/{repo}/statuses/{sha}`, which needs `statuses: write`",
+        # A fork: read-only, no secrets, and the permissions key cannot raise it. Nothing is attempted or posted.
+        "**A `pull_request` run from a fork has a read-only token and no secrets, whatever the workflow's `permissions:` says.**",
+        "typically cannot grant it write access",
+        "so it does not try",
+        "Do not make the check required if you accept fork pull requests.",
+        "Let a maintainer run the workflow by hand",
+        "triggered by `workflow_run`",
+        "must not check out or run the fork's code",
+        "**Send write tokens to workflows from pull requests**",
+        "private and internal repositories only",
+        "the Action never attempts a write on a fork run",
+        # Dependabot: read-only by default, secrets from Dependabot secrets, and unlike a fork's it can be raised.
+        "**A run that Dependabot triggers has a read-only token by default and takes its secrets from Dependabot secrets",
+        "which the sample's block does",
+        "**Settings > Secrets and variables > Dependabot**",
+        "the Action posts nothing, prints a notice, and still exits 0; a required check will then wait",
+        "**A `pull_request_target` run is refused**",
+        "**A job that GitHub itself skips**",
+        "A skipped run is never a failure",
+    ):
+        assert phrase in required, phrase
+    assert "not confirmed" not in required and "understood to get" not in GUIDE.read_text(encoding="utf-8")
+    for row in (
+        "| A draft (`review-drafts` is off) | `skipped: draft pull request` |",
+        "| A Dependabot run with no model key | `skipped: Dependabot run without a model key` |",
+        "| A pull request from a fork | **none posted**, see below |",
+    ):
+        assert row in required, row
+    # The gate script says the same in its notices.
+    source = Path(ci_env.__file__).read_text(encoding="utf-8")
+    assert "not confirmed here" not in source and "permissions:` key" in source
+    gate = ci_env.decide(
+        {"GITHUB_EVENT_NAME": "pull_request", "GITHUB_ACTOR": "dependabot[bot]"},
+        event={
+            "pull_request": {
+                "number": 7,
+                "head": {"repo": {"full_name": "a/b"}},
+                "base": {"repo": {"full_name": "a/b"}},
+            }
+        },
+    )
+    assert "Settings > Secrets and variables > Dependabot" in gate.reason and "not confirmed" not in gate.reason
+
+
+def permission_blocks() -> list[tuple[str, str]]:
+    """Every ``permissions:`` block with its lines, in the guide's workflows and the README's: ``(where, text)``."""
+
+    found = []
+    for where, text in (
+        ("guide", GUIDE.read_text(encoding="utf-8")),
+        ("readme", (ROOT / "README.md").read_text("utf-8")),
+    ):
+        for block in re.findall(r"```yaml\n(.*?)```", text, re.DOTALL):
+            if "\npermissions:\n" in block:
+                found.append((where, block))
+    return found
+
+
+def test_every_workflow_in_the_docs_grants_the_least_that_works_and_says_what_uses_each_permission() -> None:
+    blocks = permission_blocks()
+    assert [where for where, _ in blocks].count("guide") == 2 and [where for where, _ in blocks].count("readme") == 1
+    expected = {"contents": "read", "pull-requests": "write", "statuses": "write"}
+    for where, block in blocks:
+        assert yaml.safe_load(block)["permissions"] == expected, where
+        lines = block.split("\npermissions:\n", 1)[1].split("\njobs:", 1)[0].splitlines()
+        assert len(lines) == 3, where
+        for line in lines:
+            # One line per permission, with a comment saying what uses it.
+            assert re.fullmatch(r"  (contents|pull-requests|statuses): (read|write) +# \S.{8,}", line), line
+    assert init_action.sample() == blocks[0][1]
+    # The optional permissions are not granted, and each is said to be optional with what is lost without it.
+    guide = GUIDE.read_text(encoding="utf-8")
+    assert "The permissions are the least that works." in guide
+    table = section("### Permissions", "### When something is wrong")
+    assert "`issues: read` (optional)" in table and "`issues: write` (optional)" in table
+    assert "The reaction is skipped without a word in the log and nothing else changes" in table
+    assert "issue #N not read: this workflow's token lacks the optional issues: read permission" in table
+
+
+def test_the_guide_names_every_rest_write_the_bot_makes_and_the_permission_its_row_is_filed_under(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A full session (review, replies, a fix, chat in a thread and in the conversation, ``review`` commands) is run
+    against the fake GitHub, and every write it made must be a row of the guide's permissions table, under the
+    permission GitHub's REST reference lists for it. A new write endpoint fails this until the table names it."""
+
+    from tests.gateway.pr_bot_support import AUTH_FIXED
+
+    world = build_world(tmp_path, monkeypatch, BASE)
+    world.origin.push(FIRST_PUSH)
+    world.review()
+    thread = int(world.github.inline()[0]["id"])
+    world.chat("@lemoncrow what is open?", thread=thread)  # a reply in a review thread
+    world.chat("@lemoncrow what is open?")  # an answer in the conversation
+    world.chat("@lemoncrow review")  # reactions on a conversation comment
+    world.chat("@lemoncrow review", thread=thread)  # reactions on a review-thread comment
+    world.origin.push({"src/auth.py": AUTH_FIXED}, "fix auth")
+    world.review()  # "Fixed in <sha>" replies and the thread resolve
+
+    def template(path: str) -> str:
+        path = path.replace(f"repos/{SLUG}", "/repos/{owner}/{repo}")
+        path = re.sub(r"/statuses/[0-9a-f]{40}$", "/statuses/{sha}", path)
+        path = re.sub(r"/(issues|pulls)/\d+", r"/\1/{number}", path)
+        path = re.sub(
+            r"/reactions/\d+$", "/reactions", path
+        )  # a DELETE names the reaction; the table names the collection
+        return re.sub(r"/\d+", "/{id}", path)
+
+    written = {(method, template(path)) for method, path in world.github.calls if method != "GET"}
+    permission_of = {
+        ("POST", "/repos/{owner}/{repo}/issues/{number}/comments"): "pull-requests: write",
+        ("PATCH", "/repos/{owner}/{repo}/issues/comments/{id}"): "pull-requests: write",
+        ("POST", "/repos/{owner}/{repo}/pulls/{number}/reviews"): "pull-requests: write",
+        ("POST", "/repos/{owner}/{repo}/pulls/{number}/comments/{id}/replies"): "pull-requests: write",
+        ("POST", "/repos/{owner}/{repo}/statuses/{sha}"): "statuses: write",
+        ("POST", "/repos/{owner}/{repo}/pulls/comments/{id}/reactions"): "pull-requests: write",
+        ("DELETE", "/repos/{owner}/{repo}/pulls/comments/{id}/reactions"): "pull-requests: write",
+        ("POST", "/repos/{owner}/{repo}/issues/comments/{id}/reactions"): "issues: write",
+        ("DELETE", "/repos/{owner}/{repo}/issues/comments/{id}/reactions"): "issues: write",
+        ("POST", "/repos/{owner}/{repo}/issues/{number}/reactions"): "issues: write",
+        ("DELETE", "/repos/{owner}/{repo}/issues/{number}/reactions"): "issues: write",
+    }
+    assert written == set(permission_of), "the bot's REST writes changed: file the new ones under their permission"
+    rows = [
+        line
+        for line in section("### Permissions", "**What each feature needs.**").splitlines()
+        if line.startswith("| `")
+    ]
+    for (method, endpoint), permission in permission_of.items():
+        (row,) = [line for line in rows if re.search(re.escape(endpoint) + r"(?![\w/{])", line)]
+        assert row.startswith(f"| `{permission}`"), (method, endpoint, row[:40])
+        assert method in row, (method, endpoint)
+    # The one GraphQL write, and the reads, are named too; the sample's three permissions cover them.
+    permissions_text = section("### Permissions", "### When something is wrong")
+    assert "`resolveReviewThread`" in permissions_text and "`reviewThreads` query" in permissions_text
+    assert "/collaborators/{login}/permission" in permissions_text
+    assert "GitHub lists these endpoints under `issues: write` alone" in permissions_text
+
+
+def test_a_reaction_the_token_may_not_give_costs_nothing_but_the_reaction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """What the guide says is lost without ``issues: write``: the 👀/👍 on the pull request and on a conversation
+    comment. A command in a review thread keeps its reactions; the review, the summary and the status do not change."""
+
+    world = build_world(tmp_path, monkeypatch, BASE)
+    world.github.deny_reactions = {"issues"}
+    world.origin.push(FIRST_PUSH)
+    report = world.review()
+    assert report.notes == [] and not report.skipped and report.exit_code == 0
+    assert world.github.bot_reactions("issues", 7) == [] and report.published["reaction"] == "not permitted"
+    assert [row["state"] for row in world.github.statuses] == ["pending", "success"]
+    thread = int(world.github.inline()[0]["id"])
+    world.chat("@lemoncrow review", thread=thread)
+    assert [row[1] for row in world.github.reaction_log] == [
+        "pulls",
+        "pulls",
+        "pulls",
+    ], "the thread keeps its reactions"
+    answered = len(world.github.chat_replies())
+    world.chat("@lemoncrow review")
+    assert len(world.github.chat_replies()) == answered + 1, "the answer comes without the 👀"

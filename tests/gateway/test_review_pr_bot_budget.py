@@ -3,7 +3,8 @@
 The summary's hidden state already carries the cumulative usage (``usage_total``) and the number of reviews, so
 the budget is enforced from it: no service, no counter of our own. When it is reached the summary says so, nothing
 new is reviewed, and the commit status is a success (a commit status has no neutral state) that says nothing was
-reviewed. An earlier open P0 still fails the check under ``fail-on: p0``.
+reviewed. An earlier open P0 still fails the check under ``fail-on: p0`` (an open P1 too under ``p1``, see
+``test_review_pr_bot_severity``), and the job with it.
 """
 
 from __future__ import annotations
@@ -242,6 +243,7 @@ def test_an_open_p0_from_the_last_review_still_fails_the_check_when_the_budget_i
     assert len(world.model.calls) == calls, "nothing was reviewed"
     assert report.verdict is not None and report.verdict.state == "must_fix"
     assert report.status == ("failure", "1 must-fix before merge")
+    assert report.exit_code == 1, "fail-on makes the job fail exactly when the status fails, a spent budget included"
     # The headline is the P0, which is still open; the strip under it says why nothing newer was looked at.
     assert any(line.startswith("**1 must-fix before merge**") for line in summary(world).split("\n"))
     assert "This push was not reviewed" in summary(world)

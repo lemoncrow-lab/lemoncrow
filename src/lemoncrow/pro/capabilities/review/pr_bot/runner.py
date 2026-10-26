@@ -42,6 +42,7 @@ from lemoncrow.pro.capabilities.review.pr_bot import (
     reactions,
     security,
 )
+from lemoncrow.pro.capabilities.review.pr_bot.findings import FAIL_ON as FAIL_ON
 from lemoncrow.pro.capabilities.review.pr_bot.findings import BotFinding
 from lemoncrow.pro.capabilities.review.pr_bot.github import (
     BotGitHub,
@@ -80,8 +81,6 @@ from lemoncrow.pro.capabilities.review.sources.github import (
 
 if TYPE_CHECKING:
     from lemoncrow.pro.capabilities.review.pr_bot.engine import Captured
-
-FAIL_ON = ("none", "p0")
 
 
 class PrReviewError(RuntimeError):
@@ -421,6 +420,16 @@ def run_pr_review(
     for level, message in report.annotations:
         announce(level, message, environ)
     return report
+
+
+def gate_exit(fail_on: str, status: tuple[str, str]) -> int:
+    """The job's exit code for the check's *status*: 1 when ``fail-on`` is ``p0`` or ``p1`` and the check is red.
+
+    ``fail-on`` is a gate, so when it makes the check red the job is red too, and a person who requires either one is
+    blocked by it. With ``none`` the job stays green however the check reads (the annotations still show in red).
+    """
+
+    return 1 if fail_on != "none" and status[0] in {"failure", "error"} else 0
 
 
 def run_url(environ: Mapping[str, str]) -> str:
@@ -903,10 +912,7 @@ def _review(
     report.summary = body
     report.verdict = view
     report.status = status
-    # `fail-on: p0` is a gate: when it makes the check red the job is red too, so a person who requires either one is
-    # blocked by it. Without it the job stays green however the check reads (the annotations still show in red).
-    if options.fail_on == "p0" and status[0] in {"failure", "error"}:
-        report.exit_code = 1
+    report.exit_code = gate_exit(options.fail_on, status)
 
     if writes:
         link = existing.url if existing is not None else ""
@@ -1064,7 +1070,8 @@ def _over_budget(
 
     The summary keeps the last review's open findings and state (so a later run with a larger budget carries on
     from them) and the status goes on the new head as ``success``, a commit status having no neutral state, unless
-    an open P0 from the last review still fails it under ``fail-on: p0``.
+    an open P0 from the last review still fails it under ``fail-on: p0`` (or ``p1``, which also fails on an open P1);
+    the job fails with the status, exactly as it does for a review that ran.
     """
 
     name = f"{ref.slug}#{ref.number}"
@@ -1107,6 +1114,7 @@ def _over_budget(
     status = check_status(view, fail_on=options.fail_on)
     report = RunReport(pr=name, head_sha=head, verdict=view, findings=kept, state=posted_state, summary=body)
     report.status = status
+    report.exit_code = gate_exit(options.fail_on, status)
     report.notes.append(f"review budget reached ({spent}); nothing was reviewed")
     if writes:
         link = existing.url if existing is not None else ""
