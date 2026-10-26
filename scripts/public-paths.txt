@@ -58,6 +58,8 @@ evals/review/
 # The golden-comment corpus: 50 pull requests of repositories a public corpus may not carry, scored against an answer key
 # that has no licence (the key itself is never in this repository). Commit ids and titles only; reports go outside.
 !evals/review/golden_comment_prs.yaml
+# Its tests read that file, so they stay private with it.
+!tests/gateway/test_review_golden_corpus_shipped.py
 # Regression tests of the private code-intelligence engine (enterprise/runtime)
 # live under tests/private/ and are never published. Public tests reach the
 # engine only via the `private_engine` marker (skipped when it is absent).
