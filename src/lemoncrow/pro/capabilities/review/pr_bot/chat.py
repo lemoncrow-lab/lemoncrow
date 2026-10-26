@@ -46,9 +46,9 @@ from pathlib import Path
 from typing import Any, Final
 
 from lemoncrow.pro.capabilities.review.model_context import ContextAuthority, tagged
-from lemoncrow.pro.capabilities.review.pr_bot import ci_env, engine, learning, suppression
+from lemoncrow.pro.capabilities.review.pr_bot import ci_env, engine, learning, reactions, suppression
 from lemoncrow.pro.capabilities.review.pr_bot.findings import SEVERITY_BADGE, BotFinding
-from lemoncrow.pro.capabilities.review.pr_bot.github import BotGitHub, PullFacts, Remote, finding_id_of
+from lemoncrow.pro.capabilities.review.pr_bot.github import BotGitHub, PullFacts, ReactionTarget, Remote, finding_id_of
 from lemoncrow.pro.capabilities.review.pr_bot.render import (
     MAX_COMMENT,
     chat_reply,
@@ -669,15 +669,19 @@ def _review_command(
             "budget",
         )
     writes = options.publish and not options.dry_run
+    # Eyes on the person's comment at once, then a thumbs up when the review is done or a confused face when it could
+    # not run: best effort, and a refusal never changes the review (:mod:`reactions`).
+    signal = reactions.Signal(
+        github, ReactionTarget("review_comment" if event.in_thread else "issue_comment", event.comment_id)
+    )
     if writes:
-        try:
-            github.react(event.comment_id, review_comment=event.in_thread, content="eyes")
-        except GitHubCliError as exc:
-            report.notes.append(f"could not react to the comment: {str(exc)[:200]}")
+        signal.start()
     say(f"Reviewing at {label}")
     try:
         outcome = review(replace(options, depth=depth, only_targets=None))
     except Exception as exc:  # said in the thread without the provider's text, then raised for the job log
+        if writes:
+            signal.finish(False)
         try:
             reply(lead + f"I could not finish the review ({type(exc).__name__}); see the workflow log.", "failed")
         except GitHubCliError:
@@ -688,7 +692,9 @@ def _review_command(
     report.notes.extend(outcome.notes)
     report.noop = outcome.noop
     if writes:
-        report.published["acknowledged"] = "eyes"
+        signal.finish(reactions.ran(outcome))
+        report.published["acknowledged"] = signal.published
+        report.notes.extend(signal.notes)
     if outcome.skipped or outcome.verdict is None or outcome.state is None:
         return reply(
             lead + f"I could not review: {clean(outcome.reason) or 'the review did not run'}.",

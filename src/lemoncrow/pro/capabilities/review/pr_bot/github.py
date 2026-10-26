@@ -27,6 +27,7 @@ import time
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, Final
+from urllib.parse import quote
 
 from lemoncrow.pro.capabilities.review.github_placement import index_files, unplaceable_reason
 from lemoncrow.pro.capabilities.review.github_publish import (
@@ -308,6 +309,21 @@ class InlineOutcome:
     """Findings in ``posted`` that already had a comment from the bot, found just before posting; nothing was sent for them."""
 
 
+REACTION_KINDS: Final[tuple[str, ...]] = ("pull", "issue_comment", "review_comment")
+
+
+@dataclass(frozen=True, slots=True)
+class ReactionTarget:
+    """What a reaction of the bot's goes on: the pull request itself, a conversation comment or a review-thread comment."""
+
+    kind: str
+    id: int = 0
+
+    def __post_init__(self) -> None:
+        if self.kind not in REACTION_KINDS or (self.kind != "pull" and self.id <= 0):
+            raise ValueError(f"not a reaction target: {self.kind} {self.id}")
+
+
 @dataclass(frozen=True, slots=True)
 class Reaction:
     """One reaction on a comment. ``content`` is GitHub's enum (``THUMBS_UP``, ``THUMBS_DOWN``, ``LAUGH``, ...); ``login`` is
@@ -432,19 +448,56 @@ class BotGitHub:
             raise GitHubCliError(f"GitHub did not return the reply on thread {root_id} of {self.pr.url}")
         return replace(written, body=body)
 
-    def react(self, comment_id: int, *, review_comment: bool, content: str = "eyes") -> None:
-        """Put the reaction *content* (``eyes``, ``+1``, ...) on a comment: the quickest answer to "did the bot see it".
+    # ----- reactions ---------------------------------------------------- #
 
-        *review_comment* is a comment in a review thread (``pull_request_review_comment``); otherwise it is a
-        conversation comment. Covered by ``pull-requests: write``, like the replies.
+    def _reactions_path(self, target: ReactionTarget) -> str:
+        """The REST collection of *target*'s reactions. A review-thread comment's is covered by ``pull-requests: write``;
+        a conversation comment's and the pull request's are ``issues`` endpoints and need ``issues: write`` (GitHub's REST
+        reference lists them under that permission alone)."""
+
+        if target.kind == "pull":
+            return f"repos/{self.pr.slug}/issues/{self.pr.number}/reactions"
+        if target.kind == "issue_comment":
+            return f"repos/{self.pr.slug}/issues/comments/{target.id}/reactions"
+        return f"repos/{self.pr.slug}/pulls/comments/{target.id}/reactions"
+
+    def add_reaction(self, target: ReactionTarget, content: str) -> tuple[int, str]:
+        """Put the reaction *content* (``eyes``, ``+1``, ``confused`` ...) on *target*: ``(its id, who gave it)``.
+
+        GitHub answers 201 for a new reaction and 200 with the existing one when this identity already reacted so, which
+        is why this may be called again. Raises ``GitHubCliError`` (a refused permission among them): the caller decides
+        that a reaction is never worth failing for.
         """
 
-        kind = "pulls" if review_comment else "issues"
-        gh_json(
-            self.runner,
-            ["api", "--method", "POST", f"repos/{self.pr.slug}/{kind}/comments/{comment_id}/reactions", "--input", "-"],
-            json.dumps({"content": content}),
+        row = _mapping(
+            gh_json(
+                self.runner,
+                ["api", "--method", "POST", self._reactions_path(target), "--input", "-"],
+                json.dumps({"content": content}),
+            )
         )
+        identity = row.get("id")
+        return (
+            identity if isinstance(identity, int) and not isinstance(identity, bool) else 0,
+            str(_mapping(row.get("user")).get("login") or ""),
+        )
+
+    def remove_reaction(self, target: ReactionTarget, reaction_id: int) -> None:
+        """Delete one reaction of the bot's (a 204 with no body, so it is not read as JSON)."""
+
+        self.runner(["api", "--method", "DELETE", f"{self._reactions_path(target)}/{int(reaction_id)}"], None)
+
+    def reactions_by(self, target: ReactionTarget, content: str, login: str) -> list[int]:
+        """Ids of the *content* reactions on *target* that *login* gave."""
+
+        rows = gh_paginated(
+            self.runner, f"{self._reactions_path(target)}?content={quote(content, safe='')}&per_page=100"
+        )
+        return [
+            row["id"]
+            for row in rows
+            if isinstance(row.get("id"), int) and _mapping(row.get("user")).get("login") == login
+        ]
 
     def post_comment(self, body: str) -> Remote:
         """A new comment in the pull request's conversation."""
@@ -873,6 +926,7 @@ __all__ = [
     "PullFacts",
     "PullRequestState",
     "Reaction",
+    "ReactionTarget",
     "Remote",
     "ThreadComment",
     "ThreadOutcome",

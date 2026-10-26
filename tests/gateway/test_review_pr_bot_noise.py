@@ -9,6 +9,7 @@ is a P0 instead.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,7 @@ from lemoncrow.pro.capabilities.review.pr_bot import settings
 from lemoncrow.pro.capabilities.review.pr_bot.engine import policy_digest
 from lemoncrow.pro.capabilities.review.pr_bot.large_pr import plan_large
 from lemoncrow.pro.capabilities.review.pr_bot.reconcile import finding_from_confirmed
+from lemoncrow.pro.capabilities.review.pr_bot.render import badge
 from lemoncrow.pro.capabilities.review.pr_bot.runner import PrReviewError, RunReport
 from lemoncrow.pro.capabilities.review.pr_bot.settings import NoiseInputs, NoisePolicy, parse_file_settings
 from lemoncrow.pro.capabilities.review.pr_bot.state import parse_state
@@ -79,7 +81,7 @@ def summary_of(world: World) -> str:
 
 
 def inline_titles(world: World) -> list[str]:
-    return sorted(row["body"].split("—", 1)[1].split("\n", 1)[0].strip() for row in world.github.inline())
+    return sorted(re.search(r"\*\*(.*)\*\*$", row["body"].split("\n", 1)[0])[1] for row in world.github.inline())  # type: ignore[index]
 
 
 # --------------------------------------------------------------------------- #
@@ -120,7 +122,8 @@ def test_strictness_is_an_alias_for_the_finding_threshold(
     assert inline_titles(world) == sorted(inline)
     assert ("low-priority finding held back" in body) is listed
     assert ("1 finding held back below strictness 3" in body) is below
-    assert ("1 held back" in body.splitlines()[1]) is below  # counted in the headline, never silent
+    verdict_line = next(row for row in body.splitlines() if row.startswith(("**No must-fix", "**1 must-fix")))
+    assert ("1 held back" in verdict_line) is below  # counted in the headline, never silent
     if below:
         assert report.status is not None and "1 held back" in report.status[1]
         assert report.to_wire()["verdict"]["held_back"] == 1
@@ -138,7 +141,7 @@ def test_a_held_back_finding_is_in_no_verdict_count_and_not_in_the_fix_prompt(
     body = summary_of(world)
     assert report.verdict is not None and (report.verdict.p1, report.verdict.p2, report.verdict.held) == (1, 0, 1)
     assert "1 optional" not in body
-    prompt = body.split("Fix with your agent", 1)[1].split("</details>", 1)[0]
+    prompt = body.split("Fix with agent prompt", 1)[1].split("</details>", 1)[0]
     assert "src/auth.py" in prompt and "src/cache.py" not in prompt
     held = body.split("held back below strictness 3", 1)[1].split("</details>", 1)[0]
     assert "src/cache.py:5" in held and "(strictness 3, from .lemoncrow/review.yaml)" in held
@@ -212,7 +215,7 @@ def test_inline_comments_false_posts_nothing_on_the_diff_and_lists_everything_in
     assert world.github.inline() == [] and world.github.review_posts == 0
     assert report.inline_bodies == ()
     assert (
-        "- **P0** lets a missing principal through — `src/auth.py:2-3` · new" in body
+        f"1. {badge('p0')} **lets a missing principal through** — `src/auth.py:2-3` · new" in body
     )  # a row, with no thread to link
     assert "`inline_comments` is off" in body
     assert report.verdict is not None and report.verdict.state == "must_fix"
@@ -547,7 +550,9 @@ def test_a_changed_threshold_rewrites_the_summary_of_an_unchanged_head(
     assert "1 finding held back below strictness 3" in body and "low-priority finding held back" not in body
     assert again.state is not None and again.state.view == "high:inline"
     assert again.state.reviews == first.state.reviews  # not another review
-    assert "this review: 2 model calls" in body  # the cost of the review that was last made
+    assert (
+        "this review: 3 model calls" in body
+    )  # the cost of the review that was last made: two investigations and the overview
 
 
 def test_a_budget_notice_keeps_showing_what_the_last_review_showed(
@@ -592,10 +597,10 @@ def test_above_max_files_the_riskiest_files_are_reviewed_first_and_the_rest_are_
     assert "> **Large pull request: 5 files, over the limit of 2.** Reviewed the 2 highest-risk files first." in body
     assert "3 lower-risk files are not reviewed yet: " in body
     assert all(f"`{path}`" in body.split("not reviewed yet:", 1)[1].split("They are", 1)[0] for path in LEFT)
-    assert body.splitlines()[1].startswith("**Partially reviewed: 2 of 5 files, highest risk first**")
+    assert any(row.startswith("**Partially reviewed: 2 of 5 files, highest risk first**") for row in body.splitlines())
     assert report.status is not None and report.status[0] == "success"
     assert report.status[1].startswith("Partially reviewed: 2 of 5 files, highest risk first")
-    assert "No must-fix findings" not in body.splitlines()[1]
+    assert "No must-fix findings" not in body.split("<h2>")[0] and "**No must-fix findings**" not in body
     assert any("large pull request: 3 of 5 files left for a later run" in note for note in report.notes)
     assert report.verdict is not None and report.verdict.state == "partial"
 
@@ -760,8 +765,12 @@ def test_the_threshold_the_impact_and_the_risks_examined_sit_together_in_one_sum
     world.review()
     lines = summary_of(world).split("\n")
     body = "\n".join(lines[: next(i for i, row in enumerate(lines) if row.startswith("<!-- lemoncrow:state"))])
-    assert "held back" in lines[1] and "1 should-fix" in lines[1]  # the held-back count rides the verdict line
-    assert lines[3].startswith("**") and " impact**" in lines[3]  # the deterministic impact label, under the verdict
-    assert body.index("<sub>Reviewed ") > body.index(lines[3])
+    verdict_line = next(row for row in lines if row.startswith("**No must-fix"))
+    assert "held back" in verdict_line and "1 should-fix" in verdict_line  # the held-back count rides the verdict line
+    label = next(
+        row for row in lines if row.startswith("**[") and " impact]**" in row
+    )  # the deterministic impact label
+    assert lines.index(label) < lines.index(verdict_line), "above the verdict, under the score"
+    assert body.index("<sub>Reviewed ") > body.index(label)
     # The findings come first, then what was held back, then the risks that were examined, then the diagram.
     assert body.index("held back below strictness 3") < body.index("<summary>Risks examined")

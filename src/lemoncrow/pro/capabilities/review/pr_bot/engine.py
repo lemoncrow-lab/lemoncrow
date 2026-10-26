@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import tempfile
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -28,6 +29,7 @@ from typing import TYPE_CHECKING, Any
 
 from lemoncrow.pro.capabilities.review.pr_bot import impact as impact_mod
 from lemoncrow.pro.capabilities.review.pr_bot import large_pr, pr_intent
+from lemoncrow.pro.capabilities.review.pr_bot import overview as overview_mod
 from lemoncrow.pro.capabilities.review.pr_bot.findings import Located, locate_target
 from lemoncrow.pro.capabilities.review.pr_bot.pr_intent import IntentNote
 from lemoncrow.pro.capabilities.review.pr_bot.settings import (
@@ -131,6 +133,15 @@ class AiStage:
     deferred_files: tuple[str, ...] = ()
     #: What the review was told the change is for, and what could not be read (``pr_intent.gather``); ``None``: not asked.
     intent: IntentNote | None = None
+    #: What the pull request does (:mod:`overview`): made by one model call this run (its usage is in ``usage``), or reused
+    #: from the last review of the same change (``overview_reused``); ``None`` when none was asked for, the change is
+    #: trivial, or the call did not give one (``overview_note`` says why, for the job log).
+    overview: overview_mod.Overview | None = None
+    overview_reused: bool = False
+    overview_note: str = ""
+    #: The change whose overview this run decided (:attr:`overview.Request.identity`), kept in the state so the same change
+    #: is not asked again; ``""``: undecided (not asked for, or the call failed).
+    overview_for: str = ""
 
     @property
     def ran(self) -> bool:
@@ -439,12 +450,17 @@ def run_ai_stage(
     only_targets: Collection[str] | None = None,
     inputs: NoiseInputs | None = None,
     intent_loader: Callable[[Captured], IntentNote] | None = None,
+    overview: overview_mod.Request | None = None,
 ) -> AiStage:
     """Run the AI review on what changed since *previous*, through the Review API's own AI endpoint.
 
     *inputs* are the workflow's defaults for the noise controls (the trusted base's ``.lemoncrow/review.yaml`` wins);
     *intent_loader* reads the pull request's description and linked issues onto the Snapshot, called only when a model
     is about to be asked.
+
+    *overview* asks for the overview of the change (:mod:`overview`) once the review is done: one more model call, counted
+    in the review's call cap and in its usage, unless the change is trivial or the overview of this very change is
+    already in the request. ``None`` (the default) asks for none, which is what a benchmark or a hook wants.
 
     *only_targets* narrows the review to those targets and nothing else, whatever else changed (chat's "recheck"
     names one finding's targets; an empty collection asks for no model call at all). The reviewed-unit list and the
@@ -481,6 +497,7 @@ def run_ai_stage(
             only_targets=only_targets,
             inputs=inputs,
             intent_loader=intent_loader,
+            overview=overview,
         )
         return {"status": "inline", "revision_id": request_revision.id}
 
@@ -624,6 +641,70 @@ def _tokens(
     }
 
 
+def _overview(
+    request: overview_mod.Request | None,
+    captured: Captured,
+    governance: Any,
+    policy: Mapping[str, Any],
+    structured_executor: Callable[..., StructuredExecution] | None,
+    *,
+    calls_used: int,
+    calls_cap: int,
+) -> tuple[dict[str, Any], Usage]:
+    """``(AiStage fields, usage)`` of the overview step: the overview of this change, reused or made, and what its call cost.
+
+    Never raises and never fails a review: a route that cannot be resolved, a call that fails and an answer with nothing
+    usable are each a note and no overview. The call goes through the route the review used, under the review's own
+    policy, and may be shown only what the repository's content-access policy lets this route see. An agent-CLI route
+    is run in an empty directory, so it has no repository to read, only the prompt.
+    """
+
+    if request is None:
+        return {}, Usage()
+    from lemoncrow_client.kit.redaction import redact
+
+    from lemoncrow.pro.capabilities.review.data_governance import process_route_trust
+    from lemoncrow.pro.capabilities.review.intelligence_policy import review_intelligence_policy
+    from lemoncrow.pro.capabilities.review.intelligence_runtime import (
+        AGENT_CLI_DRIVERS,
+        bound_intelligence_policy,
+        execute_structured,
+        resolve_driver_model,
+    )
+    from lemoncrow.pro.capabilities.review.rules import content_access_for_path
+    from lemoncrow.pro.capabilities.review.sources.local import read_packet_json
+
+    if request.reusable:
+        return {"overview": request.previous, "overview_reused": True, "overview_for": request.identity}, Usage()
+    try:
+        with bound_intelligence_policy(review_intelligence_policy(policy)):
+            driver = resolve_driver_model(None, None).driver
+            trust = process_route_trust(driver)
+            rules = tuple(governance.content_access)
+            packet = read_packet_json(captured.store, captured.revision)
+            with tempfile.TemporaryDirectory(prefix="lemoncrow-overview-") as empty:
+                outcome = overview_mod.build(
+                    packet,
+                    request,
+                    calls_left=calls_cap - calls_used,
+                    allowed=lambda path: content_access_for_path(path, rules, route_trust=trust).allowed,
+                    execute=structured_executor or execute_structured,
+                    redact=redact,
+                    project_root=Path(empty) if driver in AGENT_CLI_DRIVERS else None,
+                )
+    except Exception as exc:  # decoration: whatever it was, the review goes on without it
+        return {"overview_note": f"overview skipped: it could not be asked ({type(exc).__name__})"}, Usage()
+    spent = Usage()
+    if outcome.execution is not None:
+        spent = call_usage(outcome.execution.model, outcome.execution.usage)
+    return {
+        "overview": outcome.overview,
+        "overview_reused": outcome.reused,
+        "overview_note": outcome.note,
+        "overview_for": request.identity if outcome.settled else "",
+    }, spent
+
+
 def _execute(
     app: Any,
     captured: Captured,
@@ -636,6 +717,7 @@ def _execute(
     only_targets: Collection[str] | None = None,
     inputs: NoiseInputs | None = None,
     intent_loader: Callable[[Captured], IntentNote] | None = None,
+    overview: overview_mod.Request | None = None,
 ) -> AiStage:
     from lemoncrow.pro.capabilities.review.ai_review import generate_candidates, run_independent_review
     from lemoncrow.pro.capabilities.review.independence import configured_reviewer_routes
@@ -765,6 +847,10 @@ def _execute(
         kept, truncated = cap_units(_tokens(targets, units, pending=()))
         if narrow and previous is not None:
             kept, truncated = dict(previous.reviewed_units), previous.units_truncated
+        # No investigator ran, but a push that changed only what no review looks at still gets an overview of itself.
+        unchanged_fields, spent = _overview(
+            overview, captured, governance, policy, structured_executor, calls_used=0, calls_cap=base.max_calls
+        )
         return replace(
             base,
             reviewed_units=kept,
@@ -772,6 +858,8 @@ def _execute(
             model=previous.model if previous else "",
             intact=intact,
             signals=signals(set(), {}, kept),
+            usage=spent,
+            **unchanged_fields,
         )
 
     budget = ModelCallBudget.from_env(max_calls=1)
@@ -815,6 +903,20 @@ def _execute(
     context_tokens = context.get("estimated_tokens")
     if isinstance(context_tokens, int) and context_tokens > 0:
         usage = replace(usage, context_tokens=context_tokens)
+    # The overview comes last and only after a review that met no model failure: a provider that is down is not asked
+    # for one more thing. Its call is one of the review's, so it is counted in its usage and against its cap.
+    described: dict[str, Any] = {}
+    if not result.provider_errors and not result.skipped_by_budget:
+        described, spent = _overview(
+            overview,
+            captured,
+            governance,
+            policy,
+            structured_executor,
+            calls_used=max(usage.calls, result.calls_used),
+            calls_cap=result.calls_max or base.max_calls,
+        )
+        usage = usage.plus(spent)
     # Reviewed means a model call about the target returned (or it carried no risk signal). A candidate no call
     # reached -- a failed call, a spent budget, Auto's cap on investigations -- is pending: it is retried on the next
     # push and competes for the cap again, so a large pull request is covered over its pushes, never silently skipped.
@@ -860,4 +962,5 @@ def _execute(
         intact=intact,
         signals=signals(set(changed_ids), examined.categories, kept),
         intent=note,
+        **described,
     )

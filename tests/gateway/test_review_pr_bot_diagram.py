@@ -1,4 +1,4 @@
-"""G17: the Change diagram in the pull request summary, drawn from the Snapshot-exact Architecture Delta.
+"""G17: the ### Diagram in the pull request summary, drawn from the Snapshot-exact Architecture Delta.
 
 The pure parts build a real delta with ``build_architecture_delta`` (the function the Review Map uses) from two small
 source graphs; the end-to-end parts run the whole bot on a real git origin, so the delta is the one the Action
@@ -89,11 +89,12 @@ def block_of(section: str) -> Drawn:
 
     (text,) = re.findall(r"```mermaid\n(.*?)\n```", section, re.DOTALL)
     lines = text.split("\n")
-    assert lines[0] == "flowchart LR", lines[0]
+    assert lines[0] == "%%{init: {'theme': 'neutral'}}%%", lines[0]
+    assert lines[1] == "flowchart LR", lines[1]
     drawn = Drawn(text)
     styles: list[str] = []
     ends = 0
-    for raw in lines[1:]:
+    for raw in lines[2:]:
         line = raw.strip()
         if match := _NODE.match(line):
             assert match[1] not in drawn.nodes, f"{match[1]} defined twice"
@@ -197,10 +198,10 @@ def test_a_call_edge_added_between_two_modules_is_a_solid_arrow_marked_added() -
     drawn = block_of(section)
 
     source, arrow, label, target = drawn.edge("src/cache.py", "src/auth.py")
-    assert arrow == "-->" and label == "+ auth"
+    assert arrow == "-->" and label == "+auth"
     assert drawn.nodes[source] == ("src/cache.py", "changed") and drawn.nodes[target] == ("src/auth.py", "context")
-    assert section.startswith("<details><summary>Change diagram</summary>")
-    assert section.rstrip().endswith("</details>")
+    assert section.startswith("### Diagram\n\n"), "a heading and the block, open by default"
+    assert "<details" not in section and section.rstrip().endswith("<!-- /lemoncrow:diagram -->")
     # One legend line under the block names every encoding.
     legend = [line for line in section.splitlines() if line.startswith("<sub>**+**")]
     assert len(legend) == 1 and "added (solid)" in legend[0] and "removed (dashed)" in legend[0]
@@ -221,8 +222,8 @@ def test_a_removed_edge_is_dashed_and_so_is_the_file_that_went_away() -> None:
     drawn = block_of(section_of(delta))
 
     _, arrow, label, target = drawn.edge("src/billing.py", "src/legacy.py")
-    assert arrow == "-.->" and label == f"{MINUS} legacy"
-    assert drawn.nodes[target] == (f"{MINUS} src/legacy.py", "removed")
+    assert arrow == "-.->" and label == f"{MINUS}legacy"
+    assert drawn.nodes[target] == (f"{MINUS}src/legacy.py", "removed")
     assert "removed" in drawn.classes and "stroke-dasharray" in drawn.text
     # The relationship that did not change is not drawn at all.
     assert len(drawn.edges) == 1
@@ -447,7 +448,7 @@ def test_mermaid_breaking_characters_in_a_path_cannot_leave_their_label(name: st
     assert "<" not in block and ">" not in block.replace("-->", "").replace("==>", "").replace("-.->", "")
     assert "@" not in block and "`" not in block
     assert section.count("```") == 2, "the name did not open or close a fence"
-    assert section.count("<details>") == 1 and section.count("</details>") == 1
+    assert section.count("### Diagram") == 1 and section.count("<!-- /lemoncrow:diagram -->") == 1
     # Hostile text is also neutralised the way the rest of the comment is: no mention, image or link can be made.
     assert "![" not in section and "](" not in section
 
@@ -543,17 +544,17 @@ def a_section() -> str:
 def test_the_diagram_sits_after_the_findings_and_before_the_receipt() -> None:
     section = a_section()
     clean_review, _ = render_summary(summary_view((), section))
-    assert clean_review.index("Change diagram") < clean_review.index("What we checked")
+    assert clean_review.index("### Diagram") < clean_review.index("What we checked")
     # With a finding open it follows the finding rows and the held-back block, and comes before the agent prompt.
     findings = (finding("one", "p1"), finding("two", "p2"))
     body, _ = render_summary(summary_view(findings, section))
-    assert body.index("Finding one") < body.index("held back") < body.index("Change diagram")
-    assert body.index("Change diagram") < body.index("Fix with your agent") < body.index("lemoncrow:state v1")
+    assert body.index("Finding one") < body.index("held back") < body.index("### Diagram")
+    assert body.index("### Diagram") < body.index("Fix with agent prompt") < body.index("lemoncrow:state v1")
 
 
 def test_a_summary_with_no_diagram_is_exactly_what_it_was_before() -> None:
     body, state = render_summary(summary_view((finding("one"),)))
-    assert "Change diagram" not in body and state.diagram == "" and '"diagram"' not in body
+    assert "### Diagram" not in body and state.diagram == "" and '"diagram"' not in body
 
 
 def test_under_the_size_limit_the_diagram_goes_first_and_every_finding_keeps_its_text() -> None:
@@ -585,7 +586,7 @@ def test_under_the_size_limit_the_diagram_goes_first_and_every_finding_keeps_its
     digest = diagram_module.digest_of(section)
     body, state = render_summary(summary_view(padded, section, digest))
     assert len(body) <= MAX_COMMENT
-    assert "Change diagram" not in body, "the diagram is the first thing given up"
+    assert "### Diagram" not in body, "the diagram is the first thing given up"
     assert state.findings == padded, "no finding lost any text for it"
     assert state.diagram == "", "the state does not claim a diagram that is not in the comment"
     parsed = parse_state(body)
@@ -594,14 +595,14 @@ def test_under_the_size_limit_the_diagram_goes_first_and_every_finding_keeps_its
 
     # One finding fewer and the diagram fits beside them all.
     roomy, roomy_state = render_summary(summary_view(padded[:-8], section, digest))
-    assert "Change diagram" in roomy and roomy_state.diagram == digest
+    assert "### Diagram" in roomy and roomy_state.diagram == digest
 
 
 def test_a_comment_that_fits_keeps_its_diagram_and_records_its_digest() -> None:
     section = a_section()
     digest = diagram_module.digest_of(section)
     body, state = render_summary(summary_view((finding("one"),), section, digest))
-    assert "Change diagram" in body and state.diagram == digest
+    assert "### Diagram" in body and state.diagram == digest
     parsed = parse_state(body)
     assert parsed is not None and parsed.diagram == digest
     assert reuse(body, digest) == section, "what the comment holds is exactly what the digest names"
@@ -642,6 +643,8 @@ CALLS_AUTH = (
     "from auth import authorize\n\nCACHE = {}\n\n\ndef remember(key, value):\n"
     "    if authorize(key):\n        CACHE[key] = value\n"
 )
+#: Two more files, so that the change is not trivial: a change of at most two files and twenty lines gets no diagram.
+PAD = {"src/plain.py": "VALUE = 2\n", "NOTES.md": "# notes\n\nMore words.\n"}
 
 
 @pytest.fixture
@@ -663,19 +666,33 @@ def test_a_pull_request_that_adds_a_call_between_modules_gets_a_flowchart_in_its
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, counting: list[str]
 ) -> None:
     world = build_world(tmp_path, monkeypatch, BASE)
-    world.origin.push({"src/cache.py": CALLS_AUTH})
+    world.origin.push({"src/cache.py": CALLS_AUTH, **PAD})
     report = world.review()
 
     assert report.state is not None and report.summary
     drawn = block_of(report.summary)
     source, arrow, label, target = drawn.edge("src/cache.py", "src/auth.py")
-    assert (arrow, label) == ("-->", "+ authorize"), "the added edge, from the delta, with the symbol it carries"
+    assert (arrow, label) == ("-->", "+authorize"), "the added edge, from the delta, with the symbol it carries"
     assert drawn.nodes[source][1] == "changed" and drawn.nodes[target][1] == "context"
-    assert re.fullmatch(r"1:[0-9a-f]{16}", report.state.diagram)
+    assert re.fullmatch(r"2:[0-9a-f]{16}", report.state.diagram)
     assert f'"diagram":"{report.state.diagram}"' in report.summary
     assert world.github.summary_comments()[0]["body"] == report.summary
     assert counting and report.noop is False
     # The review itself is untouched: the model was called exactly as without a diagram.
+    assert report.verdict is not None and report.verdict.state == "clean"
+
+
+def test_a_trivial_change_draws_no_diagram_even_when_it_adds_a_relationship(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One file and a few lines: a picture of two boxes and an arrow is noise, and the section is open by default."""
+
+    world = build_world(tmp_path, monkeypatch, BASE)
+    world.origin.push({"src/cache.py": CALLS_AUTH})
+    report = world.review()
+
+    assert "### Diagram" not in report.summary
+    assert report.state is not None and report.state.diagram == none_state(), "decided, and recorded as nothing to draw"
     assert report.verdict is not None and report.verdict.state == "clean"
 
 
@@ -684,11 +701,11 @@ def test_a_pull_request_that_removes_a_call_between_modules_draws_it_dashed(
 ) -> None:
     base = {**BASE, "src/cache.py": CALLS_AUTH}
     world = build_world(tmp_path, monkeypatch, base)
-    world.origin.push({"src/cache.py": "CACHE = {}\n\n\ndef remember(key, value):\n    CACHE[key] = value\n"})
+    world.origin.push({"src/cache.py": "CACHE = {}\n\n\ndef remember(key, value):\n    CACHE[key] = value\n", **PAD})
     report = world.review()
 
     drawn = block_of(report.summary)
-    assert drawn.edge("src/cache.py", "src/auth.py")[1:3] == ("-.->", f"{MINUS} authorize")
+    assert drawn.edge("src/cache.py", "src/auth.py")[1:3] == ("-.->", f"{MINUS}authorize")
 
 
 def test_a_pull_request_that_only_edits_a_body_gets_no_diagram_and_says_so_in_its_state(
@@ -699,7 +716,7 @@ def test_a_pull_request_that_only_edits_a_body_gets_no_diagram_and_says_so_in_it
     report = world.review()
 
     assert report.state is not None
-    assert "Change diagram" not in report.summary and "mermaid" not in report.summary
+    assert "### Diagram" not in report.summary and "mermaid" not in report.summary
     assert report.state.diagram == none_state()
     assert counting, "the delta was read, and found nothing worth drawing"
 
@@ -717,25 +734,25 @@ def test_a_pull_request_that_changes_no_code_does_not_pay_for_the_delta(
     report = world.review()
 
     assert report.state is not None and report.state.diagram == none_state()
-    assert seen == [] and "Change diagram" not in report.summary
+    assert seen == [] and "### Diagram" not in report.summary
 
 
 def test_diagram_off_builds_nothing_and_leaves_no_trace(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, counting: list[str]
 ) -> None:
     world = build_world(tmp_path, monkeypatch, BASE)
-    world.origin.push({"src/cache.py": CALLS_AUTH})
+    world.origin.push({"src/cache.py": CALLS_AUTH, **PAD})
     report = world.review(diagram="off")
 
     assert counting == [], "no delta is computed when the diagram is off"
     assert report.state is not None and report.state.diagram == ""
-    assert "Change diagram" not in report.summary and '"diagram"' not in report.summary
+    assert "### Diagram" not in report.summary and '"diagram"' not in report.summary
     assert not report.notes
 
 
 def test_an_unknown_diagram_mode_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     world = build_world(tmp_path, monkeypatch, BASE)
-    world.origin.push({"src/cache.py": CALLS_AUTH})
+    world.origin.push({"src/cache.py": CALLS_AUTH, **PAD})
     with pytest.raises(PrReviewError, match="diagram must be one of auto, off"):
         world.review(diagram="always")
 
@@ -744,9 +761,17 @@ def test_a_re_run_on_an_unchanged_head_reuses_the_drawing_and_does_not_touch_the
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, counting: list[str]
 ) -> None:
     world = build_world(tmp_path, monkeypatch, BASE)
-    world.origin.push({"src/cache.py": CALLS_AUTH})
+    world.origin.push({"src/cache.py": CALLS_AUTH, **PAD})
     first = world.review()
-    writes = [call for call in world.github.calls if call[0] in {"POST", "PATCH"} and "/issues/" in call[1]]
+
+    def comment_writes() -> list[tuple[str, str]]:
+        return [
+            call
+            for call in world.github.calls
+            if call[0] in {"POST", "PATCH"} and "/issues/" in call[1] and not call[1].endswith("/reactions")
+        ]
+
+    writes = comment_writes()
     body = world.github.summary_comments()[0]["body"]
     assert len(counting) == 1
 
@@ -754,7 +779,7 @@ def test_a_re_run_on_an_unchanged_head_reuses_the_drawing_and_does_not_touch_the
     assert second.noop is True, "nothing changed, nothing is written"
     assert len(counting) == 1, "the unchanged head is not parsed again"
     assert world.github.summary_comments()[0]["body"] == body
-    assert [call for call in world.github.calls if call[0] in {"POST", "PATCH"} and "/issues/" in call[1]] == writes
+    assert comment_writes() == writes
     assert second.state is not None and first.state is not None and second.state.diagram == first.state.diagram
 
 
@@ -762,14 +787,14 @@ def test_a_comment_that_no_longer_holds_the_recorded_drawing_is_drawn_again_to_t
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, counting: list[str]
 ) -> None:
     world = build_world(tmp_path, monkeypatch, BASE)
-    world.origin.push({"src/cache.py": CALLS_AUTH})
+    world.origin.push({"src/cache.py": CALLS_AUTH, **PAD})
     first = world.review()
     assert first.state is not None and diagram_module.reuse(first.summary, first.state.diagram)
 
     # Same head, but the comment was changed by hand, so what it holds is not what the state recorded: the delta is
     # read again, and it is deterministic, so the drawing and its digest come out the same.
     comment = world.github.summary_comments()[0]
-    comment["body"] = comment["body"].replace("Change diagram", "Changed by hand")
+    comment["body"] = comment["body"].replace("### Diagram", "Changed by hand")
     second = world.review()
     assert len(counting) == 2, "the drawing was not trusted blindly"
     assert second.state is not None and second.state.diagram == first.state.diagram
@@ -782,13 +807,13 @@ def test_turning_the_diagram_off_on_an_unchanged_head_rewrites_the_comment_once_
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, counting: list[str]
 ) -> None:
     world = build_world(tmp_path, monkeypatch, BASE)
-    world.origin.push({"src/cache.py": CALLS_AUTH})
+    world.origin.push({"src/cache.py": CALLS_AUTH, **PAD})
     first = world.review()
     assert first.state is not None and first.state.diagram
 
     off = world.review(diagram="off")
     assert off.state is not None and off.state.diagram == "" and off.noop is False
-    assert "Change diagram" not in world.github.summary_comments()[0]["body"]
+    assert "### Diagram" not in world.github.summary_comments()[0]["body"]
     # It was not another review: the count and the cost of the last one stand.
     assert off.state.reviews == first.state.reviews and off.state.usage == first.state.usage
     again = world.review(diagram="off")
@@ -799,7 +824,7 @@ def test_a_new_push_draws_the_new_head_and_a_budget_stop_keeps_the_drawing_it_ha
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, counting: list[str]
 ) -> None:
     world = build_world(tmp_path, monkeypatch, BASE)
-    world.origin.push({"src/cache.py": CALLS_AUTH})
+    world.origin.push({"src/cache.py": CALLS_AUTH, **PAD})
     first = world.review(max_runs_per_pr=1)
     assert first.state is not None and first.state.diagram
 
@@ -807,7 +832,7 @@ def test_a_new_push_draws_the_new_head_and_a_budget_stop_keeps_the_drawing_it_ha
     stopped = world.review(max_runs_per_pr=1)
     assert stopped.verdict is not None and stopped.verdict.state == "budget"
     assert stopped.state is not None and stopped.state.diagram == first.state.diagram
-    assert "Change diagram" in stopped.summary and len(counting) == 1, "nothing was recomputed"
+    assert "### Diagram" in stopped.summary and len(counting) == 1, "nothing was recomputed"
 
     resumed = world.review()
     assert resumed.state is not None and len(counting) == 2
@@ -817,12 +842,12 @@ def test_a_repository_over_the_file_limit_gets_no_diagram_and_a_note_not_a_failu
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     world = build_world(tmp_path, monkeypatch, BASE)
-    world.origin.push({"src/cache.py": CALLS_AUTH})
+    world.origin.push({"src/cache.py": CALLS_AUTH, **PAD})
     monkeypatch.setenv(diagram_module.MAX_FILES_ENV, "2")
     report = world.review()
 
     assert report.verdict is not None and report.verdict.state == "clean"
-    assert "Change diagram" not in report.summary and report.state is not None and report.state.diagram == ""
+    assert "### Diagram" not in report.summary and report.state is not None and report.state.diagram == ""
     assert any("over the 2-file limit" in note and diagram_module.MAX_FILES_ENV in note for note in report.notes)
     assert diagram_module.max_source_files({}) == DEFAULT_MAX_SOURCE_FILES
     assert diagram_module.max_source_files({diagram_module.MAX_FILES_ENV: "12"}) == 12
@@ -844,7 +869,7 @@ def test_a_failure_while_reading_the_delta_never_fails_the_review(
     report = world.review()
 
     assert report.verdict is not None and report.state is not None and report.state.complete
-    assert "Change diagram" not in report.summary and report.state.diagram == ""
+    assert "### Diagram" not in report.summary and report.state.diagram == ""
     (note,) = [note for note in report.notes if "change diagram" in note]
     assert "RuntimeError" in note and "private" not in note, "the type, never the message, reaches the log"
 
@@ -854,11 +879,13 @@ def test_a_finding_title_a_model_wrote_cannot_reach_the_diagram(
 ) -> None:
     title = "Break out </details> @octocat ![x](http://evil.example) flowchart"
     world = build_world(tmp_path, monkeypatch, BASE)
-    world.origin.push({"src/cache.py": CALLS_AUTH.replace("CACHE[key] = value", f"CACHE[key] = value  # BUG: {title}")})
+    world.origin.push(
+        {"src/cache.py": CALLS_AUTH.replace("CACHE[key] = value", f"CACHE[key] = value  # BUG: {title}"), **PAD}
+    )
     report = world.review()
 
     assert any("octocat" in finding.title for finding in report.findings), "the model's finding is in the comment"
-    (section,) = re.findall(r"<details><summary>Change diagram</summary>.*?</details>", report.summary, re.DOTALL)
+    (section,) = re.findall(r"### Diagram\n.*?<!-- /lemoncrow:diagram -->", report.summary, re.DOTALL)
     block_of(section)
     for word in ("octocat", "evil.example", "Break out", "![", "](", "</details> @"):
         assert word not in section
@@ -881,7 +908,9 @@ def test_an_ignore_command_that_rewrites_the_summary_keeps_the_same_drawing_and_
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, counting: list[str]
 ) -> None:
     world = build_world(tmp_path, monkeypatch, BASE)
-    world.origin.push({"src/cache.py": CALLS_AUTH.replace("CACHE[key] = value", "CACHE[key] = value  # BUG: leaks")})
+    world.origin.push(
+        {"src/cache.py": CALLS_AUTH.replace("CACHE[key] = value", "CACHE[key] = value  # BUG: leaks"), **PAD}
+    )
     first = world.review()
     assert first.state is not None and first.state.open_findings() and len(counting) == 1
     section = diagram_module.reuse(first.summary, first.state.diagram)
@@ -894,3 +923,52 @@ def test_an_ignore_command_that_rewrites_the_summary_keeps_the_same_drawing_and_
     assert "dismissed by feedback" in body, "the summary was rewritten"
     assert diagram_module.reuse(body, first.state.diagram) == section, "and it still holds the same drawing"
     assert len(counting) == 1, "an instruction on the same head is not another parse"
+
+
+# --------------------------------------------------------------------------- #
+# Mermaid reads a label as Markdown
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    ("name", "drawn"),
+    [
+        ("src/__init__.py", "src/#95;#95;init#95;#95;.py"),
+        ("_private", "#95;private"),
+        ("trailing_", "trailing#95;"),
+        ("snake_case_name", "snake_case_name"),
+        ("src/a_b.py", "src/a_b.py"),
+    ],
+)
+def test_an_underscore_at_the_edge_of_a_word_is_an_entity_so_a_file_is_never_drawn_as_a_different_name(
+    name: str, drawn: str
+) -> None:
+    """Mermaid 11 draws ``__init__.py`` as a bold "init.py": the label goes through Markdown before it is drawn."""
+
+    assert diagram_module._esc(name) == drawn
+
+
+@pytest.mark.parametrize(
+    ("label", "drawn"),
+    [
+        ("- removes the retry", "#45; removes the retry"),
+        ("+ adds a check", "#43; adds a check"),
+        ("1. first", "#49;. first"),
+        ("12) twelfth", "#49;2#41; twelfth"),
+        ("1.5 is a version", "1.5 is a version"),
+        ("a - b", "a - b"),
+        ("-x", "-x"),
+    ],
+)
+def test_a_label_that_starts_like_a_list_item_does_not_become_one(label: str, drawn: str) -> None:
+    """Mermaid 11 draws "Unsupported markdown: list" in place of a label that starts with ``- ``, ``+ `` or ``1. ``."""
+
+    assert diagram_module._esc(label) == drawn
+
+
+def test_a_changed_file_named_like_markdown_is_drawn_with_its_real_name() -> None:
+    delta = delta_of(after=[("src/__init__.py", "src/_core.py")], modified=("src/__init__.py",))
+    section = section_of(delta)
+    block_of(section)  # the block is still made only of lines the diagram may emit
+    assert "__init__" not in section and "src/#95;#95;init#95;#95;.py" in section
+    assert '"+#95;core"' in section, "the sign goes against the name, so it is not a list item"

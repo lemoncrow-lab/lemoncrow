@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import urllib.error
@@ -30,9 +31,11 @@ from lemoncrow.pro.capabilities.review.pr_bot.render import (
     Receipt,
     RunFacts,
     SummaryView,
+    badge,
     check_status,
     clean,
     code,
+    fixed_badge,
     inline_comment,
     render_summary,
     usage_text,
@@ -464,7 +467,9 @@ def test_the_verdict_and_the_check_status_come_from_one_rule(
     assert status == expected
     assert description.startswith(headline) and len(description) <= 140
     body, _ = render_summary(view(tuple(findings), facts=RunFacts(True, 1, 1, 0, 0, 0, 0, complete=complete)))
-    assert body.split("\n", 2)[1].startswith(f"**{result.headline}**")
+    assert any(line.startswith(f"**{result.headline}**") for line in body.split("\n"))
+    # The score shown is read off the same verdict as the headline and the status.
+    assert f"<h2>Confidence Score: {result.confidence}/5</h2>" in body
 
 
 @pytest.mark.parametrize("fail_on", ["none", "p0"])
@@ -484,7 +489,8 @@ def test_a_review_that_left_risk_signals_unexamined_says_partially_reviewed(fail
             receipt=Receipt(("src/a.py",), targets=1, candidates=3, investigated=2, rules=()),
         )
     )
-    assert body.split("\n")[1] == f"**{result.headline}**" and "No must-fix findings" not in body
+    assert f"**{result.headline}**" in body.split("\n") and "No must-fix findings" not in body
+    assert "<h2>Confidence Score: 4/5</h2>" in body, "a partial review is at most 4"
 
 
 def test_a_p0_and_an_incomplete_review_outrank_a_partial_one() -> None:
@@ -513,10 +519,13 @@ def test_the_summary_is_marked_sorted_and_carries_its_state() -> None:
     body, state = render_summary(view(findings))
     lines = body.split("\n")
     assert lines[0] == state_module.SUMMARY_MARKER
-    assert lines[1] == "**1 must-fix before merge** · 2 should-fix"
-    order = [line for line in lines if line.startswith("- **P")]
-    assert [line.split("**")[1] for line in order] == ["P0", "P1", "P1"]
-    assert order[0].startswith("- **P0** [The P0](https://github.com/acme/widgets/pull/7#discussion_r1)")
+    assert "**1 must-fix before merge** · 2 should-fix" in lines
+    order = [line for line in lines if re.match(r"^\d+\. <img", line)]
+    assert [re.search(r'alt="(P\d)"', line)[1] for line in order] == ["P0", "P1", "P1"]  # type: ignore[index]
+    assert order[0].startswith(
+        f"1. {badge('p0')} **[The P0](https://github.com/acme/widgets/pull/7#discussion_r1)**"
+    ), "numbered, the badge, then the bold title linking to its thread"
+    assert order[1].startswith("2. ") and order[2].startswith("3. ")
     assert "Earlier P1" in order[1] and "Later P1" in order[2]
     assert parse_state(body) == state and {row.id for row in state.findings} == {"a", "b", "c"}
     assert "What we checked" not in body
@@ -529,17 +538,17 @@ def test_p2_findings_are_held_back_in_a_collapsed_block() -> None:
     many, _ = render_summary(view((finding("a", "p2"), finding("b", "p2"), finding("c", "p1"))))
     assert "<details><summary>2 low-priority findings held back</summary>" in many
     shown = many.split("<details>")[0]
-    assert "**P1**" in shown and "**P2**" not in shown
+    assert badge("p1") in shown and badge("p2") not in shown
 
 
 def test_a_clean_review_carries_a_what_we_checked_receipt() -> None:
     body, _ = render_summary(view(()))
     assert "**No must-fix findings**" in body
-    assert "<details><summary>What we checked</summary>" in body
+    assert "### What we checked" in body
     assert "Files: 2 files (`src/a.py`, `src/b.py`)" in body
     assert "Targets in this change: 4; risk signals: 3; investigated by the model: 2 (the depth limit)" in body
     assert "Rules applied: `api-auth`" in body and "Depth: Auto" in body
-    assert "Fix with your agent" not in body
+    assert "Fix with agent prompt" not in body
 
 
 def test_the_status_strip_counts_new_carried_and_fixed() -> None:
@@ -548,7 +557,7 @@ def test_the_status_strip_counts_new_carried_and_fixed() -> None:
     again = view((finding("a", state="carried"),), facts=RunFacts(False, 12, 1, 0, 1, 2, 0))
     body, _ = render_summary(again)
     assert "<sub>Re-reviewed 12 changed lines · 0 new · 1 carried forward · 2 fixed since last review</sub>" in body
-    assert "**P1**" in body and "carried forward" in body
+    assert badge("p1") in body and "carried forward" in body
     single = view((), facts=RunFacts(False, 1, 1, 0, 0, 0, 0, complete=False))
     assert "Re-reviewed 1 changed line ·" in render_summary(single)[0] and "incomplete" in render_summary(single)[0]
 
@@ -556,7 +565,7 @@ def test_the_status_strip_counts_new_carried_and_fixed() -> None:
 def test_fixed_findings_are_listed_once_with_the_commit_that_fixed_them() -> None:
     body, _ = render_summary(view((finding("a", state="fixed", resolved_in="abcdef0"),)))
     assert "<details><summary>1 finding fixed since last review</summary>" in body
-    assert "~~Missing principal accepted~~" in body and "fixed in abcdef0" in body
+    assert f"{fixed_badge()} ~~Missing principal accepted~~" in body and "fixed in abcdef0" in body
     assert "What we checked" in body  # nothing is open
 
 
@@ -564,7 +573,7 @@ def test_fix_with_your_agent_lists_every_open_finding_with_file_and_line() -> No
     body, _ = render_summary(
         view((finding("a", "p0", line=3, end_line=3), finding("b", "p2", path="src/b.py", line=9, end_line=9)))
     )
-    assert "<details><summary>Fix with your agent</summary>" in body
+    assert "<details><summary>Fix with agent prompt</summary>" in body
     prompt = body.split("```text\n")[1].split("\n```")[0]
     assert "pull request #7 (acme/widgets) at commit aaaaaaa" in prompt
     assert "1. [P0] src/auth.py:3 - Missing principal accepted" in prompt
@@ -579,7 +588,7 @@ def test_the_footer_shows_cost_only_when_a_price_is_known() -> None:
     assert usage_text(Usage(2, None, None, None)) == "2 model calls, tokens not reported"
     assert usage_text(Usage(0, 0, 0, 0.0)) == "no model calls"
     body, _ = render_summary(view((), state=review_state(usage=Usage(2, 1000, 200, None))))
-    assert "this review: 2 model calls, 1.2k tokens · reviewed" in body and "est." not in body
+    assert "this review: 2 model calls, 1.2k tokens</sub>" in body and "est." not in body
     totals, _ = render_summary(
         view((), state=review_state(reviews=3, usage_total=Usage(7, 5000, 900, 0.02), usage=Usage(2, 1000, 200, 0.004)))
     )
@@ -601,7 +610,12 @@ def test_model_text_cannot_forge_markers_mentions_images_or_block_tags() -> None
     for text, rendered in ((body, strip_state(body)), (comment, comment)):
         assert text.count("<!-- lemoncrow:summary v1 -->") <= 1
         assert "@everyone" not in text and "![x]" not in rendered
-        assert "<img" not in rendered and "<a href" not in rendered
+        ours = re.sub(
+            r'<img alt="(?:P[012]|Fixed)" src="https://lemoncrow\.com/badges/[a-z0-9]+\.svg\?v=\d+" align="top">',
+            "",
+            rendered,
+        )
+        assert "<img" not in ours and "<a href" not in rendered
         assert "</details><summary>" not in rendered
     assert body.count("<!-- lemoncrow:state v1") == 1
     parsed = parse_state(body)
@@ -627,12 +641,14 @@ def test_markdown_link_syntax_in_model_text_is_broken() -> None:
 
 def test_an_inline_comment_has_a_badge_a_reason_a_consequence_and_a_marker() -> None:
     text = inline_comment(finding("abc", "p1"))
-    assert text.split("\n")[0] == "**P1 · should fix** — Missing principal accepted"
+    assert text.split("\n")[0] == f"{badge('p1')} **Missing principal accepted**"
     assert "The changed branch reaches the privileged return" in text
     assert "**Consequence:** An unauthenticated request" in text
     assert text.endswith("<!-- lemoncrow:finding abc -->") and "suggestion" not in text
-    assert inline_comment(finding("abc", "p0")).startswith("**P0 · must fix**")
-    assert inline_comment(finding("abc", "p2")).startswith("**P2 · optional**")
+    assert inline_comment(finding("abc", "p0")).startswith(f"{badge('p0')} **")
+    assert inline_comment(finding("abc", "p2")).startswith(f"{badge('p2')} **")
+    assert "<sub>Should fix (P1) · LemonCrow AI review</sub>" in text
+    assert "<sub>Must fix (P0) · LemonCrow AI review</sub>" in inline_comment(finding("abc", "p0"))
 
 
 def test_a_suggestion_block_appears_only_when_the_finding_has_a_checked_replacement() -> None:

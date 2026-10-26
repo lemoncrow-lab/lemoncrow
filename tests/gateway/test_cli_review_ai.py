@@ -94,7 +94,14 @@ def test_json_output_is_the_machine_readable_result(ci: Any, monkeypatch: pytest
     wire = json.loads(result.stdout)
     assert wire["schema"] == 1 and wire["dry_run"] is True and wire["skipped"] is False
     assert wire["pull_request"] == f"{SLUG}#{NUMBER}" and wire["head_sha"] == ci[0].head
-    assert wire["verdict"] == {"state": "clean", "headline": "No must-fix findings", "p0": 0, "p1": 1, "p2": 0}
+    assert wire["verdict"] == {
+        "state": "clean",
+        "headline": "No must-fix findings",
+        "p0": 0,
+        "p1": 1,
+        "p2": 0,
+        "confidence": 3,
+    }
     assert wire["status"] == {"state": "success", "description": "No must-fix findings; 1 should-fix"}
     (finding,) = wire["findings"]
     assert finding["severity"] == "p1" and finding["state"] == "new" and finding["path"] == "src/auth.py"

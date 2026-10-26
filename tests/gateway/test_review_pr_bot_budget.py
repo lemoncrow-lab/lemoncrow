@@ -63,7 +63,7 @@ def test_after_the_allowed_reviews_a_push_is_not_reviewed_and_the_summary_says_s
     assert report.verdict.headline == headline
     assert report.status == ("success", f"{headline}; this push was not reviewed")
     body = summary(world)
-    assert body.split("\n")[1].startswith(f"**{headline}**")
+    assert any(line.startswith(f"**{headline}**") for line in body.split("\n"))
     assert "This push was not reviewed" in body and "max-runs-per-pr" in body
     # The status is on the new head, the findings of the last review stand, nothing new is posted or replied to.
     last = world.github.last_status()
@@ -184,7 +184,7 @@ def test_an_open_p0_from_the_last_review_still_fails_the_check_when_the_budget_i
     assert report.verdict is not None and report.verdict.state == "must_fix"
     assert report.status == ("failure", "1 must-fix before merge")
     # The headline is the P0, which is still open; the strip under it says why nothing newer was looked at.
-    assert summary(world).split("\n")[1].startswith("**1 must-fix before merge**")
+    assert any(line.startswith("**1 must-fix before merge**") for line in summary(world).split("\n"))
     assert "This push was not reviewed" in summary(world)
 
 

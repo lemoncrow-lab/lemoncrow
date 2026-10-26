@@ -400,9 +400,22 @@ def summary(world: World) -> str:
     return str(world.github.summary_comments()[0]["body"])
 
 
+LABEL = re.compile(r"\*\*\[((?:Low|Medium|High) impact)\]\*\*")
+FROM_THE_CHANGE = " · from the change itself, not a model"
+
+
 def impact_line(world: World) -> str:
-    (line,) = [row for row in summary(world).split("\n") if re.match(r"\*\*(Low|Medium|High) impact\*\*", row)]
-    return line
+    """The impact as the summary says it, in two lines (``**[Low impact]** <sentence>`` and, under it, the reasons), read
+    back as ``**Low impact** · <reasons> <sub>(from the change itself, not a model)</sub>``."""
+
+    lines = summary(world).split("\n")
+    (index,) = [i for i, row in enumerate(lines) if LABEL.match(row)]
+    label = LABEL.match(lines[index])
+    assert label is not None
+    reasons = lines[index + 1]
+    assert reasons.startswith("<sub>") and reasons.endswith(FROM_THE_CHANGE + "</sub>"), reasons
+    inner = reasons.removeprefix("<sub>").removesuffix(FROM_THE_CHANGE + "</sub>")
+    return f"**{label[1]}** · {inner} <sub>(from the change itself, not a model)</sub>"
 
 
 def risks_block(world: World) -> list[str]:
@@ -418,8 +431,12 @@ def test_a_plain_change_is_low_impact_and_the_summary_says_how_it_knows(world: W
         impact_line(world)
         == "**Low impact** · 1 file, 2 changed lines <sub>(from the change itself, not a model)</sub>"
     )
-    assert summary(world).split("\n")[1].startswith("**No must-fix findings**"), "the verdict stays the first line"
-    assert summary(world).split("\n")[3] == impact_line(world)
+    lines = summary(world).split("\n")
+    assert lines[3] == "<h2>Confidence Score: 5/5</h2>" and lines[5] == "---", "the score and a rule come first"
+    assert (
+        lines[7] == "**[Low impact]** Widgets"
+    ), "the impact label, then one sentence (the title when no overview was made)"
+    assert lines[10].startswith("**No must-fix findings**"), "then the verdict"
     assert report.to_wire()["impact"] == {
         "level": "low",
         "label": "Low impact",
@@ -538,7 +555,7 @@ def test_a_clean_review_keeps_its_receipt_and_adds_the_named_list(world: World) 
     world.origin.push({"src/auth.py": "def authorize(user):\n    return bool(user) and user.is_admin\n"})
     world.review()
     body = summary(world)
-    assert "<summary>What we checked</summary>" in body and "<summary>Risks examined: 1 of 1</summary>" in body
+    assert "### What we checked" in body and "<summary>Risks examined: 1 of 1</summary>" in body
     assert "- **Examined, nothing found** — `src/auth.py:" in body
 
 
@@ -574,7 +591,7 @@ def test_a_summary_written_before_the_label_existed_is_rewritten_once_on_a_rerun
     (row,) = world.github.summary_comments()
     state = parse_state(str(row["body"]))
     assert state is not None
-    old = re.sub(r"\n\*\*\w+ impact\*\*[^\n]*\n", "\n", str(row["body"]))
+    old = re.sub(r"\n\*\*\[\w+ impact\]\*\*[^\n]*\n<sub>[^\n]*</sub>\n", "\n", str(row["body"]))
     row["body"] = with_state(old, replace(state, impact=""))
     assert "impact" not in str(row["body"]).split("<!-- lemoncrow:state")[0]
 
@@ -600,7 +617,7 @@ def test_the_guide_states_the_impact_rule_and_the_risks_list() -> None:
     guide = (Path(__file__).resolve().parents[2] / "docs" / "setup" / "github-action.md").read_text(encoding="utf-8")
     for phrase in (
         "### Impact and the risks examined",
-        "**High impact**, **Medium impact** or **Low impact**",
+        "**[High impact]**, **[Medium impact]** or **[Low impact]**",
         "from the change itself, not a model",
         "| a path your policy marks `critical` or `high`",
         "High is 4 points or more, Medium 2 or 3, Low 0 or 1",
@@ -640,7 +657,7 @@ def test_a_risk_whose_only_finding_is_held_back_does_not_read_as_a_plain_found(
     assert any(row.startswith("- **Found** — `src/cache.py:") for row in risks_block(plain))
 
     # At strictness 3 the verdict counts nothing and says one is held back; the list says the same, not "Found".
-    assert summary(strict).split("\n")[1] == "**No must-fix findings** · 1 held back"
+    assert "**No must-fix findings** · 1 held back" in summary(strict).split("\n")
     block = risks_block(strict)
     assert block[0] == "<details><summary>Risks examined: 1 of 1 · 1 found (held back)</summary>"
     (row,) = [row for row in block if row.startswith("- **")]
@@ -656,7 +673,7 @@ def test_a_held_back_risk_is_listed_after_the_one_the_verdict_counts(
     world = build_world(tmp_path, monkeypatch, {**BASE, CONFIG: review_yaml(strictness=3)})
     world.origin.push(FIRST_PUSH)  # auth: a P1; cache: a P2, held back at strictness 3
     world.review()
-    assert summary(world).split("\n")[1] == "**No must-fix findings** · 1 should-fix · 1 held back"
+    assert "**No must-fix findings** · 1 should-fix · 1 held back" in summary(world).split("\n")
     block = risks_block(world)
     assert block[0] == "<details><summary>Risks examined: 2 of 2 · 1 found · 1 found (held back)</summary>"
     rows = [row for row in block if row.startswith("- **")]

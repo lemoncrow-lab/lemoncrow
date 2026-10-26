@@ -7,8 +7,6 @@ it reused, and what the thread and the summary say. They do not check that a mod
 
 from __future__ import annotations
 
-import json
-import re
 from pathlib import Path
 from typing import Any
 
@@ -23,8 +21,6 @@ from tests.gateway.pr_bot_support import (
     BOT,
     FIRST_PUSH,
     NUMBER,
-    SLUG,
-    FakeGitHub,
     World,
     build_world,
 )
@@ -32,37 +28,15 @@ from tests.gateway.pr_bot_support import (
 AUTH_TITLE = "lets a missing principal through"
 
 
-class ReactiveGitHub(FakeGitHub):
-    """The shared fake plus the one write it does not know: a reaction on a comment (``reactions`` here is its own list)."""
-
-    def __init__(self, origin: Any) -> None:
-        super().__init__(origin)
-        self.bot_reactions: list[tuple[str, int, str]] = []
-        """``(endpoint kind, comment id, content)`` for every reaction the bot put on a comment."""
-        self.deny_reactions = False
-
-    def _write(self, method: str, path: str, body: dict[str, Any]) -> str:
-        found = re.fullmatch(rf"repos/{SLUG}/(issues|pulls)/comments/(\d+)/reactions", path)
-        if method == "POST" and found is not None:
-            if self.deny_reactions:
-                from lemoncrow.pro.capabilities.review.sources.github import GitHubCliError
-
-                raise GitHubCliError("Resource not accessible by integration (HTTP 403)")
-            self.bot_reactions.append((found[1], int(found[2]), body["content"]))
-            return json.dumps({"id": 1, "content": body["content"], "user": BOT})
-        return super()._write(method, path, body)
-
-
 @pytest.fixture
 def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> World:
-    made = build_world(tmp_path, monkeypatch, BASE)
-    made.github = ReactiveGitHub(made.origin)
-    return made
+    return build_world(tmp_path, monkeypatch, BASE)
 
 
-def github(world: World) -> ReactiveGitHub:
-    assert isinstance(world.github, ReactiveGitHub)
-    return world.github
+def on_comments(world: World) -> list[tuple[str, str, int, str]]:
+    """The reaction calls the bot made on comments: everything but what it did on the pull request itself."""
+
+    return [row for row in world.github.reaction_log if row[2] != NUMBER]
 
 
 def summary_body(world: World) -> str:
@@ -170,8 +144,14 @@ def test_review_deep_runs_the_whole_review_at_deep_acknowledges_at_once_and_upda
     assert "· Deep ·" in summary_body(world), "the summary footer says what depth reviewed it"
     # Acknowledged on the person's comment before the review ran, and the reply is in the conversation.
     comment = world.github.issue_comments[-2]  # the person's comment; the bot's reply is the last
-    assert github(world).bot_reactions == [("issues", comment["id"], "eyes")]
-    assert report.published["acknowledged"] == "eyes"
+    # Eyes went on at once and came off when the review was done; a thumbs up is what stays.
+    assert on_comments(world) == [
+        ("add", "issues", comment["id"], "eyes"),
+        ("add", "issues", comment["id"], "+1"),
+        ("remove", "issues", comment["id"], "eyes"),
+    ]
+    assert world.github.bot_reactions("issues", comment["id"]) == ["+1"]
+    assert report.published["acknowledged"] == "thumbs up"
     text = answer(world)
     assert text.startswith(f"Reviewed `{world.origin.head[:7]}` at **Deep**: ")
     assert "[Summary](" in text and "2 reviews so far" in text
@@ -228,9 +208,10 @@ def test_a_review_asked_from_a_finding_thread_is_answered_in_that_thread(world: 
     reply = world.github.chat_replies()[-1]
     assert reply["in_reply_to_id"] == thread and reply["user"] == BOT
     comment = world.github.review_comments[-2]
-    assert github(world).bot_reactions == [
-        ("pulls", comment["id"], "eyes")
+    assert world.github.bot_reactions("pulls", comment["id"]) == [
+        "+1"
     ], "a review comment is reacted to on its own endpoint"
+    assert world.github.bot_reactions("issues", comment["id"]) == []
 
 
 # --------------------------------------------------------------------------- #
@@ -296,7 +277,7 @@ def test_a_stranger_is_ignored_entirely(world: World) -> None:
     before = summary_body(world)
     report = world.chat("@lemoncrow review deep", author="mallory")  # no association: NONE
     assert report.skipped and "not allowed" in report.reason
-    assert world.github.chat_replies() == [] and github(world).bot_reactions == []
+    assert world.github.chat_replies() == [] and on_comments(world) == []
     assert world.model.calls == [] and summary_body(world) == before
 
 
@@ -323,7 +304,7 @@ def test_a_spent_budget_refuses_the_command_in_the_thread_and_calls_no_model(wor
     assert report.published["chat"]["kind"] == "budget" and world.model.calls == []
     text = answer(world)
     assert "Review budget reached: 1 review used of 1 allowed" in text and "no model was called" in text
-    assert github(world).bot_reactions == [], "a refusal is not acknowledged as work"
+    assert on_comments(world) == [], "a refusal is not acknowledged as work"
     assert state_of(world).reviews == 1 and summary_body(world) == before
 
 
@@ -360,7 +341,7 @@ def test_a_review_comment_from_a_fork_never_runs(world: World) -> None:
     (thread,) = [row["id"] for row in world.github.inline() if row["path"] == "src/auth.py"]
     report = world.chat("@lemoncrow review deep", thread=thread, fork=True)
     assert report.skipped and "fork" in report.reason
-    assert world.github.chat_replies() == [] and world.model.calls == [] and github(world).bot_reactions == []
+    assert world.github.chat_replies() == [] and world.model.calls == [] and on_comments(world) == []
 
 
 def test_a_forks_code_is_not_reviewed_on_a_route_that_runs_tools(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -369,7 +350,7 @@ def test_a_forks_code_is_not_reviewed_on_a_route_that_runs_tools(world: World, m
     monkeypatch.setenv("LEMONCROW_LLM_BACKEND", "claude")
     report = world.chat("@lemoncrow review deep")
     assert report.published["chat"]["kind"] == "refused" and world.model.calls == []
-    assert "fork" in answer(world) and "agent CLI" in answer(world) and github(world).bot_reactions == []
+    assert "fork" in answer(world) and "agent CLI" in answer(world) and on_comments(world) == []
 
 
 # --------------------------------------------------------------------------- #
@@ -382,16 +363,28 @@ def test_a_dry_run_reacts_to_nothing_and_posts_nothing(world: World) -> None:
     before = summary_body(world)
     report = world.chat("@lemoncrow review deep", dry_run=True)
     assert report.published["dry_run"] is True and report.published["chat"]["kind"] == "review"
-    assert github(world).bot_reactions == [] and world.github.chat_replies() == []
+    assert on_comments(world) == [] and world.github.chat_replies() == []
     assert summary_body(world) == before and "Reviewed" in report.inline_bodies[0]
 
 
 def test_a_reaction_that_cannot_be_made_does_not_stop_the_review(world: World) -> None:
     reviewed(world)
-    github(world).deny_reactions = True
+    world.github.deny_reactions = {
+        "issues"
+    }  # the sample token: `pull-requests: write` cannot react on a conversation comment
     report = world.chat("@lemoncrow review deep")
     assert report.published["chat"]["kind"] == "review" and state_of(world).depth == "deep"
-    assert any("could not react to the comment" in note for note in report.notes)
+    assert report.published["acknowledged"] == "not permitted"
+    assert not any("react" in note for note in report.notes), "a refusal of the permission is not a line in the job log"
+    assert world.github.last_status()["state"] == "success"
+
+
+def test_a_reaction_that_fails_for_another_reason_is_a_note_and_still_not_a_failure(world: World) -> None:
+    reviewed(world)
+    world.github.break_reactions = True
+    report = world.chat("@lemoncrow review deep")
+    assert report.published["chat"]["kind"] == "review" and state_of(world).depth == "deep"
+    assert any("could not react" in note for note in report.notes)
 
 
 def test_the_same_comment_starts_one_review_not_two(world: World) -> None:

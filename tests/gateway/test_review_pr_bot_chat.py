@@ -457,7 +457,7 @@ def test_recheck_closes_a_finding_the_push_review_could_not_check(world: World) 
 
     assert report.published["chat"]["result"] == "fixed" and world.model.paths() == ["src/auth.py"]
     bodies = [row["body"] for row in world.github.bot_replies()]
-    assert any(body.startswith("Fixed in ") for body in bodies), "the usual reply on a fixed finding's thread"
+    assert any("Fixed in " in body for body in bodies), "the usual reply on a fixed finding's thread"
     assert any("Marked fixed" in body for body in bodies)
     assert world.github.threads[thread]["resolved"] is True
     assert not [f for f in summary_state(world).findings if f.is_open and f.title == TITLE]

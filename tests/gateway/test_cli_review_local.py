@@ -210,6 +210,7 @@ def test_the_severity_is_the_one_the_pull_request_bot_stores(ruled: Lab) -> None
         "p0": 1,
         "p1": 1,
         "p2": 1,
+        "confidence": 1,
     }
 
 
@@ -259,6 +260,7 @@ def test_a_p2_under_strictness_3_never_counts_toward_fail_on_and_is_in_the_json(
         "p0": 0,
         "p1": 0,
         "p2": 0,
+        "confidence": 5,
         "held_back": 1,
     }
     assert [(row["severity"], row["title"], row["state"]) for row in wire["held_back"]] == [("p2", CACHE_TITLE, "new")]
@@ -747,7 +749,7 @@ def test_json_is_a_stable_machine_readable_result(ruled: Lab) -> None:
         "fail_on": "p1",
         "strict": False,
     }
-    assert set(wire["verdict"]) == {"state", "headline", "p0", "p1", "p2"}
+    assert set(wire["verdict"]) == {"state", "headline", "p0", "p1", "p2", "confidence"}
     assert wire["complete"] is True and wire["incomplete_reason"] == ""
     assert set(wire["coverage"]) == {"files", "targets", "rereviewed", "unchanged", "candidates", "investigated"}
     assert wire["coverage"]["files"] == ["src/auth.py", "src/cache.py"]

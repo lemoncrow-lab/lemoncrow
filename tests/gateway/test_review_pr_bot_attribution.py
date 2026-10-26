@@ -104,18 +104,21 @@ def test_the_tokens_are_bounded_and_the_rest_are_counted_so_the_trailer_stays_tr
 
 def test_the_trailer_is_one_line_with_the_rule_first_then_the_context() -> None:
     one = finding(used=("ctx:caller:src/handlers.py:4-5", "rule:no-bug-markers"))
-    assert trailer(one) == "Rule used: `no-bug-markers` · Context used: `src/handlers.py:4-5` (caller)"
+    assert trailer(one) == "**Rule used:** `no-bug-markers` · **Context used:** `src/handlers.py:4-5` (caller)"
     assert "\n" not in trailer(one)
 
 
 def test_at_most_three_items_are_named_and_the_rest_are_counted() -> None:
     many = finding(used=("rule:a", "rule:b", "ctx:test:t/a.py:1-2", "ctx:config:c.toml:3-4", "ctx:caller:x.py:5-6"))
-    assert trailer(many) == "Rule used: `a`, `b` · Context used: `t/a.py:1-2` (test) · +2 more"
+    assert trailer(many) == "**Rule used:** `a`, `b` · **Context used:** `t/a.py:1-2` (test) · +2 more"
 
 
 def test_tool_evidence_is_named_by_kind_only() -> None:
-    assert trailer(finding(used=("static",))) == "Static finding used"
-    assert trailer(finding(used=("rule:r", "check", "artifact"))) == "Rule used: `r` · Check used · Artifact used"
+    assert trailer(finding(used=("static",))) == "**Static finding used**"
+    assert (
+        trailer(finding(used=("rule:r", "check", "artifact")))
+        == "**Rule used:** `r` · **Check used** · **Artifact used**"
+    )
 
 
 def test_nothing_cited_shows_nothing_in_the_comment() -> None:
@@ -123,11 +126,17 @@ def test_nothing_cited_shows_nothing_in_the_comment() -> None:
     assert "used" not in inline_comment(finding()).lower().replace("unused", "")
 
 
-def test_the_trailer_sits_in_the_inline_comment_above_the_brand_line_and_below_the_body() -> None:
+def test_the_trailer_sits_in_the_inline_comment_below_the_fix_prompt_and_above_the_brand_line() -> None:
     comment = inline_comment(finding(explanation="why", consequence="what", used=("rule:r",)))
     lines = comment.split("\n")
-    assert lines.index("<sub>Rule used: `r`</sub>") < lines.index("<sub>LemonCrow AI review</sub>")
-    assert lines.index("**Consequence:** what") < lines.index("<sub>Rule used: `r`</sub>")
+    brand = next(index for index, line in enumerate(lines) if line.endswith("LemonCrow AI review</sub>"))
+    assert lines.index("**Rule used:** `r`") < brand
+    assert lines.index("**Consequence:** what") < lines.index(
+        "<summary>Prompt To Fix With AI</summary>".join(["<details>", ""])
+    )
+    assert lines.index("</details>") < lines.index(
+        "**Rule used:** `r`"
+    ), "after the prompt block, as a reviewer cites a rule"
 
 
 # --------------------------------------------------------------------------- #
@@ -224,10 +233,10 @@ def test_a_rule_backed_finding_shows_the_rule_it_was_held_to(world: World) -> No
 
     by_category = {found.category: found for found in report.findings}
     assert by_category["critical_rule"].used == ("rule:no-bug-markers",)
-    inline = {row["body"].split("\n")[0].split(" — ")[0]: row["body"] for row in world.github.inline()}
-    assert "<sub>Rule used: `no-bug-markers`</sub>" in inline["**P0 · must fix**"]
+    inline = {row["body"].split(" ")[1].split('"')[1]: row["body"] for row in world.github.inline()}
+    assert "**Rule used:** `no-bug-markers`" in inline["P0"].split("\n")
     # The summary names it under the finding's row as well.
-    assert "  <sub>Rule used: `no-bug-markers`</sub>" in summary(world).split("\n")
+    assert "   <sub>**Rule used:** `no-bug-markers`</sub>" in summary(world).split("\n")
     state = parse_state(summary(world))
     assert state is not None and {f.id: f.used for f in state.findings} == {f.id: f.used for f in report.findings}
     wire = report.to_wire()
@@ -251,12 +260,12 @@ def test_a_finding_corroborated_by_the_context_pack_shows_the_file_and_lines_it_
     )
     place = re.match(r"context:(\w+):(.+):(\d+-\d+)@sha256:", offered["ref"])
     assert place is not None and place[2] == "src/handlers.py"
-    expected = f"Context used: `{place[2]}:{place[3]}` ({place[1]})"
+    expected = f"**Context used:** `{place[2]}:{place[3]}` ({place[1]})"
     assert found.used == (f"ctx:{place[1]}:{place[2]}:{place[3]}",)
     (inline,) = plain.github.inline()
-    assert visible_last_line(inline["body"]) == "<sub>LemonCrow AI review</sub>"
-    assert f"<sub>{expected}</sub>" in inline["body"]
-    assert f"  <sub>{expected}</sub>" in summary(plain).split("\n")
+    assert visible_last_line(inline["body"]).endswith("LemonCrow AI review</sub>")
+    assert expected in inline["body"].split("\n")
+    assert f"   <sub>{expected}</sub>" in summary(plain).split("\n")
     assert "Rule used" not in inline["body"], "no rule applies to this repository"
 
 
@@ -267,9 +276,9 @@ def test_a_finding_backed_by_a_rule_and_the_context_names_both_on_one_line(world
     bodies = [row["body"] for row in world.github.inline()]
     both = [body for body in bodies if "Context used" in body]
     assert len(both) == 1
-    (line,) = [line for line in both[0].split("\n") if line.startswith("<sub>Rule used")]
+    (line,) = [line for line in both[0].split("\n") if line.startswith("**Rule used:**")]
     assert re.fullmatch(
-        r"<sub>Rule used: `no-bug-markers` · Context used: `src/handlers\.py:\d+-\d+` \(caller\)</sub>", line
+        r"\*\*Rule used:\*\* `no-bug-markers` · \*\*Context used:\*\* `src/handlers\.py:\d+-\d+` \(caller\)", line
     )
 
 
@@ -293,7 +302,7 @@ def test_a_carried_finding_keeps_its_trailer_in_the_summary_without_a_model_call
     world.origin.push({"src/plain.py": "VALUE = 5\n"}, "touch another file")
     report = world.review()
     assert world.model.calls == [] and {f.state for f in report.findings} == {"carried"}
-    assert "  <sub>Rule used: `no-bug-markers`</sub>" in summary(world).split("\n")
+    assert "   <sub>**Rule used:** `no-bug-markers`</sub>" in summary(world).split("\n")
     assert len(world.github.inline()) == 2, "the comments were posted once and are not edited"
 
 
@@ -301,7 +310,7 @@ def test_the_guide_documents_the_trailers_their_sources_and_what_they_do_not_cla
     guide = (Path(__file__).resolve().parents[2] / "docs" / "setup" / "github-action.md").read_text(encoding="utf-8")
     for phrase in (
         "### Attribution trailers",
-        "Rule used: `no-secrets-in-logs` · Context used: `src/handlers.py:12-18` (caller)",
+        "**Rule used:** `no-secrets-in-logs` · **Context used:** `src/handlers.py:12-18` (caller)",
         "Only from the finding's validated references, never from its wording",
         "At most three items are named",
         "`+N more`",

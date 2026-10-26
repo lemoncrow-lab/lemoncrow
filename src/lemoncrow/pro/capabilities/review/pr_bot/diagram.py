@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import subprocess
 import unicodedata
 from collections import Counter
@@ -48,6 +49,7 @@ from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Final
 
+from lemoncrow.pro.capabilities.review.pr_bot.overview import trivial
 from lemoncrow.pro.capabilities.review.pr_bot.render import fence_for, plural
 from lemoncrow.pro.capabilities.review.pr_bot.state import DIAGRAM_STATE
 
@@ -58,9 +60,20 @@ if TYPE_CHECKING:
 #: The Action input ``diagram`` and the CLI's ``--diagram``: ``auto`` draws it when it is worth drawing; ``off`` never.
 DIAGRAM_MODES: Final[tuple[str, ...]] = ("auto", "off")
 #: Bumped when the drawing changes, so a comment drawn by an older version is drawn again, not reused.
-DIAGRAM_VERSION: Final[int] = 1
-SECTION_OPEN: Final[str] = "<details><summary>Change diagram</summary>"
-SECTION_CLOSE: Final[str] = "</details>"
+DIAGRAM_VERSION: Final[int] = 2
+#: The ``### Diagram`` section of the summary, open by default: a heading, the Mermaid block and a caption. A hidden
+#: marker ends it, so :func:`reuse` can find the whole section in a comment it wrote.
+SECTION_OPEN: Final[str] = "### Diagram"
+SECTION_CLOSE: Final[str] = "<!-- /lemoncrow:diagram -->"
+#: First line of every Mermaid block this bot writes: the neutral theme reads on GitHub's light and dark pages.
+THEME_INIT: Final[str] = "%%{init: {'theme': 'neutral'}}%%"
+#: The same for a sequence diagram. Its message text and arrows are drawn straight on the page, and the neutral theme
+#: makes them near-black, which cannot be read on GitHub's dark page. A mid grey (about 4.5:1 on white, 4:1 on the dark
+#: page) reads on both; a flowchart keeps its text inside boxes and needs nothing.
+SEQUENCE_INIT: Final[str] = (
+    "%%{init: {'theme': 'neutral', 'themeVariables': "
+    "{'signalColor': '#6e7781', 'signalTextColor': '#6e7781', 'actorLineColor': '#6e7781'}}}%%"
+)
 #: The only diagram type drawn; see the module docstring for why not an ER, class or sequence diagram.
 KIND: Final[str] = "flowchart"
 
@@ -102,6 +115,8 @@ _LINK_STYLES: Final[Mapping[str, str]] = {
 _ARROWS: Final[Mapping[str, str]] = {"added": "-->", "removed": "-.->", "changed": "==>"}
 #: U+2212 MINUS SIGN, not a hyphen: it must not read as part of a name.
 MINUS: Final[str] = "\N{MINUS SIGN}"
+#: A sign goes straight against the name, with no space: Mermaid 11 reads a label that starts with ``+`` and a space as a
+#: Markdown list and draws "Unsupported markdown: list" in its place.
 _SIGNS: Final[Mapping[str, str]] = {"added": "+", "removed": MINUS}
 _PRIORITY: Final[Mapping[str, int]] = {"added": 0, "removed": 1, "changed": 2}
 
@@ -204,6 +219,10 @@ def _dir(path: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
+#: A label that starts like a Markdown list item: ``-`` or ``+`` or ``1.`` and then a space.
+_LIST_START: Final[re.Pattern[str]] = re.compile(r"(?:[-+]|\d+[.)])(?=\s)")
+
+
 def _esc(text: str) -> str:
     """*text* safe inside a quoted Mermaid label.
 
@@ -211,16 +230,26 @@ def _esc(text: str) -> str:
     becomes a numeric entity, which Mermaid draws as the character. A control or format character (a newline, a
     right-to-left override) becomes ``?``. So a name cannot break the label, forge a comment or an HTML tag, ping a
     person or end the code fence.
+
+    Mermaid 11 also runs a label through Markdown, so two more things are written as entities, which it does not read as
+    Markdown: an underscore at the edge of a word (``__init__.py`` is otherwise drawn as a bold "init.py", a different
+    file) and the character that makes a label a list item (it is otherwise drawn as "Unsupported markdown: list").
     """
 
     out: list[str] = []
-    for char in text:
-        if char in _SAFE or (ord(char) > 127 and char.isalnum()):
+    last = len(text) - 1
+    for index, char in enumerate(text):
+        if char == "_":
+            inside = 0 < index < last and text[index - 1].isalnum() and text[index + 1].isalnum()
+            out.append(char if inside else "#95;")
+        elif char in _SAFE or (ord(char) > 127 and char.isalnum()):
             out.append(char)
         elif unicodedata.category(char)[0] == "C":
             out.append("?")
         else:
             out.append(f"#{ord(char)};")
+    if out and _LIST_START.match(text):
+        out[0] = f"#{ord(text[0])};"
     return "".join(out)
 
 
@@ -270,7 +299,7 @@ def _edge_label(row: Relationship) -> str:
     if row.status == "changed":
         return f"refs {row.before} → {row.after}"
     symbols = ", ".join(_label(name, MAX_SYMBOL_CHARS) for name in row.symbols[:MAX_SYMBOLS])
-    return f"{_SIGNS[row.status]} {symbols or _esc(row.kind)}"
+    return f"{_SIGNS[row.status]}{symbols or _esc(row.kind)}"
 
 
 def _file_layout(rows: Sequence[Relationship], facts: Facts) -> Layout:
@@ -396,7 +425,7 @@ def render_flowchart(layout: Layout) -> str:
     """
 
     ids = {node.key: f"n{index}" for index, node in enumerate(layout.nodes, 1)}
-    lines = ["flowchart LR"]
+    lines = [THEME_INIT, "flowchart LR"]
     lines += [f"    {_CLASS_DEFS[name]}" for name in _CLASS_DEFS if any(node.status == name for node in layout.nodes)]
     subgraphs = sorted({node.group for node in layout.nodes if node.group})
     boxes: dict[str, str] = {}
@@ -422,7 +451,7 @@ def render_flowchart(layout: Layout) -> str:
 
 def _node(identifier: str, node: _Node) -> str:
     sign = _SIGNS.get(node.status)
-    title = f"{sign} {node.title}" if sign else node.title
+    title = f"{sign}{node.title}" if sign else node.title
     return f'{identifier}["{title}"]:::{node.status}'
 
 
@@ -578,7 +607,8 @@ def delta_for_capture(captured: Captured, *, limit: int | None = None) -> tuple[
 
     packet = read_packet_json(captured.store, captured.revision) or {}
     changed = [str(row.get("path") or "") for row in _rows(packet.get("files"))]
-    if not any(_is_code(path, detect_language) for path in changed):
+    if not any(_is_code(path, detect_language) for path in changed) or trivial(packet):
+        # No code, or a change too small to draw (the same cut as the overview's): deterministic, so recorded.
         return None, ""
     allowed = max_source_files() if limit is None else limit
     size = _source_files(captured, detect_language, should_skip_relative_path)

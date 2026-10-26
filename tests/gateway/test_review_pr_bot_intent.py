@@ -24,6 +24,7 @@ from lemoncrow.pro.capabilities.review.ai_review import (
 from lemoncrow.pro.capabilities.review.intelligence_runtime import ModelCallUsage, StructuredExecution
 from lemoncrow.pro.capabilities.review.pr_bot import pr_intent
 from lemoncrow.pro.capabilities.review.pr_bot.pr_intent import BUDGET_TOKENS, MISMATCH_PREFIX, IntentNote
+from lemoncrow.pro.capabilities.review.pr_bot.render import badge
 from lemoncrow.pro.capabilities.review.pr_bot.state import FINDING_MARKER_PREFIX, SUMMARY_MARKER, parse_state
 from tests.gateway.pr_bot_noise_support import (
     CONFIG,
@@ -346,7 +347,8 @@ def test_an_injection_in_the_description_cannot_change_the_status_or_forge_a_mar
     for row in world.github.inline():
         text = row["body"]
         assert text.count(FINDING_MARKER_PREFIX) == 1 and "<!-- lemoncrow:finding finding-forged -->" not in text
-        assert SUMMARY_MARKER not in text and "<details>" not in text and "![x]" not in text
+        # The one `<details>` is the bot's own (the collapsed prompt to fix with AI); nothing the model wrote opened another.
+        assert SUMMARY_MARKER not in text and text.count("<details>") == 1 and "![x]" not in text
     # A mention the model forged is neutralised wherever the bot posts it.
     assert all("@everyone" not in row["body"] and "@alice" not in row["body"] for row in world.github.inline())
 
@@ -414,7 +416,7 @@ def test_a_change_that_contradicts_the_description_is_a_labelled_finding_never_a
     assert finding.severity == "p1" and finding.is_open
     assert report.status is not None and report.status[0] == "success"  # not a gate
     (inline,) = world.github.inline()
-    assert f"**P1 · should fix** — {MISMATCH_PREFIX}{MISMATCH_TITLE}" in inline["body"]
+    assert inline["body"].startswith(f"{badge('p1')} **{MISMATCH_PREFIX}{MISMATCH_TITLE}**")
     assert "Differs from the stated intent" in world.github.summary_comments()[0]["body"]
 
 

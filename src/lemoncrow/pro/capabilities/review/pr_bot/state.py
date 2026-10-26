@@ -34,6 +34,7 @@ from lemoncrow.pro.capabilities.review.pr_bot.findings import (
     finding_from_wire,
 )
 from lemoncrow.pro.capabilities.review.pr_bot.impact import Impact
+from lemoncrow.pro.capabilities.review.pr_bot.overview import Overview
 from lemoncrow.pro.capabilities.review.pr_bot.suppression import (
     MAX_SUPPRESSIONS,
     Suppression,
@@ -70,6 +71,10 @@ MAX_FINDINGS: Final[int] = 60
 MAX_UNITS: Final[int] = 700
 MAX_STATE_BYTES: Final[int] = 200_000
 #: Hex characters kept of a unit key and of its content fingerprint (48 and 40 bits).
+#: The change an overview was decided for: ``<head sha or tree id>:<merge base sha>`` (a merge base may be empty).
+OVERVIEW_FOR: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{7,64}:[0-9a-f]{0,64}$")
+#: Characters kept of the reviewed commit's subject line.
+MAX_HEAD_TITLE: Final[int] = 120
 UNIT_KEY_CHARS: Final[int] = 12
 UNIT_FINGERPRINT_CHARS: Final[int] = 10
 
@@ -183,6 +188,19 @@ class ReviewState:
     #: on an unchanged head rewrite the comment when the repository changed them, and lets a run that reviews nothing
     #: (the budget is spent) keep showing what was shown.
     view: str = ""
+    #: What the pull request does, as the overview call made it and :mod:`overview` checked it: the sentence, the intro,
+    #: the bullets and the diagram's structure. Carried so a re-run on an unchanged head reuses it with no model call, and
+    #: so the summary can be rewritten without one. ``None``: there is none (a trivial change, no model, a failed call).
+    overview: Overview | None = None
+    #: The change (``<head>:<merge base>``) whose overview was decided, with an overview or with none by design: a re-run on
+    #: the same change does not ask again. ``""``: not decided (a state written before the overview, or a call that failed).
+    overview_for: str = ""
+    #: The confidence score the summary shows (1 to 5, ``render.Verdict.confidence``), kept so a tool can read it as data
+    #: instead of scraping the heading. ``0``: none was computed (a state written before it).
+    confidence: int = 0
+    #: The subject line of the reviewed commit, for the footer's ``Last reviewed commit:`` link (untrusted text: it is
+    #: neutralised when it is shown). ``""``: not known, and the link says the short hash.
+    head_title: str = ""
 
     def open_findings(self) -> tuple[BotFinding, ...]:
         return tuple(finding for finding in self.findings if finding.is_open)
@@ -252,6 +270,11 @@ def state_wire(state: ReviewState) -> dict[str, Any]:
         **({"impact": state.impact} if state.impact else {}),
         # Absent for the default presentation, so a state written before the noise controls round-trips unchanged.
         **({"view": state.view} if state.view else {}),
+        # Absent until an overview was made, so a state written before it round-trips unchanged.
+        **({"overview": state.overview.to_wire()} if state.overview is not None else {}),
+        **({"overview_for": state.overview_for} if state.overview_for else {}),
+        **({"confidence": state.confidence} if state.confidence else {}),
+        **({"head_title": state.head_title} if state.head_title else {}),
     }
 
 
@@ -313,6 +336,9 @@ def parse_state(body: str) -> ReviewState | None:
     drawn = raw.get("diagram")
     weighed = raw.get("impact")
     shown = raw.get("view")
+    titled = raw.get("head_title")
+    decided = raw.get("overview_for")
+    score = raw.get("confidence")
     return ReviewState(
         head_sha=head,
         base_sha=_sha(raw, "base_sha"),
@@ -341,6 +367,10 @@ def parse_state(body: str) -> ReviewState | None:
         diagram=drawn if isinstance(drawn, str) and DIAGRAM_STATE.match(drawn) else "",
         impact=weighed if isinstance(weighed, str) and Impact.from_state(weighed) is not None else "",
         view=shown if isinstance(shown, str) and VIEW_STATE.match(shown) else "",
+        overview=Overview.from_wire(raw.get("overview")),
+        overview_for=decided if isinstance(decided, str) and OVERVIEW_FOR.match(decided) else "",
+        confidence=score if isinstance(score, int) and not isinstance(score, bool) and 1 <= score <= 5 else 0,
+        head_title=" ".join(titled.split())[:MAX_HEAD_TITLE] if isinstance(titled, str) else "",
     )
 
 
@@ -378,6 +408,8 @@ def shrink(state: ReviewState, level: int) -> ReviewState:
     3. every finding's text is cut to a short form and the reviewed-unit list to :data:`MAX_UNITS` / 4;
     4. the unit list is dropped (the next run re-reviews) and every finding keeps only its title and place;
        open P0/P1 findings are all kept, other findings are capped so 25 remain in total.
+
+    The overview's diagram goes at level 3 and the whole overview at level 4 (the next run on this head asks again).
     """
 
     findings = list(state.findings)
@@ -423,6 +455,11 @@ def shrink(state: ReviewState, level: int) -> ReviewState:
         # Titles and places only: enough to carry the finding, and open P0/P1 are never among the dropped.
         findings = [f.changed(explanation="", consequence="", suggestion="") for f in findings if f.id in keep]
         units, truncated = {}, True
+    overview = state.overview
+    if overview is not None and level >= MAX_DETAIL:
+        overview = None
+    elif overview is not None and level >= 3:
+        overview = overview.without_diagram()
     return replace(
         state,
         findings=tuple(findings),
@@ -430,6 +467,7 @@ def shrink(state: ReviewState, level: int) -> ReviewState:
         units_truncated=truncated,
         findings_dropped=dropped,
         suppressions=held,
+        overview=overview,
     )
 
 

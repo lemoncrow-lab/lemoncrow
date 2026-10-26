@@ -42,7 +42,7 @@ from lemoncrow.pro.capabilities.review.intelligence_runtime import (
 )
 from lemoncrow.pro.capabilities.review.pr_bot.findings import BotFinding, Located
 from lemoncrow.pro.capabilities.review.pr_bot.reconcile import finding_from_confirmed, reconcile
-from lemoncrow.pro.capabilities.review.pr_bot.render import agent_prompt, inline_comment
+from lemoncrow.pro.capabilities.review.pr_bot.render import agent_prompt, badge, inline_comment
 from lemoncrow.pro.capabilities.review.pr_bot.state import ReviewState, parse_state
 from lemoncrow.pro.capabilities.review.targets import TargetSpan
 from tests.gateway.pr_bot_support import AUTH_BUGGY, BASE, CACHE_BUGGY, World, build_world
@@ -561,7 +561,11 @@ def test_the_inline_comment_carries_a_suggestion_fence_with_the_exact_edit() -> 
         finding(suggestion="    if user is None:\n        return False", suggestion_start=2, suggestion_end=3)
     )
     assert "```suggestion\n    if user is None:\n        return False\n```" in comment
-    assert comment.index("```suggestion") < comment.index("<sub>LemonCrow AI review</sub>")
+    assert (
+        comment.index("```suggestion")
+        < comment.index("Prompt To Fix With AI")
+        < comment.index("LemonCrow AI review</sub>")
+    )
     assert comment.endswith("<!-- lemoncrow:finding keep -->")
 
 
@@ -676,7 +680,7 @@ def test_a_stale_or_unsafe_replacement_is_dropped_and_the_finding_is_kept(world:
     (found,) = report.findings
     assert not found.has_suggestion and found.title == TITLE and found.severity == "p1"
     (inline,) = world.github.inline()
-    assert "suggestion" not in inline["body"] and inline["body"].startswith("**P1 · should fix**")
+    assert "suggestion" not in inline["body"] and inline["body"].startswith(badge("p1"))
     assert "Suggested edit" not in summary_body(world)
     # The comment stays on its target's first changed lines.
     (sent,) = world.github.posted_reviews[0]["comments"]
