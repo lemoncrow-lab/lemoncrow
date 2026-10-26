@@ -58,7 +58,7 @@ Everything below is a `with:` input of the Action step, and every one has a defa
 
 | Option | Default | What it does |
 | --- | --- | --- |
-| `depth` | `auto` | How hard the review looks. `auto` examines every risk signal of a small change (up to six) and the two highest-ranked of a larger one, saying `Partially reviewed` for the rest; `thorough` and `deep` go further and cost more. See "Cost and limits". |
+| `depth` | `auto` | How hard the review looks. `auto` looks at every changed code target, in as few calls as fit a prompt, up to the hard cap of 20 model calls, and says `Partially reviewed` for what the cap left; `thorough` and `deep` cover the change the same way and spend what is left of the cap on hypotheses the model proposes, so they cost more. See "What gets a model call" and "Cost and limits". |
 | `fail-on` | `none` | `p0` fails the `LemonCrow Review` status, and the job, while a P0 finding is open and when the review could not run. `none` keeps the check advisory. Start at `none` for a few weeks. |
 | `strictness` | the file, else `2` | `1`, `2` or `3`: how much the bot reports (`1` also comments on P2, `3` never does). See "Reducing noise". |
 | `anthropic-api-key`, `openai-api-key` | none | The model key, from a secret. Pass one. Both work as environment variables too, but the input keeps the key away from the steps that do not need it. |
@@ -172,7 +172,7 @@ No LemonCrow host is contacted. LiteLLM's price table is read from its own packa
 
 **One summary comment**, found and updated in place by a hidden marker (`<!-- lemoncrow:summary v1 -->`), so a push edits it instead of adding another:
 
-- a verdict line that agrees with the status: `1 must-fix before merge`, `Partially reviewed: 2 of 3 risk signals examined` when the review finished but left risk signals unexamined, `Review incomplete: <why>` when it could not finish, or `No must-fix findings` only when every risk signal was examined;
+- a verdict line that agrees with the status: `1 must-fix before merge`, `Partially reviewed: 14 of 22 changed areas examined` when the review finished but the call cap left part of the change unexamined (`risk signals` instead of `changed areas` when every area it set out to look at carries a risk signal), `Review incomplete: <why>` when it could not finish, or `No must-fix findings` only when everything it set out to look at was examined;
 - an impact line under the verdict, `High impact`, `Medium impact` or `Low impact`, computed from the change by a fixed rule and shown with its reasons (see "Impact and the risks examined");
 - a status strip: `Re-reviewed 38 changed lines · 1 new · 2 carried forward · 1 fixed since last review`;
 - when the pull request has more files than `max_files`, a block quote under the status strip saying how many files, which were left for the next run, and that the review is partial;
@@ -273,7 +273,7 @@ Risks examined: 2 of 3 · 1 found · 1 not investigated yet
 - Examined, nothing found — `src/token.py:1-2 (verify)`: security
 ```
 
-- **Found**: a finding is open about that code. **Examined, nothing found**: a model call about that code returned and the review reported nothing. **Not investigated yet**: no call about it has returned (Auto's two investigations, a failed call or a spent budget); the next push or `@lemoncrow review thorough` competes for them again, and the headline says `Partially reviewed` until they are done. The words are never "safe" or "cleared": `Examined, nothing found` means a model looked at that code and reported nothing, not that it is safe, because a model that does not find a bug has not proved there is none.
+- **Found**: a finding is open about that code. **Examined, nothing found**: a model call about that code returned and the review reported nothing. **Not investigated yet**: no call about it has returned (the hard cap on model calls, a failed call or a spent budget); the next push or `@lemoncrow review thorough` competes for them again, and the headline says `Partially reviewed` until they are done. The words are never "safe" or "cleared": `Examined, nothing found` means a model looked at that code and reported nothing, not that it is safe, because a model that does not find a bug has not proved there is none.
 - **Found (held back)**: the only findings about that code sit below your threshold (see "Reducing noise"), so the verdict counts none of them. It is counted apart in the heading (`1 found (held back)`) and listed after the risks the verdict counts, so it never reads as a plain `Found` beside a verdict that says nothing is wrong.
 - It names the categories a call actually covered for code it examined, and every category the signal carries for code it did not, so it never claims a check that was not asked. A critical rule that covers the code is named by its key.
 - Code that was examined by an earlier review and has not changed since is listed too, marked `examined in an earlier review, unchanged since`, so the list covers the whole pull request and not only the last push.
@@ -287,8 +287,8 @@ The `LemonCrow Review` commit status is set on the reviewed head, with a link to
 
 | Situation | Status |
 | --- | --- |
-| No P0 finding, every risk signal examined | `success`, `No must-fix findings` |
-| No P0 finding, but some risk signals were not examined | `success`, described `Partially reviewed: N of M risk signals examined` |
+| No P0 finding, everything the review set out to look at examined | `success`, `No must-fix findings` |
+| No P0 finding, but part of the change was not examined | `success`, described `Partially reviewed: N of M changed areas examined` (`risk signals` when every one carries a signal) |
 | No P0 finding, but a large pull request was cut to its highest-risk files | `success`, described `Partially reviewed: N of M files, highest risk first` |
 | A P0 finding and `fail-on: p0` | `failure` |
 | A P0 finding and `fail-on: none` | `success`, described as advisory |
@@ -317,7 +317,7 @@ Dependabot-triggered runs are not covered either by default. They have no access
 
 A skipped run is never a failure, and a failed attempt to post the skipped status is never one either.
 
-**A partial review is `success` on purpose.** Auto examines every risk signal of a small change (up to six, each with an investigation of its own) and the two highest-ranked of a larger one, so failing the check on every pull request with more signals than that would block merges for something its author cannot fix. What it will not do is look like full coverage: the headline, the check description and the status strip all say `Partially reviewed` and how many signals were reached, the check never says `No must-fix findings` for it, and a P0 found in the signals that were examined still fails the check under `fail-on: p0`. The unexamined signals are still owed: the next run (a push, or a re-run of the job) competes for the cap again until they are all examined. To examine more of them in one run, use `depth: thorough` or `deep`.
+**A partial review is `success` on purpose.** Auto looks at every changed code target when the calls it needs fit the hard cap of 20 model calls, which an ordinary pull request of a few dozen files does. A larger one gets the cap spent on the highest-ranked work (see "What gets a model call"), and failing the check on every pull request that big would block merges for something its author cannot fix. What it will not do is look like full coverage: the headline, the check description and the status strip all say `Partially reviewed` and how many areas were reached, the check never says `No must-fix findings` for it, and a P0 found in what was examined still fails the check under `fail-on: p0`. The areas left are still owed: the next run (a push, or a re-run of the job) competes for the cap again until they are all examined, and what was already reviewed is not asked again.
 
 ### The hidden state
 
@@ -357,7 +357,7 @@ On a push, the Action reads the previous state, compares the new commit with it,
 - a fixed finding gets a reply on its thread, `Fixed in <short sha>`, and the thread is resolved when the token allows it (GitHub's `resolveReviewThread`). If it does not, the reply stays and the review still completes;
 - a finding whose code left the pull request is **stale**;
 - if the model call for a changed target fails, the finding stays, marked unverified, and the target is retried on the next push.
-- Auto investigates every risk signal of a small change (up to six) and the two highest-ranked of a larger one. One it did not reach is **pending**, not reviewed: the headline says `Partially reviewed: N of M risk signals examined`, the status strip says `N risk signals not investigated yet`, and the next push competes for the cap again. Ask for `depth: thorough` to investigate more of them in one run.
+- Auto looks at every changed code target while its calls fit the hard cap of 20. An area it did not reach is **pending**, not reviewed: the headline says `Partially reviewed: N of M changed areas examined`, the status strip says `N changed areas not investigated yet`, and the next push competes for the cap again.
 
 A push that changes nothing LemonCrow reviews makes no model call and posts nothing. A changed depth, rule set, content-access policy or review prompt re-reviews everything once, because last time's result no longer means the same thing.
 
@@ -658,10 +658,32 @@ A job that GitHub skips posts no `LemonCrow Review` status, so do not make that 
 
 For the threshold, `inline_comments` and `max_files` the order is: `.lemoncrow/review.yaml` on the merge base (or an organization policy for the threshold), then the Action input (`strictness`, `inline-comments`, `max-files`), then the default. An input is the workflow's default for a repository whose file is silent. **On a `pull_request` run GitHub reads the workflow from the pull request's own merge commit**, so a pull request can edit its inputs; anything that must hold against the pull request's author belongs in the file. A value the workflow gives that is not valid (`strictness: 4`) fails the run with a message; a bad value in the file is named in the summary and the default applies. The summary names where the threshold came from. Settings that only change what is shown (the threshold and `inline_comments`) take effect on the next run, including a re-run of the same commit, with no model call.
 
+## What gets a model call
+
+The review looks at **every changed code target**, not only the ones a keyword marks. A target is a changed function, a changed block, or a changed file the parser could not split.
+
+- **A risk signal** (a path, symbol or label that names security, an API, concurrency, storage, caching or performance; a failed check; a scanner result; a rule you wrote) is where the investigator looks first, not where it stops: it is asked to read the change for any defect, a wrong result or a broken invariant first, then data loss, concurrency, error handling, security and performance, and a defect it finds is filed under its own category. Names are matched as words: `_`, `-`, `.`, `/` and a camelCase boundary break them, so `user_auth.py`, `service_secrets.py`, `review-worker.yaml` and `userAuth.ts` carry a signal the way `auth.py` does, and `author.py`, `immigration.py` and `rapid.py` do not.
+- **Changed code with no signal** (a function nothing in its name marks) gets the same general question.
+- **What costs no call:** generated and vendored files, lockfiles, documentation, binary and data files (`.snap`, `.svg`, `.map`, `.csv`, `go.sum`), a deleted file, and a change that proves to be formatting-only or comment-only. A keyword in the name of one of these (`package-lock.json` holds `lock`) is not a risk.
+- **The investigator is shown the change, not only the new code:** the unified diff of its targets, removed lines included, besides the new text with surrounding context. A target that only removes code is shown as the removed code. A removed guard, check or bound, or a flipped condition, is a defect the new text alone cannot show. Cited lines are still checked against the head of the pull request and its diff before a comment is placed on them.
+- **Calls are batched.** The targets of a file go into one call; small files that carry a risk signal share a call whatever the signal, plain production code fills the room that is left, and a big file is cut into several. A call carries at most about 12,000 estimated input tokens (about 2,500 of instructions, the rest code and diff; on a model-API route the repository context pack, 3,000 tokens in Auto, comes out of that room). A call can report up to four distinct defects. A rule you wrote is never merged into another question.
+- **The order when the cap is short:** a rule you wrote, then a risk signal in production code, then plain production code, then configuration, then test code (a marker on a test file does not outrank production code); inside each, the higher score and then the larger change. `quick` makes one call, the first of them. `thorough` and `deep` cover the change as Auto does, then spend what is left of the cap on up to 4 or 8 hypotheses the model proposes after one synthesis call.
+- **Nothing changes in what a finding is worth.** A model-only finding is at most a P1 (a P2 when its own rating is medium or low), a P0 still needs evidence from outside the changed code or a critical rule you wrote, and the strictness, ignore, `max_files` and inline-comment settings apply as before.
+
 ## Cost and limits
 
-- Every review runs under a hard cap of 20 model calls. Formatting-only and comment-only changes cost zero calls.
-- **What Auto costs.** Auto examines every risk signal of a small change: one investigation per file and kind of signal (security, persistence, API, concurrency, performance, a rule of yours), up to six signals, with no extra call spent choosing among them; a function that is several changed scopes is asked about once, so it is reported once. At about 2,000 input and 500 output tokens a call, a Sonnet-class model ($3 and $15 per million tokens) costs about 1.4 cents an investigation, so a small pull request costs about 1.4 cents per signal (two signals: 3 cents; six: 8 cents), and a push re-asks only the scopes it changed. A change with more than six signals keeps the two-investigation Auto (plus one call that groups the signals), says `Partially reviewed: N of M risk signals examined`, and costs about 4 cents; `depth: thorough` or `deep` examine more of them and cost about three and five times as much. If you would rather have the cheaper, narrower Auto on every pull request, cap the calls in `.lemoncrow/review.yaml` (`per_review_model_calls`): Auto then investigates the highest-ranked signals the cap allows and the summary says how many it reached. Each call also asks for at most 8,192 output tokens (`LEMONCROW_REVIEW_MAX_OUTPUT_TOKENS` changes it), so no single call can cost more than a few cents of output.
+- Every review runs under a hard cap of 20 model calls. Documentation, generated, vendored, lockfile, binary and data files, deleted files, and formatting-only and comment-only changes cost zero calls.
+- **What Auto costs.** Auto makes one call for each batch described in "What gets a model call", up to the hard cap of 20. A call is about 2,000 to 12,000 input and 500 output tokens, so a Sonnet-class model ($3 and $15 per million tokens) costs 1.4 to 4.4 cents a call. Calls and cost by the size of the pull request, from twelve real pull requests of this repository whose reviews were planned without a model (the prompt sizes it would send, 4,000 to 14,000 tokens a call, are what the cost uses) and three of them run on a real model:
+
+| Pull request | Calls | Cost on a model API (2k to 14k prompt tokens a call, about 500 out) |
+| --- | --- | --- |
+| Small, 1 to 3 files (44 to 319 lines; six real examples) | 2 or 3 | 4.5 to 11 cents (about 6 typical) |
+| About 6 files (62 and 231 lines) | 3 and 2 | 9 and 7 cents |
+| Medium, about 10 files (232 and 416 lines) | 5 and 4 | 14 and 15 cents |
+| Large, 15 files and 755 lines | 7 | 26 cents |
+| 40 files or more | up to 20 (the cap) | up to about 87 cents (20 calls of 12,000 tokens in and 500 out) |
+
+  On the `claude` agent CLI, whose calls also read the repository with tools, the three that were run cost $0.24 (3 calls, 119,000 prompt tokens, 49 seconds), $0.38 (4 calls, 215,000, 54 seconds) and $0.69 (7 calls, 387,000, 68 seconds) at the CLI's list price; it runs on your plan, and its tokens are not the model API's. A push re-asks only the code it changed, so later pushes cost less than the first review. `depth: thorough` and `deep` add a synthesis call and up to 4 or 8 more investigations. To bound the spend on every pull request, set `per_review_model_calls` in `.lemoncrow/review.yaml`: Auto then reviews the highest-ranked work the cap allows and the summary says how much it reached. Each call also asks for at most 8,192 output tokens (`LEMONCROW_REVIEW_MAX_OUTPUT_TOKENS` changes it), so no single call can cost more than a few cents of output.
 - Lower the cap, or pick the depth, in `.lemoncrow/review.yaml`. It is read from the pull request's **merge base**, never from the pull request's own branch, so a pull request cannot loosen its own review:
 
 ```yaml
@@ -751,7 +773,7 @@ A reviewer that does not know what a change is *for* flags deliberate behavior a
 
 - **The pull request title and description** (its body), which are already in the live pull request: no extra call.
 - **The issues it links in this repository**: `Fixes #12`, `Closes #12`, `Resolves owner/repo#12` (the same repository), a labeled line such as `Issue: #12`, or the URL of an issue of this repository. Each is one `GET` with the workflow's own token, at most three. Links to other repositories, to documents and to pull requests are not read, and the summary says how many were not.
-- **Only when a model is about to be asked.** A review that has nothing for a model to do (no risk signal) reads no issue.
+- **Only when a model is about to be asked.** A review that has nothing for a model to do (a change that holds no code to review) reads no issue.
 
 If the token cannot read an issue, that issue is **skipped with a note** (for a missing permission: `intent: issue #12 not read: this workflow's token lacks the optional issues: read permission (add it under permissions: to include linked issues)`; for an issue that is gone, `issue #12 could not be read (not found or not visible); skipped`) and the review goes on. The sample workflow's `permissions` do not include `issues`, on purpose; add `issues: read` if you want the linked issues of a private repository read. (Like the rest of the Action, this has not been run against a live repository; the permission is from GitHub's REST reference.)
 

@@ -171,7 +171,7 @@ lc review --ai --fresh                 # ignore the result carried from the last
 | --- | --- |
 | `0` | Clean: no open finding at or above `--fail-on`. An incomplete review (a provider error, a spent budget) is also `0` unless `--strict`, so it never blocks a push by itself. |
 | `1` | A finding at or above `--fail-on` is open. `--fail-on p0` (the default) stops on a P0, `p1` on a P0 or P1, `none` never. A found P0 outranks an incomplete review. |
-| `2` | The review is incomplete and `--strict` is set: no AI model set up, the intelligence kill switch is off, the model-call or dollar budget ran out, a model call failed, or risk signals were left unexamined (Auto depth examines two; `--depth thorough` covers more). |
+| `2` | The review is incomplete and `--strict` is set: no AI model set up, the intelligence kill switch is off, the model-call or dollar budget ran out, a model call failed, or part of the change was left unexamined (the hard cap of 20 model calls was too small for it: the headline reads `Partially reviewed: N of M changed areas examined`; the next run takes what is left). |
 | `3` | The review could not be set up, so it did not run: a flag that cannot be combined with `--ai`, a value that is not one of the choices, a revision that does not resolve, no Git repository, **no AI model set up**, or a provider that rejected the key, has no credit or is rate limiting. A git hook never exits `3` for the last three: it lets the push through and says why. |
 
 Nothing to review (no changed files) is `0` and needs no model. An error inside the review that is not a finding is reported as an incomplete review, never as exit `1`.
@@ -186,7 +186,7 @@ Nothing to review (no changed files) is `0` and needs no model. An error inside 
 | `scope` | `{mode, label, base, head}`: `working_tree`, `staged` or `commit_range`, the commits or tree the review covered |
 | `empty`, `cached` | nothing to review; no model call was needed because every changed unit was reviewed, unchanged, last time |
 | `verdict` | `{state, headline, p0, p1, p2}`, plus `held_back` (a count) when the repository's threshold holds findings back; `state` is `clean`, `must_fix`, `partial`, `incomplete` or `budget` |
-| `complete`, `incomplete_reason` | whether the review finished and examined every risk signal, and why not |
+| `complete`, `incomplete_reason` | whether the review finished and examined every changed area it set out to look at, and why not |
 | `exit` | `{code, reason, fail_on, strict}`: the exit status and why |
 | `findings` | every tracked finding as the pull request bot's hidden state records it (`id`, `severity`, `category`, `state`, `path`, `line`, `end_line`, `title`, `explanation`, `consequence`, `suggestion`, ...); `state` is `new`, `carried`, `fixed`, `stale`, `unreported` or `suppressed`; the held-back ones are among them |
 | `held_back` | only when the threshold holds findings back: those findings, in the same shape. They are in no `verdict` count and never decide the exit code |

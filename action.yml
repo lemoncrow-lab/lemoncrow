@@ -43,9 +43,10 @@ inputs:
     default: ""
   depth:
     description: >-
-      Review depth, auto, thorough or deep. auto follows review.effort in .lemoncrow/review.yaml and examines every risk
-      signal of a small change (up to six), the two highest-ranked of a larger one; the others go deeper. The hard
-      model-call cap applies at every depth. It is also the depth of an "@lemoncrow review" comment that names none.
+      Review depth, auto, thorough or deep. auto follows review.effort in .lemoncrow/review.yaml and looks at every
+      changed code target, in batches of about 12,000 tokens a call, as far as the hard cap of 20 model calls allows,
+      the highest-ranked first; thorough and deep also spend what is left of the cap on hypotheses the model proposes.
+      It is also the depth of an "@lemoncrow review" comment that names none.
     default: auto
   fail-on:
     description: >-

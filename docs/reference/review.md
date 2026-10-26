@@ -183,10 +183,13 @@ the local server, which acts as you.
 ## AI review
 
 Deterministic review needs no model. Auto AI review runs only when a model route
-is configured (an API key, or a local agent CLI), and only on changes that carry a
-risk signal: a formatting-only or comment-only change costs zero calls. It asks at
-most a few bounded questions about the changed code, under a hard cap of 20 model
-calls per review, and every finding cites the exact source it rests on. Findings
+is configured (an API key, or a local agent CLI). The Reader asks about the changes that
+carry a risk signal; the terminal and pull request reviews (`lc review --ai`, the
+GitHub Action) ask about every changed piece of code worth a look and show the
+model the diff. Formatting-only and comment-only changes, documentation and
+generated files cost zero calls. All of them are bounded questions, under a hard
+cap of 20 model calls per review, and every finding cites the exact source it
+rests on. Findings
 are AI hints, never review state: they cannot mark anything reviewed, approve or
 request changes.
 

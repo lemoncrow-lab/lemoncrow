@@ -35,18 +35,20 @@ and exits with status 3 (a script or CI step sees that the review did not run). 
 
 If you reviewed this change before with a key, you see those findings first, under the line `Not re-checked: these findings are from your last review of this change.`, then the same three lines; the exit code stays the findings' (1 for an open P0), because nothing could re-check them. The local Reader says it the same way: `lc review` (no `--ai`) opens it, and its AI review line reads `No AI model is set up.` with the same key and agent commands and this page's link. AI review itself runs from your terminal with `lc review --ai`.
 
-## When it asks the model nothing
+## What it asks the model, and when it asks nothing
 
-The model is not asked about every change. It is asked about a *risk signal* the review finds without a model (code whose path or name says security, an API, concurrency, storage, caching or performance, or a check that failed) and about each *rule* you wrote in `.lemoncrow/review.yaml`. A change that raises neither is not sent to the model, and the review says so under the `Model:` line:
+The review asks the model about **every changed piece of code that is worth a look**, and shows it the diff of each (removed lines included), so a guard the change took away is as visible as one it added. Code whose path or name says security, an API, concurrency, storage, caching or performance (names are matched as words, so `user_auth.py`, `service_secrets.py` and `userAuth.ts` count) and each *rule* you wrote in `.lemoncrow/review.yaml` get a question of their own; every other changed function gets a general one (a wrong result first, then data loss, concurrency, error handling, security, performance). Small files share a call, so a few-file change is two or three calls. The guide to the pull request reviewer has the rules, the order when the call cap is short and what each size of change costs: [What gets a model call](github-action.md#what-gets-a-model-call).
+
+What is not sent: documentation, generated, vendored and lockfile content, binary and data files, a deleted file, and a change that is only formatting or comments. A change that holds nothing else is not sent to the model at all, and the review says so under the `Model:` line:
 
 ```text
 No must-fix findings
 Reviewed 1 target in this run · 1 file in the range
 Model: none · depth auto · no model calls
-No model was asked about this change: no risk signal matched it and no review rule covers it. To have the model check it, add a rule under rules: in .lemoncrow/review.yaml.
+No model was asked about this change: it holds no changed code to review (only documentation, generated or vendored files, or formatting) and no review rule covers it. To have the model check it anyway, add a rule under rules: in .lemoncrow/review.yaml.
 ```
 
-`No must-fix findings` there means no finding was raised, not that a model read the change. A rule such as "Changed code must not introduce a logic error" (scope it with `paths:`) puts every change it covers in front of the model. A rule is a critical rule: a violation it finds is a P0.
+`No must-fix findings` there means no finding was raised, not that a model read the change. A rule such as "Changed code must not introduce a logic error" (scope it with `paths:`) puts every change it covers in front of the model as a question of its own. A rule is a critical rule: a violation it finds is a P0. A finding the model raises without a rule is never more than a P1.
 
 ## Keep your key instead of exporting it
 
