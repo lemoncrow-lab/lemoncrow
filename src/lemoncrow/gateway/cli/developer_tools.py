@@ -17,6 +17,7 @@ from lemoncrow.gateway.cli.commands.review_benchmark import (
     init_corpus_command,
 )
 from lemoncrow.gateway.cli.commands.review_eval import review_eval
+from lemoncrow.gateway.cli.commands.review_golden import golden_score
 
 
 @click.group()
@@ -32,6 +33,7 @@ review_eval.add_command(benchmark)
 review_eval.add_command(import_reviews)
 review_eval.add_command(derive_label_command)
 review_eval.add_command(init_corpus_command)
+review_eval.add_command(golden_score)
 eval_.add_command(review_eval)
 # The same command, where the strategy notes name it: `lc dev eval review-benchmark`.
 eval_.add_command(benchmark, "review-benchmark")

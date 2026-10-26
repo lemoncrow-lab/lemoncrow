@@ -53,6 +53,9 @@ evals/review/
 # The seeded-bug corpus of repositories a public corpus may not carry (copyleft or source-available licences): commit
 # ids and fix subjects only, `visibility: private`; its reports go outside the checkout.
 !evals/review/seeded_public_bugs_nonpermissive.yaml
+# The golden-comment corpus: 50 pull requests of repositories a public corpus may not carry, scored against an answer key
+# that has no licence (the key itself is never in this repository). Commit ids and titles only; reports go outside.
+!evals/review/golden_comment_prs.yaml
 # Regression tests of the private code-intelligence engine (enterprise/runtime)
 # live under tests/private/ and are never published. Public tests reach the
 # engine only via the `private_engine` marker (skipped when it is absent).
