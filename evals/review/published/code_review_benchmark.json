@@ -326,5 +326,36 @@
       "sha256": "c5f5acc459ae9cd1167f68d427efa38a0af847f38f32b1d99f495fb824b51380"
     }
   },
-  "competitor_rescored": null
+  "competitor_rescored": {
+    "status": "published",
+    "measured_by": "LemonCrow",
+    "scored_by": "LemonCrow's judge",
+    "answer_key_commit": "3f2c8ab794b4ed71c099cbf0a7670555e90906dc",
+    "comments_source": {
+      "collected_on": "2026-10-26",
+      "description": "Inline review comments by greptile-apps[bot] on the 50 benchmark fork pull requests (first review only, replies and exact repeats dropped), read with the GitHub REST API, exact text",
+      "url": "https://github.com/ai-code-review-evaluation"
+    },
+    "counts": {
+      "golden_matched": 49,
+      "golden_scored": 97,
+      "tool_comments_matched": 49,
+      "tool_comments_scored": 245
+    },
+    "date": "2026-10-26",
+    "f_score": 28.65,
+    "judge": {
+      "model": "sonnet",
+      "prompt_sha256": "cfe685620f23bc1a171bd1905af9469d0b97b513473da2fea355c8edbe622afe"
+    },
+    "precision": 20.0,
+    "prs_reviewed": 50,
+    "recall": 50.52,
+    "tool": "Greptile",
+    "tool_id": "greptile",
+    "run_report": {
+      "url": "https://github.com/lemoncrow-lab/lemoncrow/blob/main/evals/review/published/runs/rescored-greptile-2026-10-26.json",
+      "sha256": "054319f8bb337bc37a14187b093f52c4ff869ae83d9cf9dae3dbf647f2605c50"
+    }
+  }
 }

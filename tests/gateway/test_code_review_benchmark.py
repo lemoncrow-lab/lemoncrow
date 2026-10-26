@@ -103,12 +103,18 @@ def pending(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def make_root(tmp_path: Path) -> Path:
-    """A temporary repository with the published file and the README as committed (pending or published)."""
+    """A temporary repository with the published file and the README as committed (pending or published).
+
+    The committed rescored row is left out: its run report is not copied, and each test that needs such a row
+    imports a fake one.
+    """
 
     for relative in (bench.DATA_RELPATH, bench.README_RELPATH):
         target = tmp_path / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / relative, target)
+    data = bench.load(tmp_path)
+    (tmp_path / bench.DATA_RELPATH).write_text(bench.dump({**data, "competitor_rescored": None}), encoding="utf-8")
     return tmp_path
 
 
